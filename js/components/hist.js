@@ -1835,7 +1835,23 @@
     const defaultXLabelX = margin.left+plotW/2;
     const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
     const xLabelPos = state.labelPositions?.xLabel;
-    const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    
+    // Convert relative positions to absolute if needed for xLabel
+    let absoluteXLabelX = defaultXLabelX;
+    let absoluteXLabelY = defaultXLabelY;
+    if (xLabelPos) {
+      if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
+        // Use relative positioning
+        absoluteXLabelX = margin.left + xLabelPos.relX * plotW;
+        absoluteXLabelY = xAxisBase + xLabelPos.relY * (plotH + margin.top);
+      } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteXLabelX = xLabelPos.x;
+        absoluteXLabelY = xLabelPos.y;
+      }
+    }
+    
+    const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     xText.textContent=state.xLabelText;
     markFontEditable(xText,'xTitle','xTitle');
     const applyHistXLabel=value=>{
@@ -1989,8 +2005,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.xLabel = { x: pos.x, y: pos.y };
-          console.debug('Debug: hist x-label position saved', pos);
+          // Store both absolute and relative positions for xLabel
+          const relX = (pos.x - margin.left) / plotW;
+          const relY = (pos.y - xAxisBase) / (plotH + margin.top);
+          state.labelPositions.xLabel = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: hist x-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -1998,9 +2022,23 @@
     const defaultYLabelX = yX;
     const defaultYLabelY = margin.top+plotH/2;
     const yLabelPos = state.labelPositions?.yLabel;
-    const yTextX = yLabelPos?.x ?? defaultYLabelX;
-    const yTextY = yLabelPos?.y ?? defaultYLabelY;
-    const yText=add('text',{x:yTextX,y:yTextY,'dominant-baseline':'middle',transform:`rotate(-90 ${yTextX} ${yTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    
+    // Convert relative positions to absolute if needed for yLabel
+    let absoluteYTextX = defaultYLabelX;
+    let absoluteYTextY = defaultYLabelY;
+    if (yLabelPos) {
+      if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
+        // Use relative positioning
+        absoluteYTextX = margin.left - (maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+        absoluteYTextY = margin.top + yLabelPos.relY * plotH;
+      } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteYTextX = yLabelPos.x;
+        absoluteYTextY = yLabelPos.y;
+      }
+    }
+    
+    const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,'dominant-baseline':'middle',transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     yText.textContent=state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
     const applyHistYLabel=value=>{
@@ -2028,15 +2066,39 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.yLabel = { x: pos.x, y: pos.y };
-          console.debug('Debug: hist y-label position saved', pos);
+          // Store both absolute and relative positions for yLabel
+          const relX = (pos.x - margin.left) / (maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+          const relY = (pos.y - margin.top) / plotH;
+          state.labelPositions.yLabel = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: hist y-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
     const defaultTitleX = margin.left+plotW/2;
     const defaultTitleY = margin.top/2;
     const titlePos = state.labelPositions?.title;
-    const titleText=add('text',{x: titlePos?.x ?? defaultTitleX, y: titlePos?.y ?? defaultTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = margin.left + titlePos.relX * plotW;
+        absoluteTitleY = margin.top + titlePos.relY * plotH;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
+    const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     titleText.textContent=state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
     const applyHistTitle=value=>{
@@ -2064,8 +2126,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          console.debug('Debug: hist title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = (pos.x - margin.left) / plotW;
+          const relY = (pos.y - margin.top) / plotH;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: hist title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }

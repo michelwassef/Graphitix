@@ -12308,9 +12308,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const defaultYX = marginLocal.left - (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const defaultYY = marginLocal.top + plotHLocal / 2;
       const yLabelPos = state.labelPositions?.yLabel;
-      const yTextX = yLabelPos?.x ?? defaultYX;
-      const yTextY = yLabelPos?.y ?? defaultYY;
-      const yText = addAxisElement('text',{ x: yTextX, y: yTextY, transform: `rotate(-90 ${yTextX} ${yTextY})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+      
+      // Convert relative positions to absolute if needed for yLabel
+      let absoluteYTextX = defaultYX;
+      let absoluteYTextY = defaultYY;
+      if (yLabelPos) {
+        if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
+          // Use relative positioning
+          absoluteYTextX = marginLocal.left - (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+          absoluteYTextY = marginLocal.top + yLabelPos.relY * plotHLocal;
+        } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteYTextX = yLabelPos.x;
+          absoluteYTextY = yLabelPos.y;
+        }
+      }
+      
+      const yText = addAxisElement('text',{ x: absoluteYTextX, y: absoluteYTextY, transform: `rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       yText.textContent = state.yLabelText;
       markFontEditable(yText,'yTitle','yTitle');
       const applyBoxYLabel = value => {
@@ -12334,8 +12348,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(yText, svg, {
           onDragEnd: pos => {
-            state.labelPositions.yLabel = { x: pos.x, y: pos.y };
-            console.debug('Debug: box y-label position saved', pos);
+            // Store both absolute and relative positions for yLabel
+            const relX = (pos.x - marginLocal.left) / (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+            const relY = (pos.y - marginLocal.top) / plotHLocal;
+            state.labelPositions.yLabel = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            console.debug('Debug: box y-label position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
       }
@@ -13413,7 +13435,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const defaultXLabelX = marginLocal.left + plotWLocal / 2;
       const defaultXLabelY = xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8;
       const xLabelPos = state.labelPositions?.xLabel;
-      const xLabel = addAxisElement('text',{ x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+      
+      // Convert relative positions to absolute if needed for xLabel
+      let absoluteXLabelX = defaultXLabelX;
+      let absoluteXLabelY = defaultXLabelY;
+      if (xLabelPos) {
+        if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
+          // Use relative positioning
+          absoluteXLabelX = marginLocal.left + xLabelPos.relX * plotWLocal;
+          absoluteXLabelY = xAxisBottom + xLabelPos.relY * (plotHLocal + marginLocal.top);
+        } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteXLabelX = xLabelPos.x;
+          absoluteXLabelY = xLabelPos.y;
+        }
+      }
+      
+      const xLabel = addAxisElement('text',{ x: absoluteXLabelX, y: absoluteXLabelY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       xLabel.textContent = state.yLabelText;
       const applyBoxXLabel = value => {
         const nextValue = value != null ? String(value) : '';
@@ -13436,8 +13474,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(xLabel, svg, {
           onDragEnd: pos => {
-            state.labelPositions.xLabel = { x: pos.x, y: pos.y };
-            console.debug('Debug: box x-label position saved', pos);
+            // Store both absolute and relative positions for xLabel
+            const relX = (pos.x - marginLocal.left) / plotWLocal;
+            const relY = (pos.y - xAxisBottom) / (plotHLocal + marginLocal.top);
+            state.labelPositions.xLabel = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            console.debug('Debug: box x-label position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
       }
@@ -14016,7 +14062,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const defaultTitleX = orientationResult.titleX;
     const defaultTitleY = orientationResult.titleY;
     const titlePos = state.labelPositions?.title;
-    const titleText = add('text',{ x: titlePos?.x ?? defaultTitleX, y: titlePos?.y ?? defaultTitleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = orientationResult.margin.left + titlePos.relX * orientationResult.plotW;
+        absoluteTitleY = orientationResult.margin.top + titlePos.relY * orientationResult.plotH;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
+    const titleText = add('text',{ x: absoluteTitleX, y: absoluteTitleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
     titleText.textContent = state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
     const applyBoxTitle = value => {
@@ -14040,8 +14102,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          console.debug('Debug: box title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = (pos.x - orientationResult.margin.left) / orientationResult.plotW;
+          const relY = (pos.y - orientationResult.margin.top) / orientationResult.plotH;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: box title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -14050,17 +14120,41 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const defaultLegendX = plotRight + legendGapPx;
       const defaultLegendY = orientationResult.margin.top;
       const legendPos = state.labelPositions?.legend;
+      
+      // Convert relative positions to absolute if needed for legend
+      let absoluteLegendX = defaultLegendX;
+      let absoluteLegendY = defaultLegendY;
+      if (legendPos) {
+        if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
+          // Use relative positioning
+          absoluteLegendX = plotRight + legendPos.relX * legendGapPx;
+          absoluteLegendY = orientationResult.margin.top + legendPos.relY * orientationResult.plotH;
+        } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteLegendX = legendPos.x;
+          absoluteLegendY = legendPos.y;
+        }
+      }
+      
       const legendGroup = legendRenderer.draw(svg, {
-        x: legendPos?.x ?? defaultLegendX,
-        y: legendPos?.y ?? defaultLegendY
+        x: absoluteLegendX,
+        y: absoluteLegendY
       });
       if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
         Shared.enableLegendDrag(legendGroup, svg, {
           onDragEnd: pos => {
             state.labelPositions = state.labelPositions || {};
-            state.labelPositions.legend = { x: pos.x, y: pos.y };
+            // Store both absolute and relative positions for legend
+            const relX = (pos.x - plotRight) / legendGapPx;
+            const relY = (pos.y - orientationResult.margin.top) / orientationResult.plotH;
+            state.labelPositions.legend = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
             if(Shared.isDebugEnabled?.()){
-              console.debug('Debug: box legend position saved', pos);
+              console.debug('Debug: box legend position saved', { absolute: pos, relative: { relX, relY } });
             }
           }
         });

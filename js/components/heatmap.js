@@ -3489,8 +3489,24 @@
     const defaultTitleX = totalWidth / 2;
     const defaultTitleY = matrixTop - titleGap;
     const titlePos = state.labelPositions?.title;
-    title.setAttribute('x', String(titlePos?.x ?? defaultTitleX));
-    title.setAttribute('y', String(titlePos?.y ?? defaultTitleY));
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = titlePos.relX * totalWidth;
+        absoluteTitleY = titlePos.relY * matrixTop;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
+    title.setAttribute('x', String(absoluteTitleX));
+    title.setAttribute('y', String(absoluteTitleY));
     title.setAttribute('text-anchor', 'middle');
     title.setAttribute('font-size', String(scaledFontSize));
     title.textContent = state.titleText != null ? String(state.titleText) : 'Heatmap';
@@ -3518,8 +3534,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(title, state.svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          console.debug('Debug: heatmap title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = pos.x / totalWidth;
+          const relY = pos.y / matrixTop;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: heatmap title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }

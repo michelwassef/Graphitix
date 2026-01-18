@@ -7738,10 +7738,18 @@
               return false;
             };
             let legendStartY=baseLegendY;
-            if(Number.isFinite(storedLegendPos?.x) && Number.isFinite(storedLegendPos?.y)){
-              legendX3 = storedLegendPos.x;
-              legendStartY = storedLegendPos.y;
-            }else{
+            if(storedLegendPos) {
+              if (storedLegendPos.relX !== undefined && storedLegendPos.relY !== undefined) {
+                // Use relative positioning for 3D legend
+                legendX3 = horizontalBase + storedLegendPos.relX * legendGapFor3d;
+                legendStartY = baseLegendY + storedLegendPos.relY * plotH3;
+              } else if (Number.isFinite(storedLegendPos.x) && Number.isFinite(storedLegendPos.y)) {
+                // Use absolute positioning (backward compatibility)
+                legendX3 = storedLegendPos.x;
+                legendStartY = storedLegendPos.y;
+              }
+            }
+            if(!storedLegendPos || (storedLegendPos.relX === undefined && storedLegendPos.relY === undefined && (isNaN(storedLegendPos?.x) || isNaN(storedLegendPos?.y)))){
               for(let idx=0;idx<candidatePositions.length;idx+=1){
                 const candidateY=candidatePositions[idx];
                 const legendRect={ x:legendX3, y:candidateY, width:legendContentWidth || widthForClamp, height:legendHeight };
@@ -7759,9 +7767,17 @@
             if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
               Shared.enableLegendDrag(legendGroup, svg3, {
                 onDragEnd: pos => {
-                  scatterLabelPositions.legend = { x: pos.x, y: pos.y };
+                  // Store both absolute and relative positions for 3D legend
+                  const relX = (pos.x - horizontalBase) / legendGapFor3d;
+                  const relY = (pos.y - baseLegendY) / plotH3;
+                  scatterLabelPositions.legend = { 
+                    x: pos.x, 
+                    y: pos.y,
+                    relX: relX, 
+                    relY: relY 
+                  };
                   if(Shared.isDebugEnabled?.()){
-                    console.debug('Debug: scatter 3d legend position saved', pos);
+                    console.debug('Debug: scatter 3d legend position saved', { absolute: pos, relative: { relX, relY } });
                   }
                 }
               });
@@ -7781,9 +7797,25 @@
           const defaultTitleX = margin3.left + plotW3 / 2;
           const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
           const titlePos = scatterLabelPositions?.title;
+          
+          // Convert relative positions to absolute if needed for 3D
+          let absoluteTitleX = defaultTitleX;
+          let absoluteTitleY = defaultTitleY;
+          if (titlePos) {
+            if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+              // Use relative positioning
+              absoluteTitleX = margin3.left + titlePos.relX * plotW3;
+              absoluteTitleY = margin3.top + titlePos.relY * plotH3;
+            } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+              // Use absolute positioning (backward compatibility)
+              absoluteTitleX = titlePos.x;
+              absoluteTitleY = titlePos.y;
+            }
+          }
+          
           const title3d = add3('text',{
-            x: Number.isFinite(titlePos?.x) ? titlePos.x : defaultTitleX,
-            y: Number.isFinite(titlePos?.y) ? titlePos.y : defaultTitleY,
+            x: absoluteTitleX,
+            y: absoluteTitleY,
             'text-anchor':'middle',
             'font-size': fs,
             fill: chartStyle.TEXT_COLOR
@@ -7810,9 +7842,17 @@
           if(typeof Shared.enableLabelDrag === 'function'){
             Shared.enableLabelDrag(title3d, svg3, {
               onDragEnd: pos => {
-                scatterLabelPositions.title = { x: pos.x, y: pos.y };
+                // Store both absolute and relative positions for 3D
+                const relX = (pos.x - margin3.left) / plotW3;
+                const relY = (pos.y - margin3.top) / plotH3;
+                scatterLabelPositions.title = { 
+                  x: pos.x, 
+                  y: pos.y,
+                  relX: relX, 
+                  relY: relY 
+                };
                 if(Shared.isDebugEnabled?.()){
-                  console.debug('Debug: scatter 3d title position saved', pos);
+                  console.debug('Debug: scatter 3d title position saved', { absolute: pos, relative: { relX, relY } });
                 }
               }
             });
@@ -8660,16 +8700,40 @@
           const defaultLegendX=plotRight+legendGapPx;
           const defaultLegendY=margin.top;
           const legendPos=scatterLabelPositions?.legend;
+          
+          // Convert relative positions to absolute if needed for legend
+          let absoluteLegendX = defaultLegendX;
+          let absoluteLegendY = defaultLegendY;
+          if (legendPos) {
+            if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
+              // Use relative positioning
+              absoluteLegendX = plotRight + legendPos.relX * legendGapPx;
+              absoluteLegendY = margin.top + legendPos.relY * plotH;
+            } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
+              // Use absolute positioning (backward compatibility)
+              absoluteLegendX = legendPos.x;
+              absoluteLegendY = legendPos.y;
+            }
+          }
+          
           const legendGroup=legendRenderer.draw(svg,{
-            x: legendPos?.x ?? defaultLegendX,
-            y: legendPos?.y ?? defaultLegendY
+            x: absoluteLegendX,
+            y: absoluteLegendY
           });
           if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
             Shared.enableLegendDrag(legendGroup, svg, {
               onDragEnd: pos => {
-                scatterLabelPositions.legend = { x: pos.x, y: pos.y };
+                // Store both absolute and relative positions for legend
+                const relX = (pos.x - plotRight) / legendGapPx;
+                const relY = (pos.y - margin.top) / plotH;
+                scatterLabelPositions.legend = { 
+                  x: pos.x, 
+                  y: pos.y,
+                  relX: relX, 
+                  relY: relY 
+                };
                 if(Shared.isDebugEnabled?.()){
-                  console.debug('Debug: scatter legend position saved', pos);
+                  console.debug('Debug: scatter legend position saved', { absolute: pos, relative: { relX, relY } });
                 }
               }
             });
@@ -8700,7 +8764,23 @@
         const rotationSeparation = rotationExtra ? Math.round(rotationExtra * 0.55) : 0;
         const defaultXLabelY = xAxisBase + bottomLayout.titleOffset + rotationSeparation;
         const xLabelPos = scatterLabelPositions?.xLabel;
-        const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        
+        // Convert relative positions to absolute if needed
+        let absoluteXLabelX = defaultXLabelX;
+        let absoluteXLabelY = defaultXLabelY;
+        if (xLabelPos) {
+          if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
+            // Use relative positioning
+            absoluteXLabelX = margin.left + xLabelPos.relX * plotW;
+            absoluteXLabelY = xAxisBase + xLabelPos.relY * (plotH + margin.top);
+          } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
+            // Use absolute positioning (backward compatibility)
+            absoluteXLabelX = xLabelPos.x;
+            absoluteXLabelY = xLabelPos.y;
+          }
+        }
+        
+        const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         xText.textContent=scatterState.xLabelText;
         markFontEditable(xText,'xTitle','xTitle');
         const applyScatterXLabel=value=>{
@@ -8950,18 +9030,40 @@
         if(typeof Shared.enableLabelDrag === 'function'){
           Shared.enableLabelDrag(xText, svg, {
             onDragEnd: pos => {
-              scatterLabelPositions.xLabel = { x: pos.x, y: pos.y };
-              console.debug('Debug: scatter x-label position saved', pos);
+              // Store both absolute and relative positions
+              const relX = (pos.x - margin.left) / plotW;
+              const relY = (pos.y - xAxisBase) / (plotH + margin.top);
+              scatterLabelPositions.xLabel = { 
+                x: pos.x, 
+                y: pos.y,
+                relX: relX, 
+                relY: relY 
+              };
+              console.debug('Debug: scatter x-label position saved', { absolute: pos, relative: { relX, relY } });
             }
           });
         }
         const defaultYX = margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
         const defaultYY = margin.top+plotH/2;
         const yLabelPos = scatterLabelPositions?.yLabel;
-        const yTextX = yLabelPos?.x ?? defaultYX;
-        const yTextY = yLabelPos?.y ?? defaultYY;
-        info('scatter y-axis position',yTextX);
-        const yText=add('text',{x:yTextX,y:yTextY,transform:`rotate(-90 ${yTextX} ${yTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        
+        // Convert relative positions to absolute if needed
+        let absoluteYTextX = defaultYX;
+        let absoluteYTextY = defaultYY;
+        if (yLabelPos) {
+          if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
+            // Use relative positioning
+            absoluteYTextX = margin.left - (maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+            absoluteYTextY = margin.top + yLabelPos.relY * plotH;
+          } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
+            // Use absolute positioning (backward compatibility)
+            absoluteYTextX = yLabelPos.x;
+            absoluteYTextY = yLabelPos.y;
+          }
+        }
+        
+        info('scatter y-axis position',absoluteYTextX);
+        const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         yText.textContent=scatterState.yLabelText;
         markFontEditable(yText,'yTitle','yTitle');
         const applyScatterYLabel=value=>{
@@ -9211,15 +9313,39 @@
         if(typeof Shared.enableLabelDrag === 'function'){
           Shared.enableLabelDrag(yText, svg, {
             onDragEnd: pos => {
-              scatterLabelPositions.yLabel = { x: pos.x, y: pos.y };
-              console.debug('Debug: scatter y-label position saved', pos);
+              // Store both absolute and relative positions
+              const relX = (pos.x - margin.left) / (maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+              const relY = (pos.y - margin.top) / plotH;
+              scatterLabelPositions.yLabel = { 
+                x: pos.x, 
+                y: pos.y,
+                relX: relX, 
+                relY: relY 
+              };
+              console.debug('Debug: scatter y-label position saved', { absolute: pos, relative: { relX, relY } });
             }
           });
         }
         const defaultTitleX = margin.left+plotW/2;
         const defaultTitleY = margin.top/2;
         const titlePos = scatterLabelPositions?.title;
-        const titleText=add('text',{x: titlePos?.x ?? defaultTitleX, y: titlePos?.y ?? defaultTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        
+        // Convert relative positions to absolute if needed
+        let absoluteTitleX = defaultTitleX;
+        let absoluteTitleY = defaultTitleY;
+        if (titlePos) {
+          if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+            // Use relative positioning
+            absoluteTitleX = margin.left + titlePos.relX * plotW;
+            absoluteTitleY = margin.top + titlePos.relY * plotH;
+          } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+            // Use absolute positioning (backward compatibility)
+            absoluteTitleX = titlePos.x;
+            absoluteTitleY = titlePos.y;
+          }
+        }
+        
+        const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         titleText.textContent=scatterTitleText;
         markFontEditable(titleText,'graphTitle','graphTitle');
         const applyScatterTitle=value=>{
@@ -9243,8 +9369,16 @@
         if(typeof Shared.enableLabelDrag === 'function'){
           Shared.enableLabelDrag(titleText, svg, {
             onDragEnd: pos => {
-              scatterLabelPositions.title = { x: pos.x, y: pos.y };
-              console.debug('Debug: scatter title position saved', pos);
+              // Store both absolute and relative positions
+              const relX = (pos.x - margin.left) / plotW;
+              const relY = (pos.y - margin.top) / plotH;
+              scatterLabelPositions.title = { 
+                x: pos.x, 
+                y: pos.y,
+                relX: relX, 
+                relY: relY 
+              };
+              console.debug('Debug: scatter title position saved', { absolute: pos, relative: { relX, relY } });
             }
           });
         }

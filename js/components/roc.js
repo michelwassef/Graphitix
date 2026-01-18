@@ -1944,9 +1944,25 @@
     const defaultXLabelX = margin.left + plotWidth / 2;
     const defaultXLabelY = margin.top + plotHeight + bottomLayout.titleOffset;
     const xLabelPos = state.labelPositions?.xLabel;
+    
+    // Convert relative positions to absolute if needed for xLabel
+    let absoluteXLabelX = defaultXLabelX;
+    let absoluteXLabelY = defaultXLabelY;
+    if (xLabelPos) {
+      if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
+        // Use relative positioning
+        absoluteXLabelX = margin.left + xLabelPos.relX * plotWidth;
+        absoluteXLabelY = margin.top + plotHeight + xLabelPos.relY * bottomLayout.titleOffset;
+      } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteXLabelX = xLabelPos.x;
+        absoluteXLabelY = xLabelPos.y;
+      }
+    }
+    
     const xText = add('text', {
-      x: xLabelPos?.x ?? defaultXLabelX,
-      y: xLabelPos?.y ?? defaultXLabelY,
+      x: absoluteXLabelX,
+      y: absoluteXLabelY,
       'text-anchor': 'middle',
       'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
@@ -1955,8 +1971,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.xLabel = { x: pos.x, y: pos.y };
-          console.debug('Debug: roc x-label position saved', pos);
+          // Store both absolute and relative positions for xLabel
+          const relX = (pos.x - margin.left) / plotWidth;
+          const relY = (pos.y - (margin.top + plotHeight)) / bottomLayout.titleOffset;
+          state.labelPositions.xLabel = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: roc x-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -1964,22 +1988,44 @@
     const defaultYLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
     const defaultYLabelY = margin.top + plotHeight / 2;
     const yLabelPos = state.labelPositions?.yLabel;
-    const yTextX = yLabelPos?.x ?? defaultYLabelX;
-    const yTextY = yLabelPos?.y ?? defaultYLabelY;
+    
+    // Convert relative positions to absolute if needed for yLabel
+    let absoluteYTextX = defaultYLabelX;
+    let absoluteYTextY = defaultYLabelY;
+    if (yLabelPos) {
+      if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
+        // Use relative positioning
+        absoluteYTextX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
+        absoluteYTextY = margin.top + yLabelPos.relY * plotHeight;
+      } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteYTextX = yLabelPos.x;
+        absoluteYTextY = yLabelPos.y;
+      }
+    }
+    
     const yText = add('text', {
-      x: yTextX,
-      y: yTextY,
+      x: absoluteYTextX,
+      y: absoluteYTextY,
       'text-anchor': 'middle',
       'font-size': fontSize,
-      transform: `rotate(-90 ${yTextX} ${yTextY})`,
+      transform: `rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,
       fill: chartStyle.TEXT_COLOR
     }, yAxisLabel, { role: 'yTitle', key: 'yTitle' });
     // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.yLabel = { x: pos.x, y: pos.y };
-          console.debug('Debug: roc y-label position saved', pos);
+          // Store both absolute and relative positions for yLabel
+          const relX = (pos.x - margin.left) / (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
+          const relY = (pos.y - margin.top) / plotHeight;
+          state.labelPositions.yLabel = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: roc y-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -1990,9 +2036,25 @@
     const defaultTitleX = margin.left + plotWidth / 2;
     const defaultTitleY = titleY;
     const titlePos = state.labelPositions?.title;
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = margin.left + titlePos.relX * plotWidth;
+        absoluteTitleY = titlePos.relY * plotHeight;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
     const titleNode = add('text', {
-      x: titlePos?.x ?? defaultTitleX,
-      y: titlePos?.y ?? defaultTitleY,
+      x: absoluteTitleX,
+      y: absoluteTitleY,
       'text-anchor': 'middle',
       'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
@@ -2020,8 +2082,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleNode, svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          console.debug('Debug: roc title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = (pos.x - margin.left) / plotWidth;
+          const relY = pos.y / plotHeight;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: roc title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -2137,17 +2207,41 @@
       const defaultLegendX = margin.left + plotWidth + legendLayout.legendGapPx;
       const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
       const legendPos = state.labelPositions?.legend;
+      
+      // Convert relative positions to absolute if needed for legend
+      let absoluteLegendX = defaultLegendX;
+      let absoluteLegendY = defaultLegendY;
+      if (legendPos) {
+        if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
+          // Use relative positioning
+          absoluteLegendX = margin.left + plotWidth + legendPos.relX * legendLayout.legendGapPx;
+          absoluteLegendY = margin.top + legendPos.relY * plotHeight;
+        } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteLegendX = legendPos.x;
+          absoluteLegendY = legendPos.y;
+        }
+      }
+      
       const legendGroup = legendRenderer.draw(svg,{
-        x: legendPos?.x ?? defaultLegendX,
-        y: legendPos?.y ?? defaultLegendY
+        x: absoluteLegendX,
+        y: absoluteLegendY
       });
       if(legendGroup){
         if(typeof Shared.enableLegendDrag === 'function'){
           Shared.enableLegendDrag(legendGroup, svg, {
             onDragEnd: pos => {
-              state.labelPositions.legend = { x: pos.x, y: pos.y };
+              // Store both absolute and relative positions for legend
+              const relX = (pos.x - (margin.left + plotWidth)) / legendLayout.legendGapPx;
+              const relY = (pos.y - margin.top) / plotHeight;
+              state.labelPositions.legend = { 
+                x: pos.x, 
+                y: pos.y,
+                relX: relX, 
+                relY: relY 
+              };
               if(Shared.isDebugEnabled?.()){
-                console.debug('Debug: roc legend position saved', pos);
+                console.debug('Debug: roc legend position saved', { absolute: pos, relative: { relX, relY } });
               }
             }
           });

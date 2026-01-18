@@ -6243,11 +6243,25 @@
         const defaultTitleY3 = Math.max(fs, margin3.top * 0.5);
         const defaultTitleX3 = margin3.left + plotW3 / 2;
         const titlePos = pcaState.labelPositions?.title;
-        const hasTitlePos = Number.isFinite(titlePos?.x) && Number.isFinite(titlePos?.y);
-        const titleY3 = hasTitlePos ? titlePos.y : defaultTitleY3;
+        
+        // Convert relative positions to absolute if needed for 3D title
+        let absoluteTitleX3 = defaultTitleX3;
+        let absoluteTitleY3 = defaultTitleY3;
+        if (titlePos) {
+          if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+            // Use relative positioning
+            absoluteTitleX3 = margin3.left + titlePos.relX * plotW3;
+            absoluteTitleY3 = margin3.top + titlePos.relY * plotH3;
+          } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+            // Use absolute positioning (backward compatibility)
+            absoluteTitleX3 = titlePos.x;
+            absoluteTitleY3 = titlePos.y;
+          }
+        }
+        
         const title3d = add3('text', {
-          x: hasTitlePos ? titlePos.x : defaultTitleX3,
-          y: titleY3,
+          x: absoluteTitleX3,
+          y: absoluteTitleY3,
           'text-anchor': 'middle',
           'font-size': fs,
           fill: chartStyle.TEXT_COLOR,
@@ -6261,9 +6275,17 @@
         if(typeof Shared.enableLabelDrag === 'function'){
           Shared.enableLabelDrag(title3d, svg3, {
             onDragEnd: pos => {
-              pcaState.labelPositions.title = { x: pos.x, y: pos.y };
+              // Store both absolute and relative positions for 3D title
+              const relX = (pos.x - margin3.left) / plotW3;
+              const relY = (pos.y - margin3.top) / plotH3;
+              pcaState.labelPositions.title = { 
+                x: pos.x, 
+                y: pos.y,
+                relX: relX, 
+                relY: relY 
+              };
               if(Shared.isDebugEnabled?.()){
-                console.debug('Debug: pca 3d title position saved', pos);
+                console.debug('Debug: pca 3d title position saved', { absolute: pos, relative: { relX, relY } });
               }
             }
           });
@@ -6484,10 +6506,18 @@
           const verticalPadding = Math.max(fs * 0.45, 8);
           let legendStartY = baseLegendY;
           const storedLegendPos = pcaState.labelPositions?.legend;
-          if(Number.isFinite(storedLegendPos?.x) && Number.isFinite(storedLegendPos?.y)){
-            legendX3 = storedLegendPos.x;
-            legendStartY = storedLegendPos.y;
-          }else{
+          if(storedLegendPos) {
+            if (storedLegendPos.relX !== undefined && storedLegendPos.relY !== undefined) {
+              // Use relative positioning for 3D legend
+              legendX3 = horizontalBase + storedLegendPos.relX * legendGapFor3d;
+              legendStartY = baseLegendY + storedLegendPos.relY * plotH3;
+            } else if (Number.isFinite(storedLegendPos.x) && Number.isFinite(storedLegendPos.y)) {
+              // Use absolute positioning (backward compatibility)
+              legendX3 = storedLegendPos.x;
+              legendStartY = storedLegendPos.y;
+            }
+          }
+          if(!storedLegendPos || (storedLegendPos.relX === undefined && storedLegendPos.relY === undefined && (isNaN(storedLegendPos?.x) || isNaN(storedLegendPos?.y)))){
             const candidates = [baseLegendY];
             if(axisLabelBounds.length){
               for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
@@ -6589,9 +6619,17 @@
             Shared.enableLegendDrag(legendGroup, svg3, {
               undoLabel: 'pca-legend-3d',
               onDragEnd: pos => {
-                pcaState.labelPositions.legend = { x: pos.x, y: pos.y };
+                // Store both absolute and relative positions for 3D legend
+                const relX = (pos.x - horizontalBase) / legendGapFor3d;
+                const relY = (pos.y - baseLegendY) / plotH3;
+                pcaState.labelPositions.legend = { 
+                  x: pos.x, 
+                  y: pos.y,
+                  relX: relX, 
+                  relY: relY 
+                };
                 if(Shared.isDebugEnabled?.()){
-                  console.debug('Debug: pca 3d legend position saved', pos);
+                  console.debug('Debug: pca 3d legend position saved', { absolute: pos, relative: { relX, relY } });
                 }
               }
             });
@@ -7063,9 +7101,25 @@
       const defaultXLabelX = margin.left + plotW / 2;
       const defaultXLabelY = margin.top + plotH + bottomLayout.titleOffset;
       const xLabelPos = pcaState.labelPositions?.xLabel;
+      
+      // Convert relative positions to absolute if needed for xLabel
+      let absoluteXLabelX = defaultXLabelX;
+      let absoluteXLabelY = defaultXLabelY;
+      if (xLabelPos) {
+        if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
+          // Use relative positioning
+          absoluteXLabelX = margin.left + xLabelPos.relX * plotW;
+          absoluteXLabelY = margin.top + plotH + xLabelPos.relY * bottomLayout.titleOffset;
+        } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteXLabelX = xLabelPos.x;
+          absoluteXLabelY = xLabelPos.y;
+        }
+      }
+      
       const xAxisText = add('text', {
-        x: xLabelPos?.x ?? defaultXLabelX,
-        y: xLabelPos?.y ?? defaultXLabelY,
+        x: absoluteXLabelX,
+        y: absoluteXLabelY,
         'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
@@ -7075,8 +7129,16 @@
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(xAxisText, svg, {
           onDragEnd: pos => {
-            pcaState.labelPositions.xLabel = { x: pos.x, y: pos.y };
-            debugLog('pca x-label position saved', pos);
+            // Store both absolute and relative positions for xLabel
+            const relX = (pos.x - margin.left) / plotW;
+            const relY = (pos.y - (margin.top + plotH)) / bottomLayout.titleOffset;
+            pcaState.labelPositions.xLabel = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            debugLog('pca x-label position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
       }
@@ -7132,14 +7194,28 @@
       const defaultYLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const defaultYLabelY = margin.top + plotH / 2;
       const yLabelPos = pcaState.labelPositions?.yLabel;
-      const yTextX = yLabelPos?.x ?? defaultYLabelX;
-      const yTextY = yLabelPos?.y ?? defaultYLabelY;
+      
+      // Convert relative positions to absolute if needed for yLabel
+      let absoluteYTextX = defaultYLabelX;
+      let absoluteYTextY = defaultYLabelY;
+      if (yLabelPos) {
+        if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
+          // Use relative positioning
+          absoluteYTextX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+          absoluteYTextY = margin.top + yLabelPos.relY * plotH;
+        } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteYTextX = yLabelPos.x;
+          absoluteYTextY = yLabelPos.y;
+        }
+      }
+      
       const yAxisText = add('text', {
-        x: yTextX,
-        y: yTextY,
+        x: absoluteYTextX,
+        y: absoluteYTextY,
         'font-size': fs,
         'text-anchor': 'middle',
-        transform: `rotate(-90 ${yTextX} ${yTextY})`,
+        transform: `rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,
         fill: chartStyle.TEXT_COLOR,
       }, pcaYLabelText);
       markFontEditable(yAxisText,'yTitle','yTitle');
@@ -7147,8 +7223,16 @@
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(yAxisText, svg, {
           onDragEnd: pos => {
-            pcaState.labelPositions.yLabel = { x: pos.x, y: pos.y };
-            debugLog('pca y-label position saved', pos);
+            // Store both absolute and relative positions for yLabel
+            const relX = (pos.x - margin.left) / (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+            const relY = (pos.y - margin.top) / plotH;
+            pcaState.labelPositions.yLabel = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            debugLog('pca y-label position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
       }
@@ -7156,9 +7240,25 @@
       const defaultTitleX = margin.left + plotW / 2;
       const defaultTitleY = Math.max(fs, margin.top * 0.5);
       const titlePos = pcaState.labelPositions?.title;
+      
+      // Convert relative positions to absolute if needed
+      let absoluteTitleX = defaultTitleX;
+      let absoluteTitleY = defaultTitleY;
+      if (titlePos) {
+        if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+          // Use relative positioning
+          absoluteTitleX = margin.left + titlePos.relX * plotW;
+          absoluteTitleY = margin.top + titlePos.relY * plotH;
+        } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteTitleX = titlePos.x;
+          absoluteTitleY = titlePos.y;
+        }
+      }
+      
       const titleText = add('text', {
-        x: titlePos?.x ?? defaultTitleX,
-        y: titlePos?.y ?? defaultTitleY,
+        x: absoluteTitleX,
+        y: absoluteTitleY,
         'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
@@ -7169,8 +7269,16 @@
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(titleText, svg, {
           onDragEnd: pos => {
-            pcaState.labelPositions.title = { x: pos.x, y: pos.y };
-            debugLog('pca title position saved', pos);
+            // Store both absolute and relative positions
+            const relX = (pos.x - margin.left) / plotW;
+            const relY = (pos.y - margin.top) / plotH;
+            pcaState.labelPositions.title = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            debugLog('pca title position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
       }
@@ -7333,8 +7441,24 @@
         const defaultLegendX = margin.left + plotW + legendLayout.legendGapPx + appliedLegendAxisGap;
         const defaultLegendY = margin.top;
         const legendPos = pcaState.labelPositions?.legend;
-        const legendOriginX = Number.isFinite(legendPos?.x) ? legendPos.x : defaultLegendX;
-        const legendOriginY = Number.isFinite(legendPos?.y) ? legendPos.y : defaultLegendY;
+        
+        // Convert relative positions to absolute if needed for 2D legend
+        let absoluteLegendX = defaultLegendX;
+        let absoluteLegendY = defaultLegendY;
+        if (legendPos) {
+          if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
+            // Use relative positioning
+            absoluteLegendX = margin.left + plotW + legendPos.relX * legendLayout.legendGapPx;
+            absoluteLegendY = margin.top + legendPos.relY * plotH;
+          } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
+            // Use absolute positioning (backward compatibility)
+            absoluteLegendX = legendPos.x;
+            absoluteLegendY = legendPos.y;
+          }
+        }
+        
+        const legendOriginX = absoluteLegendX;
+        const legendOriginY = absoluteLegendY;
         const legendSpacing=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
         const legendMarkerSize=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
         const legendTextOffset=legendMarkerSize+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
@@ -7397,9 +7521,17 @@
           Shared.enableLegendDrag(legendGroup, svg, {
             undoLabel: 'pca-legend-2d',
             onDragEnd: pos => {
-              pcaState.labelPositions.legend = { x: pos.x, y: pos.y };
+              // Store both absolute and relative positions for 2D legend
+              const relX = (pos.x - (margin.left + plotW)) / legendLayout.legendGapPx;
+              const relY = (pos.y - margin.top) / plotH;
+              pcaState.labelPositions.legend = { 
+                x: pos.x, 
+                y: pos.y,
+                relX: relX, 
+                relY: relY 
+              };
               if(Shared.isDebugEnabled?.()){
-                console.debug('Debug: pca 2d legend position saved', pos);
+                console.debug('Debug: pca 2d legend position saved', { absolute: pos, relative: { relX, relY } });
               }
             }
           });

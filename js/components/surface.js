@@ -819,10 +819,23 @@
     const defaultLegendX = options.width - options.margin.right + legendRightPad;
     const defaultLegendY = options.margin.top;
     const position = options.position || null;
-    const hasPosition = Number.isFinite(position?.x) && Number.isFinite(position?.y);
-    const legendX = hasPosition ? position.x : defaultLegendX;
-    const legendY = hasPosition ? position.y : defaultLegendY;
-    legend.setAttribute('transform', `translate(${legendX},${legendY})`);
+    
+    // Convert relative positions to absolute if needed for legend
+    let absoluteLegendX = defaultLegendX;
+    let absoluteLegendY = defaultLegendY;
+    if (position) {
+      if (position.relX !== undefined && position.relY !== undefined) {
+        // Use relative positioning
+        absoluteLegendX = options.width - options.margin.right + position.relX * legendRightPad;
+        absoluteLegendY = options.margin.top + position.relY * options.height;
+      } else if (position.x !== undefined && position.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteLegendX = position.x;
+        absoluteLegendY = position.y;
+      }
+    }
+    
+    legend.setAttribute('transform', `translate(${absoluteLegendX},${absoluteLegendY})`);
     const rect = doc.createElementNS(NS, 'rect');
     rect.setAttribute('width', barWidth);
     rect.setAttribute('height', barHeight);
@@ -865,8 +878,16 @@
         legend.dataset.dragBound = '1';
         Shared.enableLegendDrag(legend, svg, {
           onDragEnd: pos => {
-            state.legendPosition = { x: pos.x, y: pos.y };
-            debugLog('Debug: surface legend position saved', pos);
+            // Store both absolute and relative positions for legend
+            const relX = (pos.x - (options.width - options.margin.right)) / legendRightPad;
+            const relY = (pos.y - options.margin.top) / options.height;
+            state.legendPosition = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            debugLog('Debug: surface legend position saved', { absolute: pos, relative: { relX, relY } });
           },
           undoLabel: 'surface-legend-position'
         });
@@ -1416,8 +1437,24 @@
     };
     if(!title){
       title = doc.createElementNS(NS, 'text');
-      title.setAttribute('x', hasTitlePos ? titlePos.x : titleBaseX);
-      title.setAttribute('y', hasTitlePos ? titlePos.y : titleBaseY);
+      
+      // Convert relative positions to absolute if needed
+      let absoluteTitleX = titleBaseX;
+      let absoluteTitleY = titleBaseY;
+      if (titlePos) {
+        if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+          // Use relative positioning
+          absoluteTitleX = margin.left + titlePos.relX * plotWidth;
+          absoluteTitleY = margin.top + titlePos.relY * plotHeight;
+        } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteTitleX = titlePos.x;
+          absoluteTitleY = titlePos.y;
+        }
+      }
+      
+      title.setAttribute('x', absoluteTitleX);
+      title.setAttribute('y', absoluteTitleY);
       title.setAttribute('text-anchor', 'middle');
       title.setAttribute('font-size', fs);
       title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
@@ -1432,8 +1469,16 @@
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(title, svg, {
           onDragEnd: pos => {
-            state.labelPositions.title = { x: pos.x, y: pos.y };
-            debugLog('Debug: surface title position saved', pos);
+            // Store both absolute and relative positions
+            const relX = (pos.x - margin.left) / plotWidth;
+            const relY = (pos.y - margin.top) / plotHeight;
+            state.labelPositions.title = { 
+              x: pos.x, 
+              y: pos.y,
+              relX: relX, 
+              relY: relY 
+            };
+            debugLog('Debug: surface title position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
       }
@@ -1444,8 +1489,24 @@
       svg.appendChild(title);
     } else {
       // update position/size and text only
-      try{ title.setAttribute('x', hasTitlePos ? titlePos.x : titleBaseX); }catch(e){}
-      try{ title.setAttribute('y', hasTitlePos ? titlePos.y : titleBaseY); }catch(e){}
+      
+      // Convert relative positions to absolute if needed for update
+      let absoluteTitleX = titleBaseX;
+      let absoluteTitleY = titleBaseY;
+      if (titlePos) {
+        if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+          // Use relative positioning
+          absoluteTitleX = margin.left + titlePos.relX * plotWidth;
+          absoluteTitleY = margin.top + titlePos.relY * plotHeight;
+        } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+          // Use absolute positioning (backward compatibility)
+          absoluteTitleX = titlePos.x;
+          absoluteTitleY = titlePos.y;
+        }
+      }
+      
+      try{ title.setAttribute('x', absoluteTitleX); }catch(e){}
+      try{ title.setAttribute('y', absoluteTitleY); }catch(e){}
       try{ title.setAttribute('font-size', fs); }catch(e){}
       if(title.textContent !== state.labels.title){ title.textContent = state.labels.title; }
     }
