@@ -7722,13 +7722,133 @@
         scheduleLineDraw();
       };
       makeEditableHelper(xText,txt=>{
+        console.log('LINE X-AXIS EDIT HANDLER CALLED!');
+        
         const previous=lineXLabelText!=null?String(lineXLabelText):'';
         const nextValue=txt!=null?String(txt):'';
+        
+        console.log('LINE X-AXIS EDIT - Previous:', previous, 'Next:', nextValue);
+        
         if(previous===nextValue){
+          console.log('LINE X-AXIS EDIT - No change, returning');
           return;
         }
-        applyLineXLabel(nextValue);
-        recordLineChange('line:x-label',previous,nextValue,applyLineXLabel);
+        
+        // Create a combined apply function that updates both visual and table header
+        const applyBoth = (value) => {
+          console.log('LINE applyBoth called with value:', value);
+          // Update visual title
+          applyLineXLabel(value);
+          
+          // Also update the table header to maintain consistency
+          const hot = lineHot;
+          console.log('LINE applyBoth - HOT instance:', hot);
+          
+          if(hot && typeof hot.setDataAtCell === 'function'){
+            try {
+              const data = hot.getData() || [];
+              console.log('LINE applyBoth - Table data:', data);
+              
+              if(Array.isArray(data) && data.length > 0) {
+                const headerRow = Array.isArray(data[0]) ? data[0] : [];
+                console.log('LINE applyBoth - Header row:', headerRow);
+                
+                if(headerRow.length > 0) {
+                  // Find the X column index
+                  let xIndex = headerRow.findIndex(h=>String(h).trim().toLowerCase()==='x');
+                  if(xIndex < 0) xIndex = 0;
+                  
+                  console.log('LINE applyBoth - X column index:', xIndex, 'Current header:', headerRow[xIndex], 'New value:', value);
+                  
+                  if(headerRow[xIndex] !== value) {
+                    // Try multiple approaches to ensure the update works
+                    let updateSuccessful = false;
+                    
+                    // Approach 1: setDataAtCell (primary method)
+                    try {
+                      console.log('LINE applyBoth - Trying setDataAtCell with:', [0, xIndex, value]);
+                      const result = hot.setDataAtCell([0, xIndex, value], 'line-x-axis-edit');
+                      console.log('LINE applyBoth - setDataAtCell result:', result);
+                      
+                      // Verify the update
+                      const verifyData1 = hot.getData() || [];
+                      const verifyHeader1 = Array.isArray(verifyData1[0]) ? verifyData1[0] : [];
+                      console.log('LINE applyBoth - Verification header:', verifyHeader1);
+                      if(verifyHeader1[xIndex] === value) {
+                        updateSuccessful = true;
+                        console.log('LINE applyBoth - SUCCESS with setDataAtCell');
+                      } else {
+                        console.log('LINE applyBoth - setDataAtCell verification failed. Expected:', value, 'Got:', verifyHeader1[xIndex]);
+                      }
+                    } catch(err) {
+                      console.log('LINE applyBoth - setDataAtCell failed:', err.message);
+                    }
+                    
+                    // Approach 2: Direct data manipulation (fallback)
+                    if(!updateSuccessful) {
+                      try {
+                        console.log('LINE applyBoth - Trying direct data manipulation');
+                        const currentData = hot.getData() || [];
+                        const newData = JSON.parse(JSON.stringify(currentData));
+                        
+                        if(Array.isArray(newData[0]) && newData[0].length > xIndex) {
+                          newData[0][xIndex] = value;
+                          console.log('LINE applyBoth - Updated newData header:', newData[0]);
+                          
+                          // Try different update methods
+                          if(typeof hot.setData === 'function') {
+                            console.log('LINE applyBoth - Using setData method');
+                            hot.setData(newData);
+                          } else if(typeof hot.updateSettings === 'function') {
+                            console.log('LINE applyBoth - Using updateSettings method');
+                            hot.updateSettings({ data: newData });
+                          } else if(typeof hot.gridApi?.setRowData === 'function') {
+                            console.log('LINE applyBoth - Using gridApi.setRowData method');
+                            hot.gridApi.setRowData(newData);
+                          } else {
+                            console.warn('LINE applyBoth - No suitable update method found');
+                          }
+                          
+                          // Verify the update
+                          const verifyData2 = hot.getData() || [];
+                          const verifyHeader2 = Array.isArray(verifyData2[0]) ? verifyData2[0] : [];
+                          console.log('LINE applyBoth - Fallback verification header:', verifyHeader2);
+                          if(verifyHeader2[xIndex] === value) {
+                            updateSuccessful = true;
+                            console.log('LINE applyBoth - SUCCESS with direct manipulation');
+                          } else {
+                            console.log('LINE applyBoth - Fallback verification failed. Expected:', value, 'Got:', verifyHeader2[xIndex]);
+                          }
+                        }
+                      } catch(err) {
+                        console.error('LINE applyBoth - Direct manipulation failed:', err);
+                      }
+                    }
+                    
+                    if(!updateSuccessful) {
+                      console.error('LINE applyBoth - FAILED: All update methods failed');
+                    } else {
+                      console.log('LINE applyBoth - Header update successful');
+                    }
+                  }
+                }
+              }
+            } catch(err) {
+              console.error('LINE applyBoth - Failed to update line x-axis header:', err);
+            }
+          }
+          
+          // Force a redraw to ensure consistency
+          console.log('LINE applyBoth - Scheduling redraw');
+          scheduleLineDraw();
+          return true;
+        };
+        
+        console.log('LINE X-AXIS EDIT - Calling applyBoth with:', nextValue);
+        applyBoth(nextValue);
+        console.log('LINE X-AXIS EDIT - Recording change for undo');
+        recordLineChange('line:x-label',previous,nextValue,applyBoth);
+        console.log('LINE X-AXIS EDIT - Completed');
       });
       // Enable drag for x-axis label
       if(typeof Shared.enableLabelDrag === 'function'){
