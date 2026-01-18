@@ -951,9 +951,8 @@
             // Use plotHeight as reference (like roc.js) instead of options.height
             const plotHeight = options.height - options.margin.top - options.margin.bottom;
             const relX = (pos.x - (options.width - options.margin.right)) / legendRightPad;
-            const plotHeightCalc = options.height - options.margin.top - options.margin.bottom;
-            const relY = Number.isFinite(plotHeightCalc) && plotHeightCalc > 0 
-              ? (pos.y - options.margin.top) / plotHeightCalc 
+            const relY = Number.isFinite(plotHeight) && plotHeight > 0 
+              ? (pos.y - options.margin.top) / plotHeight 
               : 0;
             state.labelPositions.legend = { 
               x: pos.x, 
