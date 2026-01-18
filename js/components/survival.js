@@ -1045,17 +1045,34 @@
     });
   }
 
-  function drawSurvivalLegend(svg, legendLayout, defaults = {}){
+  function drawSurvivalLegend(svg, legendLayout, defaults = {}, svgDimensions = {}){
     const renderer = legendLayout?.renderer;
     if(!svg || !renderer || !renderer.entries.length){
       return null;
     }
     const stored = state.labelPositions || {};
     const storedLegend = stored.legend || {};
-    const defaultX = Number.isFinite(defaults.x) ? Number(defaults.x) : 0;
-    const defaultY = Number.isFinite(defaults.y) ? Number(defaults.y) : 0;
-    const resolvedX = Number.isFinite(storedLegend.x) ? storedLegend.x : defaultX;
-    const resolvedY = Number.isFinite(storedLegend.y) ? storedLegend.y : defaultY;
+    
+    // Get SVG dimensions for relative positioning
+    const svgWidth = svgDimensions.width || (svg.getAttribute('width') ? parseFloat(svg.getAttribute('width')) : 500);
+    const svgHeight = svgDimensions.height || (svg.getAttribute('height') ? parseFloat(svg.getAttribute('height')) : 400);
+    
+    let resolvedX = Number.isFinite(defaults.x) ? Number(defaults.x) : 0;
+    let resolvedY = Number.isFinite(defaults.y) ? Number(defaults.y) : 0;
+    
+    // Convert relative positions to absolute if needed
+    if (storedLegend) {
+      if (storedLegend.relX !== undefined && storedLegend.relY !== undefined) {
+        // Use relative positioning
+        resolvedX = storedLegend.relX * svgWidth;
+        resolvedY = storedLegend.relY * svgHeight;
+      } else if (storedLegend.x !== undefined && storedLegend.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        resolvedX = storedLegend.x;
+        resolvedY = storedLegend.y;
+      }
+    }
+    
     const legendGroup = renderer.draw(svg, { x: resolvedX, y: resolvedY });
     if(!legendGroup){
       return null;
@@ -1069,8 +1086,16 @@
         undoLabel: 'survival-legend',
         onDragEnd: pos => {
           state.labelPositions = state.labelPositions || { title: null, xLabel: null, yLabel: null, legend: null };
-          state.labelPositions.legend = { x: pos.x, y: pos.y };
-          logDebug('legend position saved', pos);
+          // Store both absolute and relative positions
+          const relX = pos.x / svgWidth;
+          const relY = pos.y / svgHeight;
+          state.labelPositions.legend = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          logDebug('legend position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -2709,9 +2734,25 @@
     const defaultXLabelX = margin.left + plotW / 2;
     const defaultXLabelY = xTitleY;
     const xLabelPos = state.labelPositions?.xLabel;
+    
+    // Convert relative positions to absolute if needed for xLabel
+    let absoluteXLabelX = defaultXLabelX;
+    let absoluteXLabelY = defaultXLabelY;
+    if (xLabelPos) {
+      if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
+        // Use relative positioning
+        absoluteXLabelX = margin.left + xLabelPos.relX * plotW;
+        absoluteXLabelY = xAxisY + xLabelPos.relY * (plotH + margin.top);
+      } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteXLabelX = xLabelPos.x;
+        absoluteXLabelY = xLabelPos.y;
+      }
+    }
+    
     const xTitle = add('text', {
-      x: xLabelPos?.x ?? defaultXLabelX,
-      y: xLabelPos?.y ?? defaultXLabelY,
+      x: absoluteXLabelX,
+      y: absoluteXLabelY,
       'font-size': fs,
       'text-anchor': 'middle',
       fill: chartStyle.TEXT_COLOR || '#000'
@@ -2722,8 +2763,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xTitle, svg, {
         onDragEnd: pos => {
-          state.labelPositions.xLabel = { x: pos.x, y: pos.y };
-          logDebug('x-label position saved', pos);
+          // Store both absolute and relative positions for xLabel
+          const relX = (pos.x - margin.left) / plotW;
+          const relY = (pos.y - xAxisY) / (plotH + margin.top);
+          state.labelPositions.xLabel = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          logDebug('x-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -2731,8 +2780,22 @@
     const defaultYTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
     const defaultYTitleY = margin.top + plotH / 2;
     const yLabelPos = state.labelPositions?.yLabel;
-    const yTitleX = yLabelPos?.x ?? defaultYTitleX;
-    const yTitleY = yLabelPos?.y ?? defaultYTitleY;
+    
+    // Convert relative positions to absolute if needed for yLabel
+    let yTitleX = defaultYTitleX;
+    let yTitleY = defaultYTitleY;
+    if (yLabelPos) {
+      if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
+        // Use relative positioning
+        yTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+        yTitleY = margin.top + yLabelPos.relY * plotH;
+      } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        yTitleX = yLabelPos.x;
+        yTitleY = yLabelPos.y;
+      }
+    }
+    
     logDebug('y-axis title placement', { yTitleX, maxYLabelWidth }); // Debug: axis label alignment
     const yTitle = add('text', {
       x: yTitleX,
@@ -2748,8 +2811,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yTitle, svg, {
         onDragEnd: pos => {
-          state.labelPositions.yLabel = { x: pos.x, y: pos.y };
-          logDebug('y-label position saved', pos);
+          // Store both absolute and relative positions for yLabel
+          const relX = (pos.x - margin.left) / (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+          const relY = (pos.y - margin.top) / plotH;
+          state.labelPositions.yLabel = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          logDebug('y-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -2758,9 +2829,25 @@
     const defaultTitleX = margin.left + plotW / 2;
     const defaultTitleY = titleY;
     const titlePos = state.labelPositions?.title;
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = margin.left + titlePos.relX * plotW;
+        absoluteTitleY = margin.top + titlePos.relY * plotH;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
     const titleText = add('text', {
-      x: titlePos?.x ?? defaultTitleX,
-      y: titlePos?.y ?? defaultTitleY,
+      x: absoluteTitleX,
+      y: absoluteTitleY,
       'font-size': fs,
       'text-anchor': 'middle',
       fill: chartStyle.TEXT_COLOR || '#000'
@@ -2790,8 +2877,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          logDebug('title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = (pos.x - margin.left) / plotW;
+          const relY = (pos.y - margin.top) / plotH;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          logDebug('title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -2855,7 +2950,7 @@
       const legendGapPx = Number.isFinite(legendLayout.legendGapPx) ? legendLayout.legendGapPx : 12;
       const defaultLegendX = margin.left + plotW + legendGapPx;
       const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
-      const legendGroup = drawSurvivalLegend(svg, legendLayout, { x: defaultLegendX, y: defaultLegendY });
+      const legendGroup = drawSurvivalLegend(svg, legendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: width, height: height });
       if(!legendGroup){
         logDebug('legend draw skipped', { reason: 'render-failed', legendVisible, entryCount: legendRenderer.entries.length });
       }

@@ -2550,9 +2550,25 @@
     const defaultTitleX = stageWidth / 2;
     const defaultTitleY = Math.max(style.fontSizePx * 1.6, titlePadding * 0.55);
     const titlePos = state.labelPositions?.title;
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = titlePos.relX * stageWidth;
+        absoluteTitleY = titlePos.relY * stageHeight;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
     const titleText = makeEl('text', {
-      x: titlePos?.x ?? defaultTitleX,
-      y: titlePos?.y ?? defaultTitleY,
+      x: absoluteTitleX,
+      y: absoluteTitleY,
       'text-anchor': 'middle',
       'font-size': style.fontSizePx,
       fill: textColor,
@@ -2583,8 +2599,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, stage, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          debugLog('venn title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = pos.x / stageWidth;
+          const relY = pos.y / stageHeight;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          debugLog('venn title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }

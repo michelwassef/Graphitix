@@ -368,14 +368,33 @@
     });
   }
 
-  function drawPieLegend(svg, legendLayout, defaults = {}){
+  function drawPieLegend(svg, legendLayout, defaults = {}, svgDimensions = {}){
     const renderer = legendLayout?.renderer;
     if(!svg || !renderer || !renderer.entries.length){
       return null;
     }
     const stored = state.labelPositions || {};
-    const resolvedX = Number.isFinite(stored?.legend?.x) ? stored.legend.x : (Number.isFinite(defaults.x) ? defaults.x : 0);
-    const resolvedY = Number.isFinite(stored?.legend?.y) ? stored.legend.y : (Number.isFinite(defaults.y) ? defaults.y : 0);
+    
+    // Get SVG dimensions for relative positioning
+    const svgWidth = svgDimensions.width || (svg.getAttribute('width') ? parseFloat(svg.getAttribute('width')) : 500);
+    const svgHeight = svgDimensions.height || (svg.getAttribute('height') ? parseFloat(svg.getAttribute('height')) : 400);
+    
+    let resolvedX = Number.isFinite(defaults.x) ? defaults.x : 0;
+    let resolvedY = Number.isFinite(defaults.y) ? defaults.y : 0;
+    
+    // Convert relative positions to absolute if needed
+    if (stored?.legend) {
+      if (stored.legend.relX !== undefined && stored.legend.relY !== undefined) {
+        // Use relative positioning
+        resolvedX = stored.legend.relX * svgWidth;
+        resolvedY = stored.legend.relY * svgHeight;
+      } else if (stored.legend.x !== undefined && stored.legend.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        resolvedX = stored.legend.x;
+        resolvedY = stored.legend.y;
+      }
+    }
+    
     const legendGroup = renderer.draw(svg, { x: resolvedX, y: resolvedY });
     if(!legendGroup){
       return null;
@@ -389,9 +408,17 @@
         undoLabel: 'pie-legend',
         onDragEnd: pos => {
           state.labelPositions = state.labelPositions || { title: null, legend: null };
-          state.labelPositions.legend = { x: pos.x, y: pos.y };
+          // Store both absolute and relative positions
+          const relX = pos.x / svgWidth;
+          const relY = pos.y / svgHeight;
+          state.labelPositions.legend = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
           if(Shared.isDebugEnabled?.()){
-            console.debug('Debug: pie legend position saved', pos);
+            console.debug('Debug: pie legend position saved', { absolute: pos, relative: { relX, relY } });
           }
         }
       });
@@ -1229,7 +1256,7 @@
         const legendRenderer = stackedLegendLayout.renderer;
         const defaultLegendX = margin.left + chartWidth + stackedLegendLayout.legendGapPx;
         const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
-        const legendGroup = drawPieLegend(svg, stackedLegendLayout, { x: defaultLegendX, y: defaultLegendY });
+        const legendGroup = drawPieLegend(svg, stackedLegendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: svgWidth, height: svgHeight });
         if(!legendGroup){
           console.debug('Debug: pie legend skipped',{ legendVisible: stackedLegendVisible, segmentCount: segmentLabels.length, reason: 'draw-failed' });
         }
@@ -1505,9 +1532,25 @@
     const defaultTitleX = svgWidth/2;
     const defaultTitleY = fs*1.2;
     const titlePos = state.labelPositions?.title;
+    
+    // Convert relative positions to absolute if needed
+    let absoluteTitleX = defaultTitleX;
+    let absoluteTitleY = defaultTitleY;
+    if (titlePos) {
+      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
+        // Use relative positioning
+        absoluteTitleX = titlePos.relX * svgWidth;
+        absoluteTitleY = titlePos.relY * svgHeight;
+      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
+        // Use absolute positioning (backward compatibility)
+        absoluteTitleX = titlePos.x;
+        absoluteTitleY = titlePos.y;
+      }
+    }
+    
     const title=document.createElementNS(NS,'text');
-    title.setAttribute('x', titlePos?.x ?? defaultTitleX);
-    title.setAttribute('y', titlePos?.y ?? defaultTitleY);
+    title.setAttribute('x', absoluteTitleX);
+    title.setAttribute('y', absoluteTitleY);
     title.setAttribute('text-anchor','middle');
     title.setAttribute('font-size',fs);
     title.textContent=state.titleText;
@@ -1526,8 +1569,16 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(title, svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = { x: pos.x, y: pos.y };
-          console.debug('Debug: pie title position saved', pos);
+          // Store both absolute and relative positions
+          const relX = pos.x / svgWidth;
+          const relY = pos.y / svgHeight;
+          state.labelPositions.title = { 
+            x: pos.x, 
+            y: pos.y,
+            relX: relX, 
+            relY: relY 
+          };
+          console.debug('Debug: pie title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -1542,7 +1593,7 @@
         defaultLegendX = padding;
       }
       const defaultLegendY = contentTop;
-      const legendGroup = drawPieLegend(svg, radialLegendLayout, { x: defaultLegendX, y: defaultLegendY });
+      const legendGroup = drawPieLegend(svg, radialLegendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: svgWidth, height: svgHeight });
       if(!legendGroup){
         console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length, reason: 'draw-failed' });
       }
