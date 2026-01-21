@@ -150,6 +150,49 @@
 
   Shared.formatPValue = sharedFormatPValue;
 
+  function formatShortNumber(value, options){
+    const opts = options || {};
+    const emptyValue = typeof opts.emptyValue === 'string' ? opts.emptyValue : 'n/a';
+    const maxSignificantDigits = Number.isFinite(opts.maxSignificantDigits)
+      ? opts.maxSignificantDigits
+      : 6;
+    if(value === null || value === undefined){
+      return emptyValue;
+    }
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value)){
+        return String(value);
+      }
+      return value.toLocaleString('en-US', { maximumSignificantDigits: maxSignificantDigits });
+    }
+    const numeric = Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric.toLocaleString('en-US', { maximumSignificantDigits: maxSignificantDigits });
+    }
+    return String(value);
+  }
+
+  function formatFixedNumber(value, options){
+    const opts = options || {};
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return typeof opts.emptyValue === 'string' ? opts.emptyValue : '-';
+    }
+    const decimals = Number.isFinite(opts.decimals) ? opts.decimals : 4;
+    return num.toFixed(decimals);
+  }
+
+  const formatters = Shared.formatters = Shared.formatters || {};
+  if(typeof formatters.formatShortNumber !== 'function'){
+    formatters.formatShortNumber = formatShortNumber;
+  }
+  if(typeof formatters.formatFixedNumber !== 'function'){
+    formatters.formatFixedNumber = formatFixedNumber;
+  }
+  if(typeof formatters.formatPValue !== 'function'){
+    formatters.formatPValue = sharedFormatPValue;
+  }
+
   function sanitizeP(value){
     const num = Number(value);
     if(!Number.isFinite(num) || num < 0){

@@ -127,8 +127,25 @@
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
   const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
 
-  const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
-  if(typeof global.DEFAULT_SCATTER_COLORS === 'undefined') global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  const palette = Shared.palette = Shared.palette || {};
+  if(typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/palette.js');
+    } catch(err) {
+      // ignore palette preload failures
+    }
+  }
+  const DEFAULT_SCATTER_COLORS = typeof palette.ensureDefaultScatterColors === 'function'
+    ? palette.ensureDefaultScatterColors()
+    : (Array.isArray(palette.DEFAULT_SCATTER_COLORS) && palette.DEFAULT_SCATTER_COLORS.length
+      ? palette.DEFAULT_SCATTER_COLORS
+      : global.DEFAULT_SCATTER_COLORS);
+  if(Array.isArray(DEFAULT_SCATTER_COLORS) && DEFAULT_SCATTER_COLORS.length){
+    palette.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+    if(typeof global.DEFAULT_SCATTER_COLORS === 'undefined'){
+      global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+    }
+  }
 
   const SIGNIFICANT_COLOR = (typeof global.SIGNIFICANT_COLOR !== 'undefined' && global.SIGNIFICANT_COLOR) 
     ? global.SIGNIFICANT_COLOR
@@ -962,6 +979,10 @@
   }
 
   function formatScatterTooltipNumber(value){
+    const formatter = Shared.formatters?.formatShortNumber;
+    if(typeof formatter === 'function'){
+      return formatter(value, { emptyValue: 'n/a' });
+    }
     if(value === null || value === undefined){ return 'n/a'; }
     if(typeof value === 'number'){
       if(!Number.isFinite(value)){ return String(value); }
@@ -3391,6 +3412,10 @@
 
   function attachScatterSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'scatter');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
@@ -3910,8 +3935,9 @@
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
     if(!Number.isFinite(p)) return p > 0 ? 'Infinity' : '-Infinity';
-    if(typeof Shared?.formatPValue === 'function'){
-      return Shared.formatPValue(p);
+    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(typeof formatter === 'function'){
+      return formatter(p);
     }
     if(p === 0) return '0';
     return Number(p).toExponential(5);

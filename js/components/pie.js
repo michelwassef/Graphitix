@@ -87,6 +87,10 @@
 
   function attachPieSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'pie');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;

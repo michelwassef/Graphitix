@@ -4,6 +4,19 @@
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
+  const debug = (message, payload) => {
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(typeof payload === 'undefined'){
+        console.debug(message);
+      }else{
+        console.debug(message, payload);
+      }
+    }
+  };
 
   let cssApplied = false;
 
@@ -23,7 +36,7 @@
       aspectRatio: chartStyle?.DEFAULT_ASPECT_RATIO || 1,
       aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED !== false
     };
-    console.debug('Debug: graphSizing.computeFallbackSizing', { context, sizing });
+    debug('Debug: graphSizing.computeFallbackSizing', { context, sizing });
     return sizing;
   }
 
@@ -57,14 +70,14 @@
     if(!sizing){
       sizing = computeFallbackSizing(context);
     }
-    console.debug('Debug: graphSizing.getSizing resolved', { context, sizing });
+    debug('Debug: graphSizing.getSizing resolved', { context, sizing });
     return sizing;
   }
 
   function setCssVariables(target, sizing){
     const style = target?.style;
     if(!style || !sizing){
-      console.debug('Debug: graphSizing.setCssVariables skipped', { hasStyle: !!style, hasSizing: !!sizing });
+      debug('Debug: graphSizing.setCssVariables skipped', { hasStyle: !!style, hasSizing: !!sizing });
       return;
     }
     const toPx = value => Number.isFinite(value) ? `${Math.round(value)}px` : null;
@@ -84,7 +97,7 @@
         style.setProperty(prop, value);
       }
     });
-    console.debug('Debug: graphSizing.setCssVariables applied', { sizing });
+    debug('Debug: graphSizing.setCssVariables applied', { sizing });
   }
 
   graphSizing.getSizing = function getSizing(options){
@@ -100,15 +113,15 @@
     if(doc?.documentElement){
       setCssVariables(doc.documentElement, sizing);
       cssApplied = true;
-      console.debug('Debug: graphSizing.ensureCssVariables success', { context: options.context || null, width: sizing.width, height: sizing.height });
+      debug('Debug: graphSizing.ensureCssVariables success', { context: options.context || null, width: sizing.width, height: sizing.height });
     } else {
-      console.debug('Debug: graphSizing.ensureCssVariables skipped', { hasDocument: !!doc });
+      debug('Debug: graphSizing.ensureCssVariables skipped', { hasDocument: !!doc });
     }
   };
 
   graphSizing.applySizingToElement = function applySizingToElement(element, options = {}){
     if(!element){
-      console.debug('Debug: graphSizing.applySizingToElement skipped', { reason: 'missing-element' });
+      debug('Debug: graphSizing.applySizingToElement skipped', { reason: 'missing-element' });
       return null;
     }
     const sizing = getSizingInternal({ context: options.context || element.id || 'element' });
@@ -133,7 +146,7 @@
     dataset.graphMaxHeight = String(sizing.maxHeight);
     dataset.graphAspectRatio = String(Number.isFinite(sizing.aspectRatio) ? sizing.aspectRatio : 1);
     dataset.graphAspectLocked = sizing.aspectLocked !== false ? 'true' : 'false';
-    console.debug('Debug: graphSizing.applySizingToElement applied', {
+    debug('Debug: graphSizing.applySizingToElement applied', {
       context: options.context || null,
       width: sizing.width,
       height: sizing.height

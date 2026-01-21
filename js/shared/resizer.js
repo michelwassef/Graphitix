@@ -130,6 +130,7 @@
       const onMove = (ev) => {
         const clientX = Number(ev?.clientX) || 0;
         const dx = clientX - startX;
+        const growRight = dx >= 0;
         const proposedTable = startTable + dx;
         const clampedBase = Number.isFinite(total) ? Math.min(total, proposedTable) : proposedTable;
         const newTable = Math.max(minTable, clampedBase);

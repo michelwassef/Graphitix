@@ -1264,9 +1264,13 @@
 
   // Compute and render histogram summary statistics
   function formatNumber(value, decimals){
+    const formatter = Shared.formatters?.formatFixedNumber;
+    if(typeof formatter === 'function'){
+      return formatter(value, { decimals, emptyValue: '-' });
+    }
     const num = Number(value);
     if(!Number.isFinite(num)){
-      return '—';
+      return '-';
     }
     const places = Number.isFinite(decimals) ? decimals : 4;
     return num.toFixed(places);
@@ -1277,8 +1281,9 @@
     if(!Number.isFinite(num)){
       return '\u2014';
     }
-    if(typeof Shared?.formatPValue === 'function'){
-      return Shared.formatPValue(num);
+    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(typeof formatter === 'function'){
+      return formatter(num);
     }
     return num <= 0 ? '0' : num.toExponential(5);
   }

@@ -1,15 +1,29 @@
 (function() {
   "use strict";
   const Main = window.Main = window.Main || {};
+  const Shared = window.Shared = window.Shared || {};
   const namespace = Main.bootstrap = Main.bootstrap || {};
-  console.debug('Debug: Main.bootstrap namespace initialized', { module: 'js/main/bootstrap.js' });
+  const debug = (message, payload) => {
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(typeof payload === 'undefined'){
+        console.debug(message);
+      }else{
+        console.debug(message, payload);
+      }
+    }
+  };
+  debug('Debug: Main.bootstrap namespace initialized', { module: 'js/main/bootstrap.js' });
 
   if(typeof require === 'function'){
     try {
       require('../shared/workspaceToolbar.js');
-      console.debug('Debug: Main.bootstrap workspaceToolbar required');
+      debug('Debug: Main.bootstrap workspaceToolbar required');
     } catch(err){
-      console.debug('Debug: Main.bootstrap workspaceToolbar require failed', { err });
+      debug('Debug: Main.bootstrap workspaceToolbar require failed', { err });
     }
   }
 
@@ -43,7 +57,7 @@
     const hideWorkspaceElement = config => domControls.hideWorkspaceElement(config);
     const registry = Object.values(workspaces || {}).filter(Boolean);
     if (!registry.length) {
-      console.debug('Debug: runComponentBootstrap skipped', { reason: 'no-workspaces' });
+      debug('Debug: runComponentBootstrap skipped', { reason: 'no-workspaces' });
       return;
     }
 
@@ -63,7 +77,7 @@
     if (!initialConfig) {
       initialConfig = registry[0] || null;
       if (initialConfig) {
-        console.debug('Debug: runComponentBootstrap default workspace selected', { type: initialConfig.type });
+        debug('Debug: runComponentBootstrap default workspace selected', { type: initialConfig.type });
       }
     }
 
@@ -78,7 +92,7 @@
             domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-active' });
           }
           ensureDefaultPayload(config.type, config);
-          console.debug('Debug: bootstrap ensured initial workspace', { type: config.type });
+          debug('Debug: bootstrap ensured initial workspace', { type: config.type });
         };
         if (typeof config.ensure === 'function') {
           try {
@@ -94,14 +108,14 @@
             console.error('bootstrap ensure error', { type: config.type, err });
           }
         } else {
-          console.debug('Debug: bootstrap initial workspace missing ensure', { type: config.type });
+          debug('Debug: bootstrap initial workspace missing ensure', { type: config.type });
           if (typeof domControls.markWorkspaceInitialized === 'function') {
             domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-no-ensure' });
           }
           ensureDefaultPayload(config.type, config);
         }
       } else {
-        console.debug('Debug: bootstrap ensure skipped', {
+        debug('Debug: bootstrap ensure skipped', {
           type: config.type,
           reason: 'not-initial-workspace'
         });
@@ -109,7 +123,7 @@
       hideWorkspaceElement(config);
     });
 
-    console.debug('Debug: Main.bootstrap component bootstrap executed', {
+    debug('Debug: Main.bootstrap component bootstrap executed', {
       count: registry.length,
       initialType: initialConfig ? initialConfig.type : null,
       initializedTypes
@@ -118,7 +132,7 @@
 
   namespace.init = function init(main) {
     const target = validateMain(main || Main);
-    console.debug('Debug: Main.bootstrap.init invoked', { hasMain: !!target });
+    debug('Debug: Main.bootstrap.init invoked', { hasMain: !!target });
 
     const session = target.session;
     const previews = target.previews;
@@ -160,7 +174,7 @@
 
     runComponentBootstrap({ workspaces, domControls, session });
 
-    console.debug('Debug: Main.bootstrap.init completed', {
+    debug('Debug: Main.bootstrap.init completed', {
       tabs: workspaceState.tabs?.length || 0,
       workspaces: Object.keys(workspaces).length,
       graphVariants: graphVariants.length

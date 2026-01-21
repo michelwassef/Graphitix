@@ -794,6 +794,10 @@
 
   function attachHeatmapSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'heatmap');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;

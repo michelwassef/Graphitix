@@ -185,6 +185,10 @@
   }
 
   function formatBoxTooltipNumber(value){
+    const formatter = Shared.formatters?.formatShortNumber;
+    if(typeof formatter === 'function'){
+      return formatter(value, { emptyValue: 'n/a' });
+    }
     if(value === null || value === undefined){ return 'n/a'; }
     if(typeof value === 'number'){
       if(!Number.isFinite(value)){ return String(value); }
@@ -2655,6 +2659,10 @@
 
   function attachBoxSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'box');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
@@ -6958,8 +6966,9 @@
     return p2stars(p);
   }
   function formatP(value, options){
-    if(typeof Shared?.formatPValue === 'function'){
-      return Shared.formatPValue(value, options);
+    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(typeof formatter === 'function'){
+      return formatter(value, options);
     }
     if(!Number.isFinite(value)){
       return String(value);

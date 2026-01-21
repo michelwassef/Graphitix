@@ -122,8 +122,61 @@
     };
   }
 
+  function attachSelectAutoSize(select, options = {}){
+    if(!select){ return () => {}; }
+    const opts = typeof options === 'string' ? { label: options } : (options || {});
+    const contextLabel = opts.label || opts.context || null;
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const debug = typeof Shared.debug === 'function'
+      ? Shared.debug
+      : (message, payload) => {
+          if(typeof Shared.isDebugEnabled !== 'function' || !Shared.isDebugEnabled()){
+            return;
+          }
+          if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+            if(typeof payload === 'undefined'){
+              console.debug(message);
+            }else{
+              console.debug(message, payload);
+            }
+          }
+        };
+    const labelText = contextLabel ? `Debug: ${contextLabel} select auto-size` : 'Debug: select auto-size';
+    try{
+      if(watcher){
+        const cleanup = watcher(select);
+        debug(`${labelText} watcher attached`, {
+          id: select.id || null,
+          label: contextLabel
+        });
+        return cleanup || (() => {});
+      }
+      if(autoSizer){
+        autoSizer(select);
+        debug(`${labelText} applied without watcher`, {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }else{
+        debug(`${labelText} helper unavailable`, {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      debug(`${labelText} attach error`, {
+        id: select.id || null,
+        label: contextLabel,
+        error: err?.message || String(err)
+      });
+    }
+    return () => {};
+  }
+
   formControls.ensureSelectMeasure = ensureSelectMeasure;
   formControls.computeSelectWidth = computeSelectWidth;
   formControls.autoSizeSelect = autoSizeSelect;
   formControls.watchSelectAutoSize = watchSelectAutoSize;
+  formControls.attachSelectAutoSize = attachSelectAutoSize;
 })(window);

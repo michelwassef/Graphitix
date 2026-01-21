@@ -121,7 +121,23 @@
     epochs: 400,
     negativeSampleRate: 5
   });
-  const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+  const palette = Shared.palette = Shared.palette || {};
+  if(typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/palette.js');
+    }catch(err){
+      // ignore palette preload failures
+    }
+  }
+  const DEFAULT_SCATTER_COLORS = typeof palette.ensureDefaultScatterColors === 'function'
+    ? palette.ensureDefaultScatterColors()
+    : (Array.isArray(palette.DEFAULT_SCATTER_COLORS) && palette.DEFAULT_SCATTER_COLORS.length
+      ? palette.DEFAULT_SCATTER_COLORS
+      : global.DEFAULT_SCATTER_COLORS);
+  if(Array.isArray(DEFAULT_SCATTER_COLORS) && DEFAULT_SCATTER_COLORS.length){
+    palette.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+    global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  }
   const GROUP_SHAPE_OPTIONS = Shared.getShapePickerOptions
     ? Shared.getShapePickerOptions()
     : Object.freeze([
@@ -537,7 +553,7 @@
     let pcaScheduleProxyCount = 0;
     let lastKeyDownAt = 0;
     let pcaHot = null;
-    const scheduleDrawPcaProxy = () => {
+    const scheduleDrawPcaProxy = (payload) => {
       pcaScheduleProxyCount += 1;
       if(pcaScheduleProxyCount <= 5){
         debugLog('Debug: pca scheduleDraw proxy invoked', { count: pcaScheduleProxyCount });
@@ -545,8 +561,22 @@
           debugLog('Debug: pca scheduleDraw proxy suppressing further logs');
         }
       }
-      markPcaDataDirty('hot-change');
-      scheduleDrawPca({ reason: 'hot-change' });
+      const meta = payload && typeof payload === 'object'
+        ? payload
+        : (typeof payload === 'string' ? { reason: payload } : {});
+      const reason = meta.reason || 'hot-change';
+      const source = meta.source || null;
+      const options = { ...meta, reason };
+      const shouldSuppressPending = reason === 'afterLoadData'
+        || source === 'loadData'
+        || source === 'pca-label-row'
+        || source === 'pca-empty-defaults'
+        || source === 'pca-loadData';
+      if(!Object.prototype.hasOwnProperty.call(options, 'markPending') && shouldSuppressPending){
+        options.markPending = false;
+      }
+      markPcaDataDirty(reason);
+      scheduleDrawPca(options);
     };
     pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
       debugLabel: 'pca',
@@ -1132,6 +1162,10 @@
   }
 
   function formatPcaTooltipNumber(value){
+    const formatter = Shared.formatters?.formatShortNumber;
+    if(typeof formatter === 'function'){
+      return formatter(value, { emptyValue: 'n/a' });
+    }
     if(value === null || value === undefined){ return 'n/a'; }
     if(typeof value === 'number'){
       if(!Number.isFinite(value)){ return String(value); }
@@ -1723,6 +1757,10 @@
 
   function attachPcaSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'pca');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
@@ -2461,6 +2499,7 @@
   function scheduleDrawPcaWrapper(options){
     const opts = normalizeDrawOptions(options);
     mergePendingDrawOptions(opts);
+    const shouldMarkPending = opts.markPending !== false;
     if(opts.viewOnly){
       if(typeof scheduleDrawPcaRaw === 'function'){
         scheduleDrawPcaRaw();
@@ -2490,9 +2529,14 @@
       return;
     }
     if(!pcaState.autoDrawEnabled){
-      pcaState.drawPending = true;
+      if(shouldMarkPending){
+        pcaState.drawPending = true;
+      }
       updateAutoDrawUi(opts);
-      debugLog('Debug: pca draw suppressed', { reason: opts.reason || 'auto-draw-disabled' });
+      debugLog('Debug: pca draw suppressed', {
+        reason: opts.reason || 'auto-draw-disabled',
+        markPending: shouldMarkPending
+      });
       return;
     }
     pcaState.drawPending = false;
@@ -6243,6 +6287,7 @@
         const defaultTitleY3 = Math.max(fs, margin3.top * 0.5);
         const defaultTitleX3 = margin3.left + plotW3 / 2;
         const titlePos = pcaState.labelPositions?.title;
+        const hasTitlePos = !!titlePos;
         
         // Convert relative positions to absolute if needed for 3D title
         let absoluteTitleX3 = defaultTitleX3;
@@ -8030,6 +8075,12 @@
       const emptyData = typeof createEmpty === 'function'
         ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
         : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+      if(Array.isArray(emptyData[0])){
+        emptyData[0][0] = PCA_POINT_LABEL_ROW_HEADER;
+        for(let c = 1; c < emptyData[0].length; c += 1){
+          emptyData[0][c] = false;
+        }
+      }
       payload.data = emptyData;
       payload.exclusions = [];
       payload.stats = null;

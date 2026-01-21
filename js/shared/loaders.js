@@ -2,11 +2,49 @@
   'use strict';
 
   const Shared = global.Shared = global.Shared || {};
+  const debugState = Shared.__debugState || { enabled: false };
+  Shared.__debugState = debugState;
+
+  if(typeof Shared.setDebugLogging !== 'function'){
+    Shared.setDebugLogging = function setDebugLogging(enabled){
+      debugState.enabled = !!enabled;
+      return debugState.enabled;
+    };
+  }
+  if(typeof Shared.enableDebugLogging !== 'function'){
+    Shared.enableDebugLogging = function enableDebugLogging(){
+      return Shared.setDebugLogging(true);
+    };
+  }
+  if(typeof Shared.disableDebugLogging !== 'function'){
+    Shared.disableDebugLogging = function disableDebugLogging(){
+      return Shared.setDebugLogging(false);
+    };
+  }
+  if(typeof Shared.isDebugEnabled !== 'function'){
+    Shared.isDebugEnabled = function isDebugEnabled(){
+      return !!debugState.enabled;
+    };
+  }
+  if(typeof Shared.debug !== 'function'){
+    Shared.debug = function debug(message, payload){
+      if(!Shared.isDebugEnabled()){
+        return;
+      }
+      if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+        if(typeof payload === 'undefined'){
+          console.debug(message);
+        }else{
+          console.debug(message, payload);
+        }
+      }
+    };
+  }
 
   const loaderState = {};
 
   function debugLog(name, phase, detail) {
-    console.debug(`Debug: loaders.${name}.${phase}`, detail || {}); // Debug: loader lifecycle trace
+    Shared.debug(`Debug: loaders.${name}.${phase}`, detail || {}); // Debug: loader lifecycle trace
   }
 
   function createScriptLoader({ name, url, globalKey }) {

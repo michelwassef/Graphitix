@@ -146,8 +146,23 @@
       emptyPayloadTemplate = cloneSimple(snapshot);
     }
   }
-  const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
-  global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  const palette = Shared.palette = Shared.palette || {};
+  if(typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/palette.js');
+    }catch(err){
+      // ignore palette preload failures
+    }
+  }
+  const DEFAULT_SCATTER_COLORS = typeof palette.ensureDefaultScatterColors === 'function'
+    ? palette.ensureDefaultScatterColors()
+    : (Array.isArray(palette.DEFAULT_SCATTER_COLORS) && palette.DEFAULT_SCATTER_COLORS.length
+      ? palette.DEFAULT_SCATTER_COLORS
+      : global.DEFAULT_SCATTER_COLORS);
+  if(Array.isArray(DEFAULT_SCATTER_COLORS) && DEFAULT_SCATTER_COLORS.length){
+    palette.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+    global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  }
 
   const DEFAULT_AXIS_COLOR = '#000000';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
@@ -340,6 +355,10 @@
 
   function attachRocSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'roc');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
@@ -1347,8 +1366,9 @@
   }
 
   function formatPValue(value){
-    if(typeof Shared?.formatPValue === 'function'){
-      return Shared.formatPValue(value);
+    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(typeof formatter === 'function'){
+      return formatter(value);
     }
     if(typeof global.formatP === 'function'){
       return global.formatP(value);

@@ -1,9 +1,26 @@
 (function() {
   "use strict";
-  console.debug("Debug: main.js loaded");
 
   const Main = window.Main = window.Main || {};
   const Shared = window.Shared = window.Shared || {};
+  const debug = (message, payload) => {
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
+      return;
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(typeof payload === 'undefined'){
+        console.debug(message);
+      }else{
+        console.debug(message, payload);
+      }
+    }
+  };
+
+  debug("Debug: main.js loaded");
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   if (typeof chartStyle.renderFontSizeLabel !== 'function') {
     chartStyle.renderFontSizeLabel = function fallbackFontLabel(options) {
@@ -30,7 +47,7 @@
           console.error('chartStyle.renderFontSizeLabel fallback input sync error', assignErr);
         }
       }
-      console.debug('Debug: chartStyle.renderFontSizeLabel fallback used', {
+      debug('Debug: chartStyle.renderFontSizeLabel fallback used', {
         hasElement: !!opts.element,
         hasInput: !!opts.input,
         displayPt: displayPt,
@@ -42,9 +59,9 @@
   if ((!Main.bootstrap || typeof Main.bootstrap.init !== 'function') && typeof require === 'function') {
     try {
       require('./main/bootstrap.js');
-      console.debug('Debug: main.js bootstrap fallback required via Node');
+      debug('Debug: main.js bootstrap fallback required via Node');
     } catch (err) {
-      console.debug('Debug: main.js bootstrap fallback require failed', { err });
+      debug('Debug: main.js bootstrap fallback require failed', { err });
     }
   }
   if ((!Main.tabs || typeof Main.tabs.createManager !== 'function') && typeof require === 'function') {
@@ -53,9 +70,9 @@
       require('./main/tabs/unsavedPrompt.js');
       require('./main/tabs/duplicatePrompt.js');
       require('./main/tabs.js');
-      console.debug('Debug: main.js tabs fallback required via Node (helpers + manager)');
+      debug('Debug: main.js tabs fallback required via Node (helpers + manager)');
     } catch (err) {
-      console.debug('Debug: main.js tabs fallback require failed', { err });
+      debug('Debug: main.js tabs fallback require failed', { err });
     }
   }
   if (!Main.bootstrap || typeof Main.bootstrap.init !== 'function') {
@@ -70,7 +87,7 @@
   }
 
   const bootstrap = Main.bootstrap.init(Main);
-  console.debug('Debug: main.js bootstrap context resolved', {
+  debug('Debug: main.js bootstrap context resolved', {
     hasSession: !!bootstrap?.session,
     hasPreviews: !!bootstrap?.previews,
     domReady: !!bootstrap?.dom
@@ -106,38 +123,40 @@
     console.error(message);
     throw new Error(message);
   }
-  console.debug('Debug: main.js session helpers verified', { helpers: requiredSessionHelpers });
+  debug('Debug: main.js session helpers verified', { helpers: requiredSessionHelpers });
 
   const scheduleDrawBoxplot = typeof MainComponents.scheduleDrawBoxplot === 'function'
     ? MainComponents.scheduleDrawBoxplot
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'boxplot' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'boxplot' });
   const scheduleDrawScatter = typeof MainComponents.scheduleDrawScatter === 'function'
     ? MainComponents.scheduleDrawScatter
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'scatter' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'scatter' });
   const scheduleDrawPca = typeof MainComponents.scheduleDrawPca === 'function'
     ? MainComponents.scheduleDrawPca
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'pca' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'pca' });
   const scheduleDrawLine = typeof MainComponents.scheduleDrawLine === 'function'
     ? MainComponents.scheduleDrawLine
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'line' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'line' });
   const scheduleDrawHeatmap = typeof MainComponents.scheduleDrawHeatmap === 'function'
     ? MainComponents.scheduleDrawHeatmap
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'heatmap' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'heatmap' });
   const scheduleDrawHist = typeof MainComponents.scheduleDrawHist === 'function'
     ? MainComponents.scheduleDrawHist
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'hist' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'hist' });
   const scheduleDrawPie = typeof MainComponents.scheduleDrawPie === 'function'
     ? MainComponents.scheduleDrawPie
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'pie' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'pie' });
   const scheduleDrawSurvival = typeof MainComponents.scheduleDrawSurvival === 'function'
     ? MainComponents.scheduleDrawSurvival
-    : () => console.debug('Debug: main scheduler fallback used', { type: 'survival' });
+    : () => debug('Debug: main scheduler fallback used', { type: 'survival' });
 
   // Shared color palette
-  const DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || [
-    '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
-    '#ffff33', '#a65628', '#f781bf', '#999999'
-  ];
+  const palette = Shared.palette = Shared.palette || {};
+  const DEFAULT_SCATTER_COLORS = typeof palette.ensureDefaultScatterColors === 'function'
+    ? palette.ensureDefaultScatterColors()
+    : (Array.isArray(palette.DEFAULT_SCATTER_COLORS) && palette.DEFAULT_SCATTER_COLORS.length
+      ? palette.DEFAULT_SCATTER_COLORS
+      : (Array.isArray(window.DEFAULT_SCATTER_COLORS) ? window.DEFAULT_SCATTER_COLORS : []));
   window.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
   // Color picker fallback
@@ -153,34 +172,34 @@
       document.querySelectorAll('input[type="color"]').forEach(el => {
         if (el !== overlay) attachColorPickerNear(el);
       });
-      console.debug('Debug: color overlay initialized', { overlay: !!overlay });
+      debug('Debug: color overlay initialized', { overlay: !!overlay });
     }
   })();
 
   // Fallback for jQuery-like selector
   const fallbackDollar = (selector) => {
     const el = document.querySelector(selector);
-    console.debug('Debug: fallback $ helper used', { selector, found: !!el });
+    debug('Debug: fallback $ helper used', { selector, found: !!el });
     return el;
   };
   const hasCustomDollar = typeof window.$ === 'function' && !(window.$.fn?.jquery);
   const $ = hasCustomDollar ? window.$ : fallbackDollar;
   if (!hasCustomDollar) {
     window.$ = fallbackDollar;
-    console.debug('Debug: window.$ fallback installed');
+    debug('Debug: window.$ fallback installed');
   }
 
   if (typeof Shared.makeEditable === 'function') {
     window.makeEditable = Shared.makeEditable;
-    console.debug('Debug: main linked Shared.makeEditable', { hasShared: true }); // Debug: shared makeEditable bridge
+    debug('Debug: main linked Shared.makeEditable', { hasShared: true }); // Debug: shared makeEditable bridge
   }
   if (typeof Shared.autoResizeSvg === 'function') {
     window.autoResizeSvg = Shared.autoResizeSvg;
-    console.debug('Debug: main linked Shared.autoResizeSvg', { hasShared: true }); // Debug: shared autoResize bridge
+    debug('Debug: main linked Shared.autoResizeSvg', { hasShared: true }); // Debug: shared autoResize bridge
   }
   if (typeof Shared.serializeCleanSVG === 'function') {
     window.serializeCleanSVG = Shared.serializeCleanSVG;
-    console.debug('Debug: main linked Shared.serializeCleanSVG', { hasShared: true }); // Debug: shared serialize bridge
+    debug('Debug: main linked Shared.serializeCleanSVG', { hasShared: true }); // Debug: shared serialize bridge
   }
 
   // Workspace layout state and configuration
@@ -188,7 +207,7 @@
     chartStyle.onTextSizeLockChange((locked, origin, details) => {
       const scopeId = details?.scopeId || null;
       const normalizedScope = scopeId && scopeId.endsWith('-scope') ? scopeId.replace(/-scope$/, '') : scopeId;
-      console.debug('Debug: main text size lock broadcast', {
+      debug('Debug: main text size lock broadcast', {
         locked,
         origin,
         scope: normalizedScope || 'global'
@@ -224,7 +243,7 @@
       }
     }, { origin: 'main-text-lock-listener' });
   } else {
-    console.debug('Debug: main text size lock setup skipped', {
+    debug('Debug: main text size lock setup skipped', {
       hasOnChange: typeof chartStyle.onTextSizeLockChange === 'function',
       hasSetter: typeof chartStyle.setTextSizeLock === 'function'
     });
@@ -243,7 +262,7 @@
     workspaceState,
     withSessionContext
   });
-  console.debug('Debug: main.js tabs manager ready', { hasManager: !!tabsManager });
+  debug('Debug: main.js tabs manager ready', { hasManager: !!tabsManager });
 
   const { initializeWorkspace } = tabsManager;
 
@@ -259,7 +278,7 @@
     })
     : null;
   if (!styleSyncApi) {
-    console.debug('Debug: styleSync init skipped or unavailable');
+    debug('Debug: styleSync init skipped or unavailable');
   }
 
   const getSessionActionsContext = () => tabsManager.getSessionActionsContext();
@@ -300,7 +319,7 @@
 
   async function importGraphFileFromWelcome(file, meta = {}) {
     if (!file) {
-      console.debug('Debug: welcome graph import skipped', { reason: 'no-file' });
+      debug('Debug: welcome graph import skipped', { reason: 'no-file' });
       return false;
     }
     let text;
@@ -368,21 +387,12 @@
     } catch (err) {
       console.error('welcome graph apply error', { type, err });
     }
-    console.debug('Debug: welcome graph imported', { type, tabId: activeTab.id });
+    debug('Debug: welcome graph imported', { type, tabId: activeTab.id });
     return true;
   }
 
   function debugInteraction(message, payload) {
-    try {
-      if (typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()) {
-        return;
-      }
-    } catch (err) {
-      // ignore debug toggle errors; fall through to log
-    }
-    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
-      console.debug(message, payload || {});
-    }
+    debug(message, payload || {});
   }
 
   function findClosestInteractive(target, selector) {
@@ -438,7 +448,7 @@
           }
         }
       });
-      console.debug('Debug: welcome graph picker result', { status: result?.status, via: result?.via });
+      debug('Debug: welcome graph picker result', { status: result?.status, via: result?.via });
     } catch (err) {
       console.error('handleWelcomeGraphOpen error', err);
     }
@@ -448,7 +458,7 @@
     const input = event?.target;
     const file = input?.files && input.files[0];
     if (!file) {
-      console.debug('Debug: welcome graph input change without file');
+      debug('Debug: welcome graph input change without file');
       return;
     }
     void importGraphFileFromWelcome(file, { fileName: file.name }).catch(err => {
@@ -573,10 +583,10 @@
       const message = 'You have unsaved workspace changes. Save your session before leaving?';
       event.preventDefault();
       event.returnValue = message;
-      console.debug('Debug: beforeunload prompt engaged', { message }); // Debug: beforeunload trigger trace
+      debug('Debug: beforeunload prompt engaged', { message }); // Debug: beforeunload trigger trace
       return message;
     }
-    console.debug('Debug: beforeunload bypassed', { dirty: workspaceState.sessionDirty }); // Debug: beforeunload bypass trace
+    debug('Debug: beforeunload bypassed', { dirty: workspaceState.sessionDirty }); // Debug: beforeunload bypass trace
     return undefined;
   });
 

@@ -8,7 +8,14 @@
   const DEFAULT_FILE_TYPES = [{description: 'Graph Files', accept: {'application/json': ['.graph']}}];
 
   function debug(label, details){
-    console.debug(`Debug: fileIO.${label}`, details);
+    const message = `Debug: fileIO.${label}`;
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, details);
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      console.debug(message, details);
+    }
   }
 
   function ensureName(name, fallback){

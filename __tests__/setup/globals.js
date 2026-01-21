@@ -2,6 +2,7 @@
 // - Provides DOM-related polyfills and library stubs used by js/main.js
 
 const { TextEncoder, TextDecoder } = require('util');
+require('../../js/shared/palette.js');
 
 // Console noise control: keep debug but mark clearly
 // (Developers can filter these in CI if needed)

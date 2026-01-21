@@ -14,6 +14,22 @@
     }
   };
   const formControls = Shared.formControls = Shared.formControls || {};
+  const debug = (message, payload) => {
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
+      return;
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(typeof payload === 'undefined'){
+        console.debug(message);
+      }else{
+        console.debug(message, payload);
+      }
+    }
+  };
   const Components = global.Components = global.Components || {};
   const venn = Components.venn = Components.venn || {};
   venn.__installed = true;
@@ -21,11 +37,11 @@
 
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if (!fileIO.saveGraphFile) {
-    console.debug('Debug: venn component awaiting Shared.fileIO helpers');
+    debug('Debug: venn component awaiting Shared.fileIO helpers');
   }
 
   const debugLog = (label, payload) => {
-    console.debug(`Debug: venn ${label}`, payload || {});
+    debug(`Debug: venn ${label}`, payload || {});
   };
 
   const makeEditable = (el, onChange, options) => {
@@ -38,8 +54,9 @@
   };
 
   const formatSharedPValue = value => {
-    if(typeof Shared?.formatPValue === 'function'){
-      return Shared.formatPValue(value);
+    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(typeof formatter === 'function'){
+      return formatter(value);
     }
     if(!Number.isFinite(value)){
       return 'n/a';
@@ -49,6 +66,10 @@
 
   function attachVennSelectAutoSize(select, label){
     if(!select){ return; }
+    if(typeof formControls.attachSelectAutoSize === 'function'){
+      formControls.attachSelectAutoSize(select, label || 'venn');
+      return;
+    }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
     const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
@@ -57,7 +78,7 @@
       if(watcher){
         watcher(select);
         if(debugEnabled){
-          console.debug('Debug: venn select auto-size watcher attached', {
+          debug('Debug: venn select auto-size watcher attached', {
             id: select.id || null,
             label: contextLabel
           });
@@ -65,20 +86,20 @@
       }else if(autoSizer){
         autoSizer(select);
         if(debugEnabled){
-          console.debug('Debug: venn select auto-size applied without watcher', {
+          debug('Debug: venn select auto-size applied without watcher', {
             id: select.id || null,
             label: contextLabel
           });
         }
       }else if(debugEnabled){
-        console.debug('Debug: venn select auto-size helper unavailable', {
+        debug('Debug: venn select auto-size helper unavailable', {
           id: select.id || null,
           label: contextLabel
         });
       }
     }catch(err){
       if(debugEnabled){
-        console.debug('Debug: venn select auto-size attach error', {
+        debug('Debug: venn select auto-size attach error', {
           id: select.id || null,
           label: contextLabel,
           error: err?.message || String(err)
@@ -96,7 +117,7 @@
         active: null,
         delayMs: 1200
       };
-      console.debug('Debug: venn species detection state created'); // Debug: detection state init
+      debug('Debug: venn species detection state created'); // Debug: detection state init
     }
     return state.analysis.speciesDetection;
   }
@@ -131,13 +152,13 @@
     if (detection.pendingTimeoutId) {
       clearTimeout(detection.pendingTimeoutId);
       detection.pendingTimeoutId = null;
-      console.debug('Debug: venn species detect pending cleared', { reason }); // Debug: pending timer cleared
+      debug('Debug: venn species detect pending cleared', { reason }); // Debug: pending timer cleared
     }
     if (abortActive && detection.active?.controller) {
       try {
         detection.active.controller.abort(reason || 'cancelled');
       } catch (err) { /* noop */ }
-      console.debug('Debug: venn species detect active abort requested', { reason }); // Debug: abort requested
+      debug('Debug: venn species detect active abort requested', { reason }); // Debug: abort requested
     }
     if (resetIndicator) {
       setSpeciesIndicator(null);
@@ -152,7 +173,7 @@
     }
     if (!hasListContent(inputs)) {
       cancelPendingSpeciesDetection(reason, { abortActive: true, resetIndicator: true });
-      console.debug('Debug: venn species detect skipped scheduling', { reason, hasLists: false }); // Debug: schedule skipped
+      debug('Debug: venn species detect skipped scheduling', { reason, hasLists: false }); // Debug: schedule skipped
       return;
     }
     const delay = Number.isFinite(detection.delayMs) ? detection.delayMs : 1200;
@@ -164,13 +185,13 @@
       detection.pendingTimeoutId = null;
       recognizeSpeciesFromInput({ reason: `scheduled-${reason}` }).catch(err => {
         if (err && err.name === 'AbortError') {
-          console.debug('Debug: venn species detect schedule aborted', { reason }); // Debug: scheduled detection aborted
+          debug('Debug: venn species detect schedule aborted', { reason }); // Debug: scheduled detection aborted
         } else if (err) {
           console.warn('venn species detection schedule error', err);
         }
       });
     }, delay);
-    console.debug('Debug: venn species detect scheduled', { reason, delayMs: delay }); // Debug: detection scheduled
+    debug('Debug: venn species detect scheduled', { reason, delayMs: delay }); // Debug: detection scheduled
   }
 
   const ensureGraphViewport = Shared.graphViewport?.createEnsurer
@@ -202,45 +223,45 @@
   function resolveBindingTargets(target) {
     if (typeof target === 'function') {
       const resolved = target();
-      console.debug('Debug: venn resolveBindingTargets fn', { hasResolved: !!resolved }); // Debug: resolution via function
+      debug('Debug: venn resolveBindingTargets fn', { hasResolved: !!resolved }); // Debug: resolution via function
       return resolveBindingTargets(resolved);
     }
     if (!target) {
-      console.debug('Debug: venn resolveBindingTargets empty', { target }); // Debug: guard for missing targets
+      debug('Debug: venn resolveBindingTargets empty', { target }); // Debug: guard for missing targets
       return [];
     }
     if (typeof target === 'string') {
       const nodes = Array.from(document.querySelectorAll(target));
-      console.debug('Debug: venn resolveBindingTargets selector', { selector: target, count: nodes.length }); // Debug: selector resolution
+      debug('Debug: venn resolveBindingTargets selector', { selector: target, count: nodes.length }); // Debug: selector resolution
       return nodes;
     }
     if (typeof NodeList !== 'undefined' && target instanceof NodeList) {
       const nodes = Array.from(target).filter(Boolean);
-      console.debug('Debug: venn resolveBindingTargets nodeList', { count: nodes.length }); // Debug: NodeList resolution
+      debug('Debug: venn resolveBindingTargets nodeList', { count: nodes.length }); // Debug: NodeList resolution
       return nodes;
     }
     if (typeof HTMLCollection !== 'undefined' && target instanceof HTMLCollection) {
       const nodes = Array.from(target).filter(Boolean);
-      console.debug('Debug: venn resolveBindingTargets htmlCollection', { count: nodes.length }); // Debug: HTMLCollection resolution
+      debug('Debug: venn resolveBindingTargets htmlCollection', { count: nodes.length }); // Debug: HTMLCollection resolution
       return nodes;
     }
     if (Array.isArray(target)) {
       const nodes = target.flatMap(item => resolveBindingTargets(item)).filter(Boolean);
-      console.debug('Debug: venn resolveBindingTargets array', { count: nodes.length }); // Debug: array resolution
+      debug('Debug: venn resolveBindingTargets array', { count: nodes.length }); // Debug: array resolution
       return nodes;
     }
     if (target === document || target === window || (target instanceof Element)) {
-      console.debug('Debug: venn resolveBindingTargets element', { hasTarget: true }); // Debug: element resolution
+      debug('Debug: venn resolveBindingTargets element', { hasTarget: true }); // Debug: element resolution
       return [target];
     }
-    console.debug('Debug: venn resolveBindingTargets fallback', { targetType: typeof target }); // Debug: fallback resolution
+    debug('Debug: venn resolveBindingTargets fallback', { targetType: typeof target }); // Debug: fallback resolution
     return [];
   }
 
   /**
    * Binds event listeners described by configuration entries. Each config can
    * specify a selector, direct elements, or a resolver function for targets.
-   * Binding attempts are logged via console.debug to satisfy debugging
+   * Binding attempts are logged via debug to satisfy debugging
    * instrumentation requirements.
    * @param {Array<{selector?: string, elements?: any, type: string, handler: Function, options?: AddEventListenerOptions, label?: string}>} configs
    */
@@ -249,13 +270,13 @@
       const label = cfg.label || cfg.selector || 'anonymous';
       const targets = resolveBindingTargets(cfg.elements || cfg.selector);
       if (!targets.length) {
-        console.debug('Debug: venn bindEventHandlers skipped', { label, type: cfg.type }); // Debug: skipped binding
+        debug('Debug: venn bindEventHandlers skipped', { label, type: cfg.type }); // Debug: skipped binding
         return;
       }
       targets.forEach(target => {
         target.addEventListener(cfg.type, cfg.handler, cfg.options);
       });
-      console.debug('Debug: venn bindEventHandlers attached', { label, type: cfg.type, count: targets.length }); // Debug: binding attachment
+      debug('Debug: venn bindEventHandlers attached', { label, type: cfg.type, count: targets.length }); // Debug: binding attachment
     });
   }
 
@@ -359,7 +380,7 @@
    * @returns {VennComponentState}
    */
   function createInitialState() {
-    console.debug('Debug: venn createInitialState invoked'); // Debug: track initial state creation
+    debug('Debug: venn createInitialState invoked'); // Debug: track initial state creation
     return {
       ui: {
         scheduleDraw: null,
@@ -794,7 +815,7 @@
     svgEl.setAttribute('overflow', 'visible');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     if (debugEnabled) {
-      console.debug('Debug: venn string network viewport padded', {
+      debug('Debug: venn string network viewport padded', {
         padding,
         exportHeight,
         baseWidth,
@@ -1127,13 +1148,13 @@
     const svgBox = state.ui.svgBox || fallbackSvgBox || null;
     if (!state.ui.svgBox && svgBox) {
       state.ui.svgBox = svgBox;
-      console.debug('Debug: venn resolveFontInfo captured svgBox', { hasSvgBox: true });
+      debug('Debug: venn resolveFontInfo captured svgBox', { hasSvgBox: true });
     }
     const inputs = ensureInputs?.() || state.ui.inputs || {};
     const fontInput = inputs.fontsize || state.ui.inputs?.fontsize || document.getElementById('fontsize');
     if(fontInput && fontInput.dataset && typeof fontInput.dataset.fontBasePt === 'undefined'){
       fontInput.dataset.fontBasePt = String(fontInput.value || rawSize || '');
-      console.debug('Debug: venn font size base ensured', { value: fontInput.value }); // Debug: ensure base dataset
+      debug('Debug: venn font size base ensured', { value: fontInput.value }); // Debug: ensure base dataset
     }
     const rect = svgBox?.getBoundingClientRect?.();
     const dataset = svgBox?.dataset || {};
@@ -1159,7 +1180,7 @@
         svgBox,
         input: fontInput
       });
-      console.debug('Debug: venn resolveFontInfo scaled', {
+      debug('Debug: venn resolveFontInfo scaled', {
         raw: rawSize,
         width: effectiveWidth,
         height: effectiveHeight,
@@ -1215,7 +1236,7 @@
       scaledPx: safePx,
       scaleInfo: fallbackScaleInfo
     };
-    console.debug('Debug: venn resolveFontInfo fallback', {
+    debug('Debug: venn resolveFontInfo fallback', {
       raw: rawSize,
       width: effectiveWidth,
       height: effectiveHeight,
@@ -1384,7 +1405,7 @@
     if (best.d < 0 && fallbackBest && fallbackBest.d > best.d) {
       best = fallbackBest;
     }
-    console.debug('Debug: venn polylabel heap queue engaged', { initialCells: queue.size() }); // Debug: heap branch engaged
+    debug('Debug: venn polylabel heap queue engaged', { initialCells: queue.size() }); // Debug: heap branch engaged
     while (queue.size()) {
       const cell = pop();
       if (cell.d > best.d) best = cell;
@@ -1423,7 +1444,7 @@
 
   function populateRegion(code, options = {}) {
     if (!state.analysis.lastRegions || !state.ui.regionList) {
-      console.debug('Debug: venn populateRegion skipped', { hasRegions: !!state.analysis.lastRegions });
+      debug('Debug: venn populateRegion skipped', { hasRegions: !!state.analysis.lastRegions });
       return;
     }
     const map = {
@@ -1440,14 +1461,14 @@
     const shouldClear = signature !== state.analysis.lastRegionSignature;
     if (shouldClear && !options.skipClear) {
       clearAnalysis();
-      console.debug('Debug: venn populateRegion cleared analysis', {
+      debug('Debug: venn populateRegion cleared analysis', {
         code,
         geneCount: arr.length,
         previousSignature: state.analysis.lastRegionSignature,
         nextSignature: signature
       });
     } else {
-      console.debug('Debug: venn populateRegion retained analysis', {
+      debug('Debug: venn populateRegion retained analysis', {
         code,
         geneCount: arr.length,
         signature
@@ -1457,7 +1478,7 @@
     state.analysis.lastRegionCode = code || null;
     state.ui.regionList.innerHTML = arr.length ? arr.map(x => `<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join('') : '(empty)';
     if (state.ui.copyRegionBtn) { state.ui.copyRegionBtn.style.display = arr.length ? 'block' : 'none'; }
-    console.debug('Debug: venn populateRegion rendered list', {
+    debug('Debug: venn populateRegion rendered list', {
       code,
       geneCount: arr.length,
       signature
@@ -1537,16 +1558,16 @@
         state.ui.regionSelect.value = '';
         if (state.ui.regionList) state.ui.regionList.textContent = '(empty)';
         if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
-        console.debug('Debug: venn regionSelect empty after update', { counts }); // Debug: region select no visible options
+        debug('Debug: venn regionSelect empty after update', { counts }); // Debug: region select no visible options
       } else if (!previousValueVisible) {
         state.ui.regionSelect.value = firstVisibleValue;
-        console.debug('Debug: venn regionSelect fallback applied', { previousValue, next: firstVisibleValue }); // Debug: region select fallback selection
+        debug('Debug: venn regionSelect fallback applied', { previousValue, next: firstVisibleValue }); // Debug: region select fallback selection
         if (state.analysis.lastRegions) {
           populateRegion(firstVisibleValue);
         }
       }
     }
-    console.debug('Debug: venn regionSelect visibility updated', {
+    debug('Debug: venn regionSelect visibility updated', {
       countsAvailable: !!counts,
       presence,
       selected: state.ui.regionSelect.value
@@ -1578,7 +1599,7 @@
     if (canvas) canvas.style.display = 'none';
     if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
-    console.debug('Debug: venn clearAnalysis invoked'); // Debug: analysis outputs cleared
+    debug('Debug: venn clearAnalysis invoked'); // Debug: analysis outputs cleared
   }
 
   function resolveActiveVennTabId() {
@@ -1702,7 +1723,7 @@
     } else {
       scheduleViewport();
     }
-    console.debug('Debug: venn string network sizing applied', {
+    debug('Debug: venn string network sizing applied', {
       viewBox: svgEl.getAttribute('viewBox') || null,
       widthAttr: svgEl.getAttribute('width') || null,
       scopeApplied: scopedStyles > 0,
@@ -1900,7 +1921,7 @@
           : null,
         lastUniverse: 0
       };
-      console.debug('Debug: venn significance cache created'); // Debug: significance cache init
+      debug('Debug: venn significance cache created'); // Debug: significance cache init
     }
     return state.analysis.significanceCache;
   }
@@ -1928,19 +1949,19 @@
     if (significanceCache && significanceCache.lastUniverse && total < significanceCache.lastUniverse) {
       if (significanceCache.logFactorial && typeof statsHelpers.trimLogFactorialCache === 'function') {
         statsHelpers.trimLogFactorialCache(significanceCache.logFactorial, total);
-        console.debug('Debug: venn significance cache trimmed', { previous: significanceCache.lastUniverse, next: total }); // Debug: trim cache
+        debug('Debug: venn significance cache trimmed', { previous: significanceCache.lastUniverse, next: total }); // Debug: trim cache
       } else {
         significanceCache.logFactorial = null;
-        console.debug('Debug: venn significance cache reset due to shrink'); // Debug: reset cache shrink
+        debug('Debug: venn significance cache reset due to shrink'); // Debug: reset cache shrink
       }
     }
     if (!significanceCache.logFactorial && typeof statsHelpers.createLogFactorialCache === 'function') {
       significanceCache.logFactorial = statsHelpers.createLogFactorialCache();
-      console.debug('Debug: venn significance cache allocated'); // Debug: allocate cache
+      debug('Debug: venn significance cache allocated'); // Debug: allocate cache
     }
     if (significanceCache.logFactorial && typeof statsHelpers.ensureLogFactorialCache === 'function') {
       statsHelpers.ensureLogFactorialCache(significanceCache.logFactorial, total);
-      console.debug('Debug: venn significance cache ensured', { total, maxComputed: significanceCache.logFactorial.maxComputed }); // Debug: ensure cache
+      debug('Debug: venn significance cache ensured', { total, maxComputed: significanceCache.logFactorial.maxComputed }); // Debug: ensure cache
     }
     significanceCache.lastUniverse = total;
 
@@ -1964,7 +1985,7 @@
           return Number.isFinite(tail) ? Math.max(0, Math.min(1, tail)) : 0;
         };
       }
-      console.debug('Debug: venn significance legacy hypergeom'); // Debug: fallback hypergeom start
+      debug('Debug: venn significance legacy hypergeom'); // Debug: fallback hypergeom start
       return (successes, draws, observed) => {
         let p = 0;
         const limit = Math.min(successes, draws);
@@ -2040,7 +2061,7 @@
     const geneList = Array.isArray(genes) ? genes : [];
     if (cache && cacheKey && cache.has(cacheKey)) {
       const cached = cache.get(cacheKey);
-      console.debug('Debug: venn guessSpecies cache hit', { cacheKey, geneCount: geneList.length }); // Debug: guess cache hit
+      debug('Debug: venn guessSpecies cache hit', { cacheKey, geneCount: geneList.length }); // Debug: guess cache hit
       return cached?.guess ?? null;
     }
     const counts = { hsapiens: 0, mmusculus: 0, dmelanogaster: 0, celegans: 0 };
@@ -2048,7 +2069,7 @@
     const sample = geneList.slice(0, 20);
     const maxConcurrent = 4;
     let aborted = false;
-    console.debug('Debug: venn guessSpecies cache miss', { cacheKey, geneCount: geneList.length, sampleSize: sample.length }); // Debug: guess cache miss
+    debug('Debug: venn guessSpecies cache miss', { cacheKey, geneCount: geneList.length, sampleSize: sample.length }); // Debug: guess cache miss
 
     const fetchGene = async (rawGene) => {
       const gene = String(rawGene || '').trim();
@@ -2071,7 +2092,7 @@
         if (err && err.name === 'AbortError') {
           aborted = true;
         } else {
-          console.debug('Debug: venn guessSpecies fetch error', { gene, message: err && err.message }); // Debug: fetch failure
+          debug('Debug: venn guessSpecies fetch error', { gene, message: err && err.message }); // Debug: fetch failure
         }
       }
     };
@@ -2092,7 +2113,7 @@
     const guess = total === 0 || (bestScore / (total || 1)) < 0.6 ? null : best;
     if (cache && cacheKey && !cache.has(cacheKey)) {
       cache.set(cacheKey, { guess, geneCount: geneList.length });
-      console.debug('Debug: venn guessSpecies cache stored', { cacheKey, guess }); // Debug: guess cache store
+      debug('Debug: venn guessSpecies cache stored', { cacheKey, guess }); // Debug: guess cache store
     }
     return guess;
   }
@@ -2123,7 +2144,7 @@
       if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
       setSpeciesIndicator(null);
       detection.cache.set('0:0', { guess: null, geneCount: 0 });
-      console.debug('Debug: venn species detect skipped empty', { reason }); // Debug: detection skipped for empty input
+      debug('Debug: venn species detect skipped empty', { reason }); // Debug: detection skipped for empty input
       return null;
     }
     const cacheKey = computeGeneSignature(genes);
@@ -2132,10 +2153,10 @@
       const guess = cached?.guess || null;
       if (state.ui.speciesSelect) state.ui.speciesSelect.value = guess || '';
       setSpeciesIndicator(guess ? true : false);
-      console.debug('Debug: venn species cache hit', { reason, cacheKey, geneCount: genes.length, guess }); // Debug: detection cache hit
+      debug('Debug: venn species cache hit', { reason, cacheKey, geneCount: genes.length, guess }); // Debug: detection cache hit
       return guess;
     }
-    console.debug('Debug: venn species cache miss', { reason, cacheKey, geneCount: genes.length }); // Debug: detection cache miss
+    debug('Debug: venn species cache miss', { reason, cacheKey, geneCount: genes.length }); // Debug: detection cache miss
     if (detection.active?.controller) {
       try {
         detection.active.controller.abort('superseded');
@@ -2154,9 +2175,9 @@
         detection.active = null;
         if (state.ui.speciesSelect) state.ui.speciesSelect.value = guess || '';
         setSpeciesIndicator(guess ? true : false);
-        console.debug('Debug: venn species detect complete', { reason, cacheKey, guess }); // Debug: detection finished
+        debug('Debug: venn species detect complete', { reason, cacheKey, guess }); // Debug: detection finished
       } else {
-        console.debug('Debug: venn species detect result ignored', { reason, cacheKey }); // Debug: stale detection ignored
+        debug('Debug: venn species detect result ignored', { reason, cacheKey }); // Debug: stale detection ignored
       }
       return guess || null;
     } catch (err) {
@@ -2165,7 +2186,7 @@
           detection.active = null;
           setSpeciesIndicator(null);
         }
-        console.debug('Debug: venn species detect aborted', { reason, cacheKey }); // Debug: detection aborted
+        debug('Debug: venn species detect aborted', { reason, cacheKey }); // Debug: detection aborted
         throw err;
       }
       if (detection.active && detection.active.controller === controller) {
@@ -2484,7 +2505,7 @@
     const svgBox = state.ui.svgBox || stage.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
     if (!state.ui.svgBox && svgBox) {
       state.ui.svgBox = svgBox;
-      console.debug('Debug: venn fitAndDraw captured svgBox', { hasSvgBox: true });
+      debug('Debug: venn fitAndDraw captured svgBox', { hasSvgBox: true });
     }
     const svgBoxRect = svgBox?.getBoundingClientRect?.();
     const dataset = svgBox?.dataset || {};
@@ -2522,7 +2543,7 @@
     stage.setAttribute('viewBox', `0 0 ${stageWidth} ${stageHeight}`);
     stage.setAttribute('width', String(stageWidth));
     stage.setAttribute('height', String(stageHeight));
-    console.debug('Debug: venn stage sizing resolved', {
+    debug('Debug: venn stage sizing resolved', {
       stageWidth,
       stageHeight,
       scaleWidth: scaleInfo.width,
@@ -2538,7 +2559,7 @@
     stage.setAttribute('font-family', fontFamily);
     stage.setAttribute('color', textColor);
     stage.setAttribute('font-size', String(style.fontSizePx));
-    console.debug('Debug: venn stage font applied', {
+    debug('Debug: venn stage font applied', {
       fontFamily,
       textColor,
       fontSizePx: style.fontSizePx,
@@ -2830,7 +2851,7 @@
       scaleInfo: fontInfo.scaleInfo,
       fontInfo
     };
-    console.debug('Debug: venn style scaling applied',{
+    debug('Debug: venn style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
       fontScale: fontInfo?.scaleInfo?.styleScale,
@@ -2889,7 +2910,7 @@
       scaleInfo: fontInfo.scaleInfo,
       fontInfo
     };
-    console.debug('Debug: venn style scaling applied',{
+    debug('Debug: venn style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
       fontScale: fontInfo?.scaleInfo?.styleScale,
@@ -2913,7 +2934,7 @@
       const value = inputs[key]?.value || '';
       return typeof value === 'string' && value.trim().length > 0;
     });
-    console.debug('Debug: venn hasListContent check', { present }); // Debug: list content detection
+    debug('Debug: venn hasListContent check', { present }); // Debug: list content detection
     return present;
   }
 
@@ -2925,7 +2946,7 @@
       const num = Number(raw);
       return Number.isFinite(num) && num > 0;
     });
-    console.debug('Debug: venn hasNumericContent check', { present }); // Debug: numeric content detection
+    debug('Debug: venn hasNumericContent check', { present }); // Debug: numeric content detection
     return present;
   }
 
@@ -2977,10 +2998,10 @@
       state.analysis.lastDrawMode = modeOverride;
     }
     if (typeof state.ui.scheduleDraw === 'function') {
-      console.debug('Debug: venn auto-redraw scheduled', { reason, mode: state.analysis.lastDrawMode }); // Debug: automatic redraw trigger
+      debug('Debug: venn auto-redraw scheduled', { reason, mode: state.analysis.lastDrawMode }); // Debug: automatic redraw trigger
       state.ui.scheduleDraw();
     } else {
-      console.debug('Debug: venn auto-redraw fallback', { reason, mode: state.analysis.lastDrawMode }); // Debug: fallback without scheduler
+      debug('Debug: venn auto-redraw fallback', { reason, mode: state.analysis.lastDrawMode }); // Debug: fallback without scheduler
       refreshDiagram();
     }
   }
@@ -3004,7 +3025,7 @@
         if (!Number.isFinite(numeric) || Math.round(numeric) === Math.round(LEGACY_DEFAULT_FONT_PT)) {
           savedFontValue = basePt;
           migrated = true;
-          console.debug('Debug: venn loadStylePrefs font migrated', {
+          debug('Debug: venn loadStylePrefs font migrated', {
             savedFont: saved.fontsize,
             basePt,
             savedVersion,
@@ -3023,14 +3044,14 @@
           const fontInfo = resolveFontInfo(savedFontValue);
           inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
           chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-          console.debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, fontInfo, savedVersion });
+          debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, fontInfo, savedVersion });
         }
       }
       if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
         const fontInfo = resolveFontInfo(inputs.fontsize.value);
         inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
         chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-        console.debug('Debug: venn loadStylePrefs font default', { fontInfo });
+        debug('Debug: venn loadStylePrefs font default', { fontInfo });
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
       inputs.borderWidthVal.textContent = inputs.borderWidth.value;
@@ -3124,7 +3145,7 @@
   function getVennGraphPayload(options = {}) {
     const inputs = state.ui.inputs;
     if (!inputs) {
-      console.debug('Debug: venn.getPayload skipped - missing inputs reference');
+      debug('Debug: venn.getPayload skipped - missing inputs reference');
       return null;
     }
     const includeAnalysis = options.includeAnalysis !== false;
@@ -3172,7 +3193,7 @@
         regionSelectValue: state.ui.regionSelect ? state.ui.regionSelect.value || '' : ''
       } : null
     };
-    console.debug('Debug: venn.getPayload captured state', {
+    debug('Debug: venn.getPayload captured state', {
       labelA: payload.data.labelA,
       labelB: payload.data.labelB,
       labelC: payload.data.labelC,
@@ -3218,7 +3239,7 @@
   venn.save = async function () {
     const payload = getVennGraphPayload();
     if (!payload) return;
-    console.debug('Debug: saveVennFile invoked', { hasHandle: !!state.persistence.fileHandle });
+    debug('Debug: saveVennFile invoked', { hasHandle: !!state.persistence.fileHandle });
     if (!fileIO || typeof fileIO.saveGraphFile !== 'function') {
       console.error('saveVennFile missing fileIO.saveGraphFile');
       return;
@@ -3232,13 +3253,13 @@
       setFileHandle: handle => { state.persistence.fileHandle = handle; },
       setFileName: name => { state.persistence.fileName = name; }
     });
-    console.debug('Debug: venn.save result', result);
+    debug('Debug: venn.save result', result);
   };
 
   venn.saveAs = async function () {
     const payload = getVennGraphPayload();
     if (!payload) return;
-    console.debug('Debug: saveAsVennFile invoked', { currentName: state.persistence.fileName });
+    debug('Debug: saveAsVennFile invoked', { currentName: state.persistence.fileName });
     if (!fileIO || typeof fileIO.saveGraphFileAs !== 'function') {
       console.error('saveAsVennFile missing fileIO.saveGraphFileAs');
       return;
@@ -3251,11 +3272,11 @@
       setFileHandle: handle => { state.persistence.fileHandle = handle; },
       setFileName: name => { state.persistence.fileName = name; }
     });
-    console.debug('Debug: venn.saveAs result', result);
+    debug('Debug: venn.saveAs result', result);
   };
 
   venn.open = async function () {
-    console.debug('Debug: venn open invoked');
+    debug('Debug: venn open invoked');
     if (!fileIO || typeof fileIO.openGraphFile !== 'function') {
       console.error('openVennFile missing fileIO.openGraphFile');
       return;
@@ -3274,7 +3295,7 @@
         }
       }
     });
-    console.debug('Debug: venn.open result', result);
+    debug('Debug: venn.open result', result);
   };
 
   function applyVennPayload(obj, meta = {}){
@@ -3325,12 +3346,12 @@
       const fontInfo = resolveFontInfo(s.fontsize);
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-      console.debug('Debug: venn payload font applied', { saved: s.fontsize, fontInfo });
+      debug('Debug: venn payload font applied', { saved: s.fontsize, fontInfo });
     } else {
       const fontInfo = resolveFontInfo(inputs.fontsize.value);
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-      console.debug('Debug: venn payload font fallback', { fontInfo });
+      debug('Debug: venn payload font fallback', { fontInfo });
     }
     // Restore label positions if saved
     if(s.labelPositions){
@@ -3378,7 +3399,7 @@
     e.preventDefault();
     const text = (e.clipboardData || global.clipboardData).getData('text/plain').replace(/\r/g, '').replace(/\u00A0/g, ' ');
     document.execCommand('insertText', false, text);
-    console.debug('Debug: venn handlePlainPaste', { length: text.length }); // Debug: normalized paste text length
+    debug('Debug: venn handlePlainPaste', { length: text.length }); // Debug: normalized paste text length
   }
 
   function handleOpacityInput(event) {
@@ -3386,7 +3407,7 @@
     state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value;
     refreshDiagram();
     saveStylePrefs();
-    console.debug('Debug: venn handleOpacityInput', { value: state.ui.inputs.opacity.value }); // Debug: opacity slider change
+    debug('Debug: venn handleOpacityInput', { value: state.ui.inputs.opacity.value }); // Debug: opacity slider change
     commitVennUndo(target, 'venn:opacity');
     if (target) {
       prepareVennUndo(target, 'venn:opacity');
@@ -3397,12 +3418,12 @@
     const raw = state.ui.inputs.fontsize.value;
     if (state.ui.inputs.fontsize.dataset) {
       state.ui.inputs.fontsize.dataset.fontBasePt = String(raw);
-      console.debug('Debug: venn font size base updated', { raw }); // Debug: manual slider update preserved
+      debug('Debug: venn font size base updated', { raw }); // Debug: manual slider update preserved
     }
     const fontInfo = resolveFontInfo(raw);
     state.ui.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.ui.inputs.fontsize.value;
     chartStyle.renderFontSizeLabel({ element: state.ui.inputs.fontsizeVal, fontInfo, input: state.ui.inputs.fontsize });
-    console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
+    debug('Debug: venn fontsize slider change', { raw, fontInfo });
     refreshDiagram();
     saveStylePrefs();
     const target = event?.currentTarget || state.ui.inputs.fontsize;
@@ -3415,7 +3436,7 @@
   function handleColorInput(event) {
     refreshDiagram();
     saveStylePrefs();
-    console.debug('Debug: venn handleColorInput'); // Debug: color change trigger
+    debug('Debug: venn handleColorInput'); // Debug: color change trigger
     const target = event?.currentTarget || null;
     const label = target?.id ? `venn:${target.id}` : 'venn:color';
     if (target) {
@@ -3426,7 +3447,7 @@
   function handleBorderColorInput(event) {
     refreshDiagram();
     saveStylePrefs();
-    console.debug('Debug: venn handleBorderColorInput'); // Debug: border color update
+    debug('Debug: venn handleBorderColorInput'); // Debug: border color update
     commitVennUndo(event?.currentTarget || state.ui.inputs.borderColor, 'venn:border-color');
   }
 
@@ -3435,7 +3456,7 @@
     state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value;
     refreshDiagram();
     saveStylePrefs();
-    console.debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
+    debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
     commitVennUndo(target, 'venn:border-width');
     if (target) {
       prepareVennUndo(target, 'venn:border-width');
@@ -3453,7 +3474,7 @@
       updateRegionSelect(labels, state.analysis.lastCounts);
       updateCountLabels(labels);
       requestScheduledDraw(`label-input-${id}`);
-      console.debug('Debug: venn labelInputHandler', { id, labels }); // Debug: label input change
+      debug('Debug: venn labelInputHandler', { id, labels }); // Debug: label input change
       const target = event?.currentTarget || state.ui.inputs[id];
       commitVennUndo(target, `venn:label-${id}`);
     };
@@ -3461,13 +3482,13 @@
 
   function handleCaseSensitiveChange(event) {
     requestScheduledDraw('case-sensitive-toggle', 'lists');
-    console.debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
+    debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
     commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
   }
 
   function handleDelimiterChange(event) {
     requestScheduledDraw('delimiter-change', 'lists');
-    console.debug('Debug: venn handleDelimiterChange'); // Debug: delimiter change
+    debug('Debug: venn handleDelimiterChange'); // Debug: delimiter change
     commitVennUndo(event?.currentTarget || state.ui.inputs.delimiter, 'venn:delimiter');
   }
 
@@ -3480,33 +3501,33 @@
     updateColorLabels(labels);
     updateRegionSelect(labels, state.analysis.lastCounts);
     updateCountLabels(labels);
-    console.debug('Debug: venn initializeLabelState', { labels }); // Debug: initial label synchronization
+    debug('Debug: venn initializeLabelState', { labels }); // Debug: initial label synchronization
   }
 
   function handleRegionSelectChange() {
     populateRegion(state.ui.regionSelect.value);
-    console.debug('Debug: venn handleRegionSelectChange', { value: state.ui.regionSelect.value }); // Debug: region selection change
+    debug('Debug: venn handleRegionSelectChange', { value: state.ui.regionSelect.value }); // Debug: region selection change
     syncActiveVennPayload('venn-region-select');
   }
 
   function handleDocumentClick(e) {
     if (state.ui.tooltip && state.ui.tooltip.style.display === 'block' && !state.ui.tooltip.contains(e.target)) {
       state.ui.tooltip.style.display = 'none';
-      console.debug('Debug: venn handleDocumentClick hideTooltip'); // Debug: tooltip dismissed via document click
+      debug('Debug: venn handleDocumentClick hideTooltip'); // Debug: tooltip dismissed via document click
     }
   }
 
   function handleCopyRegionClick() {
     const text = getRegionText(state.ui.regionSelect.value);
     navigator.clipboard.writeText(text).catch(() => { });
-    console.debug('Debug: venn handleCopyRegionClick', { length: text.length }); // Debug: copy region length
+    debug('Debug: venn handleCopyRegionClick', { length: text.length }); // Debug: copy region length
   }
 
   function createToggleHandler(targetEl, label) {
     return function toggleHandler() {
       const show = targetEl.style.display === 'none';
       targetEl.style.display = show ? 'block' : 'none';
-      console.debug('Debug: venn toggleHandler', { label, show }); // Debug: toggle state change
+      debug('Debug: venn toggleHandler', { label, show }); // Debug: toggle state change
     };
   }
 
@@ -3516,7 +3537,7 @@
       setSpeciesIndicator(null);
       requestScheduledDraw(`list-input-${key}`, 'lists');
       scheduleSpeciesRecognition(`list-input-${key}`);
-      console.debug('Debug: venn listInputHandler', { key }); // Debug: list input change
+      debug('Debug: venn listInputHandler', { key }); // Debug: list input change
       const target = event?.currentTarget || state.ui.inputs[key];
       commitVennUndo(target, `venn:list-${key}`);
     };
@@ -3526,7 +3547,7 @@
     return function numericInputHandler(event) {
       requestScheduledDraw(`numeric-input-${key}`, 'numeric');
       cancelPendingSpeciesDetection(`numeric-input-${key}`, { abortActive: true, resetIndicator: true });
-      console.debug('Debug: venn numericInputHandler', { key }); // Debug: numeric input change
+      debug('Debug: venn numericInputHandler', { key }); // Debug: numeric input change
       const target = event?.currentTarget || state.ui.inputs.counts[key];
       commitVennUndo(target, `venn:numeric-${key}`);
     };
@@ -3584,7 +3605,7 @@
             }
           }
         });
-        console.debug('Debug: venn handleRegionListMouseover', { gene, hasFn: !!fn }); // Debug: tooltip gene lookup
+        debug('Debug: venn handleRegionListMouseover', { gene, hasFn: !!fn }); // Debug: tooltip gene lookup
       }
     }
   }
@@ -3593,7 +3614,7 @@
     const link = e.target.closest('.gene-link');
     if (link && state.ui.regionList.contains(link) && state.ui.tooltip) {
       state.ui.tooltip.style.display = 'none';
-      console.debug('Debug: venn handleRegionListMouseout', { gene: link.dataset.gene }); // Debug: tooltip mouseout
+      debug('Debug: venn handleRegionListMouseout', { gene: link.dataset.gene }); // Debug: tooltip mouseout
     }
   }
 
@@ -3657,13 +3678,13 @@
       }
     }
     state.ui.tooltip.style.visibility = 'visible';
-    console.debug('Debug: venn handleGoBtnMouseEnter'); // Debug: GO tooltip shown
+    debug('Debug: venn handleGoBtnMouseEnter'); // Debug: GO tooltip shown
   }
 
   function handleGoBtnMouseLeave() {
     if (state.ui.tooltip) {
       state.ui.tooltip.style.display = 'none';
-      console.debug('Debug: venn handleGoBtnMouseLeave'); // Debug: GO tooltip hidden
+      debug('Debug: venn handleGoBtnMouseLeave'); // Debug: GO tooltip hidden
     }
   }
 
@@ -3672,12 +3693,12 @@
       const stateAttr = e.target.dataset.state;
       if (stateAttr === 'top5') { renderGOResults(state.analysis.lastGOResult.length); }
       else { renderGOResults(5); }
-      console.debug('Debug: venn handleGoResultsClick', { stateAttr }); // Debug: GO results toggle
+      debug('Debug: venn handleGoResultsClick', { stateAttr }); // Debug: GO results toggle
     }
   }
 
   function handleCalcSignificanceClick() {
-    console.debug('Debug: venn significance click');
+    debug('Debug: venn significance click');
     calculateSignificance();
   }
 
@@ -3700,7 +3721,7 @@
         }
       }
       runGOAnalysis(regionGenes, organism);
-      console.debug('Debug: venn handleGoButtonClick', { geneCount: regionGenes.length, organism }); // Debug: GO click payload
+      debug('Debug: venn handleGoButtonClick', { geneCount: regionGenes.length, organism }); // Debug: GO click payload
     } catch (err) { console.error('goBtn error', err); }
   }
 
@@ -3723,7 +3744,7 @@
         }
       }
       runStringAnalysis(regionGenes, organism);
-      console.debug('Debug: venn handleStringButtonClick', { geneCount: regionGenes.length, organism }); // Debug: STRING click payload
+      debug('Debug: venn handleStringButtonClick', { geneCount: regionGenes.length, organism }); // Debug: STRING click payload
     } catch (err) { console.error('stringBtn error', err); }
   }
 
@@ -3736,7 +3757,7 @@
       if (err && err.name === 'AbortError') { return; }
       console.warn('venn manual detect error', err);
     });
-    console.debug('Debug: venn handleDetectSpeciesClick'); // Debug: manual detect trigger
+    debug('Debug: venn handleDetectSpeciesClick'); // Debug: manual detect trigger
   }
 
   function handleGoBtnTooltipLeave() {
@@ -3747,7 +3768,7 @@
     state.analysis.lastDrawMode = 'numeric';
     cancelPendingSpeciesDetection('manual-numeric', { abortActive: true, resetIndicator: true });
     drawFromNumeric();
-    console.debug('Debug: venn handleUseNumericClick'); // Debug: numeric draw invocation
+    debug('Debug: venn handleUseNumericClick'); // Debug: numeric draw invocation
   }
 
   function handleGraphFileChange(e) {
@@ -3757,7 +3778,7 @@
       state.persistence.fileName = f.name;
       state.persistence.fileHandle = null;
       venn.loadFromFile(f, { undo: { previous } });
-      console.debug('Debug: venn handleGraphFileChange', { fileName: f.name }); // Debug: graph file change
+      debug('Debug: venn handleGraphFileChange', { fileName: f.name }); // Debug: graph file change
     }
   }
 
@@ -3776,12 +3797,12 @@
     scheduleSpeciesRecognition('sample-data');
     const next = captureVennSnapshot();
     recordVennChange('venn:sample-data', previous, next);
-    console.debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
+    debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
   }
 
   function handleResetClick() {
     const previous = captureVennSnapshot();
-    console.debug('Debug: venn reset handler invoked');
+    debug('Debug: venn reset handler invoked');
     state.ui.inputs.A.value = '';
     state.ui.inputs.B.value = '';
     state.ui.inputs.C.value = '';
@@ -3884,7 +3905,7 @@
     }
 
     if (state.ui.copyRegionBtn && !navigator.clipboard) {
-      console.debug('Debug: venn copyRegionBtn clipboard fallback', { hasClipboard: !!navigator.clipboard }); // Debug: clipboard capability check
+      debug('Debug: venn copyRegionBtn clipboard fallback', { hasClipboard: !!navigator.clipboard }); // Debug: clipboard capability check
     }
 
     if (state.ui.regionList) {
@@ -3895,7 +3916,7 @@
       ]);
     }
 
-    console.debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
+    debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
   }
 
   venn.init = function init() {
@@ -3904,14 +3925,14 @@
     Object.assign(state.ui, freshState.ui);
     Object.assign(state.analysis, freshState.analysis);
     Object.assign(state.persistence, freshState.persistence);
-    console.debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
+    debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
     state.ui.scheduleDraw = Shared.debounceFrame(refreshDiagram);
-    console.debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     initLayout();
     state.ui.layout?.setScheduleDraw?.(state.ui.scheduleDraw);
     if (typeof state.ui.syncPanels === 'function') {
-      console.debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
+      debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
       state.ui.syncPanels({ skipSchedule: true });
     }
     if (global.Chart && global.Chart.defaults) {
@@ -3997,9 +4018,9 @@
         fileName: 'venn',
         contextLabel: 'venn-export'
       });
-      console.debug('Debug: venn export controls mounted', { hasExporter: true }); // Debug: venn export mount
+      debug('Debug: venn export controls mounted', { hasExporter: true }); // Debug: venn export mount
     } else {
-      console.debug('Debug: venn export controls unavailable', { hasExporter: !!exporter }); // Debug: venn export fallback
+      debug('Debug: venn export controls unavailable', { hasExporter: !!exporter }); // Debug: venn export fallback
     }
     if (exporter && typeof exporter.mountCanvasControls === 'function') {
       exporter.mountCanvasControls({
@@ -4009,9 +4030,9 @@
         contextLabel: 'go-chart',
         getSvgString: () => buildGoChartSvgString()
       });
-      console.debug('Debug: go chart export controls mounted', { hasExporter: true }); // Debug: go chart export mount
+      debug('Debug: go chart export controls mounted', { hasExporter: true }); // Debug: go chart export mount
     } else {
-      console.debug('Debug: go chart export controls unavailable', { hasExporter: !!exporter }); // Debug: go chart export fallback
+      debug('Debug: go chart export controls unavailable', { hasExporter: !!exporter }); // Debug: go chart export fallback
     }
     if (exporter && typeof exporter.mountSvgStringControls === 'function') {
       exporter.mountSvgStringControls({
@@ -4020,9 +4041,9 @@
         fileName: 'string_network',
         contextLabel: 'string-export'
       });
-      console.debug('Debug: string export controls mounted', { hasExporter: true }); // Debug: string export mount
+      debug('Debug: string export controls mounted', { hasExporter: true }); // Debug: string export mount
     } else {
-      console.debug('Debug: string export controls unavailable', { hasExporter: !!exporter }); // Debug: string export fallback
+      debug('Debug: string export controls unavailable', { hasExporter: !!exporter }); // Debug: string export fallback
     }
     loadStylePrefs();
     registerEventHandlers();
