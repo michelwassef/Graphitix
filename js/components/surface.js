@@ -1354,6 +1354,8 @@
         debugLabel: 'surface-axes',
         paneTarget: backgroundLayer,
         gridTarget: backgroundLayer,
+        backFrameTarget: backgroundLayer,
+        backAxisTarget: backgroundLayer,
         axisTarget: axisLayer,
         labelTarget: axisLayer,
         onAxisLabel: (el, axisKey) => {

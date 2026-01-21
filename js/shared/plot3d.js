@@ -505,6 +505,8 @@
     const paneTarget = cfg.paneTarget || svg;
     const gridTarget = cfg.gridTarget || svg;
     const axisTarget = cfg.axisTarget || svg;
+    const backFrameTarget = cfg.backFrameTarget || null;
+    const backAxisTarget = cfg.backAxisTarget || backFrameTarget || null;
     const labelTarget = cfg.labelTarget || axisTarget || svg;
     const createElement = cfg.createElement || function(tag, attrs, text, target){
       const el = (svg.ownerDocument || global.document).createElementNS(NS, tag);
@@ -961,7 +963,10 @@
         if(isFrontEdge){
           frontCount += 1;
         }
-        const line = appendLine(startRot, endRot, attrs, axisTarget || gridGroup || svg);
+        const frameTarget = isFrontEdge || !backFrameTarget
+          ? (axisTarget || gridGroup || svg)
+          : backFrameTarget;
+        const line = appendLine(startRot, endRot, attrs, frameTarget);
         frameEdgeLines.set(edgeKey, line);
       }
       debugLog('Debug: plot3d frame rendered', {
@@ -1017,8 +1022,9 @@
       } else if(showFrame && Number.isFinite(frontOpacity) && frontOpacity < 1){
         axisAttrs['stroke-opacity'] = frontOpacity;
       }
+      const axisLineTarget = (isOccludedAxis && backAxisTarget) ? backAxisTarget : axisTarget;
       if(!(showFrame && edgeKey && frameEdgeLines.has(edgeKey))){
-        appendLine(startRot, endRot, axisAttrs, axisTarget);
+        appendLine(startRot, endRot, axisAttrs, axisLineTarget);
       }
       const axisVector = {
         x: def.end.x - def.start.x,
@@ -1110,7 +1116,8 @@
           } else if(showFrame && Number.isFinite(frontOpacity) && frontOpacity < 1){
             tickLineAttrs['stroke-opacity'] = frontOpacity;
           }
-          createElement('line', tickLineAttrs, null, axisTarget);
+          const tickTarget = (isOccludedAxis && backAxisTarget) ? backAxisTarget : axisTarget;
+          createElement('line', tickLineAttrs, null, tickTarget);
           const labelText = formatTickLabel(def.key, tickValue);
           if(labelText !== '' && labelText != null){
             const labelX = tickPos.x + outwardPerp.x * tickLabelOffset;
