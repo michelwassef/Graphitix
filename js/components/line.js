@@ -6049,6 +6049,10 @@
         shiftX: legendShiftX
       });
 
+      const frontFrameLayer = global.document.createElementNS(NS, 'g');
+      frontFrameLayer.setAttribute('data-layer', 'frame-front');
+      svg3.appendChild(frontFrameLayer);
+
       plot3d.renderAxesAndGrid({
         svg: svg3,
         project: projector.project,
@@ -6064,6 +6068,7 @@
         showGrid,
         showFrame,
         axisTickFormatters: axisTickFormatters3d || undefined,
+        frontFrameTarget: frontFrameLayer,
         debugLabel: 'line-3d',
         onAxisLabel: (node, axisKey) => {
           if(!node){
@@ -6175,6 +6180,8 @@
           seriesElems[s.seriesIndex] = { path, mGroup };
         }
       });
+
+      svg3.appendChild(frontFrameLayer);
 
       const toggleSeriesVisibility = seriesIndex => {
         const target = seriesElems[seriesIndex];

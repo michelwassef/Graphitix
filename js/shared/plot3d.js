@@ -507,6 +507,7 @@
     const axisTarget = cfg.axisTarget || svg;
     const backFrameTarget = cfg.backFrameTarget || null;
     const backAxisTarget = cfg.backAxisTarget || backFrameTarget || null;
+    const frontFrameTarget = cfg.frontFrameTarget || null;
     const labelTarget = cfg.labelTarget || axisTarget || svg;
     const createElement = cfg.createElement || function(tag, attrs, text, target){
       const el = (svg.ownerDocument || global.document).createElementNS(NS, tag);
@@ -963,9 +964,9 @@
         if(isFrontEdge){
           frontCount += 1;
         }
-        const frameTarget = isFrontEdge || !backFrameTarget
-          ? (axisTarget || gridGroup || svg)
-          : backFrameTarget;
+        const frameTarget = isFrontEdge
+          ? (frontFrameTarget || axisTarget || gridGroup || svg)
+          : (backFrameTarget || axisTarget || gridGroup || svg);
         const line = appendLine(startRot, endRot, attrs, frameTarget);
         frameEdgeLines.set(edgeKey, line);
       }

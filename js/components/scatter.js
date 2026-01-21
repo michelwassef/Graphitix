@@ -7530,6 +7530,9 @@
             svg3.appendChild(el);
             return el;
           };
+          const frontFrameLayer = document.createElementNS(NS, 'g');
+          frontFrameLayer.setAttribute('data-layer', 'frame-front');
+          svg3.appendChild(frontFrameLayer);
           plot3d.renderAxesAndGrid({
             svg: svg3,
             project: projector.project,
@@ -7543,6 +7546,7 @@
             showGrid,
             showFrame,
             axisTickFormatters: axisTickFormatters3d || undefined,
+            frontFrameTarget: frontFrameLayer,
             debugLabel: 'scatter-3d',
             onAxisLabel: (node, axisKey) => {
               if(!node){ return; }
@@ -7712,6 +7716,7 @@
             svg3.appendChild(labelLayer);
             debug('Debug: scatter 3d manual labels rendered', { count: manualLabelEntries3d.length });
           }
+          svg3.appendChild(frontFrameLayer);
           contentRightBound=Math.max(contentRightBound,maxPointRight);
           if(legendVisible){
             const legendContentWidth=Math.max(legendRenderer.width || 0,0);

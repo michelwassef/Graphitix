@@ -6232,6 +6232,9 @@
         }
         const axisTicks = axisTicks3d;
         const neutralAxisColor = chartStyle.AXIS_COLOR || chartStyle.TEXT_COLOR || '#333';
+        const frontFrameLayer = document.createElementNS(NS, 'g');
+        frontFrameLayer.setAttribute('data-layer', 'frame-front');
+        svg3.appendChild(frontFrameLayer);
         plot3d.renderAxesAndGrid({
           svg: svg3,
           project: (pt) => project3(pt),
@@ -6253,6 +6256,7 @@
           gridOutlineColors: { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' },
           frameColor: '#000000',
           axisColor: neutralAxisColor,
+          frontFrameTarget: frontFrameLayer,
           debugLabel: 'pca-3d',
           onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },
           createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
@@ -6525,6 +6529,7 @@
         }else if(manualLabelEntries3d.length){
           debugLog('Debug: pca manual labels skipped', { count: manualLabelEntries3d.length, mode: '3d', reason: 'missing-layout-helper' });
         }
+        svg3.appendChild(frontFrameLayer);
         contentRightBound = Math.max(contentRightBound, maxPointRight);
         if(legendVisible){
           const horizontalBase = margin3.left + plotW3 + legendLayout.legendGapPx + appliedLegendAxisGap;

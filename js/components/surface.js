@@ -1238,6 +1238,12 @@
       geometryLayer.setAttribute('class', 'surface-layer surface-layer-geometry');
       svg.appendChild(geometryLayer);
     }
+    let frontLayer = svg.querySelector('g.surface-layer-foreground');
+    if(!frontLayer){
+      frontLayer = doc.createElementNS(NS, 'g');
+      frontLayer.setAttribute('class', 'surface-layer surface-layer-foreground');
+      svg.appendChild(frontLayer);
+    }
     let axisLayer = svg.querySelector('g.surface-layer-axes');
     if(!axisLayer){
       axisLayer = doc.createElementNS(NS, 'g');
@@ -1356,6 +1362,7 @@
         gridTarget: backgroundLayer,
         backFrameTarget: backgroundLayer,
         backAxisTarget: backgroundLayer,
+        frontFrameTarget: frontLayer,
         axisTarget: axisLayer,
         labelTarget: axisLayer,
         onAxisLabel: (el, axisKey) => {
