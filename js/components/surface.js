@@ -1343,6 +1343,7 @@
       // accumulation when renderers append new nodes each draw (e.g., on rotate).
       try{ while(axisLayer.firstChild){ axisLayer.removeChild(axisLayer.firstChild); } }catch(e){}
       try{ while(backgroundLayer.firstChild){ backgroundLayer.removeChild(backgroundLayer.firstChild); } }catch(e){}
+      try{ while(frontLayer.firstChild){ frontLayer.removeChild(frontLayer.firstChild); } }catch(e){}
       plot3d.renderAxesAndGrid({
         svg: axisLayer,
         project: projectRotated,
