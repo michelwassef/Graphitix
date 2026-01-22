@@ -3,6 +3,7 @@
 
 const { TextEncoder, TextDecoder } = require('util');
 require('../../js/shared/palette.js');
+require('../../js/shared/performance.js');
 
 // Console noise control: keep debug but mark clearly
 // (Developers can filter these in CI if needed)
