@@ -143,6 +143,7 @@
     rotationY: 1.96,
     aspectRatio: 4 / 3
   });
+  const LINE_3D_DEFAULT_SERIES_COUNT = 3;
   let lineDisplayMode = 'line';
   const LINE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_COL_THRESHOLD = 5000;
@@ -3043,7 +3044,8 @@
     const lower = raw.toLowerCase();
     return /^series\s*\d+$/.test(lower)
       || /^rep\s*\d+$/.test(lower)
-      || /^column\s*\d+$/.test(lower);
+      || /^column\s*\d+$/.test(lower)
+      || /^col\s*\d+$/.test(lower);
   }
 
   function computeUsedSeriesColumns(matrix){
@@ -3882,7 +3884,7 @@
       const removeBtn = doc.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'grouped-remove';
-      removeBtn.textContent = 'z';
+      removeBtn.textContent = '×';
       removeBtn.disabled = seriesCount <= 1;
       removeBtn.addEventListener('click', () => {
         removeLine3dDatasetAt(idx);
@@ -4085,6 +4087,7 @@
     for(let s = 0; s < maxSeries; s += 1){
       const baseCol = 1 + s * replicates;
       const headerCell = header[baseCol] != null ? String(header[baseCol]).trim() : '';
+      const hasHeaderLabel = !!headerCell && !isLinePlaceholderHeader(headerCell);
       let hasData = false;
       for(let r = 1; r < safeMatrix.length; r += 1){
         const row = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
@@ -4100,11 +4103,15 @@
           break;
         }
       }
-      if(hasData || headerCell){
+      if(hasData || hasHeaderLabel){
         lastSeriesWithValues = s;
       }
     }
-    const seriesCount = Math.max(0, lastSeriesWithValues + 1);
+    let seriesCount = Math.max(0, lastSeriesWithValues + 1);
+    if(seriesCount <= 0){
+      seriesCount = Math.max(1, LINE_3D_DEFAULT_SERIES_COUNT);
+      lineDebug('Debug: line 3d series count defaulted', { seriesCount, reason: 'empty-2d-matrix' });
+    }
     const groupLabels = [];
     for(let s = 0; s < seriesCount; s += 1){
       const baseCol = 1 + s * replicates;
