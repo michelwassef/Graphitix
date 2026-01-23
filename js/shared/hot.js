@@ -1936,8 +1936,47 @@
       return brands.some(entry => /firefox/i.test(entry.brand || ''));
     })();
     const preferPinnedTransform = isFirefox;
-    const useStickyHeaderRow = shouldPinRows && isFirefox;
+    const virtualizationConfig = (() => {
+      const raw = Object.assign({}, hotOptions.virtualization || {}, overrides?.virtualization || {});
+      const enabled = raw.enabled !== false;
+      const thresholds = {
+        rows: Number.isFinite(raw.thresholds?.rows) ? raw.thresholds.rows : 2000,
+        cols: Number.isFinite(raw.thresholds?.cols) ? raw.thresholds.cols : 200,
+        cells: Number.isFinite(raw.thresholds?.cells) ? raw.thresholds.cells : 200000
+      };
+      const rowBuffer = Number.isFinite(raw.rowBuffer) ? raw.rowBuffer : null;
+      const columnBuffer = Number.isFinite(raw.columnBuffer) ? raw.columnBuffer : null;
+      const rowBufferLarge = Number.isFinite(raw.rowBufferLarge)
+        ? raw.rowBufferLarge
+        : (Number.isFinite(raw.rowBuffer) ? raw.rowBuffer : 6);
+      const columnBufferLarge = Number.isFinite(raw.columnBufferLarge)
+        ? raw.columnBufferLarge
+        : (Number.isFinite(raw.columnBuffer) ? raw.columnBuffer : 2);
+      const forcePinnedRows = raw.forcePinnedRows === true || (enabled && raw.forcePinnedRows !== false);
+      const preferStickyHeaderRow = raw.preferStickyHeaderRow === true;
+      const suppressColumnVirtualisation = typeof raw.suppressColumnVirtualisation === 'boolean'
+        ? raw.suppressColumnVirtualisation
+        : null;
+      return {
+        enabled,
+        thresholds,
+        rowBuffer,
+        columnBuffer,
+        rowBufferLarge,
+        columnBufferLarge,
+        forcePinnedRows,
+        preferStickyHeaderRow,
+        suppressColumnVirtualisation
+      };
+    })();
+    const useStickyHeaderRow = shouldPinRows
+      && isFirefox
+      && !virtualizationConfig.forcePinnedRows
+      && (virtualizationConfig.preferStickyHeaderRow || virtualizationConfig.enabled === false);
     const usePinnedRows = shouldPinRows && !useStickyHeaderRow;
+    if(shouldPinRows && isFirefox && usePinnedRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: Shared.hot pinFirstRow virtualization using pinned rows on Firefox', { debugLabel });
+    }
     const isPinnedPhysicalRow = (physicalRow)=>(
       shouldPinRows
       && Number.isInteger(physicalRow)
@@ -1956,6 +1995,55 @@
       isHeaderRow(physicalRow)
       || isPinnedPhysicalRow(physicalRow)
     );
+
+    const resolveVirtualizationState = (shape)=>{
+      const rows = Math.max(0, Number(shape?.rows) || 0);
+      const cols = Math.max(0, Number(shape?.cols) || 0);
+      const cells = rows * cols;
+      if(!virtualizationConfig.enabled){
+        return {
+          enabled: false,
+          rows,
+          cols,
+          cells,
+          isLarge: false,
+          rowBuffer: null,
+          columnBuffer: null,
+          suppressColumnVirtualisation: virtualizationConfig.suppressColumnVirtualisation
+        };
+      }
+      const isLarge = rows >= virtualizationConfig.thresholds.rows
+        || cols >= virtualizationConfig.thresholds.cols
+        || cells >= virtualizationConfig.thresholds.cells;
+      return {
+        enabled: true,
+        rows,
+        cols,
+        cells,
+        isLarge,
+        rowBuffer: isLarge ? virtualizationConfig.rowBufferLarge : virtualizationConfig.rowBuffer,
+        columnBuffer: isLarge ? virtualizationConfig.columnBufferLarge : virtualizationConfig.columnBuffer,
+        suppressColumnVirtualisation: virtualizationConfig.suppressColumnVirtualisation
+      };
+    };
+
+    const getDataShape = ()=>({
+      rows: Array.isArray(dataHandle.current) ? dataHandle.current.length : 0,
+      cols: colCount
+    });
+
+    const virtualizationStateMatches = (prev, next)=>(
+      !!prev
+      && prev.isLarge === next.isLarge
+      && prev.rowBuffer === next.rowBuffer
+      && prev.columnBuffer === next.columnBuffer
+      && prev.suppressColumnVirtualisation === next.suppressColumnVirtualisation
+    );
+
+    let virtualizationState = resolveVirtualizationState(getDataShape());
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: Shared.hot virtualization initialized', Object.assign({ debugLabel }, virtualizationState));
+    }
 
     const buildRowData = ()=>Shared.agGrid?.buildRowData
       ? Shared.agGrid.buildRowData(dataHandle.current)
@@ -3231,6 +3319,50 @@
       }
     };
 
+    const applyVirtualizationState = (api, nextState, reason)=>{
+      if(!nextState || !nextState.enabled){
+        virtualizationState = nextState || virtualizationState;
+        return;
+      }
+      const updates = {};
+      if(Number.isFinite(nextState.rowBuffer) && nextState.rowBuffer >= 0){
+        updates.rowBuffer = nextState.rowBuffer;
+      }
+      if(Number.isFinite(nextState.columnBuffer) && nextState.columnBuffer >= 0){
+        updates.columnBuffer = nextState.columnBuffer;
+      }
+      if(typeof nextState.suppressColumnVirtualisation === 'boolean'){
+        updates.suppressColumnVirtualisation = nextState.suppressColumnVirtualisation;
+      }
+      const hasUpdates = Object.keys(updates).length > 0;
+      virtualizationState = nextState;
+      if(!api || !hasUpdates){
+        return;
+      }
+      try{
+        if(typeof api.setGridOption === 'function'){
+          Object.keys(updates).forEach((key)=>{
+            api.setGridOption(key, updates[key]);
+          });
+        }else{
+          Object.assign(api, updates);
+        }
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot virtualization updated', Object.assign({ debugLabel, reason }, updates));
+        }
+      }catch(err){
+        console.error('Shared.hot AG virtualization update error', err);
+      }
+    };
+
+    const updateVirtualizationState = (reason)=>{
+      const nextState = resolveVirtualizationState(getDataShape());
+      if(virtualizationStateMatches(virtualizationState, nextState)){
+        return;
+      }
+      applyVirtualizationState(instance?.gridApi, nextState, reason || 'update');
+    };
+
     const triggerSchedule = (reason, meta)=>{
       if(!scheduleFn){
         return;
@@ -3271,6 +3403,7 @@
         pendingRebuildColumns = true;
         return;
       }
+      updateVirtualizationState('rebuildColumns');
       const preservedWidths = captureColumnWidths(api);
       applyColumnDefs(api, columnDefs);
       applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
@@ -3283,6 +3416,7 @@
         pendingSyncRowData = true;
         return;
       }
+      updateVirtualizationState('syncRowData');
       applyRowData(api, rowData);
       restoreViewportScroll();
     };
@@ -3325,11 +3459,13 @@
       const api = instance.gridApi;
       if(pendingSyncRowData){
         pendingSyncRowData = false;
+        updateVirtualizationState('flushBatch');
         applyRowData(api, rowData);
         restoreViewportScroll();
       }
       if(pendingRebuildColumns){
         pendingRebuildColumns = false;
+        updateVirtualizationState('flushBatch-columns');
         applyColumnDefs(api, columnDefs);
         applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
       }
@@ -4414,10 +4550,18 @@
       return true;
     };
 
+    const initialRowBuffer = Number.isFinite(virtualizationState.rowBuffer) ? virtualizationState.rowBuffer : undefined;
+    const initialColumnBuffer = Number.isFinite(virtualizationState.columnBuffer) ? virtualizationState.columnBuffer : undefined;
+    const initialSuppressColumnVirtualisation = typeof virtualizationState.suppressColumnVirtualisation === 'boolean'
+      ? virtualizationState.suppressColumnVirtualisation
+      : undefined;
     const gridOptions = {
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
       columnDefs,
+      rowBuffer: initialRowBuffer,
+      columnBuffer: initialColumnBuffer,
+      suppressColumnVirtualisation: initialSuppressColumnVirtualisation,
       defaultColDef: {
         editable: true,
         resizable: true,
