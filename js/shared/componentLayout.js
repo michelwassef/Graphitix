@@ -87,11 +87,152 @@
     let scheduleDrawFn = typeof config?.scheduleDraw === 'function' ? config.scheduleDraw : null;
     const panelState = {
       minSvgWidth: Number.isFinite(config?.initialMinSvgWidth) ? Number(config.initialMinSvgWidth) : 0,
-      resizeObserver: null
+      resizeObserver: null,
+      wasHidden: false,
+      deferScheduleUntil: 0
+    };
+    const restoreDelayMs = Number.isFinite(config?.restoreScheduleDelayMs)
+      ? Number(config.restoreScheduleDelayMs)
+      : 120;
+    const preserveGraphContent = config?.preserveGraphContent !== false;
+    const suppressScheduleOnRestore = config?.suppressScheduleOnRestore !== false;
+    const graphContentSelector = typeof config?.graphContentSelector === 'string'
+      ? config.graphContentSelector
+      : 'svg,canvas';
+    const isDebugEnabled = () => (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled());
+
+    const isElementHidden = (el) => {
+      if(!el){ return true; }
+      if(el.hidden === true){
+        return true;
+      }
+      if(typeof el.getAttribute === 'function' && el.getAttribute('hidden') !== null){
+        return true;
+      }
+      try{
+        if(typeof el.closest === 'function' && el.closest('[hidden]')){
+          return true;
+        }
+      }catch(err){
+        console.error('Shared.componentLayout hidden detection error', err);
+      }
+      try{
+        if(typeof el.offsetParent !== 'undefined'){
+          const docBody = documentRef?.body || null;
+          if(el.offsetParent === null && el !== docBody){
+            return true;
+          }
+        }
+      }catch(err){
+        console.error('Shared.componentLayout offsetParent error', err);
+      }
+      if(typeof global.getComputedStyle === 'function'){
+        try{
+          const style = global.getComputedStyle(el);
+          if(style && (style.display === 'none' || style.visibility === 'hidden')){
+            return true;
+          }
+        }catch(err){
+          console.error('Shared.componentLayout computed style error', err);
+        }
+      }
+      if(typeof el.getClientRects === 'function' && el.getClientRects().length === 0){
+        return true;
+      }
+      return false;
+    };
+
+    const isWorkspaceHidden = () => {
+      const root = (elements.graphPanel?.closest && elements.graphPanel.closest('.workspace-page'))
+        || (elements.tablePanel?.closest && elements.tablePanel.closest('.workspace-page'))
+        || null;
+      if(!root){
+        return false;
+      }
+      if(root.hidden === true){
+        return true;
+      }
+      if(typeof root.getAttribute === 'function' && root.getAttribute('hidden') !== null){
+        return true;
+      }
+      if(typeof global.getComputedStyle === 'function'){
+        try{
+          const style = global.getComputedStyle(root);
+          if(style && (style.display === 'none' || style.visibility === 'hidden')){
+            return true;
+          }
+        }catch(err){
+          console.error('Shared.componentLayout workspace style error', err);
+        }
+      }
+      return false;
+    };
+
+    const hasGraphContent = () => {
+      if(typeof config?.hasGraphContent === 'function'){
+        try{
+          return !!config.hasGraphContent({ elements, component: componentName });
+        }catch(err){
+          console.error('Shared.componentLayout hasGraphContent error', err);
+        }
+      }
+      const scope = elements.graphPanel || elements.svgBox;
+      if(!scope || !scope.querySelector){ return false; }
+      return !!scope.querySelector(graphContentSelector);
+    };
+
+    const resolveVisibility = () => {
+      const workspaceHidden = isWorkspaceHidden();
+      const tableHidden = workspaceHidden || isElementHidden(elements.tablePanel);
+      const graphHidden = workspaceHidden || isElementHidden(elements.graphPanel);
+      return {
+        hidden: workspaceHidden || tableHidden || graphHidden,
+        hasGraphContent: suppressScheduleOnRestore ? hasGraphContent() : false
+      };
+    };
+
+    const evaluateScheduleFlags = (options = {}) => {
+      let skipSchedule = options && options.skipSchedule === true;
+      const now = Date.now();
+      const visibility = resolveVisibility();
+      if(visibility.hidden){
+        if(!panelState.wasHidden){
+          panelState.wasHidden = true;
+          panelState.deferScheduleUntil = 0;
+        }
+        if(!options.forceSchedule){
+          skipSchedule = true;
+        }
+      }else if(panelState.wasHidden){
+        panelState.wasHidden = false;
+        if(visibility.hasGraphContent && suppressScheduleOnRestore){
+          panelState.deferScheduleUntil = now + restoreDelayMs;
+          if(isDebugEnabled()){
+            console.debug('Debug: componentLayout schedule deferred after restore', {
+              component: componentName,
+              delayMs: restoreDelayMs
+            });
+          }
+        }else{
+          panelState.deferScheduleUntil = 0;
+        }
+      }
+      let deferActive = false;
+      if(visibility.hasGraphContent && suppressScheduleOnRestore && Number.isFinite(panelState.deferScheduleUntil)){
+        if(panelState.deferScheduleUntil > now){
+          skipSchedule = true;
+          deferActive = true;
+        }else if(panelState.deferScheduleUntil > 0){
+          panelState.deferScheduleUntil = 0;
+        }
+      }
+      const suppressResizeCallback = (visibility.hidden || deferActive) && !options.forceSchedule;
+      return { skipSchedule, visibility, suppressResizeCallback };
     };
 
     const syncPanels = (options = {}) => {
-      const skipSchedule = options && options.skipSchedule === true;
+      const flags = evaluateScheduleFlags(options);
+      const skipSchedule = flags.skipSchedule;
       if(typeof Shared.syncPanelWidths !== 'function'){
         console.debug('Debug: componentLayout syncPanels skipped - missing Shared.syncPanelWidths', { component: componentName });
         return;
@@ -107,7 +248,7 @@
         debugLabel: componentName,
         panelResizer: elements.panelResizer,
         skipSchedule,
-        preserveGraphContent: config?.preserveGraphContent !== false
+        preserveGraphContent
       });
       Shared.syncPanelWidths(elements.tablePanel, elements.graphPanel, elements.configPanel, scheduleWrapper, syncOptions);
       console.debug('Debug: componentLayout syncPanels complete', { component: componentName, minSvgWidth: panelState.minSvgWidth });
@@ -123,7 +264,7 @@
     if(global.ResizeObserver && elements.tablePanel){
       panelState.resizeObserver = new global.ResizeObserver(() => {
         console.debug('Debug: componentLayout ResizeObserver triggered', { component: componentName });
-        syncPanels();
+        syncPanels({ source: 'observer' });
       });
       panelState.resizeObserver.observe(elements.tablePanel);
     }else{
@@ -203,7 +344,11 @@
       const userResizeOptions = config?.resizableBoxOptions || {};
       const onResize = phase => {
         console.debug('Debug: componentLayout resizable onResize', { component: componentName, phase });
-        syncPanels();
+        const flags = evaluateScheduleFlags({ source: 'resize', phase });
+        syncPanels({ skipSchedule: flags.skipSchedule, source: 'resize', phase });
+        if(flags.suppressResizeCallback){
+          return;
+        }
         if(typeof userResizeOptions.onResize === 'function'){
           try{
             userResizeOptions.onResize(phase, { elements, component: componentName });
