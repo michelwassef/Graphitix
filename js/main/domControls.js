@@ -182,7 +182,7 @@
     }
   };
 
-  namespace.applyWorkspacePayload = function applyWorkspacePayload(config, payload) {
+  namespace.applyWorkspacePayload = function applyWorkspacePayload(config, payload, options = {}) {
     if (!config || payload === undefined) {
       console.debug('Debug: applyWorkspacePayload skipped', { hasConfig: !!config, hasPayload: payload !== undefined });
       return;
@@ -190,7 +190,7 @@
     const label = config.type || 'workspace';
     if (typeof config.loadFromPayload === 'function') {
       try {
-        const result = config.loadFromPayload(payload);
+        const result = config.loadFromPayload(payload, options || {});
         if (result && typeof result.then === 'function') {
           result.catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
         }
@@ -208,7 +208,7 @@
         if (Shared.fileIO?.registerPayloadBlob) {
           Shared.fileIO.registerPayloadBlob(blob, payload);
         }
-        config.loadFromFile(blob);
+        config.loadFromFile(blob, options || {});
         console.debug('Debug: workspace payload applied via blob', { type: label, length: serialized.length });
       } catch (err) {
         console.error('applyWorkspacePayload error', { type: label, err });
@@ -256,6 +256,15 @@
     }
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
+    const renderCache = tab.renderCache || null;
+    const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? null;
+    const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? null;
+    const canRestoreRender = !options.forceReload
+      && renderCache
+      && renderCache.cache
+      && renderPayloadSignature === targetPayloadSignature
+      && renderLayoutSignature === targetLayoutSignature
+      && typeof config.restoreRenderCache === 'function';
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
       dom.welcomeScreen.style.display = 'none';
@@ -279,7 +288,8 @@
       && cachedWorkspace.payloadSignature === targetPayloadSignature
       && cachedWorkspace.layoutSignature === targetLayoutSignature
       && alreadyInitialized
-      && renderedTabForType === tab.id;
+      && renderedTabForType === tab.id
+      && !canRestoreRender;
 
     const applyWorkspaceState = () => {
       if (canReuseWorkspace) {
@@ -301,6 +311,13 @@
         return;
       }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
+      if(canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor){
+        Shared.componentLayout.suppressNextScheduleFor(tab.type, {
+          reason: 'render-cache-restore',
+          delayMs: 400,
+          count: 3
+        });
+      }
       if (!options.skipApply) {
         let payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
         if (!payload && typeof config.createEmptyPayload === 'function') {
@@ -313,7 +330,7 @@
             console.error('workspace payload empty rebuild error', { type: tab.type, err });
           }
         }
-        namespace.applyWorkspacePayload(config, payload);
+        namespace.applyWorkspacePayload(config, payload, { skipDraw: canRestoreRender, restoreRenderCache: canRestoreRender });
       }
       if (typeof config.applyLayoutState === 'function') {
         let defaultLayout = moduleState.workspaceLayoutDefaults[tab.type] || null;
@@ -333,7 +350,8 @@
         const applied = config.applyLayoutState(layoutSource, {
           reason: options.reason || 'workspace-view',
           resetStyles: true,
-          resetDataset: true
+          resetDataset: true,
+          skipSchedule: canRestoreRender
         });
         console.debug('Debug: workspace layout applied', {
           tabId: tab.id,
@@ -342,12 +360,28 @@
           applied
         });
       }
-      try {
-        if (typeof config.draw === 'function') {
-          config.draw();
+      let restored = false;
+      if (canRestoreRender) {
+        try {
+          restored = !!config.restoreRenderCache(renderCache.cache, {
+            tabId: tab.id,
+            type: tab.type
+          });
+        } catch (err) {
+          console.error('workspace render cache restore error', { type: tab.type, err });
+          restored = false;
         }
-      } catch (err) {
-        console.error('workspace draw error', { type: tab.type, err });
+      }
+      if (!restored) {
+        try {
+          if (typeof config.draw === 'function') {
+            config.draw();
+          }
+        } catch (err) {
+          console.error('workspace draw error', { type: tab.type, err });
+        }
+      } else {
+        console.debug('Debug: workspace render cache restored', { tabId: tab.id, type: tab.type });
       }
       if (workspaceState) {
         workspaceState.lastActiveGraphId = tab.id;

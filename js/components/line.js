@@ -5005,6 +5005,12 @@
       const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
       markLineOverlayPending(overlayReason);
     }
+    const skipDraw = meta?.skipDraw === true;
+    let scheduleBackup = null;
+    if(skipDraw){
+      scheduleBackup = scheduleLineDraw;
+      scheduleLineDraw = () => {};
+    }
     console.debug('Debug: applyLineGraphPayload payload', obj);
     const c=obj.config||{};
     importFontStyles('line', c.fontStyles || null);
@@ -5407,7 +5413,12 @@
     ensureLineLabelColors(Object.keys(lineLabelColors));
     ensureLineResizerControls();
     syncLineAspectControls('payload');
-    scheduleLineDraw();
+    if(!skipDraw){
+      scheduleLineDraw();
+    }
+    if(scheduleBackup){
+      scheduleLineDraw = scheduleBackup;
+    }
     console.debug('Debug: line payload applied', { source: meta.source || 'unknown', hasData: !!matrixData });
     return true;
   }
@@ -9225,6 +9236,59 @@
     if(typeof line.__ensureHotForActiveTab === 'function'){
       line.__ensureHotForActiveTab();
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  line.captureRenderCache = function captureRenderCache(){
+    const plot = document.getElementById('linePlot');
+    const stats = document.getElementById('lineStatsResults');
+    const plotCache = detachChildren(plot);
+    const statsCache = detachChildren(stats);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: line render cache captured', {
+        plotNodes: plotCache?.count || 0,
+        statsNodes: statsCache?.count || 0
+      });
+    }
+    return { plot: plotCache, stats: statsCache };
+  };
+
+  line.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const plot = document.getElementById('linePlot');
+    const stats = document.getElementById('lineStatsResults');
+    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredStats = restoreChildren(stats, cache.stats);
+    const restored = restoredPlot || restoredStats;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: line render cache restored', {
+        restored,
+        plot: restoredPlot,
+        stats: restoredStats
+      });
+    }
+    return restored;
   };
   line.draw = function draw(){ ensureReady(); scheduleLineDraw && scheduleLineDraw(); };
   line.save = saveLineFile;

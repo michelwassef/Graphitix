@@ -205,7 +205,9 @@
     statsContextSignature: null,
     statsContextVersion: 0,
     statsLastRunVersion: 0,
-    statsComputationPending: false
+    statsComputationPending: false,
+    skipNextDraw: false,
+    skipNextDrawReason: null
   };
   function resetScatterRotation(reason){
     if(typeof plot3d.createRotationState !== 'function'){
@@ -9831,7 +9833,14 @@
         syncScatterAutoDrawNoticeWidth('draw');
         info('scatter render complete with enhanced styles');
       }
-      const runScatterDrawCycle = async () => {
+      const runScatterDrawCycle = async (opts = {}) => {
+        if(scatterState.skipNextDraw && !opts.force){
+          scatterState.skipNextDraw = false;
+          scatterState.skipNextDrawReason = null;
+          resolveScatterOverlay('skipped');
+          scatterDebug('Debug: scatter draw skipped (render cache)');
+          return;
+        }
         let status = 'complete';
         try{
           await drawScatter();
@@ -9845,6 +9854,17 @@
       const scheduleScatterBase = Shared.debounceFrame ? Shared.debounceFrame(runScatterDrawCycle) : runScatterDrawCycle;
       const scheduleScatterInstrumented = (opts) => {
         const nextOpts = opts || {};
+        if(scatterState.skipNextDraw && !nextOpts.force){
+          scatterState.skipNextDraw = false;
+          scatterState.skipNextDrawReason = null;
+          resolveScatterOverlay('skipped');
+          scatterDebug('Debug: scatter schedule suppressed (render cache)');
+          return;
+        }
+        if(scatterState.skipNextDraw && nextOpts.force){
+          scatterState.skipNextDraw = false;
+          scatterState.skipNextDrawReason = null;
+        }
         const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
         if(nextOpts.force){
           markScatterOverlayPending(overlayReason);
@@ -10206,6 +10226,12 @@
           const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
           markScatterOverlayPending(overlayReason);
         }
+        const skipDraw = meta?.skipDraw === true;
+        let scheduleBackup = null;
+        if(skipDraw){
+          scheduleBackup = scheduleDrawScatter;
+          scheduleDrawScatter = () => {};
+        }
       const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
       if(scatterHot && typeof scatterHot.loadData === 'function'){
         scatterHot.loadData(dataMatrix);
@@ -10395,7 +10421,12 @@
           console.debug('Debug: scatter restore stats failed', { err: err?.message || String(err) });
         }
         syncScatterGraphTypeUI();
-        scheduleDrawScatter();
+        if(!skipDraw){
+          scheduleDrawScatter();
+        }
+        if(scheduleBackup){
+          scheduleDrawScatter = scheduleBackup;
+        }
         // No deferred reapply needed: stats context has been refreshed and versions set.
         scatterDebug('Debug: scatter payload applied', { source: meta.source || 'unknown', rows: dataMatrix.length });
         return true;
@@ -10501,6 +10532,63 @@
     if(typeof scatter.__ensureHotForActiveTab === 'function'){
       scatter.__ensureHotForActiveTab();
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  scatter.captureRenderCache = function captureRenderCache(){
+    const plot = document.getElementById('scatterPlot');
+    const stats = document.getElementById('scatterStatsResults');
+    const plotCache = detachChildren(plot);
+    const statsCache = detachChildren(stats);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      scatterDebug('Debug: scatter render cache captured', {
+        plotNodes: plotCache?.count || 0,
+        statsNodes: statsCache?.count || 0
+      });
+    }
+    return { plot: plotCache, stats: statsCache };
+  };
+
+  scatter.restoreRenderCache = function restoreRenderCache(cache, meta){
+    if(!cache){ return false; }
+    const plot = document.getElementById('scatterPlot');
+    const stats = document.getElementById('scatterStatsResults');
+    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredStats = restoreChildren(stats, cache.stats);
+    const restored = restoredPlot || restoredStats;
+    if(restored){
+      scatterState.skipNextDraw = true;
+      scatterState.skipNextDrawReason = meta?.reason || meta?.type || 'render-cache';
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      scatterDebug('Debug: scatter render cache restored', {
+        restored,
+        plot: restoredPlot,
+        stats: restoredStats
+      });
+    }
+    return restored;
   };
   scatter.draw = function draw(){
     ensureReady();

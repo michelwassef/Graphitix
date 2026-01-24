@@ -1815,7 +1815,7 @@
   surface.ensure = function ensure(){
     if(!surface.ready){ surface.init(); }
   };
-  surface.prepareForTab = function prepareForTab(){
+  surface.prepareForTab = function prepareForTab(tab){
     if(!surface.ready){
       surface.init();
       return;
@@ -1823,9 +1823,20 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+    cacheDom();
+    const cacheSignature = tab?.renderCacheSignature ?? tab?.renderCache?.payloadSignature ?? null;
+    const layoutSignature = tab?.renderCacheLayoutSignature ?? tab?.renderCache?.layoutSignature ?? null;
+    const canRestore = !!(tab && tab.renderCache && tab.renderCache.cache
+      && cacheSignature === (tab.payloadSignature ?? null)
+      && layoutSignature === (tab.layoutSignature ?? null));
+    if(canRestore){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        debugLog('Debug: surface prepareForTab skipped clear (render cache)', { tabId: tab?.id || null });
+      }
+      return;
+    }
     // When switching to a tab, ensure any prior rendered geometry is cleared
     try{
-      cacheDom();
       if(state.svg){
         const geometryLayer = state.svg.querySelector && state.svg.querySelector('g.surface-layer-geometry');
         if(geometryLayer){
@@ -1848,6 +1859,12 @@
     if(!payload || payload.type !== 'surface'){
       debugLog('Debug: surface payload rejected', { source, hasType: !!payload?.type });
       return false;
+    }
+    const skipDraw = meta?.skipDraw === true;
+    let scheduleBackup = null;
+    if(skipDraw && typeof state.scheduleDraw === 'function'){
+      scheduleBackup = state.scheduleDraw;
+      state.scheduleDraw = () => {};
     }
     const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
     if(state.hot && typeof state.hot.loadData === 'function'){
@@ -1908,10 +1925,15 @@
     }
     applySettingsToControls();
     updateAxisOptions();
-    state.lastStats = null;
-    updateStats(null);
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+    if(!skipDraw){
+      state.lastStats = null;
+      updateStats(null);
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    }
+    if(scheduleBackup){
+      state.scheduleDraw = scheduleBackup;
     }
     debugLog('Debug: surface payload applied', { source, rows: dataMatrix.length });
     return true;
@@ -2060,10 +2082,65 @@
     }
   };
 
-  surface.loadFromPayload = function loadFromPayload(payload){
-    if(!applySurfacePayload(payload, { source: 'payload' })){
+  surface.loadFromPayload = function loadFromPayload(payload, options = {}){
+    if(!applySurfacePayload(payload, { source: 'payload', ...options })){
       console.warn('surface payload application failed', { source: 'payload' });
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  surface.captureRenderCache = function captureRenderCache(){
+    cacheDom();
+    const svgCache = detachChildren(state.svg);
+    const statsCache = detachChildren(state.statsEl);
+    const messageCache = detachChildren(state.messageEl);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: surface render cache captured', {
+        svgNodes: svgCache?.count || 0,
+        statsNodes: statsCache?.count || 0,
+        messageNodes: messageCache?.count || 0
+      });
+    }
+    return { svg: svgCache, stats: statsCache, message: messageCache };
+  };
+
+  surface.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    cacheDom();
+    const restoredSvg = restoreChildren(state.svg, cache.svg);
+    const restoredStats = restoreChildren(state.statsEl, cache.stats);
+    const restoredMessage = restoreChildren(state.messageEl, cache.message);
+    const restored = restoredSvg || restoredStats || restoredMessage;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: surface render cache restored', {
+        restored,
+        svg: restoredSvg,
+        stats: restoredStats,
+        message: restoredMessage
+      });
+    }
+    return restored;
   };
 
   surface.__getState = () => state;

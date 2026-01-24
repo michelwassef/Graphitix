@@ -2370,6 +2370,12 @@
       console.warn('roc payload rejected', { source, hasType: !!payload?.type });
       return false;
     }
+    const skipDraw = meta?.skipDraw === true;
+    let scheduleBackup = null;
+    if(skipDraw && typeof state.scheduleDraw === 'function'){
+      scheduleBackup = state.scheduleDraw;
+      state.scheduleDraw = () => {};
+    }
     ensureHotForActiveTab();
     const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
     if(state.hot && typeof state.hot.loadData === 'function'){
@@ -2430,8 +2436,11 @@
     }else{
       renderRocStatsSummary([], 'roc');
     }
-    if(typeof state.scheduleDraw === 'function'){
+    if(!skipDraw && typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
+    }
+    if(scheduleBackup){
+      state.scheduleDraw = scheduleBackup;
     }
     console.debug('Debug: roc payload applied', { source, rows: dataMatrix.length, graphType: refs.graphType?.value });
     return true;
@@ -2717,9 +2726,62 @@
   roc.saveAs = saveFileAs;
   roc.open = openFile;
   roc.loadFromFile = loadFromFile;
-  roc.loadFromPayload = function loadFromPayload(payload){
-    if(!applyRocPayload(payload, { source: 'payload' })){
+  roc.loadFromPayload = function loadFromPayload(payload, options = {}){
+    if(!applyRocPayload(payload, { source: 'payload', ...options })){
       console.warn('roc payload application failed', { source: 'payload' });
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  roc.captureRenderCache = function captureRenderCache(){
+    const plot = document.getElementById('rocPlot');
+    const stats = document.getElementById('rocStatsResults');
+    const plotCache = detachChildren(plot);
+    const statsCache = detachChildren(stats);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: roc render cache captured', {
+        plotNodes: plotCache?.count || 0,
+        statsNodes: statsCache?.count || 0
+      });
+    }
+    return { plot: plotCache, stats: statsCache };
+  };
+
+  roc.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const plot = document.getElementById('rocPlot');
+    const stats = document.getElementById('rocStatsResults');
+    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredStats = restoreChildren(stats, cache.stats);
+    const restored = restoredPlot || restoredStats;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: roc render cache restored', {
+        restored,
+        plot: restoredPlot,
+        stats: restoredStats
+      });
+    }
+    return restored;
   };
 })(window);

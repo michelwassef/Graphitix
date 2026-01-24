@@ -468,7 +468,10 @@
     function activateTab(tabId, options = {}) {
       const current = getActiveTab();
       if (current && current.id !== tabId && !options.skipPersist) {
-        session.persistActiveTabState(current, withSessionContext({ reason: options.reason || 'activate-switch' }));
+        session.persistActiveTabState(current, withSessionContext({
+          reason: options.reason || 'activate-switch',
+          captureRenderCache: true
+        }));
       }
       workspaceState.activeTabId = tabId;
       renderTabs();

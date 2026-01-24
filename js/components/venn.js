@@ -3307,6 +3307,7 @@
       console.error('Invalid graph type for venn payload', { type: obj.type, meta });
       return false;
     }
+    const skipDraw = meta?.skipDraw === true;
     const inputs = state.ui.inputs;
     if(!inputs){
       console.warn('venn payload application skipped - inputs unavailable');
@@ -3359,8 +3360,27 @@
         title: s.labelPositions.title || null
       };
     }
-    refreshDiagram();
-    applyAnalysisPayload(obj.analysis);
+    if(skipDraw){
+      if(obj.analysis && typeof obj.analysis === 'object'){
+        state.analysis.lastGOResult = obj.analysis.goResult ? cloneSimple(obj.analysis.goResult) : null;
+        state.analysis.lastGOFormatted = Array.isArray(obj.analysis.goFormatted) ? obj.analysis.goFormatted.slice() : [];
+        state.analysis.lastGOOrganism = obj.analysis.goOrganism || '';
+        state.analysis.lastStringSVG = obj.analysis.stringSvg || '';
+        state.analysis.lastStringEnrichment = obj.analysis.stringEnrichment ? cloneSimple(obj.analysis.stringEnrichment) : null;
+        if(state.ui.regionSelect && Object.prototype.hasOwnProperty.call(obj.analysis, 'regionSelectValue')){
+          state.ui.regionSelect.value = obj.analysis.regionSelectValue || '';
+        }
+      }else{
+        state.analysis.lastGOResult = null;
+        state.analysis.lastGOFormatted = [];
+        state.analysis.lastGOOrganism = '';
+        state.analysis.lastStringSVG = null;
+        state.analysis.lastStringEnrichment = null;
+      }
+    }else{
+      refreshDiagram();
+      applyAnalysisPayload(obj.analysis);
+    }
     if(meta.recordUndo !== false){
       const undoPrevious = meta.undoPrevious || captureVennSnapshot();
       const next = captureVennSnapshot();
@@ -4083,6 +4103,188 @@
     state,
     populateRegion,
     clearAnalysis
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  function captureCanvasSnapshot(canvas){
+    if(!canvas || typeof canvas.toDataURL !== 'function'){
+      return null;
+    }
+    try{
+      const dataUrl = canvas.toDataURL();
+      return {
+        dataUrl,
+        width: canvas.width,
+        height: canvas.height,
+        display: canvas.style.display || ''
+      };
+    }catch(err){
+      debug('Debug: venn canvas snapshot failed', { message: err?.message || String(err) });
+      return null;
+    }
+  }
+
+  function restoreCanvasSnapshot(canvas, snapshot){
+    if(!canvas || !snapshot){
+      return false;
+    }
+    if(typeof snapshot.display === 'string'){
+      canvas.style.display = snapshot.display;
+    }
+    if(Number.isFinite(snapshot.width)){
+      canvas.width = snapshot.width;
+    }
+    if(Number.isFinite(snapshot.height)){
+      canvas.height = snapshot.height;
+    }
+    if(snapshot.dataUrl){
+      const ctx = canvas.getContext ? canvas.getContext('2d') : null;
+      if(ctx){
+        const img = new Image();
+        img.onload = () => {
+          try{
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+          }catch(err){
+            debug('Debug: venn canvas snapshot draw failed', { message: err?.message || String(err) });
+          }
+        };
+        img.src = snapshot.dataUrl;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  venn.captureRenderCache = function captureRenderCache(){
+    const stageCache = detachChildren(state.ui.stage);
+    const regionCache = detachChildren(state.ui.regionList);
+    const significanceCache = detachChildren(state.ui.significanceResults);
+    const goResultsCache = detachChildren(state.ui.goResults);
+    const stringResultsCache = detachChildren(state.ui.stringResults);
+    const stringNetworkCache = detachChildren(state.ui.stringNetwork);
+    const regionSelectCache = detachChildren(state.ui.regionSelect);
+    const goChartSnapshot = captureCanvasSnapshot(document.getElementById('goChart'));
+    const uiState = {
+      copyRegionBtnDisplay: state.ui.copyRegionBtn?.style?.display ?? null,
+      goChartExportDisplay: state.ui.goChartExport?.style?.display ?? null,
+      stringNetworkExportDisplay: state.ui.stringNetworkExport?.style?.display ?? null
+    };
+    const analysisState = {
+      lastRegions: state.analysis.lastRegions,
+      lastCounts: state.analysis.lastCounts,
+      lastParsedLists: state.analysis.lastParsedLists,
+      lastDrawMode: state.analysis.lastDrawMode,
+      lastSignificance: state.analysis.lastSignificance
+    };
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: venn render cache captured', {
+        stageNodes: stageCache?.count || 0,
+        regionNodes: regionCache?.count || 0,
+        significanceNodes: significanceCache?.count || 0,
+        goNodes: goResultsCache?.count || 0,
+        stringNodes: stringResultsCache?.count || 0,
+        networkNodes: stringNetworkCache?.count || 0,
+        regionOptions: regionSelectCache?.count || 0,
+        hasChart: !!goChartSnapshot
+      });
+    }
+    return {
+      stage: stageCache,
+      regionList: regionCache,
+      significance: significanceCache,
+      goResults: goResultsCache,
+      stringResults: stringResultsCache,
+      stringNetwork: stringNetworkCache,
+      regionOptions: regionSelectCache,
+      goChart: goChartSnapshot,
+      uiState,
+      analysisState
+    };
+  };
+
+  venn.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const restoredStage = restoreChildren(state.ui.stage, cache.stage);
+    const restoredRegion = restoreChildren(state.ui.regionList, cache.regionList);
+    const restoredSignificance = restoreChildren(state.ui.significanceResults, cache.significance);
+    const restoredGo = restoreChildren(state.ui.goResults, cache.goResults);
+    const restoredString = restoreChildren(state.ui.stringResults, cache.stringResults);
+    const restoredNetwork = restoreChildren(state.ui.stringNetwork, cache.stringNetwork);
+    const restoredRegionOptions = restoreChildren(state.ui.regionSelect, cache.regionOptions);
+    if(cache.uiState){
+      if(state.ui.copyRegionBtn && typeof cache.uiState.copyRegionBtnDisplay === 'string'){
+        state.ui.copyRegionBtn.style.display = cache.uiState.copyRegionBtnDisplay;
+      }
+      if(state.ui.goChartExport && typeof cache.uiState.goChartExportDisplay === 'string'){
+        state.ui.goChartExport.style.display = cache.uiState.goChartExportDisplay;
+      }
+      if(state.ui.stringNetworkExport && typeof cache.uiState.stringNetworkExportDisplay === 'string'){
+        state.ui.stringNetworkExport.style.display = cache.uiState.stringNetworkExportDisplay;
+      }
+    }
+    if(cache.analysisState){
+      state.analysis.lastRegions = cache.analysisState.lastRegions || null;
+      state.analysis.lastCounts = cache.analysisState.lastCounts || null;
+      state.analysis.lastParsedLists = cache.analysisState.lastParsedLists || null;
+      state.analysis.lastDrawMode = cache.analysisState.lastDrawMode || null;
+      state.analysis.lastSignificance = cache.analysisState.lastSignificance || null;
+    }
+    const inputs = state.ui.inputs;
+    if(inputs){
+      const labels = {
+        A: inputs.labelA.value || 'A',
+        B: inputs.labelB.value || 'B',
+        C: inputs.labelC.value || 'C'
+      };
+      updateCountLabels(labels);
+      updateColorLabels(labels);
+      if(state.analysis.lastCounts){
+        refreshCounts(state.analysis.lastCounts);
+        updateRegionSelect(labels, state.analysis.lastCounts);
+      }
+    }
+    if(state.analysis.goChart){
+      try{ state.analysis.goChart.destroy(); }catch(e){}
+      state.analysis.goChart = null;
+    }
+    const goChartRestored = restoreCanvasSnapshot(document.getElementById('goChart'), cache.goChart);
+    const restored = restoredStage || restoredRegion || restoredSignificance || restoredGo || restoredString || restoredNetwork || restoredRegionOptions || goChartRestored;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: venn render cache restored', {
+        restored,
+        stage: restoredStage,
+        regionList: restoredRegion,
+        significance: restoredSignificance,
+        go: restoredGo,
+        string: restoredString,
+        network: restoredNetwork,
+        regionOptions: restoredRegionOptions,
+        goChart: goChartRestored
+      });
+    }
+    return restored;
   };
 
   venn.draw = function draw() {

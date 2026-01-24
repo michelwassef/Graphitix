@@ -676,6 +676,12 @@
         console.warn('pie payload rejected', { source, hasType: !!payload?.type });
         return false;
       }
+      const skipDraw = meta?.skipDraw === true;
+      let scheduleBackup = null;
+      if(skipDraw && typeof state.scheduleDraw === 'function'){
+        scheduleBackup = state.scheduleDraw;
+        state.scheduleDraw = () => {};
+      }
       const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
       if(state.hot && typeof state.hot.loadData === 'function'){
         state.hot.loadData(dataMatrix);
@@ -729,8 +735,11 @@
         state.labelPositions.title = config.labelPositions.title || null;
         state.labelPositions.legend = config.labelPositions.legend || null;
       }
-      if(typeof state.scheduleDraw === 'function'){
+      if(!skipDraw && typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
+      }
+      if(scheduleBackup){
+        state.scheduleDraw = scheduleBackup;
       }
       console.debug('Debug: pie payload applied', { source, rows: dataMatrix.length });
       return true;
@@ -851,8 +860,8 @@
         apply(file);
       }
     };
-    pie.loadFromPayload = function loadFromPayload(payload){
-      if(!applyPiePayload(payload, { source: 'payload' })){
+    pie.loadFromPayload = function loadFromPayload(payload, options = {}){
+      if(!applyPiePayload(payload, { source: 'payload', ...options })){
         console.warn('pie payload application failed', { source: 'payload' });
       }
     };
@@ -1664,6 +1673,59 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  pie.captureRenderCache = function captureRenderCache(){
+    const plot = document.getElementById('piePlot');
+    const stats = document.getElementById('pieStatsResults');
+    const plotCache = detachChildren(plot);
+    const statsCache = detachChildren(stats);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: pie render cache captured', {
+        plotNodes: plotCache?.count || 0,
+        statsNodes: statsCache?.count || 0
+      });
+    }
+    return { plot: plotCache, stats: statsCache };
+  };
+
+  pie.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const plot = document.getElementById('piePlot');
+    const stats = document.getElementById('pieStatsResults');
+    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredStats = restoreChildren(stats, cache.stats);
+    const restored = restoredPlot || restoredStats;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: pie render cache restored', {
+        restored,
+        plot: restoredPlot,
+        stats: restoredStats
+      });
+    }
+    return restored;
   };
 
 })(window);

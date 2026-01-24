@@ -14996,6 +14996,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       console.error('Invalid graph type for box payload', { type: obj.type, meta });
       return false;
     }
+    const suppressDraw = meta?.skipDraw === true;
+    let scheduleBackup = null;
+    if(suppressDraw && typeof state.scheduleDraw === 'function'){
+      scheduleBackup = state.scheduleDraw;
+      state.scheduleDraw = () => {};
+    }
     try{
     const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
     console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
@@ -15366,12 +15372,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }catch(err){
       console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });
     }
-    state.scheduleDraw();
+    if(!suppressDraw){
+      state.scheduleDraw();
+    }
     console.debug('Debug: box payload applied', { source: meta.source || 'unknown', rows: obj.data?.length || 0 });
     return true;
     }catch(err){
       resolveOverlay('payload-error');
       throw err;
+    }finally{
+      if(scheduleBackup){
+        state.scheduleDraw = scheduleBackup;
+      }
     }
   }
 
@@ -15563,6 +15575,57 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }catch(e){
       console.error('box.draw error', e);
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  box.captureRenderCache = function captureRenderCache(){
+    const plotCache = detachChildren(els.plotDiv);
+    const resultsCache = detachChildren(els.statsResults);
+    const tableCache = detachChildren(els.statsTable);
+    const total = (plotCache?.count || 0) + (resultsCache?.count || 0) + (tableCache?.count || 0);
+    console.debug('Debug: box render cache captured', {
+      plotNodes: plotCache?.count || 0,
+      resultsNodes: resultsCache?.count || 0,
+      tableNodes: tableCache?.count || 0,
+      total
+    });
+    return { plot: plotCache, statsResults: resultsCache, statsTable: tableCache };
+  };
+
+  box.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const restoredPlot = restoreChildren(els.plotDiv, cache.plot);
+    const restoredResults = restoreChildren(els.statsResults, cache.statsResults);
+    const restoredTable = restoreChildren(els.statsTable, cache.statsTable);
+    const restored = restoredPlot || restoredResults || restoredTable;
+    console.debug('Debug: box render cache restored', {
+      restored,
+      plot: restoredPlot,
+      results: restoredResults,
+      table: restoredTable
+    });
+    return restored;
   };
   box.ensure = function(){ if(!box.ready) box.init(); };
   box.prepareForTab = function prepareForTab(){

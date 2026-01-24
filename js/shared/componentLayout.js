@@ -89,7 +89,10 @@
       minSvgWidth: Number.isFinite(config?.initialMinSvgWidth) ? Number(config.initialMinSvgWidth) : 0,
       resizeObserver: null,
       wasHidden: false,
-      deferScheduleUntil: 0
+      deferScheduleUntil: 0,
+      forceDeferUntil: 0,
+      forceDeferReason: null,
+      forceSkipSchedules: 0
     };
     const restoreDelayMs = Number.isFinite(config?.restoreScheduleDelayMs)
       ? Number(config.restoreScheduleDelayMs)
@@ -195,6 +198,26 @@
       let skipSchedule = options && options.skipSchedule === true;
       const now = Date.now();
       const visibility = resolveVisibility();
+      let forceDeferActive = false;
+      let forceSkipActive = false;
+      if(panelState.forceSkipSchedules > 0 && !options.forceSchedule){
+        panelState.forceSkipSchedules -= 1;
+        skipSchedule = true;
+        forceSkipActive = true;
+        if(isDebugEnabled()){
+          console.debug('Debug: componentLayout schedule skipped (forced)', {
+            component: componentName,
+            remaining: panelState.forceSkipSchedules
+          });
+        }
+      }
+      if(panelState.forceDeferUntil && panelState.forceDeferUntil > now && !options.forceSchedule){
+        skipSchedule = true;
+        forceDeferActive = true;
+      }else if(panelState.forceDeferUntil > 0){
+        panelState.forceDeferUntil = 0;
+        panelState.forceDeferReason = null;
+      }
       if(visibility.hidden){
         if(!panelState.wasHidden){
           panelState.wasHidden = true;
@@ -226,7 +249,7 @@
           panelState.deferScheduleUntil = 0;
         }
       }
-      const suppressResizeCallback = (visibility.hidden || deferActive) && !options.forceSchedule;
+      const suppressResizeCallback = (visibility.hidden || deferActive || forceDeferActive || forceSkipActive) && !options.forceSchedule;
       return { skipSchedule, visibility, suppressResizeCallback };
     };
 
@@ -568,6 +591,21 @@
         scheduleDrawFn = typeof fn === 'function' ? fn : null;
         console.debug('Debug: componentLayout scheduleDraw updated', { component: componentName, hasSchedule: !!scheduleDrawFn });
       },
+      suppressNextSchedule(options = {}){
+        const delayMs = Number.isFinite(options?.delayMs) ? Number(options.delayMs) : restoreDelayMs;
+        const count = Number.isFinite(options?.count) ? Math.max(0, Math.floor(options.count)) : 2;
+        panelState.forceDeferUntil = Date.now() + Math.max(0, delayMs);
+        panelState.forceDeferReason = options?.reason || 'manual';
+        panelState.forceSkipSchedules = Math.max(panelState.forceSkipSchedules, count);
+        if(isDebugEnabled()){
+          console.debug('Debug: componentLayout schedule suppressed', {
+            component: componentName,
+            delayMs,
+            reason: panelState.forceDeferReason,
+            count: panelState.forceSkipSchedules
+          });
+        }
+      },
       updateSvgBox(node){
         elements.svgBox = node;
         if(!selectors.resizeTarget){
@@ -638,5 +676,20 @@
     }
     console.debug('Debug: componentLayout getDefaultStateFor skipped', { component: componentName, hasEntry: !!entry });
     return null;
+  };
+
+  componentLayout.suppressNextScheduleFor = function suppressNextScheduleFor(componentName, options = {}){
+    if(!componentName){ return false; }
+    const entry = layoutRegistry[componentName];
+    if(entry && typeof entry.suppressNextSchedule === 'function'){
+      try{
+        entry.suppressNextSchedule(options);
+        return true;
+      }catch(err){
+        console.error('Shared.componentLayout.suppressNextScheduleFor error', { component: componentName, err });
+      }
+    }
+    console.debug('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, hasEntry: !!entry });
+    return false;
   };
 })(window);

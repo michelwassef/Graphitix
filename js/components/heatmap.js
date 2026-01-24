@@ -4679,6 +4679,12 @@
       const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
       markHeatmapOverlayPending(overlayReason);
     }
+    const skipDraw = meta?.skipDraw === true;
+    let scheduleBackup = null;
+    if(skipDraw && typeof state.scheduleDraw === 'function'){
+      scheduleBackup = state.scheduleDraw;
+      state.scheduleDraw = () => {};
+    }
     const matrix = Array.isArray(obj.data) ? obj.data : [];
     if(state.hot){
       state.hot.loadData(matrix);
@@ -4687,9 +4693,14 @@
       }
     }
     applyConfig(obj.config || {});
-    state.lastStats = null;
-    updateStats(null);
-    state.scheduleDraw();
+    if(!skipDraw){
+      state.lastStats = null;
+      updateStats(null);
+      state.scheduleDraw();
+    }
+    if(scheduleBackup){
+      state.scheduleDraw = scheduleBackup;
+    }
     debugLog('Debug: heatmap payload applied', {
       source: meta.source || 'unknown',
       rows: matrix.length,
@@ -4869,6 +4880,59 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  heatmap.captureRenderCache = function captureRenderCache(){
+    const svg = state.svg || $('heatmapSvg');
+    const stats = state.statsEl || $('heatmapStatsContent');
+    const svgCache = detachChildren(svg);
+    const statsCache = detachChildren(stats);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: heatmap render cache captured', {
+        svgNodes: svgCache?.count || 0,
+        statsNodes: statsCache?.count || 0
+      });
+    }
+    return { svg: svgCache, stats: statsCache };
+  };
+
+  heatmap.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const svg = state.svg || $('heatmapSvg');
+    const stats = state.statsEl || $('heatmapStatsContent');
+    const restoredSvg = restoreChildren(svg, cache.svg);
+    const restoredStats = restoreChildren(stats, cache.stats);
+    const restored = restoredSvg || restoredStats;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: heatmap render cache restored', {
+        restored,
+        svg: restoredSvg,
+        stats: restoredStats
+      });
+    }
+    return restored;
   };
 
   function benchmarkHeatmapLoad(config){

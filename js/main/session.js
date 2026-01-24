@@ -370,6 +370,9 @@
       tab.previewMarkup = null;
       tab.previewSignature = null;
       tab.previewMeta = null;
+      tab.renderCache = null;
+      tab.renderCacheSignature = null;
+      tab.renderCacheLayoutSignature = null;
       notifyPreviewIndicator(tab);
       console.debug('Debug: preview cleared via assignTabPayload', { tabId: tab.id, reason: meta.reason || 'payload-null' });
     }
@@ -472,6 +475,9 @@
       previewMarkup: options.previewMarkup || null,
       previewSignature: options.previewSignature || null,
       previewMeta: options.previewMeta || null,
+      renderCache: null,
+      renderCacheSignature: null,
+      renderCacheLayoutSignature: null,
       layoutState: options.layoutState || null,
       layoutSignature: options.layoutSignature !== undefined
         ? options.layoutSignature
@@ -675,6 +681,35 @@
           tabId: tab.id,
           hasPreviews: !!previews
         });
+      }
+      if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
+        try {
+          const captured = config.captureRenderCache({
+            tabId: tab.id,
+            type: tab.type,
+            reason: options.reason || 'persist-active'
+          });
+          if (captured) {
+            tab.renderCache = {
+              cache: captured,
+              payloadSignature: tab.payloadSignature || null,
+              layoutSignature: tab.layoutSignature || null
+            };
+            tab.renderCacheSignature = tab.payloadSignature || null;
+            tab.renderCacheLayoutSignature = tab.layoutSignature || null;
+          } else {
+            tab.renderCache = null;
+            tab.renderCacheSignature = null;
+            tab.renderCacheLayoutSignature = null;
+          }
+          console.debug('Debug: workspace render cache captured', {
+            tabId: tab.id,
+            type: tab.type,
+            hasCache: !!captured
+          });
+        } catch (err) {
+          console.error('persistActiveTabState render cache error', { tabId: tab.id, type: tab.type, err });
+        }
       }
       if (!workspaceState.loadedWorkspaces) {
         workspaceState.loadedWorkspaces = {};

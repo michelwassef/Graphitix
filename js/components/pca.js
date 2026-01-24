@@ -8073,6 +8073,12 @@
           const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
           markPcaOverlayPending(overlayReason);
         }
+        const skipDraw = meta?.skipDraw === true;
+        let scheduleBackup = null;
+        if(skipDraw){
+          scheduleBackup = scheduleDrawPca;
+          scheduleDrawPca = () => {};
+        }
         ensurePcaHotForActiveTab();
         const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
         if(pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
@@ -8232,7 +8238,12 @@
             legend: c.labelPositions.legend || null
           };
         }
-        scheduleDrawPca();
+        if(!skipDraw){
+          scheduleDrawPca();
+        }
+        if(scheduleBackup){
+          scheduleDrawPca = scheduleBackup;
+        }
         debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataMatrix.length });
         return true;
       }
@@ -8357,6 +8368,71 @@
     pca.getHotInstance = () => pcaHotInstance;
     pca.prepareForTab = function prepareForTab(){
       ensurePcaHotForActiveTab();
+    };
+
+    function detachChildren(node){
+      if(!node){ return null; }
+      const doc = node.ownerDocument || global.document;
+      const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+      if(!fragment){ return null; }
+      let count = 0;
+      while(node.firstChild){
+        fragment.appendChild(node.firstChild);
+        count += 1;
+      }
+      return { fragment, count };
+    }
+
+    function restoreChildren(node, payload){
+      if(!node || !payload || !payload.fragment){ return false; }
+      while(node.firstChild){
+        node.removeChild(node.firstChild);
+      }
+      node.appendChild(payload.fragment);
+      return true;
+    }
+
+    pca.captureRenderCache = function captureRenderCache(){
+      const plot = document.getElementById('pcaPlot');
+      const stats = document.getElementById('pcaStatsResults');
+      const summary = document.getElementById('pcaStatsSummary');
+      const scree = document.getElementById('pcaScreePlot');
+      const plotCache = detachChildren(plot);
+      const statsCache = detachChildren(stats);
+      const summaryCache = detachChildren(summary);
+      const screeCache = detachChildren(scree);
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        debugLog('Debug: pca render cache captured', {
+          plotNodes: plotCache?.count || 0,
+          statsNodes: statsCache?.count || 0,
+          summaryNodes: summaryCache?.count || 0,
+          screeNodes: screeCache?.count || 0
+        });
+      }
+      return { plot: plotCache, stats: statsCache, summary: summaryCache, scree: screeCache };
+    };
+
+    pca.restoreRenderCache = function restoreRenderCache(cache){
+      if(!cache){ return false; }
+      const plot = document.getElementById('pcaPlot');
+      const stats = document.getElementById('pcaStatsResults');
+      const summary = document.getElementById('pcaStatsSummary');
+      const scree = document.getElementById('pcaScreePlot');
+      const restoredPlot = restoreChildren(plot, cache.plot);
+      const restoredStats = restoreChildren(stats, cache.stats);
+      const restoredSummary = restoreChildren(summary, cache.summary);
+      const restoredScree = restoreChildren(scree, cache.scree);
+      const restored = restoredPlot || restoredStats || restoredSummary || restoredScree;
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        debugLog('Debug: pca render cache restored', {
+          restored,
+          plot: restoredPlot,
+          stats: restoredStats,
+          summary: restoredSummary,
+          scree: restoredScree
+        });
+      }
+      return restored;
     };
     pca.__state = pcaState;
     ensureEmptyPayloadTemplate();

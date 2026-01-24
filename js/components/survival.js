@@ -3257,6 +3257,12 @@
       logDebug('payload rejected', { source, hasType: !!payload?.type });
       return false;
     }
+    const skipDraw = meta?.skipDraw === true;
+    let scheduleBackup = null;
+    if(skipDraw && typeof state.scheduleDraw === 'function'){
+      scheduleBackup = state.scheduleDraw;
+      state.scheduleDraw = () => {};
+    }
     if(Array.isArray(payload.data) && state.hot){
       state.hot.loadData(payload.data);
       if(payload.exclusions){
@@ -3275,8 +3281,11 @@
         renderStatsLead(refs.statsCox, 'Enable "Fit Cox Model" above to review coefficient estimates.');
       }
     }
-    if(typeof state.scheduleDraw === 'function'){
+    if(!skipDraw && typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
+    }
+    if(scheduleBackup){
+      state.scheduleDraw = scheduleBackup;
     }
     logDebug('payload applied', { source, rows: payload.data?.length || 0, hasStats: !!payload.stats });
     return true;
@@ -3379,8 +3388,8 @@
     }
   }
   survival.loadFromFile = loadFromFile;
-  survival.loadFromPayload = function loadFromPayload(payload){
-    if(!applySurvivalPayload(payload, { source: 'payload' })){
+  survival.loadFromPayload = function loadFromPayload(payload, options = {}){
+    if(!applySurvivalPayload(payload, { source: 'payload', ...options })){
       logDebug('payload rejected from Main payload', { source: 'payload' });
     }
   };
@@ -3642,6 +3651,83 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+  };
+
+  function detachChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
+    if(!fragment){ return null; }
+    let count = 0;
+    while(node.firstChild){
+      fragment.appendChild(node.firstChild);
+      count += 1;
+    }
+    return { fragment, count };
+  }
+
+  function restoreChildren(node, payload){
+    if(!node || !payload || !payload.fragment){ return false; }
+    while(node.firstChild){
+      node.removeChild(node.firstChild);
+    }
+    node.appendChild(payload.fragment);
+    return true;
+  }
+
+  survival.captureRenderCache = function captureRenderCache(){
+    const plot = document.getElementById('survivalPlot');
+    const summary = document.getElementById('survivalStatsSummary');
+    const logRank = document.getElementById('survivalStatsLogRank');
+    const hazard = document.getElementById('survivalStatsHazardRatios');
+    const cox = document.getElementById('survivalStatsCox');
+    const plotCache = detachChildren(plot);
+    const summaryCache = detachChildren(summary);
+    const logRankCache = detachChildren(logRank);
+    const hazardCache = detachChildren(hazard);
+    const coxCache = detachChildren(cox);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: survival render cache captured', {
+        plotNodes: plotCache?.count || 0,
+        summaryNodes: summaryCache?.count || 0,
+        logRankNodes: logRankCache?.count || 0,
+        hazardNodes: hazardCache?.count || 0,
+        coxNodes: coxCache?.count || 0
+      });
+    }
+    return {
+      plot: plotCache,
+      summary: summaryCache,
+      logRank: logRankCache,
+      hazard: hazardCache,
+      cox: coxCache
+    };
+  };
+
+  survival.restoreRenderCache = function restoreRenderCache(cache){
+    if(!cache){ return false; }
+    const plot = document.getElementById('survivalPlot');
+    const summary = document.getElementById('survivalStatsSummary');
+    const logRank = document.getElementById('survivalStatsLogRank');
+    const hazard = document.getElementById('survivalStatsHazardRatios');
+    const cox = document.getElementById('survivalStatsCox');
+    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredSummary = restoreChildren(summary, cache.summary);
+    const restoredLogRank = restoreChildren(logRank, cache.logRank);
+    const restoredHazard = restoreChildren(hazard, cache.hazard);
+    const restoredCox = restoreChildren(cox, cache.cox);
+    const restored = restoredPlot || restoredSummary || restoredLogRank || restoredHazard || restoredCox;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: survival render cache restored', {
+        restored,
+        plot: restoredPlot,
+        summary: restoredSummary,
+        logRank: restoredLogRank,
+        hazard: restoredHazard,
+        cox: restoredCox
+      });
+    }
+    return restored;
   };
   survival.draw = drawSurvival;
   survival.__getState = function(){
