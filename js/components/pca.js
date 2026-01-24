@@ -169,6 +169,12 @@
     minCells: 20000,
     timeoutMs: 30000
   };
+  const PCA_EMBED_WORKER = {
+    url: 'js/workers/pca-embed.worker.js',
+    minSamples: 150,
+    minCells: 40000,
+    timeoutMs: 60000
+  };
   const PCA_POINT_LABEL_ROW_HEADER = 'Label point';
   const PCA_POINT_LABEL_MARK = '✓';
   const PCA_LABEL_ROW_INDEX = 0;
@@ -2253,6 +2259,47 @@
       return result;
     }catch(err){
       debugLog('Debug: pca worker failed', { message: err?.message || String(err) });
+      return null;
+    }
+  }
+
+  function shouldUsePcaEmbedWorker(method, nSamples, nFeatures){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
+      return false;
+    }
+    const samples = Math.max(0, Number(nSamples) || 0);
+    const features = Math.max(0, Number(nFeatures) || 0);
+    const cells = samples * features;
+    if(method === 'mds'){
+      return samples >= PCA_EMBED_WORKER.minSamples || cells >= PCA_EMBED_WORKER.minCells;
+    }
+    return samples >= PCA_EMBED_WORKER.minSamples;
+  }
+
+  async function runPcaEmbedWorker(method, payload){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.runTask !== 'function'){
+      return null;
+    }
+    const action = method === 'mds' ? 'mds' : (method === 'tsne' ? 'tsne' : (method === 'umap' ? 'umap' : null));
+    if(!action){
+      return null;
+    }
+    try{
+      const result = await workerApi.runTask({
+        name: `pca-${action}`,
+        url: PCA_EMBED_WORKER.url,
+        action,
+        payload,
+        timeoutMs: PCA_EMBED_WORKER.timeoutMs
+      });
+      if(!result){
+        return null;
+      }
+      return result;
+    }catch(err){
+      debugLog('Debug: pca embed worker failed', { method, message: err?.message || String(err) });
       return null;
     }
   }
@@ -5344,6 +5391,100 @@
           computeStart = nowMs();
         }
         console.debug('Debug: mds branch entered', { method }); // Debug: MDS execution path
+        let mdsWorkerResult = null;
+        if(shouldUsePcaEmbedWorker('mds', nSamples, nFeatures)){
+          mdsWorkerResult = await runPcaEmbedWorker('mds', {
+            matrix,
+            requestedDims: requestedViewMode === '3d' ? 3 : 2
+          });
+          if(drawToken !== pcaState.drawToken){
+            debugLog('Debug: pca embed worker result ignored', { reason: 'stale-token', drawToken, current: pcaState.drawToken });
+            return;
+          }
+        }
+        if(mdsWorkerResult && Array.isArray(mdsWorkerResult.coords)){
+          const coords = mdsWorkerResult.coords;
+          const dimsToUse = Number(mdsWorkerResult.dimsToUse) || 0;
+          const totalPositive = Number(mdsWorkerResult.totalPositive) || 0;
+          eigenSummaryData = Array.isArray(mdsWorkerResult.eigenSummary) ? mdsWorkerResult.eigenSummary.slice() : [];
+          if(dimsToUse === 0){
+            pcaPlotDiv.innerHTML = '<i>MDS could not find positive eigenvalues.</i>';
+            resetStatsPanel();
+            updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
+            return;
+          }
+          dimensionMeta = eigenSummaryData.map(entry => ({
+            value: entry.component,
+            label: entry.componentLabel || `Dim${entry.component}`,
+            variancePercent: entry.variancePercent
+          }));
+          updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
+          axisIndices = axisSelectionToIndices(dimensionMeta.length);
+          points = coords.map((row, idx) => ({
+            x: row[axisIndices.x] || 0,
+            y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
+            label: labels[idx],
+            index: idx,
+            columnIndex: Number.isInteger(numericColIndices?.[idx]) ? numericColIndices[idx] : null,
+            isManualLabel: !!manualLabelFlags[idx]
+          }));
+          const xMeta = dimensionMeta[axisIndices.x] || dimensionMeta[0] || null;
+          const yMeta = dimensionMeta[axisIndices.y] || dimensionMeta[1] || null;
+          const zMeta = typeof axisIndices.z === 'number' ? (dimensionMeta[axisIndices.z] || null) : null;
+          const dim1Pct = dimensionMeta[0]?.variancePercent ?? 0;
+          const dim2Pct = dimensionMeta[1]?.variancePercent ?? 0;
+          const dim3Pct = dimensionMeta[2]?.variancePercent ?? null;
+          pcaXLabelText = xMeta ? formatAxisLabel(xMeta) : `MDS${(axisIndices.x || 0) + 1}`;
+          pcaYLabelText = yMeta ? formatAxisLabel(yMeta) : (dimensionMeta.length > 1 ? `MDS${(axisIndices.y || 1) + 1}` : 'MDS2');
+          if(zMeta || dimensionMeta.length >= 3){
+            pcaZLabelText = zMeta ? formatAxisLabel(zMeta) : `MDS${(axisIndices.z ?? 2) + 1}`;
+          }
+          const stress = Number(mdsWorkerResult.stress) || 0;
+          statsSummaryLines = [`Dim1: ${dim1Pct.toFixed(1)}% inertia`];
+          if (dimsToUse > 1) {
+            statsSummaryLines.push(`Dim2: ${dim2Pct.toFixed(1)}% inertia`);
+          }
+          if (dimsToUse > 2 && dim3Pct != null) {
+            statsSummaryLines.push(`Dim3: ${dim3Pct.toFixed(1)}% inertia`);
+          }
+          statsSummaryLines.push(`Stress-1: ${stress.toFixed(3)}`);
+          lastPcaStats = {
+            method: 'mds',
+            eigenSummary: eigenSummaryData.map(entry => ({
+              component: entry.component,
+              componentLabel: entry.componentLabel,
+              eigenvalue: Number(entry.eigenvalue),
+              varianceRatio: Number(entry.varianceRatio),
+              variancePercent: Number(entry.variancePercent),
+              cumulativeVarianceRatio: Number(entry.cumulativeVarianceRatio),
+              cumulativeVariancePercent: Number(entry.cumulativeVariancePercent),
+              singularValue: Number(entry.singularValue)
+            })),
+            scree: eigenSummaryData.map(entry => ({
+              component: entry.component,
+              variancePercent: Number(entry.variancePercent)
+            })),
+            stress: Number(stress.toFixed(6)),
+            dimensions: dimsToUse,
+            totalVariance: Number(totalPositive)
+          };
+          if (dimensionMeta.length >= 3 && typeof axisIndices.z === 'number') {
+            points3d = coords.map((row, idx) => ({
+              x: row[axisIndices.x] || 0,
+              y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
+              z: row[axisIndices.z] || 0,
+              label: labels[idx],
+              index: idx,
+              columnIndex: Number.isInteger(numericColIndices?.[idx]) ? numericColIndices[idx] : null,
+              isManualLabel: !!manualLabelFlags[idx]
+            }));
+          } else {
+            points3d = [];
+          }
+          if(computeEnd === null){
+            computeEnd = nowMs();
+          }
+        } else {
         const distanceMatrix = [];
         const squaredDistances = [];
         for (let i = 0; i < nSamples; i++) {
@@ -5523,6 +5664,7 @@
         if(computeEnd === null){
           computeEnd = nowMs();
         }
+        }
       } else if (method === 'tsne') {
         console.debug('Debug: tsne branch entered',{ nSamples });
         const maxPerplexity = Math.max(2, nSamples - 1);
@@ -5534,14 +5676,33 @@
         if(computeStart === null){
           computeStart = nowMs();
         }
-        const tsneResult = computeTsneEmbedding(matrix, {
-          outputDims: 2,
-          perplexity: tsnePerplexity,
-          learningRate: tsneLearningRate,
-          iterations: tsneIterations,
-          earlyExaggeration: tsneExaggeration,
-          SVDLib
-        });
+        let tsneResult = null;
+        if(shouldUsePcaEmbedWorker('tsne', nSamples, nFeatures)){
+          tsneResult = await runPcaEmbedWorker('tsne', {
+            matrix,
+            settings: {
+              outputDims: 2,
+              perplexity: tsnePerplexity,
+              learningRate: tsneLearningRate,
+              iterations: tsneIterations,
+              earlyExaggeration: tsneExaggeration
+            }
+          });
+          if(drawToken !== pcaState.drawToken){
+            debugLog('Debug: pca embed worker result ignored', { reason: 'stale-token', drawToken, current: pcaState.drawToken });
+            return;
+          }
+        }
+        if(!tsneResult){
+          tsneResult = computeTsneEmbedding(matrix, {
+            outputDims: 2,
+            perplexity: tsnePerplexity,
+            learningRate: tsneLearningRate,
+            iterations: tsneIterations,
+            earlyExaggeration: tsneExaggeration,
+            SVDLib
+          });
+        }
         if(computeEnd === null){
           computeEnd = nowMs();
         }
@@ -5589,15 +5750,35 @@
         const umapMinDist = clampNumber(pcaUmapMinDist?.value ?? DEFAULT_UMAP_SETTINGS.minDist, 0, 0.99, DEFAULT_UMAP_SETTINGS.minDist);
         const umapLearningRate = clampNumber(pcaUmapLearningRate?.value ?? DEFAULT_UMAP_SETTINGS.learningRate, 0.01, 10, DEFAULT_UMAP_SETTINGS.learningRate);
         const umapEpochs = Math.round(clampNumber(pcaUmapEpochs?.value ?? DEFAULT_UMAP_SETTINGS.epochs, 50, 5000, DEFAULT_UMAP_SETTINGS.epochs));
-        const umapResult = computeSimpleUmapEmbedding(matrix, {
-          outputDims: 2,
-          neighbors: umapNeighbors,
-          minDist: umapMinDist,
-          learningRate: umapLearningRate,
-          epochs: umapEpochs,
-          negativeSampleRate: DEFAULT_UMAP_SETTINGS.negativeSampleRate,
-          SVDLib
-        });
+        let umapResult = null;
+        if(shouldUsePcaEmbedWorker('umap', nSamples, nFeatures)){
+          umapResult = await runPcaEmbedWorker('umap', {
+            matrix,
+            settings: {
+              outputDims: 2,
+              neighbors: umapNeighbors,
+              minDist: umapMinDist,
+              learningRate: umapLearningRate,
+              epochs: umapEpochs,
+              negativeSampleRate: DEFAULT_UMAP_SETTINGS.negativeSampleRate
+            }
+          });
+          if(drawToken !== pcaState.drawToken){
+            debugLog('Debug: pca embed worker result ignored', { reason: 'stale-token', drawToken, current: pcaState.drawToken });
+            return;
+          }
+        }
+        if(!umapResult){
+          umapResult = computeSimpleUmapEmbedding(matrix, {
+            outputDims: 2,
+            neighbors: umapNeighbors,
+            minDist: umapMinDist,
+            learningRate: umapLearningRate,
+            epochs: umapEpochs,
+            negativeSampleRate: DEFAULT_UMAP_SETTINGS.negativeSampleRate,
+            SVDLib
+          });
+        }
         if(computeEnd === null){
           computeEnd = nowMs();
         }

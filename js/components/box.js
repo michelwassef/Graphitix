@@ -63,6 +63,96 @@
 	  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
 	  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
 	  const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
+	  const BOX_STATS_WORKER = {
+	    url: 'js/workers/box.worker.js',
+	    minValues: 8000,
+	    timeoutMs: 30000
+	  };
+	  const BOX_SWARM_WORKER = {
+	    url: 'js/workers/box.worker.js',
+	    minPoints: 4000,
+	    timeoutMs: 20000
+	  };
+  function shouldUseBoxStatsWorker(valueCount){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
+      return false;
+    }
+    const count = Number(valueCount) || 0;
+    return count >= BOX_STATS_WORKER.minValues;
+  }
+  function runBoxStatsWorker(payload){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.runTask !== 'function'){
+      return Promise.reject(new Error('Box stats worker unavailable'));
+    }
+    return workerApi.runTask({
+      name: 'box-stats',
+      url: BOX_STATS_WORKER.url,
+      action: 'box-stats',
+      payload,
+      timeoutMs: BOX_STATS_WORKER.timeoutMs
+    });
+  }
+  function shouldUseBoxSwarmWorker(pointCount){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
+      return false;
+    }
+    const count = Number(pointCount) || 0;
+    return count >= BOX_SWARM_WORKER.minPoints;
+  }
+  function runBoxSwarmWorker(payload){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.runTask !== 'function'){
+      return Promise.reject(new Error('Box swarm worker unavailable'));
+    }
+    return workerApi.runTask({
+      name: 'box-swarm',
+      url: BOX_SWARM_WORKER.url,
+      action: 'box-swarm',
+      payload,
+      timeoutMs: BOX_SWARM_WORKER.timeoutMs
+    });
+  }
+  async function resolveSwarmOffsets(points, options){
+    const coordsSource = points?.coords || null;
+    const count = coordsSource && (Array.isArray(coordsSource) || ArrayBuffer.isView(coordsSource))
+      ? coordsSource.length
+      : (Array.isArray(points) ? points.length : 0);
+    if(!shouldUseBoxSwarmWorker(count)){
+      return computeSwarmOffsets(points, options);
+    }
+    const payload = {
+      points: {
+        coords: coordsSource,
+        raws: points?.raws || points?.rawValues || null
+      },
+      options: {
+        axisSpacing: options?.axisSpacing,
+        pointRadius: options?.pointRadius,
+        sampleSize: options?.sampleSize,
+        orientation: options?.orientation,
+        widthScaleMode: options?.widthScaleMode,
+        maxHalfWidth: options?.maxHalfWidth,
+        allowRadiusAdjustment: options?.allowRadiusAdjustment,
+        radiusCountExponent: options?.radiusCountExponent,
+        fastThreshold: options?.fastThreshold,
+        fastMode: options?.fastMode,
+        debug: options?.debug === true
+      }
+    };
+    try{
+      const result = await runBoxSwarmWorker(payload);
+      if(result && Array.isArray(result.offsets)){
+        return result;
+      }
+      console.debug('Debug: box swarm worker returned empty result');
+    }catch(err){
+      console.debug('Debug: box swarm worker failed',{ message: err?.message || String(err) });
+    }
+    return computeSwarmOffsets(points, options);
+  }
   const BROKEN_AXIS_GAP_SIZE_PX = 20;
   const BROKEN_AXIS_BREAK_WIDTH = 8;
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
@@ -9892,6 +9982,358 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
   }
 
+  function buildBoxStatsWorkerPayload(context, selectedIndices, preparedGrouped){
+    const debug = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    if(state.tableFormat === 'grouped'){
+      const groupedData = preparedGrouped || prepareGroupedStatsData(context.traces, context.helpers || {});
+      return {
+        mode: 'grouped',
+        grouped: {
+          analysis: state.groupedStats?.analysis || 'twoWayAnova',
+          data: groupedData
+        },
+        statsCorrection: state.statsCorrection,
+        debug
+      };
+    }
+    const indices = Array.isArray(selectedIndices) ? selectedIndices : Array.from(state.selectedCols || []);
+    const selection = indices.map(idx => {
+      const trace = context.traces[idx];
+      return {
+        index: idx,
+        label: trace?.name || `Group ${idx + 1}`,
+        values: Array.isArray(trace?.rawY) ? trace.rawY : []
+      };
+    });
+    return {
+      mode: 'single',
+      selection,
+      statsTest: state.statsTest,
+      statsMode: state.statsMode,
+      statsPaired: state.statsPaired,
+      statsRef: state.statsRef,
+      statsCustomPairs: Array.isArray(state.statsCustomPairs) ? state.statsCustomPairs : [],
+      statsCorrection: state.statsCorrection,
+      statsEffectParametric: state.statsEffectParametric,
+      statsEffectNonParametric: state.statsEffectNonParametric,
+      statsPostHoc: state.statsPostHoc,
+      statsParametricVariant: state.statsParametricVariant,
+      annotationMaxByTrace: Array.isArray(context.helpers?.annotationMaxByTrace) ? context.helpers.annotationMaxByTrace : null,
+      debug
+    };
+  }
+
+  function renderBoxStatsFromModel(model, context){
+    const statsDiv = global.document.getElementById('statsResults');
+    if(!statsDiv){
+      console.warn('Debug: statsResults element not found');
+      return false;
+    }
+    statsDiv.innerHTML = '';
+    const svg = context?.svg;
+    if(svg && typeof svg.querySelectorAll === 'function'){
+      const existingAnnotations = svg.querySelectorAll('.box-significance-annotation');
+      existingAnnotations.forEach(node => {
+        if(node && node.parentNode){
+          node.parentNode.removeChild(node);
+        }
+      });
+    }
+    const hasStatsTable = Shared.statsTable && typeof Shared.statsTable.render === 'function';
+    let resultsContainer = statsDiv;
+    let assumptionContainer = null;
+    const renderTableModel = (tableModel, append = false, targetOverride) => {
+      const target = targetOverride || resultsContainer || statsDiv;
+      if(hasStatsTable){
+        Shared.statsTable.render({ target, append, ...tableModel });
+        console.debug('Debug: box stats render via Shared.statsTable', {
+          caption: tableModel.caption || null,
+          rowCount: tableModel.rows?.length || 0,
+          append
+        });
+        return;
+      }
+      if(!append){
+        target.innerHTML = '';
+      }
+      if(tableModel.caption){
+        const captionEl = document.createElement('div');
+        captionEl.className = 'stats-table-lead';
+        captionEl.textContent = tableModel.caption;
+        target.appendChild(captionEl);
+      }
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      (tableModel.columns || []).forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.label;
+        if(col.tooltip){
+          th.title = col.tooltip;
+        }
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      (tableModel.rows || []).forEach(row => {
+        const tr = document.createElement('tr');
+        (tableModel.columns || []).forEach(col => {
+          const td = document.createElement('td');
+          const value = Array.isArray(row) ? row[col.index] : (row?.[col.key]);
+          td.textContent = value ?? '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      target.appendChild(table);
+      if(Array.isArray(tableModel.footnotes) && tableModel.footnotes.length){
+        const list = document.createElement('div');
+        tableModel.footnotes.forEach(note => {
+          const item = document.createElement('div');
+          item.textContent = note;
+          list.appendChild(item);
+        });
+        target.appendChild(list);
+      }
+      console.debug('Debug: box stats render fallback', { caption: tableModel.caption || null, rowCount: tableModel.rows?.length || 0, append });
+    };
+    const setResultsMessage = text => {
+      if(!resultsContainer){
+        return;
+      }
+      resultsContainer.innerHTML = '';
+      if(typeof text === 'string'){
+        const msg = document.createElement('div');
+        msg.textContent = text;
+        resultsContainer.appendChild(msg);
+      }
+    };
+
+    if(model?.mode === 'grouped'){
+      const summary = model?.groupedSummary || {};
+      const summaryRow = document.createElement('div');
+      summaryRow.className = 'stats-table-lead';
+      summaryRow.textContent = `Groups: ${summary.groupsCount || 0} | Conditions: ${summary.conditionsCount || 0} | Rows with data: ${summary.rowsWithData || 0}`;
+      statsDiv.appendChild(summaryRow);
+      if(summary.partialRowsSkipped){
+        const note = document.createElement('div');
+        note.style.fontSize = '12px';
+        note.style.color = '#555';
+        note.textContent = `${summary.partialRowsSkipped} row(s) skipped due to missing values.`;
+        statsDiv.appendChild(note);
+      }
+      if(!model?.ok){
+        const warn = document.createElement('div');
+        warn.textContent = model?.message || 'Unable to compute grouped statistics.';
+        statsDiv.appendChild(warn);
+        state.assumptionDiagnostics = null;
+        return true;
+      }
+      if(Array.isArray(model?.tables) && model.tables.length){
+        renderTableModel(model.tables[0], true, statsDiv);
+      }
+      state.assumptionDiagnostics = null;
+      return true;
+    }
+
+    assumptionContainer = document.createElement('div');
+    assumptionContainer.className = 'stats-assumption-container';
+    statsDiv.appendChild(assumptionContainer);
+    resultsContainer = document.createElement('div');
+    resultsContainer.className = 'stats-results-main';
+    statsDiv.appendChild(resultsContainer);
+    state.assumptionDiagnostics = model?.assumptionDiagnostics || null;
+    renderAssumptionSection(assumptionContainer, state.assumptionDiagnostics);
+    if(model?.message){
+      setResultsMessage(model.message);
+      return true;
+    }
+    const tables = Array.isArray(model?.tables) ? model.tables : [];
+    let append = false;
+    tables.forEach(tableModel => {
+      renderTableModel(tableModel, append, resultsContainer);
+      append = true;
+    });
+    return true;
+  }
+
+  function applyBoxStatsAnnotationsFromModel(model, context){
+    if(!model || model.mode !== 'single'){
+      return;
+    }
+    if(model.message){
+      return;
+    }
+    const svg = context?.svg;
+    const helpers = context?.helpers || {};
+    if(!svg){
+      return;
+    }
+    const significanceEnabled = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
+    state.statsLastSignificanceEnabled = !!significanceEnabled;
+    state.significanceMaxLevel = null;
+    const annotationOpts = helpers?.annotationStyle || {};
+    const orientation = annotationOpts.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const categoryCenter = typeof helpers?.categoryCenter === 'function'
+      ? helpers.categoryCenter
+      : (typeof helpers?.xCenter === 'function' ? helpers.xCenter : (idx => idx));
+    const valueToCoord = typeof helpers?.valueToCoord === 'function'
+      ? helpers.valueToCoord
+      : (typeof helpers?.y2px === 'function' ? helpers.y2px : (val => val));
+    const baseOffset = Number.isFinite(annotationOpts.baseOffset) ? annotationOpts.baseOffset : ANN_BASE_OFFSET;
+    const levelGap = Number.isFinite(annotationOpts.levelGap) ? annotationOpts.levelGap : ANN_LEVEL_GAP;
+    const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
+    const traces = Array.isArray(context?.traces) ? context.traces : [];
+    const fallbackTraceMax = idx => {
+      const trace = traces?.[idx];
+      const values = Array.isArray(trace?.rawY) ? trace.rawY : (Array.isArray(trace?.y) ? trace.y : []);
+      if(!values.length){
+        return -Infinity;
+      }
+      let max = -Infinity;
+      for(let i = 0; i < values.length; i++){
+        const v = values[i];
+        if(Number.isFinite(v) && v > max){
+          max = v;
+        }
+      }
+      return max;
+    };
+    const getRenderedMaxValue = idx => {
+      if(annotationMaxByTrace && Number.isFinite(annotationMaxByTrace[idx])){
+        return annotationMaxByTrace[idx];
+      }
+      return fallbackTraceMax(idx);
+    };
+    const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
+    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
+    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
+    const minClearance = Math.max(2, annotationStrokeWidth * 1.5);
+    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize, levelGap * 0.6));
+    const maxClearance = Math.max(minClearance, levelGap - Math.max(2, annotationStrokeWidth));
+    const adaptiveWhiskerClearance = Math.min(rawClearance, maxClearance);
+    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
+      if(!adaptiveWhiskersEnabled){ return null; }
+      const renderedMaxValue = getRenderedMaxValue(traceIdx);
+      if(!Number.isFinite(renderedMaxValue)){ return null; }
+      const baseCoord = valueToCoord(renderedMaxValue);
+      if(!Number.isFinite(baseCoord)){ return null; }
+      const lvl = Number.isFinite(level) ? level : 0;
+      return orientation === 'horizontal'
+        ? baseCoord + baseOffset + lvl * levelGap
+        : baseCoord - baseOffset - lvl * levelGap;
+    };
+    const resolveLowerInnerCoord = (traceIdx, level, placedPairs) => {
+      if(!adaptiveWhiskersEnabled || !Array.isArray(placedPairs) || level <= 0){
+        return null;
+      }
+      let candidate = null;
+      for(let i = 0; i < placedPairs.length; i++){
+        const pr = placedPairs[i];
+        if(!pr || !Number.isFinite(pr.innerCoord) || pr.level == null){
+          continue;
+        }
+        if(pr.level >= level){
+          continue;
+        }
+        if(traceIdx < pr.ai || traceIdx > pr.bi){
+          continue;
+        }
+        const coord = pr.innerCoord;
+        if(orientation === 'horizontal'){
+          candidate = candidate == null ? coord : Math.max(candidate, coord);
+        }else{
+          candidate = candidate == null ? coord : Math.min(candidate, coord);
+        }
+      }
+      return candidate;
+    };
+    const clampAdaptiveOuterCoord = (outerCoord, lowerInnerCoord) => {
+      if(!Number.isFinite(outerCoord) || !Number.isFinite(lowerInnerCoord)){
+        return outerCoord;
+      }
+      return orientation === 'horizontal'
+        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerClearance)
+        : Math.min(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
+    };
+    const buildPairAnnotationStyle = (idxA, idxB, level, placedPairs) => {
+      if(!adaptiveWhiskersEnabled){
+        return helpers.annotationStyle;
+      }
+      const outerCoordA = resolveAdaptiveWhiskerOuterCoord(idxA, level);
+      const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
+      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, placedPairs);
+      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, placedPairs);
+      return {
+        ...helpers.annotationStyle,
+        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
+        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB)
+      };
+    };
+
+    const pairs = Array.isArray(model.pairs) ? model.pairs.slice() : [];
+    if(pairs.length){
+      if(significanceEnabled){
+        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+        const placed = [];
+        pairs.forEach(pr => {
+          let level = 0;
+          while(placed.some(pl => !(pl.bi < pr.ai || pl.ai > pr.bi) && pl.level === level)){
+            level += 1;
+          }
+          const baseCoord = valueToCoord(pr.rangeMax);
+          const annotationCoord = orientation === 'horizontal'
+            ? baseCoord + baseOffset + level * levelGap
+            : baseCoord - baseOffset - level * levelGap;
+          const innerCoord = orientation === 'horizontal'
+            ? annotationCoord + annotationBracketSize
+            : annotationCoord - annotationBracketSize;
+          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
+          annotatePair(svg, categoryCenter(pr.ai), categoryCenter(pr.bi), annotationCoord, pr.p, annotationStyle);
+          pr.level = level;
+          pr.annotationCoord = annotationCoord;
+          pr.innerCoord = innerCoord;
+          placed.push(pr);
+        });
+        const maxLevel = Math.max(...pairs.map(pr => pr.level));
+        state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
+      }else{
+        console.debug('Debug: box significance annotation skipped for pairs',{ pairCount: pairs.length, significanceEnabled });
+      }
+      return;
+    }
+    if(significanceEnabled && !state.statsPaired && model.groupCount > 2 && model.overall && Number.isFinite(model.overallRangeMax)){
+      const indices = Array.isArray(model.indices) ? model.indices : [];
+      const xs = indices.map(idx => categoryCenter(idx));
+      annotateOverall(svg, xs, valueToCoord, model.overallRangeMax, model.overall.p, 0, helpers.annotationStyle);
+      state.significanceMaxLevel = 0;
+    }else if(!significanceEnabled){
+      console.debug('Debug: box overall significance annotation skipped',{ significanceEnabled, groupCount: model.groupCount, overallP: model.overall?.p });
+    }
+  }
+
+  function applyBoxStatsModel(model, context){
+    if(!model){
+      return false;
+    }
+    if(model.parametricVariant && model.parametricVariant !== state.statsParametricVariant){
+      state.statsParametricVariant = model.parametricVariant;
+      renderStatsControls(context?.traces || []);
+    }
+    if(model.postHoc && model.postHoc !== state.statsPostHoc){
+      state.statsPostHoc = model.postHoc;
+      renderStatsControls(context?.traces || []);
+    }
+    if(typeof model.correctionCount === 'number'){
+      updateStatsCorrectionSummary(model.correctionCount);
+    }
+    renderBoxStatsFromModel(model, context);
+    applyBoxStatsAnnotationsFromModel(model, context);
+    return true;
+  }
+
   function handleStatsComputeClick(){
     if(state.statsComputationPending){
       return;
@@ -9904,20 +10346,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsComputationPending = true;
     updateStatsButtonState({ disabled: true, label: 'Calculating…' });
     setStatsStatus('Calculating statistics…');
-    try{
-      computeStats(context.traces, context.svg, context.helpers);
-      renderStatsTable(context.traces);
-      state.statsLastRunVersion = context.version;
-      reconcileStatsContextSignature(context.traces);
-      setStatsStatus('Statistics up to date.');
-      updateSignificanceControlState({ statsReady: true });
-    }catch(err){
-      console.error('box stats computation failed', err);
-      if(els.statsResults){
-        els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
-      }
-      setStatsStatus('Failed to compute statistics.');
-    }finally{
+    const finalizeStatsComputation = () => {
       state.statsComputationPending = false;
       const stillCurrent = state.statsContext === context && state.statsContextSignature === context.signature;
       const label = stillCurrent && state.statsLastRunVersion === context.version
@@ -9938,6 +10367,79 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }catch(e){
         console.debug('Debug: persistActiveTabState after stats compute failed', { err: e?.message || String(e) });
       }
+    };
+
+    const applyStatsSuccess = () => {
+      state.statsLastRunVersion = context.version;
+      reconcileStatsContextSignature(context.traces);
+      setStatsStatus('Statistics up to date.');
+      updateSignificanceControlState({ statsReady: true });
+    };
+
+    const runLocalCompute = () => {
+      computeStats(context.traces, context.svg, context.helpers);
+      renderStatsTable(context.traces);
+      applyStatsSuccess();
+    };
+
+    const selectedIndices = Array.from(state.selectedCols || [])
+      .map(idx => Number(idx))
+      .filter(idx => Number.isInteger(idx) && idx >= 0 && idx < context.traces.length);
+    let valueCount = 0;
+    let groupedPrepared = null;
+    if(state.tableFormat === 'grouped'){
+      groupedPrepared = prepareGroupedStatsData(context.traces, context.helpers);
+      if(groupedPrepared?.ok){
+        valueCount = (groupedPrepared.rowsWithData || 0) * (groupedPrepared.groupsCount || 0) * (groupedPrepared.conditionsCount || 0);
+      }
+    }else{
+      valueCount = selectedIndices.reduce((sum, idx) => sum + ((context.traces[idx]?.rawY || []).length), 0);
+    }
+    const useWorker = shouldUseBoxStatsWorker(valueCount);
+    if(useWorker){
+      const payload = buildBoxStatsWorkerPayload(context, selectedIndices, groupedPrepared);
+      const contextVersion = context.version;
+      runBoxStatsWorker(payload)
+        .then(model => {
+          if(state.statsContext !== context || state.statsContextVersion !== contextVersion){
+            console.debug('Debug: box stats worker result ignored',{ reason: 'stale-context', contextVersion, current: state.statsContextVersion });
+            return;
+          }
+          if(!model || typeof model !== 'object'){
+            throw new Error('Box stats worker returned empty result');
+          }
+          applyBoxStatsModel(model, context);
+          renderStatsTable(context.traces);
+          applyStatsSuccess();
+        })
+        .catch(err => {
+          console.error('box stats worker failed', err);
+          try{
+            runLocalCompute();
+          }catch(errLocal){
+            console.error('box stats computation failed', errLocal);
+            if(els.statsResults){
+              els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
+            }
+            setStatsStatus('Failed to compute statistics.');
+          }
+        })
+        .finally(() => {
+          finalizeStatsComputation();
+        });
+      return;
+    }
+
+    try{
+      runLocalCompute();
+    }catch(err){
+      console.error('box stats computation failed', err);
+      if(els.statsResults){
+        els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
+      }
+      setStatsStatus('Failed to compute statistics.');
+    }finally{
+      finalizeStatsComputation();
     }
   }
 
@@ -10890,7 +11392,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
   // PART: DRAW
 
-  function draw(){
+  async function draw(){
     const token = ++state.drawToken;
     console.log('boxplot draw start',{token});
     hideBoxTooltip('draw-start');
@@ -11846,7 +12348,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
     });
 
-    function renderVertical(){
+    async function renderVertical(){
       const tickFont = chartStyle.makeFont(fs);
       const axisLabelFont = chartStyle.makeFont(fs);
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
@@ -12046,7 +12548,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
-      const stripAutoSizeRadius = (() => {
+      const computeStripAutoSizeRadius = async () => {
         if(graphTypeRaw !== 'strip'){
           return null;
         }
@@ -12077,21 +12579,32 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           pointCoords[idx] = y2px(values[idx]);
         }
         const localBand = localBandWidthForTrace();
-        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: values }, {
+        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: values }, {
           axisSpacing: localBand,
           pointRadius,
           sampleSize: maxCount,
           orientation: 'vertical',
           widthScaleMode: 'density',
           allowRadiusAdjustment: true,
-          radiusCountExponent: 0.85
+          radiusCountExponent: 0.85,
+          debug: debugEnabled
         });
+        if(token !== state.drawToken){
+          return null;
+        }
         const adjusted = Number(swarm?.adjustedRadius);
         if(debugEnabled){
           console.debug('Debug: box strip auto size base',{ orientation: 'vertical', traceIndex: maxIndex, pointCount: maxCount, adjustedRadius: Number.isFinite(adjusted) ? adjusted : null, baseRadius: pointRadius });
         }
         return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
-      })();
+      };
+      const stripAutoSizeRadius = await computeStripAutoSizeRadius();
+      if(token !== state.drawToken){
+        return null;
+      }
+      if(token !== state.drawToken){
+        return null;
+      }
       if(showGrid){
         yScale.ticks.forEach(t => {
           const y = y2px(t);
@@ -12370,7 +12883,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         });
       }
-      const renderSwarmPointsVertical = params => {
+      const renderSwarmPointsVertical = async params => {
         const {
           valueList,
           cx,
@@ -12391,7 +12904,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           maxHalfWidth = null,
           pointRadiusOverride = null,
           autoSize = false,
-          allowRadiusAdjustment = null
+          allowRadiusAdjustment = null,
+          drawToken = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
         const pointCount = rawValues.length;
@@ -12412,7 +12926,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
-        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
+        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
@@ -12420,8 +12934,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           widthScaleMode,
           maxHalfWidth,
           allowRadiusAdjustment: allowAdjustment,
-          radiusCountExponent
+          radiusCountExponent,
+          debug: debugEnabled
         });
+        if(drawToken != null && drawToken !== state.drawToken){
+          return null;
+        }
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
@@ -12844,7 +13362,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
             ? stripAutoSizeRadius
             : null;
-          const swarmResult = renderSwarmPointsVertical({
+          const swarmResult = await renderSwarmPointsVertical({
             valueList,
             cx,
             localBand,
@@ -12862,8 +13380,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             widthScaleMode: 'density',
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
-            allowRadiusAdjustment: useGlobalAutoSize ? false : null
+            allowRadiusAdjustment: useGlobalAutoSize ? false : null,
+            drawToken: token
           });
+          if(!swarmResult){
+            return null;
+          }
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
             const summaryRadius = swarmResult?.effectiveRadius != null
@@ -12979,7 +13501,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
-            renderSwarmPointsVertical({
+            const overlayResult = await renderSwarmPointsVertical({
               valueList,
               cx,
               localBand,
@@ -12997,8 +13519,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               mean,
               widthScaleMode: 'density',
               maxHalfWidth: violinPointMaxHalfWidth,
-              pointRadiusOverride: overlayRadius
+              pointRadiusOverride: overlayRadius,
+              drawToken: token
             });
+            if(!overlayResult){
+              return null;
+            }
           }else{
             const overlayMode = pointMode === 'overlay';
             const centerX = overlayMode ? cx : (x0 - boxW * 0.3);
@@ -13006,7 +13532,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               ? Math.max(pointRadius * 1.1, boxW * 0.3)
               : Math.max(pointRadius * 1.1, boxW * 0.1);
             const overlayRadius = overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null;
-            renderSwarmPointsVertical({
+            const overlayResult = await renderSwarmPointsVertical({
               valueList,
               cx: centerX,
               localBand,
@@ -13022,8 +13548,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               debugLabel: overlayMode ? 'overlay' : 'side',
               mean,
               pointRadiusOverride: overlayRadius,
-              maxHalfWidth: halfWidth
+              maxHalfWidth: halfWidth,
+              drawToken: token
             });
+            if(!overlayResult){
+              return null;
+            }
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
@@ -13061,7 +13591,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       };
     }
 
-    function renderHorizontal(){
+    async function renderHorizontal(){
       const tickFont = chartStyle.makeFont(fs);
       const axisLabelFont = chartStyle.makeFont(fs);
       const categoryWidths = labelTexts.map(lbl => chartStyle.measureText(lbl, axisLabelFont));
@@ -13109,7 +13639,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             subdivisions: minorSubdivisionsX
           })
         : [];
-      const renderSwarmPointsHorizontal = params => {
+      const renderSwarmPointsHorizontal = async params => {
         const {
           valueList,
           cy,
@@ -13130,7 +13660,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           maxHalfWidth = null,
           pointRadiusOverride = null,
           autoSize = false,
-          allowRadiusAdjustment = null
+          allowRadiusAdjustment = null,
+          drawToken = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
         const pointCount = rawValues.length;
@@ -13151,7 +13682,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
-        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
+        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
@@ -13159,8 +13690,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           widthScaleMode,
           maxHalfWidth,
           allowRadiusAdjustment: allowAdjustment,
-          radiusCountExponent
+          radiusCountExponent,
+          debug: debugEnabled
         });
+        if(drawToken != null && drawToken !== state.drawToken){
+          return null;
+        }
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
@@ -13300,7 +13835,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         return usesGroupedSpacing ? perGroupBand : bandH;
       };
-      const stripAutoSizeRadius = (() => {
+      const computeStripAutoSizeRadius = async () => {
         if(graphTypeRaw !== 'strip'){
           return null;
         }
@@ -13331,21 +13866,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           pointCoords[idx] = valueToX(values[idx]);
         }
         const localBand = localBandHeightForTrace();
-        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: values }, {
+        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: values }, {
           axisSpacing: localBand,
           pointRadius,
           sampleSize: maxCount,
           orientation: 'horizontal',
           widthScaleMode: 'density',
           allowRadiusAdjustment: true,
-          radiusCountExponent: 0.85
+          radiusCountExponent: 0.85,
+          debug: debugEnabled
         });
+        if(token !== state.drawToken){
+          return null;
+        }
         const adjusted = Number(swarm?.adjustedRadius);
         if(debugEnabled){
           console.debug('Debug: box strip auto size base',{ orientation: 'horizontal', traceIndex: maxIndex, pointCount: maxCount, adjustedRadius: Number.isFinite(adjusted) ? adjusted : null, baseRadius: pointRadius });
         }
         return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
-      })();
+      };
+      const stripAutoSizeRadius = await computeStripAutoSizeRadius();
       const categoryCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
@@ -13844,7 +14384,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
             ? stripAutoSizeRadius
             : null;
-          const swarmResult = renderSwarmPointsHorizontal({
+          const swarmResult = await renderSwarmPointsHorizontal({
             valueList,
             cy,
             localBand,
@@ -13862,8 +14402,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             widthScaleMode: 'density',
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
-            allowRadiusAdjustment: useGlobalAutoSize ? false : null
+            allowRadiusAdjustment: useGlobalAutoSize ? false : null,
+            drawToken: token
           });
+          if(!swarmResult){
+            return null;
+          }
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
             const summaryRadius = swarmResult?.effectiveRadius != null
@@ -13976,7 +14520,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
-            renderSwarmPointsHorizontal({
+            const overlayResult = await renderSwarmPointsHorizontal({
               valueList,
               cy,
               localBand,
@@ -13994,8 +14538,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               mean,
               widthScaleMode: 'density',
               maxHalfWidth: violinPointMaxHalfHeight,
-              pointRadiusOverride: overlayRadius
+              pointRadiusOverride: overlayRadius,
+              drawToken: token
             });
+            if(!overlayResult){
+              return null;
+            }
           }else{
             const overlayMode = pointMode === 'overlay';
             const centerY = overlayMode ? cy : (y0 - boxH * 0.3);
@@ -14003,7 +14551,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               ? Math.max(pointRadius * 1.1, boxH * 0.3)
               : Math.max(pointRadius * 1.1, boxH * 0.1);
             const overlayRadius = overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null;
-            renderSwarmPointsHorizontal({
+            const overlayResult = await renderSwarmPointsHorizontal({
               valueList,
               cy: centerY,
               localBand,
@@ -14019,8 +14567,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               debugLabel: overlayMode ? 'overlay' : 'side',
               mean,
               pointRadiusOverride: overlayRadius,
-              maxHalfWidth: halfHeight
+              maxHalfWidth: halfHeight,
+              drawToken: token
             });
+            if(!overlayResult){
+              return null;
+            }
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
@@ -14057,7 +14609,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       };
     }
 
-    const orientationResult = isFlipped ? renderHorizontal() : renderVertical();
+    const orientationResult = isFlipped ? await renderHorizontal() : await renderVertical();
     if(!orientationResult){
       ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       state.layout?.syncPanels?.({ skipSchedule: true });
@@ -14826,13 +15378,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function runBoxDrawCycle(){
     let status = 'complete';
     try{
-      draw();
+      const result = draw();
+      if(result && typeof result.then === 'function'){
+        return result
+          .then(() => {
+            resolveBoxLoading(status);
+          })
+          .catch(err => {
+            status = 'error';
+            console.error('box draw error', err);
+            resolveBoxLoading(status);
+          });
+      }
     }catch(err){
       status = 'error';
       throw err;
     }finally{
-      resolveBoxLoading(status);
+      if(status !== 'complete'){
+        resolveBoxLoading(status);
+      }
     }
+    resolveBoxLoading(status);
   }
 
   box.loadFromFile = function(file){
