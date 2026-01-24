@@ -228,6 +228,61 @@
   let lineLast2dShowIntervals = false;
   let lineLast2dShowDiagnostics = false;
   const lineUndoManager = Shared.undoManager || null;
+  function isLine3dMode(){
+    return lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d';
+  }
+  function syncLine3dAxisHeadersFromTable(changes, source){
+    if(!isLine3dMode()){
+      return;
+    }
+    if(!lineHot || !Array.isArray(changes) || !changes.length){
+      return;
+    }
+    if(source === 'line-axis-table-sync' || source === 'line-axis-inline'){
+      return;
+    }
+    const data = lineHot.getData ? (lineHot.getData() || []) : [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const colCount = typeof lineHot.countCols === 'function'
+      ? lineHot.countCols()
+      : headerRow.length;
+    if(colCount <= 1){
+      return;
+    }
+    const seriesCount = Math.max(0, inferLine3dSeriesCount(data));
+    if(!seriesCount){
+      return;
+    }
+    const pending = [];
+    changes.forEach(change => {
+      if(!Array.isArray(change) || change.length < 4){
+        return;
+      }
+      const row = Number(change[0]);
+      const col = Number(change[1]);
+      if(row !== 0 || !Number.isInteger(col) || col < 1){
+        return;
+      }
+      const nextValue = change[3];
+      const resolved = nextValue != null ? String(nextValue).trim() : '';
+      const parity = (col - 1) % 2;
+      for(let s = 0; s < seriesCount; s += 1){
+        const colIndex = 1 + s * 2 + parity;
+        if(colIndex === col || colIndex >= colCount){
+          continue;
+        }
+        const current = headerRow[colIndex] != null ? String(headerRow[colIndex]).trim() : '';
+        if(current !== resolved){
+          pending.push([0, colIndex, resolved]);
+        }
+      }
+    });
+    if(!pending.length){
+      return;
+    }
+    lineHot.setDataAtCell(pending, 'line-axis-table-sync');
+    lineDebug('Debug: line 3d header sync applied', { count: pending.length, source });
+  }
   function recordLineChange(label, previous, next, apply){
     if(!lineUndoManager || typeof lineUndoManager.recordStateChange !== 'function'){
       return;
@@ -8731,6 +8786,7 @@
               console.debug('Debug: line afterChange', { count: changes.length, source });
               revalidateActiveLineLogAxis('x','data-edit');
               revalidateActiveLineLogAxis('y','data-edit');
+              syncLine3dAxisHeadersFromTable(changes, source);
             }
           },
           afterCreateRow(){
