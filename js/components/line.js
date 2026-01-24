@@ -9263,15 +9263,25 @@
   line.captureRenderCache = function captureRenderCache(){
     const plot = document.getElementById('linePlot');
     const stats = document.getElementById('lineStatsResults');
+    const svg = plot ? plot.querySelector('#lineSvg') : null;
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
+    const plotStyle = plot ? plot.getAttribute('style') : null;
+    const svgState = svg ? {
+      width: svg.getAttribute('width'),
+      height: svg.getAttribute('height'),
+      viewBox: svg.getAttribute('viewBox'),
+      dataViewMode: svg.dataset ? svg.dataset.viewMode : null
+    } : null;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache captured', {
         plotNodes: plotCache?.count || 0,
-        statsNodes: statsCache?.count || 0
+        statsNodes: statsCache?.count || 0,
+        hasSvg: !!svg,
+        viewMode: svgState?.dataViewMode || null
       });
     }
-    return { plot: plotCache, stats: statsCache };
+    return { plot: plotCache, stats: statsCache, plotStyle, svgState };
   };
 
   line.restoreRenderCache = function restoreRenderCache(cache){
@@ -9280,12 +9290,39 @@
     const stats = document.getElementById('lineStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
+    if(plot && typeof cache.plotStyle === 'string' && cache.plotStyle){
+      plot.setAttribute('style', cache.plotStyle);
+    }
+    const svg = plot ? plot.querySelector('#lineSvg') : null;
+    if(svg && cache.svgState){
+      if(cache.svgState.width){
+        svg.setAttribute('width', cache.svgState.width);
+      }
+      if(cache.svgState.height){
+        svg.setAttribute('height', cache.svgState.height);
+      }
+      if(cache.svgState.viewBox){
+        svg.setAttribute('viewBox', cache.svgState.viewBox);
+      }
+      if(cache.svgState.dataViewMode){
+        svg.dataset.viewMode = cache.svgState.dataViewMode;
+      }
+    }
     const restored = restoredPlot || restoredStats;
+    const wants3d = lineViewState.viewMode === '3d'
+      || refs.replicateMode?.value === '3d'
+      || refs.viewMode?.value === '3d';
+    const hasGraph = !!(plot && plot.querySelector('svg,canvas'));
+    if(wants3d && !hasGraph){
+      return false;
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache restored', {
         restored,
         plot: restoredPlot,
-        stats: restoredStats
+        stats: restoredStats,
+        hasGraph,
+        viewMode: cache.svgState?.dataViewMode || null
       });
     }
     return restored;
