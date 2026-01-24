@@ -306,6 +306,12 @@
   const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const DEFAULT_DENDROGRAM_COLOR = '#3d3d3d';
   const DEFAULT_DENDROGRAM_THICKNESS = 1;
+  const HEATMAP_CLUSTER_WORKER = {
+    url: 'js/workers/heatmap.worker.js',
+    minItems: 60,
+    minCells: 12000,
+    timeoutMs: 20000
+  };
 
   let heatmapRenderRowEl = null;
   let heatmapRenderButtonEl = null;
@@ -333,6 +339,7 @@
     lastStats: null,
     logPlusOne: false,
     isRendering: false,
+    drawToken: 0,
     dendrogramSettings: {
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
@@ -2246,6 +2253,73 @@
     return { order, tree: root, steps, maxDistance, baseDistances: baseDistanceStore };
   }
 
+  function normalizeClusterResult(result, items){
+    const size = Array.isArray(items) ? items.length : 0;
+    const fallbackOrder = Array.from({ length: size }, (_, idx) => idx);
+    const normalized = result && typeof result === 'object' ? result : {};
+    const order = Array.isArray(normalized.order) ? normalized.order : fallbackOrder;
+    const tree = normalized.tree || null;
+    const steps = Array.isArray(normalized.steps) ? normalized.steps : [];
+    const maxDistance = Number.isFinite(normalized.maxDistance) ? normalized.maxDistance : 0;
+    const baseDistances = { size, values: new Float32Array(0), released: true };
+    return { order, tree, steps, maxDistance, baseDistances };
+  }
+
+  function shouldUseClusterWorker(items){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
+      return false;
+    }
+    const count = Array.isArray(items) ? items.length : 0;
+    const vectorLength = count > 0 ? (items[0]?.vector?.length || 0) : 0;
+    const cells = count * vectorLength;
+    return count >= HEATMAP_CLUSTER_WORKER.minItems || cells >= HEATMAP_CLUSTER_WORKER.minCells;
+  }
+
+  function buildClusterWorkerPayload(items, metric, linkage){
+    return {
+      items: items.map((item, idx) => ({
+        index: Number.isInteger(item?.index) ? item.index : idx,
+        vector: Array.isArray(item?.vector) ? item.vector : []
+      })),
+      metric,
+      linkage
+    };
+  }
+
+  function resolveCluster(items, metric, linkage, drawToken, label){
+    if(!Array.isArray(items) || items.length < 2){
+      return { result: null, promise: null };
+    }
+    if(!shouldUseClusterWorker(items)){
+      return { result: hierarchicalCluster(items, metric, linkage), promise: null };
+    }
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.runTask !== 'function'){
+      return { result: hierarchicalCluster(items, metric, linkage), promise: null };
+    }
+    const payload = buildClusterWorkerPayload(items, metric, linkage);
+    const promise = workerApi.runTask({
+      name: 'heatmap-cluster',
+      url: HEATMAP_CLUSTER_WORKER.url,
+      action: 'hierarchicalCluster',
+      payload,
+      timeoutMs: HEATMAP_CLUSTER_WORKER.timeoutMs,
+      fallback: () => hierarchicalCluster(items, metric, linkage)
+    }).then((result) => {
+      if(drawToken !== state.drawToken){
+        debugLog('Debug: heatmap cluster worker result ignored', { label, reason: 'stale-token' });
+        return null;
+      }
+      return normalizeClusterResult(result, items);
+    }).catch((err) => {
+      debugLog('Debug: heatmap cluster worker failed', { label, message: err?.message || String(err) });
+      return hierarchicalCluster(items, metric, linkage);
+    });
+    debugLog('Debug: heatmap cluster worker scheduled', { label, count: items.length });
+    return { result: null, promise };
+  }
+
   function collectSettings(){
     const view = refs.view?.value || 'corr-columns';
     const isCorrelation = view.startsWith('corr');
@@ -3925,7 +3999,7 @@
     }
   }
 
-  function renderCorrelationHeatmap(processed, settings){
+  function renderCorrelationHeatmap(processed, settings, drawToken){
     const axis = settings.view === 'corr-columns' ? 'columns' : 'rows';
     const labels = axis === 'columns' ? processed.columnLabels : processed.rowLabels;
     const items = buildAxisItems(processed.matrix, labels, axis);
@@ -3970,111 +4044,145 @@
     }
     const clusterConfig = axis === 'columns' ? settings.clustering.columns : settings.clustering.rows;
     const positionByIndex = new Map(items.map((item, idx) => [item.index, idx]));
-    const clusterResult = clusterConfig.enabled && items.length > 1
-      ? hierarchicalCluster(items, clusterConfig.metric, settings.clustering.linkage)
-      : null;
-    const orderPositions = clusterResult
-      ? clusterResult.order.map(idx => positionByIndex.get(idx)).filter(idx => idx !== undefined)
-      : items.map((_, idx) => idx);
-    const orderedRowLabels = orderPositions.map(pos => items[pos].label);
-    const orderedEntries = orderPositions.map(rowPos => orderPositions.map(colPos => {
-      const entry = matrix[rowPos][colPos];
-      if(!entry){
-        return { raw: NaN, count: 0 };
-      }
-      return { raw: entry.raw, count: entry.count };
-    }));
-    const showRowDendrogram = !!(clusterResult && clusterConfig.showDendrogram);
-    const showColumnDendrogram = showRowDendrogram;
-    const model = {
-      type: 'correlation',
-      orderedRowLabels,
-      orderedColumnLabels: orderedRowLabels,
-      cells: orderedEntries,
-      rowOrder: orderPositions.map(pos => items[pos].index),
-      columnOrder: orderPositions.map(pos => items[pos].index),
-      rowClustering: clusterResult,
-      columnClustering: clusterResult,
-      showRowDendrogram,
-      showColumnDendrogram
+    const clusterState = clusterConfig.enabled && items.length > 1
+      ? resolveCluster(items, clusterConfig.metric, settings.clustering.linkage, drawToken, 'correlation')
+      : { result: null, promise: null };
+
+    const renderWithCluster = (clusterResult) => {
+      const resolvedCluster = clusterResult || null;
+      const orderPositions = resolvedCluster
+        ? resolvedCluster.order.map(idx => positionByIndex.get(idx)).filter(idx => idx !== undefined)
+        : items.map((_, idx) => idx);
+      const orderedRowLabels = orderPositions.map(pos => items[pos].label);
+      const orderedEntries = orderPositions.map(rowPos => orderPositions.map(colPos => {
+        const entry = matrix[rowPos][colPos];
+        if(!entry){
+          return { raw: NaN, count: 0 };
+        }
+        return { raw: entry.raw, count: entry.count };
+      }));
+      const showRowDendrogram = !!(resolvedCluster && clusterConfig.showDendrogram);
+      const showColumnDendrogram = showRowDendrogram;
+      const model = {
+        type: 'correlation',
+        orderedRowLabels,
+        orderedColumnLabels: orderedRowLabels,
+        cells: orderedEntries,
+        rowOrder: orderPositions.map(pos => items[pos].index),
+        columnOrder: orderPositions.map(pos => items[pos].index),
+        rowClustering: resolvedCluster,
+        columnClustering: resolvedCluster,
+        showRowDendrogram,
+        showColumnDendrogram
+      };
+      const viewOptions = extractViewOptions(settings);
+      renderModelWithView(model, viewOptions);
+      updateStats({
+        type: 'correlation',
+        itemCount: items.length,
+        pairCount,
+        method: settings.correlationMethod,
+        useAbs: settings.useAbsolute,
+        decimals: settings.decimals,
+        strongest,
+        mostNegative: settings.useAbsolute ? null : mostNegative,
+        rowClusterLabel: resolvedCluster && clusterConfig.enabled ? `${clusterConfig.metric} (${settings.clustering.linkage})` : null,
+        columnClusterLabel: resolvedCluster && clusterConfig.enabled ? `${clusterConfig.metric} (${settings.clustering.linkage})` : null,
+        rowDendrogram: showRowDendrogram,
+        columnDendrogram: showColumnDendrogram
+      });
     };
-    const viewOptions = extractViewOptions(settings);
-    renderModelWithView(model, viewOptions);
-    updateStats({
-      type: 'correlation',
-      itemCount: items.length,
-      pairCount,
-      method: settings.correlationMethod,
-      useAbs: settings.useAbsolute,
-      decimals: settings.decimals,
-      strongest,
-      mostNegative: settings.useAbsolute ? null : mostNegative,
-      rowClusterLabel: clusterResult && clusterConfig.enabled ? `${clusterConfig.metric} (${settings.clustering.linkage})` : null,
-      columnClusterLabel: clusterResult && clusterConfig.enabled ? `${clusterConfig.metric} (${settings.clustering.linkage})` : null,
-      rowDendrogram: showRowDendrogram,
-      columnDendrogram: showColumnDendrogram
-    });
+
+    if(clusterState.promise){
+      return clusterState.promise.then((clusterResult) => {
+        if(!clusterResult){
+          return;
+        }
+        renderWithCluster(clusterResult);
+      });
+    }
+
+    renderWithCluster(clusterState.result);
   }
 
-  function renderValuesHeatmap(processed, settings){
+  function renderValuesHeatmap(processed, settings, drawToken){
     const rowItems = buildAxisItems(processed.matrix, processed.rowLabels, 'rows');
     const columnItems = buildAxisItems(processed.matrix, processed.columnLabels, 'columns');
     const rowPositionByIndex = new Map(rowItems.map((item, idx) => [item.index, idx]));
     const columnPositionByIndex = new Map(columnItems.map((item, idx) => [item.index, idx]));
-    const rowCluster = settings.clustering.rows.enabled && rowItems.length > 1
-      ? hierarchicalCluster(rowItems, settings.clustering.rows.metric, settings.clustering.linkage)
-      : null;
-    const columnCluster = settings.clustering.columns.enabled && columnItems.length > 1
-      ? hierarchicalCluster(columnItems, settings.clustering.columns.metric, settings.clustering.linkage)
-      : null;
-    const rowOrderPositions = rowCluster
-      ? rowCluster.order.map(idx => rowPositionByIndex.get(idx)).filter(idx => idx !== undefined)
-      : rowItems.map((_, idx) => idx);
-    const columnOrderPositions = columnCluster
-      ? columnCluster.order.map(idx => columnPositionByIndex.get(idx)).filter(idx => idx !== undefined)
-      : columnItems.map((_, idx) => idx);
-    const orderedRowLabels = rowOrderPositions.map(pos => processed.rowLabels[pos]);
-    const orderedColumnLabels = columnOrderPositions.map(pos => processed.columnLabels[pos]);
-    const orderedMatrix = rowOrderPositions.map(rowPos => columnOrderPositions.map(colPos => processed.matrix[rowPos][colPos]));
-    const orderedCells = orderedMatrix.map(row => row.map(value => ({ value })));
-    const min = processed.stats.min;
-    const max = processed.stats.max;
-    const showRowDendrogram = !!(rowCluster && settings.clustering.rows.showDendrogram);
-    const showColumnDendrogram = !!(columnCluster && settings.clustering.columns.showDendrogram);
-    const model = {
-      type: 'values',
-      orderedRowLabels,
-      orderedColumnLabels,
-      cells: orderedCells,
-      rowOrder: rowOrderPositions.map(pos => rowItems[pos].index),
-      columnOrder: columnOrderPositions.map(pos => columnItems[pos].index),
-      rowClustering: rowCluster,
-      columnClustering: columnCluster,
-      showRowDendrogram,
-      showColumnDendrogram,
-      valueStats: { min, max, stats: processed.stats },
-      adjustmentSummary: processed.adjustmentSummary
+    const rowClusterState = settings.clustering.rows.enabled && rowItems.length > 1
+      ? resolveCluster(rowItems, settings.clustering.rows.metric, settings.clustering.linkage, drawToken, 'rows')
+      : { result: null, promise: null };
+    const columnClusterState = settings.clustering.columns.enabled && columnItems.length > 1
+      ? resolveCluster(columnItems, settings.clustering.columns.metric, settings.clustering.linkage, drawToken, 'columns')
+      : { result: null, promise: null };
+
+    const renderWithClusters = (rowCluster, columnCluster) => {
+      const resolvedRow = rowCluster || null;
+      const resolvedColumn = columnCluster || null;
+      const rowOrderPositions = resolvedRow
+        ? resolvedRow.order.map(idx => rowPositionByIndex.get(idx)).filter(idx => idx !== undefined)
+        : rowItems.map((_, idx) => idx);
+      const columnOrderPositions = resolvedColumn
+        ? resolvedColumn.order.map(idx => columnPositionByIndex.get(idx)).filter(idx => idx !== undefined)
+        : columnItems.map((_, idx) => idx);
+      const orderedRowLabels = rowOrderPositions.map(pos => processed.rowLabels[pos]);
+      const orderedColumnLabels = columnOrderPositions.map(pos => processed.columnLabels[pos]);
+      const orderedMatrix = rowOrderPositions.map(rowPos => columnOrderPositions.map(colPos => processed.matrix[rowPos][colPos]));
+      const orderedCells = orderedMatrix.map(row => row.map(value => ({ value })));
+      const min = processed.stats.min;
+      const max = processed.stats.max;
+      const showRowDendrogram = !!(resolvedRow && settings.clustering.rows.showDendrogram);
+      const showColumnDendrogram = !!(resolvedColumn && settings.clustering.columns.showDendrogram);
+      const model = {
+        type: 'values',
+        orderedRowLabels,
+        orderedColumnLabels,
+        cells: orderedCells,
+        rowOrder: rowOrderPositions.map(pos => rowItems[pos].index),
+        columnOrder: columnOrderPositions.map(pos => columnItems[pos].index),
+        rowClustering: resolvedRow,
+        columnClustering: resolvedColumn,
+        showRowDendrogram,
+        showColumnDendrogram,
+        valueStats: { min, max, stats: processed.stats },
+        adjustmentSummary: processed.adjustmentSummary
+      };
+      const viewOptions = extractViewOptions(settings);
+      renderModelWithView(model, viewOptions);
+      updateStats({
+        type: 'values',
+        rowCount: orderedRowLabels.length,
+        columnCount: orderedColumnLabels.length,
+        min,
+        max,
+        mean: processed.stats.mean,
+        decimals: settings.decimals,
+        finiteCount: processed.stats.finiteCount,
+        rowsFiltered: processed.stats.rowsFiltered,
+        columnsRemoved: processed.stats.columnsRemoved,
+        logApplied: processed.stats.logApplied,
+        rowClusterLabel: resolvedRow && settings.clustering.rows.enabled ? `${settings.clustering.rows.metric} (${settings.clustering.linkage})` : null,
+        columnClusterLabel: resolvedColumn && settings.clustering.columns.enabled ? `${settings.clustering.columns.metric} (${settings.clustering.linkage})` : null,
+        rowDendrogram: showRowDendrogram,
+        columnDendrogram: showColumnDendrogram,
+        adjustments: processed.adjustmentSummary
+      });
     };
-    const viewOptions = extractViewOptions(settings);
-    renderModelWithView(model, viewOptions);
-    updateStats({
-      type: 'values',
-      rowCount: orderedRowLabels.length,
-      columnCount: orderedColumnLabels.length,
-      min,
-      max,
-      mean: processed.stats.mean,
-      decimals: settings.decimals,
-      finiteCount: processed.stats.finiteCount,
-      rowsFiltered: processed.stats.rowsFiltered,
-      columnsRemoved: processed.stats.columnsRemoved,
-      logApplied: processed.stats.logApplied,
-      rowClusterLabel: rowCluster && settings.clustering.rows.enabled ? `${settings.clustering.rows.metric} (${settings.clustering.linkage})` : null,
-      columnClusterLabel: columnCluster && settings.clustering.columns.enabled ? `${settings.clustering.columns.metric} (${settings.clustering.linkage})` : null,
-      rowDendrogram: showRowDendrogram,
-      columnDendrogram: showColumnDendrogram,
-      adjustments: processed.adjustmentSummary
-    });
+
+    if(rowClusterState.promise || columnClusterState.promise){
+      const rowPromise = rowClusterState.promise || Promise.resolve(rowClusterState.result);
+      const columnPromise = columnClusterState.promise || Promise.resolve(columnClusterState.result);
+      return Promise.all([rowPromise, columnPromise]).then(([rowCluster, columnCluster]) => {
+        if(drawToken !== state.drawToken){
+          debugLog('Debug: heatmap cluster worker results ignored', { reason: 'stale-token' });
+          return;
+        }
+        renderWithClusters(rowCluster, columnCluster);
+      });
+    }
+
+    renderWithClusters(rowClusterState.result, columnClusterState.result);
   }
 
   function createCorrelationColorScale(viewOptions){
@@ -4256,6 +4364,8 @@
         console.debug('Debug: heatmap draw skipped - missing hot or svg');
         return;
       }
+      const drawToken = (state.drawToken || 0) + 1;
+      state.drawToken = drawToken;
       const settings = collectSettings();
       const viewMatches = (state.lastRenderModel?.type === 'values' && settings.view === 'values')
         || (state.lastRenderModel?.type === 'correlation' && settings.view.startsWith('corr'));
@@ -4265,9 +4375,9 @@
           const applied = renderModelWithView(state.lastRenderModel, viewOptions);
           if(applied){
             refreshStatsForView(viewOptions);
-            debugLog('Debug: heatmap view-only redraw applied', { reason: drawOpts.reason });
-            return;
-          }
+          debugLog('Debug: heatmap view-only redraw applied', { reason: drawOpts.reason });
+          return;
+        }
           debugLog('Debug: heatmap view-only redraw fallback triggered');
         }else{
           debugLog('Debug: heatmap view-only redraw skipped - no cached render');
@@ -4291,9 +4401,9 @@
         return;
       }
       if(settings.view === 'values'){
-        renderValuesHeatmap(processed, settings);
+        return renderValuesHeatmap(processed, settings, drawToken);
       }else{
-        renderCorrelationHeatmap(processed, settings);
+        return renderCorrelationHeatmap(processed, settings, drawToken);
       }
     }catch(err){
       console.error('heatmap draw error', err);
@@ -4687,14 +4797,26 @@
     initFileButtons();
     const runHeatmapDrawCycle = () => {
       let status = 'complete';
+      let pendingPromise = null;
       try{
-        draw();
+        const result = draw();
+        if(result && typeof result.then === 'function'){
+          pendingPromise = result;
+        }
       }catch(err){
         status = 'error';
         throw err;
-      }finally{
-        resolveHeatmapOverlay(status);
       }
+      if(pendingPromise){
+        return pendingPromise.then(() => {
+          resolveHeatmapOverlay('complete');
+        }).catch((err) => {
+          console.error('heatmap async draw error', err);
+          resolveHeatmapOverlay('error');
+        });
+      }
+      resolveHeatmapOverlay(status);
+      return undefined;
     };
     const scheduleHeatmapBase = Shared.debounceFrame ? Shared.debounceFrame(runHeatmapDrawCycle) : runHeatmapDrawCycle;
     const scheduleHeatmapInstrumented = (opts) => {

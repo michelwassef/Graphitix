@@ -162,6 +162,13 @@
   const PCA_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const PCA_FAST_POINT_THRESHOLD = 20000;
   const PCA_LOADINGS_ROW_LIMIT = 100;
+  const PCA_SVD_WORKER = {
+    url: 'js/workers/pca.worker.js',
+    minSamples: 50,
+    minFeatures: 50,
+    minCells: 20000,
+    timeoutMs: 30000
+  };
   const PCA_POINT_LABEL_ROW_HEADER = 'Label point';
   const PCA_POINT_LABEL_MARK = '✓';
   const PCA_LABEL_ROW_INDEX = 0;
@@ -2214,6 +2221,42 @@
     };
   }
 
+  function shouldUsePcaSvdWorker(nSamples, nFeatures){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
+      return false;
+    }
+    const samples = Math.max(0, Number(nSamples) || 0);
+    const features = Math.max(0, Number(nFeatures) || 0);
+    const cells = samples * features;
+    return samples >= PCA_SVD_WORKER.minSamples
+      || features >= PCA_SVD_WORKER.minFeatures
+      || cells >= PCA_SVD_WORKER.minCells;
+  }
+
+  async function runPcaSvdWorker(matrix, nSamples, nFeatures){
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.runTask !== 'function'){
+      return null;
+    }
+    try{
+      const result = await workerApi.runTask({
+        name: 'pca-svd',
+        url: PCA_SVD_WORKER.url,
+        action: 'pca-svd',
+        payload: { matrix, nSamples, nFeatures },
+        timeoutMs: PCA_SVD_WORKER.timeoutMs
+      });
+      if(!result || !Array.isArray(result.q)){
+        return null;
+      }
+      return result;
+    }catch(err){
+      debugLog('Debug: pca worker failed', { message: err?.message || String(err) });
+      return null;
+    }
+  }
+
   let scheduleDrawPcaRaw = () => {};
   let pendingDrawOptions = {};
   function normalizeDrawOptions(options){
@@ -2578,6 +2621,7 @@
     performance: { loadData: null, draw: null, evaluation: null },
     fastPointMode: false,
     cachedRender: null,
+    drawToken: 0,
     dataDirty: true,
     viewDirty: true,
     labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
@@ -4890,6 +4934,13 @@
       const drawOpts = pendingDrawOptions || {};
       pendingDrawOptions = {};
       const viewOnly = !!drawOpts.viewOnly;
+      const shouldBumpToken = !viewOnly || !!pcaState.dataDirty;
+      const drawToken = shouldBumpToken
+        ? (pcaState.drawToken || 0) + 1
+        : (pcaState.drawToken || 0);
+      if(shouldBumpToken){
+        pcaState.drawToken = drawToken;
+      }
       const totalStart = nowMs();
       let parseEnd = null;
       let computeStart = null;
@@ -5600,12 +5651,11 @@
           return t;
         };
 
-        let matrixForSvd = matrix;
         let useFactor = 'u'; // when SVD is done on X directly, scores = U * S
-        if (nSamples < nFeatures) {
+        const useTransposed = nSamples < nFeatures;
+        if (useTransposed) {
           // Use SVD(X^T) so that m >= n for the library
           // For SVD(X^T) = V * S * U^T, the sample scores are V * S
-          matrixForSvd = transpose2D(matrix);
           useFactor = 'v';
           debugLog('Debug: PCA SVD uses transposed matrix to satisfy m>=n', {
             nSamples, nFeatures, svdOn: 'X^T'
@@ -5614,10 +5664,31 @@
           debugLog('Debug: PCA SVD uses direct matrix X', { nSamples, nFeatures, svdOn: 'X' });
         }
 
+        let svd = null;
         if(computeStart === null){
           computeStart = nowMs();
         }
-        const svd = SVDLib.SVD(matrixForSvd);
+        if(shouldUsePcaSvdWorker(nSamples, nFeatures)){
+          const workerResult = await runPcaSvdWorker(matrix, nSamples, nFeatures);
+          if(drawToken !== pcaState.drawToken){
+            debugLog('Debug: pca worker result ignored', { reason: 'stale-token', drawToken, current: pcaState.drawToken });
+            return;
+          }
+          if(workerResult && Array.isArray(workerResult.q) && Array.isArray(workerResult.u) && Array.isArray(workerResult.v)){
+            svd = { q: workerResult.q, u: workerResult.u, v: workerResult.v };
+            if(typeof workerResult.useFactor === 'string'){
+              useFactor = workerResult.useFactor;
+            }
+            debugLog('Debug: pca worker svd applied', { nSamples, nFeatures });
+          }
+        }
+        if(!svd){
+          let matrixForSvd = matrix;
+          if(useTransposed){
+            matrixForSvd = transpose2D(matrix);
+          }
+          svd = SVDLib.SVD(matrixForSvd);
+        }
         if(computeEnd === null){
           computeEnd = nowMs();
         }
