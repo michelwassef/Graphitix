@@ -5071,13 +5071,24 @@
       }
 
       function runScatterStatsComputation(context){
+        const perfApi = Shared.Performance;
+        const statsPerf = perfApi && typeof perfApi.start === 'function'
+          ? perfApi.start('scatter.stats', { component: 'scatter', graphType: context?.graphType || null })
+          : null;
+        const finishStatsPerf = meta => {
+          if(perfApi && statsPerf){
+            perfApi.end(statsPerf, meta);
+          }
+        };
         if(!scatterStatsResults){
+          finishStatsPerf({ outcome: 'no-target' });
           return Promise.resolve(false);
         }
         scatterStatsResults.innerHTML='';
         if(context.graphType==='scatter'){
           if(!Array.isArray(context.points) || context.points.length<3){
             scatterStatsResults.textContent='Select at least three paired values to compute correlation statistics.';
+            finishStatsPerf({ outcome: 'insufficient-points', pointCount: context.points?.length || 0 });
             return Promise.resolve(false);
           }
           const method=scatterStatType?.value || 'pearson';
@@ -5121,14 +5132,19 @@
                   stats = computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, domain:context.domain || null });
                   applyScatterStatsResults(context, stats, settings);
                   return true;
+                })
+                .finally(() => {
+                  finishStatsPerf({ outcome: 'worker', pointCount: context.points.length });
                 });
             }
             stats=computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, domain:context.domain || null });
           }
           applyScatterStatsResults(context, stats, settings);
+          finishStatsPerf({ outcome: 'sync', pointCount: context.points.length });
         }else{
           renderScatterSignificanceSummary(context);
           scatterLastRegressionSummary=null;
+          finishStatsPerf({ outcome: 'summary-only' });
         }
         return Promise.resolve(true);
       }
@@ -6641,7 +6657,17 @@
         const pointProgressInterval = 5000;
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const token=++scatterDrawToken; // debug token for cancellation
+        const perfApi = Shared.Performance;
+        const drawPerf = perfApi && typeof perfApi.start === 'function'
+          ? perfApi.start('scatter.draw', { component: 'scatter' })
+          : null;
+        const endDrawPerf = meta => {
+          if(perfApi && drawPerf){
+            perfApi.end(drawPerf, meta);
+          }
+        };
         info('drawScatter called',{token});
+        try{
         let statsContextPayload=null;
         scatterState.rotationPending = false;
         scatterState.rotationPendingLogged = false;
@@ -6853,6 +6879,9 @@
         let bubbleMissingCount = 0;
         let bubbleMinRaw = Infinity;
         let bubbleMaxRaw = -Infinity;
+        const collectPerf = perfApi && typeof perfApi.start === 'function'
+          ? perfApi.start('scatter.data.collect', { component: 'scatter', rows: maxLen })
+          : null;
         time(`scatterCollectPoints_${token}`);
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
@@ -6981,6 +7010,9 @@
           }
         }
         timeEnd(`scatterCollectPoints_${token}`);
+        if(collectPerf && perfApi){
+          perfApi.end(collectPerf, { component: 'scatter', points: points.length, skippedRows });
+        }
         if(debugEnabled && rowSkipCounts && Object.keys(rowSkipCounts).length){
           debug('Debug: scatter row skip summary',{graphType,skippedRows,reasons:rowSkipCounts});
         }else if(skippedRows>0){
@@ -9904,6 +9936,9 @@
         scatterLayout?.syncPanels?.({ skipSchedule: true });
         syncScatterAutoDrawNoticeWidth('draw');
         info('scatter render complete with enhanced styles');
+        } finally {
+          endDrawPerf({ component: 'scatter', token });
+        }
       }
       const runScatterDrawCycle = async (opts = {}) => {
         if(scatterState.skipNextDraw && !opts.force){
@@ -10649,6 +10684,28 @@
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
+    if(restored){
+      scatterState.rotationPending = false;
+      scatterState.rotationPendingLogged = false;
+      const svg = plot ? plot.querySelector('#scatterSvg') : null;
+      if(svg && svg.dataset && svg.dataset.viewMode === '3d'){
+        delete svg.dataset.rotationControlsAttached;
+        plot3d.attachRotationControls(svg, {
+          state: scatterState.rotation,
+          onChange: () => scheduleScatterRotationRedraw(),
+          shouldIgnorePointer: (event) => {
+            if(typeof plot3d.isInteractivePointerTarget === 'function'){
+              return plot3d.isInteractivePointerTarget(event?.target);
+            }
+            return plot3d.isLegendPointerTarget(event?.target);
+          },
+          debugLabel: 'scatter-3d-restore'
+        });
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          scatterDebug('Debug: scatter 3d rotation handlers rebound');
+        }
+      }
+    }
     if(restored){
       scatterState.skipNextDraw = true;
       scatterState.skipNextDrawReason = meta?.reason || meta?.type || 'render-cache';

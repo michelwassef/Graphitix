@@ -9449,6 +9449,28 @@
       }
     }
     const restored = restoredPlot || restoredStats;
+    if(restored){
+      lineViewState.rotationPending = false;
+      lineViewState.rotationPendingLogged = false;
+      const svg = plot ? plot.querySelector('#lineSvg') : null;
+      if(svg && svg.dataset && svg.dataset.viewMode === '3d'){
+        delete svg.dataset.rotationControlsAttached;
+        plot3d.attachRotationControls(svg, {
+          state: lineViewState.rotation,
+          onChange: () => scheduleLineRotationRedraw(),
+          shouldIgnorePointer: (event) => {
+            if(typeof plot3d.isInteractivePointerTarget === 'function'){
+              return plot3d.isInteractivePointerTarget(event?.target);
+            }
+            return plot3d.isLegendPointerTarget(event?.target);
+          },
+          debugLabel: 'line-3d-restore'
+        });
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          lineDebug('Debug: line 3d rotation handlers rebound');
+        }
+      }
+    }
     const wants3d = lineViewState.viewMode === '3d'
       || refs.replicateMode?.value === '3d'
       || refs.viewMode?.value === '3d';
