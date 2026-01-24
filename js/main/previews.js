@@ -7,37 +7,57 @@
   const TAB_PREVIEW_MIN_HEIGHT = 120;
   const TAB_PREVIEW_MAX_HEIGHT = 220;
   const TAB_PREVIEW_MAX_CHARS = 120000;
+  const TAB_PREVIEW_MAX_CHARS_HYBRID = 600000;
+  const TAB_PREVIEW_NS = 'http://www.w3.org/2000/svg';
 
   let tabPreviewTooltipEl = null;
   let tabPreviewActiveId = null;
   let tabPreviewMeasureRaf = null;
+  let tabPreviewLastAnchorRect = null;
+  const tabPreviewHybridRequests = new Map();
 
-  function captureWorkspacePreview(config, tab) {
-    if (!config || !config.element) {
-      console.debug('Debug: preview capture skipped', { reason: 'no-config-element', type: config?.type || null, tabId: tab?.id || null });
+  function buildPreviewPlaceholder(width, height, meta = {}) {
+    if (!document) {
       return null;
     }
-    let svg = config.element.querySelector('.svgbox svg');
-    if (!svg) {
-      const tagged = config.element.querySelector('svg[data-preview-source="true"]');
-      if (tagged) {
-        svg = tagged;
-      } else {
-        const candidates = Array.from(config.element.querySelectorAll('svg'));
-        svg = candidates.find(node => !node.closest('.workspace-toolbar')) || candidates[0] || null;
-      }
-    }
-    if (!svg) {
-      console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
-      return null;
-    }
-    const rawMarkup = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
-    if (!rawMarkup) {
-      console.debug('Debug: preview capture skipped', { reason: 'empty-svg', type: config.type, tabId: tab?.id || null });
-      return null;
-    }
-    const clone = svg.cloneNode(true);
-    const viewBoxRaw = clone.getAttribute('viewBox');
+    const safeWidth = Number.isFinite(width) && width > 0 ? width : TAB_PREVIEW_TARGET_WIDTH;
+    const safeHeight = Number.isFinite(height) && height > 0 ? height : TAB_PREVIEW_MIN_HEIGHT;
+    const svg = document.createElementNS(TAB_PREVIEW_NS, 'svg');
+    svg.setAttribute('width', String(safeWidth));
+    svg.setAttribute('height', String(safeHeight));
+    svg.setAttribute('viewBox', `0 0 ${safeWidth} ${safeHeight}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('data-preview-placeholder', 'true');
+    const bg = document.createElementNS(TAB_PREVIEW_NS, 'rect');
+    bg.setAttribute('x', '0');
+    bg.setAttribute('y', '0');
+    bg.setAttribute('width', String(safeWidth));
+    bg.setAttribute('height', String(safeHeight));
+    bg.setAttribute('fill', '#ffffff');
+    bg.setAttribute('stroke', 'rgba(0, 0, 0, 0.08)');
+    bg.setAttribute('stroke-width', '1');
+    svg.appendChild(bg);
+    const label = document.createElementNS(TAB_PREVIEW_NS, 'text');
+    label.setAttribute('x', String(Math.round(safeWidth / 2)));
+    label.setAttribute('y', String(Math.round(safeHeight / 2) - 6));
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-size', '12');
+    label.setAttribute('fill', '#555555');
+    label.textContent = meta.message || 'Preview simplified';
+    svg.appendChild(label);
+    const sublabel = document.createElementNS(TAB_PREVIEW_NS, 'text');
+    sublabel.setAttribute('x', String(Math.round(safeWidth / 2)));
+    sublabel.setAttribute('y', String(Math.round(safeHeight / 2) + 10));
+    sublabel.setAttribute('text-anchor', 'middle');
+    sublabel.setAttribute('font-size', '10');
+    sublabel.setAttribute('fill', '#777777');
+    sublabel.textContent = meta.detail || 'Large dataset';
+    svg.appendChild(sublabel);
+    return new XMLSerializer().serializeToString(svg);
+  }
+
+  function resolvePreviewSizing(svg) {
+    const viewBoxRaw = svg?.getAttribute ? svg.getAttribute('viewBox') : null;
     let minX = 0;
     let minY = 0;
     let boxW = NaN;
@@ -48,8 +68,8 @@
         [minX, minY, boxW, boxH] = parts;
       }
     }
-    let widthAttr = Number.parseFloat(clone.getAttribute('width'));
-    let heightAttr = Number.parseFloat(clone.getAttribute('height'));
+    let widthAttr = Number.parseFloat(svg?.getAttribute ? svg.getAttribute('width') : NaN);
+    let heightAttr = Number.parseFloat(svg?.getAttribute ? svg.getAttribute('height') : NaN);
     if (!Number.isFinite(widthAttr) || widthAttr <= 0) {
       if (Number.isFinite(boxW) && boxW > 0) {
         widthAttr = boxW;
@@ -75,39 +95,293 @@
     const targetHeight = Math.round(
       Math.max(TAB_PREVIEW_MIN_HEIGHT, Math.min(targetWidth * ratio, TAB_PREVIEW_MAX_HEIGHT))
     );
-    clone.setAttribute('width', String(targetWidth));
-    clone.setAttribute('height', String(targetHeight));
-    if (!clone.hasAttribute('preserveAspectRatio')) {
-      clone.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    return {
+      minX,
+      minY,
+      boxW,
+      boxH,
+      widthAttr,
+      heightAttr,
+      targetWidth,
+      targetHeight
+    };
+  }
+
+  function applyPreviewSizing(svg, sizing) {
+    if (!svg || !sizing) {
+      return;
     }
-    if (!clone.hasAttribute('viewBox') && Number.isFinite(boxW) && Number.isFinite(boxH)) {
-      clone.setAttribute('viewBox', `${Number.isFinite(minX) ? minX : 0} ${Number.isFinite(minY) ? minY : 0} ${boxW} ${boxH}`);
+    svg.setAttribute('width', String(sizing.targetWidth));
+    svg.setAttribute('height', String(sizing.targetHeight));
+    if (!svg.hasAttribute('preserveAspectRatio')) {
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     }
-    if (!clone.querySelector('[data-preview-bg="true"]')) {
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', String(Number.isFinite(minX) ? minX : 0));
-      rect.setAttribute('y', String(Number.isFinite(minY) ? minY : 0));
-      rect.setAttribute('width', Number.isFinite(boxW) ? String(boxW) : '100%');
-      rect.setAttribute('height', Number.isFinite(boxH) ? String(boxH) : '100%');
-      rect.setAttribute('fill', '#ffffff');
-      rect.setAttribute('data-preview-bg', 'true');
-      let insertTarget = clone.firstChild;
-      while (insertTarget && insertTarget.nodeType === 1 && insertTarget.nodeName.toLowerCase() === 'defs') {
-        insertTarget = insertTarget.nextSibling;
+    if (!svg.hasAttribute('viewBox') && Number.isFinite(sizing.boxW) && Number.isFinite(sizing.boxH)) {
+      svg.setAttribute('viewBox', `${Number.isFinite(sizing.minX) ? sizing.minX : 0} ${Number.isFinite(sizing.minY) ? sizing.minY : 0} ${sizing.boxW} ${sizing.boxH}`);
+    }
+  }
+
+  function ensurePreviewBackground(svg, sizing) {
+    if (!svg || svg.querySelector('[data-preview-bg="true"]')) {
+      return;
+    }
+    const rect = document.createElementNS(TAB_PREVIEW_NS, 'rect');
+    rect.setAttribute('x', String(Number.isFinite(sizing.minX) ? sizing.minX : 0));
+    rect.setAttribute('y', String(Number.isFinite(sizing.minY) ? sizing.minY : 0));
+    rect.setAttribute('width', Number.isFinite(sizing.boxW) ? String(sizing.boxW) : '100%');
+    rect.setAttribute('height', Number.isFinite(sizing.boxH) ? String(sizing.boxH) : '100%');
+    rect.setAttribute('fill', '#ffffff');
+    rect.setAttribute('data-preview-bg', 'true');
+    let insertTarget = svg.firstChild;
+    while (insertTarget && insertTarget.nodeType === 1 && insertTarget.nodeName.toLowerCase() === 'defs') {
+      insertTarget = insertTarget.nextSibling;
+    }
+    if (insertTarget) {
+      svg.insertBefore(rect, insertTarget);
+    } else {
+      svg.appendChild(rect);
+    }
+  }
+
+  function ensurePreviewImageLinks(svg) {
+    if (!svg || typeof svg.querySelectorAll !== 'function') {
+      return;
+    }
+    const images = Array.from(svg.querySelectorAll('image'));
+    if (!images.length) {
+      return;
+    }
+    if (!svg.getAttribute('xmlns')) {
+      svg.setAttribute('xmlns', TAB_PREVIEW_NS);
+    }
+    if (!svg.getAttribute('xmlns:xlink')) {
+      svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    }
+    images.forEach(node => {
+      if (!node) {
+        return;
       }
-      if (insertTarget) {
-        clone.insertBefore(rect, insertTarget);
+      const href = node.getAttribute('href');
+      const xlinkHref = node.getAttribute('xlink:href')
+        || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      const value = href || xlinkHref;
+      if (!value) {
+        return;
+      }
+      node.setAttribute('href', value);
+      node.setAttributeNS('http://www.w3.org/1999/xlink', 'href', value);
+    });
+  }
+
+  function getHybridPreviewOptions(type) {
+    if (type === 'scatter') {
+      return {
+        label: 'SVG (points as PNG)',
+        fileNameSuffix: '-light',
+        rasterScale: 1,
+        pngScale: 1,
+        layers: [
+          {
+            selector: '[data-export-layer="scatter-points"]',
+            label: 'scatter-points',
+            padding: 2,
+            scale: 1
+          }
+        ]
+      };
+    }
+    if (type === 'box') {
+      return {
+        label: 'SVG (points as PNG)',
+        fileNameSuffix: '-light',
+        rasterScale: 1,
+        pngScale: 1,
+        layers: [
+          {
+            selector: '[data-export-layer="box-points"]',
+            label: 'box-points',
+            padding: 2,
+            scale: 1
+          }
+        ]
+      };
+    }
+    if (type === 'heatmap') {
+      return {
+        label: 'SVG (matrix as PNG)',
+        fileNameSuffix: '-light',
+        rasterScale: 1,
+        pngScale: 1,
+        layers: [
+          {
+            selector: '[data-export-layer="heatmap-cells"]',
+            label: 'heatmap-cells',
+            padding: 2,
+            scale: 1
+          }
+        ]
+      };
+    }
+    return null;
+  }
+
+  function scheduleHybridPreviewCapture(tab, svg, sizing, meta = {}) {
+    const Shared = window.Shared || {};
+    const exporter = Shared.exporter;
+    const doc = svg?.ownerDocument || document;
+    if (!tab || !svg || !exporter || typeof exporter.buildHybridSvg !== 'function' || !doc?.body) {
+      return false;
+    }
+    const hybridOptions = getHybridPreviewOptions(tab.type);
+    if (!hybridOptions) {
+      return false;
+    }
+    const signature = meta.payloadSignature || tab.payloadSignature || null;
+    const existing = tabPreviewHybridRequests.get(tab.id);
+    if (existing && existing.signature === signature) {
+      return true;
+    }
+    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    tabPreviewHybridRequests.set(tab.id, { id: requestId, signature });
+    const sandbox = doc.createElement('div');
+    sandbox.style.position = 'fixed';
+    sandbox.style.left = '-10000px';
+    sandbox.style.top = '-10000px';
+    sandbox.style.width = '0';
+    sandbox.style.height = '0';
+    sandbox.style.opacity = '0';
+    sandbox.style.pointerEvents = 'none';
+    sandbox.style.overflow = 'hidden';
+    const workingSvg = svg.cloneNode(true);
+    sandbox.appendChild(workingSvg);
+    doc.body.appendChild(sandbox);
+    const cleanup = () => {
+      if (sandbox.parentNode) {
+        sandbox.parentNode.removeChild(sandbox);
+      }
+    };
+    exporter.buildHybridSvg(workingSvg, {
+      ...hybridOptions,
+      baseFileName: 'tab-preview',
+      contextLabel: `tab-preview-${tab.type || 'unknown'}`
+    }).then(hybrid => {
+      const current = tabPreviewHybridRequests.get(tab.id);
+      if (!current || current.id !== requestId) {
+        cleanup();
+        return;
+      }
+      tabPreviewHybridRequests.delete(tab.id);
+      if (!hybrid?.svg) {
+        console.debug('Debug: preview hybrid missing svg', { tabId: tab.id, type: tab.type });
+        cleanup();
+        return;
+      }
+      const hybridSvg = hybrid.svg;
+      const sizingResolved = sizing || resolvePreviewSizing(hybridSvg);
+      applyPreviewSizing(hybridSvg, sizingResolved);
+      ensurePreviewBackground(hybridSvg, sizingResolved);
+      ensurePreviewImageLinks(hybridSvg);
+      const serializer = new XMLSerializer();
+      const markup = serializer.serializeToString(hybridSvg);
+      if (!markup || markup.length > TAB_PREVIEW_MAX_CHARS_HYBRID) {
+        console.debug('Debug: preview hybrid oversize', {
+          tabId: tab.id,
+          type: tab.type,
+          length: markup ? markup.length : 0
+        });
+        cleanup();
+        return;
+      }
+      tab.previewMarkup = markup;
+      tab.previewSignature = signature;
+      tab.previewMeta = {
+        width: sizingResolved.targetWidth,
+        height: sizingResolved.targetHeight,
+        size: markup.length,
+        hybrid: true,
+        updatedAt: Date.now(),
+        reason: meta.reason || 'hybrid'
+      };
+      syncTabPreviewIndicator(tab);
+      if (tabPreviewTooltipEl && tabPreviewTooltipEl.dataset.tabId === tab.id && tabPreviewTooltipEl.style.display !== 'none') {
+        renderTabPreviewTooltipContent(tabPreviewTooltipEl, markup);
+        if (tabPreviewMeasureRaf) {
+          cancelAnimationFrame(tabPreviewMeasureRaf);
+        }
+        tabPreviewMeasureRaf = requestAnimationFrame(() => {
+          positionTabPreviewTooltip(tab, tabPreviewLastAnchorRect);
+        });
+      }
+      console.debug('Debug: preview hybrid stored', {
+        tabId: tab.id,
+        type: tab.type,
+        length: markup.length,
+        width: sizingResolved.targetWidth,
+        height: sizingResolved.targetHeight
+      });
+      cleanup();
+    }).catch(err => {
+      tabPreviewHybridRequests.delete(tab.id);
+      console.debug('Debug: preview hybrid error', { tabId: tab.id, type: tab.type, err: err?.message || String(err) });
+      cleanup();
+    });
+    return true;
+  }
+
+  function captureWorkspacePreview(config, tab) {
+    if (!config || !config.element) {
+      console.debug('Debug: preview capture skipped', { reason: 'no-config-element', type: config?.type || null, tabId: tab?.id || null });
+      return null;
+    }
+    let svg = config.element.querySelector('.svgbox svg');
+    if (!svg) {
+      const tagged = config.element.querySelector('svg[data-preview-source="true"]');
+      if (tagged) {
+        svg = tagged;
       } else {
-        clone.appendChild(rect);
+        const candidates = Array.from(config.element.querySelectorAll('svg'));
+        svg = candidates.find(node => !node.closest('.workspace-toolbar')) || candidates[0] || null;
       }
     }
+    if (!svg) {
+      console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
+      return null;
+    }
+    const rawMarkup = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
+    if (!rawMarkup) {
+      console.debug('Debug: preview capture skipped', { reason: 'empty-svg', type: config.type, tabId: tab?.id || null });
+      return null;
+    }
+    const sizing = resolvePreviewSizing(svg);
+    const clone = svg.cloneNode(true);
+    applyPreviewSizing(clone, sizing);
+    ensurePreviewBackground(clone, sizing);
     const serializer = new XMLSerializer();
-    const markup = serializer.serializeToString(clone);
+    let markup = serializer.serializeToString(clone);
+    let previewSimplified = false;
     if (!markup) {
       console.debug('Debug: preview capture skipped', { reason: 'serialize-empty', type: config.type, tabId: tab?.id || null });
       return null;
     }
     if (markup.length > TAB_PREVIEW_MAX_CHARS) {
+      console.debug('Debug: preview oversize detected', { length: markup.length, type: config.type, tabId: tab?.id || null });
+      const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
+        reason: 'oversize',
+        payloadSignature: tab?.payloadSignature || null
+      });
+      const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
+        message: scheduled ? 'Preparing preview' : 'Preview too large',
+        detail: scheduled ? 'Rendering composite' : 'Large dataset'
+      });
+      if (placeholder) {
+        console.debug('Debug: preview capture placeholder', {
+          tabId: tab?.id || null,
+          type: config.type,
+          length: placeholder.length,
+          hybridScheduled: scheduled
+        });
+        return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: scheduled };
+      }
       console.debug('Debug: preview capture skipped', { reason: 'oversize', length: markup.length, type: config.type, tabId: tab?.id || null });
       return null;
     }
@@ -115,10 +389,10 @@
       tabId: tab?.id || null,
       type: config.type,
       length: markup.length,
-      width: targetWidth,
-      height: targetHeight
+      width: sizing.targetWidth,
+      height: sizing.targetHeight
     });
-    return { markup, width: targetWidth, height: targetHeight, size: markup.length };
+    return { markup, width: sizing.targetWidth, height: sizing.targetHeight, size: markup.length, simplified: previewSimplified };
   }
 
   function syncTabPreviewIndicator(tab) {
@@ -180,6 +454,7 @@
         width: preview.width,
         height: preview.height,
         size: preview.size,
+        simplified: !!preview.simplified,
         updatedAt: Date.now(),
         reason: meta.reason || 'capture'
       };
@@ -231,6 +506,39 @@
     return tooltip;
   }
 
+  function renderTabPreviewTooltipContent(tooltip, markup) {
+    if (!tooltip) {
+      return;
+    }
+    tooltip.innerHTML = '';
+    if (!markup) {
+      return;
+    }
+    const trimmed = typeof markup === 'string' ? markup.trim() : '';
+    if (!trimmed) {
+      return;
+    }
+    if (trimmed.startsWith('<svg')) {
+      try {
+        if (typeof DOMParser !== 'function') {
+          tooltip.innerHTML = trimmed;
+          return;
+        }
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(trimmed, 'image/svg+xml');
+        const svg = doc?.documentElement;
+        if (svg && svg.nodeName && svg.nodeName.toLowerCase() === 'svg') {
+          const imported = document.importNode(svg, true);
+          tooltip.appendChild(imported);
+          return;
+        }
+      } catch (err) {
+        console.debug('Debug: preview tooltip svg parse failed', { err: err?.message || String(err) });
+      }
+    }
+    tooltip.innerHTML = trimmed;
+  }
+
   function hideTabPreviewTooltip(reason = 'hide') {
     if (tabPreviewMeasureRaf) {
       cancelAnimationFrame(tabPreviewMeasureRaf);
@@ -244,7 +552,46 @@
     tabPreviewTooltipEl.innerHTML = '';
     tabPreviewTooltipEl.dataset.tabId = '';
     tabPreviewActiveId = null;
+    tabPreviewLastAnchorRect = null;
     console.debug('Debug: preview tooltip hidden', { reason });
+  }
+
+  function positionTabPreviewTooltip(tab, rect) {
+    if (!tabPreviewTooltipEl || !tab) {
+      return;
+    }
+    const tooltip = tabPreviewTooltipEl;
+    const tooltipWidth = tooltip.offsetWidth || (tab.previewMeta?.width || TAB_PREVIEW_TARGET_WIDTH);
+    const tooltipHeight = tooltip.offsetHeight || (tab.previewMeta?.height || TAB_PREVIEW_MIN_HEIGHT);
+    let left = rect ? rect.left + (rect.width / 2) - (tooltipWidth / 2) : 12;
+    let top = rect ? rect.top - tooltipHeight - 12 : 12;
+    if (rect && (top < 8 || (rect.top - tooltipHeight) < 8)) {
+      top = rect.bottom + 12;
+    }
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (left + tooltipWidth > viewportWidth - 8) {
+      left = Math.max(8, viewportWidth - tooltipWidth - 8);
+    }
+    if (left < 8) {
+      left = 8;
+    }
+    if (top + tooltipHeight > viewportHeight - 8) {
+      top = Math.max(8, viewportHeight - tooltipHeight - 8);
+    }
+    if (top < 8) {
+      top = 8;
+    }
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
+    tooltip.style.opacity = '1';
+    console.debug('Debug: preview tooltip positioned', {
+      tabId: tab.id,
+      left: Math.round(left),
+      top: Math.round(top),
+      width: tooltipWidth,
+      height: tooltipHeight
+    });
   }
 
   function showTabPreviewTooltip(tab, anchorEl) {
@@ -252,7 +599,7 @@
     if (!tooltip || !tab || !anchorEl) {
       return;
     }
-    tooltip.innerHTML = tab.previewMarkup;
+    renderTabPreviewTooltipContent(tooltip, tab.previewMarkup);
     tooltip.dataset.tabId = tab.id;
     tooltip.style.display = 'block';
     tooltip.style.opacity = '0';
@@ -263,38 +610,9 @@
     const rect = typeof anchorEl.getBoundingClientRect === 'function'
       ? anchorEl.getBoundingClientRect()
       : null;
+    tabPreviewLastAnchorRect = rect;
     tabPreviewMeasureRaf = requestAnimationFrame(() => {
-      const tooltipWidth = tooltip.offsetWidth || (tab.previewMeta?.width || TAB_PREVIEW_TARGET_WIDTH);
-      const tooltipHeight = tooltip.offsetHeight || (tab.previewMeta?.height || TAB_PREVIEW_MIN_HEIGHT);
-      let left = rect ? rect.left + (rect.width / 2) - (tooltipWidth / 2) : 12;
-      let top = rect ? rect.top - tooltipHeight - 12 : 12;
-      if (rect && (top < 8 || (rect.top - tooltipHeight) < 8)) {
-        top = rect.bottom + 12;
-      }
-      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-      if (left + tooltipWidth > viewportWidth - 8) {
-        left = Math.max(8, viewportWidth - tooltipWidth - 8);
-      }
-      if (left < 8) {
-        left = 8;
-      }
-      if (top + tooltipHeight > viewportHeight - 8) {
-        top = Math.max(8, viewportHeight - tooltipHeight - 8);
-      }
-      if (top < 8) {
-        top = 8;
-      }
-      tooltip.style.left = `${Math.round(left)}px`;
-      tooltip.style.top = `${Math.round(top)}px`;
-      tooltip.style.opacity = '1';
-      console.debug('Debug: preview tooltip positioned', {
-        tabId: tab.id,
-        left: Math.round(left),
-        top: Math.round(top),
-        width: tooltipWidth,
-        height: tooltipHeight
-      });
+      positionTabPreviewTooltip(tab, rect);
     });
   }
 
