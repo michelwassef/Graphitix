@@ -1220,6 +1220,47 @@
     return layout;
   }
 
+  function getScatterHeaderValue(data, colIndex){
+    if(!Array.isArray(data) || !data.length){
+      return '';
+    }
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    if(!Number.isInteger(colIndex) || colIndex < 0 || colIndex >= headerRow.length){
+      return '';
+    }
+    const value = headerRow[colIndex];
+    return value != null ? String(value).trim() : '';
+  }
+
+  function syncScatterAxisHeader(axisKey, value, options = {}){
+    const hotInstance = options.hot
+      || scatter.__ensureHotForActiveTab?.()
+      || scatterHot
+      || scatterRefs.hot;
+    if(!hotInstance || typeof hotInstance.getData !== 'function' || typeof hotInstance.setDataAtCell !== 'function'){
+      scatterDebug('Debug: scatter axis header sync skipped', { axis: axisKey, reason: 'hot-missing' });
+      return;
+    }
+    const data = hotInstance.getData() || [];
+    const layout = resolveScatterColumnLayout(data);
+    const colIndex = axisKey === 'x'
+      ? layout.xCol
+      : (axisKey === 'y' ? layout.yCol : layout.extraCol);
+    const maxCols = typeof hotInstance.countCols === 'function'
+      ? hotInstance.countCols()
+      : (Array.isArray(data?.[0]) ? data[0].length : 0);
+    if(!Number.isInteger(colIndex) || colIndex < 0 || (maxCols && colIndex >= maxCols)){
+      return;
+    }
+    const resolved = value != null ? String(value).trim() : '';
+    const current = getScatterHeaderValue(data, colIndex);
+    if(current === resolved){
+      return;
+    }
+    hotInstance.setDataAtCell(0, colIndex, resolved, options.source || 'scatter-axis-inline');
+    scatterDebug('Debug: scatter axis header synced', { axis: axisKey, colIndex, value: resolved });
+  }
+
   function getScatterSelectedRowSet(hotInstance){
     const api = hotInstance?.gridApi;
     if(!api || typeof api.getSelectedNodes !== 'function'){
@@ -6781,6 +6822,9 @@
           const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
           scatterState.zLabelText = zHeader || 'Z';
         }
+        scatterXLabelText = scatterState.xLabelText;
+        scatterYLabelText = scatterState.yLabelText;
+        scatterZLabelText = scatterState.zLabelText;
         const maxLen=rowCount;
         let points=[];
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
@@ -7691,7 +7735,11 @@
             rotatePoint,
             axisRanges: renderAxisRanges3d,
             axisTicks: axisTicks3d,
-            axisLabels: { x: scatterXLabelText, y: scatterYLabelText, z: scatterZLabelText },
+            axisLabels: {
+              x: scatterState.xLabelText || 'X',
+              y: scatterState.yLabelText || 'Y',
+              z: scatterState.zLabelText || 'Z'
+            },
             fontSize: fs,
             axisStrokeWidth,
             chartStyle,
@@ -7703,23 +7751,47 @@
             onAxisLabel: (node, axisKey) => {
               if(!node){ return; }
               const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
-              const changeLabel = (value) => {
-                const nextValue = value != null ? String(value) : '';
-                if(axisKey === 'x'){ scatterXLabelText = nextValue; }
-                else if(axisKey === 'y'){ scatterYLabelText = nextValue; }
-                else { scatterZLabelText = nextValue; }
-                if(node.textContent !== nextValue){ node.textContent = nextValue; }
-                scheduleDrawScatter();
+              const defaultLabel = axisKey === 'y' ? 'Y' : (axisKey === 'z' ? 'Z' : 'X');
+              const applyAxisLabel = (value) => {
+                const trimmed = value != null ? String(value).trim() : '';
+                const resolved = trimmed || defaultLabel;
+                const current = axisKey === 'x'
+                  ? scatterState.xLabelText
+                  : (axisKey === 'y' ? scatterState.yLabelText : scatterState.zLabelText);
+                const didChange = current !== resolved;
+                if(axisKey === 'x'){
+                  if(didChange){
+                    scatterState.xLabelText = resolved;
+                    scatterXLabelText = resolved;
+                  }
+                }else if(axisKey === 'y'){
+                  if(didChange){
+                    scatterState.yLabelText = resolved;
+                    scatterYLabelText = resolved;
+                  }
+                }else{
+                  if(didChange){
+                    scatterState.zLabelText = resolved;
+                    scatterZLabelText = resolved;
+                  }
+                }
+                syncScatterAxisHeader(axisKey, resolved, { source: 'scatter-axis-inline' });
+                if(node.textContent !== resolved){ node.textContent = resolved; }
+                if(didChange){
+                  scheduleDrawScatter();
+                }
+                return resolved;
               };
               markFontEditable(node, role, role);
               makeEditableLocal(node, text => {
-                const previous = axisKey === 'x' ? (scatterXLabelText ?? '') : (axisKey === 'y' ? (scatterYLabelText ?? '') : (scatterZLabelText ?? ''));
-                const nextValue = text != null ? String(text) : '';
+                const previous = axisKey === 'x'
+                  ? (scatterState.xLabelText ?? '')
+                  : (axisKey === 'y' ? (scatterState.yLabelText ?? '') : (scatterState.zLabelText ?? ''));
+                const nextValue = applyAxisLabel(text);
                 if(previous === nextValue){
                   return;
                 }
-                changeLabel(nextValue);
-                recordScatterChange(`scatter:${axisKey}-label`, previous, nextValue, changeLabel);
+                recordScatterChange(`scatter:${axisKey}-label`, previous, nextValue, applyAxisLabel);
               });
             }
           });

@@ -3732,6 +3732,72 @@
     return Math.max(0, lastUsed + 1);
   }
 
+  function resolveLine3dAxisHeaders(headerRow){
+    const header = Array.isArray(headerRow) ? headerRow : [];
+    let xIndex = header.findIndex(h => String(h).trim().toLowerCase() === 'x');
+    if(xIndex < 0){
+      xIndex = 0;
+    }
+    const xLabelRaw = header[xIndex] != null ? String(header[xIndex]).trim() : '';
+    const yLabelRaw = header[1] != null ? String(header[1]).trim() : '';
+    const zLabelRaw = header[2] != null ? String(header[2]).trim() : '';
+    return {
+      xIndex,
+      xLabel: xLabelRaw || 'X',
+      yLabel: yLabelRaw || 'Y',
+      zLabel: zLabelRaw || 'Z'
+    };
+  }
+
+  function syncLine3dAxisHeader(axisKey, value, options = {}){
+    const hotInstance = options.hot || lineHot;
+    if(!hotInstance || typeof hotInstance.getData !== 'function' || typeof hotInstance.setDataAtCell !== 'function'){
+      return value != null ? String(value) : '';
+    }
+    const data = hotInstance.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const colCount = typeof hotInstance.countCols === 'function'
+      ? hotInstance.countCols()
+      : headerRow.length;
+    const defaultLabel = axisKey === 'y' ? 'Y' : (axisKey === 'z' ? 'Z' : 'X');
+    const trimmed = value != null ? String(value).trim() : '';
+    const resolved = trimmed || defaultLabel;
+    if(!headerRow.length){
+      return resolved;
+    }
+    const changes = [];
+    if(axisKey === 'x'){
+      let xIndex = headerRow.findIndex(h => String(h).trim().toLowerCase() === 'x');
+      if(xIndex < 0){
+        xIndex = 0;
+      }
+      if(xIndex >= 0 && xIndex < colCount){
+        const current = headerRow[xIndex] != null ? String(headerRow[xIndex]).trim() : '';
+        if(current !== resolved){
+          changes.push([0, xIndex, resolved]);
+        }
+      }
+    }else{
+      const start = axisKey === 'y' ? 1 : 2;
+      const seriesCount = Math.max(0, inferLine3dSeriesCount(data));
+      for(let s = 0; s < seriesCount; s += 1){
+        const colIndex = start + s * 2;
+        if(colIndex >= colCount){
+          continue;
+        }
+        const current = headerRow[colIndex] != null ? String(headerRow[colIndex]).trim() : '';
+        if(current !== resolved){
+          changes.push([0, colIndex, resolved]);
+        }
+      }
+    }
+    if(changes.length){
+      hotInstance.setDataAtCell(changes, options.source || 'line-axis-inline');
+      lineDebug('Debug: line axis header synced', { axis: axisKey, count: changes.length, value: resolved });
+    }
+    return resolved;
+  }
+
   function ensureLine3dGroupLabelCapacity(seriesCount){
     const count = Math.max(0, Number(seriesCount) || 0);
     if(!count){
@@ -5565,11 +5631,18 @@
         return;
       }
       const header = Array.isArray(matrix[0]) ? matrix[0] : [];
-      let xIndex = header.findIndex(h => String(h).trim().toLowerCase() === 'x');
-      if(xIndex < 0){
-        xIndex = 0;
+      const axisHeaders = resolveLine3dAxisHeaders(header);
+      const prevAxisLabels = { x: lineXLabelText, y: lineYLabelText, z: lineZLabelText };
+      let xIndex = axisHeaders.xIndex;
+      lineXLabelText = axisHeaders.xLabel;
+      lineYLabelText = axisHeaders.yLabel;
+      lineZLabelText = axisHeaders.zLabel;
+      if(prevAxisLabels.x !== lineXLabelText || prevAxisLabels.y !== lineYLabelText || prevAxisLabels.z !== lineZLabelText){
+        lineDebug('Debug: line 3d axis labels synced', {
+          previous: prevAxisLabels,
+          next: { x: lineXLabelText, y: lineYLabelText, z: lineZLabelText }
+        });
       }
-      lineXLabelText = (header[xIndex] && String(header[xIndex]).trim()) || 'X';
       const seriesCount = inferLine3dSeriesCount(matrix);
       if(seriesCount <= 0){
         resetLineRenderState('line-3d-no-series', { message: 'Add Y/Z dataset columns to render a 3D line plot.' });
@@ -6093,25 +6166,36 @@
             return;
           }
           const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
-          const changeLabel = (value) => {
-            const nextValue = value != null ? String(value) : '';
-            if(axisKey === 'x'){ lineXLabelText = nextValue; }
-            else if(axisKey === 'y'){ lineYLabelText = nextValue; }
-            else { lineZLabelText = nextValue; }
-            if(node.textContent !== nextValue){
-              node.textContent = nextValue;
+          const defaultLabel = axisKey === 'y' ? 'Y' : (axisKey === 'z' ? 'Z' : 'X');
+          const applyAxisLabel = (value) => {
+            const trimmed = value != null ? String(value).trim() : '';
+            const resolved = trimmed || defaultLabel;
+            const current = axisKey === 'x'
+              ? lineXLabelText
+              : (axisKey === 'y' ? lineYLabelText : lineZLabelText);
+            if(current === resolved){
+              return resolved;
+            }
+            if(axisKey === 'x'){ lineXLabelText = resolved; }
+            else if(axisKey === 'y'){ lineYLabelText = resolved; }
+            else { lineZLabelText = resolved; }
+            syncLine3dAxisHeader(axisKey, resolved, { source: 'line-axis-inline' });
+            if(node.textContent !== resolved){
+              node.textContent = resolved;
             }
             scheduleLineDraw();
+            return resolved;
           };
           markFontEditable(node, role, role);
           makeEditableHelper(node, text => {
-            const previous = axisKey === 'x' ? (lineXLabelText ?? '') : (axisKey === 'y' ? (lineYLabelText ?? '') : (lineZLabelText ?? ''));
-            const nextValue = text != null ? String(text) : '';
+            const previous = axisKey === 'x'
+              ? (lineXLabelText ?? '')
+              : (axisKey === 'y' ? (lineYLabelText ?? '') : (lineZLabelText ?? ''));
+            const nextValue = applyAxisLabel(text);
             if(previous === nextValue){
               return;
             }
-            changeLabel(nextValue);
-            recordLineChange(`line:${axisKey}-label`, previous, nextValue, changeLabel);
+            recordLineChange(`line:${axisKey}-label`, previous, nextValue, applyAxisLabel);
           });
         }
       });
