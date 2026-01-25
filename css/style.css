@@ -646,6 +646,51 @@ select {
 .ag-theme-balham .ag-checkbox-input-wrapper {
     vertical-align: middle;
 }
+/* Hide the duplicate body row that sits under pinned top rows. */
+.ag-theme-balham .ag-row.hot-pinned-ghost-row {
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+}
+.ag-theme-balham .ag-row.hot-pinned-ghost-row .ag-cell {
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    line-height: 0 !important;
+    overflow: hidden !important;
+}
+.ag-theme-balham .ag-row.hot-pinned-ghost-row .ag-checkbox-input-wrapper {
+    display: none !important;
+}
+.ag-theme-balham .ag-row.hot-pinned-first-body-row .ag-cell {
+    border-top: 0 !important;
+}
+/* Ensure pinned top rows fully cover the first body row without gaps. */
+.ag-theme-balham .ag-pinned-top,
+.ag-theme-balham .ag-floating-top,
+.ag-theme-balham .ag-pinned-top-viewport,
+.ag-theme-balham .ag-floating-top-viewport {
+    min-height: var(--ag-row-height);
+    background: #ffffff;
+}
+.ag-theme-balham .ag-pinned-top,
+.ag-theme-balham .ag-floating-top {
+    margin-bottom: -1px;
+}
+.ag-theme-balham .ag-pinned-top .ag-row,
+.ag-theme-balham .ag-floating-top .ag-row,
+.ag-theme-balham .ag-pinned-top .ag-cell,
+.ag-theme-balham .ag-floating-top .ag-cell {
+    border-bottom: 0 !important;
+}
+.ag-theme-balham .ag-pinned-top .ag-center-cols-viewport,
+.ag-theme-balham .ag-floating-top .ag-center-cols-viewport {
+    overflow: hidden;
+}
 .ag-hot-menu {
     border-radius: 4px;
 }

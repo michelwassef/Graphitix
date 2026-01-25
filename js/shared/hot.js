@@ -4999,6 +4999,12 @@
         if(isStickyRow(physicalRow)){
           classes.push('hot-sticky-row');
         }
+        if(usePinnedRows && isPinnedTopRow(physicalRow) && !params?.node?.rowPinned){
+          classes.push('hot-pinned-ghost-row');
+        }
+        if(usePinnedRows && Number.isInteger(physicalRow) && physicalRow === pinRowCount){
+          classes.push('hot-pinned-first-body-row');
+        }
         return classes.length ? classes.join(' ') : null;
       },
       onCellContextMenu(params){
