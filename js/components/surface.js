@@ -108,7 +108,7 @@
       fontSize: 13,
       axisStroke: 1.2,
       axisColor: '#3b3b3b',
-      showGrid: true,
+      showGrid: false,
       showFrame: true,
       showPoints: false,
       showLegend: true
@@ -1326,17 +1326,38 @@
         }
       });
     }
-    const tickTargetX = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 }) : 6;
-    const tickTargetY = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(plotHeight, { axis: 'y', fallback: 6 }) : 6;
-    const tickTargetZ = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(Math.max(plotWidth, plotHeight), { axis: 'z', fallback: 6 }) : 6;
+    const tickTargetX = Math.max(3, typeof chartStyle.estimateTickCount === 'function'
+      ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 })
+      : 6);
+    const tickTargetY = Math.max(3, typeof chartStyle.estimateTickCount === 'function'
+      ? chartStyle.estimateTickCount(plotHeight, { axis: 'y', fallback: 6 })
+      : 6);
+    const tickTargetZ = Math.max(3, typeof chartStyle.estimateTickCount === 'function'
+      ? chartStyle.estimateTickCount(Math.max(plotWidth, plotHeight), { axis: 'z', fallback: 6 })
+      : 6);
     const scaleX = niceScale(ranges.x.min, ranges.x.max, tickTargetX);
     const scaleY = niceScale(ranges.y.min, ranges.y.max, tickTargetY);
     const scaleZ = niceScale(ranges.z.min, ranges.z.max, tickTargetZ);
     const clampTicks = (ticks, range) => ticks.filter(value => value >= range.min - 1e-9 && value <= range.max + 1e-9);
+    const ensureMinTicks = (ticks, range, count = 3) => {
+      if(ticks.length >= count){
+        return ticks;
+      }
+      const span = range.max - range.min;
+      if(!Number.isFinite(span) || span === 0){
+        return ticks;
+      }
+      const step = span / (count - 1);
+      const fallback = [];
+      for(let i = 0; i < count; i += 1){
+        fallback.push(Number((range.min + step * i).toFixed(6)));
+      }
+      return fallback;
+    };
     const axisTicks = {
-      x: clampTicks(scaleX.ticks, ranges.x),
-      y: clampTicks(scaleY.ticks, ranges.y),
-      z: clampTicks(scaleZ.ticks, ranges.z)
+      x: ensureMinTicks(clampTicks(scaleX.ticks, ranges.x), ranges.x),
+      y: ensureMinTicks(clampTicks(scaleY.ticks, ranges.y), ranges.y),
+      z: ensureMinTicks(clampTicks(scaleZ.ticks, ranges.z), ranges.z)
     };
     if(typeof plot3d.renderAxesAndGrid === 'function'){
       // Clear previous render output from axis and background layers to avoid
@@ -1429,7 +1450,9 @@
     const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
       ? 'grid'
       : (parsed.faces.length ? state.settings.interpolation : 'scatter');
-    if(parsed.faces.length && effectiveMode === 'grid'){
+    const shouldRenderFaces = parsed.faces.length && effectiveMode === 'grid';
+    const shouldRenderPoints = state.settings.showPoints || effectiveMode !== 'grid';
+    if(shouldRenderFaces){
       let faceGroup = geometryLayer.querySelector('g.surface-faces');
       if(!faceGroup){
         faceGroup = doc.createElementNS(NS, 'g');
@@ -1469,8 +1492,16 @@
         const extra = state._facePool[i];
         try{ if(extra && extra.style){ extra.style.display = 'none'; } }catch(e){}
       }
+      if(faceGroup.style.display !== ''){
+        faceGroup.style.display = '';
+      }
+    } else {
+      const faceGroup = geometryLayer.querySelector('g.surface-faces');
+      if(faceGroup){
+        faceGroup.style.display = 'none';
+      }
     }
-    if(state.settings.showPoints || effectiveMode !== 'grid'){
+    if(shouldRenderPoints){
       let pointGroup = geometryLayer.querySelector('g.surface-points');
       if(!pointGroup){
         pointGroup = doc.createElementNS(NS, 'g');
@@ -1509,6 +1540,14 @@
       for(let i = state._pointPoolUsed; i < state._pointPool.length; i += 1){
         const extra = state._pointPool[i];
         try{ if(extra && extra.style){ extra.style.display = 'none'; } }catch(e){}
+      }
+      if(pointGroup.style.display !== ''){
+        pointGroup.style.display = '';
+      }
+    } else {
+      const pointGroup = geometryLayer.querySelector('g.surface-points');
+      if(pointGroup){
+        pointGroup.style.display = 'none';
       }
     }
     let title = svg.querySelector('text[data-graph-title]');
