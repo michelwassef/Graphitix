@@ -490,10 +490,14 @@
 
   function getSelectedColumns(){
     const maxCol = state.hot && typeof state.hot.countCols === 'function' ? state.hot.countCols() - 1 : DEFAULT_COLS - 1;
+    const resolveIndex = (value, fallback) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
     return {
-      x: Math.min(Math.max(0, Number(state.axisMap.x) || 0), maxCol),
-      y: Math.min(Math.max(0, Number(state.axisMap.y) || 1), maxCol),
-      z: Math.min(Math.max(0, Number(state.axisMap.z) || 2), maxCol)
+      x: Math.min(Math.max(0, resolveIndex(state.axisMap.x, 0)), maxCol),
+      y: Math.min(Math.max(0, resolveIndex(state.axisMap.y, 1)), maxCol),
+      z: Math.min(Math.max(0, resolveIndex(state.axisMap.z, 2)), maxCol)
     };
   }
 
@@ -1094,7 +1098,10 @@
       const select = state.axisSelects[axis];
       if(!select){ return; }
       attachListener(select, 'change', () => {
-        state.axisMap[axis] = Number(select.value) || state.axisMap[axis];
+        const next = Number(select.value);
+        if(Number.isFinite(next)){
+          state.axisMap[axis] = next;
+        }
         state.scheduleDraw();
       });
     });
