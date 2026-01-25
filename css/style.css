@@ -427,6 +427,7 @@ select {
 }
 .ag-theme-balham .ag-header-cell,
 .ag-theme-balham .ag-cell {
+    border: 0 !important;
     border-right: 1px solid #d6d6d6 !important;
     border-bottom: 1px solid #d6d6d6 !important;
     box-sizing: border-box;
