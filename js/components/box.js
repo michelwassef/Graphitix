@@ -10346,6 +10346,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsComputationPending = true;
     updateStatsButtonState({ disabled: true, label: 'Calculating…' });
     setStatsStatus('Calculating statistics…');
+    const perfApi = Shared.Performance;
+    const statsPerf = perfApi?.start('box.stats', { component: 'box', mode: state.tableFormat });
+    let statsOutcome = 'success';
+    let statsPath = 'local';
+    let statsValueCount = 0;
+    const statsMode = state.tableFormat;
     const finalizeStatsComputation = () => {
       state.statsComputationPending = false;
       const stillCurrent = state.statsContext === context && state.statsContextSignature === context.signature;
@@ -10355,6 +10361,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       updateStatsButtonState({ disabled: !stillCurrent, label });
       if(!stillCurrent){
         updateSignificanceControlState({ statsReady: false });
+      }
+      if(perfApi && statsPerf){
+        perfApi.end(statsPerf, {
+          component: 'box',
+          mode: statsMode,
+          path: statsPath,
+          outcome: statsOutcome,
+          values: statsValueCount
+        });
       }
       // Persist the tab payload immediately if the computed results belong to the current context
       try{
@@ -10395,8 +10410,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }else{
       valueCount = selectedIndices.reduce((sum, idx) => sum + ((context.traces[idx]?.rawY || []).length), 0);
     }
+    statsValueCount = valueCount;
     const useWorker = shouldUseBoxStatsWorker(valueCount);
     if(useWorker){
+      statsPath = 'worker';
       const payload = buildBoxStatsWorkerPayload(context, selectedIndices, groupedPrepared);
       const contextVersion = context.version;
       runBoxStatsWorker(payload)
@@ -10414,10 +10431,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         })
         .catch(err => {
           console.error('box stats worker failed', err);
+          statsOutcome = 'worker-failed';
           try{
             runLocalCompute();
+            statsOutcome = 'worker-fallback';
           }catch(errLocal){
             console.error('box stats computation failed', errLocal);
+            statsOutcome = 'error';
             if(els.statsResults){
               els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
             }
@@ -10434,6 +10454,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       runLocalCompute();
     }catch(err){
       console.error('box stats computation failed', err);
+      statsOutcome = 'error';
       if(els.statsResults){
         els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
       }
@@ -11394,6 +11415,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
   async function draw(){
     const token = ++state.drawToken;
+    const perfApi = Shared.Performance;
+    const drawPerf = perfApi?.start('box.draw', { component: 'box', token });
+    let drawOutcome = 'success';
+    let nRows = 0;
+    let nCols = 0;
+    let traceCount = 0;
+    try{
     console.log('boxplot draw start',{token});
     hideBoxTooltip('draw-start');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -11624,10 +11652,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const groupedReplicates = isGroupedMode ? Math.max(1, state.grouped.replicatesPerGroup) : 1;
     const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
     const dataMatrix = analysis.data || [];
-    const nCols = analysis.colCount || state.hot.countCols();
-    const nRows = analysis.rowCount || state.hot.countRows?.() || dataMatrix.length;
+    nCols = analysis.colCount || state.hot.countCols();
+    nRows = analysis.rowCount || state.hot.countRows?.() || dataMatrix.length;
     console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
     if(!isGroupedMode){
+      const collectPerf = perfApi?.start('box.data.collect', {
+        component: 'box',
+        mode: 'single',
+        rows: nRows,
+        cols: nCols,
+        token
+      });
+      let collectFinalized = false;
+      const finalizeCollect = (meta) => {
+        if(collectPerf && !collectFinalized){
+          collectFinalized = true;
+          perfApi.end(collectPerf, { component: 'box', mode: 'single', token, ...meta });
+        }
+      };
       if(state.colOrder.length !== nCols){
         state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       }
@@ -11662,6 +11704,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         console.timeEnd(`boxColCollect_${i}_${token}`);
         console.log('boxplot collected column',{ index: i, values: col.length });
         if(token !== state.drawToken){
+          finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
+          drawOutcome = 'cancelled';
           console.log('boxplot draw cancelled after collect',{ token });
           return;
         }
@@ -11677,7 +11721,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         axisLabels = traceLabels.slice();
         axisGroupIndices = traceLabels.map(() => null);
       }
+      finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
     }else{
+      const collectPerf = perfApi?.start('box.data.collect', {
+        component: 'box',
+        mode: 'grouped',
+        rows: nRows,
+        cols: nCols,
+        token
+      });
+      let collectFinalized = false;
+      const finalizeCollect = (meta) => {
+        if(collectPerf && !collectFinalized){
+          collectFinalized = true;
+          perfApi.end(collectPerf, { component: 'box', mode: 'grouped', token, ...meta });
+        }
+      };
       state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       const replicateEntries = [];
       const groupEntries = groupedGroups.map((groupName, gIdx)=>({ groupName, groupIndex: gIdx, replicates: [] }));
@@ -11716,6 +11775,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           console.timeEnd(`boxColCollect_${colIndex}_${token}`);
           console.log('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
           if(token !== state.drawToken){
+            finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
+            drawOutcome = 'cancelled';
             console.log('boxplot draw cancelled after grouped collect',{ token });
             return;
           }
@@ -11779,6 +11840,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         axisLabels = traceLabels.slice();
         axisGroupIndices = traceLabels.map(() => null);
       }
+      finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
     }
     if(token !== state.drawToken){
       console.log('boxplot draw cancelled before traces ready',{ token });
@@ -14755,7 +14817,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncBoxAutoDrawNoticeWidth('draw');
+    traceCount = traces.length;
     console.log('boxplot render complete');
+    }catch(err){
+      drawOutcome = 'error';
+      throw err;
+    }finally{
+      if(perfApi && drawPerf){
+        perfApi.end(drawPerf, {
+          component: 'box',
+          token,
+          outcome: drawOutcome,
+          rows: nRows,
+          cols: nCols,
+          traces: traceCount
+        });
+      }
+    }
   }
   // PART: SAVE_OPEN
   function getPayload(){

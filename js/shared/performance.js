@@ -11,7 +11,7 @@
   Shared.__debugState = debugState;
   
   function logDebug(message, payload) {
-    if (Shared.isDebugEnabled && typeof Shared.isDebugEnabled() === 'function' && Shared.isDebugEnabled()) {
+    if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
       if (typeof payload === 'undefined') {
         console.debug(message);
       } else {
@@ -36,6 +36,116 @@
     }
     return Date.now();
   }
+
+  const perfEntries = Performance._entries = Performance._entries || [];
+  let perfNextId = Performance._nextId || 1;
+  Performance._nextId = perfNextId;
+
+  function ensureEntryId() {
+    const id = perfNextId;
+    perfNextId += 1;
+    Performance._nextId = perfNextId;
+    return id;
+  }
+
+  Performance.start = function start(label, meta) {
+    if (typeof label !== 'string' || !label) {
+      return null;
+    }
+    const entry = {
+      id: ensureEntryId(),
+      label,
+      meta: meta && typeof meta === 'object' ? { ...meta } : null,
+      t0: now(),
+      t1: null,
+      duration: null
+    };
+    return entry;
+  };
+
+  Performance.end = function end(entry, meta) {
+    if (!entry || !Number.isFinite(entry.t0)) {
+      return null;
+    }
+    const t1 = now();
+    entry.t1 = t1;
+    entry.duration = Math.max(0, t1 - entry.t0);
+    if (meta && typeof meta === 'object') {
+      entry.meta = entry.meta ? { ...entry.meta, ...meta } : { ...meta };
+    }
+    perfEntries.push(entry);
+    logDebug('Debug: Performance span', {
+      label: entry.label,
+      duration: entry.duration,
+      meta: entry.meta || null
+    });
+    return entry;
+  };
+
+  Performance.clear = function clear() {
+    perfEntries.length = 0;
+  };
+
+  function percentile(values, p) {
+    if (!values.length) {
+      return 0;
+    }
+    const sorted = values.slice().sort((a, b) => a - b);
+    const idx = (sorted.length - 1) * Math.min(Math.max(p, 0), 1);
+    const base = Math.floor(idx);
+    const rest = idx - base;
+    const baseVal = sorted[base];
+    const nextVal = sorted[base + 1];
+    if (nextVal === undefined) {
+      return baseVal;
+    }
+    return baseVal + rest * (nextVal - baseVal);
+  }
+
+  Performance.getReport = function getReport(options) {
+    const groupBy = options?.groupBy || 'label';
+    const filter = typeof options?.filter === 'function' ? options.filter : null;
+    const groups = new Map();
+    perfEntries.forEach(entry => {
+      if (filter && !filter(entry)) {
+        return;
+      }
+      const key = entry[groupBy] || 'unknown';
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key).push(entry);
+    });
+    const report = [];
+    groups.forEach((entries, key) => {
+      const durations = entries.map(item => item.duration || 0);
+      const total = durations.reduce((sum, v) => sum + v, 0);
+      const max = durations.length ? Math.max(...durations) : 0;
+      const min = durations.length ? Math.min(...durations) : 0;
+      report.push({
+        key,
+        count: durations.length,
+        totalMs: Number(total.toFixed(3)),
+        avgMs: Number((total / Math.max(durations.length, 1)).toFixed(3)),
+        p50Ms: Number(percentile(durations, 0.5).toFixed(3)),
+        p95Ms: Number(percentile(durations, 0.95).toFixed(3)),
+        maxMs: Number(max.toFixed(3)),
+        minMs: Number(min.toFixed(3))
+      });
+    });
+    report.sort((a, b) => b.totalMs - a.totalMs);
+    return report;
+  };
+
+  Performance.logReport = function logReport(options) {
+    const report = Performance.getReport(options);
+    if (report.length) {
+      console.table(report);
+    } else {
+      console.info('Performance report empty');
+    }
+    return report;
+  };
   
   // Mark a performance timestamp
   Performance.mark = function mark(name) {

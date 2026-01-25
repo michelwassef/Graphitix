@@ -6377,10 +6377,18 @@
         if(scatterCurrentGraphType!=='scatter'){
           return;
         }
+        const perfApi = Shared.Performance;
+        const perfSpan = perfApi?.start('scatter.labels.colors', {
+          component: 'scatter',
+          labels: Array.isArray(labels) ? labels.length : 0
+        });
+        let createdCount = 0;
+        let prunedCount = 0;
         const labelSet=new Set(labels);
         labels.forEach((lab,i)=>{
           if(!scatterLabelColors[lab]){
             scatterLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+            createdCount += 1;
             console.debug('Debug: scatter default label color applied',{label:lab,color:scatterLabelColors[lab]});
           }
         });
@@ -6388,9 +6396,20 @@
           if(!labelSet.has(existing)){
             console.debug('Debug: scatter label color pruned',{label:existing});
             delete scatterLabelColors[existing];
+            prunedCount += 1;
           }
         });
-        console.debug('Debug: ensureScatterLabelColors sync complete',{count:Object.keys(scatterLabelColors).length});
+        const totalCount = Object.keys(scatterLabelColors).length;
+        if(perfApi && perfSpan){
+          perfApi.end(perfSpan, {
+            component: 'scatter',
+            labels: Array.isArray(labels) ? labels.length : 0,
+            created: createdCount,
+            pruned: prunedCount,
+            total: totalCount
+          });
+        }
+        console.debug('Debug: ensureScatterLabelColors sync complete',{count: totalCount});
       }
 
       function sanitizeScatterLabelShape(value, index){
