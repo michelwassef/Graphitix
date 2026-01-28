@@ -713,6 +713,29 @@ select {
 .ag-theme-balham .ag-floating-top .ag-cell {
     border-bottom: 0 !important;
 }
+/* Keep a visible divider under pinned-top rows even while scrolling */
+.ag-theme-balham .ag-pinned-top,
+.ag-theme-balham .ag-floating-top,
+.ag-theme-balham .ag-pinned-top-left,
+.ag-theme-balham .ag-pinned-top-center,
+.ag-theme-balham .ag-pinned-top-right,
+.ag-theme-balham .ag-floating-top-left,
+.ag-theme-balham .ag-floating-top-center,
+.ag-theme-balham .ag-floating-top-right {
+    /* Use inset shadow as a "border" that won't be cancelled by cell border overrides */
+    box-shadow: inset 0 -1px 0 #d6d6d6 !important;
+
+    /* Make sure it paints above scrolling rows */
+    position: relative;
+    z-index: 3;
+}
+
+/* DEBUG: add class="debug-ag-pinned" on <body> to visualize pinned containers */
+body.debug-ag-pinned .ag-theme-balham .ag-pinned-top,
+body.debug-ag-pinned .ag-theme-balham .ag-floating-top {
+    outline: 2px dashed magenta;
+}
+
 .ag-theme-balham .ag-pinned-top .ag-center-cols-viewport,
 .ag-theme-balham .ag-floating-top .ag-center-cols-viewport {
     overflow: hidden;
