@@ -724,7 +724,9 @@ select {
 .ag-theme-balham .ag-floating-top-right {
     /* Use inset shadow as a "border" that won't be cancelled by cell border overrides */
     box-shadow: inset 0 -1px 0 #d6d6d6 !important;
+    border-top: 0 !important;
 
+    
     /* Make sure it paints above scrolling rows */
     position: relative;
     z-index: 3;
@@ -740,6 +742,52 @@ body.debug-ag-pinned .ag-theme-balham .ag-floating-top {
 .ag-theme-balham .ag-floating-top .ag-center-cols-viewport {
     overflow: hidden;
 }
+/* Single seam strategy:
+   - Header draws ONE bottom line.
+   - Pinned-top draws ONLY its bottom line (handled in the pinned-top block).
+   - No extra line at the header <-> pinned boundary. */
+.ag-theme-balham .ag-header,
+.ag-theme-balham .ag-header-viewport {
+    border-bottom: 0 !important;
+    box-shadow: inset 0 -1px 0 #d6d6d6 !important; /* the only seam line */
+    position: relative;
+    z-index: 4;
+}
+
+/* Prevent per-cell bottom borders in the header from doubling that seam */
+.ag-theme-balham .ag-header-cell {
+    border-bottom: 0 !important;
+}
+
+/* Defensive: kill any remaining header separator pseudo-elements */
+.ag-theme-balham .ag-header::after,
+.ag-theme-balham .ag-header-viewport::after,
+.ag-theme-balham .ag-header-row::after {
+    content: none !important;
+    display: none !important;
+}
+
+/* Defensive: ensure pinned-top viewport itself never adds a top edge */
+.ag-theme-balham .ag-pinned-top-viewport,
+.ag-theme-balham .ag-floating-top-viewport {
+    border-top: 0 !important;
+    box-shadow: none !important;
+}
+
+/* DEBUG: add class="debug-ag-seams" on <body> to visualize the seam sources */
+body.debug-ag-seams .ag-theme-balham .ag-header {
+    outline: 2px dashed orange;
+}
+body.debug-ag-seams .ag-theme-balham .ag-pinned-top,
+body.debug-ag-seams .ag-theme-balham .ag-floating-top {
+    outline: 2px dashed cyan;
+}
+
+/* DEBUG: add class="debug-ag-header" on <body> to visualize header bounds */
+body.debug-ag-header .ag-theme-balham .ag-header {
+    outline: 2px dashed orange;
+}
+
 .ag-hot-menu {
     border-radius: 4px;
 }
