@@ -207,7 +207,11 @@
     statsLastRunVersion: 0,
     statsComputationPending: false,
     skipNextDraw: false,
-    skipNextDrawReason: null
+    skipNextDrawReason: null,
+    drawInProgress: false,
+    pendingDrawOpts: null,
+    lastDrawAt: 0,
+    drawCooldownTimer: null
   };
   function resetScatterRotation(reason){
     if(typeof plot3d.createRotationState !== 'function'){
@@ -244,6 +248,12 @@
   let emptyPayloadTemplate = null;
   let scatterLabelColors = {};
   let scatterLabelShapes = {};
+  const scatterLabelCache = {
+    colorsSet: null,
+    shapesSet: null,
+    colorsValid: false,
+    shapesValid: false
+  };
   let scatterLabelStyles = {};
   const scatterRowSelectionsByTab = new Map();
   const scatterThresholdSelectionsByTab = new Map();
@@ -858,6 +868,8 @@
   function computeScatterDensityValues(points, size){
     const width = Math.max(1, Number(size?.width) || 1);
     const height = Math.max(1, Number(size?.height) || 1);
+    const offsetX = Number(size?.offsetX) || 0;
+    const offsetY = Number(size?.offsetY) || 0;
     const data = Array.isArray(points) ? points : [];
     const count = data.length;
     if(!count){
@@ -868,33 +880,40 @@
     const gridY = gridResolution;
     const cellW = width / gridX;
     const cellH = height / gridY;
-    const grid = new Array(gridX * gridY).fill(0);
-    const coords = [];
+    const grid = new Int32Array(gridX * gridY);
+    const gxArr = new Int32Array(count);
+    const gyArr = new Int32Array(count);
     for(let i = 0; i < count; i += 1){
       const pt = data[i];
-      const x = Math.min(Math.max(Number(pt?.x) || 0, 0), width - 1e-6);
-      const y = Math.min(Math.max(Number(pt?.y) || 0, 0), height - 1e-6);
+      const rawX = pt?.x ?? pt?.cx;
+      const rawY = pt?.y ?? pt?.cy;
+      const x = Math.min(Math.max((Number(rawX) || 0) - offsetX, 0), width - 1e-6);
+      const y = Math.min(Math.max((Number(rawY) || 0) - offsetY, 0), height - 1e-6);
       const gx = Math.min(gridX - 1, Math.max(0, Math.floor(x / cellW)));
       const gy = Math.min(gridY - 1, Math.max(0, Math.floor(y / cellH)));
       grid[gy * gridX + gx] += 1;
-      coords.push({ gx, gy });
+      gxArr[i] = gx;
+      gyArr[i] = gy;
     }
-    const neighborOffsets = [-1, 0, 1];
-    const values = new Array(count);
+    const values = new Float64Array(count);
     let maxDensity = 0;
-    coords.forEach(({ gx, gy }, idx) => {
+    for(let idx = 0; idx < count; idx += 1){
+      const gx = gxArr[idx];
+      const gy = gyArr[idx];
       let sum = 0;
       let n = 0;
-      for(let dxIdx = 0; dxIdx < neighborOffsets.length; dxIdx += 1){
-        const dx = neighborOffsets[dxIdx];
-        for(let dyIdx = 0; dyIdx < neighborOffsets.length; dyIdx += 1){
-          const dy = neighborOffsets[dyIdx];
+      for(let dy = -1; dy <= 1; dy += 1){
+        const ny = gy + dy;
+        if(ny < 0 || ny >= gridY){
+          continue;
+        }
+        const row = ny * gridX;
+        for(let dx = -1; dx <= 1; dx += 1){
           const nx = gx + dx;
-          const ny = gy + dy;
-          if(nx < 0 || nx >= gridX || ny < 0 || ny >= gridY){
+          if(nx < 0 || nx >= gridX){
             continue;
           }
-          sum += grid[ny * gridX + nx] || 0;
+          sum += grid[row + nx];
           n += 1;
         }
       }
@@ -903,7 +922,7 @@
       if(density > maxDensity){
         maxDensity = density;
       }
-    });
+    }
     return { values, max: maxDensity };
   }
 
@@ -6373,33 +6392,81 @@
       });
       syncScatterGraphTypeUI();
 
-      function ensureScatterLabelColors(labels){
+      function areScatterLabelSetsEqual(nextSet, prevSet){
+        if(!prevSet || !nextSet || prevSet.size !== nextSet.size){
+          return false;
+        }
+        for(const label of nextSet){
+          if(!prevSet.has(label)){
+            return false;
+          }
+        }
+        return true;
+      }
+
+      function ensureScatterLabelColors(labels, meta){
         if(scatterCurrentGraphType!=='scatter'){
           return;
         }
+        const labelSet = meta?.labelSet || new Set(labels);
         const perfApi = Shared.Performance;
         const perfSpan = perfApi?.start('scatter.labels.colors', {
           component: 'scatter',
           labels: Array.isArray(labels) ? labels.length : 0
         });
+        const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+        const isSameSet = scatterLabelCache.colorsValid && areScatterLabelSetsEqual(labelSet, scatterLabelCache.colorsSet);
+        if(isSameSet){
+          if(perfApi && perfSpan){
+            perfApi.end(perfSpan, {
+              component: 'scatter',
+              labels: Array.isArray(labels) ? labels.length : 0,
+              created: 0,
+              pruned: 0,
+              total: labelSet.size,
+              skipped: true
+            });
+          }
+          scatterLabelCache.colorsSet = labelSet;
+          if(debugEnabled){
+            scatterDebug('Debug: ensureScatterLabelColors skipped (unchanged)', { count: labelSet.size });
+          }
+          return;
+        }
         let createdCount = 0;
         let prunedCount = 0;
-        const labelSet=new Set(labels);
+        const sampleLimit = 5;
+        const createdSamples = debugEnabled ? [] : null;
+        const prunedSamples = debugEnabled ? [] : null;
         labels.forEach((lab,i)=>{
           if(!scatterLabelColors[lab]){
             scatterLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
             createdCount += 1;
-            console.debug('Debug: scatter default label color applied',{label:lab,color:scatterLabelColors[lab]});
+            if(createdSamples && createdSamples.length < sampleLimit){
+              createdSamples.push({ label: lab, color: scatterLabelColors[lab] });
+            }
           }
         });
         Object.keys(scatterLabelColors).forEach(existing=>{
           if(!labelSet.has(existing)){
-            console.debug('Debug: scatter label color pruned',{label:existing});
             delete scatterLabelColors[existing];
             prunedCount += 1;
+            if(prunedSamples && prunedSamples.length < sampleLimit){
+              prunedSamples.push(existing);
+            }
           }
         });
         const totalCount = Object.keys(scatterLabelColors).length;
+        scatterLabelCache.colorsSet = labelSet;
+        scatterLabelCache.colorsValid = true;
+        if(debugEnabled){
+          if(createdSamples && createdSamples.length){
+            createdSamples.forEach(entry => scatterDebug('Debug: scatter default label color applied', entry));
+          }
+          if(prunedSamples && prunedSamples.length){
+            prunedSamples.forEach(label => scatterDebug('Debug: scatter label color pruned', { label }));
+          }
+        }
         if(perfApi && perfSpan){
           perfApi.end(perfSpan, {
             component: 'scatter',
@@ -6409,7 +6476,7 @@
             total: totalCount
           });
         }
-        console.debug('Debug: ensureScatterLabelColors sync complete',{count: totalCount});
+        scatterDebug('Debug: ensureScatterLabelColors sync complete',{count: totalCount, created: createdCount, pruned: prunedCount});
       }
 
       function sanitizeScatterLabelShape(value, index){
@@ -6420,12 +6487,20 @@
         return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length];
       }
 
-      function ensureScatterLabelShapes(labels){
+      function ensureScatterLabelShapes(labels, meta){
         if(scatterCurrentGraphType!=='scatter'){
           scatterLabelShapes = {};
+          scatterLabelCache.shapesSet = null;
+          scatterLabelCache.shapesValid = false;
           return;
         }
-        const labelSet = new Set(labels);
+        const labelSet = meta?.labelSet || new Set(labels);
+        const isSameSet = scatterLabelCache.shapesValid && areScatterLabelSetsEqual(labelSet, scatterLabelCache.shapesSet);
+        if(isSameSet){
+          scatterLabelCache.shapesSet = labelSet;
+          scatterDebug('Debug: ensureScatterLabelShapes skipped (unchanged)', { count: labelSet.size });
+          return;
+        }
         labels.forEach((lab, idx)=>{
           if(!lab){ return; }
           const sanitized = sanitizeScatterLabelShape(scatterLabelShapes[lab], idx);
@@ -6436,7 +6511,10 @@
             delete scatterLabelShapes[existing];
           }
         });
-        scatterDebug('Debug: ensureScatterLabelShapes sync complete',{count:Object.keys(scatterLabelShapes).length});
+        const totalCount = Object.keys(scatterLabelShapes).length;
+        scatterLabelCache.shapesSet = labelSet;
+        scatterLabelCache.shapesValid = true;
+        scatterDebug('Debug: ensureScatterLabelShapes sync complete',{count: totalCount});
       }
 
       function computeScatterLabelDistribution(points){
@@ -7063,8 +7141,9 @@
         if(scatterCurrentGraphType!=='scatter'){
           renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
         }
-        ensureScatterLabelColors(labelsUsed);
-        ensureScatterLabelShapes(labelsUsed);
+        const labelsUsedSet = labelSet || new Set(labelsUsed);
+        ensureScatterLabelColors(labelsUsed, { labelSet: labelsUsedSet });
+        ensureScatterLabelShapes(labelsUsed, { labelSet: labelsUsedSet });
         const labelShapeLookup=new Map();
         labelsUsed.forEach((lab, idx)=>{
           if(!lab){ return; }
@@ -8775,6 +8854,11 @@
         debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
         time(`scatterSvgDraw_${token}`);
+        const renderPerf = perfApi?.start('scatter.svg.draw', {
+          component: 'scatter',
+          token,
+          points: points.length
+        });
         let geometryPrep = null;
         let densityInfo = null;
         const useRenderWorker = shouldUseScatterRenderWorker(points.length, {
@@ -8796,6 +8880,14 @@
               debug: debugEnabled
             });
             if(token !== scatterDrawToken){
+              if(perfApi && renderPerf){
+                perfApi.end(renderPerf, {
+                  component: 'scatter',
+                  token,
+                  points: points.length,
+                  outcome: 'stale'
+                });
+              }
               debug('Debug: scatter render worker result ignored',{ reason:'stale-token', token, current: scatterDrawToken });
               return;
             }
@@ -8821,12 +8913,26 @@
           return { xv, yv, cx: cxVal, cy: cyVal };
         });
         if(scatterColorModeApplied === 'density' && !densityInfo){
-          const densityPoints = pointGeometry.map(pos => ({
-            x: pos.cx - margin.left,
-            y: pos.cy - margin.top
-          }));
-          densityInfo = computeScatterDensityValues(densityPoints, { width: plotW, height: plotH });
-          debug('Debug: scatter density computed',{ max: densityInfo.max, count: densityPoints.length });
+          const densityPerf = perfApi?.start('scatter.density.compute', {
+            component: 'scatter',
+            token,
+            points: pointGeometry.length
+          });
+          densityInfo = computeScatterDensityValues(pointGeometry, {
+            width: plotW,
+            height: plotH,
+            offsetX: margin.left,
+            offsetY: margin.top
+          });
+          if(perfApi && densityPerf){
+            perfApi.end(densityPerf, {
+              component: 'scatter',
+              token,
+              points: pointGeometry.length,
+              max: densityInfo?.max || 0
+            });
+          }
+          debug('Debug: scatter density computed',{ max: densityInfo.max, count: pointGeometry.length });
         }
         const resolveNonScatterColor = point => {
           if(!point || !point.isSignificant){
@@ -8916,6 +9022,14 @@
           frag.appendChild(marker);
           pointIndex++;
           if(pointIndex >= nextPointProgress){info('scatter svg draw progress',{pointIndex,token});nextPointProgress += pointProgressInterval;}
+        }
+        if(perfApi && renderPerf){
+          perfApi.end(renderPerf, {
+            component: 'scatter',
+            token,
+            points: points.length,
+            density: scatterColorModeApplied === 'density'
+          });
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
         pointLayer.appendChild(frag);
@@ -9959,7 +10073,32 @@
           endDrawPerf({ component: 'scatter', token });
         }
       }
+      const mergeScatterDrawOptions = (prev, next) => {
+        if(!prev){
+          return next ? { ...next } : {};
+        }
+        if(!next){
+          return { ...prev };
+        }
+        const prevView = !!prev.viewOnly;
+        const nextView = !!next.viewOnly;
+        return {
+          ...prev,
+          ...next,
+          force: !!(prev.force || next.force),
+          viewOnly: prevView && nextView,
+          skipThresholdEvaluation: !!(prev.skipThresholdEvaluation || next.skipThresholdEvaluation),
+          reason: next.reason || prev.reason
+        };
+      };
+
       const runScatterDrawCycle = async (opts = {}) => {
+        const nextOpts = opts || {};
+        if(scatterState.drawInProgress){
+          scatterState.pendingDrawOpts = mergeScatterDrawOptions(scatterState.pendingDrawOpts, nextOpts);
+          scatterDebug('Debug: scatter draw coalesced', { reason: nextOpts.reason || null, force: !!nextOpts.force });
+          return;
+        }
         if(scatterState.skipNextDraw && !opts.force){
           scatterState.skipNextDraw = false;
           scatterState.skipNextDrawReason = null;
@@ -9967,6 +10106,7 @@
           scatterDebug('Debug: scatter draw skipped (render cache)');
           return;
         }
+        scatterState.drawInProgress = true;
         let status = 'complete';
         try{
           await drawScatter();
@@ -9974,7 +10114,16 @@
           status = 'error';
           throw err;
         }finally{
+          scatterState.drawInProgress = false;
+          scatterState.lastDrawAt = (global.performance && typeof global.performance.now === 'function')
+            ? global.performance.now()
+            : Date.now();
           resolveScatterOverlay(status);
+          const pending = scatterState.pendingDrawOpts;
+          scatterState.pendingDrawOpts = null;
+          if(pending){
+            scheduleDrawScatterRaw(pending);
+          }
         }
       };
       const scheduleScatterBase = Shared.debounceFrame ? Shared.debounceFrame(runScatterDrawCycle) : runScatterDrawCycle;
@@ -9998,7 +10147,27 @@
         }else{
           queueScatterOverlay(overlayReason);
         }
-        const runSchedule = () => scheduleScatterBase(nextOpts);
+        const runSchedule = (runOpts) => scheduleScatterBase(runOpts || nextOpts);
+        if(!nextOpts.force && scatterState.lastDrawAt){
+          const now = (global.performance && typeof global.performance.now === 'function')
+            ? global.performance.now()
+            : Date.now();
+          const cooldownMs = 80;
+          const elapsed = now - scatterState.lastDrawAt;
+          if(elapsed < cooldownMs){
+            scatterState.pendingDrawOpts = mergeScatterDrawOptions(scatterState.pendingDrawOpts, nextOpts);
+            if(!scatterState.drawCooldownTimer){
+              const wait = Math.max(0, cooldownMs - elapsed);
+              scatterState.drawCooldownTimer = (global.setTimeout || setTimeout)(() => {
+                scatterState.drawCooldownTimer = null;
+                const pending = scatterState.pendingDrawOpts;
+                scatterState.pendingDrawOpts = null;
+                runSchedule(pending || nextOpts);
+              }, wait);
+            }
+            return;
+          }
+        }
         const shouldDelayForOverlay = scatterOverlayController?.isActive?.() && !nextOpts.viewOnly;
         if(shouldDelayForOverlay){
           const scheduleAfterPaint = () => {
@@ -10388,6 +10557,10 @@
         scatterLabelColors=c.labelColors||{};
         scatterLabelStyles=c.labelStyles||{};
         scatterLabelShapes=c.labelShapes||{};
+        scatterLabelCache.colorsSet = null;
+        scatterLabelCache.shapesSet = null;
+        scatterLabelCache.colorsValid = false;
+        scatterLabelCache.shapesValid = false;
         scatterShowGrid.checked=!!c.showGrid;
         scatterShowFrame.checked=!!c.showFrame;
         if(scatterShowLegend){
