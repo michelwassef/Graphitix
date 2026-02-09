@@ -211,7 +211,11 @@
     drawInProgress: false,
     pendingDrawOpts: null,
     lastDrawAt: 0,
-    drawCooldownTimer: null
+    drawCooldownTimer: null,
+    lastDrawMeta: null,
+    pendingDrawReasons: null,
+    activeDrawReasons: null,
+    useDelegatedPointEvents: true
   };
   function resetScatterRotation(reason){
     if(typeof plot3d.createRotationState !== 'function'){
@@ -3089,11 +3093,87 @@
   function attachScatterPointTooltip(el, data){
     if(!el || !data){ return; }
     el.__scatterPointData = data;
+    if(scatterState.useDelegatedPointEvents){
+      return;
+    }
     el.addEventListener('mouseenter', handleScatterPointEnter);
     el.addEventListener('mousemove', handleScatterPointMove);
     el.addEventListener('mouseleave', handleScatterPointLeave);
     el.addEventListener('click', handleScatterPointClick);
     el.addEventListener('contextmenu', handleScatterPointContextMenu);
+  }
+
+  function ensureScatterPointDelegation(container){
+    if(!container || container.__scatterPointDelegationBound){
+      return;
+    }
+    container.__scatterPointDelegationBound = true;
+    let hoverTarget = null;
+    const resolveTarget = evt => {
+      let node = evt?.target;
+      while(node && node !== container){
+        if(node.__scatterPointData){
+          return node;
+        }
+        node = node.parentNode;
+      }
+      return null;
+    };
+    const updateHover = (evt, target) => {
+      if(target === hoverTarget){
+        return;
+      }
+      hoverTarget = target;
+      if(hoverTarget){
+        showScatterTooltip(hoverTarget.__scatterPointData, evt);
+      }else{
+        hideScatterTooltip('point-leave');
+      }
+    };
+    container.addEventListener('mouseover', evt => {
+      const target = resolveTarget(evt);
+      updateHover(evt, target);
+    });
+    container.addEventListener('mousemove', evt => {
+      if(hoverTarget){
+        handleScatterPointMove(evt);
+      }
+    });
+    container.addEventListener('mouseout', evt => {
+      if(!hoverTarget){
+        return;
+      }
+      const related = evt?.relatedTarget;
+      if(related && hoverTarget.contains && hoverTarget.contains(related)){
+        return;
+      }
+      hoverTarget = null;
+      hideScatterTooltip('point-leave');
+    });
+    container.addEventListener('mouseleave', () => {
+      if(hoverTarget){
+        hoverTarget = null;
+        hideScatterTooltip('point-leave');
+      }
+    });
+    container.addEventListener('click', evt => {
+      const target = resolveTarget(evt);
+      if(!target){
+        return;
+      }
+      try{ evt.stopPropagation(); }catch(e){}
+      showScatterFormatControls(target);
+    });
+    container.addEventListener('contextmenu', evt => {
+      const target = resolveTarget(evt);
+      if(!target){
+        return;
+      }
+      try{ evt.preventDefault(); }catch(e){}
+      try{ evt.stopPropagation(); }catch(e){}
+      hideScatterTooltip('context-menu');
+      showScatterPointContextMenu(evt, target.__scatterPointData);
+    });
   }
 
   function handleScatterPointClick(evt){
@@ -3976,7 +4056,8 @@
     activated:false,
     answers:{},
     lastApplied:null,
-    context:null
+    context:null,
+    pendingPoints:null
   };
   const scatterOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'scatter',
@@ -5948,7 +6029,14 @@
         if(!container){
           return;
         }
-        const context=providedContext || buildScatterAdvisorContext(points||[]);
+        const shouldCompute = scatterAdvisorState.activated;
+        const hasProvided = providedContext && typeof providedContext === 'object';
+        const context = hasProvided
+          ? providedContext
+          : (shouldCompute ? buildScatterAdvisorContext(points||[]) : buildScatterAdvisorContext([]));
+        if(!shouldCompute && Array.isArray(points)){
+          scatterAdvisorState.pendingPoints = points;
+        }
         scatterAdvisorState.context=context;
         const answers=ensureScatterAdvisorDefaults(context);
         const recommendation=computeScatterAdvisorRecommendation(answers, context);
@@ -5969,7 +6057,11 @@
           scatterAdvisorState.open=!scatterAdvisorState.open;
           if(scatterAdvisorState.open && !scatterAdvisorState.activated){
             scatterAdvisorState.activated=true;
+            const pendingPoints = scatterAdvisorState.pendingPoints;
+            scatterAdvisorState.pendingPoints = null;
             console.debug('Debug: scatter statsAdvisor activated');
+            renderScatterStatsAdvisor(pendingPoints || null, pendingPoints ? null : scatterAdvisorState.context);
+            return;
           }
           console.debug('Debug: scatter statsAdvisor toggled',{ open:scatterAdvisorState.open });
           renderScatterStatsAdvisor(null, scatterAdvisorState.context);
@@ -6755,8 +6847,10 @@
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const token=++scatterDrawToken; // debug token for cancellation
         const perfApi = Shared.Performance;
+        const drawReasons = scatterState.activeDrawReasons ? Array.from(scatterState.activeDrawReasons) : [];
+        scatterState.activeDrawReasons = null;
         const drawPerf = perfApi && typeof perfApi.start === 'function'
-          ? perfApi.start('scatter.draw', { component: 'scatter' })
+          ? perfApi.start('scatter.draw', { component: 'scatter', reasons: drawReasons })
           : null;
         const endDrawPerf = meta => {
           if(perfApi && drawPerf){
@@ -6768,6 +6862,7 @@
         let statsContextPayload=null;
         scatterState.rotationPending = false;
         scatterState.rotationPendingLogged = false;
+        scatterLayout?.suppressNextSchedule?.({ reason: 'scatter-draw', count: 2, delayMs: 120 });
         hideScatterTooltip('draw-start');
         const fill=scatterFill.value||DEFAULT_NON_SIG_COLOR;
         const alpha=Number(scatterAlpha.value)||0;
@@ -7195,13 +7290,23 @@
         }
         // Apply log+1 transform if enabled
         if(logX && scatterState.logPlusOneX){
-          points = points.map(p => Number.isFinite(p.x) ? { ...p, x: p.x + 1 } : p);
+          for(let i = 0; i < points.length; i += 1){
+            const p = points[i];
+            if(Number.isFinite(p?.x)){
+              p.x = p.x + 1;
+            }
+          }
           if(Number.isFinite(xMinRaw)) xMinRaw = xMinRaw + 1;
           if(Number.isFinite(xMaxRaw)) xMaxRaw = xMaxRaw + 1;
           debug('Debug: scatter log+1 transform applied to X');
         }
         if(logY && scatterState.logPlusOneY){
-          points = points.map(p => Number.isFinite(p.y) ? { ...p, y: p.y + 1 } : p);
+          for(let i = 0; i < points.length; i += 1){
+            const p = points[i];
+            if(Number.isFinite(p?.y)){
+              p.y = p.y + 1;
+            }
+          }
           if(Number.isFinite(yMinRaw)) yMinRaw = yMinRaw + 1;
           if(Number.isFinite(yMaxRaw)) yMaxRaw = yMaxRaw + 1;
           debug('Debug: scatter log+1 transform applied to Y');
@@ -7230,8 +7335,22 @@
           }
           info('scatter range adjusted for custom origin',{xMin,xMax,yMin,yMax});
         }
-        const pointsInRange=points.filter(p=>p.x>=xMin&&p.x<=xMax&&p.y>=yMin&&p.y<=yMax);
-        const removedForRange=points.length-pointsInRange.length;
+        let pointsInRange = points;
+        let removedForRange = 0;
+        if(points.length){
+          let anyOut = false;
+          const filtered = [];
+          for(let i = 0; i < points.length; i += 1){
+            const p = points[i];
+            if(p.x>=xMin && p.x<=xMax && p.y>=yMin && p.y<=yMax){
+              filtered.push(p);
+            }else{
+              removedForRange += 1;
+              anyOut = true;
+            }
+          }
+          pointsInRange = anyOut ? filtered : points;
+        }
         if(removedForRange>0){
           debug('Debug: scatter filtered points outside axis',{removed:removedForRange,xMin,xMax,yMin,yMax});
         }
@@ -7323,7 +7442,7 @@
           });
         }
         const visibleLabels = shouldCollectLabelSet
-          ? Array.from(new Set(pointsInRange.map(p=>p.label).filter(Boolean)))
+          ? (removedForRange === 0 ? labelsUsed : Array.from(new Set(pointsInRange.map(p=>p.label).filter(Boolean))))
           : [];
         legendLayout = null;
         if(showLegend){
@@ -8944,9 +9063,9 @@
           return SIGNIFICANT_COLOR;
         };
         const frag=document.createDocumentFragment();
-        const labelBBox=new Map();
         const manualLabelEntries = [];
-        const pointBounds = [];
+        const shouldCollectManualLabels = useSelectionFallback || (thresholdLabelEnabled && (graphType === 'volcano' || graphType === 'ma'));
+        let pointBounds = shouldCollectManualLabels ? [] : null;
         let pointIndex=0;
         const isBubbleView = scatterCurrentGraphType==='scatter' && scatterState.viewMode === 'bubble';
         const resolveBubbleRadius = isBubbleView ? createBubbleRadiusScaler(points, dotSizePx) : null;
@@ -8988,14 +9107,9 @@
           if(!marker){
             continue;
           }
-          pointBounds.push({ cx: cxVal, cy: cyVal, r: markerRadius });
-          let bbox=labelBBox.get(p.label||'__none');
-          if(!bbox){bbox={minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity}; labelBBox.set(p.label||'__none',bbox);}
-          const bboxRadius = markerRadius;
-          bbox.minX=Math.min(bbox.minX,cxVal-bboxRadius);
-          bbox.maxX=Math.max(bbox.maxX,cxVal+bboxRadius);
-          bbox.minY=Math.min(bbox.minY,cyVal-bboxRadius);
-          bbox.maxY=Math.max(bbox.maxY,cyVal+bboxRadius);
+          if(pointBounds){
+            pointBounds.push({ cx: cxVal, cy: cyVal, r: markerRadius });
+          }
           const manualLabelText = (p.pointName || p.label || '').trim();
           if((p.isManualLabel || (p.isThresholdLabel && !useSelectionForThresholdLabels)) && manualLabelText){
             manualLabelEntries.push({
@@ -9032,7 +9146,25 @@
           });
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
+        const pointAttachPerf = perfApi?.start('scatter.svg.attach', {
+          component: 'scatter',
+          token,
+          points: points.length
+        });
         pointLayer.appendChild(frag);
+        if(perfApi && pointAttachPerf){
+          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length });
+        }
+        if(scatterState.useDelegatedPointEvents){
+          ensureScatterPointDelegation(pointLayer);
+        }
+        const annotationPerf = annotationRequests.length
+          ? perfApi?.start('scatter.annotations.layout', {
+              component: 'scatter',
+              token,
+              requests: annotationRequests.length
+            })
+          : null;
         if(annotationRequests.length){
           const annotationLayout = layoutScatterAnnotations({
             requests: annotationRequests,
@@ -9078,6 +9210,9 @@
             debug('Debug: scatter annotations rendered',{count:annotationLayout.length,graphType:scatterCurrentGraphType});
           }
         }
+        if(perfApi && annotationPerf){
+          perfApi.end(annotationPerf, { component: 'scatter', token, requests: annotationRequests.length });
+        }
         if(manualLabelEntries.length){
           const labelLayer = document.createElementNS(NS,'g');
           labelLayer.setAttribute('data-layer','point-labels');
@@ -9103,6 +9238,7 @@
           const font = typeof chartStyle?.makeFont === 'function'
             ? chartStyle.makeFont(labelFontSize)
             : null;
+          const boundsForLayout = Array.isArray(pointBounds) ? pointBounds : [];
           const manualLabelLayout = computeScatterManualLabelLayout(manualLabelEntries, {
             plotLeft,
             plotRight,
@@ -9111,7 +9247,7 @@
             labelFontSize,
             leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
             leaderScale: labelScale,
-            pointBounds,
+            pointBounds: boundsForLayout,
             measureText: chartStyle?.measureText,
             font,
             angleSteps: 16,
@@ -9155,6 +9291,11 @@
         }
         timeEnd(`scatterSvgDraw_${token}`);
         if(legendVisible){
+          const legendPerf = perfApi?.start('scatter.legend.render', {
+            component: 'scatter',
+            token,
+            entries: legendRenderer.entries?.length || 0
+          });
           const plotRight=margin.left+plotW;
           const defaultLegendX=plotRight+legendGapPx;
           const defaultLegendY=margin.top;
@@ -9210,6 +9351,9 @@
             legendGapPx,
             entryCount:legendRenderer.entries.length
           });
+          if(perfApi && legendPerf){
+            perfApi.end(legendPerf, { component: 'scatter', token, entries: legendRenderer.entries?.length || 0 });
+          }
         }
         const xAxisBase=margin.top+plotH;
         const defaultXLabelX = margin.left+plotW/2;
@@ -10065,11 +10209,25 @@
           debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
         primeScatterStatsContext(statsContextPayload);
+        const viewportPerf = perfApi?.start('scatter.viewport.sync', {
+          component: 'scatter',
+          token
+        });
         ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
+        if(perfApi && viewportPerf){
+          perfApi.end(viewportPerf, { component: 'scatter', token });
+        }
         scatterLayout?.syncPanels?.({ skipSchedule: true });
         syncScatterAutoDrawNoticeWidth('draw');
         info('scatter render complete with enhanced styles');
         } finally {
+          scatterState.lastDrawMeta = {
+            graphType: scatterCurrentGraphType,
+            viewMode: scatterState.viewMode,
+            xLabelText: scatterState.xLabelText,
+            yLabelText: scatterState.yLabelText,
+            zLabelText: scatterState.zLabelText
+          };
           endDrawPerf({ component: 'scatter', token });
         }
       }
@@ -10107,6 +10265,8 @@
           return;
         }
         scatterState.drawInProgress = true;
+        scatterState.activeDrawReasons = scatterState.pendingDrawReasons;
+        scatterState.pendingDrawReasons = null;
         let status = 'complete';
         try{
           await drawScatter();
@@ -10141,6 +10301,24 @@
           scatterState.skipNextDrawReason = null;
         }
         const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+        if(nextOpts.reason){
+          if(!scatterState.pendingDrawReasons){
+            scatterState.pendingDrawReasons = new Set();
+          }
+          scatterState.pendingDrawReasons.add(nextOpts.reason);
+        }
+        if(nextOpts.reason === 'x-axis-header-update' || nextOpts.reason === 'y-axis-header-update'){
+          const lastMeta = scatterState.lastDrawMeta;
+          if(!nextOpts.force && lastMeta
+            && lastMeta.graphType === scatterCurrentGraphType
+            && lastMeta.viewMode === scatterState.viewMode
+            && lastMeta.xLabelText === scatterState.xLabelText
+            && lastMeta.yLabelText === scatterState.yLabelText
+            && lastMeta.zLabelText === scatterState.zLabelText){
+            scatterDebug('Debug: scatter header-update draw skipped (no label change)', { reason: nextOpts.reason });
+            return;
+          }
+        }
         if(nextOpts.force){
           markScatterOverlayPending(overlayReason);
           forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
