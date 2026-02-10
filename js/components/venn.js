@@ -3210,36 +3210,38 @@
     const maxLabelWidth = Math.max(...sets.map(set => measure(set.label, labelFont)), 0);
     let labelAreaWidth = Math.min(Math.max(maxLabelWidth + 8, 50), contentWidth * 0.35);
     const maxSetSize = Math.max(...sets.map(set => set.size), 0);
-    const maxSetLabelWidth = settings.showSetCounts ? measure(formatCount(maxSetSize), countFont) + 6 : 0;
+    const countAreaWidth = settings.showSetCounts ? measure(formatCount(maxSetSize), countFont) + 6 : 0;
+    const barLabelGap = 8;
 
     const minColumnWidth = Math.max(settings.dotSize * 2.6, style.fontSizePx * 1.4);
     const columnCount = Math.max(1, intersections.length);
     const minMatrixWidth = minColumnWidth * columnCount;
 
     let setBarAreaWidth = Math.min(Math.max(contentWidth * 0.2, 80), contentWidth * 0.4);
-    let matrixWidth = contentWidth - labelAreaWidth - setBarAreaWidth - gap;
+    let matrixWidth = contentWidth - setBarAreaWidth - labelAreaWidth - countAreaWidth - gap - barLabelGap;
     if (matrixWidth < minMatrixWidth) {
       const shortage = minMatrixWidth - matrixWidth;
-      const reducibleSet = Math.max(0, setBarAreaWidth - 50);
+      const reducibleSet = Math.max(0, setBarAreaWidth - 60);
       const reduceSet = Math.min(shortage, reducibleSet);
       setBarAreaWidth -= reduceSet;
-      matrixWidth = contentWidth - labelAreaWidth - setBarAreaWidth - gap;
+      matrixWidth = contentWidth - setBarAreaWidth - labelAreaWidth - countAreaWidth - gap - barLabelGap;
     }
     if (matrixWidth < minMatrixWidth) {
       const shortage = minMatrixWidth - matrixWidth;
       const reducibleLabel = Math.max(0, labelAreaWidth - 40);
       const reduceLabel = Math.min(shortage, reducibleLabel);
       labelAreaWidth -= reduceLabel;
-      matrixWidth = contentWidth - labelAreaWidth - setBarAreaWidth - gap;
+      matrixWidth = contentWidth - setBarAreaWidth - labelAreaWidth - countAreaWidth - gap - barLabelGap;
     }
     matrixWidth = Math.max(matrixWidth, minColumnWidth);
     const columnWidth = matrixWidth / columnCount;
 
-    const labelX = pad;
-    const setBarX = labelX + labelAreaWidth;
-    const matrixX = setBarX + setBarAreaWidth + gap;
+    const barAreaWidth = Math.max(10, setBarAreaWidth);
+    const countX = pad;
+    const setBarX = countX + countAreaWidth;
+    const labelX = setBarX + barAreaWidth + barLabelGap;
+    const matrixX = labelX + labelAreaWidth + gap;
 
-    const barAreaWidth = Math.max(10, setBarAreaWidth - maxSetLabelWidth - 4);
     const axisColor = style.borderColor || '#222';
     const axisWidth = Math.max(0.8, Number(style.borderWidth) || 1);
 
@@ -3410,9 +3412,9 @@
     sets.forEach((set, idx) => {
       const rowCenter = matrixTop + idx * rowHeight + rowHeight / 2;
       const label = makeEl('text', {
-        x: labelX + labelAreaWidth - 6,
+        x: labelX + 2,
         y: rowCenter,
-        'text-anchor': 'end',
+        'text-anchor': 'start',
         'dominant-baseline': 'middle',
         'font-size': Math.round(style.fontSizePx * 0.9),
         fill: textColor
@@ -3422,8 +3424,9 @@
       const barHeight = Math.max(6, rowHeight * 0.45);
       const barY = rowCenter - barHeight / 2;
       const barFill = settings.useSetColors ? set.color : settings.setBarColor;
+      const barX = setBarX + (barAreaWidth - barWidth);
       makeEl('rect', {
-        x: setBarX,
+        x: barX,
         y: barY,
         width: Math.max(0, barWidth),
         height: barHeight,
@@ -3434,9 +3437,9 @@
       });
       if (settings.showSetCounts) {
         const valueText = makeEl('text', {
-          x: setBarX + barAreaWidth + 4,
+          x: barX - 6,
           y: rowCenter,
-          'text-anchor': 'start',
+          'text-anchor': 'end',
           'dominant-baseline': 'middle',
           'font-size': Math.round(style.fontSizePx * 0.8),
           fill: textColor
@@ -3457,7 +3460,7 @@
 
     const setTickValues = Array.from({ length: tickCount + 1 }, (_, i) => Math.round(maxSetSize * i / tickCount));
     setTickValues.forEach(value => {
-      const x = maxSetSize > 0 ? setBarX + (value / maxSetSize) * barAreaWidth : setBarX;
+      const x = maxSetSize > 0 ? setBarX + barAreaWidth - (value / maxSetSize) * barAreaWidth : setBarX + barAreaWidth;
       makeEl('line', {
         x1: x,
         y1: axisY,
