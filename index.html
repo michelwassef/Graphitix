@@ -88,7 +88,7 @@
       </section>
       <section id="workspacePages" class="workspace-pages">
   <!-- Venn Diagram Section -->
-  <div id="vennPage" class="workspace-page" hidden>
+  <div id="vennPage" class="workspace-page" data-plot="venn" hidden>
     <div class="workspace-page__topbar" data-toolbar="venn">
       <div data-toolbar-root></div>
       <input type="file" id="vennGraphFile" accept=".graph" style="display:none;" />
@@ -140,6 +140,16 @@
           </div>
           <div class="config-options">
             <fieldset>
+              <legend>Plot</legend>
+              <div class="control">
+                <label for="vennPlotType">Diagram</label>
+                <select id="vennPlotType">
+                  <option value="venn" selected>Venn Diagram</option>
+                  <option value="upset">UpSet Plot</option>
+                </select>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Set Colors</legend>
               <div class="color-pickers">
                 <label class="color-picker">
@@ -178,6 +188,76 @@
                 <input id="fontsize" type="range" min="6" max="24" step="1" value="13" />
                 <output id="fontsizeVal">13</output>
                 <span>pt</span>
+              </div>
+            </fieldset>
+            <fieldset class="upset-only">
+              <legend>UpSet</legend>
+              <div class="control-row upset-controls-row">
+                <div class="control">
+                  <label for="upsetSort">Sort</label>
+                  <select id="upsetSort">
+                    <option value="size-desc" selected>Intersection size ↓</option>
+                    <option value="size-asc">Intersection size ↑</option>
+                    <option value="degree-desc">Set count ↓</option>
+                    <option value="degree-asc">Set count ↑</option>
+                    <option value="input">Input order</option>
+                  </select>
+                </div>
+                <div class="control">
+                  <label for="upsetMax">Max intersections</label>
+                  <input id="upsetMax" type="number" min="1" max="50" value="12" />
+                </div>
+              </div>
+              <div class="control-row upset-controls-row">
+                <label class="upset-toggle">
+                  <input type="checkbox" id="upsetShowEmpty" />
+                  <span>Show empty intersections</span>
+                </label>
+                <label class="upset-toggle">
+                  <input type="checkbox" id="upsetShowCounts" checked />
+                  <span>Show counts</span>
+                </label>
+                <label class="upset-toggle">
+                  <input type="checkbox" id="upsetShowSetCounts" checked />
+                  <span>Show set size labels</span>
+                </label>
+              </div>
+              <div class="control-row upset-controls-row">
+                <div class="control">
+                  <label for="upsetDotSize">Dot Size</label>
+                  <input id="upsetDotSize" type="range" min="2" max="12" step="0.5" value="5" />
+                  <output id="upsetDotSizeVal">5</output>
+                </div>
+                <label class="upset-toggle">
+                  <input type="checkbox" id="upsetUseSetColors" checked />
+                  <span>Use set colors</span>
+                </label>
+              </div>
+              <div class="upset-color-grid">
+                <label class="upset-color">
+                  <span>Intersection bars</span>
+                  <input id="upsetBarColor" type="color" value="#2f2f2f" />
+                </label>
+                <label class="upset-color">
+                  <span>Set bars</span>
+                  <input id="upsetSetBarColor" type="color" value="#2f2f2f" />
+                </label>
+                <label class="upset-color">
+                  <span>Dot color</span>
+                  <input id="upsetDotColor" type="color" value="#2f2f2f" />
+                </label>
+                <label class="upset-color">
+                  <span>Inactive dots</span>
+                  <input id="upsetInactiveDotColor" type="color" value="#d6d6d6" />
+                </label>
+                <label class="upset-color">
+                  <span>Connector</span>
+                  <input id="upsetConnectorColor" type="color" value="#2f2f2f" />
+                </label>
+                <label class="upset-color">
+                  <span>Grid</span>
+                  <input id="upsetGridColor" type="color" value="#e5e7eb" />
+                </label>
               </div>
             </fieldset>
           </div>

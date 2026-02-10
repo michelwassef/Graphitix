@@ -44,6 +44,25 @@
     debug(`Debug: venn ${label}`, payload || {});
   };
 
+  const DEFAULT_VENN_TITLE = 'Venn diagram';
+  const DEFAULT_UPSET_TITLE = 'UpSet plot';
+  const DEFAULT_PLOT_TYPE = 'venn';
+  const DEFAULT_UPSET_SETTINGS = {
+    sort: 'size-desc',
+    maxIntersections: 12,
+    showEmpty: false,
+    showCounts: true,
+    showSetCounts: true,
+    dotSize: 5,
+    useSetColors: true,
+    barColor: '#2f2f2f',
+    setBarColor: '#2f2f2f',
+    dotColor: '#2f2f2f',
+    inactiveDotColor: '#d6d6d6',
+    connectorColor: '#2f2f2f',
+    gridColor: '#e5e7eb'
+  };
+
   const makeEditable = (el, onChange, options) => {
     const fn = Shared.makeEditable || global.makeEditable;
     if (typeof fn === 'function') {
@@ -106,6 +125,55 @@
         });
       }
     }
+  }
+
+  function normalizePlotType(value) {
+    if (typeof value !== 'string') return DEFAULT_PLOT_TYPE;
+    const cleaned = value.trim().toLowerCase();
+    return cleaned === 'upset' ? 'upset' : 'venn';
+  }
+
+  function getActivePlotType() {
+    return normalizePlotType(state.ui?.plotType?.value || DEFAULT_PLOT_TYPE);
+  }
+
+  function maybeSwapDefaultTitle(nextType) {
+    const current = state.titleText != null ? String(state.titleText) : '';
+    if (nextType === 'upset' && current === DEFAULT_VENN_TITLE) {
+      state.titleText = DEFAULT_UPSET_TITLE;
+      return true;
+    }
+    if (nextType === 'venn' && current === DEFAULT_UPSET_TITLE) {
+      state.titleText = DEFAULT_VENN_TITLE;
+      return true;
+    }
+    return false;
+  }
+
+  function syncPlotMode(nextType, options = {}) {
+    const normalized = normalizePlotType(nextType);
+    const page = global.document?.getElementById('vennPage');
+    if (page && page.dataset) {
+      page.dataset.plot = normalized;
+    }
+    const stage = state.ui?.stage || global.document?.getElementById('stage');
+    if (stage && typeof stage.setAttribute === 'function') {
+      stage.setAttribute('aria-label', normalized === 'upset' ? 'UpSet plot' : 'Venn diagram');
+    }
+    if (state.ui?.plotType && state.ui.plotType.value !== normalized) {
+      state.ui.plotType.value = normalized;
+    }
+    if (options.updateTitle !== false) {
+      const swapped = maybeSwapDefaultTitle(normalized);
+      if (swapped) {
+        debugLog('plot type title swap', { plot: normalized });
+      }
+    }
+    if (options.syncPanels && typeof state.ui?.syncPanels === 'function') {
+      state.ui.syncPanels({ skipSchedule: true });
+    }
+    debugLog('plot mode synced', { plot: normalized });
+    return normalized;
   }
 
   function getSpeciesDetectionState() {
@@ -322,6 +390,8 @@
    * @property {HTMLElement|null} regionList - Container showing genes for the selected region.
    * @property {HTMLButtonElement|null} copyRegionBtn - Copy-to-clipboard helper for genes.
    * @property {HTMLButtonElement|null} goBtn - Trigger button for GO analysis.
+   * @property {HTMLSelectElement|null} plotType - Select box for Venn vs UpSet plot.
+   * @property {Object|null} upset - UpSet plot controls group.
    * @property {HTMLButtonElement|null} stringBtn - Trigger button for STRING analysis.
    * @property {HTMLElement|null} goResults - Container for GO analysis results.
    * @property {HTMLElement|null} stringResults - Container for STRING analysis results.
@@ -391,6 +461,23 @@
       goBtn: null,
       detectSpeciesBtn: null,
       stringBtn: null,
+        plotType: null,
+        upset: {
+          sort: null,
+          max: null,
+          showEmpty: null,
+          showCounts: null,
+          showSetCounts: null,
+          dotSize: null,
+          dotSizeVal: null,
+          useSetColors: null,
+          barColor: null,
+          setBarColor: null,
+          dotColor: null,
+          inactiveDotColor: null,
+          connectorColor: null,
+          gridColor: null
+        },
         goResults: null,
         stringResults: null,
         stringNetwork: null,
@@ -450,7 +537,7 @@
         fileHandle: null,
         fileName: 'venn.graph',
       },
-      titleText: 'Venn diagram',
+      titleText: DEFAULT_VENN_TITLE,
       labelPositions: { title: null }
     };
   }
@@ -1350,6 +1437,54 @@
       info
     });
     return info;
+  }
+
+  function clampNumber(value, fallback, min, max) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      return fallback;
+    }
+    const lo = Number.isFinite(min) ? min : num;
+    const hi = Number.isFinite(max) ? max : num;
+    return Math.min(hi, Math.max(lo, num));
+  }
+
+  function sanitizeColor(value, fallback) {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : fallback;
+  }
+
+  function resolveUpSetSettings() {
+    const ui = state.ui?.upset || {};
+    const defaults = DEFAULT_UPSET_SETTINGS;
+    const allowedSort = new Set(['size-desc', 'size-asc', 'degree-desc', 'degree-asc', 'input']);
+    const rawSort = typeof ui.sort?.value === 'string' ? ui.sort.value : defaults.sort;
+    const sort = allowedSort.has(rawSort) ? rawSort : defaults.sort;
+    const settings = {
+      sort,
+      maxIntersections: clampNumber(ui.max?.value, defaults.maxIntersections, 1, 50),
+      showEmpty: ui.showEmpty ? !!ui.showEmpty.checked : defaults.showEmpty,
+      showCounts: ui.showCounts ? !!ui.showCounts.checked : defaults.showCounts,
+      showSetCounts: ui.showSetCounts ? !!ui.showSetCounts.checked : defaults.showSetCounts,
+      dotSize: clampNumber(ui.dotSize?.value, defaults.dotSize, 2, 12),
+      useSetColors: ui.useSetColors ? !!ui.useSetColors.checked : defaults.useSetColors,
+      barColor: sanitizeColor(ui.barColor?.value, defaults.barColor),
+      setBarColor: sanitizeColor(ui.setBarColor?.value, defaults.setBarColor),
+      dotColor: sanitizeColor(ui.dotColor?.value, defaults.dotColor),
+      inactiveDotColor: sanitizeColor(ui.inactiveDotColor?.value, defaults.inactiveDotColor),
+      connectorColor: sanitizeColor(ui.connectorColor?.value, defaults.connectorColor),
+      gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor)
+    };
+    debug('Debug: venn upset settings resolved', settings);
+    return settings;
+  }
+
+  function updateUpSetDotSizeOutput(value) {
+    const output = state.ui?.upset?.dotSizeVal;
+    if (!output) return;
+    const clamped = clampNumber(value, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
+    output.textContent = String(clamped);
   }
 
   function enableDrag(el) {
@@ -2591,10 +2726,10 @@
     exporter.downloadBlob(blob, 'string_network.svg', 'string-export');
   }
 
-  function fitAndDraw(d, style, labels, counts) {
+  function configureStage(style) {
     clearSVG();
     const stage = state.ui.stage;
-    if (!stage) return;
+    if (!stage) return null;
     if (typeof chartStyle.applySvgDefaults === 'function') {
       chartStyle.applySvgDefaults(stage);
     }
@@ -2610,7 +2745,7 @@
     const svgBox = state.ui.svgBox || stage.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
     if (!state.ui.svgBox && svgBox) {
       state.ui.svgBox = svgBox;
-      debug('Debug: venn fitAndDraw captured svgBox', { hasSvgBox: true });
+      debug('Debug: venn configureStage captured svgBox', { hasSvgBox: true });
     }
     const svgBoxRect = svgBox?.getBoundingClientRect?.();
     const dataset = svgBox?.dataset || {};
@@ -2670,39 +2805,45 @@
       fontSizePx: style.fontSizePx,
       fontSizePt: style.fontPt
     }); // Debug: stage font sync
-    const titlePadding = Math.max(style.fontSizePx * 2, 28);
-    const layoutTop = titlePadding;
-    const layoutHeight = Math.max(stageHeight - titlePadding, Math.max(stageHeight * 0.6, style.fontSizePx * 12));
+    return {
+      stage,
+      svgBox,
+      svgBoxRect,
+      stageWidth,
+      stageHeight,
+      fontFamily,
+      textColor
+    };
+  }
+
+  function renderPlotTitle({ stageWidth, stageHeight, fontFamily, textColor, fontSizePx, defaultText }) {
+    const titlePadding = Math.max(fontSizePx * 2, 28);
     const defaultTitleX = stageWidth / 2;
-    const defaultTitleY = Math.max(style.fontSizePx * 1.6, titlePadding * 0.55);
+    const defaultTitleY = Math.max(fontSizePx * 1.6, titlePadding * 0.55);
     const titlePos = state.labelPositions?.title;
-    
-    // Convert relative positions to absolute if needed
     let absoluteTitleX = defaultTitleX;
     let absoluteTitleY = defaultTitleY;
     if (titlePos) {
       if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
-        // Use relative positioning
         absoluteTitleX = titlePos.relX * stageWidth;
         absoluteTitleY = titlePos.relY * stageHeight;
       } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
         absoluteTitleX = titlePos.x;
         absoluteTitleY = titlePos.y;
       }
     }
-    
     const titleText = makeEl('text', {
       x: absoluteTitleX,
       y: absoluteTitleY,
       'text-anchor': 'middle',
-      'font-size': style.fontSizePx,
+      'font-size': fontSizePx,
       fill: textColor,
       'font-family': fontFamily
     });
-    titleText.textContent = state.titleText != null ? String(state.titleText) : 'Venn diagram';
+    const fallback = defaultText || DEFAULT_VENN_TITLE;
+    titleText.textContent = state.titleText != null ? String(state.titleText) : fallback;
     markFontEditable(titleText, 'graphTitle', 'graphTitle');
-    const applyVennTitle = value => {
+    const applyTitle = value => {
       const nextValue = value != null ? String(value) : '';
       state.titleText = nextValue;
       if(titleText.textContent !== nextValue){
@@ -2718,29 +2859,44 @@
       if(previousValue === nextValue){
         return;
       }
-      applyVennTitle(nextValue);
-      recordVennTitleChange(previousValue, nextValue, applyVennTitle);
+      applyTitle(nextValue);
+      recordVennTitleChange(previousValue, nextValue, applyTitle);
     });
-    // Enable drag for title using shared helper
     if(typeof Shared.enableLabelDrag === 'function'){
-      Shared.enableLabelDrag(titleText, stage, {
+      Shared.enableLabelDrag(titleText, state.ui.stage, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions
           const relX = pos.x / stageWidth;
           const relY = pos.y / stageHeight;
-          state.labelPositions.title = { 
-            x: pos.x, 
+          state.labelPositions.title = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX,
+            relY
           };
           debugLog('venn title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
+    return { titleText, titlePadding };
+  }
+
+  function fitAndDraw(d, style, labels, counts) {
+    const metrics = configureStage(style);
+    if (!metrics) return;
+    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
+    const { titlePadding } = renderPlotTitle({
+      stageWidth,
+      stageHeight,
+      fontFamily,
+      textColor,
+      fontSizePx: style.fontSizePx,
+      defaultText: DEFAULT_VENN_TITLE
+    });
     const tooltip = state.ui.tooltip;
     const W = stageWidth;
     const H = stageHeight;
+    const layoutTop = titlePadding;
+    const layoutHeight = Math.max(stageHeight - titlePadding, Math.max(stageHeight * 0.6, style.fontSizePx * 12));
     const pad = 20;
     const labelPad = style.fontSizePx * 2;
     const xs = [d.Ax - d.rA, d.Ax + d.rA, d.Bx - d.rB, d.Bx + d.rB];
@@ -2917,6 +3073,438 @@
     }
   }
 
+  function formatCount(value) {
+    if (!Number.isFinite(value)) {
+      return String(value);
+    }
+    if (typeof chartStyle.formatAxisValue === 'function') {
+      return chartStyle.formatAxisValue(value, { notation: 'decimal', maxDecimals: 0 });
+    }
+    return value.toLocaleString('en-US');
+  }
+
+  function buildUpSetIntersections(counts, hasC) {
+    const intersections = [
+      { code: 'A', sets: ['A'], size: counts.Aonly },
+      { code: 'B', sets: ['B'], size: counts.Bonly }
+    ];
+    if (hasC) {
+      intersections.push({ code: 'C', sets: ['C'], size: counts.Conly });
+    }
+    intersections.push({ code: 'AB', sets: ['A', 'B'], size: counts.AB });
+    if (hasC) {
+      intersections.push({ code: 'AC', sets: ['A', 'C'], size: counts.AC });
+      intersections.push({ code: 'BC', sets: ['B', 'C'], size: counts.BC });
+      intersections.push({ code: 'ABC', sets: ['A', 'B', 'C'], size: counts.ABC });
+    }
+    return intersections.map(entry => ({
+      ...entry,
+      degree: entry.sets.length
+    }));
+  }
+
+  function drawUpSet(counts, labels, style) {
+    const metrics = configureStage(style);
+    if (!metrics) return;
+    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
+    stage.onclick = null;
+    const { titlePadding } = renderPlotTitle({
+      stageWidth,
+      stageHeight,
+      fontFamily,
+      textColor,
+      fontSizePx: style.fontSizePx,
+      defaultText: DEFAULT_UPSET_TITLE
+    });
+
+    const settings = { ...DEFAULT_UPSET_SETTINGS, ...resolveUpSetSettings(), ...(style.upset || {}) };
+    const hasC = !!(counts.nC || counts.AC || counts.BC || counts.ABC);
+    const sets = [
+      { key: 'A', label: labels.A, size: counts.nA, color: style.colorA },
+      { key: 'B', label: labels.B, size: counts.nB, color: style.colorB }
+    ];
+    if (hasC) {
+      sets.push({ key: 'C', label: labels.C, size: counts.nC, color: style.colorC });
+    }
+
+    const allIntersections = buildUpSetIntersections(counts, hasC);
+    let intersections = settings.showEmpty
+      ? allIntersections.slice()
+      : allIntersections.filter(entry => entry.size > 0);
+
+    if (!intersections.length) {
+      const emptyText = makeEl('text', {
+        x: stageWidth / 2,
+        y: stageHeight / 2,
+        'text-anchor': 'middle',
+        'font-size': style.fontSizePx * 1.1,
+        fill: textColor
+      });
+      emptyText.textContent = 'No intersections to display';
+      ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-empty' });
+      return;
+    }
+
+    const sortMode = settings.sort;
+    if (sortMode && sortMode !== 'input') {
+      intersections.sort((a, b) => {
+        if (sortMode === 'size-asc') return a.size - b.size || a.degree - b.degree;
+        if (sortMode === 'size-desc') return b.size - a.size || b.degree - a.degree;
+        if (sortMode === 'degree-asc') return a.degree - b.degree || b.size - a.size;
+        if (sortMode === 'degree-desc') return b.degree - a.degree || b.size - a.size;
+        return 0;
+      });
+    }
+
+    const maxIntersections = Number.isFinite(settings.maxIntersections) ? settings.maxIntersections : DEFAULT_UPSET_SETTINGS.maxIntersections;
+    let limited = intersections;
+    if (Number.isFinite(maxIntersections) && maxIntersections > 0 && intersections.length > maxIntersections) {
+      limited = intersections.slice(0, maxIntersections);
+    }
+
+    const selectedRegion = state.ui.regionSelect?.value || '';
+    if (selectedRegion) {
+      const selectedEntry = allIntersections.find(entry => entry.code === selectedRegion);
+      if (selectedEntry && !limited.some(entry => entry.code === selectedRegion)) {
+        if (Number.isFinite(maxIntersections) && maxIntersections > 0 && limited.length >= maxIntersections) {
+          limited[limited.length - 1] = selectedEntry;
+        } else {
+          limited.push(selectedEntry);
+        }
+      }
+    }
+    intersections = limited;
+
+    const pad = 20;
+    const gap = Math.max(style.fontSizePx * 0.8, 12);
+    const setAxisHeight = Math.max(style.fontSizePx * 1.8, 18);
+    const innerHeight = Math.max(stageHeight - titlePadding - pad, style.fontSizePx * 10);
+    const contentHeight = Math.max(innerHeight - setAxisHeight, style.fontSizePx * 8);
+
+    let rowHeight = Math.max(settings.dotSize * 2.6, style.fontSizePx * 1.4);
+    let matrixHeight = rowHeight * sets.length;
+    let barChartHeight = contentHeight - matrixHeight - gap;
+    if (barChartHeight < style.fontSizePx * 4) {
+      barChartHeight = Math.max(style.fontSizePx * 4, contentHeight * 0.5);
+      const remaining = Math.max(contentHeight - barChartHeight - gap, style.fontSizePx * 2);
+      rowHeight = Math.max(remaining / sets.length, style.fontSizePx * 1.1);
+      matrixHeight = rowHeight * sets.length;
+    }
+
+    const barTop = titlePadding;
+    const barBottom = barTop + barChartHeight;
+    const matrixTop = barBottom + gap;
+    const matrixBottom = matrixTop + matrixHeight;
+    const axisY = Math.min(stageHeight - pad, matrixBottom + setAxisHeight * 0.35);
+    const setAxisLabelY = Math.min(stageHeight - pad * 0.4, matrixBottom + setAxisHeight * 0.9);
+
+    const contentWidth = Math.max(stageWidth - pad * 2, style.fontSizePx * 12);
+    const labelFont = `${Math.round(style.fontSizePx * 0.9)}px ${fontFamily}`;
+    const countFont = `${Math.round(style.fontSizePx * 0.8)}px ${fontFamily}`;
+    const measure = (text, font) => {
+      if (typeof chartStyle.measureText === 'function') {
+        return chartStyle.measureText(text || '', font);
+      }
+      return (text || '').length * style.fontSizePx * 0.6;
+    };
+    const maxLabelWidth = Math.max(...sets.map(set => measure(set.label, labelFont)), 0);
+    let labelAreaWidth = Math.min(Math.max(maxLabelWidth + 8, 50), contentWidth * 0.35);
+    const maxSetSize = Math.max(...sets.map(set => set.size), 0);
+    const maxSetLabelWidth = settings.showSetCounts ? measure(formatCount(maxSetSize), countFont) + 6 : 0;
+
+    const minColumnWidth = Math.max(settings.dotSize * 2.6, style.fontSizePx * 1.4);
+    const columnCount = Math.max(1, intersections.length);
+    const minMatrixWidth = minColumnWidth * columnCount;
+
+    let setBarAreaWidth = Math.min(Math.max(contentWidth * 0.2, 80), contentWidth * 0.4);
+    let matrixWidth = contentWidth - labelAreaWidth - setBarAreaWidth - gap;
+    if (matrixWidth < minMatrixWidth) {
+      const shortage = minMatrixWidth - matrixWidth;
+      const reducibleSet = Math.max(0, setBarAreaWidth - 50);
+      const reduceSet = Math.min(shortage, reducibleSet);
+      setBarAreaWidth -= reduceSet;
+      matrixWidth = contentWidth - labelAreaWidth - setBarAreaWidth - gap;
+    }
+    if (matrixWidth < minMatrixWidth) {
+      const shortage = minMatrixWidth - matrixWidth;
+      const reducibleLabel = Math.max(0, labelAreaWidth - 40);
+      const reduceLabel = Math.min(shortage, reducibleLabel);
+      labelAreaWidth -= reduceLabel;
+      matrixWidth = contentWidth - labelAreaWidth - setBarAreaWidth - gap;
+    }
+    matrixWidth = Math.max(matrixWidth, minColumnWidth);
+    const columnWidth = matrixWidth / columnCount;
+
+    const labelX = pad;
+    const setBarX = labelX + labelAreaWidth;
+    const matrixX = setBarX + setBarAreaWidth + gap;
+
+    const barAreaWidth = Math.max(10, setBarAreaWidth - maxSetLabelWidth - 4);
+    const axisColor = style.borderColor || '#222';
+    const axisWidth = Math.max(0.8, Number(style.borderWidth) || 1);
+
+    if (settings.gridColor) {
+      sets.forEach((set, idx) => {
+        if (idx % 2 === 1) {
+          makeEl('rect', {
+            x: matrixX,
+            y: matrixTop + idx * rowHeight,
+            width: matrixWidth,
+            height: rowHeight,
+            fill: settings.gridColor,
+            'fill-opacity': 0.25
+          });
+        }
+      });
+    }
+
+    const maxIntersection = Math.max(...intersections.map(entry => entry.size), 0) || 1;
+    const tickCount = 4;
+    const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => Math.round(maxIntersection * i / tickCount));
+    const tickLabels = tickValues.map(v => formatCount(v));
+    const maxTickLabelWidth = Math.max(...tickLabels.map(lbl => measure(lbl, countFont)), 0);
+    const axisX = matrixX - Math.max(8, maxTickLabelWidth * 0.1);
+
+    makeEl('line', {
+      x1: axisX,
+      y1: barTop,
+      x2: axisX,
+      y2: barBottom,
+      stroke: axisColor,
+      'stroke-width': axisWidth
+    });
+
+    tickValues.forEach((value, idx) => {
+      const y = barBottom - (value / maxIntersection) * barChartHeight;
+      makeEl('line', {
+        x1: axisX,
+        y1: y,
+        x2: axisX + 4,
+        y2: y,
+        stroke: axisColor,
+        'stroke-width': axisWidth
+      });
+      if (settings.gridColor) {
+        makeEl('line', {
+          x1: matrixX,
+          y1: y,
+          x2: matrixX + matrixWidth,
+          y2: y,
+          stroke: settings.gridColor,
+          'stroke-width': 1
+        });
+      }
+      const tickText = makeEl('text', {
+        x: axisX - 6,
+        y,
+        'text-anchor': 'end',
+        'dominant-baseline': 'middle',
+        'font-size': Math.round(style.fontSizePx * 0.8),
+        fill: textColor
+      });
+      tickText.textContent = tickLabels[idx];
+    });
+
+    const axisLabelX = axisX - Math.max(maxTickLabelWidth + 18, style.fontSizePx * 1.2);
+    const intersectionAxisLabelY = barTop + barChartHeight / 2;
+    const axisLabel = makeEl('text', {
+      x: axisLabelX,
+      y: intersectionAxisLabelY,
+      'text-anchor': 'middle',
+      'font-size': Math.round(style.fontSizePx * 0.85),
+      fill: textColor
+    });
+    axisLabel.textContent = 'Intersection Size';
+    axisLabel.setAttribute('transform', `rotate(-90 ${axisLabelX} ${intersectionAxisLabelY})`);
+
+    intersections.forEach((entry, idx) => {
+      const columnCenter = matrixX + columnWidth * (idx + 0.5);
+      const barWidth = Math.max(4, columnWidth * 0.6);
+      const barHeight = (entry.size / maxIntersection) * barChartHeight;
+      const barX = columnCenter - barWidth / 2;
+      const barY = barBottom - barHeight;
+      const isSelected = entry.code === selectedRegion;
+      if (isSelected) {
+        makeEl('rect', {
+          x: columnCenter - columnWidth / 2,
+          y: barTop,
+          width: columnWidth,
+          height: matrixBottom - barTop,
+          fill: settings.gridColor || '#cbd5f5',
+          'fill-opacity': 0.18
+        });
+      }
+      const bar = makeEl('rect', {
+        x: barX,
+        y: barY,
+        width: barWidth,
+        height: Math.max(0, barHeight),
+        fill: settings.barColor,
+        'fill-opacity': style.opacity,
+        stroke: axisColor,
+        'stroke-width': Math.max(0.5, axisWidth * 0.75),
+        cursor: 'pointer'
+      });
+      const barTitle = document.createElementNS(NS, 'title');
+      barTitle.textContent = `${entry.code}: ${formatCount(entry.size)}`;
+      bar.appendChild(barTitle);
+      bar.addEventListener('click', () => {
+        if (state.ui.regionSelect) {
+          state.ui.regionSelect.value = entry.code;
+          populateRegion(entry.code);
+          syncActiveVennPayload('venn-upset-select');
+        }
+      });
+      if (settings.showCounts) {
+        const valueText = makeEl('text', {
+          x: columnCenter,
+          y: barY - 4,
+          'text-anchor': 'middle',
+          'font-size': Math.round(style.fontSizePx * 0.8),
+          fill: textColor
+        });
+        valueText.textContent = formatCount(entry.size);
+      }
+
+      const activeIndices = [];
+      entry.sets.forEach(setKey => {
+        const rowIndex = sets.findIndex(set => set.key === setKey);
+        if (rowIndex >= 0) activeIndices.push(rowIndex);
+      });
+      if (activeIndices.length > 1) {
+        const y1 = matrixTop + activeIndices[0] * rowHeight + rowHeight / 2;
+        const y2 = matrixTop + activeIndices[activeIndices.length - 1] * rowHeight + rowHeight / 2;
+        makeEl('line', {
+          x1: columnCenter,
+          y1,
+          x2: columnCenter,
+          y2,
+          stroke: settings.connectorColor,
+          'stroke-width': Math.max(1, axisWidth * 0.9)
+        });
+      }
+
+      sets.forEach((set, rowIdx) => {
+        const isActive = entry.sets.includes(set.key);
+        const dotColor = settings.useSetColors && isActive ? set.color : (isActive ? settings.dotColor : settings.inactiveDotColor);
+        const dot = makeEl('circle', {
+          cx: columnCenter,
+          cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
+          r: settings.dotSize,
+          fill: dotColor,
+          'fill-opacity': isActive ? style.opacity : 1
+        });
+        if (isActive) {
+          dot.setAttribute('cursor', 'pointer');
+          dot.addEventListener('click', () => {
+            if (state.ui.regionSelect) {
+              state.ui.regionSelect.value = entry.code;
+              populateRegion(entry.code);
+              syncActiveVennPayload('venn-upset-select');
+            }
+          });
+        }
+      });
+    });
+
+    sets.forEach((set, idx) => {
+      const rowCenter = matrixTop + idx * rowHeight + rowHeight / 2;
+      const label = makeEl('text', {
+        x: labelX + labelAreaWidth - 6,
+        y: rowCenter,
+        'text-anchor': 'end',
+        'dominant-baseline': 'middle',
+        'font-size': Math.round(style.fontSizePx * 0.9),
+        fill: textColor
+      });
+      label.textContent = set.label;
+      const barWidth = maxSetSize > 0 ? (set.size / maxSetSize) * barAreaWidth : 0;
+      const barHeight = Math.max(6, rowHeight * 0.45);
+      const barY = rowCenter - barHeight / 2;
+      const barFill = settings.useSetColors ? set.color : settings.setBarColor;
+      makeEl('rect', {
+        x: setBarX,
+        y: barY,
+        width: Math.max(0, barWidth),
+        height: barHeight,
+        fill: barFill,
+        'fill-opacity': style.opacity,
+        stroke: axisColor,
+        'stroke-width': Math.max(0.5, axisWidth * 0.75)
+      });
+      if (settings.showSetCounts) {
+        const valueText = makeEl('text', {
+          x: setBarX + barAreaWidth + 4,
+          y: rowCenter,
+          'text-anchor': 'start',
+          'dominant-baseline': 'middle',
+          'font-size': Math.round(style.fontSizePx * 0.8),
+          fill: textColor
+        });
+        valueText.textContent = formatCount(set.size);
+      }
+    });
+
+    const setAxisX2 = setBarX + barAreaWidth;
+    makeEl('line', {
+      x1: setBarX,
+      y1: axisY,
+      x2: setAxisX2,
+      y2: axisY,
+      stroke: axisColor,
+      'stroke-width': axisWidth
+    });
+
+    const setTickValues = Array.from({ length: tickCount + 1 }, (_, i) => Math.round(maxSetSize * i / tickCount));
+    setTickValues.forEach(value => {
+      const x = maxSetSize > 0 ? setBarX + (value / maxSetSize) * barAreaWidth : setBarX;
+      makeEl('line', {
+        x1: x,
+        y1: axisY,
+        x2: x,
+        y2: axisY + 4,
+        stroke: axisColor,
+        'stroke-width': axisWidth
+      });
+      const tickText = makeEl('text', {
+        x,
+        y: setAxisLabelY,
+        'text-anchor': 'middle',
+        'font-size': Math.round(style.fontSizePx * 0.75),
+        fill: textColor
+      });
+      tickText.textContent = formatCount(value);
+    });
+
+    const setAxisLabel = makeEl('text', {
+      x: setBarX + barAreaWidth / 2,
+      y: Math.min(stageHeight - 4, setAxisLabelY + style.fontSizePx * 0.7),
+      'text-anchor': 'middle',
+      'font-size': Math.round(style.fontSizePx * 0.85),
+      fill: textColor
+    });
+    setAxisLabel.textContent = 'Set Size';
+
+    ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-plot' });
+    if(typeof chartStyle.applyTextAspectCorrection === 'function'){
+      chartStyle.applyTextAspectCorrection({
+        svg: stage,
+        svgBox,
+        viewBoxWidth: stageWidth,
+        viewBoxHeight: stageHeight,
+        displayWidth: svgBoxRect?.width,
+        displayHeight: svgBoxRect?.height,
+        debugLabel: 'upset-text-correction'
+      });
+    }
+    debugLog('drawUpSet complete', {
+      intersections: intersections.length,
+      sets: sets.length,
+      maxIntersection,
+      maxSetSize
+    });
+  }
+
   function drawFromLists() {
     const parsed = ensureParsedLists({ includeRegions: true, reason: 'drawFromLists' });
     const inputs = ensureInputs();
@@ -2942,8 +3530,6 @@
       debugLog('significance preserved after list draw', { countsSignature });
     }
     refreshCounts(counts);
-    const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
-    const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
     const fontInfo = resolveFontInfo(inputs.fontsize.value);
     const borderWidthRaw = Number(inputs.borderWidth.value);
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontInfo.scaleInfo, { context: 'venn-border', min: 0 });
@@ -2968,7 +3554,15 @@
     updateCountLabels(labels);
     updateRegionSelect(labels, counts);
     updateColorLabels(labels);
-    fitAndDraw(L, style, labels, counts);
+    const plotType = getActivePlotType();
+    if (plotType === 'upset') {
+      style.upset = resolveUpSetSettings();
+      drawUpSet(counts, labels, style);
+    } else {
+      const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
+      const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
+      fitAndDraw(L, style, labels, counts);
+    }
     if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
     scheduleSpeciesRecognition('draw-from-lists');
     debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts, cacheSignature: parsed.signature });
@@ -3002,7 +3596,6 @@
       debugLog('significance preserved after numeric draw', { countsSignature });
     }
     refreshCounts(counts);
-    const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
     const fontInfo = resolveFontInfo(inputs.fontsize.value);
     const borderWidthRaw = Number(inputs.borderWidth.value);
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontInfo.scaleInfo, { context: 'venn-border', min: 0 });
@@ -3027,7 +3620,14 @@
     updateCountLabels(labels);
     updateRegionSelect(labels, counts);
     updateColorLabels(labels);
-    fitAndDraw(L, style, labels, counts);
+    const plotType = getActivePlotType();
+    if (plotType === 'upset') {
+      style.upset = resolveUpSetSettings();
+      drawUpSet(counts, labels, style);
+    } else {
+      const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
+      fitAndDraw(L, style, labels, counts);
+    }
     if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
     cancelPendingSpeciesDetection('draw-from-numeric', { abortActive: true, resetIndicator: true });
     debugLog('drawFromNumeric complete', { counts });
@@ -3112,7 +3712,7 @@
   }
 
   const STYLE_KEY = 'vennStylePrefs';
-  const STYLE_VERSION = 2;
+  const STYLE_VERSION = 3;
   const LEGACY_DEFAULT_FONT_PT = 17;
 
   function loadStylePrefs() {
@@ -3145,6 +3745,25 @@
         if (saved.opacity) inputs.opacity.value = saved.opacity;
         if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
         if (saved.borderWidth) inputs.borderWidth.value = saved.borderWidth;
+        if (saved.plotType && state.ui.plotType) {
+          syncPlotMode(saved.plotType, { updateTitle: true });
+        }
+        if (saved.upset && state.ui.upset) {
+          const upset = saved.upset || {};
+          if (state.ui.upset.sort) state.ui.upset.sort.value = upset.sort || DEFAULT_UPSET_SETTINGS.sort;
+          if (state.ui.upset.max) state.ui.upset.max.value = clampNumber(upset.maxIntersections, DEFAULT_UPSET_SETTINGS.maxIntersections, 1, 50);
+          if (state.ui.upset.showEmpty) state.ui.upset.showEmpty.checked = !!upset.showEmpty;
+          if (state.ui.upset.showCounts) state.ui.upset.showCounts.checked = upset.showCounts !== false;
+          if (state.ui.upset.showSetCounts) state.ui.upset.showSetCounts.checked = upset.showSetCounts !== false;
+          if (state.ui.upset.dotSize) state.ui.upset.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
+          if (state.ui.upset.useSetColors) state.ui.upset.useSetColors.checked = upset.useSetColors !== false;
+          if (state.ui.upset.barColor) state.ui.upset.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
+          if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
+          if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
+          if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
+          if (state.ui.upset.connectorColor) state.ui.upset.connectorColor.value = sanitizeColor(upset.connectorColor, DEFAULT_UPSET_SETTINGS.connectorColor);
+          if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
+        }
         if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
           const fontInfo = resolveFontInfo(savedFontValue);
           inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
@@ -3160,6 +3779,8 @@
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
       inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+      updateUpSetDotSizeOutput(state.ui?.upset?.dotSize?.value);
+      syncPlotMode(state.ui?.plotType?.value || DEFAULT_PLOT_TYPE, { updateTitle: false });
       if (saved && (migrated || savedVersion < STYLE_VERSION)) {
         saveStylePrefs();
       }
@@ -3179,7 +3800,9 @@
       opacity: inputs.opacity.value,
       fontsize: inputs.fontsize.value,
       borderColor: inputs.borderColor.value,
-      borderWidth: inputs.borderWidth.value
+      borderWidth: inputs.borderWidth.value,
+      plotType: getActivePlotType(),
+      upset: resolveUpSetSettings()
     };
     try {
       localStorage.setItem(STYLE_KEY, JSON.stringify(prefs));
@@ -3276,6 +3899,7 @@
         nABC: inputs.counts.nABC.value
       },
       style: {
+        plotType: getActivePlotType(),
         colorA: inputs.colorA.value,
         colorB: inputs.colorB.value,
         colorC: inputs.colorC.value,
@@ -3285,7 +3909,8 @@
         fontsize: inputs.fontsize.value,
         fontStyles: exportFontStyles('venn') || undefined,
         title: state.titleText,
-        labelPositions: state.labelPositions || null
+        labelPositions: state.labelPositions || null,
+        upset: resolveUpSetSettings()
       },
       analysis: includeAnalysis ? {
         goResult: state.analysis.lastGOResult ? cloneSimple(state.analysis.lastGOResult) : null,
@@ -3435,11 +4060,13 @@
     c.nBC.value = d.nBC || 0;
     c.nABC.value = d.nABC || 0;
     const s = obj.style || {};
+    const plotType = normalizePlotType(s.plotType || DEFAULT_PLOT_TYPE);
+    syncPlotMode(plotType, { updateTitle: false });
     importFontStyles('venn', s.fontStyles || null);
     if(s.title !== undefined){
       state.titleText = s.title != null ? String(s.title) : '';
-    }else if(state.titleText == null){
-      state.titleText = 'Venn diagram';
+    }else{
+      state.titleText = plotType === 'upset' ? DEFAULT_UPSET_TITLE : DEFAULT_VENN_TITLE;
     }
     inputs.colorA.value = s.colorA || inputs.colorA.value;
     inputs.colorB.value = s.colorB || inputs.colorB.value;
@@ -3459,6 +4086,23 @@
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
       debug('Debug: venn payload font fallback', { fontInfo });
+    }
+    if (state.ui.upset) {
+      const upset = s.upset || {};
+      if (state.ui.upset.sort) state.ui.upset.sort.value = upset.sort || DEFAULT_UPSET_SETTINGS.sort;
+      if (state.ui.upset.max) state.ui.upset.max.value = clampNumber(upset.maxIntersections, DEFAULT_UPSET_SETTINGS.maxIntersections, 1, 50);
+      if (state.ui.upset.showEmpty) state.ui.upset.showEmpty.checked = !!upset.showEmpty;
+      if (state.ui.upset.showCounts) state.ui.upset.showCounts.checked = upset.showCounts !== false;
+      if (state.ui.upset.showSetCounts) state.ui.upset.showSetCounts.checked = upset.showSetCounts !== false;
+      if (state.ui.upset.dotSize) state.ui.upset.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
+      updateUpSetDotSizeOutput(state.ui.upset.dotSize?.value);
+      if (state.ui.upset.useSetColors) state.ui.upset.useSetColors.checked = upset.useSetColors !== false;
+      if (state.ui.upset.barColor) state.ui.upset.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
+      if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
+      if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
+      if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
+      if (state.ui.upset.connectorColor) state.ui.upset.connectorColor.value = sanitizeColor(upset.connectorColor, DEFAULT_UPSET_SETTINGS.connectorColor);
+      if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
     }
     // Restore label positions if saved
     if(s.labelPositions){
@@ -3610,6 +4254,34 @@
     requestScheduledDraw('case-sensitive-toggle', 'lists');
     debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
     commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
+  }
+
+  function handlePlotTypeChange(event) {
+    const target = event?.currentTarget || state.ui.plotType;
+    const nextType = normalizePlotType(target?.value || DEFAULT_PLOT_TYPE);
+    syncPlotMode(nextType, { updateTitle: true, syncPanels: true });
+    requestScheduledDraw('plot-type-change');
+    saveStylePrefs();
+    debug('Debug: venn handlePlotTypeChange', { plot: nextType });
+    commitVennUndo(target, 'venn:plot-type');
+  }
+
+  function handleUpSetControlChange(event) {
+    requestScheduledDraw('upset-control-change');
+    saveStylePrefs();
+    const target = event?.currentTarget || null;
+    const label = target?.id ? `venn:${target.id}` : 'venn:upset-control';
+    debug('Debug: venn handleUpSetControlChange', { id: target?.id || null });
+    commitVennUndo(target, label);
+  }
+
+  function handleUpSetDotSizeInput(event) {
+    const target = event?.currentTarget || state.ui.upset?.dotSize;
+    updateUpSetDotSizeOutput(target?.value);
+    requestScheduledDraw('upset-dot-size');
+    saveStylePrefs();
+    debug('Debug: venn handleUpSetDotSizeInput', { value: target?.value });
+    commitVennUndo(target, 'venn:upset-dot-size');
   }
 
   function initializeLabelState() {
@@ -3970,6 +4642,15 @@
       { elements: inputs.borderColor, type: 'input', handler: handleBorderColorInput, label: 'border-color' },
       { elements: inputs.borderWidth, type: 'input', handler: handleBorderWidthInput, label: 'border-width' },
       { elements: inputs.caseSensitive, type: 'change', handler: handleCaseSensitiveChange, label: 'case-sensitive' },
+      { elements: state.ui.plotType, type: 'change', handler: handlePlotTypeChange, label: 'plot-type' },
+      { elements: state.ui.upset?.sort, type: 'change', handler: handleUpSetControlChange, label: 'upset-sort' },
+      { elements: state.ui.upset?.max, type: 'input', handler: handleUpSetControlChange, label: 'upset-max' },
+      { elements: state.ui.upset?.showEmpty, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-empty' },
+      { elements: state.ui.upset?.showCounts, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-counts' },
+      { elements: state.ui.upset?.showSetCounts, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-set-counts' },
+      { elements: state.ui.upset?.dotSize, type: 'input', handler: handleUpSetDotSizeInput, label: 'upset-dot-size' },
+      { elements: state.ui.upset?.useSetColors, type: 'change', handler: handleUpSetControlChange, label: 'upset-use-set-colors' },
+      { elements: [state.ui.upset?.barColor, state.ui.upset?.setBarColor, state.ui.upset?.dotColor, state.ui.upset?.inactiveDotColor, state.ui.upset?.connectorColor, state.ui.upset?.gridColor], type: 'input', handler: handleUpSetControlChange, label: 'upset-colors' },
       { elements: state.ui.regionSelect, type: 'change', handler: handleRegionSelectChange, label: 'region-select' },
       { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' },
       { elements: state.ui.copyRegionBtn, type: 'click', handler: handleCopyRegionClick, label: 'copy-region' },
@@ -4005,6 +4686,22 @@
     attachUndoLifecycle(inputs.colorB, 'venn:colorB');
     attachUndoLifecycle(inputs.colorC, 'venn:colorC');
     attachUndoLifecycle(inputs.caseSensitive, 'venn:case-sensitive');
+    attachUndoLifecycle(state.ui.plotType, 'venn:plot-type');
+    if (state.ui.upset) {
+      attachUndoLifecycle(state.ui.upset.sort, 'venn:upset-sort');
+      attachUndoLifecycle(state.ui.upset.max, 'venn:upset-max');
+      attachUndoLifecycle(state.ui.upset.showEmpty, 'venn:upset-show-empty');
+      attachUndoLifecycle(state.ui.upset.showCounts, 'venn:upset-show-counts');
+      attachUndoLifecycle(state.ui.upset.showSetCounts, 'venn:upset-show-set-counts');
+      attachUndoLifecycle(state.ui.upset.dotSize, 'venn:upset-dot-size');
+      attachUndoLifecycle(state.ui.upset.useSetColors, 'venn:upset-use-set-colors');
+      attachUndoLifecycle(state.ui.upset.barColor, 'venn:upset-bar-color');
+      attachUndoLifecycle(state.ui.upset.setBarColor, 'venn:upset-set-bar-color');
+      attachUndoLifecycle(state.ui.upset.dotColor, 'venn:upset-dot-color');
+      attachUndoLifecycle(state.ui.upset.inactiveDotColor, 'venn:upset-inactive-dot-color');
+      attachUndoLifecycle(state.ui.upset.connectorColor, 'venn:upset-connector-color');
+      attachUndoLifecycle(state.ui.upset.gridColor, 'venn:upset-grid-color');
+    }
 
     ['labelA', 'labelB', 'labelC'].forEach(id => {
       bindEventHandlers([{ elements: inputs[id], type: 'input', handler: createLabelInputHandler(id), label: `${id}-input` }]);
@@ -4106,6 +4803,23 @@
     state.ui.goBtn = $('#goBtn');
     state.ui.detectSpeciesBtn = $('#detectSpeciesBtn');
     state.ui.stringBtn = $('#stringBtn');
+    state.ui.plotType = $('#vennPlotType');
+    state.ui.upset = {
+      sort: $('#upsetSort'),
+      max: $('#upsetMax'),
+      showEmpty: $('#upsetShowEmpty'),
+      showCounts: $('#upsetShowCounts'),
+      showSetCounts: $('#upsetShowSetCounts'),
+      dotSize: $('#upsetDotSize'),
+      dotSizeVal: $('#upsetDotSizeVal'),
+      useSetColors: $('#upsetUseSetColors'),
+      barColor: $('#upsetBarColor'),
+      setBarColor: $('#upsetSetBarColor'),
+      dotColor: $('#upsetDotColor'),
+      inactiveDotColor: $('#upsetInactiveDotColor'),
+      connectorColor: $('#upsetConnectorColor'),
+      gridColor: $('#upsetGridColor')
+    };
     state.ui.goResults = $('#goResults');
     state.ui.stringResults = $('#stringResults');
     state.ui.stringNetwork = $('#stringNetwork');
@@ -4118,7 +4832,9 @@
     state.ui.significanceResults = $('#significanceResults');
     const vennAutoSizeTargets = [
       state.ui.regionSelect,
-      state.ui.speciesSelect
+      state.ui.speciesSelect,
+      state.ui.plotType,
+      state.ui.upset?.sort
     ];
     vennAutoSizeTargets.filter(Boolean).forEach(select => {
       attachVennSelectAutoSize(select, 'venn');
@@ -4166,6 +4882,8 @@
       debug('Debug: string export controls unavailable', { hasExporter: !!exporter }); // Debug: string export fallback
     }
     loadStylePrefs();
+    syncPlotMode(state.ui.plotType?.value || DEFAULT_PLOT_TYPE, { updateTitle: false });
+    updateUpSetDotSizeOutput(state.ui.upset?.dotSize?.value);
     registerEventHandlers();
     initializeLabelState();
     ensureEmptyPayloadTemplate();
