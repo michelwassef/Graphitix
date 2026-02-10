@@ -3116,6 +3116,7 @@
       fontSizePx: style.fontSizePx,
       defaultText: DEFAULT_UPSET_TITLE
     });
+    const topPadding = Math.max(titlePadding, style.fontSizePx * 2.6 + 8);
 
     const settings = { ...DEFAULT_UPSET_SETTINGS, ...resolveUpSetSettings(), ...(style.upset || {}) };
     const hasC = !!(counts.nC || counts.AC || counts.BC || counts.ABC);
@@ -3178,7 +3179,7 @@
     const pad = 20;
     const gap = Math.max(style.fontSizePx * 0.8, 12);
     const setAxisHeight = Math.max(style.fontSizePx * 1.8, 18);
-    const innerHeight = Math.max(stageHeight - titlePadding - pad, style.fontSizePx * 10);
+    const innerHeight = Math.max(stageHeight - topPadding - pad, style.fontSizePx * 10);
     const contentHeight = Math.max(innerHeight - setAxisHeight, style.fontSizePx * 8);
 
     let rowHeight = Math.max(settings.dotSize * 2.6, style.fontSizePx * 1.4);
@@ -3191,7 +3192,7 @@
       matrixHeight = rowHeight * sets.length;
     }
 
-    const barTop = titlePadding;
+    const barTop = topPadding;
     const barBottom = barTop + barChartHeight;
     const matrixTop = barBottom + gap;
     const matrixBottom = matrixTop + matrixHeight;
@@ -3421,7 +3422,7 @@
       });
       label.textContent = set.label;
       const barWidth = maxSetSize > 0 ? (set.size / maxSetSize) * barAreaWidth : 0;
-      const barHeight = Math.max(6, rowHeight * 0.45);
+      const barHeight = Math.max(settings.dotSize * 1.6, rowHeight * 0.6);
       const barY = rowCenter - barHeight / 2;
       const barFill = settings.useSetColors ? set.color : settings.setBarColor;
       const barX = setBarX + (barAreaWidth - barWidth);
@@ -3458,9 +3459,10 @@
       'stroke-width': axisWidth
     });
 
-    const setTickValues = Array.from({ length: tickCount + 1 }, (_, i) => Math.round(maxSetSize * i / tickCount));
-    setTickValues.forEach(value => {
-      const x = maxSetSize > 0 ? setBarX + barAreaWidth - (value / maxSetSize) * barAreaWidth : setBarX + barAreaWidth;
+    const setTickFractions = Array.from({ length: tickCount + 1 }, (_, i) => i / tickCount);
+    setTickFractions.forEach(fraction => {
+      const value = Math.round(maxSetSize * fraction);
+      const x = setBarX + barAreaWidth - fraction * barAreaWidth;
       makeEl('line', {
         x1: x,
         y1: axisY,
