@@ -310,7 +310,6 @@
    * @property {HTMLElement|null} fontsizeVal - Display span for font size value.
    * @property {HTMLElement|null} borderWidthVal - Display span for border width value.
    * @property {HTMLInputElement|null} caseSensitive - Toggle for case-sensitive parsing.
-   * @property {HTMLSelectElement|null} delimiter - Select box for list delimiter.
    * @property {VennInputCounts} counts - Numeric fields for overlap-driven drawing.
    */
 
@@ -413,6 +412,11 @@
         syncPanels: null,
         panelResizer: null,
         tablePanel: null,
+        hotWrapper: null,
+        hotContainer: null,
+        hot: null,
+        syncTableFromInputs: null,
+        syncInputsFromTable: null,
         graphPanel: null,
         svgBox: null,
         layout: null,
@@ -597,6 +601,7 @@
     inputs.A.value = data.listA != null ? String(data.listA) : '';
     inputs.B.value = data.listB != null ? String(data.listB) : '';
     inputs.C.value = data.listC != null ? String(data.listC) : '';
+    state.ui.syncTableFromInputs?.({ refresh: true });
     if(counts.nA) counts.nA.value = data.nA != null ? String(data.nA) : '';
     if(counts.nB) counts.nB.value = data.nB != null ? String(data.nB) : '';
     if(counts.nC) counts.nC.value = data.nC != null ? String(data.nC) : '';
@@ -843,6 +848,106 @@
     }
   }
 
+  function getColumnValuesFromTable(data, columnIndex) {
+    if (!Array.isArray(data) || columnIndex < 0) {
+      return [];
+    }
+    const values = [];
+    for (let row = 1; row < data.length; row += 1) {
+      const raw = data[row]?.[columnIndex];
+      const value = typeof raw === 'string' ? raw.trim() : String(raw || '').trim();
+      if (value) {
+        values.push(value);
+      }
+    }
+    return values;
+  }
+
+  function tokenizeListForTable(value, mode) {
+    const source = String(value || '').trim();
+    if (!source) {
+      return [];
+    }
+    return splitItems(source, mode).map(item => String(item || '').trim()).filter(Boolean);
+  }
+
+  function syncVennInputsFromTable(options = {}) {
+    const hot = state.ui.hot;
+    const inputs = state.ui.inputs;
+    if (!hot || !inputs) {
+      return;
+    }
+    const matrix = hot.getData?.() || [];
+    const header = matrix[0] || [];
+    const next = {
+      labelA: String(header[0] || '').trim() || 'A',
+      labelB: String(header[1] || '').trim() || 'B',
+      labelC: String(header[2] || '').trim() || 'C',
+      listA: getColumnValuesFromTable(matrix, 0).join('\n'),
+      listB: getColumnValuesFromTable(matrix, 1).join('\n'),
+      listC: getColumnValuesFromTable(matrix, 2).join('\n')
+    };
+    const changed = (
+      inputs.labelA.value !== next.labelA
+      || inputs.labelB.value !== next.labelB
+      || inputs.labelC.value !== next.labelC
+      || inputs.A.value !== next.listA
+      || inputs.B.value !== next.listB
+      || inputs.C.value !== next.listC
+    );
+    inputs.labelA.value = next.labelA;
+    inputs.labelB.value = next.labelB;
+    inputs.labelC.value = next.labelC;
+    inputs.A.value = next.listA;
+    inputs.B.value = next.listB;
+    inputs.C.value = next.listC;
+    if (changed && options.scheduleDraw !== false) {
+      requestScheduledDraw('table-edit', 'lists');
+    }
+    if (changed && options.scheduleSpecies !== false) {
+      scheduleSpeciesRecognition('table-edit');
+    }
+    if (changed) {
+      debugLog('table synced to inputs', {
+        rows: matrix.length,
+        counts: {
+          A: next.listA ? next.listA.split(/\n/).length : 0,
+          B: next.listB ? next.listB.split(/\n/).length : 0,
+          C: next.listC ? next.listC.split(/\n/).length : 0
+        }
+      });
+    }
+  }
+
+  function syncVennTableFromInputs(options = {}) {
+    const hot = state.ui.hot;
+    const inputs = state.ui.inputs;
+    if (!hot || !inputs) {
+      return;
+    }
+    const delimiterMode = 'auto';
+    const colA = tokenizeListForTable(inputs.A.value, delimiterMode);
+    const colB = tokenizeListForTable(inputs.B.value, delimiterMode);
+    const colC = tokenizeListForTable(inputs.C.value, delimiterMode);
+    const maxLen = Math.max(colA.length, colB.length, colC.length, 1);
+    const matrix = Array.from({ length: maxLen + 1 }, (_, row) => {
+      if (row === 0) {
+        return [
+          (inputs.labelA.value || 'A').trim() || 'A',
+          (inputs.labelB.value || 'B').trim() || 'B',
+          (inputs.labelC.value || 'C').trim() || 'C'
+        ];
+      }
+      const idx = row - 1;
+      return [colA[idx] || '', colB[idx] || '', colC[idx] || ''];
+    });
+    hot.loadData?.(matrix);
+    if (options.refresh !== false) {
+      hot.refreshLayout?.();
+    }
+    debugLog('inputs synced to table', { rows: matrix.length, delimiterMode });
+  }
+
   function parseList(raw, cs, mode) {
     const source = (raw || '').trim();
     if (!source) {
@@ -996,7 +1101,7 @@
 
   function ensureParsedLists(options = {}) {
     const inputs = ensureInputs();
-    const mode = inputs.delimiter.value;
+    const mode = 'auto';
     const caseSensitive = inputs.caseSensitive.checked;
     const sources = {
       A: inputs.A.value || '',
@@ -3320,6 +3425,7 @@
     inputs.A.value = d.listA || '';
     inputs.B.value = d.listB || '';
     inputs.C.value = d.listC || '';
+    state.ui.syncTableFromInputs?.({ refresh: true });
     const c = inputs.counts;
     c.nA.value = d.nA || 0;
     c.nB.value = d.nB || 0;
@@ -3504,12 +3610,6 @@
     requestScheduledDraw('case-sensitive-toggle', 'lists');
     debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
     commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
-  }
-
-  function handleDelimiterChange(event) {
-    requestScheduledDraw('delimiter-change', 'lists');
-    debug('Debug: venn handleDelimiterChange'); // Debug: delimiter change
-    commitVennUndo(event?.currentTarget || state.ui.inputs.delimiter, 'venn:delimiter');
   }
 
   function initializeLabelState() {
@@ -3810,6 +3910,7 @@
     state.ui.inputs.A.value = `BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`;
     state.ui.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
     state.ui.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
+    state.ui.syncTableFromInputs?.({ refresh: true });
     state.analysis.lastDrawMode = 'lists';
     if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
     setSpeciesIndicator(null);
@@ -3820,40 +3921,43 @@
     debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
   }
 
-  function handleResetClick() {
-    const previous = captureVennSnapshot();
-    debug('Debug: venn reset handler invoked');
-    state.ui.inputs.A.value = '';
-    state.ui.inputs.B.value = '';
-    state.ui.inputs.C.value = '';
-    Object.values(state.ui.inputs.counts).forEach(x => x.value = 0);
-    clearSVG();
-    state.analysis.lastRegions = null;
-    state.analysis.lastDrawMode = null;
-    state.analysis.lastCounts = null;
-    state.analysis.lastParsedLists = null;
-    state.analysis.lastRegionSignature = null;
-    state.analysis.lastRegionCode = null;
-    if (state.ui.regionList) state.ui.regionList.textContent = '';
-    Object.values(state.ui.countsUI || {}).forEach(el => { if (el) el.textContent = '0'; });
-    const defaultLabels = { A: 'A', B: 'B', C: 'C' };
-    updateCountLabels(defaultLabels);
-    updateColorLabels(defaultLabels);
-    updateRegionSelect(defaultLabels, null);
-    clearAnalysis();
-    if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
-    setSpeciesIndicator(null);
-    if (state.ui.totalGenesInput) state.ui.totalGenesInput.value = '';
-    if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
-    state.analysis.lastSignificance = null;
-    cancelPendingSpeciesDetection('reset', { abortActive: true, resetIndicator: true });
-    const detection = getSpeciesDetectionState();
-    detection.active = null;
-    detection.cache.clear();
-    detection.pendingReason = null;
-    debugLog('reset handler completed', { defaultLabels });
-    const next = captureVennSnapshot();
-    recordVennChange('venn:reset', previous, next);
+  function initVennTable() {
+    const wrapper = document.getElementById('vennHotWrapper');
+    const container = document.getElementById('vennHot');
+    state.ui.hotWrapper = wrapper;
+    state.ui.hotContainer = container;
+    if (!wrapper || !container || typeof Shared.hot?.createStandardTable !== 'function') {
+      debugLog('venn table unavailable', {
+        hasWrapper: !!wrapper,
+        hasContainer: !!container,
+        hasFactory: typeof Shared.hot?.createStandardTable === 'function'
+      });
+      return;
+    }
+    Shared.ensureHotWrapperStyles?.(wrapper);
+    const data = Shared.createEmptyData?.(20, 3) || Array.from({ length: 20 }, () => ['', '', '']);
+    if (!Array.isArray(data[0])) {
+      data[0] = ['', '', ''];
+    }
+    data[0][0] = 'A';
+    data[0][1] = 'B';
+    data[0][2] = 'C';
+    state.ui.hot = Shared.hot.createStandardTable(container, { rows: 20, cols: 3 }, () => {}, {
+      debugLabel: 'venn',
+      data,
+        pinFirstRow: true,
+      hotOptions: {
+        afterChange(changes, source) {
+          if (!changes || source === 'loadData') {
+            return;
+          }
+          syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
+        }
+      }
+    });
+    state.ui.syncTableFromInputs = syncVennTableFromInputs;
+    state.ui.syncInputsFromTable = syncVennInputsFromTable;
+    syncVennInputsFromTable({ scheduleDraw: false, scheduleSpecies: false });
   }
 
   function registerEventHandlers() {
@@ -3866,7 +3970,6 @@
       { elements: inputs.borderColor, type: 'input', handler: handleBorderColorInput, label: 'border-color' },
       { elements: inputs.borderWidth, type: 'input', handler: handleBorderWidthInput, label: 'border-width' },
       { elements: inputs.caseSensitive, type: 'change', handler: handleCaseSensitiveChange, label: 'case-sensitive' },
-      { elements: inputs.delimiter, type: 'change', handler: handleDelimiterChange, label: 'delimiter' },
       { elements: state.ui.regionSelect, type: 'change', handler: handleRegionSelectChange, label: 'region-select' },
       { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' },
       { elements: state.ui.copyRegionBtn, type: 'click', handler: handleCopyRegionClick, label: 'copy-region' },
@@ -3882,8 +3985,7 @@
       { selector: '#saveVennGraph', type: 'click', handler: venn.save, label: 'save-venn' },
       { selector: '#saveAsVenn', type: 'click', handler: venn.saveAs, label: 'saveas-venn' },
       { selector: '#vennGraphFile', type: 'change', handler: handleGraphFileChange, label: 'graph-file' },
-      { selector: '#sample', type: 'click', handler: handleSampleClick, label: 'sample' },
-      { selector: '#reset', type: 'click', handler: handleResetClick, label: 'reset' }
+      { selector: '#sample', type: 'click', handler: handleSampleClick, label: 'sample' }
     ]);
 
     attachUndoLifecycle(inputs.A, 'venn:list-A');
@@ -3903,7 +4005,6 @@
     attachUndoLifecycle(inputs.colorB, 'venn:colorB');
     attachUndoLifecycle(inputs.colorC, 'venn:colorC');
     attachUndoLifecycle(inputs.caseSensitive, 'venn:case-sensitive');
-    attachUndoLifecycle(inputs.delimiter, 'venn:delimiter');
 
     ['labelA', 'labelB', 'labelC'].forEach(id => {
       bindEventHandlers([{ elements: inputs[id], type: 'input', handler: createLabelInputHandler(id), label: `${id}-input` }]);
@@ -3980,7 +4081,6 @@
       fontsizeVal: $('#fontsizeVal'),
       borderWidthVal: $('#borderWidthVal'),
       caseSensitive: $('#caseSensitive'),
-      delimiter: $('#delimiter'),
       counts: {
         nA: $('#nA'),
         nB: $('#nB'),
@@ -4017,7 +4117,6 @@
     state.ui.calcSignificanceBtn = $('#calcSignificance');
     state.ui.significanceResults = $('#significanceResults');
     const vennAutoSizeTargets = [
-      state.ui.inputs?.delimiter,
       state.ui.regionSelect,
       state.ui.speciesSelect
     ];
@@ -4030,6 +4129,7 @@
     state.ui.goUseAllBackground = $('#goUseAllBackground');
     state.ui.stringOptsBtn = $('#stringOptsBtn');
     state.ui.stringOptions = $('#stringOptions');
+    initVennTable();
     const exporter = Shared.exporter;
     if (exporter && typeof exporter.mountSvgControls === 'function') {
       exporter.mountSvgControls({
@@ -4299,5 +4399,3 @@
     if (!venn.ready) venn.init();
   };
 })(window);
-
-

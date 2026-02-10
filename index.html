@@ -95,43 +95,25 @@
     </div>
     <div class="wrap">
       <div class="panel" id="vennInputPanel">
-        <div class="row">
-          <div style="flex:1 1 100%;">
-            <label>Set A Label</label>
-            <input id="labelA" type="text" value="A" />
-            <label>List A</label>
-            <textarea id="listA"></textarea>
+        <div id="vennTablePanel" class="venn-table-panel">
+          <div id="vennHotWrapper" class="venn-hot-wrapper" aria-label="Venn input table">
+            <div id="vennHot" class="venn-hot"></div>
           </div>
-          <div style="flex:1 1 100%;">
-            <label>Set B Label</label>
-            <input id="labelB" type="text" value="B" />
-            <label>List B</label>
-            <textarea id="listB"></textarea>
-          </div>
-          <div style="flex:1 1 100%;">
-            <label>Set C Label</label>
-            <input id="labelC" type="text" value="C" />
-            <label>List C - Optional</label>
-            <textarea id="listC"></textarea>
+          <div class="visually-hidden" aria-hidden="true">
+            <input id="labelA" type="text" value="A" tabindex="-1" />
+            <input id="labelB" type="text" value="B" tabindex="-1" />
+            <input id="labelC" type="text" value="C" tabindex="-1" />
+            <textarea id="listA" tabindex="-1"></textarea>
+            <textarea id="listB" tabindex="-1"></textarea>
+            <textarea id="listC" tabindex="-1"></textarea>
           </div>
         </div>
-        <div class="row venn-inline-controls" style="margin-top:6px;">
-          <label class="venn-inline-checkbox">
-            <input id="caseSensitive" type="checkbox" />
-            <span>Case Sensitive</span>
-          </label>
-          <div class="venn-delimiter-group">
-            <label for="delimiter">Delimiter</label>
-            <select id="delimiter">
-              <option value="auto">Auto</option>
-              <option value="newline">Newline</option>
-              <option value="comma">Comma</option>
-              <option value="tab">Tab</option>
-              <option value="space">Spaces</option>
-            </select>
+          <div class="row venn-inline-controls" style="margin-top:6px;">
+            <label class="venn-inline-checkbox">
+              <input id="caseSensitive" type="checkbox" />
+              <span>Case Sensitive</span>
+            </label>
           </div>
-          <button class="btn" id="reset">Reset</button>
-        </div>
         <details style="margin-top:8px;">
           <summary>Numeric Mode - Counts Only</summary>
           <div class="row">
