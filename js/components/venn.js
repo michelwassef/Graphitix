@@ -3482,8 +3482,12 @@
     const matrixBottom = matrixTop + matrixHeight;
 
     const contentWidth = Math.max(stageWidth - pad * 2, style.fontSizePx * 12);
-    const labelFont = `${Math.round(style.fontSizePx * 0.9)}px ${fontFamily}`;
-    const countFont = `${Math.round(style.fontSizePx * 0.8)}px ${fontFamily}`;
+    const setLabelFontSize = Math.max(10, Math.round(style.fontSizePx));
+    const axisTickFontSize = Math.max(10, Math.round(style.fontSizePx));
+    const axisLabelFontSize = Math.max(10, Math.round(style.fontSizePx));
+    const valueLabelFontSize = Math.max(9, Math.round(style.fontSizePx * 0.9));
+    const labelFont = `${setLabelFontSize}px ${fontFamily}`;
+    const countFont = `${axisTickFontSize}px ${fontFamily}`;
     const measure = (text, font) => {
       if (typeof chartStyle.measureText === 'function') {
         return chartStyle.measureText(text || '', font);
@@ -3540,8 +3544,8 @@
       ? chartStyle.scaleStrokeWidth(1, style.scaleInfo, { min: 0.6, max: 2.5, context: 'upset-axis' })
       : 1;
     const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
-    const setTickFontSize = Math.round(style.fontSizePx * 0.75);
-    const setAxisLabelFontSize = Math.round(style.fontSizePx * 0.85);
+    const setTickFontSize = axisTickFontSize;
+    const setAxisLabelFontSize = axisLabelFontSize;
     const setTickOffset = Math.max(1, Math.round(style.fontSizePx * 0.08));
     const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.45));
     const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
@@ -3555,6 +3559,13 @@
       : axisYMin;
     const setTickLabelY = axisY + tickLength + setTickOffset;
     const setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
+    debugLog('upset typography resolved', {
+      baseFontSize: style.fontSizePx,
+      setLabelFontSize,
+      axisTickFontSize,
+      axisLabelFontSize,
+      valueLabelFontSize
+    });
 
     if (settings.showGrid && settings.gridColor) {
       sets.forEach((set, idx) => {
@@ -3612,7 +3623,7 @@
         y,
         'text-anchor': 'end',
         'dominant-baseline': 'middle',
-        'font-size': Math.round(style.fontSizePx * 0.8),
+        'font-size': axisTickFontSize,
         fill: textColor
       });
       tickText.textContent = tickLabels[idx];
@@ -3627,7 +3638,7 @@
       x: axisLabelX,
       y: intersectionAxisLabelY,
       'text-anchor': 'middle',
-      'font-size': Math.round(style.fontSizePx * 0.85),
+      'font-size': axisLabelFontSize,
       fill: textColor
     });
     axisLabel.textContent = 'Intersection Size';
@@ -3680,7 +3691,7 @@
           x: columnCenter,
           y: barY - 4,
           'text-anchor': 'middle',
-          'font-size': Math.round(style.fontSizePx * 0.8),
+          'font-size': valueLabelFontSize,
           fill: textColor
         });
         valueText.textContent = formatCount(entry.size);
@@ -3758,7 +3769,7 @@
         y: rowCenter,
         'text-anchor': 'start',
         'dominant-baseline': 'middle',
-        'font-size': Math.round(style.fontSizePx * 0.9),
+        'font-size': setLabelFontSize,
         fill: textColor
       });
       label.textContent = set.label;
@@ -3783,7 +3794,7 @@
           y: rowCenter,
           'text-anchor': 'end',
           'dominant-baseline': 'middle',
-          'font-size': Math.round(style.fontSizePx * 0.8),
+          'font-size': valueLabelFontSize,
           fill: textColor
         });
         valueText.textContent = formatCount(set.size);
