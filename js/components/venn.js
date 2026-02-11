@@ -3480,8 +3480,6 @@
     const barBottom = barTop + barChartHeight;
     const matrixTop = barBottom + gap;
     const matrixBottom = matrixTop + matrixHeight;
-    const axisY = Math.min(stageHeight - pad, matrixBottom + setAxisHeight * 0.35);
-    const setAxisLabelBaseY = Math.min(stageHeight - pad * 0.4, matrixBottom + setAxisHeight * 0.9);
 
     const contentWidth = Math.max(stageWidth - pad * 2, style.fontSizePx * 12);
     const labelFont = `${Math.round(style.fontSizePx * 0.9)}px ${fontFamily}`;
@@ -3541,12 +3539,22 @@
     const axisWidth = typeof chartStyle.scaleStrokeWidth === 'function'
       ? chartStyle.scaleStrokeWidth(1, style.scaleInfo, { min: 0.6, max: 2.5, context: 'upset-axis' })
       : 1;
-    const setTickExtraGap = Math.max(6, Math.round(style.fontSizePx * 0.4));
-    const setTickLabelY = Math.min(stageHeight - pad * 0.2, axisY + tickLength + tickLabelGap + setTickExtraGap);
-    const setAxisLabelY = Math.min(
-      stageHeight - 4,
-      Math.max(setAxisLabelBaseY, setTickLabelY + axisTitleGap + style.fontSizePx * 0.25)
-    );
+    const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
+    const setTickFontSize = Math.round(style.fontSizePx * 0.75);
+    const setAxisLabelFontSize = Math.round(style.fontSizePx * 0.85);
+    const setTickOffset = Math.max(1, Math.round(style.fontSizePx * 0.08));
+    const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.45));
+    const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
+    const setAxisLabelHeight = Math.max(9, Math.round(setAxisLabelFontSize * 0.95));
+    const requiredSetAxisBottomSpace = tickLength + setTickOffset + setTickTextHeight + setTitleGap + setAxisLabelHeight + 4;
+    const axisYPreferred = matrixBottom + setAxisHeight * 0.35;
+    const axisYMin = matrixBottom + Math.max(2, Math.round(style.fontSizePx * 0.2));
+    const axisYMax = stageHeight - requiredSetAxisBottomSpace;
+    const axisY = axisYMax >= axisYMin
+      ? Math.min(axisYMax, Math.max(axisYMin, axisYPreferred))
+      : axisYMin;
+    const setTickLabelY = axisY + tickLength + setTickOffset;
+    const setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
 
     if (settings.showGrid && settings.gridColor) {
       sets.forEach((set, idx) => {
@@ -3678,53 +3686,69 @@
         valueText.textContent = formatCount(entry.size);
       }
 
+      const activeSetKeys = new Set(entry.sets || []);
       const activeIndices = [];
-      entry.sets.forEach(setKey => {
-        const rowIndex = sets.findIndex(set => set.key === setKey);
-        if (rowIndex >= 0) activeIndices.push(rowIndex);
-      });
-      if (activeIndices.length > 1) {
-        for (let idx = 0; idx < activeIndices.length - 1; idx += 1) {
-          const topIndex = activeIndices[idx];
-          const bottomIndex = activeIndices[idx + 1];
-          const y1 = matrixTop + topIndex * rowHeight + rowHeight / 2;
-          const y2 = matrixTop + bottomIndex * rowHeight + rowHeight / 2;
-          const segmentColor = settings.useSetColors
-            ? (sets[topIndex]?.color || settings.dotColor)
-            : settings.dotColor;
-          makeEl('line', {
-            x1: columnCenter,
-            y1,
-            x2: columnCenter,
-            y2,
-            stroke: segmentColor,
-            'stroke-width': Math.max(1, axisWidth * 0.9),
-            'stroke-opacity': style.opacity
-          });
+      sets.forEach((set, rowIdx) => {
+        if (activeSetKeys.has(set.key)) {
+          activeIndices.push(rowIdx);
         }
-      }
+      });
+
+      const primaryActiveIndex = activeIndices.length ? activeIndices[0] : -1;
+      const activeColor = settings.useSetColors && primaryActiveIndex >= 0
+        ? (sets[primaryActiveIndex]?.color || settings.dotColor)
+        : settings.dotColor;
 
       sets.forEach((set, rowIdx) => {
-        const isActive = entry.sets.includes(set.key);
-        const dotColor = settings.useSetColors && isActive ? set.color : (isActive ? settings.dotColor : settings.inactiveDotColor);
-        const dot = makeEl('circle', {
+        makeEl('circle', {
           cx: columnCenter,
           cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
           r: settings.dotSize,
-          fill: dotColor,
-          'fill-opacity': isActive ? style.opacity : 1
+          fill: settings.inactiveDotColor,
+          opacity: 1
         });
-        if (isActive && canSelectEntry) {
-          dot.setAttribute('cursor', 'pointer');
-          dot.addEventListener('click', () => {
-            if (state.ui.regionSelect) {
-              state.ui.regionSelect.value = entry.code;
-              populateRegion(entry.code);
-              syncActiveVennPayload('venn-upset-select');
-            }
-          });
-        }
       });
+
+      if (activeIndices.length) {
+        const activeGroup = makeEl('g', {
+          color: activeColor,
+          opacity: activeMarkOpacity
+        });
+
+        if (activeIndices.length > 1) {
+          const y1 = matrixTop + activeIndices[0] * rowHeight + rowHeight / 2;
+          const y2 = matrixTop + activeIndices[activeIndices.length - 1] * rowHeight + rowHeight / 2;
+          const connectorWidth = Math.max(0.65, Math.min(settings.dotSize * 0.45, rowHeight * 0.2));
+          makeEl('rect', {
+            x: columnCenter - connectorWidth / 2,
+            y: y1,
+            width: connectorWidth,
+            height: Math.max(0, y2 - y1),
+            fill: 'currentColor',
+            rx: connectorWidth / 2,
+            ry: connectorWidth / 2
+          }, activeGroup);
+        }
+
+        activeIndices.forEach(rowIdx => {
+          const dot = makeEl('circle', {
+            cx: columnCenter,
+            cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
+            r: settings.dotSize,
+            fill: 'currentColor'
+          }, activeGroup);
+          if (canSelectEntry) {
+            dot.setAttribute('cursor', 'pointer');
+            dot.addEventListener('click', () => {
+              if (state.ui.regionSelect) {
+                state.ui.regionSelect.value = entry.code;
+                populateRegion(entry.code);
+                syncActiveVennPayload('venn-upset-select');
+              }
+            });
+          }
+        });
+      }
     });
 
     sets.forEach((set, idx) => {
@@ -3792,7 +3816,8 @@
         x,
         y: setTickLabelY,
         'text-anchor': 'middle',
-        'font-size': Math.round(style.fontSizePx * 0.75),
+        'dominant-baseline': 'text-before-edge',
+        'font-size': setTickFontSize,
         fill: textColor
       });
       tickText.textContent = formatCount(value);
@@ -3802,7 +3827,8 @@
       x: setBarX + barAreaWidth / 2,
       y: setAxisLabelY,
       'text-anchor': 'middle',
-      'font-size': Math.round(style.fontSizePx * 0.85),
+      'dominant-baseline': 'text-before-edge',
+      'font-size': setAxisLabelFontSize,
       fill: textColor
     });
     setAxisLabel.textContent = 'Set Size';
