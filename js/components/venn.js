@@ -53,8 +53,9 @@
     showEmpty: false,
     showCounts: true,
     showSetCounts: true,
+    showGrid: true,
     dotSize: 5,
-    useSetColors: true,
+    useSetColors: false,
     barColor: '#2f2f2f',
     setBarColor: '#2f2f2f',
     dotColor: '#2f2f2f',
@@ -468,6 +469,7 @@
           showEmpty: null,
           showCounts: null,
           showSetCounts: null,
+          showGrid: null,
           dotSize: null,
           dotSizeVal: null,
           useSetColors: null,
@@ -518,6 +520,7 @@
         lastCounts: null,
         lastDrawMode: null,
         lastParsedLists: null,
+        lastTableSignature: null,
         lastGOResult: null,
         lastGOFormatted: [],
         lastGOOrganism: 'hsapiens',
@@ -950,6 +953,78 @@
     return values;
   }
 
+  function normalizeTableCellValue(value) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      return '';
+    }
+    return String(value).trim();
+  }
+
+  function getUpSetTableColumns() {
+    const hot = state.ui.hot;
+    if (!hot) {
+      return { columns: [], rowCount: 0, colCount: 0, source: 'none' };
+    }
+    let data = [];
+    let rowCount = 0;
+    let colCount = 0;
+    let isColumnExcluded = null;
+    let isRowExcluded = null;
+    if (Shared.hot && typeof Shared.hot.getAnalysisData === 'function') {
+      const analysis = Shared.hot.getAnalysisData(hot);
+      data = Array.isArray(analysis?.data) ? analysis.data : [];
+      rowCount = Number.isFinite(analysis?.rowCount) ? analysis.rowCount : data.length;
+      colCount = Number.isFinite(analysis?.colCount) ? analysis.colCount : (data[0]?.length || 0);
+      isColumnExcluded = analysis?.isColumnExcluded || null;
+      isRowExcluded = analysis?.isRowExcluded || null;
+    } else if (typeof hot.getData === 'function') {
+      data = hot.getData() || [];
+      rowCount = data.length;
+      colCount = (data[0] || []).length;
+    }
+    const columns = [];
+    for (let col = 0; col < colCount; col += 1) {
+      if (typeof isColumnExcluded === 'function' && isColumnExcluded(col)) {
+        continue;
+      }
+      const header = normalizeTableCellValue(data[0]?.[col]);
+      const values = [];
+      for (let row = 1; row < rowCount; row += 1) {
+        if (typeof isRowExcluded === 'function' && isRowExcluded(row)) {
+          continue;
+        }
+        const raw = data[row]?.[col];
+        if (raw === null || raw === undefined) {
+          continue;
+        }
+        const value = normalizeTableCellValue(raw);
+        if (value) {
+          values.push(value);
+        }
+      }
+      if (header || values.length) {
+        columns.push({ index: col, label: header, values });
+      }
+    }
+    columns.forEach(column => {
+      if (!column.label) {
+        column.label = `Set ${column.index + 1}`;
+      }
+    });
+    debugLog('upset table columns resolved', {
+      columns: columns.length,
+      rowCount,
+      colCount
+    });
+    return { columns, rowCount, colCount, source: 'table' };
+  }
+
   function tokenizeListForTable(value, mode) {
     const source = String(value || '').trim();
     if (!source) {
@@ -965,6 +1040,9 @@
       return;
     }
     const matrix = hot.getData?.() || [];
+    const tableSignature = makeTableSignature(matrix);
+    const tableChanged = tableSignature !== state.analysis.lastTableSignature;
+    state.analysis.lastTableSignature = tableSignature;
     const header = matrix[0] || [];
     const next = {
       labelA: String(header[0] || '').trim() || 'A',
@@ -974,7 +1052,7 @@
       listB: getColumnValuesFromTable(matrix, 1).join('\n'),
       listC: getColumnValuesFromTable(matrix, 2).join('\n')
     };
-    const changed = (
+    const inputsChanged = (
       inputs.labelA.value !== next.labelA
       || inputs.labelB.value !== next.labelB
       || inputs.labelC.value !== next.labelC
@@ -982,6 +1060,7 @@
       || inputs.B.value !== next.listB
       || inputs.C.value !== next.listC
     );
+    const changed = inputsChanged || tableChanged;
     inputs.labelA.value = next.labelA;
     inputs.labelB.value = next.labelB;
     inputs.labelC.value = next.labelC;
@@ -991,12 +1070,13 @@
     if (changed && options.scheduleDraw !== false) {
       requestScheduledDraw('table-edit', 'lists');
     }
-    if (changed && options.scheduleSpecies !== false) {
+    if (inputsChanged && options.scheduleSpecies !== false) {
       scheduleSpeciesRecognition('table-edit');
     }
     if (changed) {
       debugLog('table synced to inputs', {
         rows: matrix.length,
+        tableChanged,
         counts: {
           A: next.listA ? next.listA.split(/\n/).length : 0,
           B: next.listB ? next.listB.split(/\n/).length : 0,
@@ -1032,6 +1112,7 @@
     if (options.refresh !== false) {
       hot.refreshLayout?.();
     }
+    state.analysis.lastTableSignature = makeTableSignature(matrix);
     debugLog('inputs synced to table', { rows: matrix.length, delimiterMode });
   }
 
@@ -1076,6 +1157,22 @@
       sources.C.length,
       hashText(sources.C)
     ].join('|');
+  }
+
+  function makeTableSignature(matrix) {
+    if (!Array.isArray(matrix) || !matrix.length) {
+      return '0';
+    }
+    const rowCount = matrix.length;
+    const colCount = matrix.reduce((maxCols, row) => {
+      const length = Array.isArray(row) ? row.length : 0;
+      return Math.max(maxCols, length);
+    }, 0);
+    const flat = matrix.map(row => {
+      const rowValues = Array.isArray(row) ? row : [];
+      return Array.from({ length: colCount }, (_, col) => normalizeTableCellValue(rowValues[col])).join('\t');
+    }).join('\n');
+    return `${rowCount}|${colCount}|${hashText(flat)}`;
   }
 
   function buildMapsFromLists(lists) {
@@ -1467,6 +1564,7 @@
       showEmpty: ui.showEmpty ? !!ui.showEmpty.checked : defaults.showEmpty,
       showCounts: ui.showCounts ? !!ui.showCounts.checked : defaults.showCounts,
       showSetCounts: ui.showSetCounts ? !!ui.showSetCounts.checked : defaults.showSetCounts,
+      showGrid: ui.showGrid ? !!ui.showGrid.checked : defaults.showGrid,
       dotSize: clampNumber(ui.dotSize?.value, defaults.dotSize, 2, 12),
       useSetColors: ui.useSetColors ? !!ui.useSetColors.checked : defaults.useSetColors,
       barColor: sanitizeColor(ui.barColor?.value, defaults.barColor),
@@ -3083,7 +3181,78 @@
     return value.toLocaleString('en-US');
   }
 
-  function buildUpSetIntersections(counts, hasC) {
+  function getUpSetPalette() {
+    const palette = Shared.palette = Shared.palette || {};
+    if (typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function') {
+      try {
+        require('../shared/palette.js');
+      } catch (err) {
+        // ignore palette preload failures
+      }
+    }
+    const fallback = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999'];
+    const resolved = typeof palette.ensureDefaultScatterColors === 'function'
+      ? palette.ensureDefaultScatterColors()
+      : (Array.isArray(palette.DEFAULT_SCATTER_COLORS) && palette.DEFAULT_SCATTER_COLORS.length
+        ? palette.DEFAULT_SCATTER_COLORS
+        : fallback);
+    palette.DEFAULT_SCATTER_COLORS = resolved;
+    return resolved;
+  }
+
+  function indexToSetKey(index) {
+    if (Number.isInteger(index) && index >= 0 && index < 26) {
+      return String.fromCharCode(65 + index);
+    }
+    if (Number.isInteger(index) && index >= 0) {
+      return `S${index + 1}`;
+    }
+    return 'S';
+  }
+
+  function shouldUseLegacyIntersectionCodes(sets) {
+    if (!Array.isArray(sets) || sets.length > 3 || sets.length === 0) {
+      return false;
+    }
+    return sets.every((set, idx) => {
+      const expected = String.fromCharCode(65 + idx);
+      return set && typeof set.key === 'string' && set.key === expected;
+    });
+  }
+
+  function buildUpSetSetsFromColumns(columns, caseSensitive, style) {
+    const palette = getUpSetPalette();
+    return (columns || []).map((column, idx) => {
+      const values = Array.isArray(column?.values) ? column.values : [];
+      const uniqueKeys = new Set();
+      values.forEach(value => {
+        const normalized = String(value).trim();
+        if (!normalized) {
+          return;
+        }
+        const key = caseSensitive ? normalized : normalized.toLowerCase();
+        uniqueKeys.add(key);
+      });
+      let color = '#666666';
+      if (idx === 0 && style.colorA) color = style.colorA;
+      else if (idx === 1 && style.colorB) color = style.colorB;
+      else if (idx === 2 && style.colorC) color = style.colorC;
+      else if (palette.length) {
+        const paletteIndex = idx >= 3 ? (idx - 3) : idx;
+        color = palette[paletteIndex % palette.length];
+      }
+      return {
+        key: indexToSetKey(idx),
+        label: column?.label || `Set ${idx + 1}`,
+        size: uniqueKeys.size,
+        color,
+        keys: uniqueKeys,
+        sourceIndex: Number.isFinite(column?.index) ? column.index : idx
+      };
+    });
+  }
+
+  function buildUpSetIntersectionsFromCounts(counts, hasC) {
     const intersections = [
       { code: 'A', sets: ['A'], size: counts.Aonly },
       { code: 'B', sets: ['B'], size: counts.Bonly }
@@ -3103,7 +3272,102 @@
     }));
   }
 
-  function drawUpSet(counts, labels, style) {
+  function buildUpSetIntersectionsFromSets(sets, options = {}) {
+    const setCount = Array.isArray(sets) ? sets.length : 0;
+    if (!setCount) {
+      return [];
+    }
+    const membership = new Map();
+    sets.forEach((set, idx) => {
+      const keys = set?.keys instanceof Set ? set.keys : null;
+      if (!keys) return;
+      keys.forEach(key => {
+        const mask = membership.get(key) || 0n;
+        membership.set(key, mask | (1n << BigInt(idx)));
+      });
+    });
+    const intersectionMap = new Map();
+    membership.forEach(mask => {
+      if (mask === 0n) return;
+      const key = mask.toString();
+      const entry = intersectionMap.get(key) || { mask, size: 0 };
+      entry.size += 1;
+      intersectionMap.set(key, entry);
+    });
+
+    const showEmpty = options.showEmpty === true;
+    if (showEmpty) {
+      const maxEmptyCombos = Number.isFinite(options.maxEmptyCombos) ? options.maxEmptyCombos : 512;
+      if (setCount <= 20) {
+        const totalCombos = 1n << BigInt(setCount);
+        if (totalCombos - 1n <= BigInt(maxEmptyCombos)) {
+          for (let mask = 1n; mask < totalCombos; mask += 1n) {
+            const key = mask.toString();
+            if (!intersectionMap.has(key)) {
+              intersectionMap.set(key, { mask, size: 0 });
+            }
+          }
+        } else {
+          debugLog('upset showEmpty limited', {
+            setCount,
+            totalCombos: totalCombos.toString(),
+            maxEmptyCombos
+          });
+        }
+      } else {
+        debugLog('upset showEmpty skipped - too many sets', { setCount });
+      }
+    }
+
+    const useLegacyCodes = shouldUseLegacyIntersectionCodes(sets);
+    const intersections = [];
+    intersectionMap.forEach(entry => {
+      const activeKeys = [];
+      const activeLabels = [];
+      for (let idx = 0; idx < setCount; idx += 1) {
+        if ((entry.mask >> BigInt(idx)) & 1n) {
+          activeKeys.push(sets[idx].key);
+          activeLabels.push(sets[idx].label);
+        }
+      }
+      const code = useLegacyCodes ? activeKeys.join('') : activeKeys.join('&');
+      const label = activeLabels.join(' & ');
+      intersections.push({
+        code,
+        label,
+        sets: activeKeys,
+        size: entry.size,
+        degree: activeKeys.length,
+        mask: entry.mask.toString()
+      });
+    });
+    return intersections;
+  }
+
+  function resolveUpSetTableData(parsed, labels, style) {
+    const caseSensitive = parsed?.caseSensitive === true
+      || (state.ui.inputs?.caseSensitive?.checked === true);
+    const tableInfo = getUpSetTableColumns();
+    let columns = tableInfo.columns || [];
+    let source = tableInfo.source || 'table';
+    if (!columns.length) {
+      columns = [
+        { index: 0, label: labels.A, values: (parsed?.lists?.A || []).map(item => item.val || item.key) },
+        { index: 1, label: labels.B, values: (parsed?.lists?.B || []).map(item => item.val || item.key) },
+        { index: 2, label: labels.C, values: (parsed?.lists?.C || []).map(item => item.val || item.key) }
+      ];
+      source = 'lists';
+    }
+    const sets = buildUpSetSetsFromColumns(columns, caseSensitive, style);
+    debugLog('upset sets resolved', { source, setCount: sets.length });
+    return {
+      sets,
+      needsIntersectionBuild: true,
+      canSelectRegion: sets.length <= 3
+    };
+  }
+
+  function drawUpSet(counts, labels, style, options = {}) {
     const metrics = configureStage(style);
     if (!metrics) return;
     const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
@@ -3119,19 +3383,33 @@
     const topPadding = Math.max(titlePadding, style.fontSizePx * 2.6 + 8);
 
     const settings = { ...DEFAULT_UPSET_SETTINGS, ...resolveUpSetSettings(), ...(style.upset || {}) };
-    const hasC = !!(counts.nC || counts.AC || counts.BC || counts.ABC);
-    const sets = [
-      { key: 'A', label: labels.A, size: counts.nA, color: style.colorA },
-      { key: 'B', label: labels.B, size: counts.nB, color: style.colorB }
-    ];
-    if (hasC) {
-      sets.push({ key: 'C', label: labels.C, size: counts.nC, color: style.colorC });
+    const upsetData = options?.upsetData || null;
+    let sets = [];
+    let allIntersections = [];
+    let canSelectRegion = true;
+    if (upsetData && Array.isArray(upsetData.sets) && upsetData.sets.length) {
+      sets = upsetData.sets;
+      canSelectRegion = upsetData.canSelectRegion !== false;
+      if (upsetData.needsIntersectionBuild) {
+        allIntersections = buildUpSetIntersectionsFromSets(sets, { showEmpty: settings.showEmpty });
+      } else if (Array.isArray(upsetData.intersections)) {
+        allIntersections = upsetData.intersections.slice();
+      }
+    } else {
+      const hasC = !!(counts.nC || counts.AC || counts.BC || counts.ABC);
+      sets = [
+        { key: 'A', label: labels.A, size: counts.nA, color: style.colorA },
+        { key: 'B', label: labels.B, size: counts.nB, color: style.colorB }
+      ];
+      if (hasC) {
+        sets.push({ key: 'C', label: labels.C, size: counts.nC, color: style.colorC });
+      }
+      allIntersections = buildUpSetIntersectionsFromCounts(counts, hasC);
     }
-
-    const allIntersections = buildUpSetIntersections(counts, hasC);
-    let intersections = settings.showEmpty
-      ? allIntersections.slice()
-      : allIntersections.filter(entry => entry.size > 0);
+    let intersections = allIntersections.slice();
+    if (!(upsetData && upsetData.needsIntersectionBuild) && !settings.showEmpty) {
+      intersections = allIntersections.filter(entry => entry.size > 0);
+    }
 
     if (!intersections.length) {
       const emptyText = makeEl('text', {
@@ -3163,7 +3441,13 @@
       limited = intersections.slice(0, maxIntersections);
     }
 
-    const selectedRegion = state.ui.regionSelect?.value || '';
+    const regionSelect = canSelectRegion ? state.ui.regionSelect : null;
+    const regionOptions = regionSelect
+      ? new Set(Array.from(regionSelect.options || []).map(option => option.value))
+      : null;
+    const selectedRegion = regionSelect && regionOptions?.has(regionSelect.value)
+      ? regionSelect.value
+      : '';
     if (selectedRegion) {
       const selectedEntry = allIntersections.find(entry => entry.code === selectedRegion);
       if (selectedEntry && !limited.some(entry => entry.code === selectedRegion)) {
@@ -3197,7 +3481,7 @@
     const matrixTop = barBottom + gap;
     const matrixBottom = matrixTop + matrixHeight;
     const axisY = Math.min(stageHeight - pad, matrixBottom + setAxisHeight * 0.35);
-    const setAxisLabelY = Math.min(stageHeight - pad * 0.4, matrixBottom + setAxisHeight * 0.9);
+    const setAxisLabelBaseY = Math.min(stageHeight - pad * 0.4, matrixBottom + setAxisHeight * 0.9);
 
     const contentWidth = Math.max(stageWidth - pad * 2, style.fontSizePx * 12);
     const labelFont = `${Math.round(style.fontSizePx * 0.9)}px ${fontFamily}`;
@@ -3243,10 +3527,28 @@
     const labelX = setBarX + barAreaWidth + barLabelGap;
     const matrixX = labelX + labelAreaWidth + gap;
 
-    const axisColor = style.borderColor || '#222';
-    const axisWidth = Math.max(0.8, Number(style.borderWidth) || 1);
+    const axisColor = chartStyle.TEXT_COLOR || '#000000';
+    const axisMetrics = typeof chartStyle.createAxisMetrics === 'function'
+      ? chartStyle.createAxisMetrics(style.fontSizePx)
+      : {
+          tickLength: 6,
+          tickLabelGap: Math.max(3, Math.round(style.fontSizePx * 0.35)),
+          axisTitleGap: Math.max(4, Math.round(style.fontSizePx * 0.75))
+        };
+    const tickLength = axisMetrics.tickLength ?? 6;
+    const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(style.fontSizePx * 0.35));
+    const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(style.fontSizePx * 0.75));
+    const axisWidth = typeof chartStyle.scaleStrokeWidth === 'function'
+      ? chartStyle.scaleStrokeWidth(1, style.scaleInfo, { min: 0.6, max: 2.5, context: 'upset-axis' })
+      : 1;
+    const setTickExtraGap = Math.max(6, Math.round(style.fontSizePx * 0.4));
+    const setTickLabelY = Math.min(stageHeight - pad * 0.2, axisY + tickLength + tickLabelGap + setTickExtraGap);
+    const setAxisLabelY = Math.min(
+      stageHeight - 4,
+      Math.max(setAxisLabelBaseY, setTickLabelY + axisTitleGap + style.fontSizePx * 0.25)
+    );
 
-    if (settings.gridColor) {
+    if (settings.showGrid && settings.gridColor) {
       sets.forEach((set, idx) => {
         if (idx % 2 === 1) {
           makeEl('rect', {
@@ -3266,7 +3568,7 @@
     const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => Math.round(maxIntersection * i / tickCount));
     const tickLabels = tickValues.map(v => formatCount(v));
     const maxTickLabelWidth = Math.max(...tickLabels.map(lbl => measure(lbl, countFont)), 0);
-    const axisX = matrixX - Math.max(8, maxTickLabelWidth * 0.1);
+    const axisX = Math.max(pad + 6, matrixX - (tickLength + tickLabelGap + maxTickLabelWidth + 6));
 
     makeEl('line', {
       x1: axisX,
@@ -3282,12 +3584,12 @@
       makeEl('line', {
         x1: axisX,
         y1: y,
-        x2: axisX + 4,
+        x2: axisX - tickLength,
         y2: y,
         stroke: axisColor,
         'stroke-width': axisWidth
       });
-      if (settings.gridColor) {
+      if (settings.showGrid && settings.gridColor) {
         makeEl('line', {
           x1: matrixX,
           y1: y,
@@ -3298,7 +3600,7 @@
         });
       }
       const tickText = makeEl('text', {
-        x: axisX - 6,
+        x: axisX - tickLength - tickLabelGap,
         y,
         'text-anchor': 'end',
         'dominant-baseline': 'middle',
@@ -3308,7 +3610,10 @@
       tickText.textContent = tickLabels[idx];
     });
 
-    const axisLabelX = axisX - Math.max(maxTickLabelWidth + 18, style.fontSizePx * 1.2);
+    const axisLabelX = Math.max(
+      pad * 0.5,
+      axisX - (tickLength + tickLabelGap + maxTickLabelWidth + axisTitleGap + style.fontSizePx * 0.2)
+    );
     const intersectionAxisLabelY = barTop + barChartHeight / 2;
     const axisLabel = makeEl('text', {
       x: axisLabelX,
@@ -3327,6 +3632,7 @@
       const barX = columnCenter - barWidth / 2;
       const barY = barBottom - barHeight;
       const isSelected = entry.code === selectedRegion;
+      const canSelectEntry = !!(regionOptions && regionOptions.has(entry.code));
       if (isSelected) {
         makeEl('rect', {
           x: columnCenter - columnWidth / 2,
@@ -3346,18 +3652,21 @@
         'fill-opacity': style.opacity,
         stroke: axisColor,
         'stroke-width': Math.max(0.5, axisWidth * 0.75),
-        cursor: 'pointer'
+        cursor: canSelectEntry ? 'pointer' : 'default'
       });
       const barTitle = document.createElementNS(NS, 'title');
-      barTitle.textContent = `${entry.code}: ${formatCount(entry.size)}`;
+      const entryLabel = entry.label || entry.code;
+      barTitle.textContent = `${entryLabel}: ${formatCount(entry.size)}`;
       bar.appendChild(barTitle);
-      bar.addEventListener('click', () => {
-        if (state.ui.regionSelect) {
-          state.ui.regionSelect.value = entry.code;
-          populateRegion(entry.code);
-          syncActiveVennPayload('venn-upset-select');
-        }
-      });
+      if (canSelectEntry) {
+        bar.addEventListener('click', () => {
+          if (state.ui.regionSelect) {
+            state.ui.regionSelect.value = entry.code;
+            populateRegion(entry.code);
+            syncActiveVennPayload('venn-upset-select');
+          }
+        });
+      }
       if (settings.showCounts) {
         const valueText = makeEl('text', {
           x: columnCenter,
@@ -3375,16 +3684,24 @@
         if (rowIndex >= 0) activeIndices.push(rowIndex);
       });
       if (activeIndices.length > 1) {
-        const y1 = matrixTop + activeIndices[0] * rowHeight + rowHeight / 2;
-        const y2 = matrixTop + activeIndices[activeIndices.length - 1] * rowHeight + rowHeight / 2;
-        makeEl('line', {
-          x1: columnCenter,
-          y1,
-          x2: columnCenter,
-          y2,
-          stroke: settings.connectorColor,
-          'stroke-width': Math.max(1, axisWidth * 0.9)
-        });
+        for (let idx = 0; idx < activeIndices.length - 1; idx += 1) {
+          const topIndex = activeIndices[idx];
+          const bottomIndex = activeIndices[idx + 1];
+          const y1 = matrixTop + topIndex * rowHeight + rowHeight / 2;
+          const y2 = matrixTop + bottomIndex * rowHeight + rowHeight / 2;
+          const segmentColor = settings.useSetColors
+            ? (sets[topIndex]?.color || settings.dotColor)
+            : settings.dotColor;
+          makeEl('line', {
+            x1: columnCenter,
+            y1,
+            x2: columnCenter,
+            y2,
+            stroke: segmentColor,
+            'stroke-width': Math.max(1, axisWidth * 0.9),
+            'stroke-opacity': style.opacity
+          });
+        }
       }
 
       sets.forEach((set, rowIdx) => {
@@ -3397,7 +3714,7 @@
           fill: dotColor,
           'fill-opacity': isActive ? style.opacity : 1
         });
-        if (isActive) {
+        if (isActive && canSelectEntry) {
           dot.setAttribute('cursor', 'pointer');
           dot.addEventListener('click', () => {
             if (state.ui.regionSelect) {
@@ -3467,13 +3784,13 @@
         x1: x,
         y1: axisY,
         x2: x,
-        y2: axisY + 4,
+        y2: axisY + tickLength,
         stroke: axisColor,
         'stroke-width': axisWidth
       });
       const tickText = makeEl('text', {
         x,
-        y: setAxisLabelY,
+        y: setTickLabelY,
         'text-anchor': 'middle',
         'font-size': Math.round(style.fontSizePx * 0.75),
         fill: textColor
@@ -3483,7 +3800,7 @@
 
     const setAxisLabel = makeEl('text', {
       x: setBarX + barAreaWidth / 2,
-      y: Math.min(stageHeight - 4, setAxisLabelY + style.fontSizePx * 0.7),
+      y: setAxisLabelY,
       'text-anchor': 'middle',
       'font-size': Math.round(style.fontSizePx * 0.85),
       fill: textColor
@@ -3562,7 +3879,8 @@
     const plotType = getActivePlotType();
     if (plotType === 'upset') {
       style.upset = resolveUpSetSettings();
-      drawUpSet(counts, labels, style);
+      const upsetData = resolveUpSetTableData(parsed, labels, style);
+      drawUpSet(counts, labels, style, { upsetData });
     } else {
       const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
       const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
@@ -3760,8 +4078,19 @@
           if (state.ui.upset.showEmpty) state.ui.upset.showEmpty.checked = !!upset.showEmpty;
           if (state.ui.upset.showCounts) state.ui.upset.showCounts.checked = upset.showCounts !== false;
           if (state.ui.upset.showSetCounts) state.ui.upset.showSetCounts.checked = upset.showSetCounts !== false;
+          if (state.ui.upset.showGrid) {
+            const showGrid = Object.prototype.hasOwnProperty.call(upset, 'showGrid')
+              ? !!upset.showGrid
+              : DEFAULT_UPSET_SETTINGS.showGrid;
+            state.ui.upset.showGrid.checked = showGrid;
+          }
           if (state.ui.upset.dotSize) state.ui.upset.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
-          if (state.ui.upset.useSetColors) state.ui.upset.useSetColors.checked = upset.useSetColors !== false;
+          if (state.ui.upset.useSetColors) {
+            const useSetColors = Object.prototype.hasOwnProperty.call(upset, 'useSetColors')
+              ? !!upset.useSetColors
+              : DEFAULT_UPSET_SETTINGS.useSetColors;
+            state.ui.upset.useSetColors.checked = useSetColors;
+          }
           if (state.ui.upset.barColor) state.ui.upset.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
           if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
           if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
@@ -3777,10 +4106,11 @@
         }
       }
       if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
-        const fontInfo = resolveFontInfo(inputs.fontsize.value);
-        inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-        debug('Debug: venn loadStylePrefs font default', { fontInfo });
+        if (inputs.fontsize?.dataset) {
+          inputs.fontsize.dataset.fontBasePt = String(inputs.fontsize.value || chartStyle.BASE_FONT_SIZE_PT || 13);
+        }
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: Number(inputs.fontsize.value), input: inputs.fontsize, manual: true });
+        debug('Debug: venn loadStylePrefs font default', { fontSize: inputs.fontsize.value });
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
       inputs.borderWidthVal.textContent = inputs.borderWidth.value;
@@ -4099,9 +4429,20 @@
       if (state.ui.upset.showEmpty) state.ui.upset.showEmpty.checked = !!upset.showEmpty;
       if (state.ui.upset.showCounts) state.ui.upset.showCounts.checked = upset.showCounts !== false;
       if (state.ui.upset.showSetCounts) state.ui.upset.showSetCounts.checked = upset.showSetCounts !== false;
+      if (state.ui.upset.showGrid) {
+        const showGrid = Object.prototype.hasOwnProperty.call(upset, 'showGrid')
+          ? !!upset.showGrid
+          : DEFAULT_UPSET_SETTINGS.showGrid;
+        state.ui.upset.showGrid.checked = showGrid;
+      }
       if (state.ui.upset.dotSize) state.ui.upset.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
       updateUpSetDotSizeOutput(state.ui.upset.dotSize?.value);
-      if (state.ui.upset.useSetColors) state.ui.upset.useSetColors.checked = upset.useSetColors !== false;
+      if (state.ui.upset.useSetColors) {
+        const useSetColors = Object.prototype.hasOwnProperty.call(upset, 'useSetColors')
+          ? !!upset.useSetColors
+          : DEFAULT_UPSET_SETTINGS.useSetColors;
+        state.ui.upset.useSetColors.checked = useSetColors;
+      }
       if (state.ui.upset.barColor) state.ui.upset.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
       if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
       if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
@@ -4619,6 +4960,10 @@
     data[0][0] = 'A';
     data[0][1] = 'B';
     data[0][2] = 'C';
+    const handleTableStructureChange = (label) => {
+      syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
+      debugLog('venn table structure change', { label });
+    };
     state.ui.hot = Shared.hot.createStandardTable(container, { rows: 20, cols: 3 }, () => {}, {
       debugLabel: 'venn',
       data,
@@ -4629,6 +4974,23 @@
             return;
           }
           syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
+        },
+        afterCreateCol() {
+          handleTableStructureChange('afterCreateCol');
+        },
+        afterRemoveCol() {
+          handleTableStructureChange('afterRemoveCol');
+        },
+        afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged) {
+          if (orderChanged) {
+            handleTableStructureChange('afterColumnMove');
+          }
+        },
+        afterCreateRow() {
+          handleTableStructureChange('afterCreateRow');
+        },
+        afterRemoveRow() {
+          handleTableStructureChange('afterRemoveRow');
         }
       }
     });
@@ -4653,6 +5015,7 @@
       { elements: state.ui.upset?.showEmpty, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-empty' },
       { elements: state.ui.upset?.showCounts, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-counts' },
       { elements: state.ui.upset?.showSetCounts, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-set-counts' },
+      { elements: state.ui.upset?.showGrid, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-grid' },
       { elements: state.ui.upset?.dotSize, type: 'input', handler: handleUpSetDotSizeInput, label: 'upset-dot-size' },
       { elements: state.ui.upset?.useSetColors, type: 'change', handler: handleUpSetControlChange, label: 'upset-use-set-colors' },
       { elements: [state.ui.upset?.barColor, state.ui.upset?.setBarColor, state.ui.upset?.dotColor, state.ui.upset?.inactiveDotColor, state.ui.upset?.connectorColor, state.ui.upset?.gridColor], type: 'input', handler: handleUpSetControlChange, label: 'upset-colors' },
@@ -4698,6 +5061,7 @@
       attachUndoLifecycle(state.ui.upset.showEmpty, 'venn:upset-show-empty');
       attachUndoLifecycle(state.ui.upset.showCounts, 'venn:upset-show-counts');
       attachUndoLifecycle(state.ui.upset.showSetCounts, 'venn:upset-show-set-counts');
+      attachUndoLifecycle(state.ui.upset.showGrid, 'venn:upset-show-grid');
       attachUndoLifecycle(state.ui.upset.dotSize, 'venn:upset-dot-size');
       attachUndoLifecycle(state.ui.upset.useSetColors, 'venn:upset-use-set-colors');
       attachUndoLifecycle(state.ui.upset.barColor, 'venn:upset-bar-color');
@@ -4815,6 +5179,7 @@
       showEmpty: $('#upsetShowEmpty'),
       showCounts: $('#upsetShowCounts'),
       showSetCounts: $('#upsetShowSetCounts'),
+      showGrid: $('#upsetShowGrid'),
       dotSize: $('#upsetDotSize'),
       dotSizeVal: $('#upsetDotSizeVal'),
       useSetColors: $('#upsetUseSetColors'),
