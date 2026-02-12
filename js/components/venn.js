@@ -3580,9 +3580,6 @@
     const regionOptions = regionSelect
       ? new Set(Array.from(regionSelect.options || []).map(option => option.value))
       : null;
-    const selectedRegion = regionSelect && regionOptions?.has(regionSelect.value)
-      ? regionSelect.value
-      : '';
 
     const pad = 20;
     const gap = Math.max(style.fontSizePx * 0.8, 12);
@@ -3670,6 +3667,8 @@
     const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
     const setTickFontSize = axisTickFontSize;
     const setAxisLabelFontSize = axisLabelFontSize;
+    const setTickBaselineDy = '0.8em';
+    const setAxisLabelBaselineDy = '0.8em';
     const setTickOffset = Math.max(1, Math.round(style.fontSizePx * 0.08));
     const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.45));
     const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
@@ -3783,18 +3782,7 @@
       const barHeight = (entry.size / maxIntersection) * barChartHeight;
       const barX = columnCenter - barWidth / 2;
       const barY = barBottom - barHeight;
-      const isSelected = entry.code === selectedRegion;
       const canSelectEntry = !!(regionOptions && regionOptions.has(entry.code));
-      if (isSelected) {
-        makeEl('rect', {
-          x: columnCenter - columnWidth / 2,
-          y: barTop,
-          width: columnWidth,
-          height: matrixBottom - barTop,
-          fill: settings.gridColor || '#cbd5f5',
-          'fill-opacity': 0.18
-        });
-      }
       const bar = makeEl('rect', {
         x: barX,
         y: barY,
@@ -3960,7 +3948,7 @@
         x,
         y: setTickLabelY,
         'text-anchor': 'middle',
-        'dominant-baseline': 'text-before-edge',
+        dy: setTickBaselineDy,
         'font-size': setTickFontSize,
         fill: textColor
       });
@@ -3971,7 +3959,7 @@
       x: setBarX + barAreaWidth / 2,
       y: setAxisLabelY,
       'text-anchor': 'middle',
-      'dominant-baseline': 'text-before-edge',
+      dy: setAxisLabelBaselineDy,
       'font-size': setAxisLabelFontSize,
       fill: textColor
     });
