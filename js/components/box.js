@@ -5,6 +5,7 @@
   const box = Components.box = Components.box || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -157,6 +158,12 @@
   const BROKEN_AXIS_BREAK_WIDTH = 8;
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
   const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
+  const DEFAULT_AXIS_ADDITIONAL_TICK = Object.freeze({
+    value: 0,
+    showTick: true,
+    showLine: false,
+    label: ''
+  });
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
@@ -2794,9 +2801,49 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
+  }
+
+  function sanitizeAxisAdditionalTickEntry(entry){
+    if(axisExtras && typeof axisExtras.sanitizeEntry === 'function'){
+      return axisExtras.sanitizeEntry(entry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    if(!entry || typeof entry !== 'object'){
+      return null;
+    }
+    const rawValue = entry.value ?? entry.at ?? entry.position ?? entry.y ?? entry.x;
+    const value = Number(rawValue);
+    if(!Number.isFinite(value)){
+      return null;
+    }
+    const showTick = entry.showTick !== undefined ? !!entry.showTick : (entry.tick !== undefined ? !!entry.tick : true);
+    const showLine = entry.showLine !== undefined ? !!entry.showLine : (entry.line !== undefined ? !!entry.line : false);
+    let label = '';
+    if(entry.label !== undefined && entry.label !== null){
+      label = String(entry.label);
+    }else if(entry.text !== undefined && entry.text !== null){
+      label = String(entry.text);
+    }
+    return {
+      value,
+      showTick,
+      showLine,
+      label
+    };
+  }
+
+  function sanitizeAxisAdditionalTicksList(entries){
+    if(axisExtras && typeof axisExtras.sanitizeEntries === 'function'){
+      return axisExtras.sanitizeEntries(entries, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    if(!Array.isArray(entries)){
+      return [];
+    }
+    return entries
+      .map(entry => sanitizeAxisAdditionalTickEntry(entry))
+      .filter(entry => !!entry);
   }
 
   function sanitizeBoxAxisNotation(value){
@@ -5060,8 +5107,8 @@
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
     if(typeof settings.x.minorTicks !== 'boolean'){ settings.x.minorTicks = false; }
@@ -5070,6 +5117,8 @@
     settings.y.minorTickSubdivisions = clampMinorTickSubdivisions(settings.y.minorTickSubdivisions);
     settings.x.notation = sanitizeBoxAxisNotation(settings.x.notation);
     settings.y.notation = sanitizeBoxAxisNotation(settings.y.notation);
+    settings.x.additionalTicks = sanitizeAxisAdditionalTicksList(settings.x.additionalTicks);
+    settings.y.additionalTicks = sanitizeAxisAdditionalTicksList(settings.y.additionalTicks);
     // Ensure broken axis settings for y-axis
     if(!settings.y.brokenAxis || typeof settings.y.brokenAxis !== 'object'){
       settings.y.brokenAxis = { enabled: false, segments: [] };
@@ -5268,6 +5317,107 @@
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
+  }
+
+  function getAxisAdditionalTicks(axis){
+    if(axis !== 'x' && axis !== 'y'){
+      return [];
+    }
+    const settings = ensureAxisSettings();
+    if(axisExtras && typeof axisExtras.getEntries === 'function'){
+      return axisExtras.getEntries(settings, axis, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    return sanitizeAxisAdditionalTicksList(settings[axis]?.additionalTicks);
+  }
+
+  function updateAxisAdditionalTicks(axis, entries){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureAxisSettings();
+    if(axisExtras && typeof axisExtras.setEntries === 'function'){
+      axisExtras.setEntries(settings, axis, entries, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }else{
+      settings[axis].additionalTicks = sanitizeAxisAdditionalTicksList(entries);
+    }
+    boxDebug('Debug: box axis additional ticks updated', {
+      axis,
+      count: settings[axis].additionalTicks.length
+    });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function updateAxisAdditionalTick(axis, index, entry){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureAxisSettings();
+    if(axisExtras && typeof axisExtras.updateEntry === 'function'){
+      const updated = axisExtras.updateEntry(settings, axis, index, entry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      if(!updated){
+        return;
+      }
+      updateAxisAdditionalTicks(axis, settings[axis].additionalTicks);
+      return;
+    }
+    const entries = sanitizeAxisAdditionalTicksList(settings[axis].additionalTicks);
+    if(!Number.isInteger(index) || index < 0 || index >= entries.length){
+      return;
+    }
+    const sanitized = sanitizeAxisAdditionalTickEntry(entry);
+    if(!sanitized){
+      return;
+    }
+    entries[index] = sanitized;
+    updateAxisAdditionalTicks(axis, entries);
+  }
+
+  function addAxisAdditionalTick(axis){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureAxisSettings();
+    if(axisExtras && typeof axisExtras.addEntry === 'function'){
+      const added = axisExtras.addEntry(settings, axis, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK, increment: 1 });
+      if(!added){
+        return;
+      }
+      updateAxisAdditionalTicks(axis, settings[axis].additionalTicks);
+      return;
+    }
+    const entries = sanitizeAxisAdditionalTicksList(settings[axis].additionalTicks);
+    const last = entries.length ? entries[entries.length - 1] : null;
+    const suggestedValue = Number.isFinite(last?.value) ? Number(last.value) + 1 : DEFAULT_AXIS_ADDITIONAL_TICK.value;
+    entries.push({
+      value: suggestedValue,
+      showTick: DEFAULT_AXIS_ADDITIONAL_TICK.showTick,
+      showLine: DEFAULT_AXIS_ADDITIONAL_TICK.showLine,
+      label: DEFAULT_AXIS_ADDITIONAL_TICK.label
+    });
+    updateAxisAdditionalTicks(axis, entries);
+  }
+
+  function removeAxisAdditionalTick(axis, index){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureAxisSettings();
+    if(axisExtras && typeof axisExtras.removeEntry === 'function'){
+      const removed = axisExtras.removeEntry(settings, axis, index, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      if(!removed){
+        return;
+      }
+      updateAxisAdditionalTicks(axis, settings[axis].additionalTicks);
+      return;
+    }
+    const entries = sanitizeAxisAdditionalTicksList(settings[axis].additionalTicks);
+    if(!Number.isInteger(index) || index < 0 || index >= entries.length){
+      return;
+    }
+    entries.splice(index, 1);
+    updateAxisAdditionalTicks(axis, entries);
   }
 
   function getAxisColor(){
@@ -12385,6 +12535,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           updateAxisNotation(axis, value);
         },
         isNotationSupported: () => isAxisNumeric(axis),
+        isAdditionalTicksSupported: () => isAxisNumeric(axis),
+        getAdditionalTicks: () => getAxisAdditionalTicks(axis),
+        onAdditionalTickChange: (axisName, index, entry) => updateAxisAdditionalTick(axisName, index, entry),
+        onAdditionalTickAdd: axisName => addAxisAdditionalTick(axisName),
+        onAdditionalTickRemove: (axisName, index) => removeAxisAdditionalTick(axisName, index),
         isBrokenAxisSupported: () => axis === 'y',
         getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
         onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
@@ -12775,6 +12930,70 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         markFontEditable(txt,'yTick');
         yTickFontCount += 1;
       });
+      const additionalYTicks = getAxisAdditionalTicks('y');
+      if(additionalYTicks.length){
+        const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
+          ? axisExtras.renderLinearExtras
+          : null;
+        if(renderExtras){
+          renderExtras({
+            entries: additionalYTicks,
+            logScale,
+            axisMin: yScale.min,
+            axisMax: yScale.max,
+            majorTicks: yScale.ticks,
+            showGrid,
+            isValueVisible: value => isYValueVisible(value),
+            toPixel: value => y2px(value),
+            onSkip: ({ reason, index, entry }) => {
+              boxDebug('Debug: box additional axis tick skipped', {
+                axis: 'y',
+                index,
+                reason,
+                value: entry?.value,
+                min: yScale.min,
+                max: yScale.max,
+                logScale
+              });
+            },
+            onLine: ({ pixel }) => {
+              addGrid('line',{
+                x1: yAxisX,
+                y1: pixel,
+                x2: yAxisX + plotWLocal,
+                y2: pixel,
+                stroke: axisStroke,
+                'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
+                'stroke-dasharray': '4 3',
+                opacity: 0.5
+              });
+            },
+            onTick: ({ pixel }) => {
+              addAxisElement('line',{
+                x1: yAxisX - tickLen,
+                y1: pixel,
+                x2: yAxisX,
+                y2: pixel,
+                stroke: axisStroke,
+                'stroke-width': axisStrokeWidth
+              });
+            },
+            onLabel: ({ pixel, label }) => {
+              const txt = addAxisElement('text',{
+                x: yAxisX - (tickLen + tickGap),
+                y: pixel,
+                'font-size': fs,
+                'text-anchor': 'end',
+                'dominant-baseline': 'middle',
+                fill: chartStyle.TEXT_COLOR
+              });
+              txt.textContent = label;
+              markFontEditable(txt,'yTick');
+              yTickFontCount += 1;
+            }
+          });
+        }
+      }
       const xTickPositions = separatedSpacing
         ? separatedSpacing.centers.slice()
         : axisLabels.map((_, i) => marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2);
@@ -14026,6 +14245,68 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
       });
+      const additionalXTicks = getAxisAdditionalTicks('x');
+      if(additionalXTicks.length){
+        const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
+          ? axisExtras.renderLinearExtras
+          : null;
+        if(renderExtras){
+          renderExtras({
+            entries: additionalXTicks,
+            logScale,
+            axisMin: yScale.min,
+            axisMax: yScale.max,
+            majorTicks: yScale.ticks,
+            showGrid,
+            toPixel: value => valueToX(value),
+            onSkip: ({ reason, index, entry }) => {
+              boxDebug('Debug: box additional axis tick skipped', {
+                axis: 'x',
+                index,
+                reason,
+                value: entry?.value,
+                min: yScale.min,
+                max: yScale.max,
+                logScale
+              });
+            },
+            onLine: ({ pixel }) => {
+              addGrid('line',{
+                x1: pixel,
+                y1: marginLocal.top,
+                x2: pixel,
+                y2: xAxisBottom,
+                stroke: axisStroke,
+                'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
+                'stroke-dasharray': '4 3',
+                opacity: 0.5
+              });
+            },
+            onTick: ({ pixel }) => {
+              addAxisElement('line',{
+                x1: pixel,
+                y1: xAxisBottom,
+                x2: pixel,
+                y2: xAxisBottom + tickLen,
+                stroke: axisStroke,
+                'stroke-width': axisStrokeWidth
+              });
+            },
+            onLabel: ({ pixel, label }) => {
+              const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+              const txt = addAxisElement('text',{
+                x: pixel,
+                y: xAxisBottom + tickLen + tickGap + extra + Math.max(2, fs * 0.85),
+                'font-size': fs,
+                'text-anchor': 'middle',
+                fill: chartStyle.TEXT_COLOR
+              });
+              txt.textContent = label;
+              Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
+            }
+          });
+        }
+      }
       const xAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
@@ -14924,6 +15205,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             x: axisSnapshot.x?.notation ?? 'decimal',
             y: axisSnapshot.y?.notation ?? 'decimal'
           },
+          additionalTicks: {
+            x: sanitizeAxisAdditionalTicksList(axisSnapshot.x?.additionalTicks),
+            y: sanitizeAxisAdditionalTicksList(axisSnapshot.y?.additionalTicks)
+          },
           brokenAxis: {
             y: {
               enabled: axisSnapshot.y?.brokenAxis?.enabled ?? false,
@@ -14970,7 +15255,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       violinBandwidth: payload.config.violin?.bandwidth,
       violinSamples: payload.config.violin?.sampleCount,
       whiskerRule: payload.config.whisker?.rule,
-      whiskerMultiplier: payload.config.whisker?.customMultiplier
+      whiskerMultiplier: payload.config.whisker?.customMultiplier,
+      additionalTicksX: payload.config.axis?.additionalTicks?.x?.length || 0,
+      additionalTicksY: payload.config.axis?.additionalTicks?.y?.length || 0
     });
     return payload;
   }
@@ -15287,6 +15574,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         axisState.x.minorTickSubdivisions = clampMinorTickSubdivisions(axisState.x.minorTickSubdivisions);
         axisState.y.minorTickSubdivisions = clampMinorTickSubdivisions(axisState.y.minorTickSubdivisions);
       }
+      if(axisCfg.additionalTicks !== undefined){
+        if(Array.isArray(axisCfg.additionalTicks)){
+          axisState.x.additionalTicks = sanitizeAxisAdditionalTicksList(axisCfg.additionalTicksX);
+          axisState.y.additionalTicks = sanitizeAxisAdditionalTicksList(axisCfg.additionalTicksY ?? axisCfg.additionalTicks);
+        }else{
+          axisState.x.additionalTicks = sanitizeAxisAdditionalTicksList(
+            axisCfg.additionalTicks.x ?? axisCfg.additionalTicksX
+          );
+          axisState.y.additionalTicks = sanitizeAxisAdditionalTicksList(
+            axisCfg.additionalTicks.y ?? axisCfg.additionalTicksY
+          );
+        }
+      }else{
+        axisState.x.additionalTicks = sanitizeAxisAdditionalTicksList(axisState.x.additionalTicks);
+        axisState.y.additionalTicks = sanitizeAxisAdditionalTicksList(axisState.y.additionalTicks);
+      }
       
       // Restore notation settings
       if(axisCfg.notation){
@@ -15312,6 +15615,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         color: axisState.color,
         tickIntervalX: axisState.x.tickInterval,
         tickIntervalY: axisState.y.tickInterval,
+        additionalTicksX: axisState.x?.additionalTicks?.length || 0,
+        additionalTicksY: axisState.y?.additionalTicks?.length || 0,
         brokenAxisEnabled: axisState.y?.brokenAxis?.enabled,
         segmentCount: axisState.y?.brokenAxis?.segments?.length || 0
       });

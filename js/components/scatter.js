@@ -14,6 +14,7 @@
     }
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
@@ -336,6 +337,12 @@
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
+  const DEFAULT_AXIS_ADDITIONAL_TICK = Object.freeze({
+    value: 0,
+    showTick: true,
+    showLine: false,
+    label: ''
+  });
 
   function clampMinorTickSubdivisions(value){
     const numeric = Number(value);
@@ -344,6 +351,46 @@
     }
     const rounded = Math.round(numeric);
     return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
+
+  function sanitizeScatterAxisAdditionalTickEntry(entry){
+    if(axisExtras && typeof axisExtras.sanitizeEntry === 'function'){
+      return axisExtras.sanitizeEntry(entry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    if(!entry || typeof entry !== 'object'){
+      return null;
+    }
+    const rawValue = entry.value ?? entry.at ?? entry.position ?? entry.y ?? entry.x;
+    const value = Number(rawValue);
+    if(!Number.isFinite(value)){
+      return null;
+    }
+    const showTick = entry.showTick !== undefined ? !!entry.showTick : (entry.tick !== undefined ? !!entry.tick : DEFAULT_AXIS_ADDITIONAL_TICK.showTick);
+    const showLine = entry.showLine !== undefined ? !!entry.showLine : (entry.line !== undefined ? !!entry.line : DEFAULT_AXIS_ADDITIONAL_TICK.showLine);
+    let label = DEFAULT_AXIS_ADDITIONAL_TICK.label;
+    if(entry.label !== undefined && entry.label !== null){
+      label = String(entry.label);
+    }else if(entry.text !== undefined && entry.text !== null){
+      label = String(entry.text);
+    }
+    return {
+      value,
+      showTick,
+      showLine,
+      label
+    };
+  }
+
+  function sanitizeScatterAxisAdditionalTicks(entries){
+    if(axisExtras && typeof axisExtras.sanitizeEntries === 'function'){
+      return axisExtras.sanitizeEntries(entries, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    if(!Array.isArray(entries)){
+      return [];
+    }
+    return entries
+      .map(entry => sanitizeScatterAxisAdditionalTickEntry(entry))
+      .filter(entry => !!entry);
   }
 
   const scatterRefs = {};
@@ -3609,8 +3656,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -3626,10 +3673,10 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
@@ -3664,6 +3711,8 @@
     }
     scatterAxisSettings.x.notation = sanitizeScatterAxisNotation(scatterAxisSettings.x.notation);
     scatterAxisSettings.y.notation = sanitizeScatterAxisNotation(scatterAxisSettings.y.notation);
+    scatterAxisSettings.x.additionalTicks = sanitizeScatterAxisAdditionalTicks(scatterAxisSettings.x.additionalTicks);
+    scatterAxisSettings.y.additionalTicks = sanitizeScatterAxisAdditionalTicks(scatterAxisSettings.y.additionalTicks);
     return scatterAxisSettings;
   }
 
@@ -3749,6 +3798,106 @@
     if(typeof scheduleDrawScatter === 'function'){
       scheduleDrawScatter();
     }
+  }
+
+  function getScatterAxisAdditionalTicks(axis){
+    if(axis !== 'x' && axis !== 'y'){
+      return [];
+    }
+    const settings = ensureScatterAxisSettings();
+    if(axisExtras && typeof axisExtras.getEntries === 'function'){
+      return axisExtras.getEntries(settings, axis, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    return sanitizeScatterAxisAdditionalTicks(settings[axis]?.additionalTicks);
+  }
+
+  function updateScatterAxisAdditionalTicks(axis, entries){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureScatterAxisSettings();
+    if(axisExtras && typeof axisExtras.setEntries === 'function'){
+      axisExtras.setEntries(settings, axis, entries, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }else{
+      settings[axis].additionalTicks = sanitizeScatterAxisAdditionalTicks(entries);
+    }
+    scatterDebug('Debug: scatter axis additional ticks updated', {
+      axis,
+      count: settings[axis].additionalTicks.length
+    });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
+  function updateScatterAxisAdditionalTick(axis, index, entry){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureScatterAxisSettings();
+    if(axisExtras && typeof axisExtras.updateEntry === 'function'){
+      const updated = axisExtras.updateEntry(settings, axis, index, entry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      if(!updated){
+        return;
+      }
+      updateScatterAxisAdditionalTicks(axis, settings[axis].additionalTicks);
+      return;
+    }
+    const entries = sanitizeScatterAxisAdditionalTicks(settings[axis].additionalTicks);
+    if(!Number.isInteger(index) || index < 0 || index >= entries.length){
+      return;
+    }
+    const sanitized = sanitizeScatterAxisAdditionalTickEntry(entry);
+    if(!sanitized){
+      return;
+    }
+    entries[index] = sanitized;
+    updateScatterAxisAdditionalTicks(axis, entries);
+  }
+
+  function addScatterAxisAdditionalTick(axis){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureScatterAxisSettings();
+    if(axisExtras && typeof axisExtras.addEntry === 'function'){
+      const added = axisExtras.addEntry(settings, axis, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK, increment: 1 });
+      if(!added){
+        return;
+      }
+      updateScatterAxisAdditionalTicks(axis, settings[axis].additionalTicks);
+      return;
+    }
+    const entries = sanitizeScatterAxisAdditionalTicks(settings[axis].additionalTicks);
+    const last = entries.length ? entries[entries.length - 1] : null;
+    entries.push({
+      value: Number.isFinite(last?.value) ? Number(last.value) + 1 : DEFAULT_AXIS_ADDITIONAL_TICK.value,
+      showTick: DEFAULT_AXIS_ADDITIONAL_TICK.showTick,
+      showLine: DEFAULT_AXIS_ADDITIONAL_TICK.showLine,
+      label: DEFAULT_AXIS_ADDITIONAL_TICK.label
+    });
+    updateScatterAxisAdditionalTicks(axis, entries);
+  }
+
+  function removeScatterAxisAdditionalTick(axis, index){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureScatterAxisSettings();
+    if(axisExtras && typeof axisExtras.removeEntry === 'function'){
+      const removed = axisExtras.removeEntry(settings, axis, index, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      if(!removed){
+        return;
+      }
+      updateScatterAxisAdditionalTicks(axis, settings[axis].additionalTicks);
+      return;
+    }
+    const entries = sanitizeScatterAxisAdditionalTicks(settings[axis].additionalTicks);
+    if(!Number.isInteger(index) || index < 0 || index >= entries.length){
+      return;
+    }
+    entries.splice(index, 1);
+    updateScatterAxisAdditionalTicks(axis, entries);
   }
 
   function getScatterAxisStrokeWidth(){
@@ -3852,6 +4001,22 @@
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'decimal';
       base.x.notation = sanitizeScatterAxisNotation(xNotation);
       base.y.notation = sanitizeScatterAxisNotation(yNotation);
+      if(settings.additionalTicks !== undefined){
+        if(Array.isArray(settings.additionalTicks)){
+          base.x.additionalTicks = sanitizeScatterAxisAdditionalTicks(settings.additionalTicksX);
+          base.y.additionalTicks = sanitizeScatterAxisAdditionalTicks(settings.additionalTicksY ?? settings.additionalTicks);
+        }else{
+          base.x.additionalTicks = sanitizeScatterAxisAdditionalTicks(
+            settings.additionalTicks.x ?? settings.additionalTicksX ?? settings?.x?.additionalTicks
+          );
+          base.y.additionalTicks = sanitizeScatterAxisAdditionalTicks(
+            settings.additionalTicks.y ?? settings.additionalTicksY ?? settings?.y?.additionalTicks
+          );
+        }
+      }else{
+        base.x.additionalTicks = sanitizeScatterAxisAdditionalTicks(settings.additionalTicksX ?? settings?.x?.additionalTicks);
+        base.y.additionalTicks = sanitizeScatterAxisAdditionalTicks(settings.additionalTicksY ?? settings?.y?.additionalTicks);
+      }
       if(settings.brokenAxis){
         if(settings.brokenAxis.x){
           base.x.brokenAxis = {
@@ -8801,6 +8966,11 @@
           getNotationMode: () => getScatterAxisNotation(axis),
           onNotationChange: value => updateScatterAxisNotation(axis, value),
           isNotationSupported: () => true,
+          isAdditionalTicksSupported: () => true,
+          getAdditionalTicks: () => getScatterAxisAdditionalTicks(axis),
+          onAdditionalTickChange: (axisName, index, entry) => updateScatterAxisAdditionalTick(axisName, index, entry),
+          onAdditionalTickAdd: axisName => addScatterAxisAdditionalTick(axisName),
+          onAdditionalTickRemove: (axisName, index) => removeScatterAxisAdditionalTick(axisName, index),
           isBrokenAxisSupported: () => true,
           getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
           onBrokenAxisEnabledChange: value => updateBrokenAxisEnabled(axis, value),
@@ -8939,6 +9109,72 @@
           xTickFontCount += 1;
           xTickNodes.push(txt);
         });
+        const additionalXTicks = getScatterAxisAdditionalTicks('x');
+        if(additionalXTicks.length){
+          const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
+            ? axisExtras.renderLinearExtras
+            : null;
+          if(renderExtras){
+            renderExtras({
+              entries: additionalXTicks,
+              logScale: logX,
+              axisMin: xScale.min,
+              axisMax: xScale.max,
+              majorTicks: xScale.ticks,
+              showGrid,
+              isValueVisible: value => isXValueVisible(value),
+              toPixel: value => x2px(value),
+              onSkip: ({ reason, index, entry }) => {
+                debug('Debug: scatter additional axis tick skipped', {
+                  axis: 'x',
+                  index,
+                  reason,
+                  value: entry?.value,
+                  min: xScale.min,
+                  max: xScale.max,
+                  logScale: logX
+                });
+              },
+              onLine: ({ pixel }) => {
+                add('line',{
+                  x1: pixel,
+                  y1: margin.top,
+                  x2: pixel,
+                  y2: margin.top + plotH,
+                  stroke: axisStroke,
+                  'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
+                  'stroke-dasharray': '4 3',
+                  opacity: 0.5
+                });
+              },
+              onTick: ({ pixel }) => {
+                add('line',{
+                  x1: pixel,
+                  y1: xAxisY,
+                  x2: pixel,
+                  y2: xAxisY + tickLen,
+                  stroke: axisStroke,
+                  'stroke-width': axisStrokeWidth
+                });
+              },
+              onLabel: ({ pixel, label }) => {
+                const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+                const txt = add('text',{
+                  x: pixel,
+                  y: xAxisY + tickLen + tickGap + extra + Math.max(2, fs * 0.85),
+                  'font-size': fs,
+                  'text-anchor': 'middle',
+                  fill: chartStyle.TEXT_COLOR
+                });
+                txt.textContent = label;
+                Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
+                markFontEditable(txt,'xTick');
+                xTickFontCount += 1;
+                xTickNodes.push(txt);
+              }
+            });
+          }
+        }
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
         const yTickNodes=[];
         let yTickFontCount=0;
@@ -8970,6 +9206,71 @@
           yTickFontCount+=1;
           yTickNodes.push(txt);
         });
+        const additionalYTicks = getScatterAxisAdditionalTicks('y');
+        if(additionalYTicks.length){
+          const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
+            ? axisExtras.renderLinearExtras
+            : null;
+          if(renderExtras){
+            renderExtras({
+              entries: additionalYTicks,
+              logScale: logY,
+              axisMin: yScale.min,
+              axisMax: yScale.max,
+              majorTicks: yScale.ticks,
+              showGrid,
+              isValueVisible: value => isYValueVisible(value),
+              toPixel: value => y2px(value),
+              onSkip: ({ reason, index, entry }) => {
+                debug('Debug: scatter additional axis tick skipped', {
+                  axis: 'y',
+                  index,
+                  reason,
+                  value: entry?.value,
+                  min: yScale.min,
+                  max: yScale.max,
+                  logScale: logY
+                });
+              },
+              onLine: ({ pixel }) => {
+                add('line',{
+                  x1: margin.left,
+                  y1: pixel,
+                  x2: margin.left + plotW,
+                  y2: pixel,
+                  stroke: axisStroke,
+                  'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
+                  'stroke-dasharray': '4 3',
+                  opacity: 0.5
+                });
+              },
+              onTick: ({ pixel }) => {
+                add('line',{
+                  x1: yAxisX - tickLen,
+                  y1: pixel,
+                  x2: yAxisX,
+                  y2: pixel,
+                  stroke: axisStroke,
+                  'stroke-width': axisStrokeWidth
+                });
+              },
+              onLabel: ({ pixel, label }) => {
+                const txt = add('text',{
+                  x: yAxisX - (tickLen + tickGap),
+                  y: pixel,
+                  'font-size': fs,
+                  'text-anchor': 'end',
+                  'dominant-baseline': 'middle',
+                  fill: chartStyle.TEXT_COLOR
+                });
+                txt.textContent = label;
+                markFontEditable(txt,'yTick');
+                yTickFontCount += 1;
+                yTickNodes.push(txt);
+              }
+            });
+          }
+        }
         debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
         time(`scatterSvgDraw_${token}`);
@@ -10592,6 +10893,10 @@
             minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
             notationX: axisSettings.x?.notation ?? 'decimal',
             notationY: axisSettings.y?.notation ?? 'decimal',
+            additionalTicks: {
+              x: sanitizeScatterAxisAdditionalTicks(axisSettings.x?.additionalTicks),
+              y: sanitizeScatterAxisAdditionalTicks(axisSettings.y?.additionalTicks)
+            },
             brokenAxis: {
               x: {
                 enabled: axisSettings.x?.brokenAxis?.enabled ?? false,
@@ -10845,6 +11150,9 @@
             minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
             notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'decimal',
             notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'decimal',
+            additionalTicks: c.axis.additionalTicks,
+            additionalTicksX: c.axis.additionalTicksX ?? c.axis?.x?.additionalTicks,
+            additionalTicksY: c.axis.additionalTicksY ?? c.axis?.y?.additionalTicks,
             brokenAxis: c.axis.brokenAxis || {}
           });
           console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });

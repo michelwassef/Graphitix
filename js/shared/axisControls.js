@@ -29,6 +29,12 @@
   let brokenAxisConfigButton = null;
   let brokenAxisDropdown = null;
   let brokenAxisConfigExpanded = false;
+  let additionalTicksFieldEl = null;
+  let additionalTicksButton = null;
+  let additionalTicksDropdown = null;
+  let additionalTicksContainer = null;
+  let additionalTicksAddButton = null;
+  let additionalTicksConfigExpanded = false;
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
@@ -92,6 +98,256 @@
   function normalizeColorForCompare(value){
     const sanitized = sanitizeColorState(value);
     return sanitized ? sanitized.toLowerCase() : '';
+  }
+
+  const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
+  if(typeof axisExtras.sanitizeEntry !== 'function'){
+    const AXIS_EXTRA_DEFAULTS = Object.freeze({
+      showTick: true,
+      showLine: false,
+      label: ''
+    });
+
+    function getAxisExtraDefaults(options){
+      const defaults = options && options.defaults ? options.defaults : AXIS_EXTRA_DEFAULTS;
+      return {
+        showTick: defaults.showTick !== undefined ? !!defaults.showTick : AXIS_EXTRA_DEFAULTS.showTick,
+        showLine: defaults.showLine !== undefined ? !!defaults.showLine : AXIS_EXTRA_DEFAULTS.showLine,
+        label: defaults.label != null ? String(defaults.label) : AXIS_EXTRA_DEFAULTS.label
+      };
+    }
+
+    function sanitizeAxisExtraEntry(entry, options){
+      if(!entry || typeof entry !== 'object'){
+        return null;
+      }
+      const defaults = getAxisExtraDefaults(options);
+      const rawValue = entry.value ?? entry.at ?? entry.position ?? entry.y ?? entry.x;
+      const value = Number(rawValue);
+      if(!Number.isFinite(value)){
+        return null;
+      }
+      const showTick = entry.showTick !== undefined ? !!entry.showTick : (entry.tick !== undefined ? !!entry.tick : defaults.showTick);
+      const showLine = entry.showLine !== undefined ? !!entry.showLine : (entry.line !== undefined ? !!entry.line : defaults.showLine);
+      let label = defaults.label;
+      if(entry.label !== undefined && entry.label !== null){
+        label = String(entry.label);
+      }else if(entry.text !== undefined && entry.text !== null){
+        label = String(entry.text);
+      }
+      return {
+        value,
+        showTick,
+        showLine,
+        label
+      };
+    }
+
+    function sanitizeAxisExtraEntries(entries, options){
+      if(!Array.isArray(entries)){
+        return [];
+      }
+      return entries
+        .map(entry => sanitizeAxisExtraEntry(entry, options))
+        .filter(entry => !!entry);
+    }
+
+    function toScaleValue(rawValue, options){
+      const numeric = Number(rawValue);
+      if(!Number.isFinite(numeric)){
+        return null;
+      }
+      const logScale = !!(options && options.logScale);
+      if(logScale){
+        if(numeric <= 0){
+          return null;
+        }
+        return Math.log10(numeric);
+      }
+      return numeric;
+    }
+
+    function getAxisExtraLabel(entry){
+      if(!entry || typeof entry !== 'object'){
+        return '';
+      }
+      const raw = entry.label ?? entry.text;
+      if(raw === undefined || raw === null){
+        return '';
+      }
+      const text = String(raw).trim();
+      return text;
+    }
+
+    function isAxisExtraNearMajor(value, majorTicks, tolerance){
+      if(!Array.isArray(majorTicks) || !majorTicks.length){
+        return false;
+      }
+      return majorTicks.some(tick => Number.isFinite(tick) && Math.abs(tick - value) <= tolerance);
+    }
+
+    function renderLinearAxisExtras(options){
+      const entries = sanitizeAxisExtraEntries(options && options.entries, options);
+      const axisMin = Number(options && options.axisMin);
+      const axisMax = Number(options && options.axisMax);
+      const toPixel = options && typeof options.toPixel === 'function' ? options.toPixel : null;
+      const majorTicks = Array.isArray(options && options.majorTicks) ? options.majorTicks : [];
+      const isValueVisible = options && typeof options.isValueVisible === 'function'
+        ? options.isValueVisible
+        : (() => true);
+      const onSkip = options && typeof options.onSkip === 'function' ? options.onSkip : null;
+      const onLine = options && typeof options.onLine === 'function' ? options.onLine : null;
+      const onTick = options && typeof options.onTick === 'function' ? options.onTick : null;
+      const onLabel = options && typeof options.onLabel === 'function' ? options.onLabel : null;
+      const showGrid = !!(options && options.showGrid);
+      const span = Math.abs((axisMax - axisMin) || 1);
+      const tolerance = Number.isFinite(options && options.tolerance)
+        ? Math.max(0, Number(options.tolerance))
+        : Math.max(1e-9, span / 1000000);
+      const stats = { rendered: 0, ticks: 0, lines: 0, labels: 0, skipped: 0 };
+
+      if(!toPixel || !Number.isFinite(axisMin) || !Number.isFinite(axisMax)){
+        return stats;
+      }
+
+      entries.forEach((entry, index) => {
+        const scaleValue = toScaleValue(entry.value, { logScale: !!(options && options.logScale) });
+        if(scaleValue == null){
+          stats.skipped += 1;
+          if(onSkip){ onSkip({ reason: 'invalid-value', index, entry, scaleValue }); }
+          return;
+        }
+        if(scaleValue < axisMin || scaleValue > axisMax){
+          stats.skipped += 1;
+          if(onSkip){ onSkip({ reason: 'outside-range', index, entry, scaleValue }); }
+          return;
+        }
+        if(!isValueVisible(scaleValue)){
+          stats.skipped += 1;
+          if(onSkip){ onSkip({ reason: 'axis-gap', index, entry, scaleValue }); }
+          return;
+        }
+        const pixel = toPixel(scaleValue);
+        if(!Number.isFinite(pixel)){
+          stats.skipped += 1;
+          if(onSkip){ onSkip({ reason: 'non-finite-pixel', index, entry, scaleValue, pixel }); }
+          return;
+        }
+        const nearMajor = isAxisExtraNearMajor(scaleValue, majorTicks, tolerance);
+        if(entry.showLine && !(showGrid && nearMajor) && onLine){
+          onLine({ index, entry, scaleValue, pixel, nearMajor, tolerance });
+          stats.lines += 1;
+        }
+        if(entry.showTick && !nearMajor && onTick){
+          onTick({ index, entry, scaleValue, pixel, nearMajor, tolerance });
+          stats.ticks += 1;
+        }
+        const label = getAxisExtraLabel(entry);
+        if(label && onLabel){
+          onLabel({ index, entry, scaleValue, pixel, label, nearMajor, tolerance });
+          stats.labels += 1;
+        }
+        stats.rendered += 1;
+      });
+      return stats;
+    }
+
+    function ensureAxisExtrasNode(settings, axis){
+      if(!settings || typeof settings !== 'object' || !axis){
+        return null;
+      }
+      if(!settings[axis] || typeof settings[axis] !== 'object'){
+        settings[axis] = {};
+      }
+      if(!Array.isArray(settings[axis].additionalTicks)){
+        settings[axis].additionalTicks = [];
+      }
+      return settings[axis];
+    }
+
+    function getAxisEntries(settings, axis, options){
+      const node = ensureAxisExtrasNode(settings, axis);
+      if(!node){
+        return [];
+      }
+      const sanitized = sanitizeAxisExtraEntries(node.additionalTicks, options);
+      node.additionalTicks = sanitized;
+      return sanitized;
+    }
+
+    function setAxisEntries(settings, axis, entries, options){
+      const node = ensureAxisExtrasNode(settings, axis);
+      if(!node){
+        return [];
+      }
+      node.additionalTicks = sanitizeAxisExtraEntries(entries, options);
+      return node.additionalTicks;
+    }
+
+    function updateAxisEntry(settings, axis, index, entry, options){
+      const node = ensureAxisExtrasNode(settings, axis);
+      if(!node || !Number.isInteger(index) || index < 0){
+        return null;
+      }
+      const next = sanitizeAxisExtraEntry(entry, options);
+      if(!next){
+        return null;
+      }
+      const entries = sanitizeAxisExtraEntries(node.additionalTicks, options);
+      if(index >= entries.length){
+        return null;
+      }
+      entries[index] = next;
+      node.additionalTicks = entries;
+      return next;
+    }
+
+    function addAxisEntry(settings, axis, options){
+      const node = ensureAxisExtrasNode(settings, axis);
+      if(!node){
+        return null;
+      }
+      const entries = sanitizeAxisExtraEntries(node.additionalTicks, options);
+      const defaults = getAxisExtraDefaults(options);
+      const increment = Number.isFinite(options && options.increment) ? Number(options.increment) : 1;
+      const last = entries.length ? entries[entries.length - 1] : null;
+      const value = Number.isFinite(last?.value) ? Number(last.value) + increment : 0;
+      const next = {
+        value,
+        showTick: defaults.showTick,
+        showLine: defaults.showLine,
+        label: defaults.label
+      };
+      entries.push(next);
+      node.additionalTicks = entries;
+      return next;
+    }
+
+    function removeAxisEntry(settings, axis, index, options){
+      const node = ensureAxisExtrasNode(settings, axis);
+      if(!node || !Number.isInteger(index) || index < 0){
+        return null;
+      }
+      const entries = sanitizeAxisExtraEntries(node.additionalTicks, options);
+      if(index >= entries.length){
+        return null;
+      }
+      const removed = entries.splice(index, 1)[0] || null;
+      node.additionalTicks = entries;
+      return removed;
+    }
+
+    axisExtras.DEFAULTS = AXIS_EXTRA_DEFAULTS;
+    axisExtras.sanitizeEntry = sanitizeAxisExtraEntry;
+    axisExtras.sanitizeEntries = sanitizeAxisExtraEntries;
+    axisExtras.toScaleValue = toScaleValue;
+    axisExtras.getLabel = getAxisExtraLabel;
+    axisExtras.renderLinearExtras = renderLinearAxisExtras;
+    axisExtras.getEntries = getAxisEntries;
+    axisExtras.setEntries = setAxisEntries;
+    axisExtras.updateEntry = updateAxisEntry;
+    axisExtras.addEntry = addAxisEntry;
+    axisExtras.removeEntry = removeAxisEntry;
   }
 
   function isMinorTicksSupported(config){
@@ -362,6 +618,177 @@
     });
   }
 
+  function normalizeAdditionalTickValue(entry){
+    if(!entry || typeof entry !== 'object'){ return null; }
+    const raw = entry.value ?? entry.at ?? entry.position ?? entry.y ?? entry.x;
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function normalizeAdditionalTickLabel(entry){
+    if(!entry || typeof entry !== 'object'){ return ''; }
+    if(entry.label !== undefined && entry.label !== null){ return String(entry.label); }
+    if(entry.text !== undefined && entry.text !== null){ return String(entry.text); }
+    return '';
+  }
+
+  function normalizeAdditionalTickToggle(entry, key, fallback){
+    if(!entry || typeof entry !== 'object'){ return !!fallback; }
+    if(entry[key] !== undefined){ return !!entry[key]; }
+    if(key === 'showTick' && entry.tick !== undefined){ return !!entry.tick; }
+    if(key === 'showLine' && entry.line !== undefined){ return !!entry.line; }
+    return !!fallback;
+  }
+
+  function renderAdditionalTickRows(config){
+    if(!additionalTicksContainer || !config){ return; }
+    const doc = additionalTicksContainer.ownerDocument || global.document;
+    if(!doc){ return; }
+    additionalTicksContainer.innerHTML = '';
+    const rawEntries = config.getAdditionalTicks ? config.getAdditionalTicks(config.axis) : [];
+    const entries = Array.isArray(rawEntries) ? rawEntries : [];
+
+    if(!entries.length){
+      const emptyState = doc.createElement('div');
+      emptyState.className = 'axis-controls-panel__extras-empty';
+      emptyState.textContent = 'No custom marks yet - add a value to draw a tick, line, or label.';
+      additionalTicksContainer.appendChild(emptyState);
+      return;
+    }
+
+    const header = doc.createElement('div');
+    header.className = 'axis-controls-panel__extra-head';
+    ['At', 'Tick', 'Line', 'Label', ''].forEach(text => {
+      const cell = doc.createElement('span');
+      cell.className = 'axis-controls-panel__extra-head-cell';
+      cell.textContent = text;
+      header.appendChild(cell);
+    });
+    additionalTicksContainer.appendChild(header);
+
+    entries.forEach((entry, index) => {
+      const row = doc.createElement('div');
+      row.className = 'axis-controls-panel__extra-row';
+
+      const valueInput = doc.createElement('input');
+      valueInput.type = 'number';
+      valueInput.step = '0.1';
+      valueInput.placeholder = 'At value';
+      valueInput.title = 'Axis value';
+      valueInput.className = 'axis-controls-panel__input axis-controls-panel__input--xs axis-controls-panel__extra-input axis-controls-panel__extra-input--value';
+      valueInput.setAttribute('data-undo-ignore', '1');
+      const value = normalizeAdditionalTickValue(entry);
+      valueInput.value = value === null ? '' : String(value);
+      row.appendChild(valueInput);
+
+      const tickToggle = doc.createElement('label');
+      tickToggle.className = 'axis-controls-panel__extra-toggle';
+      const tickToggleInput = doc.createElement('input');
+      tickToggleInput.type = 'checkbox';
+      tickToggleInput.className = 'axis-controls-panel__checkbox';
+      tickToggleInput.checked = normalizeAdditionalTickToggle(entry, 'showTick', true);
+      tickToggleInput.setAttribute('data-undo-ignore', '1');
+      const tickToggleText = doc.createElement('span');
+      tickToggleText.textContent = 'Tick';
+      tickToggle.appendChild(tickToggleInput);
+      tickToggle.appendChild(tickToggleText);
+      row.appendChild(tickToggle);
+
+      const lineToggle = doc.createElement('label');
+      lineToggle.className = 'axis-controls-panel__extra-toggle';
+      const lineToggleInput = doc.createElement('input');
+      lineToggleInput.type = 'checkbox';
+      lineToggleInput.className = 'axis-controls-panel__checkbox';
+      lineToggleInput.checked = normalizeAdditionalTickToggle(entry, 'showLine', false);
+      lineToggleInput.setAttribute('data-undo-ignore', '1');
+      const lineToggleText = doc.createElement('span');
+      lineToggleText.textContent = 'Line';
+      lineToggle.appendChild(lineToggleInput);
+      lineToggle.appendChild(lineToggleText);
+      row.appendChild(lineToggle);
+
+      const labelInput = doc.createElement('input');
+      labelInput.type = 'text';
+      labelInput.placeholder = 'Label';
+      labelInput.title = 'Custom tick label';
+      labelInput.className = 'axis-controls-panel__input axis-controls-panel__extra-input axis-controls-panel__extra-input--label';
+      labelInput.setAttribute('data-undo-ignore', '1');
+      labelInput.value = normalizeAdditionalTickLabel(entry);
+      row.appendChild(labelInput);
+
+      const removeButton = doc.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'axis-controls-panel__button axis-controls-panel__button--remove-extra';
+      removeButton.textContent = 'x';
+      removeButton.title = 'Remove mark';
+      removeButton.setAttribute('data-undo-ignore', '1');
+      row.appendChild(removeButton);
+
+      additionalTicksContainer.appendChild(row);
+
+      const commitRow = () => {
+        if(applyingFromUndo){ return; }
+        if(!config || typeof config.onAdditionalTickChange !== 'function'){ return; }
+        const numericValue = Number(valueInput.value);
+        if(!Number.isFinite(numericValue)){
+          return;
+        }
+        config.onAdditionalTickChange(config.axis, index, {
+          value: numericValue,
+          showTick: !!tickToggleInput.checked,
+          showLine: !!lineToggleInput.checked,
+          label: labelInput.value != null ? String(labelInput.value) : ''
+        });
+        logDebug('additional tick changed',{
+          axis: config.axis,
+          index,
+          value: numericValue,
+          showTick: !!tickToggleInput.checked,
+          showLine: !!lineToggleInput.checked
+        });
+        syncPanelInputsFromConfig(config);
+        setAdditionalTicksConfigExpanded(true);
+      };
+
+      valueInput.addEventListener('change', commitRow);
+      tickToggleInput.addEventListener('change', commitRow);
+      lineToggleInput.addEventListener('change', commitRow);
+      labelInput.addEventListener('change', commitRow);
+      labelInput.addEventListener('keydown', evt => {
+        if(evt.key === 'Enter'){
+          evt.preventDefault();
+          commitRow();
+        }
+      });
+
+      removeButton.addEventListener('click', evt => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        if(applyingFromUndo){ return; }
+        if(!config || typeof config.onAdditionalTickRemove !== 'function'){ return; }
+        config.onAdditionalTickRemove(config.axis, index);
+        logDebug('additional tick removed',{ axis: config.axis, index });
+        syncPanelInputsFromConfig(config);
+        setAdditionalTicksConfigExpanded(true);
+      });
+    });
+  }
+
+  function setAdditionalTicksConfigExpanded(expanded){
+    additionalTicksConfigExpanded = !!expanded;
+    if(additionalTicksButton){
+      additionalTicksButton.setAttribute('aria-expanded', additionalTicksConfigExpanded ? 'true' : 'false');
+    }
+    const shouldShow = additionalTicksConfigExpanded;
+    if(additionalTicksDropdown){
+      additionalTicksDropdown.hidden = !shouldShow;
+      additionalTicksDropdown.dataset.open = shouldShow ? '1' : '0';
+    }
+    if(additionalTicksAddButton){
+      additionalTicksAddButton.style.display = shouldShow ? 'inline-flex' : 'none';
+    }
+  }
+
   function setBrokenAxisConfigExpanded(expanded){
     brokenAxisConfigExpanded = !!expanded;
     if(brokenAxisConfigButton){
@@ -500,6 +927,48 @@
       }
     }
 
+    const additionalTicksSupported = (
+      typeof config.getAdditionalTicks === 'function' &&
+      typeof config.onAdditionalTickChange === 'function' &&
+      typeof config.onAdditionalTickAdd === 'function' &&
+      typeof config.onAdditionalTickRemove === 'function' &&
+      (
+        typeof config.isAdditionalTicksSupported === 'function'
+          ? config.isAdditionalTicksSupported(config.axis) !== false
+          : true
+      )
+    );
+    if(additionalTicksFieldEl){
+      if(additionalTicksSupported){
+        additionalTicksFieldEl.hidden = false;
+        if(additionalTicksButton){
+          additionalTicksButton.disabled = false;
+          additionalTicksButton.setAttribute('aria-disabled', 'false');
+        }
+        if(additionalTicksAddButton){
+          additionalTicksAddButton.disabled = false;
+          additionalTicksAddButton.setAttribute('aria-disabled', 'false');
+        }
+        renderAdditionalTickRows(config);
+        setAdditionalTicksConfigExpanded(additionalTicksConfigExpanded);
+      }else{
+        additionalTicksFieldEl.hidden = true;
+        if(additionalTicksButton){
+          additionalTicksButton.disabled = true;
+          additionalTicksButton.setAttribute('aria-disabled', 'true');
+        }
+        if(additionalTicksAddButton){
+          additionalTicksAddButton.disabled = true;
+          additionalTicksAddButton.setAttribute('aria-disabled', 'true');
+        }
+        if(additionalTicksContainer){
+          additionalTicksContainer.innerHTML = '';
+        }
+        additionalTicksConfigExpanded = false;
+        setAdditionalTicksConfigExpanded(false);
+      }
+    }
+
     // Update broken axis controls
     const brokenAxisSupported = (
       typeof config.isBrokenAxisSupported === 'function'
@@ -586,6 +1055,13 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
   function logDebug(message, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      return;
+    }
     console.debug('Debug: axisControls ' + message, payload || {});
   }
 
@@ -906,6 +1382,42 @@
     panelEl.appendChild(notationField);
     notationFieldEl = notationField;
 
+    additionalTicksFieldEl = doc.createElement('div');
+    additionalTicksFieldEl.className = 'axis-controls-panel__field axis-controls-panel__field--additional-ticks';
+    additionalTicksFieldEl.hidden = true;
+
+    additionalTicksButton = doc.createElement('button');
+    additionalTicksButton.type = 'button';
+    additionalTicksButton.className = 'axis-controls-panel__button axis-controls-panel__button--additional-ticks';
+    additionalTicksButton.textContent = 'Additional ticks/lines';
+    additionalTicksButton.disabled = true;
+    additionalTicksButton.setAttribute('aria-expanded', 'false');
+    additionalTicksButton.setAttribute('aria-disabled', 'true');
+    additionalTicksButton.setAttribute('aria-haspopup', 'dialog');
+    additionalTicksButton.setAttribute('data-undo-ignore', '1');
+    additionalTicksFieldEl.appendChild(additionalTicksButton);
+
+    additionalTicksDropdown = doc.createElement('div');
+    additionalTicksDropdown.className = 'axis-controls-panel__dropdown axis-controls-panel__dropdown--additional-ticks';
+    additionalTicksDropdown.hidden = true;
+    additionalTicksDropdown.dataset.open = '0';
+    additionalTicksFieldEl.appendChild(additionalTicksDropdown);
+
+    additionalTicksContainer = doc.createElement('div');
+    additionalTicksContainer.className = 'axis-controls-panel__extras-container';
+    additionalTicksDropdown.appendChild(additionalTicksContainer);
+
+    additionalTicksAddButton = doc.createElement('button');
+    additionalTicksAddButton.type = 'button';
+    additionalTicksAddButton.className = 'axis-controls-panel__button axis-controls-panel__button--add-extra';
+    additionalTicksAddButton.textContent = '+ Add Mark';
+    additionalTicksAddButton.setAttribute('data-undo-ignore', '1');
+    additionalTicksAddButton.disabled = true;
+    additionalTicksAddButton.setAttribute('aria-disabled', 'true');
+    additionalTicksDropdown.appendChild(additionalTicksAddButton);
+
+    panelEl.appendChild(additionalTicksFieldEl);
+
     // Broken axis controls
     brokenAxisFieldEl = doc.createElement('div');
     brokenAxisFieldEl.className = 'axis-controls-panel__field axis-controls-panel__field--broken-axis';
@@ -1001,6 +1513,13 @@
           setBrokenAxisConfigExpanded(false);
         }
       }
+      if(additionalTicksConfigExpanded && additionalTicksDropdown){
+        const insideExtraDropdown = additionalTicksDropdown.contains(evt.target);
+        const onExtraToggle = additionalTicksButton && additionalTicksButton.contains(evt.target);
+        if(!insideExtraDropdown && !onExtraToggle){
+          setAdditionalTicksConfigExpanded(false);
+        }
+      }
     });
 
     panelEl.addEventListener('keydown', evt => {
@@ -1017,6 +1536,13 @@
         setBrokenAxisConfigExpanded(false);
         if(brokenAxisConfigButton && !brokenAxisConfigButton.disabled){
           brokenAxisConfigButton.focus();
+        }
+        handled = true;
+      }
+      if(additionalTicksConfigExpanded){
+        setAdditionalTicksConfigExpanded(false);
+        if(additionalTicksButton && !additionalTicksButton.disabled){
+          additionalTicksButton.focus();
         }
         handled = true;
       }
@@ -1213,10 +1739,37 @@
     if(brokenAxisConfigButton){
       brokenAxisConfigButton.addEventListener('click', () => {
         if(brokenAxisConfigButton.disabled){ return; }
+        setAdditionalTicksConfigExpanded(false);
         setBrokenAxisConfigExpanded(!brokenAxisConfigExpanded);
         if(activeConfig){
           renderBrokenAxisSegments(activeConfig);
         }
+      });
+    }
+
+    if(additionalTicksButton){
+      additionalTicksButton.addEventListener('click', () => {
+        if(additionalTicksButton.disabled){ return; }
+        setBrokenAxisConfigExpanded(false);
+        setAdditionalTicksConfigExpanded(!additionalTicksConfigExpanded);
+        if(activeConfig){
+          renderAdditionalTickRows(activeConfig);
+        }
+      });
+    }
+
+    if(additionalTicksAddButton){
+      additionalTicksAddButton.addEventListener('click', evt => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        if(applyingFromUndo){ return; }
+        if(!activeConfig){ return; }
+        const config = activeConfig;
+        if(typeof config.onAdditionalTickAdd !== 'function'){ return; }
+        logDebug('additional tick add',{ axis: config.axis });
+        config.onAdditionalTickAdd(config.axis);
+        syncPanelInputsFromConfig(config);
+        setAdditionalTicksConfigExpanded(true);
       });
     }
 
@@ -1355,6 +1908,7 @@
     }catch(e){}
     // (axis panel will open after hiding other FORMAT controls)
     activeConfig = config;
+    additionalTicksConfigExpanded = false;
     brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
@@ -1377,6 +1931,7 @@
       logDebug('host unavailable for open',{ scopeId: config.scopeId });
     }
     updatePanelInputs(config);
+    setAdditionalTicksConfigExpanded(false);
     setBrokenAxisConfigExpanded(false);
     panelEl.style.display = 'flex';
     panelEl.hidden = false;
@@ -1422,7 +1977,12 @@
         onColorChange: config.onColorChange,
         getNotationMode: config.getNotationMode,
         onNotationChange: config.onNotationChange,
-        isNotationSupported: config.isNotationSupported
+        isNotationSupported: config.isNotationSupported,
+        isAdditionalTicksSupported: config.isAdditionalTicksSupported,
+        getAdditionalTicks: config.getAdditionalTicks,
+        onAdditionalTickChange: config.onAdditionalTickChange,
+        onAdditionalTickAdd: config.onAdditionalTickAdd,
+        onAdditionalTickRemove: config.onAdditionalTickRemove
       };
       if(typeof config.getBrokenAxisEnabled === 'function' && typeof config.onBrokenAxisEnabledChange === 'function'){
         openConfig.getBrokenAxisEnabled = config.getBrokenAxisEnabled;
