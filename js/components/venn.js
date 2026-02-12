@@ -3665,6 +3665,9 @@
       ? chartStyle.scaleStrokeWidth(1, style.scaleInfo, { min: 0.6, max: 2.5, context: 'upset-axis' })
       : 1;
     const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
+    const barBorderColor = sanitizeColor(style.borderColor, axisColor);
+    const barBorderWidth = clampNumber(style.borderWidth, Math.max(0.5, axisWidth * 0.75), 0);
+    const barStroke = barBorderWidth > 0 ? barBorderColor : 'none';
     const setTickFontSize = axisTickFontSize;
     const setAxisLabelFontSize = axisLabelFontSize;
     const setTickBaselineDy = '0.8em';
@@ -3696,7 +3699,9 @@
       valueLabelFontSize,
       axisY,
       setTickLabelY,
-      setAxisLabelY
+      setAxisLabelY,
+      barBorderColor,
+      barBorderWidth
     });
 
     if (settings.showGrid && settings.gridColor) {
@@ -3790,8 +3795,8 @@
         height: Math.max(0, barHeight),
         fill: settings.barColor,
         'fill-opacity': style.opacity,
-        stroke: axisColor,
-        'stroke-width': Math.max(0.5, axisWidth * 0.75),
+        stroke: barStroke,
+        'stroke-width': barBorderWidth,
         cursor: canSelectEntry ? 'pointer' : 'default'
       });
       const barTitle = document.createElementNS(NS, 'title');
@@ -3906,8 +3911,8 @@
         height: barHeight,
         fill: barFill,
         'fill-opacity': style.opacity,
-        stroke: axisColor,
-        'stroke-width': Math.max(0.5, axisWidth * 0.75)
+        stroke: barStroke,
+        'stroke-width': barBorderWidth
       });
       if (settings.showSetCounts) {
         const valueText = makeEl('text', {
