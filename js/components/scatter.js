@@ -15,6 +15,7 @@
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
+  const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
@@ -339,9 +340,13 @@
     : 3;
   const DEFAULT_AXIS_ADDITIONAL_TICK = Object.freeze({
     value: 0,
-    showTick: true,
-    showLine: false,
-    label: ''
+    showTick: false,
+    showLine: true,
+    label: '',
+    lineColor: null,
+    lineWidth: 1,
+    linePattern: 'dotted',
+    lineTransparency: 0
   });
 
   function clampMinorTickSubdivisions(value){
@@ -373,11 +378,35 @@
     }else if(entry.text !== undefined && entry.text !== null){
       label = String(entry.text);
     }
+    const lineColor = typeof entry.lineColor === 'string' && entry.lineColor.trim()
+      ? entry.lineColor.trim()
+      : DEFAULT_AXIS_ADDITIONAL_TICK.lineColor;
+    const lineWidthRaw = Number(entry.lineWidth ?? entry.thickness ?? entry.strokeWidth);
+    const lineWidth = Number.isFinite(lineWidthRaw) && lineWidthRaw > 0
+      ? lineWidthRaw
+      : DEFAULT_AXIS_ADDITIONAL_TICK.lineWidth;
+    const rawPattern = typeof entry.linePattern === 'string'
+      ? entry.linePattern
+      : (typeof entry.pattern === 'string' ? entry.pattern : DEFAULT_AXIS_ADDITIONAL_TICK.linePattern);
+    const normalizedPattern = String(rawPattern || '').trim().toLowerCase();
+    const linePattern = (normalizedPattern === 'solid' || normalizedPattern === 'continuous')
+      ? 'solid'
+      : (normalizedPattern === 'dotted' || normalizedPattern === 'dots')
+        ? 'dotted'
+        : 'dashed';
+    const lineTransparencyRaw = Number(entry.lineTransparency ?? entry.transparency);
+    const lineTransparency = Number.isFinite(lineTransparencyRaw)
+      ? Math.min(100, Math.max(0, lineTransparencyRaw))
+      : DEFAULT_AXIS_ADDITIONAL_TICK.lineTransparency;
     return {
       value,
       showTick,
       showLine,
-      label
+      label,
+      lineColor,
+      lineWidth,
+      linePattern,
+      lineTransparency
     };
   }
 
@@ -3836,7 +3865,14 @@
     }
     const settings = ensureScatterAxisSettings();
     if(axisExtras && typeof axisExtras.updateEntry === 'function'){
-      const updated = axisExtras.updateEntry(settings, axis, index, entry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      const currentEntries = axisExtras.getEntries(settings, axis, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      const currentEntry = Array.isArray(currentEntries) && index >= 0 && index < currentEntries.length
+        ? currentEntries[index]
+        : null;
+      const mergedEntry = (currentEntry && typeof currentEntry === 'object')
+        ? { ...currentEntry, ...(entry && typeof entry === 'object' ? entry : {}) }
+        : entry;
+      const updated = axisExtras.updateEntry(settings, axis, index, mergedEntry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
       if(!updated){
         return;
       }
@@ -3874,7 +3910,11 @@
       value: Number.isFinite(last?.value) ? Number(last.value) + 1 : DEFAULT_AXIS_ADDITIONAL_TICK.value,
       showTick: DEFAULT_AXIS_ADDITIONAL_TICK.showTick,
       showLine: DEFAULT_AXIS_ADDITIONAL_TICK.showLine,
-      label: DEFAULT_AXIS_ADDITIONAL_TICK.label
+      label: DEFAULT_AXIS_ADDITIONAL_TICK.label,
+      lineColor: DEFAULT_AXIS_ADDITIONAL_TICK.lineColor,
+      lineWidth: DEFAULT_AXIS_ADDITIONAL_TICK.lineWidth,
+      linePattern: DEFAULT_AXIS_ADDITIONAL_TICK.linePattern,
+      lineTransparency: DEFAULT_AXIS_ADDITIONAL_TICK.lineTransparency
     });
     updateScatterAxisAdditionalTicks(axis, entries);
   }
@@ -8944,9 +8984,85 @@
               subdivisions: minorSubdivisionsY
             })
           : [];
+        const getAdditionalLineStyle = entry => {
+          if(axisExtras && typeof axisExtras.getLineStyle === 'function'){
+            return axisExtras.getLineStyle(entry, {
+              defaultStroke: axisStroke,
+              defaultStrokeWidth: Math.max(0.75, axisStrokeWidth * 0.85),
+              defaultPattern: 'dotted',
+              defaultTransparency: 0
+            });
+          }
+          return {
+            stroke: axisStroke,
+            strokeWidth: Math.max(0.75, axisStrokeWidth * 0.85),
+            linePattern: 'dotted',
+            lineTransparency: 0,
+            opacity: 1,
+            strokeDasharray: '0 6',
+            strokeLinecap: 'round'
+          };
+        };
+        const replaceMajorTickLabel = (majorLabelEntries, pixel, label) => {
+          if(!Array.isArray(majorLabelEntries) || !majorLabelEntries.length){
+            return false;
+          }
+          let best = null;
+          let bestDist = Infinity;
+          majorLabelEntries.forEach(candidate => {
+            const candidatePixel = Number(candidate?.pixel);
+            if(!Number.isFinite(candidatePixel)){ return; }
+            const dist = Math.abs(candidatePixel - pixel);
+            if(dist < bestDist){
+              bestDist = dist;
+              best = candidate;
+            }
+          });
+          if(!best || !best.node || bestDist > 1.5){
+            return false;
+          }
+          best.node.textContent = label;
+          return true;
+        };
+        const registerAdditionalLineControlElement = (axis, index, lineElement) => {
+          if(!lineElement || !additionalLineControls || typeof additionalLineControls.registerAdditionalLineElement !== 'function'){
+            return;
+          }
+          additionalLineControls.registerAdditionalLineElement(lineElement, {
+            scopeId: 'scatter',
+            axis,
+            index,
+            getValue: () => getScatterAxisAdditionalTicks(axis)?.[index]?.value,
+            getColor: () => getScatterAxisAdditionalTicks(axis)?.[index]?.lineColor ?? null,
+            getThickness: () => getScatterAxisAdditionalTicks(axis)?.[index]?.lineWidth ?? null,
+            getPattern: () => getScatterAxisAdditionalTicks(axis)?.[index]?.linePattern ?? 'dotted',
+            getTransparency: () => getScatterAxisAdditionalTicks(axis)?.[index]?.lineTransparency ?? 0,
+            onColorChange: value => {
+              const entry = getScatterAxisAdditionalTicks(axis)?.[index] || null;
+              if(!entry){ return; }
+              updateScatterAxisAdditionalTick(axis, index, { ...entry, lineColor: value });
+            },
+            onThicknessChange: value => {
+              const entry = getScatterAxisAdditionalTicks(axis)?.[index] || null;
+              if(!entry){ return; }
+              updateScatterAxisAdditionalTick(axis, index, { ...entry, lineWidth: value });
+            },
+            onPatternChange: value => {
+              const entry = getScatterAxisAdditionalTicks(axis)?.[index] || null;
+              if(!entry){ return; }
+              updateScatterAxisAdditionalTick(axis, index, { ...entry, linePattern: value });
+            },
+            onTransparencyChange: value => {
+              const entry = getScatterAxisAdditionalTicks(axis)?.[index] || null;
+              if(!entry){ return; }
+              updateScatterAxisAdditionalTick(axis, index, { ...entry, lineTransparency: value });
+            }
+          });
+        };
         const axisControlConfig = axis => ({
           axis,
           scopeId: 'scatter',
+          additionalTickDefaults: DEFAULT_AXIS_ADDITIONAL_TICK,
           getTickInterval: () => getScatterAxisTickInterval(axis),
           getThickness: () => getScatterAxisStrokeWidth(),
           getColor: () => getScatterAxisColor(),
@@ -9078,6 +9194,7 @@
         }
         // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];
+        const xMajorTickLabels=[];
         let xTickFontCount=0;
         if(minorTicksX.length){
           minorTicksX.forEach(value => {
@@ -9108,6 +9225,7 @@
           markFontEditable(txt,'xTick');
           xTickFontCount += 1;
           xTickNodes.push(txt);
+          xMajorTickLabels.push({ pixel: x, node: txt });
         });
         const additionalXTicks = getScatterAxisAdditionalTicks('x');
         if(additionalXTicks.length){
@@ -9135,17 +9253,24 @@
                   logScale: logX
                 });
               },
-              onLine: ({ pixel }) => {
-                add('line',{
+              onLine: ({ index, entry, pixel }) => {
+                const style = getAdditionalLineStyle(entry);
+                const lineEl = add('line',{
                   x1: pixel,
                   y1: margin.top,
                   x2: pixel,
                   y2: margin.top + plotH,
-                  stroke: axisStroke,
-                  'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
-                  'stroke-dasharray': '4 3',
-                  opacity: 0.5
+                  stroke: style.stroke,
+                  'stroke-width': style.strokeWidth,
+                  opacity: Number.isFinite(style.opacity) ? style.opacity : 1
                 });
+                if(style.strokeDasharray){
+                  lineEl.setAttribute('stroke-dasharray', style.strokeDasharray);
+                }
+                if(style.strokeLinecap){
+                  lineEl.setAttribute('stroke-linecap', style.strokeLinecap);
+                }
+                registerAdditionalLineControlElement('x', index, lineEl);
               },
               onTick: ({ pixel }) => {
                 add('line',{
@@ -9157,7 +9282,10 @@
                   'stroke-width': axisStrokeWidth
                 });
               },
-              onLabel: ({ pixel, label }) => {
+              onLabel: ({ pixel, label, nearMajor }) => {
+                if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
+                  return;
+                }
                 const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
                 const txt = add('text',{
                   x: pixel,
@@ -9177,6 +9305,7 @@
         }
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
         const yTickNodes=[];
+        const yMajorTickLabels=[];
         let yTickFontCount=0;
         if(minorTicksY.length){
           minorTicksY.forEach(value => {
@@ -9205,6 +9334,7 @@
           markFontEditable(txt,'yTick');
           yTickFontCount+=1;
           yTickNodes.push(txt);
+          yMajorTickLabels.push({ pixel: y, node: txt });
         });
         const additionalYTicks = getScatterAxisAdditionalTicks('y');
         if(additionalYTicks.length){
@@ -9232,17 +9362,24 @@
                   logScale: logY
                 });
               },
-              onLine: ({ pixel }) => {
-                add('line',{
+              onLine: ({ index, entry, pixel }) => {
+                const style = getAdditionalLineStyle(entry);
+                const lineEl = add('line',{
                   x1: margin.left,
                   y1: pixel,
                   x2: margin.left + plotW,
                   y2: pixel,
-                  stroke: axisStroke,
-                  'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
-                  'stroke-dasharray': '4 3',
-                  opacity: 0.5
+                  stroke: style.stroke,
+                  'stroke-width': style.strokeWidth,
+                  opacity: Number.isFinite(style.opacity) ? style.opacity : 1
                 });
+                if(style.strokeDasharray){
+                  lineEl.setAttribute('stroke-dasharray', style.strokeDasharray);
+                }
+                if(style.strokeLinecap){
+                  lineEl.setAttribute('stroke-linecap', style.strokeLinecap);
+                }
+                registerAdditionalLineControlElement('y', index, lineEl);
               },
               onTick: ({ pixel }) => {
                 add('line',{
@@ -9254,7 +9391,10 @@
                   'stroke-width': axisStrokeWidth
                 });
               },
-              onLabel: ({ pixel, label }) => {
+              onLabel: ({ pixel, label, nearMajor }) => {
+                if(nearMajor && replaceMajorTickLabel(yMajorTickLabels, pixel, label)){
+                  return;
+                }
                 const txt = add('text',{
                   x: yAxisX - (tickLen + tickGap),
                   y: pixel,

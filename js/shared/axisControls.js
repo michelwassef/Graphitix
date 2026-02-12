@@ -102,18 +102,68 @@
 
   const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
   if(typeof axisExtras.sanitizeEntry !== 'function'){
+    const AXIS_EXTRA_LINE_PATTERNS = new Set(['solid', 'dashed', 'dotted']);
     const AXIS_EXTRA_DEFAULTS = Object.freeze({
-      showTick: true,
-      showLine: false,
-      label: ''
+      showTick: false,
+      showLine: true,
+      label: '',
+      lineColor: null,
+      lineWidth: 1,
+      linePattern: 'dotted',
+      lineTransparency: 0
     });
+
+    function sanitizeAxisExtraLineColor(value){
+      if(typeof value !== 'string'){
+        return null;
+      }
+      const trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
+
+    function sanitizeAxisExtraLineWidth(value){
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric) || numeric <= 0){
+        return null;
+      }
+      return numeric;
+    }
+
+    function sanitizeAxisExtraLinePattern(value){
+      if(typeof value !== 'string'){
+        return AXIS_EXTRA_DEFAULTS.linePattern;
+      }
+      const normalized = value.trim().toLowerCase();
+      return AXIS_EXTRA_LINE_PATTERNS.has(normalized) ? normalized : AXIS_EXTRA_DEFAULTS.linePattern;
+    }
+
+    function sanitizeAxisExtraLineTransparency(value){
+      if(value === undefined || value === null || value === ''){
+        return AXIS_EXTRA_DEFAULTS.lineTransparency;
+      }
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric)){
+        return AXIS_EXTRA_DEFAULTS.lineTransparency;
+      }
+      if(numeric < 0){
+        return 0;
+      }
+      if(numeric > 100){
+        return 100;
+      }
+      return numeric;
+    }
 
     function getAxisExtraDefaults(options){
       const defaults = options && options.defaults ? options.defaults : AXIS_EXTRA_DEFAULTS;
       return {
         showTick: defaults.showTick !== undefined ? !!defaults.showTick : AXIS_EXTRA_DEFAULTS.showTick,
         showLine: defaults.showLine !== undefined ? !!defaults.showLine : AXIS_EXTRA_DEFAULTS.showLine,
-        label: defaults.label != null ? String(defaults.label) : AXIS_EXTRA_DEFAULTS.label
+        label: defaults.label != null ? String(defaults.label) : AXIS_EXTRA_DEFAULTS.label,
+        lineColor: sanitizeAxisExtraLineColor(defaults.lineColor ?? defaults.color),
+        lineWidth: sanitizeAxisExtraLineWidth(defaults.lineWidth ?? defaults.thickness ?? defaults.strokeWidth),
+        linePattern: sanitizeAxisExtraLinePattern(defaults.linePattern ?? defaults.pattern ?? defaults.lineStyle),
+        lineTransparency: sanitizeAxisExtraLineTransparency(defaults.lineTransparency ?? defaults.transparency)
       };
     }
 
@@ -135,11 +185,35 @@
       }else if(entry.text !== undefined && entry.text !== null){
         label = String(entry.text);
       }
+      const lineColor = sanitizeAxisExtraLineColor(entry.lineColor ?? entry.color ?? defaults.lineColor);
+      const lineWidth = sanitizeAxisExtraLineWidth(entry.lineWidth ?? entry.thickness ?? entry.strokeWidth ?? defaults.lineWidth);
+      const linePattern = sanitizeAxisExtraLinePattern(entry.linePattern ?? entry.pattern ?? entry.lineStyle ?? defaults.linePattern);
+      const rawLineTransparency = entry.lineTransparency ?? entry.transparency;
+      const rawAlpha = rawLineTransparency == null ? entry.alpha : null;
+      const rawOpacity = rawLineTransparency == null && rawAlpha == null ? entry.opacity : null;
+      let lineTransparency = rawLineTransparency;
+      if(lineTransparency == null && rawAlpha != null){
+        const alphaNumeric = Number(rawAlpha);
+        lineTransparency = Number.isFinite(alphaNumeric) && alphaNumeric >= 0 && alphaNumeric <= 1
+          ? alphaNumeric * 100
+          : alphaNumeric;
+      }
+      if(lineTransparency == null && rawOpacity != null){
+        const opacityNumeric = Number(rawOpacity);
+        lineTransparency = Number.isFinite(opacityNumeric) && opacityNumeric >= 0 && opacityNumeric <= 1
+          ? (1 - opacityNumeric) * 100
+          : opacityNumeric;
+      }
+      lineTransparency = sanitizeAxisExtraLineTransparency(lineTransparency ?? defaults.lineTransparency);
       return {
         value,
         showTick,
         showLine,
-        label
+        label,
+        lineColor,
+        lineWidth,
+        linePattern,
+        lineTransparency
       };
     }
 
@@ -252,6 +326,39 @@
       return stats;
     }
 
+    function getAxisExtraLineStyle(entry, options){
+      const fallbackStroke = sanitizeAxisExtraLineColor(options && options.defaultStroke) || '#000000';
+      const fallbackWidth = sanitizeAxisExtraLineWidth(options && options.defaultStrokeWidth) || 1;
+      const fallbackPattern = sanitizeAxisExtraLinePattern(options && options.defaultPattern);
+      const fallbackTransparency = sanitizeAxisExtraLineTransparency(options && options.defaultTransparency);
+      const stroke = sanitizeAxisExtraLineColor(entry && entry.lineColor) || fallbackStroke;
+      const strokeWidth = sanitizeAxisExtraLineWidth(entry && entry.lineWidth) || fallbackWidth;
+      const linePattern = sanitizeAxisExtraLinePattern((entry && entry.linePattern) || fallbackPattern);
+      const lineTransparency = sanitizeAxisExtraLineTransparency((entry && entry.lineTransparency) ?? fallbackTransparency);
+      const opacity = Math.max(0, Math.min(1, 1 - (lineTransparency / 100)));
+      let strokeDasharray = null;
+      let strokeLinecap = 'butt';
+      if(linePattern === 'dashed'){
+        const dash = Math.max(3, Math.round(strokeWidth * 3));
+        const gap = Math.max(2, Math.round(strokeWidth * 2));
+        strokeDasharray = `${dash} ${gap}`;
+      }else if(linePattern === 'dotted'){
+        // Zero-length dashes with round caps render true circular dots.
+        const gap = Math.max(2, Number((strokeWidth * 4).toFixed(2)));
+        strokeDasharray = `0 ${gap}`;
+        strokeLinecap = 'round';
+      }
+      return {
+        stroke,
+        strokeWidth,
+        linePattern,
+        lineTransparency,
+        opacity,
+        strokeDasharray,
+        strokeLinecap
+      };
+    }
+
     function ensureAxisExtrasNode(settings, axis){
       if(!settings || typeof settings !== 'object' || !axis){
         return null;
@@ -316,7 +423,11 @@
         value,
         showTick: defaults.showTick,
         showLine: defaults.showLine,
-        label: defaults.label
+        label: defaults.label,
+        lineColor: defaults.lineColor,
+        lineWidth: defaults.lineWidth,
+        linePattern: defaults.linePattern,
+        lineTransparency: defaults.lineTransparency
       };
       entries.push(next);
       node.additionalTicks = entries;
@@ -340,8 +451,13 @@
     axisExtras.DEFAULTS = AXIS_EXTRA_DEFAULTS;
     axisExtras.sanitizeEntry = sanitizeAxisExtraEntry;
     axisExtras.sanitizeEntries = sanitizeAxisExtraEntries;
+    axisExtras.sanitizeLineColor = sanitizeAxisExtraLineColor;
+    axisExtras.sanitizeLineWidth = sanitizeAxisExtraLineWidth;
+    axisExtras.sanitizeLinePattern = sanitizeAxisExtraLinePattern;
+    axisExtras.sanitizeLineTransparency = sanitizeAxisExtraLineTransparency;
     axisExtras.toScaleValue = toScaleValue;
     axisExtras.getLabel = getAxisExtraLabel;
+    axisExtras.getLineStyle = getAxisExtraLineStyle;
     axisExtras.renderLinearExtras = renderLinearAxisExtras;
     axisExtras.getEntries = getAxisEntries;
     axisExtras.setEntries = setAxisEntries;
@@ -666,6 +782,12 @@
     });
     additionalTicksContainer.appendChild(header);
 
+    const extraDefaults = (config && typeof config.additionalTickDefaults === 'object' && config.additionalTickDefaults)
+      ? config.additionalTickDefaults
+      : (axisExtras.DEFAULTS || {});
+    const defaultShowTick = extraDefaults.showTick !== undefined ? !!extraDefaults.showTick : false;
+    const defaultShowLine = extraDefaults.showLine !== undefined ? !!extraDefaults.showLine : true;
+
     entries.forEach((entry, index) => {
       const row = doc.createElement('div');
       row.className = 'axis-controls-panel__extra-row';
@@ -686,7 +808,7 @@
       const tickToggleInput = doc.createElement('input');
       tickToggleInput.type = 'checkbox';
       tickToggleInput.className = 'axis-controls-panel__checkbox';
-      tickToggleInput.checked = normalizeAdditionalTickToggle(entry, 'showTick', true);
+      tickToggleInput.checked = normalizeAdditionalTickToggle(entry, 'showTick', defaultShowTick);
       tickToggleInput.setAttribute('data-undo-ignore', '1');
       const tickToggleText = doc.createElement('span');
       tickToggleText.textContent = 'Tick';
@@ -699,7 +821,7 @@
       const lineToggleInput = doc.createElement('input');
       lineToggleInput.type = 'checkbox';
       lineToggleInput.className = 'axis-controls-panel__checkbox';
-      lineToggleInput.checked = normalizeAdditionalTickToggle(entry, 'showLine', false);
+      lineToggleInput.checked = normalizeAdditionalTickToggle(entry, 'showLine', defaultShowLine);
       lineToggleInput.setAttribute('data-undo-ignore', '1');
       const lineToggleText = doc.createElement('span');
       lineToggleText.textContent = 'Line';
@@ -734,6 +856,7 @@
           return;
         }
         config.onAdditionalTickChange(config.axis, index, {
+          ...(entry && typeof entry === 'object' ? entry : {}),
           value: numericValue,
           showTick: !!tickToggleInput.checked,
           showLine: !!lineToggleInput.checked,

@@ -13,6 +13,11 @@ function dispatchChange(target){
   target.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+function dispatchInput(target){
+  if (!target) return;
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('Venn UpSet integration', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -129,5 +134,63 @@ describe('Venn UpSet integration', () => {
     const textD = regionList.textContent || '';
     expect(textD).toContain('GeneD');
     expect(textD).not.toContain('GeneShared');
+  });
+
+  test('Shared border controls apply to UpSet bars', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const borderColor = document.getElementById('borderColor');
+    const borderWidth = document.getElementById('borderWidth');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(borderColor).toBeTruthy();
+    expect(borderWidth).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC', 'SetD'],
+      ['GeneShared', '', '', 'GeneShared'],
+      ['GeneA', '', '', ''],
+      ['', '', '', 'GeneD']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+
+    borderColor.value = '#123456';
+    borderWidth.value = '0';
+    dispatchInput(borderColor);
+    dispatchInput(borderWidth);
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+    const firstPassBars = Array.from(stage.querySelectorAll('rect')).filter(rect => {
+      const fillOpacity = Number(rect.getAttribute('fill-opacity'));
+      return Number.isFinite(fillOpacity) && Math.abs(fillOpacity - Number(hooks.state.ui.inputs.opacity.value)) < 1e-6;
+    });
+    expect(firstPassBars.length).toBeGreaterThan(0);
+    firstPassBars.forEach(rect => {
+      expect(Number(rect.getAttribute('stroke-width'))).toBe(0);
+      expect(rect.getAttribute('stroke')).toBe('none');
+    });
+
+    borderWidth.value = '2';
+    dispatchInput(borderWidth);
+    venn.refreshDiagram();
+
+    const secondPassBars = Array.from(stage.querySelectorAll('rect')).filter(rect => {
+      const fillOpacity = Number(rect.getAttribute('fill-opacity'));
+      return Number.isFinite(fillOpacity) && Math.abs(fillOpacity - Number(hooks.state.ui.inputs.opacity.value)) < 1e-6;
+    });
+    expect(secondPassBars.length).toBeGreaterThan(0);
+    secondPassBars.forEach(rect => {
+      expect(rect.getAttribute('stroke')).toBe('#123456');
+      expect(Number(rect.getAttribute('stroke-width'))).toBeGreaterThan(0);
+    });
   });
 });

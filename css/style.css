@@ -3274,6 +3274,26 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .significance-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed}
 .significance-controls-panel__checkbox:focus-visible{outline:2px solid rgba(59,130,246,0.5);outline-offset:2px}
 
+/* Additional line controls panel */
+.font-toolbar-host.font-toolbar-host--visible>.additional-line-controls-panel{position:static;margin:0;max-width:100%}
+.font-toolbar-host--additional-line{display:block}
+.additional-line-controls-panel{display:grid;grid-auto-flow:column;grid-auto-columns:max-content !important;align-items:start;gap:22px;padding:0;border-radius:12px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
+.additional-line-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
+.additional-line-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
+.additional-line-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
+.additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:56px;flex:0 0 auto;text-align:center}
+.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;display:block}
+.additional-line-controls-panel__input{padding:5px 6px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:0;width:auto;max-width:108px;text-align:center}
+.additional-line-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
+.additional-line-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
+.additional-line-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+.additional-line-controls-panel__color-input{height:24px;width:24px;padding:0;border-radius:6px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;display:block;margin:0 auto}
+.additional-line-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+.additional-line-controls-panel__field--transparency{min-width:170px;align-items:stretch}
+.additional-line-controls-panel__range{display:flex;align-items:center;gap:8px;min-width:170px}
+.additional-line-controls-panel__transparency-input{flex:1 1 auto;min-width:120px}
+.additional-line-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
+
 /* Dendrogram highlight styles */
 .graph-edit-highlight--dendrogram {
     stroke: #ff9800;

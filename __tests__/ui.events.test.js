@@ -213,6 +213,7 @@ describe('UI events and example loaders', () => {
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
+    require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
@@ -369,6 +370,32 @@ describe('UI events and example loaders', () => {
     textInput.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(10);
 
+    const extraLine = document.querySelector('#boxPlot svg [data-additional-line-control="1"]');
+    expect(extraLine).toBeTruthy();
+    extraLine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(8);
+
+    const linePanel = document.querySelector('.additional-line-controls-panel');
+    expect(linePanel && linePanel.dataset.open === '1').toBe(true);
+    const lineThicknessInput = linePanel.querySelector('.additional-line-controls-panel__input--small');
+    const lineColorInput = linePanel.querySelector('.additional-line-controls-panel__color-input');
+    const linePatternSelect = linePanel.querySelector('.additional-line-controls-panel__input--select');
+    const lineTransparencyInput = linePanel.querySelector('.additional-line-controls-panel__transparency-input');
+    expect(lineThicknessInput).toBeTruthy();
+    expect(lineColorInput).toBeTruthy();
+    expect(linePatternSelect).toBeTruthy();
+    expect(lineTransparencyInput).toBeTruthy();
+
+    lineThicknessInput.value = '2.5';
+    lineThicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+    lineColorInput.value = '#ff0000';
+    lineColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+    linePatternSelect.value = 'dotted';
+    linePatternSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    lineTransparencyInput.value = '42';
+    lineTransparencyInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushAsyncWork(10);
+
     const boxComponent = window.Components?.box;
     expect(boxComponent).toBeTruthy();
     const state = boxComponent.__getState?.();
@@ -377,18 +404,26 @@ describe('UI events and example loaders', () => {
     expect(extras.length).toBe(1);
     expect(extras[0]).toEqual(expect.objectContaining({
       value: 16.5,
-      showTick: true,
+      showTick: false,
       showLine: true,
-      label: 'Threshold'
+      label: 'Threshold',
+      lineColor: '#ff0000',
+      lineWidth: 2.5,
+      linePattern: 'dotted',
+      lineTransparency: 42
     }));
 
     const payload = boxComponent.getPayload?.();
     expect(payload?.config?.axis?.additionalTicks?.y).toEqual(expect.arrayContaining([
       expect.objectContaining({
         value: 16.5,
-        showTick: true,
+        showTick: false,
         showLine: true,
-        label: 'Threshold'
+        label: 'Threshold',
+        lineColor: '#ff0000',
+        lineWidth: 2.5,
+        linePattern: 'dotted',
+        lineTransparency: 42
       })
     ]));
 
@@ -491,7 +526,7 @@ describe('UI events and example loaders', () => {
     expect(payload?.config?.axis?.additionalTicks?.y).toEqual(expect.arrayContaining([
       expect.objectContaining({
         value: 60,
-        showTick: true,
+        showTick: false,
         showLine: true,
         label: 'Goal'
       })
@@ -604,6 +639,12 @@ describe('UI events and example loaders', () => {
 
     const svg = document.querySelector('#scatterPlot svg');
     expect(svg).toBeTruthy();
+    const initialYTickTexts = Array.from(svg.querySelectorAll('text[text-anchor="end"]'))
+      .filter(el => (el.getAttribute('dominant-baseline') || '').toLowerCase() === 'middle')
+      .filter(el => Number.isFinite(Number((el.textContent || '').trim())));
+    const targetTickEl = initialYTickTexts[0] || null;
+    const targetTickValue = targetTickEl ? Number((targetTickEl.textContent || '').trim()) : 2;
+    const targetTickY = targetTickEl ? Number(targetTickEl.getAttribute('y')) : null;
     const axisLines = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
     const yAxisLine = axisLines.find(line => {
       const x1 = line.getAttribute('x1');
@@ -636,7 +677,7 @@ describe('UI events and example loaders', () => {
     expect(textInput).toBeTruthy();
     expect(toggles.length).toBe(2);
 
-    valueInput.value = '2';
+    valueInput.value = String(targetTickValue);
     valueInput.dispatchEvent(new Event('change', { bubbles: true }));
     toggles[1].checked = true;
     toggles[1].dispatchEvent(new Event('change', { bubbles: true }));
@@ -644,13 +685,21 @@ describe('UI events and example loaders', () => {
     textInput.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(10);
 
+    if(Number.isFinite(targetTickY)){
+      const overlapTexts = Array.from(document.querySelectorAll('#scatterPlot svg text[text-anchor="end"]'))
+        .filter(el => (el.getAttribute('dominant-baseline') || '').toLowerCase() === 'middle')
+        .filter(el => Math.abs(Number(el.getAttribute('y')) - targetTickY) <= 0.75);
+      expect(overlapTexts.length).toBe(1);
+      expect((overlapTexts[0].textContent || '').trim()).toBe('Cutoff');
+    }
+
     const scatterComponent = window.Components?.scatter;
     expect(scatterComponent).toBeTruthy();
     const payload = scatterComponent.getPayload?.();
     expect(payload?.config?.axis?.additionalTicks?.y).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        value: 2,
-        showTick: true,
+        value: targetTickValue,
+        showTick: false,
         showLine: true,
         label: 'Cutoff'
       })

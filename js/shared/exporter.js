@@ -250,6 +250,29 @@
     return removed;
   }
 
+  function removeAdditionalLineControlOverlays(svgNode) {
+    if (!svgNode || !svgNode.querySelectorAll) {
+      return 0;
+    }
+    const candidates = svgNode.querySelectorAll('[data-additional-line-overlay="1"], rect[data-additional-line-control="1"]');
+    let removed = 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const node = candidates[i];
+      if (!node || typeof node.tagName !== 'string') {
+        continue;
+      }
+      const tag = node.tagName.toLowerCase();
+      if (tag !== 'rect') {
+        continue;
+      }
+      if (typeof node.remove === 'function') {
+        node.remove();
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   /**
    * Threshold for triggering scatter point optimization.
    * When a scatter layer has more points than this, optimization is applied.
@@ -3348,6 +3371,7 @@
       counters.axisHandlesRemoved = removeAxisInteractionHandles(svgNode);
       counters.dendrogramOverlaysRemoved = removeDendrogramControlOverlays(svgNode);
       counters.significanceOverlaysRemoved = removeSignificanceControlOverlays(svgNode);
+      counters.additionalLineOverlaysRemoved = removeAdditionalLineControlOverlays(svgNode);
 
       // Apply scatter point optimization for large datasets
       counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });

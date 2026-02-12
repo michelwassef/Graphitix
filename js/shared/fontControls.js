@@ -1310,6 +1310,12 @@
           try{ significanceControls.close('hideAllFromFont'); }catch(e){}
         }
       }catch(e){}
+      try{
+        const additionalLineControls = Shared?.additionalLineControls || (global && global.Shared && global.Shared.additionalLineControls);
+        if(additionalLineControls && typeof additionalLineControls.close === 'function'){
+          try{ additionalLineControls.close('hideAllFromFont'); }catch(e){}
+        }
+      }catch(e){}
     }catch(err){
       logDebug('hideAllFormatControls error', { err: String(err) });
     }

@@ -15,6 +15,7 @@
     }
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   box.__installed = true;
   box.ready = false;
@@ -160,9 +161,13 @@
   const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
   const DEFAULT_AXIS_ADDITIONAL_TICK = Object.freeze({
     value: 0,
-    showTick: true,
-    showLine: false,
-    label: ''
+    showTick: false,
+    showLine: true,
+    label: '',
+    lineColor: null,
+    lineWidth: 1,
+    linePattern: 'dotted',
+    lineTransparency: 0
   });
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
@@ -2818,19 +2823,43 @@
     if(!Number.isFinite(value)){
       return null;
     }
-    const showTick = entry.showTick !== undefined ? !!entry.showTick : (entry.tick !== undefined ? !!entry.tick : true);
-    const showLine = entry.showLine !== undefined ? !!entry.showLine : (entry.line !== undefined ? !!entry.line : false);
-    let label = '';
+    const showTick = entry.showTick !== undefined ? !!entry.showTick : (entry.tick !== undefined ? !!entry.tick : DEFAULT_AXIS_ADDITIONAL_TICK.showTick);
+    const showLine = entry.showLine !== undefined ? !!entry.showLine : (entry.line !== undefined ? !!entry.line : DEFAULT_AXIS_ADDITIONAL_TICK.showLine);
+    let label = DEFAULT_AXIS_ADDITIONAL_TICK.label;
     if(entry.label !== undefined && entry.label !== null){
       label = String(entry.label);
     }else if(entry.text !== undefined && entry.text !== null){
       label = String(entry.text);
     }
+    const lineColor = typeof entry.lineColor === 'string' && entry.lineColor.trim()
+      ? entry.lineColor.trim()
+      : DEFAULT_AXIS_ADDITIONAL_TICK.lineColor;
+    const lineWidthRaw = Number(entry.lineWidth ?? entry.thickness ?? entry.strokeWidth);
+    const lineWidth = Number.isFinite(lineWidthRaw) && lineWidthRaw > 0
+      ? lineWidthRaw
+      : DEFAULT_AXIS_ADDITIONAL_TICK.lineWidth;
+    const rawPattern = typeof entry.linePattern === 'string'
+      ? entry.linePattern
+      : (typeof entry.pattern === 'string' ? entry.pattern : DEFAULT_AXIS_ADDITIONAL_TICK.linePattern);
+    const normalizedPattern = String(rawPattern || '').trim().toLowerCase();
+    const linePattern = (normalizedPattern === 'solid' || normalizedPattern === 'continuous')
+      ? 'solid'
+      : (normalizedPattern === 'dotted' || normalizedPattern === 'dots')
+        ? 'dotted'
+        : 'dashed';
+    const lineTransparencyRaw = Number(entry.lineTransparency ?? entry.transparency);
+    const lineTransparency = Number.isFinite(lineTransparencyRaw)
+      ? Math.min(100, Math.max(0, lineTransparencyRaw))
+      : DEFAULT_AXIS_ADDITIONAL_TICK.lineTransparency;
     return {
       value,
       showTick,
       showLine,
-      label
+      label,
+      lineColor,
+      lineWidth,
+      linePattern,
+      lineTransparency
     };
   }
 
@@ -5355,7 +5384,14 @@
     }
     const settings = ensureAxisSettings();
     if(axisExtras && typeof axisExtras.updateEntry === 'function'){
-      const updated = axisExtras.updateEntry(settings, axis, index, entry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      const currentEntries = axisExtras.getEntries(settings, axis, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+      const currentEntry = Array.isArray(currentEntries) && index >= 0 && index < currentEntries.length
+        ? currentEntries[index]
+        : null;
+      const mergedEntry = (currentEntry && typeof currentEntry === 'object')
+        ? { ...currentEntry, ...(entry && typeof entry === 'object' ? entry : {}) }
+        : entry;
+      const updated = axisExtras.updateEntry(settings, axis, index, mergedEntry, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
       if(!updated){
         return;
       }
@@ -5394,7 +5430,11 @@
       value: suggestedValue,
       showTick: DEFAULT_AXIS_ADDITIONAL_TICK.showTick,
       showLine: DEFAULT_AXIS_ADDITIONAL_TICK.showLine,
-      label: DEFAULT_AXIS_ADDITIONAL_TICK.label
+      label: DEFAULT_AXIS_ADDITIONAL_TICK.label,
+      lineColor: DEFAULT_AXIS_ADDITIONAL_TICK.lineColor,
+      lineWidth: DEFAULT_AXIS_ADDITIONAL_TICK.lineWidth,
+      linePattern: DEFAULT_AXIS_ADDITIONAL_TICK.linePattern,
+      lineTransparency: DEFAULT_AXIS_ADDITIONAL_TICK.lineTransparency
     });
     updateAxisAdditionalTicks(axis, entries);
   }
@@ -12501,9 +12541,88 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       };
     }
 
+    function getAdditionalLineStyle(entry){
+      if(axisExtras && typeof axisExtras.getLineStyle === 'function'){
+        return axisExtras.getLineStyle(entry, {
+          defaultStroke: axisStroke,
+          defaultStrokeWidth: Math.max(0.75, axisStrokeWidth * 0.85),
+          defaultPattern: 'dotted',
+          defaultTransparency: 0
+        });
+      }
+      return {
+        stroke: axisStroke,
+        strokeWidth: Math.max(0.75, axisStrokeWidth * 0.85),
+        linePattern: 'dotted',
+        lineTransparency: 0,
+        opacity: 1,
+        strokeDasharray: '0 6',
+        strokeLinecap: 'round'
+      };
+    }
+
+    function replaceMajorTickLabel(majorLabelEntries, pixel, label){
+      if(!Array.isArray(majorLabelEntries) || !majorLabelEntries.length){
+        return false;
+      }
+      let best = null;
+      let bestDist = Infinity;
+      majorLabelEntries.forEach(candidate => {
+        const candidatePixel = Number(candidate?.pixel);
+        if(!Number.isFinite(candidatePixel)){ return; }
+        const dist = Math.abs(candidatePixel - pixel);
+        if(dist < bestDist){
+          bestDist = dist;
+          best = candidate;
+        }
+      });
+      if(!best || !best.node || bestDist > 1.5){
+        return false;
+      }
+      best.node.textContent = label;
+      return true;
+    }
+
+    function registerAdditionalLineControlElement(axis, index, lineElement){
+      if(!lineElement || !additionalLineControls || typeof additionalLineControls.registerAdditionalLineElement !== 'function'){
+        return;
+      }
+      additionalLineControls.registerAdditionalLineElement(lineElement, {
+        scopeId: 'box',
+        axis,
+        index,
+        getValue: () => getAxisAdditionalTicks(axis)?.[index]?.value,
+        getColor: () => getAxisAdditionalTicks(axis)?.[index]?.lineColor ?? null,
+        getThickness: () => getAxisAdditionalTicks(axis)?.[index]?.lineWidth ?? null,
+        getPattern: () => getAxisAdditionalTicks(axis)?.[index]?.linePattern ?? 'dotted',
+        getTransparency: () => getAxisAdditionalTicks(axis)?.[index]?.lineTransparency ?? 0,
+        onColorChange: value => {
+          const entry = getAxisAdditionalTicks(axis)?.[index] || null;
+          if(!entry){ return; }
+          updateAxisAdditionalTick(axis, index, { ...entry, lineColor: value });
+        },
+        onThicknessChange: value => {
+          const entry = getAxisAdditionalTicks(axis)?.[index] || null;
+          if(!entry){ return; }
+          updateAxisAdditionalTick(axis, index, { ...entry, lineWidth: value });
+        },
+        onPatternChange: value => {
+          const entry = getAxisAdditionalTicks(axis)?.[index] || null;
+          if(!entry){ return; }
+          updateAxisAdditionalTick(axis, index, { ...entry, linePattern: value });
+        },
+        onTransparencyChange: value => {
+          const entry = getAxisAdditionalTicks(axis)?.[index] || null;
+          if(!entry){ return; }
+          updateAxisAdditionalTick(axis, index, { ...entry, lineTransparency: value });
+        }
+      });
+    }
+
     const axisControlConfig = axis => ({
       axis,
       scopeId: 'box',
+      additionalTickDefaults: DEFAULT_AXIS_ADDITIONAL_TICK,
       getTickInterval: () => getAxisTickInterval(axis),
       getThickness: () => getAxisStrokeWidthBase(),
       getColor: () => getAxisColor(),
@@ -12902,6 +13021,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
         }
       }
+      const yMajorTickLabels = [];
       let yTickFontCount = 0;
       if(minorTicksY.length){
         minorTicksY.forEach(value => {
@@ -12929,6 +13049,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
         markFontEditable(txt,'yTick');
         yTickFontCount += 1;
+        yMajorTickLabels.push({ pixel: y, node: txt });
       });
       const additionalYTicks = getAxisAdditionalTicks('y');
       if(additionalYTicks.length){
@@ -12956,17 +13077,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 logScale
               });
             },
-            onLine: ({ pixel }) => {
-              addGrid('line',{
+            onLine: ({ index, entry, pixel }) => {
+              const style = getAdditionalLineStyle(entry);
+              const lineEl = addGrid('line',{
                 x1: yAxisX,
                 y1: pixel,
                 x2: yAxisX + plotWLocal,
                 y2: pixel,
-                stroke: axisStroke,
-                'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
-                'stroke-dasharray': '4 3',
-                opacity: 0.5
+                stroke: style.stroke,
+                'stroke-width': style.strokeWidth,
+                opacity: Number.isFinite(style.opacity) ? style.opacity : 1
               });
+              if(style.strokeDasharray){
+                lineEl.setAttribute('stroke-dasharray', style.strokeDasharray);
+              }
+              if(style.strokeLinecap){
+                lineEl.setAttribute('stroke-linecap', style.strokeLinecap);
+              }
+              registerAdditionalLineControlElement('y', index, lineEl);
             },
             onTick: ({ pixel }) => {
               addAxisElement('line',{
@@ -12978,7 +13106,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 'stroke-width': axisStrokeWidth
               });
             },
-            onLabel: ({ pixel, label }) => {
+            onLabel: ({ pixel, label, nearMajor }) => {
+              if(nearMajor && replaceMajorTickLabel(yMajorTickLabels, pixel, label)){
+                return;
+              }
               const txt = addAxisElement('text',{
                 x: yAxisX - (tickLen + tickGap),
                 y: pixel,
@@ -14237,6 +14368,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           });
         });
       }
+      const xMajorTickLabels = [];
       yScale.ticks.forEach(t => {
         const x = valueToX(t);
         addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
@@ -14244,6 +14376,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
+        xMajorTickLabels.push({ pixel: x, node: txt });
       });
       const additionalXTicks = getAxisAdditionalTicks('x');
       if(additionalXTicks.length){
@@ -14270,17 +14403,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 logScale
               });
             },
-            onLine: ({ pixel }) => {
-              addGrid('line',{
+            onLine: ({ index, entry, pixel }) => {
+              const style = getAdditionalLineStyle(entry);
+              const lineEl = addGrid('line',{
                 x1: pixel,
                 y1: marginLocal.top,
                 x2: pixel,
                 y2: xAxisBottom,
-                stroke: axisStroke,
-                'stroke-width': Math.max(0.75, axisStrokeWidth * 0.85),
-                'stroke-dasharray': '4 3',
-                opacity: 0.5
+                stroke: style.stroke,
+                'stroke-width': style.strokeWidth,
+                opacity: Number.isFinite(style.opacity) ? style.opacity : 1
               });
+              if(style.strokeDasharray){
+                lineEl.setAttribute('stroke-dasharray', style.strokeDasharray);
+              }
+              if(style.strokeLinecap){
+                lineEl.setAttribute('stroke-linecap', style.strokeLinecap);
+              }
+              registerAdditionalLineControlElement('x', index, lineEl);
             },
             onTick: ({ pixel }) => {
               addAxisElement('line',{
@@ -14292,7 +14432,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 'stroke-width': axisStrokeWidth
               });
             },
-            onLabel: ({ pixel, label }) => {
+            onLabel: ({ pixel, label, nearMajor }) => {
+              if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
+                return;
+              }
               const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
               const txt = addAxisElement('text',{
                 x: pixel,

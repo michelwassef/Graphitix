@@ -24,6 +24,7 @@ describe('Format toolbar exclusivity', () => {
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
+    require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
