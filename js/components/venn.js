@@ -60,9 +60,17 @@
     setBarColor: '#2f2f2f',
     dotColor: '#2f2f2f',
     inactiveDotColor: '#d6d6d6',
-    connectorColor: '#2f2f2f',
     gridColor: '#e5e7eb'
   };
+  const DEFAULT_REGION_OPTIONS = [
+    { value: 'A', label: 'A only' },
+    { value: 'B', label: 'B only' },
+    { value: 'C', label: 'C only' },
+    { value: 'AB', label: 'A∩B only' },
+    { value: 'AC', label: 'A∩C only' },
+    { value: 'BC', label: 'B∩C only' },
+    { value: 'ABC', label: 'A∩B∩C' }
+  ];
 
   const makeEditable = (el, onChange, options) => {
     const fn = Shared.makeEditable || global.makeEditable;
@@ -477,7 +485,6 @@
           setBarColor: null,
           dotColor: null,
           inactiveDotColor: null,
-          connectorColor: null,
           gridColor: null
         },
         goResults: null,
@@ -521,6 +528,8 @@
         lastDrawMode: null,
         lastParsedLists: null,
         lastTableSignature: null,
+        lastUpSetRegionMap: null,
+        lastUpSetIntersections: null,
         lastGOResult: null,
         lastGOFormatted: [],
         lastGOOrganism: 'hsapiens',
@@ -1571,7 +1580,6 @@
       setBarColor: sanitizeColor(ui.setBarColor?.value, defaults.setBarColor),
       dotColor: sanitizeColor(ui.dotColor?.value, defaults.dotColor),
       inactiveDotColor: sanitizeColor(ui.inactiveDotColor?.value, defaults.inactiveDotColor),
-      connectorColor: sanitizeColor(ui.connectorColor?.value, defaults.connectorColor),
       gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor)
     };
     debug('Debug: venn upset settings resolved', settings);
@@ -1765,7 +1773,97 @@
     return _polylabelRegion(spec, bbox, tol);
   }
 
+  function ensureVennRegionOptions() {
+    const select = state.ui.regionSelect;
+    if (!select) return;
+    const currentValues = Array.from(select.options || []).map(option => option.value);
+    const expectedValues = DEFAULT_REGION_OPTIONS.map(option => option.value);
+    const isCurrentDefault = currentValues.length === expectedValues.length
+      && currentValues.every((value, idx) => value === expectedValues[idx]);
+    if (isCurrentDefault) {
+      return;
+    }
+    const previousValue = select.value;
+    select.innerHTML = '';
+    DEFAULT_REGION_OPTIONS.forEach(entry => {
+      const option = document.createElement('option');
+      option.value = entry.value;
+      option.textContent = entry.label;
+      select.appendChild(option);
+    });
+    if (expectedValues.includes(previousValue)) {
+      select.value = previousValue;
+    } else if (select.options.length) {
+      select.value = select.options[0].value;
+    } else {
+      select.value = '';
+    }
+    if (typeof formControls.autoSizeSelect === 'function') {
+      formControls.autoSizeSelect(select);
+    }
+    debugLog('venn region options restored', {
+      previousValue,
+      selected: select.value
+    });
+  }
+
+  function updateUpSetRegionContext(sets, intersections, preferredCode) {
+    const select = state.ui.regionSelect;
+    const entries = Array.isArray(intersections) ? intersections : [];
+    const setLabelByKey = new Map((sets || []).map(set => [set.key, set.label]));
+    const normalized = entries.map((entry, idx) => {
+      const code = String(entry?.code || '');
+      const label = entry?.label
+        || (Array.isArray(entry?.sets) && entry.sets.length
+          ? entry.sets.map(key => setLabelByKey.get(key) || key).join(' & ')
+          : code || `Intersection ${idx + 1}`);
+      const size = Number.isFinite(entry?.size) ? entry.size : 0;
+      const items = Array.isArray(entry?.items)
+        ? entry.items.map(value => String(value || '').trim()).filter(Boolean)
+        : [];
+      return { code, label, size, items };
+    }).filter(entry => !!entry.code);
+
+    const regionMap = {};
+    normalized.forEach(entry => {
+      regionMap[entry.code] = new Set(entry.items);
+    });
+    state.analysis.lastUpSetRegionMap = regionMap;
+    state.analysis.lastUpSetIntersections = normalized;
+
+    if (!select) return;
+    const previousValue = typeof preferredCode === 'string' ? preferredCode : select.value;
+    select.innerHTML = '';
+    normalized.forEach(entry => {
+      const option = document.createElement('option');
+      option.value = entry.code;
+      option.textContent = `${entry.label} (${formatCount(entry.size)})`;
+      select.appendChild(option);
+    });
+    const availableValues = new Set(normalized.map(entry => entry.code));
+    if (availableValues.has(previousValue)) {
+      select.value = previousValue;
+    } else if (select.options.length) {
+      select.value = select.options[0].value;
+    } else {
+      select.value = '';
+    }
+    if (typeof formControls.autoSizeSelect === 'function') {
+      formControls.autoSizeSelect(select);
+    }
+    debugLog('upset region options updated', {
+      optionCount: normalized.length,
+      previousValue,
+      selected: select.value
+    });
+  }
+
   function getRegionText(code) {
+    const plotType = getActivePlotType();
+    if (plotType === 'upset' && state.analysis.lastUpSetRegionMap) {
+      const genes = [...(state.analysis.lastUpSetRegionMap[code] || new Set())];
+      return genes.join('\n');
+    }
     if (!state.analysis.lastRegions) return '';
     const map = {
       A: state.analysis.lastRegions.Aonly,
@@ -1781,20 +1879,30 @@
   }
 
   function populateRegion(code, options = {}) {
-    if (!state.analysis.lastRegions || !state.ui.regionList) {
-      debug('Debug: venn populateRegion skipped', { hasRegions: !!state.analysis.lastRegions });
+    if (!state.ui.regionList) {
+      debug('Debug: venn populateRegion skipped', { hasRegionList: false });
       return;
     }
-    const map = {
-      A: state.analysis.lastRegions.Aonly,
-      B: state.analysis.lastRegions.Bonly,
-      C: state.analysis.lastRegions.Conly,
-      AB: state.analysis.lastRegions.AB,
-      AC: state.analysis.lastRegions.AC,
-      BC: state.analysis.lastRegions.BC,
-      ABC: state.analysis.lastRegions.ABC
-    };
-    const arr = [...(map[code] || new Set())].sort();
+    const plotType = getActivePlotType();
+    let arr = [];
+    if (plotType === 'upset' && state.analysis.lastUpSetRegionMap) {
+      arr = [...(state.analysis.lastUpSetRegionMap[code] || new Set())].sort();
+    } else {
+      if (!state.analysis.lastRegions) {
+        debug('Debug: venn populateRegion skipped', { hasRegions: false });
+        return;
+      }
+      const map = {
+        A: state.analysis.lastRegions.Aonly,
+        B: state.analysis.lastRegions.Bonly,
+        C: state.analysis.lastRegions.Conly,
+        AB: state.analysis.lastRegions.AB,
+        AC: state.analysis.lastRegions.AC,
+        BC: state.analysis.lastRegions.BC,
+        ABC: state.analysis.lastRegions.ABC
+      };
+      arr = [...(map[code] || new Set())].sort();
+    }
     const signature = `${code || ''}::${arr.join('|')}`;
     const shouldClear = signature !== state.analysis.lastRegionSignature;
     if (shouldClear && !options.skipClear) {
@@ -1854,6 +1962,7 @@
 
   function updateRegionSelect(labels, countsOverride) {
     if (!state.ui.regionSelect) return;
+    ensureVennRegionOptions();
     const map = {
       A: labels.A + ' only',
       B: labels.B + ' only',
@@ -3225,6 +3334,7 @@
     return (columns || []).map((column, idx) => {
       const values = Array.isArray(column?.values) ? column.values : [];
       const uniqueKeys = new Set();
+      const keyToDisplay = new Map();
       values.forEach(value => {
         const normalized = String(value).trim();
         if (!normalized) {
@@ -3232,6 +3342,9 @@
         }
         const key = caseSensitive ? normalized : normalized.toLowerCase();
         uniqueKeys.add(key);
+        if (!keyToDisplay.has(key)) {
+          keyToDisplay.set(key, normalized);
+        }
       });
       let color = '#666666';
       if (idx === 0 && style.colorA) color = style.colorA;
@@ -3247,6 +3360,7 @@
         size: uniqueKeys.size,
         color,
         keys: uniqueKeys,
+        keyToDisplay,
         sourceIndex: Number.isFinite(column?.index) ? column.index : idx
       };
     });
@@ -3268,6 +3382,7 @@
     }
     return intersections.map(entry => ({
       ...entry,
+      items: [],
       degree: entry.sets.length
     }));
   }
@@ -3278,20 +3393,28 @@
       return [];
     }
     const membership = new Map();
+    const keyToDisplay = new Map();
     sets.forEach((set, idx) => {
       const keys = set?.keys instanceof Set ? set.keys : null;
+      const displayMap = set?.keyToDisplay instanceof Map ? set.keyToDisplay : null;
       if (!keys) return;
       keys.forEach(key => {
         const mask = membership.get(key) || 0n;
         membership.set(key, mask | (1n << BigInt(idx)));
+        if (!keyToDisplay.has(key)) {
+          const displayValue = displayMap ? displayMap.get(key) : null;
+          keyToDisplay.set(key, displayValue || key);
+        }
       });
     });
     const intersectionMap = new Map();
-    membership.forEach(mask => {
+    membership.forEach((mask, memberKey) => {
       if (mask === 0n) return;
       const key = mask.toString();
-      const entry = intersectionMap.get(key) || { mask, size: 0 };
+      const entry = intersectionMap.get(key) || { mask, size: 0, items: [] };
       entry.size += 1;
+      const displayValue = keyToDisplay.get(memberKey) || memberKey;
+      entry.items.push(displayValue);
       intersectionMap.set(key, entry);
     });
 
@@ -3304,7 +3427,7 @@
           for (let mask = 1n; mask < totalCombos; mask += 1n) {
             const key = mask.toString();
             if (!intersectionMap.has(key)) {
-              intersectionMap.set(key, { mask, size: 0 });
+              intersectionMap.set(key, { mask, size: 0, items: [] });
             }
           }
         } else {
@@ -3338,6 +3461,7 @@
         sets: activeKeys,
         size: entry.size,
         degree: activeKeys.length,
+        items: Array.isArray(entry.items) ? entry.items.slice() : [],
         mask: entry.mask.toString()
       });
     });
@@ -3362,8 +3486,7 @@
     debugLog('upset sets resolved', { source, setCount: sets.length });
     return {
       sets,
-      needsIntersectionBuild: true,
-      canSelectRegion: sets.length <= 3
+      needsIntersectionBuild: true
     };
   }
 
@@ -3386,10 +3509,8 @@
     const upsetData = options?.upsetData || null;
     let sets = [];
     let allIntersections = [];
-    let canSelectRegion = true;
     if (upsetData && Array.isArray(upsetData.sets) && upsetData.sets.length) {
       sets = upsetData.sets;
-      canSelectRegion = upsetData.canSelectRegion !== false;
       if (upsetData.needsIntersectionBuild) {
         allIntersections = buildUpSetIntersectionsFromSets(sets, { showEmpty: settings.showEmpty });
       } else if (Array.isArray(upsetData.intersections)) {
@@ -3412,6 +3533,7 @@
     }
 
     if (!intersections.length) {
+      updateUpSetRegionContext(sets, [], '');
       const emptyText = makeEl('text', {
         x: stageWidth / 2,
         y: stageHeight / 2,
@@ -3441,16 +3563,11 @@
       limited = intersections.slice(0, maxIntersections);
     }
 
-    const regionSelect = canSelectRegion ? state.ui.regionSelect : null;
-    const regionOptions = regionSelect
-      ? new Set(Array.from(regionSelect.options || []).map(option => option.value))
-      : null;
-    const selectedRegion = regionSelect && regionOptions?.has(regionSelect.value)
-      ? regionSelect.value
-      : '';
-    if (selectedRegion) {
-      const selectedEntry = allIntersections.find(entry => entry.code === selectedRegion);
-      if (selectedEntry && !limited.some(entry => entry.code === selectedRegion)) {
+    const regionSelect = state.ui.regionSelect;
+    const preferredRegionCode = regionSelect ? String(regionSelect.value || '') : '';
+    if (preferredRegionCode) {
+      const selectedEntry = allIntersections.find(entry => entry.code === preferredRegionCode);
+      if (selectedEntry && !limited.some(entry => entry.code === preferredRegionCode)) {
         if (Number.isFinite(maxIntersections) && maxIntersections > 0 && limited.length >= maxIntersections) {
           limited[limited.length - 1] = selectedEntry;
         } else {
@@ -3459,6 +3576,13 @@
       }
     }
     intersections = limited;
+    updateUpSetRegionContext(sets, intersections, preferredRegionCode);
+    const regionOptions = regionSelect
+      ? new Set(Array.from(regionSelect.options || []).map(option => option.value))
+      : null;
+    const selectedRegion = regionSelect && regionOptions?.has(regionSelect.value)
+      ? regionSelect.value
+      : '';
 
     const pad = 20;
     const gap = Math.max(style.fontSizePx * 0.8, 12);
@@ -3557,14 +3681,23 @@
     const axisY = axisYMax >= axisYMin
       ? Math.min(axisYMax, Math.max(axisYMin, axisYPreferred))
       : axisYMin;
-    const setTickLabelY = axisY + tickLength + setTickOffset;
-    const setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
+    let setTickLabelY = axisY + tickLength + setTickOffset;
+    let setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
+    const maxSetAxisLabelY = stageHeight - setAxisLabelHeight - 2;
+    if (setAxisLabelY > maxSetAxisLabelY) {
+      const shiftUp = setAxisLabelY - maxSetAxisLabelY;
+      setTickLabelY -= shiftUp;
+      setAxisLabelY -= shiftUp;
+    }
     debugLog('upset typography resolved', {
       baseFontSize: style.fontSizePx,
       setLabelFontSize,
       axisTickFontSize,
       axisLabelFontSize,
-      valueLabelFontSize
+      valueLabelFontSize,
+      axisY,
+      setTickLabelY,
+      setAxisLabelY
     });
 
     if (settings.showGrid && settings.gridColor) {
@@ -3910,15 +4043,20 @@
     });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
-    updateCountLabels(labels);
-    updateRegionSelect(labels, counts);
-    updateColorLabels(labels);
     const plotType = getActivePlotType();
+    updateCountLabels(labels);
+    if (plotType !== 'upset') {
+      updateRegionSelect(labels, counts);
+    }
+    updateColorLabels(labels);
     if (plotType === 'upset') {
       style.upset = resolveUpSetSettings();
       const upsetData = resolveUpSetTableData(parsed, labels, style);
       drawUpSet(counts, labels, style, { upsetData });
     } else {
+      ensureVennRegionOptions();
+      state.analysis.lastUpSetRegionMap = null;
+      state.analysis.lastUpSetIntersections = null;
       const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
       const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
       fitAndDraw(L, style, labels, counts);
@@ -3977,14 +4115,19 @@
     });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
-    updateCountLabels(labels);
-    updateRegionSelect(labels, counts);
-    updateColorLabels(labels);
     const plotType = getActivePlotType();
+    updateCountLabels(labels);
+    if (plotType !== 'upset') {
+      updateRegionSelect(labels, counts);
+    }
+    updateColorLabels(labels);
     if (plotType === 'upset') {
       style.upset = resolveUpSetSettings();
       drawUpSet(counts, labels, style);
     } else {
+      ensureVennRegionOptions();
+      state.analysis.lastUpSetRegionMap = null;
+      state.analysis.lastUpSetIntersections = null;
       const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
       fitAndDraw(L, style, labels, counts);
     }
@@ -4015,6 +4158,23 @@
     return present;
   }
 
+  function hasUpSetContent(inputs) {
+    const tableInfo = getUpSetTableColumns();
+    const tableHasValues = Array.isArray(tableInfo?.columns)
+      && tableInfo.columns.some(column => Array.isArray(column?.values) && column.values.length > 0);
+    if (tableHasValues) {
+      debug('Debug: venn hasUpSetContent table', {
+        columns: tableInfo.columns.length
+      });
+      return true;
+    }
+    const fallback = hasListContent(inputs);
+    debug('Debug: venn hasUpSetContent fallback', {
+      fallback
+    });
+    return fallback;
+  }
+
   function refreshDiagram() {
     const inputs = state.ui.inputs;
     if (!inputs) {
@@ -4022,20 +4182,35 @@
       return;
     }
     try {
+      const plotType = getActivePlotType();
       const hasLists = hasListContent(inputs);
       const hasNumeric = hasNumericContent(inputs);
+      const hasUpSetLists = plotType === 'upset' ? hasUpSetContent(inputs) : hasLists;
       const hintedMode = state.analysis.lastDrawMode;
-      const modePreference = (
-        (hintedMode === 'lists' && hasLists) || (hintedMode === 'numeric' && hasNumeric)
-      )
-        ? hintedMode
-        : null;
-      const mode = modePreference || (hasLists ? 'lists' : (hasNumeric ? 'numeric' : null));
+      let mode = null;
+      if (plotType === 'upset') {
+        if (hintedMode === 'lists' && hasUpSetLists) {
+          mode = 'lists';
+        } else if (hintedMode === 'numeric' && hasNumeric && !hasUpSetLists) {
+          mode = 'numeric';
+        } else {
+          mode = hasUpSetLists ? 'lists' : (hasNumeric ? 'numeric' : null);
+        }
+      } else {
+        const modePreference = (
+          (hintedMode === 'lists' && hasLists) || (hintedMode === 'numeric' && hasNumeric)
+        )
+          ? hintedMode
+          : null;
+        mode = modePreference || (hasLists ? 'lists' : (hasNumeric ? 'numeric' : null));
+      }
       if (!mode) {
         clearSVG();
         if (state.ui.regionList) state.ui.regionList.innerHTML = '';
         if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
         state.analysis.lastRegions = null;
+        state.analysis.lastUpSetRegionMap = null;
+        state.analysis.lastUpSetIntersections = null;
         state.analysis.lastCounts = null;
         state.analysis.lastParsedLists = null;
         state.analysis.lastDrawMode = null;
@@ -4044,7 +4219,13 @@
           if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
           debugLog('significance cleared during empty refresh');
         }
-        debugLog('refreshDiagram skipped', { reason: 'no-data', hasLists, hasNumeric });
+        debugLog('refreshDiagram skipped', {
+          reason: 'no-data',
+          plotType,
+          hasLists,
+          hasUpSetLists,
+          hasNumeric
+        });
         return;
       }
       if (mode === 'numeric') {
@@ -4132,7 +4313,6 @@
           if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
           if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
           if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
-          if (state.ui.upset.connectorColor) state.ui.upset.connectorColor.value = sanitizeColor(upset.connectorColor, DEFAULT_UPSET_SETTINGS.connectorColor);
           if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
         }
         if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
@@ -4484,7 +4664,6 @@
       if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
       if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
       if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
-      if (state.ui.upset.connectorColor) state.ui.upset.connectorColor.value = sanitizeColor(upset.connectorColor, DEFAULT_UPSET_SETTINGS.connectorColor);
       if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
     }
     // Restore label positions if saved
@@ -4624,7 +4803,9 @@
         C: state.ui.inputs.labelC.value || 'C'
       };
       updateColorLabels(labels);
-      updateRegionSelect(labels, state.analysis.lastCounts);
+      if (getActivePlotType() !== 'upset') {
+        updateRegionSelect(labels, state.analysis.lastCounts);
+      }
       updateCountLabels(labels);
       requestScheduledDraw(`label-input-${id}`);
       debug('Debug: venn labelInputHandler', { id, labels }); // Debug: label input change
@@ -4674,7 +4855,9 @@
       C: state.ui.inputs.labelC.value || 'C'
     };
     updateColorLabels(labels);
-    updateRegionSelect(labels, state.analysis.lastCounts);
+    if (getActivePlotType() !== 'upset') {
+      updateRegionSelect(labels, state.analysis.lastCounts);
+    }
     updateCountLabels(labels);
     debug('Debug: venn initializeLabelState', { labels }); // Debug: initial label synchronization
   }
@@ -5055,7 +5238,7 @@
       { elements: state.ui.upset?.showGrid, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-grid' },
       { elements: state.ui.upset?.dotSize, type: 'input', handler: handleUpSetDotSizeInput, label: 'upset-dot-size' },
       { elements: state.ui.upset?.useSetColors, type: 'change', handler: handleUpSetControlChange, label: 'upset-use-set-colors' },
-      { elements: [state.ui.upset?.barColor, state.ui.upset?.setBarColor, state.ui.upset?.dotColor, state.ui.upset?.inactiveDotColor, state.ui.upset?.connectorColor, state.ui.upset?.gridColor], type: 'input', handler: handleUpSetControlChange, label: 'upset-colors' },
+      { elements: [state.ui.upset?.barColor, state.ui.upset?.setBarColor, state.ui.upset?.dotColor, state.ui.upset?.inactiveDotColor, state.ui.upset?.gridColor], type: 'input', handler: handleUpSetControlChange, label: 'upset-colors' },
       { elements: state.ui.regionSelect, type: 'change', handler: handleRegionSelectChange, label: 'region-select' },
       { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' },
       { elements: state.ui.copyRegionBtn, type: 'click', handler: handleCopyRegionClick, label: 'copy-region' },
@@ -5105,7 +5288,6 @@
       attachUndoLifecycle(state.ui.upset.setBarColor, 'venn:upset-set-bar-color');
       attachUndoLifecycle(state.ui.upset.dotColor, 'venn:upset-dot-color');
       attachUndoLifecycle(state.ui.upset.inactiveDotColor, 'venn:upset-inactive-dot-color');
-      attachUndoLifecycle(state.ui.upset.connectorColor, 'venn:upset-connector-color');
       attachUndoLifecycle(state.ui.upset.gridColor, 'venn:upset-grid-color');
     }
 
@@ -5224,7 +5406,6 @@
       setBarColor: $('#upsetSetBarColor'),
       dotColor: $('#upsetDotColor'),
       inactiveDotColor: $('#upsetInactiveDotColor'),
-      connectorColor: $('#upsetConnectorColor'),
       gridColor: $('#upsetGridColor')
     };
     state.ui.goResults = $('#goResults');
@@ -5418,6 +5599,8 @@
     };
     const analysisState = {
       lastRegions: state.analysis.lastRegions,
+      lastUpSetRegionMap: state.analysis.lastUpSetRegionMap,
+      lastUpSetIntersections: state.analysis.lastUpSetIntersections,
       lastCounts: state.analysis.lastCounts,
       lastParsedLists: state.analysis.lastParsedLists,
       lastDrawMode: state.analysis.lastDrawMode,
@@ -5471,6 +5654,8 @@
     }
     if(cache.analysisState){
       state.analysis.lastRegions = cache.analysisState.lastRegions || null;
+      state.analysis.lastUpSetRegionMap = cache.analysisState.lastUpSetRegionMap || null;
+      state.analysis.lastUpSetIntersections = cache.analysisState.lastUpSetIntersections || null;
       state.analysis.lastCounts = cache.analysisState.lastCounts || null;
       state.analysis.lastParsedLists = cache.analysisState.lastParsedLists || null;
       state.analysis.lastDrawMode = cache.analysisState.lastDrawMode || null;
@@ -5487,7 +5672,9 @@
       updateColorLabels(labels);
       if(state.analysis.lastCounts){
         refreshCounts(state.analysis.lastCounts);
-        updateRegionSelect(labels, state.analysis.lastCounts);
+        if (getActivePlotType() !== 'upset') {
+          updateRegionSelect(labels, state.analysis.lastCounts);
+        }
       }
     }
     if(state.analysis.goChart){
