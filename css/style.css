@@ -2658,13 +2658,31 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #vennPage .venn-inline-checkbox input{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 #vennPage .upset-only{display:none}
 #vennPage[data-plot="upset"] .upset-only{display:block}
-#vennPage .upset-controls-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-#vennPage .upset-controls-row .control{margin-top:0}
+#vennPage .upset-controls-layout{display:flex;flex-direction:column;gap:8px}
+#vennPage .upset-controls-row .control{margin-top:0;min-width:0}
+#vennPage .upset-controls-row--main{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:8px 10px;align-items:end}
+#vennPage .upset-controls-row--main .control{display:flex;align-items:center;gap:8px}
+#vennPage .upset-controls-row--main .control:first-child{min-width:0}
+#vennPage .upset-controls-row--main .control:first-child select{flex:1 1 auto;min-width:0;width:100%}
+#vennPage .upset-controls-row--main .control:last-child input[type=number]{width:56px;min-width:56px;max-width:56px}
+#vennPage .upset-controls-row--size{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:8px 10px;align-items:center}
+#vennPage .upset-dot-size-control{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px;min-width:0}
+#vennPage .upset-dot-size-control label{margin:0}
+#vennPage .upset-dot-size-control input[type=range]{min-width:0;max-width:none;width:100%}
+#vennPage .upset-dot-size-control output{min-width:26px;text-align:right}
+#vennPage .upset-controls-row--toggles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 8px;align-items:stretch}
 #vennPage .upset-toggle{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;letter-spacing:.04em;text-transform:none;cursor:pointer;white-space:nowrap}
+#vennPage .upset-controls-row--toggles .upset-toggle{width:100%;min-width:0;box-sizing:border-box;white-space:normal;line-height:1.2}
 #vennPage .upset-toggle input{margin:0}
-#vennPage .upset-color-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;margin-top:6px}
-#vennPage .upset-color-grid label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#111b2c}
-#vennPage .upset-color-grid span{white-space:nowrap}
+#vennPage .upset-color-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin-top:2px}
+#vennPage .upset-color-grid .upset-color{display:grid;grid-template-columns:112px auto;align-items:center;justify-content:start;column-gap:8px;width:max-content;max-width:100%;font-size:11px;color:#111b2c}
+#vennPage .upset-color-grid .upset-color span{white-space:nowrap}
+#vennPage .upset-color-grid .upset-color input[type=color]{justify-self:start}
+@media (max-width:430px){
+  #vennPage .upset-controls-row--main,
+  #vennPage .upset-controls-row--size,
+  #vennPage .upset-controls-row--toggles{grid-template-columns:minmax(0,1fr)}
+}
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 @media (max-width:1000px){#vennPage .wrap{flex-direction:column}#vennPage #vennInputPanel,#vennPage #vennGraphPanel{flex:1 1 auto;max-width:none}}
 #boxPage .wrap{display:flex;align-items:stretch;gap:0}
