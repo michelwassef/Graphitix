@@ -1559,11 +1559,19 @@ body.debug-ag-header .ag-theme-balham .ag-header {
 }
 
 .style-sync-select-all {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 13px;
-    color: #4b5563;
+    padding: 4px 8px;
+    border: 1px solid #b4bccb;
+    background: #f9fafc;
+    font-size: 11px;
+    font-weight: 400;
+    color: #1e2633;
+    letter-spacing: .04em;
+    text-transform: none;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
 .style-sync-targets {
@@ -1579,11 +1587,19 @@ body.debug-ag-header .ag-theme-balham .ag-header {
 }
 
 .style-sync-targets label {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 14px;
-    color: #1f2937;
+    padding: 4px 8px;
+    border: 1px solid #b4bccb;
+    background: #f9fafc;
+    font-size: 11px;
+    font-weight: 400;
+    color: #1e2633;
+    letter-spacing: .04em;
+    text-transform: none;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
 .style-sync-targets__empty {
@@ -1608,11 +1624,27 @@ body.debug-ag-header .ag-theme-balham .ag-header {
 }
 
 .style-sync-options label {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 14px;
-    color: #1f2937;
+    padding: 4px 8px;
+    border: 1px solid #b4bccb;
+    background: #f9fafc;
+    font-size: 11px;
+    font-weight: 400;
+    color: #1e2633;
+    letter-spacing: .04em;
+    text-transform: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.style-sync-select-all input[type="checkbox"],
+.style-sync-targets label input[type="checkbox"],
+.style-sync-options label input[type="checkbox"] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: #0b63d1;
 }
 
 .style-sync-status {
@@ -2014,12 +2046,22 @@ body.debug-ag-header .ag-theme-balham .ag-header {
     display:inline-flex;
     align-items:center;
     gap:6px;
-    font-size:12px;
-    color:#1f2937;
+    padding:4px 8px;
+    border:1px solid #b4bccb;
+    background:#f9fafc;
+    font-size:11px;
+    font-weight:400;
+    color:#1e2633;
+    letter-spacing:.04em;
+    text-transform:none;
+    cursor:pointer;
+    white-space:nowrap;
 }
 .workspace-toolbar__checkbox input[type="checkbox"]{
+    margin:0;
     width:16px;
     height:16px;
+    accent-color:#0b63d1;
 }
 .workspace-toolbar__input{
     display:flex;
@@ -2363,11 +2405,11 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .svgbox .resizer-control-tray .resizer-aspect-control,
 .svgbox .resizer-control-tray .resizer-textlock-control,
 .svgbox .resizer-control-tray .resizer-legend-control,
-.svgbox .resizer-axeslength-summary{display:flex;align-items:center;gap:4px;font-size:12px;background:rgba(255,255,255,0.85);padding:2px 6px;border-radius:4px;color:#333;box-shadow:0 1px 3px rgba(0,0,0,0.15)}
-.svgbox .resizer-control-tray .resizer-legend-control input[type=checkbox]{margin:0}
+.svgbox .resizer-axeslength-summary{display:flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);font-size:11px;background:var(--shared-checkbox-chip-bg,#f9fafc);padding:var(--shared-checkbox-chip-padding,4px 8px);border-radius:0;color:var(--shared-checkbox-chip-text,#1e2633);box-shadow:none;border:1px solid var(--shared-checkbox-chip-border,#b4bccb);font-weight:400;letter-spacing:.04em;text-transform:none;white-space:nowrap}
+.svgbox .resizer-control-tray .resizer-legend-control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .svgbox .resizer-aspect-control input[type="checkbox"],
 .svgbox .resizer-textlock-control input[type="checkbox"],
-.svgbox .resizer-axeslength-menu input[type="checkbox"]{margin:0}
+.svgbox .resizer-axeslength-menu input[type="checkbox"]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .svgbox .resizer-aspect-text,
 .svgbox .resizer-textlock-text,
 .svgbox .resizer-axeslength-text{white-space:nowrap}
@@ -2404,6 +2446,17 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-options .control-row>.control{margin-top:0;flex:0 1 auto}
 .config-panel__line--split{column-gap:12px;row-gap:6px}
 .config-panel__line--checkboxes{gap:6px 10px}
+.config-panel,
+.config-options,
+.workspace-toolbar,
+.axis-controls-panel,
+.significance-controls-panel{
+  --shared-checkbox-chip-border:#b4bccb;
+  --shared-checkbox-chip-bg:#f9fafc;
+  --shared-checkbox-chip-text:#1e2633;
+  --shared-checkbox-chip-gap:6px;
+  --shared-checkbox-chip-padding:4px 8px;
+}
 .config-panel__item{display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;font-size:12px;font-weight:400;color:#1c2534}
 .config-panel__item--narrow{flex:0 0 auto}
 .config-panel__item--wide{flex:0 0 auto}
@@ -2417,9 +2470,9 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
 .config-panel__checkbox,
 .config-options .control label:has(> input[type=checkbox]),
-.config-options .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.config-options .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
 .config-panel__checkbox input[type=checkbox],
-.config-options .control input[type=checkbox]{margin:0}
+.config-options .control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .config-panel__checkbox--inline{margin-left:auto}
 .config-panel__checkbox--disabled{opacity:0.48;filter:grayscale(60%);background:#f3f5f7;border-color:#d6dde5;color:#6b7785;cursor:not-allowed;pointer-events:none}
 .config-panel__checkbox--disabled input[type=checkbox]{cursor:not-allowed}
@@ -2529,14 +2582,14 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #vennPage .venn-hot{width:100%;height:100%}
 #vennPage #vennGraphPanel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;max-width:none}
 #vennPage .venn-inline-controls{align-items:center;gap:12px;flex-wrap:wrap}
-#vennPage .venn-inline-checkbox{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
-#vennPage .venn-inline-checkbox input{margin:0}
 #vennPage .diagram-area .svgbox{flex:0 0 auto;min-width:0}
 #vennPage .diagram-area .config-options{flex:0 0 auto}
 #vennPage .panel{display:flex;flex-direction:column;min-width:0}
 #vennPage #analysisResults,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
 #vennPage #stringNetwork{width:100%;overflow:visible}
 #vennPage #stringNetwork svg{width:100%;max-width:100%;height:auto;display:block;position:relative;overflow:visible}
+#vennPage .venn-inline-checkbox{display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer}
+#vennPage .venn-inline-checkbox input{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 #vennPage .upset-only{display:none}
 #vennPage[data-plot="upset"] .upset-only{display:block}
 #vennPage .upset-controls-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -2762,8 +2815,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #histPage #histTablePanel{flex:1 1 33%;min-width:150px}
 #histPage #histGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #histGraphPanel .hist-dist-list{display:flex;flex-direction:column;gap:6px;width:100%;}
-#histGraphPanel .hist-dist-option{display:flex;align-items:center;gap:6px;font-size:0.9rem;line-height:1.4;}
-#histGraphPanel .hist-dist-option input[type="checkbox"]{margin:0;}
+#histGraphPanel .hist-dist-option{display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer;line-height:1.4;}
+#histGraphPanel .hist-dist-option input[type="checkbox"]{margin:0;width:16px;height:16px;accent-color:#0b63d1;}
 #histGraphPanel .hist-dist-swatch{width:12px;height:12px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);}
 #histGraphPanel .hist-overlay{mix-blend-mode:multiply;pointer-events:none;}
 #histPage .diagram-area .svgbox{flex:0 0 auto}
@@ -2808,10 +2861,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__checkbox-chip{display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:0;background:transparent;cursor:pointer;transition:all .12s ease;min-height:20px;min-width:20px}
 .axis-controls-panel__checkbox-chip[data-checked='1']{background:transparent;box-shadow:none}
 .axis-controls-panel__checkbox-chip[data-disabled='1']{opacity:.55;cursor:not-allowed;box-shadow:none}
-.axis-controls-panel__checkbox{appearance:none;width:16px;height:16px;border:1px solid #6b7280;border-radius:4px;background:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,0.9);cursor:pointer;position:relative;transition:all .12s ease;margin:0}
-.axis-controls-panel__checkbox:checked{background:linear-gradient(180deg,#0ea5e9,#0284c7);border-color:#0ea5e9;box-shadow:0 0 0 1px rgba(14,165,233,0.25)}
-.axis-controls-panel__checkbox:checked::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:2px solid #f8fafc;border-top:none;border-left:none;transform:rotate(45deg)}
-.axis-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;background:#f5f7fb}
+.axis-controls-panel__checkbox{appearance:auto;width:16px;height:16px;cursor:pointer;margin:0;accent-color:#0b63d1}
+.axis-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed}
 .axis-controls-panel__checkbox:focus-visible{outline:2px solid rgba(59,130,246,0.5);outline-offset:2px}
 .axis-controls-panel__mini-field{display:flex;align-items:center;gap:6px;padding:0;border:none;border-radius:0;background:transparent;min-height:26px}
 .axis-controls-panel__mini-field-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#1f2937;display:flex;align-items:center;line-height:1}
@@ -2835,7 +2886,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__dropdown[data-open='1']{display:flex}
 .axis-controls-panel__helper{margin:8px 0;font-size:11px;color:#4b5563;line-height:1.4}
 .axis-controls-panel__checkbox-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:#1e293b;cursor:pointer}
-.axis-controls-panel__checkbox{width:16px;height:16px;cursor:pointer}
+.axis-controls-panel__checkbox-label,
+.axis-controls-panel__extra-toggle{padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);letter-spacing:.04em;text-transform:none;white-space:nowrap}
 .axis-controls-panel__button--segments-toggle{align-self:flex-start;width:100%;justify-content:space-between;display:flex;align-items:center;gap:6px;font-weight:600;letter-spacing:.04em}
 .axis-controls-panel__button--additional-ticks{width:auto;min-width:0;height:26px;padding:0 12px;border-radius:0 !important;background:#f5f7fb;color:#111b29;border:1px solid #cbd5e1;font-size:11px;letter-spacing:.02em;text-transform:none;gap:8px;line-height:1;justify-content:center;align-items:center;font-weight:600;margin-left:0}
 .axis-controls-panel__button--additional-ticks:not([aria-disabled='true']):hover{background:#e7ecf5;color:#0f172a}
@@ -3173,16 +3225,6 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     border-radius:0 !important;
 }
 
-/* Remove boxed label around the checkbox in the significance panel */
-.font-toolbar-host--significance .config-panel__checkbox{
-    border: none !important;
-    background: transparent !important;
-    padding: 0 !important;
-}
-
-.font-toolbar-host--significance .config-panel__checkbox input[type="checkbox"]{
-    margin: 0 6px 0 0; /* keep some spacing from label text if present */
-}
 .significance-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .significance-controls-panel__color-input{height:24px;width:24px;padding:0;border-radius:6px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;display:block;margin:0 auto}
 .significance-controls-panel__field--color .significance-controls-panel__field-label{display:block;width:100%;text-align:center}
@@ -3190,10 +3232,8 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .significance-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .significance-controls-panel__toggle-row{display:flex;align-items:center;gap:6px;width:auto}
 .significance-controls-panel__checkbox-chip{display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:0;background:transparent;cursor:pointer;transition:all .12s ease;min-height:20px;min-width:20px}
-.significance-controls-panel__checkbox{appearance:none;width:16px;height:16px;border:1px solid #6b7280;border-radius:4px;background:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,0.9);cursor:pointer;position:relative;transition:all .12s ease;margin:0}
-.significance-controls-panel__checkbox:checked{background:linear-gradient(180deg,#0ea5e9,#0284c7);border-color:#0ea5e9;box-shadow:0 0 0 1px rgba(14,165,233,0.25)}
-.significance-controls-panel__checkbox:checked::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:2px solid #f8fafc;border-top:none;border-left:none;transform:rotate(45deg)}
-.significance-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;background:#f5f7fb}
+.significance-controls-panel__checkbox{appearance:auto;width:16px;height:16px;cursor:pointer;transition:all .12s ease;margin:0;accent-color:#0b63d1}
+.significance-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed}
 .significance-controls-panel__checkbox:focus-visible{outline:2px solid rgba(59,130,246,0.5);outline-offset:2px}
 
 /* Dendrogram highlight styles */
