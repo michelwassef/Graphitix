@@ -320,6 +320,85 @@ describe('UI events and example loaders', () => {
     expect(iqr3Extents.wMax).toBeCloseTo(180);
   });
 
+  test('Box Plot: additional axis ticks/lines persist from FORMAT controls', async () => {
+    await activateWorkspace('box');
+    const loadBtn = document.getElementById('boxLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(40);
+
+    const svg = document.querySelector('#boxPlot svg');
+    expect(svg).toBeTruthy();
+    const axisLines = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
+    const yAxisLine = axisLines.find(line => {
+      const x1 = line.getAttribute('x1');
+      const x2 = line.getAttribute('x2');
+      const stroke = (line.getAttribute('stroke') || '').toLowerCase();
+      return x1 != null && x1 === x2 && stroke !== 'transparent';
+    });
+    expect(yAxisLine).toBeTruthy();
+    yAxisLine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(8);
+
+    const panel = document.querySelector('.axis-controls-panel');
+    expect(panel && panel.dataset.open === '1').toBe(true);
+    const extraButton = panel.querySelector('.axis-controls-panel__button--additional-ticks');
+    expect(extraButton).toBeTruthy();
+    extraButton.click();
+    await flushAsyncWork(4);
+
+    const addButton = panel.querySelector('.axis-controls-panel__button--add-extra');
+    expect(addButton).toBeTruthy();
+    addButton.click();
+    await flushAsyncWork(8);
+
+    const row = panel.querySelector('.axis-controls-panel__extra-row');
+    expect(row).toBeTruthy();
+    const valueInput = row.querySelector('input[type="number"]');
+    const textInput = row.querySelector('input[type="text"]');
+    const toggles = row.querySelectorAll('input[type="checkbox"]');
+    expect(valueInput).toBeTruthy();
+    expect(textInput).toBeTruthy();
+    expect(toggles.length).toBe(2);
+
+    valueInput.value = '16.5';
+    valueInput.dispatchEvent(new Event('change', { bubbles: true }));
+    toggles[1].checked = true; // line toggle
+    toggles[1].dispatchEvent(new Event('change', { bubbles: true }));
+    textInput.value = 'Threshold';
+    textInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(10);
+
+    const boxComponent = window.Components?.box;
+    expect(boxComponent).toBeTruthy();
+    const state = boxComponent.__getState?.();
+    expect(state).toBeTruthy();
+    const extras = state?.axisSettings?.y?.additionalTicks || [];
+    expect(extras.length).toBe(1);
+    expect(extras[0]).toEqual(expect.objectContaining({
+      value: 16.5,
+      showTick: true,
+      showLine: true,
+      label: 'Threshold'
+    }));
+
+    const payload = boxComponent.getPayload?.();
+    expect(payload?.config?.axis?.additionalTicks?.y).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        value: 16.5,
+        showTick: true,
+        showLine: true,
+        label: 'Threshold'
+      })
+    ]));
+
+    boxComponent.loadFromPayload(payload);
+    await flushAsyncWork(10);
+    const reloadedState = boxComponent.__getState?.();
+    expect(reloadedState?.axisSettings?.y?.additionalTicks?.length).toBe(1);
+    expect(reloadedState?.axisSettings?.y?.additionalTicks?.[0]?.label).toBe('Threshold');
+  });
+
   test('Line Graph: Load Example respects replicate mode', async () => {
     await activateWorkspace('line');
     const loadBtn = document.getElementById('lineLoadExample');
@@ -355,6 +434,74 @@ describe('UI events and example loaders', () => {
     const lineStateGrouped = lineComponent?.__getState?.();
     expect(lineStateGrouped?.legendItems?.length).toBe(2);
     expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(['Control', 'Treated']);
+  });
+
+  test('Line Graph: additional axis ticks/lines persist from FORMAT controls', async () => {
+    await activateWorkspace('line');
+    const loadBtn = document.getElementById('lineLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(40);
+
+    const svg = document.querySelector('#linePlot svg');
+    expect(svg).toBeTruthy();
+    const axisLines = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
+    const yAxisLine = axisLines.find(line => {
+      const x1 = line.getAttribute('x1');
+      const x2 = line.getAttribute('x2');
+      const stroke = (line.getAttribute('stroke') || '').toLowerCase();
+      return x1 != null && x1 === x2 && stroke !== 'transparent';
+    });
+    expect(yAxisLine).toBeTruthy();
+    yAxisLine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(8);
+
+    const panel = document.querySelector('.axis-controls-panel');
+    expect(panel && panel.dataset.open === '1').toBe(true);
+    const extraButton = panel.querySelector('.axis-controls-panel__button--additional-ticks');
+    expect(extraButton).toBeTruthy();
+    extraButton.click();
+    await flushAsyncWork(4);
+
+    const addButton = panel.querySelector('.axis-controls-panel__button--add-extra');
+    expect(addButton).toBeTruthy();
+    addButton.click();
+    await flushAsyncWork(8);
+
+    const row = panel.querySelector('.axis-controls-panel__extra-row');
+    expect(row).toBeTruthy();
+    const valueInput = row.querySelector('input[type="number"]');
+    const textInput = row.querySelector('input[type="text"]');
+    const toggles = row.querySelectorAll('input[type="checkbox"]');
+    expect(valueInput).toBeTruthy();
+    expect(textInput).toBeTruthy();
+    expect(toggles.length).toBe(2);
+
+    valueInput.value = '60';
+    valueInput.dispatchEvent(new Event('change', { bubbles: true }));
+    toggles[1].checked = true;
+    toggles[1].dispatchEvent(new Event('change', { bubbles: true }));
+    textInput.value = 'Goal';
+    textInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(10);
+
+    const lineComponent = window.Components?.line;
+    expect(lineComponent).toBeTruthy();
+    const payload = lineComponent.getPayload?.();
+    expect(payload?.config?.axis?.additionalTicks?.y).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        value: 60,
+        showTick: true,
+        showLine: true,
+        label: 'Goal'
+      })
+    ]));
+
+    lineComponent.loadFromPayload(payload);
+    await flushAsyncWork(10);
+    const reloadedPayload = lineComponent.getPayload?.();
+    expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.length).toBe(1);
+    expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.[0]?.label).toBe('Goal');
   });
 
   test('Line Graph: statistics require manual trigger', async () => {
@@ -446,6 +593,74 @@ describe('UI events and example loaders', () => {
     } finally {
       cleanupJStat();
     }
+  });
+
+  test('Scatter Plot: additional axis ticks/lines persist from FORMAT controls', async () => {
+    await activateWorkspace('scatter');
+    const loadBtn = document.getElementById('scatterLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(40);
+
+    const svg = document.querySelector('#scatterPlot svg');
+    expect(svg).toBeTruthy();
+    const axisLines = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
+    const yAxisLine = axisLines.find(line => {
+      const x1 = line.getAttribute('x1');
+      const x2 = line.getAttribute('x2');
+      const stroke = (line.getAttribute('stroke') || '').toLowerCase();
+      return x1 != null && x1 === x2 && stroke !== 'transparent';
+    });
+    expect(yAxisLine).toBeTruthy();
+    yAxisLine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(8);
+
+    const panel = document.querySelector('.axis-controls-panel');
+    expect(panel && panel.dataset.open === '1').toBe(true);
+    const extraButton = panel.querySelector('.axis-controls-panel__button--additional-ticks');
+    expect(extraButton).toBeTruthy();
+    extraButton.click();
+    await flushAsyncWork(4);
+
+    const addButton = panel.querySelector('.axis-controls-panel__button--add-extra');
+    expect(addButton).toBeTruthy();
+    addButton.click();
+    await flushAsyncWork(8);
+
+    const row = panel.querySelector('.axis-controls-panel__extra-row');
+    expect(row).toBeTruthy();
+    const valueInput = row.querySelector('input[type="number"]');
+    const textInput = row.querySelector('input[type="text"]');
+    const toggles = row.querySelectorAll('input[type="checkbox"]');
+    expect(valueInput).toBeTruthy();
+    expect(textInput).toBeTruthy();
+    expect(toggles.length).toBe(2);
+
+    valueInput.value = '2';
+    valueInput.dispatchEvent(new Event('change', { bubbles: true }));
+    toggles[1].checked = true;
+    toggles[1].dispatchEvent(new Event('change', { bubbles: true }));
+    textInput.value = 'Cutoff';
+    textInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(10);
+
+    const scatterComponent = window.Components?.scatter;
+    expect(scatterComponent).toBeTruthy();
+    const payload = scatterComponent.getPayload?.();
+    expect(payload?.config?.axis?.additionalTicks?.y).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        value: 2,
+        showTick: true,
+        showLine: true,
+        label: 'Cutoff'
+      })
+    ]));
+
+    scatterComponent.loadFromPayload(payload);
+    await flushAsyncWork(10);
+    const reloadedPayload = scatterComponent.getPayload?.();
+    expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.length).toBe(1);
+    expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.[0]?.label).toBe('Cutoff');
   });
 
   test('Scatter Plot: statistics require manual compute', async () => {
