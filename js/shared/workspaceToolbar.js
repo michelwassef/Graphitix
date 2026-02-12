@@ -153,6 +153,7 @@
   const MENU_OPEN_CLASS = 'workspace-toolbar__menu--open';
   let undoSubscriptionCleanup = null;
   let menuHandlersBound = false;
+  const contextObservers = new WeakMap();
 
   function logDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -469,6 +470,202 @@
     return sectionEl;
   }
 
+  function toKebab(value){
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function resolveSectionTabLabel(section, index){
+    const explicit = section && typeof section.tabLabel === 'string' ? section.tabLabel.trim() : '';
+    if(explicit){ return explicit; }
+    const caption = section && typeof section.caption === 'string' ? section.caption.trim() : '';
+    if(caption){ return caption; }
+    if(section && section.type === 'dock'){ return 'Format'; }
+    if(section && section.align === 'end'){ return 'Styles'; }
+    return `Section ${index + 1}`;
+  }
+
+  function resolveSectionId(config, section, index){
+    const explicit = section && section.id ? String(section.id) : '';
+    if(explicit){ return explicit; }
+    const label = resolveSectionTabLabel(section, index);
+    const slug = toKebab(label) || `section-${index + 1}`;
+    return `${config.key}-${index + 1}-${slug}`;
+  }
+
+  function cloneSectionForToolbar(section){
+    if(!section || typeof section !== 'object'){ return null; }
+    const cloned = Object.assign({}, section);
+    if(Array.isArray(section.buttons)){
+      cloned.buttons = section.buttons.slice();
+    }
+    if(Array.isArray(section.controls)){
+      cloned.controls = section.controls.slice();
+    }
+    return cloned;
+  }
+
+  function normalizeToolbarSections(sections){
+    const source = Array.isArray(sections) ? sections : [];
+    const normalized = source.map(cloneSectionForToolbar).filter(Boolean);
+    const primaryIndex = normalized.findIndex(section => section.type === 'buttons');
+    if(primaryIndex < 0){
+      return normalized;
+    }
+
+    const primary = normalized[primaryIndex];
+    const primaryCaption = String(primary.caption || '').trim().toLowerCase();
+    if(primaryCaption === 'file'){
+      primary.caption = 'General';
+      primary.tabLabel = 'General';
+      primary.ariaLabel = 'General actions';
+    }
+
+    const mergedButtons = Array.isArray(primary.buttons) ? primary.buttons.slice() : [];
+    const kept = [];
+    normalized.forEach((section, index) => {
+      if(index === primaryIndex){
+        kept.push(section);
+        return;
+      }
+      const caption = String(section.caption || '').trim().toLowerCase();
+      const isHistory = section.type === 'buttons' && caption === 'history';
+      const isStyleSyncSection = section.type === 'buttons' && Array.isArray(section.buttons)
+        && section.buttons.some(btn => btn && btn.dataset && btn.dataset.styleSyncTrigger === '1');
+      if(isHistory || isStyleSyncSection){
+        if(Array.isArray(section.buttons)){
+          section.buttons.forEach(btn => {
+            if(btn){ mergedButtons.push(btn); }
+          });
+        }
+        return;
+      }
+      kept.push(section);
+    });
+    primary.buttons = mergedButtons;
+    return kept;
+  }
+
+  function setToolbarActiveSection(toolbar, sectionId, opts){
+    if(!toolbar || !sectionId){ return; }
+    const options = opts || {};
+    const sectionSelector = '.workspace-toolbar__section[data-toolbar-section-id]';
+    const tabSelector = '.workspace-toolbar__tab[data-toolbar-section-target]';
+    let found = false;
+    toolbar.querySelectorAll(sectionSelector).forEach(section => {
+      const isActive = section.dataset.toolbarSectionId === sectionId;
+      section.classList.toggle('workspace-toolbar__section--active', isActive);
+      section.toggleAttribute('hidden', !isActive);
+      if(isActive){ found = true; }
+    });
+    if(!found){ return; }
+    toolbar.querySelectorAll(tabSelector).forEach(tab => {
+      const isActive = tab.dataset.toolbarSectionTarget === sectionId;
+      tab.classList.toggle('workspace-toolbar__tab--active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      tab.tabIndex = isActive ? 0 : -1;
+    });
+    toolbar.dataset.toolbarActiveSection = sectionId;
+    if(options.manual){
+      toolbar.dataset.toolbarManualSection = sectionId;
+    }
+    if(options.context){
+      toolbar.dataset.toolbarContextSection = sectionId;
+    } else if(options.clearContext){
+      delete toolbar.dataset.toolbarContextSection;
+    }
+  }
+
+  function findContextSectionId(toolbar){
+    if(!toolbar){ return ''; }
+    const dockSections = toolbar.querySelectorAll('.workspace-toolbar__section--dock[data-toolbar-section-id]');
+    for(let i = 0; i < dockSections.length; i += 1){
+      const section = dockSections[i];
+      if(section.querySelector('.workspace-toolbar__dock--active')){
+        return section.dataset.toolbarSectionId || '';
+      }
+    }
+    const visibleHost = toolbar.querySelector('.workspace-toolbar__section--dock .font-toolbar-host.font-toolbar-host--visible');
+    if(visibleHost){
+      const hostSection = visibleHost.closest('.workspace-toolbar__section[data-toolbar-section-id]');
+      if(hostSection?.dataset?.toolbarSectionId){
+        return hostSection.dataset.toolbarSectionId;
+      }
+    }
+    return '';
+  }
+
+  function syncToolbarContextSection(toolbar){
+    if(!toolbar){ return; }
+    const contextSectionId = findContextSectionId(toolbar);
+    if(contextSectionId){
+      setToolbarActiveSection(toolbar, contextSectionId, { context: true });
+      return;
+    }
+    const activeSectionId = toolbar.dataset.toolbarActiveSection || '';
+    const previousContext = toolbar.dataset.toolbarContextSection || '';
+    if(activeSectionId && previousContext && activeSectionId === previousContext){
+      const fallback = toolbar.dataset.toolbarManualSection || activeSectionId;
+      setToolbarActiveSection(toolbar, fallback, { clearContext: true });
+      return;
+    }
+    if(previousContext){
+      delete toolbar.dataset.toolbarContextSection;
+    }
+  }
+
+  function detachContextObserver(toolbar){
+    if(!toolbar){ return; }
+    const observer = contextObservers.get(toolbar);
+    if(observer && typeof observer.disconnect === 'function'){
+      observer.disconnect();
+    }
+    contextObservers.delete(toolbar);
+  }
+
+  function attachContextObserver(toolbar){
+    if(!toolbar || typeof MutationObserver !== 'function'){ return; }
+    detachContextObserver(toolbar);
+    let scheduled = false;
+    const scheduleSync = () => {
+      if(scheduled){ return; }
+      scheduled = true;
+      const run = () => {
+        scheduled = false;
+        syncToolbarContextSection(toolbar);
+      };
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(run);
+      } else {
+        global.setTimeout(run, 0);
+      }
+    };
+    const observer = new MutationObserver(mutations => {
+      for(let i = 0; i < mutations.length; i += 1){
+        const mutation = mutations[i];
+        if(mutation.type === 'attributes' && mutation.attributeName === 'class'){
+          scheduleSync();
+          return;
+        }
+        if(mutation.type === 'childList'){
+          scheduleSync();
+          return;
+        }
+      }
+    });
+    observer.observe(toolbar, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class'],
+      childList: true
+    });
+    contextObservers.set(toolbar, observer);
+    syncToolbarContextSection(toolbar);
+  }
+
   function createButtonsSection(section){
     if(!doc){ return null; }
     const sectionEl = doc.createElement('div');
@@ -528,8 +725,19 @@
     toolbar.className = 'workspace-toolbar';
     toolbar.setAttribute('role', 'toolbar');
     toolbar.setAttribute('aria-label', config.ariaLabel || 'Workspace actions');
+    toolbar.dataset.toolbarKey = config.key || '';
 
-    (config.sections || []).forEach(section => {
+    const tabs = doc.createElement('div');
+    tabs.className = 'workspace-toolbar__tabs';
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', 'Toolbar sections');
+
+    const content = doc.createElement('div');
+    content.className = 'workspace-toolbar__content';
+
+    const entries = [];
+    const sections = normalizeToolbarSections(config.sections);
+    sections.forEach((section, index) => {
       if(!section){ return; }
       let sectionEl = null;
       if(section.type === 'dock'){
@@ -539,8 +747,66 @@
       } else {
         sectionEl = createButtonsSection(section);
       }
-      if(sectionEl){ toolbar.appendChild(sectionEl); }
+      if(!sectionEl){ return; }
+      const sectionId = resolveSectionId(config, section, index);
+      const tabLabel = resolveSectionTabLabel(section, index);
+      sectionEl.dataset.toolbarSectionId = sectionId;
+      sectionEl.setAttribute('hidden', 'hidden');
+      content.appendChild(sectionEl);
+      entries.push({ sectionId, tabLabel });
+
+      const tab = doc.createElement('button');
+      tab.type = 'button';
+      tab.className = 'workspace-toolbar__tab';
+      tab.textContent = tabLabel;
+      tab.dataset.toolbarSectionTarget = sectionId;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', 'false');
+      tab.tabIndex = -1;
+      tabs.appendChild(tab);
     });
+
+    tabs.addEventListener('click', event => {
+      const tab = event.target.closest('.workspace-toolbar__tab[data-toolbar-section-target]');
+      if(!tab || tab.disabled){ return; }
+      const targetId = tab.dataset.toolbarSectionTarget || '';
+      if(!targetId){ return; }
+      setToolbarActiveSection(toolbar, targetId, { manual: true, clearContext: true });
+    });
+
+    tabs.addEventListener('keydown', event => {
+      const key = event.key;
+      if(key !== 'ArrowRight' && key !== 'ArrowLeft'){ return; }
+      const allTabs = Array.from(tabs.querySelectorAll('.workspace-toolbar__tab[data-toolbar-section-target]'));
+      if(!allTabs.length){ return; }
+      const currentIndex = allTabs.indexOf(doc.activeElement);
+      if(currentIndex < 0){ return; }
+      event.preventDefault();
+      const nextIndex = key === 'ArrowRight'
+        ? (currentIndex + 1) % allTabs.length
+        : (currentIndex - 1 + allTabs.length) % allTabs.length;
+      const nextTab = allTabs[nextIndex];
+      if(!nextTab){ return; }
+      nextTab.focus();
+      const targetId = nextTab.dataset.toolbarSectionTarget || '';
+      if(targetId){
+        setToolbarActiveSection(toolbar, targetId, { manual: true, clearContext: true });
+      }
+    });
+
+    toolbar.appendChild(tabs);
+    toolbar.appendChild(content);
+
+    let defaultSectionId = '';
+    const fileEntry = entries.find(entry => entry.tabLabel.toLowerCase() === 'file');
+    if(fileEntry){
+      defaultSectionId = fileEntry.sectionId;
+    } else if(entries.length){
+      defaultSectionId = entries[0].sectionId;
+    }
+    if(defaultSectionId){
+      setToolbarActiveSection(toolbar, defaultSectionId, { manual: true, clearContext: true });
+    }
 
     return toolbar;
   }
@@ -618,11 +884,13 @@
     } else {
       const existing = container.querySelector('.workspace-toolbar');
       if(existing){
+        detachContextObserver(existing);
         existing.replaceWith(toolbar);
       } else {
         container.insertBefore(toolbar, container.firstChild || null);
       }
     }
+    attachContextObserver(toolbar);
     container.dataset.toolbarRendered = '1';
     logDebug('rendered toolbar', { key });
     ensureUndoSubscription();
@@ -652,6 +920,20 @@
   workspaceToolbar.register = registerToolbar;
   workspaceToolbar.renderAll = renderAllToolbars;
   workspaceToolbar.renderForElement = renderToolbarForElement;
+  workspaceToolbar.activateSection = function activateSection(toolbarKey, sectionLabel){
+    if(!doc){ return false; }
+    const key = String(toolbarKey || '').trim();
+    const label = String(sectionLabel || '').trim().toLowerCase();
+    if(!key || !label){ return false; }
+    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    if(!toolbar){ return false; }
+    const tab = Array.from(toolbar.querySelectorAll('.workspace-toolbar__tab[data-toolbar-section-target]'))
+      .find(node => String(node.textContent || '').trim().toLowerCase() === label);
+    const sectionId = tab?.dataset?.toolbarSectionTarget || '';
+    if(!sectionId){ return false; }
+    setToolbarActiveSection(toolbar, sectionId, { manual: true, clearContext: true });
+    return true;
+  };
 
   if(doc){
     const button = (id, label, icon, options) => Object.assign({ id, label, icon }, options || {});
@@ -734,18 +1016,11 @@
             buttons: [
               button('openVenn', 'Open', 'open', { menuItems: openMenuItems('Venn') }),
               button('saveVenn', 'Save', 'save', { menuItems: saveMenuItems('Venn') }),
-              button('saveAsVenn', 'Save As', 'saveAs')
-            ]
-          },
-          history('venn'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsVenn', 'Save As', 'saveAs'),
               button('sample', 'Load Example', 'example')
             ]
           },
+          history('venn'),
           dock('venn'),
           buildMatchStylesSection()
         ]
@@ -761,18 +1036,11 @@
               button('openBox', 'Open', 'open', { menuItems: openMenuItems('Box') }),
               button('boxImport', 'Import', 'import'),
               button('saveBox', 'Save', 'save', { menuItems: saveMenuItems('Box') }),
-              button('saveAsBox', 'Save As', 'saveAs')
-            ]
-          },
-          history('box'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsBox', 'Save As', 'saveAs'),
               button('boxLoadExample', 'Load Example', 'example')
             ]
           },
+          history('box'),
           dock('box'),
           buildMatchStylesSection()
         ]
@@ -788,18 +1056,11 @@
               button('openScatter', 'Open', 'open', { menuItems: openMenuItems('Scatter') }),
               button('scatterImport', 'Import', 'import'),
               button('saveScatter', 'Save', 'save', { menuItems: saveMenuItems('Scatter') }),
-              button('saveAsScatter', 'Save As', 'saveAs')
-            ]
-          },
-          history('scatter'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsScatter', 'Save As', 'saveAs'),
               button('scatterLoadExample', 'Load Example', 'example')
             ]
           },
+          history('scatter'),
           dock('scatter'),
           buildMatchStylesSection()
         ]
@@ -815,18 +1076,11 @@
               button('openPca', 'Open', 'open', { menuItems: openMenuItems('Pca') }),
               button('pcaImport', 'Import', 'import'),
               button('savePca', 'Save', 'save', { menuItems: saveMenuItems('Pca') }),
-              button('saveAsPca', 'Save As', 'saveAs')
-            ]
-          },
-          history('pca'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsPca', 'Save As', 'saveAs'),
               button('pcaLoadExample', 'Load Example', 'example')
             ]
           },
+          history('pca'),
           dock('pca'),
           buildMatchStylesSection()
         ]
@@ -842,18 +1096,11 @@
               button('openLine', 'Open', 'open', { menuItems: openMenuItems('Line') }),
               button('lineImport', 'Import', 'import'),
               button('saveLine', 'Save', 'save', { menuItems: saveMenuItems('Line') }),
-              button('saveAsLine', 'Save As', 'saveAs')
-            ]
-          },
-          history('line'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsLine', 'Save As', 'saveAs'),
               button('lineLoadExample', 'Load Example', 'example')
             ]
           },
+          history('line'),
           dock('line'),
           buildMatchStylesSection()
         ]
@@ -869,18 +1116,11 @@
               button('openHeatmap', 'Open', 'open', { menuItems: openMenuItems('Heatmap') }),
               button('heatmapImport', 'Import', 'import'),
               button('saveHeatmap', 'Save', 'save', { menuItems: saveMenuItems('Heatmap') }),
-              button('saveAsHeatmap', 'Save As', 'saveAs')
-            ]
-          },
-          history('heatmap'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsHeatmap', 'Save As', 'saveAs'),
               button('heatmapLoadExample', 'Load Example', 'example')
             ]
           },
+          history('heatmap'),
           dock('heatmap'),
           buildMatchStylesSection()
         ]
@@ -896,18 +1136,11 @@
               button('openSurface', 'Open', 'open', { menuItems: openMenuItems('Surface') }),
               button('surfaceImport', 'Import', 'import'),
               button('saveSurface', 'Save', 'save', { menuItems: saveMenuItems('Surface') }),
-              button('saveAsSurface', 'Save As', 'saveAs')
-            ]
-          },
-          history('surface'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsSurface', 'Save As', 'saveAs'),
               button('surfaceLoadExample', 'Load Example', 'example')
             ]
           },
+          history('surface'),
           dock('surface'),
           buildMatchStylesSection()
         ]
@@ -923,18 +1156,11 @@
               button('openRoc', 'Open', 'open', { menuItems: openMenuItems('Roc') }),
               button('rocImport', 'Import', 'import'),
               button('saveRoc', 'Save', 'save', { menuItems: saveMenuItems('Roc') }),
-              button('saveAsRoc', 'Save As', 'saveAs')
-            ]
-          },
-          history('roc'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsRoc', 'Save As', 'saveAs'),
               button('rocLoadExample', 'Load Example', 'example')
             ]
           },
+          history('roc'),
           dock('roc'),
           buildMatchStylesSection()
         ]
@@ -950,18 +1176,11 @@
               button('openSurvival', 'Open', 'open', { menuItems: openMenuItems('Survival') }),
               button('survivalImport', 'Import', 'import'),
               button('saveSurvival', 'Save', 'save', { menuItems: saveMenuItems('Survival') }),
-              button('saveAsSurvival', 'Save As', 'saveAs')
-            ]
-          },
-          history('survival'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsSurvival', 'Save As', 'saveAs'),
               button('survivalLoadExample', 'Load Example', 'example')
             ]
           },
+          history('survival'),
           dock('survival'),
           buildMatchStylesSection()
         ]
@@ -977,18 +1196,11 @@
               button('openHist', 'Open', 'open', { menuItems: openMenuItems('Hist') }),
               button('histImport', 'Import', 'import'),
               button('saveHist', 'Save', 'save', { menuItems: saveMenuItems('Hist') }),
-              button('saveAsHist', 'Save As', 'saveAs')
-            ]
-          },
-          history('hist'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsHist', 'Save As', 'saveAs'),
               button('histLoadExample', 'Load Example', 'example')
             ]
           },
+          history('hist'),
           dock('hist'),
           buildMatchStylesSection()
         ]
@@ -1004,18 +1216,11 @@
               button('openPie', 'Open', 'open', { menuItems: openMenuItems('Pie') }),
               button('pieImport', 'Import', 'import'),
               button('savePie', 'Save', 'save', { menuItems: saveMenuItems('Pie') }),
-              button('saveAsPie', 'Save As', 'saveAs')
-            ]
-          },
-          history('pie'),
-          {
-            type: 'buttons',
-            caption: 'Data',
-            ariaLabel: 'Dataset helpers',
-            buttons: [
+              button('saveAsPie', 'Save As', 'saveAs'),
               button('pieLoadExample', 'Load Example', 'example')
             ]
           },
+          history('pie'),
           dock('pie'),
           buildMatchStylesSection()
         ]
