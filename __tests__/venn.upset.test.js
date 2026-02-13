@@ -74,6 +74,7 @@ describe('Venn UpSet integration', () => {
     require('../js/main/styleSync.js');
     require('../js/main/tabDrag.js');
     require('../js/main/previews.js');
+    require('../js/main/graphVariants.js');
     require('../js/main.js');
   });
 
@@ -192,5 +193,120 @@ describe('Venn UpSet integration', () => {
       expect(rect.getAttribute('stroke')).toBe('#123456');
       expect(Number(rect.getAttribute('stroke-width'))).toBeGreaterThan(0);
     });
+  });
+
+  test('Quick launcher variant can switch Venn workspace to UpSet', async () => {
+    await activateWorkspace('venn');
+    const applyVariant = window.Main?.graphVariants?.applyVariant;
+    const getVariant = window.Main?.graphVariants?.getById;
+    const plotType = document.getElementById('vennPlotType');
+    expect(typeof applyVariant).toBe('function');
+    expect(typeof getVariant).toBe('function');
+    expect(plotType).toBeTruthy();
+    const variant = getVariant('venn:upset');
+    expect(variant).toBeTruthy();
+    expect(variant.type).toBe('venn');
+    expect(applyVariant('venn:upset')).toBe(true);
+    expect(plotType.value).toBe('upset');
+  });
+
+  test('Graph-scope font style applies to all UpSet text elements', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC', 'SetD'],
+      ['GeneShared', '', '', 'GeneShared'],
+      ['GeneA', '', '', ''],
+      ['', '', '', 'GeneD']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+    const texts = Array.from(stage.querySelectorAll('text'));
+    expect(texts.length).toBeGreaterThan(5);
+    const axisLabel = texts.find(node => (node.textContent || '').trim() === 'Intersection Size');
+    expect(axisLabel).toBeTruthy();
+    expect(axisLabel.dataset.fontEditable).toBe('1');
+    expect(axisLabel.dataset.fontScope).toBe('venn');
+    expect(axisLabel.dataset.fontKey).toBeTruthy();
+
+    const fontControls = window.Shared?.fontControls;
+    expect(fontControls && typeof fontControls.importScopeStyles === 'function').toBe(true);
+    fontControls.importScopeStyles('venn', {
+      __graph__: { fill: '#112233' }
+    }, { prune: false });
+
+    const recolored = Array.from(stage.querySelectorAll('text'));
+    expect(recolored.length).toBeGreaterThan(0);
+    recolored.forEach(node => {
+      expect((node.getAttribute('fill') || '').toLowerCase()).toBe('#112233');
+    });
+  });
+
+  test('UpSet dots scale when plot size changes', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC', 'SetD'],
+      ['GeneShared', '', '', 'GeneShared'],
+      ['GeneA', '', '', ''],
+      ['', '', '', 'GeneD']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+
+    const svgBox = hooks.state.ui.svgBox || document.querySelector('#vennGraphPanel .svgbox');
+    expect(svgBox).toBeTruthy();
+    const originalGetRect = svgBox.getBoundingClientRect.bind(svgBox);
+    let mockWidth = 420;
+    let mockHeight = 300;
+    svgBox.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: mockWidth,
+      bottom: mockHeight,
+      width: mockWidth,
+      height: mockHeight,
+      toJSON: () => ({ width: mockWidth, height: mockHeight })
+    });
+
+    venn.refreshDiagram();
+    const stage = document.getElementById('stage');
+    const firstCircle = stage?.querySelector('circle');
+    expect(firstCircle).toBeTruthy();
+    const firstRadius = Number(firstCircle.getAttribute('r'));
+    expect(Number.isFinite(firstRadius)).toBe(true);
+
+    mockWidth = 840;
+    mockHeight = 600;
+    venn.refreshDiagram();
+    const secondCircle = stage?.querySelector('circle');
+    expect(secondCircle).toBeTruthy();
+    const secondRadius = Number(secondCircle.getAttribute('r'));
+    expect(Number.isFinite(secondRadius)).toBe(true);
+    expect(secondRadius).toBeGreaterThan(firstRadius);
+
+    svgBox.getBoundingClientRect = originalGetRect;
   });
 });

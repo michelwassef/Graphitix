@@ -28,7 +28,7 @@
   }
 
   const GRAPH_TYPES = [
-    { type: 'venn', label: 'Venn Diagram', hint: 'Set comparisons', description: 'Visualize overlaps between sets with region statistics, GO enrichment, and STRING network analysis.' },
+    { type: 'venn', label: 'Venn Diagram / UpSet Plot', hint: 'Set comparisons', description: 'Visualize set overlaps as Venn diagrams or UpSet plots with region statistics, GO enrichment, and STRING network analysis.' },
     { type: 'box', label: 'Distribution Charts', hint: 'Group comparisons', description: 'Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.' },
     { type: 'scatter', label: 'XY Plots', hint: 'Correlation & expression', description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.' },
     { type: 'pca', label: 'Dimensionality Reduction', hint: 'PCA / MDS / t-SNE / UMAP', description: 'Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.' },

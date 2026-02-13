@@ -67,6 +67,10 @@
     return setSelectValue('rocGraphType', mode);
   }
 
+  function applyVennVariant(mode) {
+    return setSelectValue('vennPlotType', mode);
+  }
+
   function applyPieVariant(mode) {
     return setSelectValue('pieChartType', mode);
   }
@@ -77,8 +81,16 @@
       type: 'venn',
       label: 'Venn diagram',
       description: 'Compare up to three sets with overlap counts and analysis hooks.',
-      groupLabel: 'Venn Diagram',
-      keywords: ['sets', 'overlap']
+      groupLabel: 'Venn / UpSet',
+      keywords: ['sets', 'overlap', 'venn']
+    }),
+    createVariant({
+      id: 'venn:upset',
+      type: 'venn',
+      label: 'UpSet plot',
+      description: 'Matrix/bar view of set intersections with sortable combinations.',
+      groupLabel: 'Venn / UpSet',
+      keywords: ['upset', 'intersection', 'sets', 'matrix']
     }),
     createVariant({
       id: 'box:box',
@@ -339,7 +351,8 @@
   ];
 
   const APPLY_HANDLERS = {
-    'venn:diagram': () => true,
+    'venn:diagram': () => applyVennVariant('venn'),
+    'venn:upset': () => applyVennVariant('upset'),
     'box:box': () => applyBoxVariant('box'),
     'box:notched': () => applyBoxVariant('notched'),
     'box:bar': () => applyBoxVariant('bar'),

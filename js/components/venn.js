@@ -1419,6 +1419,26 @@
     debugLog('font mark applied', payload);
   };
 
+  function ensureUpSetFontBindings(stage) {
+    if (!stage) return;
+    const textNodes = Array.from(stage.querySelectorAll('text'));
+    let boundCount = 0;
+    textNodes.forEach((node, idx) => {
+      if (!node || node.dataset?.fontEditable === '0') return;
+      const role = node.dataset?.fontRole || 'upsetLabel';
+      const key = node.dataset?.fontKey || `upset-text-${idx + 1}`;
+      const needsBinding = node.dataset?.fontEditable !== '1' || !node.dataset?.fontKey;
+      if (needsBinding) {
+        markFontEditable(node, role, key);
+        boundCount += 1;
+      }
+    });
+    debugLog('upset font bindings ensured', {
+      textCount: textNodes.length,
+      boundCount
+    });
+  }
+
   function makeEl(tag, attrs = {}, parent) {
     const stage = state.ui.stage;
     if (!parent) parent = stage;
@@ -3018,6 +3038,8 @@
       svgBoxRect,
       stageWidth,
       stageHeight,
+      defaultWidth,
+      defaultHeight,
       fontFamily,
       textColor
     };
@@ -3090,7 +3112,7 @@
   function fitAndDraw(d, style, labels, counts) {
     const metrics = configureStage(style);
     if (!metrics) return;
-    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
+    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, defaultWidth, defaultHeight, fontFamily, textColor } = metrics;
     const { titlePadding } = renderPlotTitle({
       stageWidth,
       stageHeight,
@@ -3493,7 +3515,7 @@
   function drawUpSet(counts, labels, style, options = {}) {
     const metrics = configureStage(style);
     if (!metrics) return;
-    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
+    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, defaultWidth, defaultHeight, fontFamily, textColor } = metrics;
     stage.onclick = null;
     const { titlePadding } = renderPlotTitle({
       stageWidth,
@@ -3542,6 +3564,7 @@
         fill: textColor
       });
       emptyText.textContent = 'No intersections to display';
+      ensureUpSetFontBindings(stage);
       ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-empty' });
       return;
     }
@@ -3582,12 +3605,28 @@
       : null;
 
     const pad = 20;
+    const scaleX = Number.isFinite(defaultWidth) && defaultWidth > 0 ? stageWidth / defaultWidth : 1;
+    const scaleY = Number.isFinite(defaultHeight) && defaultHeight > 0 ? stageHeight / defaultHeight : 1;
+    const geometryScaleRaw = Math.sqrt(Math.max(scaleX * scaleY, 0));
+    const geometryScale = clampNumber(geometryScaleRaw, 1, 0.35, 4);
+    const dotSizePx = clampNumber(settings.dotSize * geometryScale, settings.dotSize, 1.5, 48);
+    debugLog('upset geometry scale resolved', {
+      stageWidth,
+      stageHeight,
+      defaultWidth,
+      defaultHeight,
+      scaleX,
+      scaleY,
+      geometryScale,
+      dotSizeBase: settings.dotSize,
+      dotSizePx
+    });
     const gap = Math.max(style.fontSizePx * 0.8, 12);
     const setAxisHeight = Math.max(style.fontSizePx * 1.8, 18);
     const innerHeight = Math.max(stageHeight - topPadding - pad, style.fontSizePx * 10);
     const contentHeight = Math.max(innerHeight - setAxisHeight, style.fontSizePx * 8);
 
-    let rowHeight = Math.max(settings.dotSize * 2.6, style.fontSizePx * 1.4);
+    let rowHeight = Math.max(dotSizePx * 2.6, style.fontSizePx * 1.4);
     let matrixHeight = rowHeight * sets.length;
     let barChartHeight = contentHeight - matrixHeight - gap;
     if (barChartHeight < style.fontSizePx * 4) {
@@ -3621,7 +3660,7 @@
     const countAreaWidth = settings.showSetCounts ? measure(formatCount(maxSetSize), countFont) + 6 : 0;
     const barLabelGap = 8;
 
-    const minColumnWidth = Math.max(settings.dotSize * 2.6, style.fontSizePx * 1.4);
+    const minColumnWidth = Math.max(dotSizePx * 2.6, style.fontSizePx * 1.4);
     const columnCount = Math.max(1, intersections.length);
     const minMatrixWidth = minColumnWidth * columnCount;
 
@@ -3840,7 +3879,7 @@
         makeEl('circle', {
           cx: columnCenter,
           cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
-          r: settings.dotSize,
+          r: dotSizePx,
           fill: settings.inactiveDotColor,
           opacity: 1
         });
@@ -3855,7 +3894,7 @@
         if (activeIndices.length > 1) {
           const y1 = matrixTop + activeIndices[0] * rowHeight + rowHeight / 2;
           const y2 = matrixTop + activeIndices[activeIndices.length - 1] * rowHeight + rowHeight / 2;
-          const connectorWidth = Math.max(0.65, Math.min(settings.dotSize * 0.45, rowHeight * 0.2));
+          const connectorWidth = Math.max(0.65, Math.min(dotSizePx * 0.45, rowHeight * 0.2));
           makeEl('rect', {
             x: columnCenter - connectorWidth / 2,
             y: y1,
@@ -3871,7 +3910,7 @@
           const dot = makeEl('circle', {
             cx: columnCenter,
             cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
-            r: settings.dotSize,
+            r: dotSizePx,
             fill: 'currentColor'
           }, activeGroup);
           if (canSelectEntry) {
@@ -3900,7 +3939,7 @@
       });
       label.textContent = set.label;
       const barWidth = maxSetSize > 0 ? (set.size / maxSetSize) * barAreaWidth : 0;
-      const barHeight = Math.max(settings.dotSize * 1.6, rowHeight * 0.6);
+      const barHeight = Math.max(dotSizePx * 1.6, rowHeight * 0.6);
       const barY = rowCenter - barHeight / 2;
       const barFill = settings.useSetColors ? set.color : settings.setBarColor;
       const barX = setBarX + (barAreaWidth - barWidth);
@@ -3970,6 +4009,7 @@
     });
     setAxisLabel.textContent = 'Set Size';
 
+    ensureUpSetFontBindings(stage);
     ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-plot' });
     if(typeof chartStyle.applyTextAspectCorrection === 'function'){
       chartStyle.applyTextAspectCorrection({
