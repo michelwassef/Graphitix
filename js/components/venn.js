@@ -3711,8 +3711,8 @@
     const setAxisLabelFontSize = axisLabelFontSize;
     const setTickBaselineDy = '0.8em';
     const setAxisLabelBaselineDy = '0.8em';
-    const setTickOffset = Math.max(1, Math.round(style.fontSizePx * 0.08));
-    const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.45));
+    const setTickOffset = Math.max(4, Math.round(style.fontSizePx * 0.32));
+    const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.4));
     const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
     const setAxisLabelHeight = Math.max(9, Math.round(setAxisLabelFontSize * 0.95));
     const requiredSetAxisBottomSpace = tickLength + setTickOffset + setTickTextHeight + setTitleGap + setAxisLabelHeight + 4;
@@ -3726,9 +3726,7 @@
     let setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
     const maxSetAxisLabelY = stageHeight - setAxisLabelHeight - 2;
     if (setAxisLabelY > maxSetAxisLabelY) {
-      const shiftUp = setAxisLabelY - maxSetAxisLabelY;
-      setTickLabelY -= shiftUp;
-      setAxisLabelY -= shiftUp;
+      setAxisLabelY = maxSetAxisLabelY;
     }
     debugLog('upset typography resolved', {
       baseFontSize: style.fontSizePx,
