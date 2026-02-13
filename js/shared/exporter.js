@@ -273,6 +273,34 @@
     return removed;
   }
 
+  function removeEditHighlightArtifacts(svgNode) {
+    if (!svgNode || !svgNode.querySelectorAll) {
+      return 0;
+    }
+    const candidates = svgNode.querySelectorAll(
+      '.graph-edit-highlight--text, .graph-edit-highlight--axis, .graph-edit-highlight--axis-overlay, .graph-edit-highlight--dendrogram, .graph-edit-highlight--dendrogram-overlay'
+    );
+    let cleaned = 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const node = candidates[i];
+      if (!node) continue;
+      if (node.classList) {
+        node.classList.remove(
+          'graph-edit-highlight--text',
+          'graph-edit-highlight--axis',
+          'graph-edit-highlight--axis-overlay',
+          'graph-edit-highlight--dendrogram',
+          'graph-edit-highlight--dendrogram-overlay'
+        );
+      }
+      if (node.style && typeof node.style.filter === 'string' && /drop-shadow\(/i.test(node.style.filter)) {
+        node.style.filter = '';
+      }
+      cleaned += 1;
+    }
+    return cleaned;
+  }
+
   /**
    * Threshold for triggering scatter point optimization.
    * When a scatter layer has more points than this, optimization is applied.
@@ -3339,6 +3367,7 @@
       axisHandlesRemoved: 0,
       dendrogramOverlaysRemoved: 0,
       significanceOverlaysRemoved: 0,
+      editHighlightsRemoved: 0,
       scatterOptimization: null
     };
     try {
@@ -3372,6 +3401,7 @@
       counters.dendrogramOverlaysRemoved = removeDendrogramControlOverlays(svgNode);
       counters.significanceOverlaysRemoved = removeSignificanceControlOverlays(svgNode);
       counters.additionalLineOverlaysRemoved = removeAdditionalLineControlOverlays(svgNode);
+      counters.editHighlightsRemoved = removeEditHighlightArtifacts(svgNode);
 
       // Apply scatter point optimization for large datasets
       counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });

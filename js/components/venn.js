@@ -5,6 +5,7 @@
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -60,7 +61,9 @@
     setBarColor: '#2f2f2f',
     dotColor: '#2f2f2f',
     inactiveDotColor: '#d6d6d6',
-    gridColor: '#e5e7eb'
+    gridColor: '#e5e7eb',
+    axisColor: '#000000',
+    axisWidth: 1
   };
   const DEFAULT_REGION_OPTIONS = [
     { value: 'A', label: 'A only' },
@@ -543,6 +546,10 @@
           pendingReason: null,
           active: null,
           delayMs: 1200
+        },
+        upsetAxis: {
+          color: DEFAULT_UPSET_SETTINGS.axisColor,
+          width: DEFAULT_UPSET_SETTINGS.axisWidth
         }
       },
       persistence: {
@@ -1583,6 +1590,7 @@
 
   function resolveUpSetSettings() {
     const ui = state.ui?.upset || {};
+    const axisState = state.analysis?.upsetAxis || {};
     const defaults = DEFAULT_UPSET_SETTINGS;
     const allowedSort = new Set(['size-desc', 'size-asc', 'degree-desc', 'degree-asc', 'input']);
     const rawSort = typeof ui.sort?.value === 'string' ? ui.sort.value : defaults.sort;
@@ -1600,10 +1608,57 @@
       setBarColor: sanitizeColor(ui.setBarColor?.value, defaults.setBarColor),
       dotColor: sanitizeColor(ui.dotColor?.value, defaults.dotColor),
       inactiveDotColor: sanitizeColor(ui.inactiveDotColor?.value, defaults.inactiveDotColor),
-      gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor)
+      gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor),
+      axisColor: sanitizeColor(axisState.color, defaults.axisColor),
+      axisWidth: clampNumber(axisState.width, defaults.axisWidth, 0.25, 10)
     };
     debug('Debug: venn upset settings resolved', settings);
     return settings;
+  }
+
+  function updateUpSetAxisStyle(next = {}) {
+    const defaults = DEFAULT_UPSET_SETTINGS;
+    const current = state.analysis?.upsetAxis || {};
+    const color = Object.prototype.hasOwnProperty.call(next, 'color')
+      ? sanitizeColor(next.color, current.color || defaults.axisColor)
+      : sanitizeColor(current.color, defaults.axisColor);
+    const width = Object.prototype.hasOwnProperty.call(next, 'width')
+      ? clampNumber(next.width, current.width || defaults.axisWidth, 0.25, 10)
+      : clampNumber(current.width, defaults.axisWidth, 0.25, 10);
+    state.analysis.upsetAxis = { color, width };
+    debug('Debug: venn upset axis style updated', state.analysis.upsetAxis);
+    requestScheduledDraw('upset-axis-style');
+    syncActiveVennPayload('venn-upset-axis-style');
+  }
+
+  function createUpSetAxisControlConfig(axis) {
+    return {
+      axis,
+      scopeId: 'venn',
+      getTickInterval: () => null,
+      getThickness: () => clampNumber(state.analysis?.upsetAxis?.width, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10),
+      getColor: () => sanitizeColor(state.analysis?.upsetAxis?.color, DEFAULT_UPSET_SETTINGS.axisColor),
+      isTickIntervalEnabled: () => false,
+      getTickIntervalDisabledMessage: () => 'Tick interval is not available for UpSet axes.',
+      tickPlaceholder: 'N/A',
+      onTickIntervalChange: () => {},
+      getMinorTicksEnabled: () => false,
+      onMinorTicksChange: () => {},
+      isMinorTicksSupported: () => false,
+      getMinorTickSubdivisions: () => 4,
+      onMinorTickSubdivisionsChange: () => {},
+      onThicknessChange: value => updateUpSetAxisStyle({ width: value }),
+      onColorChange: value => updateUpSetAxisStyle({ color: value }),
+      getNotationMode: () => 'auto',
+      onNotationChange: () => {},
+      isNotationSupported: () => false,
+      isAdditionalTicksSupported: () => false,
+      getAdditionalTicks: () => [],
+      onAdditionalTickChange: () => {},
+      onAdditionalTickAdd: () => {},
+      onAdditionalTickRemove: () => {},
+      isBrokenAxisSupported: () => false
+    };
   }
 
   function updateUpSetDotSizeOutput(value) {
@@ -3689,7 +3744,7 @@
     const labelX = setBarX + barAreaWidth + barLabelGap;
     const matrixX = labelX + labelAreaWidth + gap;
 
-    const axisColor = chartStyle.TEXT_COLOR || '#000000';
+    const axisColor = sanitizeColor(settings.axisColor, chartStyle.TEXT_COLOR || '#000000');
     const axisMetrics = typeof chartStyle.createAxisMetrics === 'function'
       ? chartStyle.createAxisMetrics(style.fontSizePx)
       : {
@@ -3700,9 +3755,10 @@
     const tickLength = axisMetrics.tickLength ?? 6;
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(style.fontSizePx * 0.35));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(style.fontSizePx * 0.75));
+    const axisWidthBase = clampNumber(settings.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10);
     const axisWidth = typeof chartStyle.scaleStrokeWidth === 'function'
-      ? chartStyle.scaleStrokeWidth(1, style.scaleInfo, { min: 0.6, max: 2.5, context: 'upset-axis' })
-      : 1;
+      ? chartStyle.scaleStrokeWidth(axisWidthBase, style.scaleInfo, { min: 0.45, max: 8, context: 'upset-axis' })
+      : axisWidthBase;
     const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
     const barBorderColor = sanitizeColor(style.borderColor, axisColor);
     const barBorderWidth = clampNumber(style.borderWidth, Math.max(0.5, axisWidth * 0.75), 0);
@@ -3763,7 +3819,7 @@
     const maxTickLabelWidth = Math.max(...tickLabels.map(lbl => measure(lbl, countFont)), 0);
     const axisX = Math.max(pad + 6, matrixX - (tickLength + tickLabelGap + maxTickLabelWidth + 6));
 
-    makeEl('line', {
+    const yAxisLine = makeEl('line', {
       x1: axisX,
       y1: barTop,
       x2: axisX,
@@ -3771,6 +3827,19 @@
       stroke: axisColor,
       'stroke-width': axisWidth
     });
+    const xAxisLine = makeEl('line', {
+      x1: axisX,
+      y1: barBottom,
+      x2: matrixX + matrixWidth,
+      y2: barBottom,
+      stroke: axisColor,
+      'stroke-width': axisWidth,
+      'stroke-linecap': 'square'
+    });
+    if (axisControls && typeof axisControls.registerAxisElement === 'function') {
+      axisControls.registerAxisElement(yAxisLine, createUpSetAxisControlConfig('y'));
+      axisControls.registerAxisElement(xAxisLine, createUpSetAxisControlConfig('x'));
+    }
 
     tickValues.forEach((value, idx) => {
       const y = barBottom - (value / maxIntersection) * barChartHeight;
@@ -4345,6 +4414,10 @@
           if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
           if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
           if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
+          state.analysis.upsetAxis = {
+            color: sanitizeColor(upset.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
+            width: clampNumber(upset.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10)
+          };
         }
         if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
           const fontInfo = resolveFontInfo(savedFontValue);
@@ -4696,6 +4769,10 @@
       if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
       if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
       if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
+      state.analysis.upsetAxis = {
+        color: sanitizeColor(upset.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
+        width: clampNumber(upset.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10)
+      };
     }
     // Restore label positions if saved
     if(s.labelPositions){
