@@ -309,4 +309,77 @@ describe('Venn UpSet integration', () => {
 
     svgBox.getBoundingClientRect = originalGetRect;
   });
+
+  test('UpSet exposes clickable x/y axes through axis controls toolbar', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC'],
+      ['GeneShared', '', 'GeneShared'],
+      ['GeneA', '', ''],
+      ['', 'GeneB', '']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+    const axisLines = Array.from(stage.querySelectorAll('line[data-axis-control="1"]'));
+    expect(axisLines.length).toBeGreaterThanOrEqual(2);
+
+    axisLines[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const axisPanel = document.querySelector('.axis-controls-panel');
+    expect(axisPanel).toBeTruthy();
+    expect(axisPanel.dataset.open).toBe('1');
+    const colorInput = axisPanel.querySelector('input[type="color"]');
+    const thicknessInputs = axisPanel.querySelectorAll('input[type="number"]');
+    expect(colorInput).toBeTruthy();
+    expect(thicknessInputs.length).toBeGreaterThan(0);
+  });
+
+  test('UpSet axis selection highlight artifacts are removed from SVG export', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    const exporter = window.Shared?.exporter;
+    expect(plotType).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+    expect(exporter && typeof exporter.svgElementToXml === 'function').toBe(true);
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC'],
+      ['GeneShared', '', 'GeneShared'],
+      ['GeneA', '', ''],
+      ['', 'GeneB', '']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+    const axisLine = stage.querySelector('line[data-axis-control="1"]');
+    expect(axisLine).toBeTruthy();
+    axisLine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    const xml = exporter.svgElementToXml(stage, 'venn-upset-export-test');
+    expect(typeof xml).toBe('string');
+    expect(xml.length).toBeGreaterThan(0);
+    expect(xml).not.toContain('graph-edit-highlight--axis-overlay');
+    expect(xml).not.toContain('graph-edit-highlight--axis');
+    expect(xml).not.toContain('drop-shadow(');
+  });
 });
