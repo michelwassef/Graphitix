@@ -6,8 +6,8 @@
   <title>Graph &amp; Statistics Workbench</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2064%2064%22%3E%3Crect%20width=%2264%22%20height=%2264%22%20rx=%2212%22%20ry=%2212%22%20fill=%22%231e88e5%22/%3E%3Ctext%20x=%2250%25%22%20y=%2256%25%22%20font-family=%22Arial,%20sans-serif%22%20font-size=%2236%22%20text-anchor=%22middle%22%20fill=%22white%22%3EV%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-balham.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css"  integrity="sha384-gIsz6JTVbF5eW0CcuAljKL2kOE400G4TjBH3CBtGXjf8BkjmC5x9jp4Y+bYa7HKA" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-balham.css"  integrity="sha384-GcZGKt5Z2p2KwGD/9tT5yGlGuL1yyezr4v3Xm9wBxDje1XTm3q1W/gRGpId8l2Xy" crossorigin="anonymous">
 </head>
 <body>
   <div id="appShell">
@@ -54,7 +54,7 @@
                 </button>
               </div>
             </div>
-            <input type="file" id="welcomeGraphFileInput" accept=".graph,.json" style="display:none;" />
+            <input type="file" id="welcomeGraphFileInput" accept=".graph,.json" class="idx-inline-001" />
           </div>
           <div class="welcome-picker" aria-label="Quick graph launcher">
             <div class="welcome-picker__topbar">
@@ -91,7 +91,7 @@
   <div id="vennPage" class="workspace-page" data-plot="venn" hidden>
     <div class="workspace-page__topbar" data-toolbar="venn">
       <div data-toolbar-root></div>
-      <input type="file" id="vennGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="vennGraphFile" accept=".graph" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="vennInputPanel">
@@ -108,13 +108,13 @@
             <textarea id="listC" tabindex="-1"></textarea>
           </div>
         </div>
-          <div class="row venn-inline-controls" style="margin-top:6px;">
+          <div class="row venn-inline-controls idx-inline-002">
             <label class="venn-inline-checkbox">
               <input id="caseSensitive" type="checkbox" />
               <span>Case Sensitive</span>
             </label>
           </div>
-        <details style="margin-top:8px;">
+        <details class="idx-inline-003">
           <summary>Numeric Mode - Counts Only</summary>
           <div class="row">
             <div><label>|A|</label><input id="nA" type="number" min="0" value="0" /></div>
@@ -136,7 +136,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <svg id="stage" viewBox="0 0 500 340" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
-            <div class="row" id="vennExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            <div class="row idx-inline-004" id="vennExportControls"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -264,7 +264,7 @@
             </fieldset>
           </div>
         </div>
-        <div class="row" style="margin-top:8px;">
+        <div class="row idx-inline-003">
           <select id="regionSelect">
             <option value="A">A only</option>
             <option value="B">B only</option>
@@ -275,22 +275,22 @@
             <option value="ABC">A∩B∩C</option>
           </select>
         </div>
-        <div id="regionListContainer" style="position:relative; margin-top:6px;">
-          <button class="btn" id="copyRegionBtn" style="position:absolute; top:4px; right:24px; display:none; font-size:12px; padding:4px 8px;">Copy List</button>
-          <div id="regionList" style="background:#ffffff; border:1px solid #ddd; border-radius:0; padding:24px 8px 8px; max-height:190px; overflow:auto;"></div>
+        <div id="regionListContainer" class="idx-inline-005">
+          <button class="btn idx-inline-006" id="copyRegionBtn">Copy List</button>
+          <div id="regionList" class="idx-inline-007"></div>
         </div>
-        <details id="significanceSection" style="margin-top:8px;">
+        <details id="significanceSection" class="idx-inline-003">
           <summary>Overlap Significance</summary>
-          <div class="row" style="margin-top:4px;">
-            <label style="flex:1;">
+          <div class="row idx-inline-008">
+            <label class="idx-inline-009">
               Total Genes
-              <input id="totalGenes" type="number" min="1" style="width:100%;" />
+              <input id="totalGenes" type="number" min="1" class="idx-inline-010" />
             </label>
             <button class="btn" id="calcSignificance">Calculate</button>
           </div>
-          <div id="significanceResults" style="margin-top:4px; font-size:13px;"></div>
+          <div id="significanceResults" class="idx-inline-011"></div>
         </details>
-        <div class="row analysis-controls" style="margin-top:6px;">
+        <div class="row analysis-controls idx-inline-002">
           <label>
             Species
             <select id="speciesSelect">
@@ -307,24 +307,24 @@
           <button class="btn" id="stringBtn">STRING Analysis</button>
           <button class="btn" id="stringOptsBtn" aria-label="STRING analysis options">⚙️</button>
         </div>
-        <div id="goOptions" class="analysis-options" style="display:none; margin-top:4px; background:#f9f9f9; border:1px solid #ddd; border-radius:0; padding:4px;">
+        <div id="goOptions" class="analysis-options idx-inline-012">
           <label>
             <input type="checkbox" id="goUseAllBackground" /> Use Union of All Input Genes as Background
           </label>
-          <div style="margin-top:4px;">
+          <div class="idx-inline-008">
             <strong>GO Categories:</strong>
             <label><input type="checkbox" class="goCategory" value="GO:BP" checked /> Biological Process</label>
             <label><input type="checkbox" class="goCategory" value="GO:MF" checked /> Molecular Function</label>
             <label><input type="checkbox" class="goCategory" value="GO:CC" checked /> Cellular Component</label>
           </div>
         </div>
-        <div id="stringOptions" class="analysis-options" style="display:none; margin-top:4px; background:#f9f9f9; border:1px solid #ddd; border-radius:0; padding:4px;">
-          <div style="margin-bottom:4px;">
+        <div id="stringOptions" class="analysis-options idx-inline-012">
+          <div class="idx-inline-013">
             <strong>Network Type:</strong>
             <label><input type="radio" name="stringNetworkType" value="full" checked /> Full STRING Network</label>
             <label><input type="radio" name="stringNetworkType" value="physical" /> Physical Subnetwork</label>
           </div>
-          <div style="margin-bottom:4px;">
+          <div class="idx-inline-013">
             <strong>Meaning of Network Edges:</strong>
             <label><input type="radio" name="stringEdgeMeaning" value="evidence" checked /> Evidence</label>
             <label><input type="radio" name="stringEdgeMeaning" value="confidence" /> Confidence</label>
@@ -339,15 +339,15 @@
         </div>
         <div id="analysisResults">
           <div id="goResults"></div>
-          <canvas id="goChart" style="display:none; width:100%; height:300px; margin-top:8px;"></canvas>
-          <div class="row" id="goChartExport" style="display:none; justify-content:flex-end; margin-top:6px;"></div>
-          <div id="stringSection" style="display:flex; flex-direction:column; gap:8px; margin-top:8px; align-items:flex-start;">
+          <canvas id="goChart" class="idx-inline-014"></canvas>
+          <div class="row idx-inline-015" id="goChartExport"></div>
+          <div id="stringSection" class="idx-inline-016">
             <div id="stringResults"></div>
             <div id="stringNetwork"></div>
-            <div class="row" id="stringNetworkExport" style="display:none; justify-content:flex-end; margin-top:6px; width:100%;"></div>
+            <div class="row idx-inline-017" id="stringNetworkExport"></div>
           </div>
         </div>
-        <div class="row" style="margin-top:6px; font-size:13px; color:#333;">
+        <div class="row idx-inline-018">
           <span><span id="labelAName">A</span>: <code id="countA">0</code></span>
           <span><span id="labelBName">B</span>: <code id="countB">0</code></span>
           <span><span id="labelCName">C</span>: <code id="countC">0</code></span>
@@ -365,20 +365,20 @@
   <div id="boxPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="box">
       <div data-toolbar-root></div>
-      <input type="file" id="boxGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="boxGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
         <div class="table-format-controls">
-          <label for="boxTableFormat" style="margin:0;">Table format</label>
+          <label for="boxTableFormat" class="idx-inline-019">Table format</label>
           <select id="boxTableFormat">
             <option value="single" selected>Single replicates</option>
             <option value="grouped">Grouped replicates</option>
           </select>
           <button type="button" class="btn grouped-toggle" id="boxGroupedToggle" aria-controls="boxGroupedControls" aria-expanded="false" hidden>Show group settings</button>
         </div>
-        <div id="boxGroupedControls" class="grouped-controls" style="display:none;">
+        <div id="boxGroupedControls" class="grouped-controls idx-inline-001">
           <div class="grouped-config-row">
             <label for="boxGroupedReplicates" class="grouped-config-inline">
               <span>Conditions per group</span>
@@ -391,8 +391,8 @@
             <button type="button" class="btn" id="boxGroupedRemove">Remove group</button>
           </div>
         </div>
-        <div id="hotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="hot" style="width:100%; height:100%;"></div>
+        <div id="hotWrapper" class="idx-inline-020">
+          <div id="hot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -403,8 +403,8 @@
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-              <div id="boxPlot" style="width:100%; height:100%;"></div>
-              <div class="row" id="boxExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div id="boxPlot" class="idx-inline-021"></div>
+              <div class="row idx-inline-004" id="boxExportControls"></div>
             </div>
             <div id="boxRenderRow" class="box-render-row" hidden>
               <button type="button" class="btn" id="boxRenderButton" disabled>Update Plot</button>
@@ -433,13 +433,13 @@
                     <option value="sd">Mean ± SD</option>
                     <option value="custom">Custom multiplier</option>
                   </select>
-                  <label id="boxWhiskerCustomLabel" class="whisker-custom-input" style="display:none;">
+                  <label id="boxWhiskerCustomLabel" class="whisker-custom-input idx-inline-001">
                     Multiplier
                     <input type="number" id="boxWhiskerCustomMultiplier" min="0.1" step="0.1" value="1.5" />
                   </label>
                 </div>
               </div>
-              <div class="control" id="boxLayoutModeCtl" style="display:none;">
+              <div class="control idx-inline-001" id="boxLayoutModeCtl">
                 <label>View</label>
                 <select id="boxLayoutMode">
                   <option value="interleaved" selected>Interleaved</option>
@@ -447,14 +447,14 @@
                   <option value="stacked">Stacked</option>
                 </select>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:8px; align-items:center;">
-                <label style="width:auto;">
+              <div class="control idx-inline-022">
+                <label class="idx-inline-023">
                   <input type="checkbox" id="boxShowCaps" checked /> Show Whisker Caps
                 </label>
-                <label style="width:auto; display:flex; align-items:center; gap:4px;">
+                <label class="idx-inline-024">
                   <input type="checkbox" id="boxShowSignificance" /> Show Significance Bars
                 </label>
-                <label id="boxSignificanceLabelCtl" style="width:auto; display:flex; align-items:center; gap:4px;">
+                <label id="boxSignificanceLabelCtl" class="idx-inline-024">
                   Label
                   <select id="boxSignificanceLabelMode">
                     <option value="stars" selected>Stars (****, ***, **, *, ns)</option>
@@ -462,7 +462,7 @@
                   </select>
                 </label>
               </div>
-              <div class="control" id="boxIndividualSummaryCtl" style="flex-wrap:wrap; display:none;">
+              <div class="control idx-inline-025" id="boxIndividualSummaryCtl">
                 <label>Summary Overlay</label>
                 <select id="boxIndividualSummary">
                   <option value="mean">Mean ± SEM</option>
@@ -470,27 +470,27 @@
                   <option value="none">None</option>
                 </select>
               </div>
-              <div class="control" id="boxErrorModeCtl" style="flex-wrap:wrap; display:none;">
-                <label style="width:auto;">Error Bars</label>
+              <div class="control idx-inline-025" id="boxErrorModeCtl">
+                <label class="idx-inline-023">Error Bars</label>
                 <select id="boxErrorMode">
                   <option value="both">Bidirectional</option>
                   <option value="upper">Upper Only</option>
                 </select>
               </div>
-              <div class="control" id="boxViolinBandwidthCtl" style="display:none; flex-wrap:wrap; align-items:center; gap:8px;">
+              <div class="control idx-inline-026" id="boxViolinBandwidthCtl">
                 <label>Violin Bandwidth</label>
                 <input type="range" id="boxViolinBandwidth" min="0.05" max="5" step="0.05" value="1" />
-                <input type="number" id="boxViolinBandwidthValue" min="0.01" step="0.01" value="1" style="width:70px;" />
-                <output id="boxViolinBandwidthVal" style="min-width:48px;">1.00</output>
-                <label style="width:auto; display:flex; align-items:center; gap:4px;">
+                <input type="number" id="boxViolinBandwidthValue" min="0.01" step="0.01" value="1" class="idx-inline-027" />
+                <output id="boxViolinBandwidthVal" class="idx-inline-028">1.00</output>
+                <label class="idx-inline-024">
                   <input type="checkbox" id="boxViolinBandwidthAuto" checked /> Auto
                 </label>
               </div>
-              <div class="control" id="boxViolinSamplesCtl" style="display:none; flex-wrap:wrap; align-items:center; gap:8px;">
+              <div class="control idx-inline-026" id="boxViolinSamplesCtl">
                 <label>Density Samples</label>
                 <input type="range" id="boxViolinSamples" min="8" max="512" step="8" value="80" />
-                <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" style="width:70px;" />
-                <output id="boxViolinSamplesVal" style="min-width:40px;">80</output>
+                <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" class="idx-inline-027" />
+                <output id="boxViolinSamplesVal" class="idx-inline-029">80</output>
               </div>
             </fieldset>
             <fieldset>
@@ -525,29 +525,29 @@
             </fieldset>
             <fieldset>
               <legend>Border</legend>
-              <div class="control" style="flex-wrap:wrap; gap:8px; align-items:center;">
-                <label style="width:auto;">Thickness</label>
+              <div class="control idx-inline-022">
+                <label class="idx-inline-023">Thickness</label>
                 <input type="number" id="boxBorderWidth" value="2" min="0" max="10" />
-                <div id="boxErrorBarWidthCtl" style="display:none; align-items:center; gap:6px;">
-                  <label style="width:auto;">Error Bar Thickness</label>
+                <div id="boxErrorBarWidthCtl" class="idx-inline-030">
+                  <label class="idx-inline-023">Error Bar Thickness</label>
                   <input type="number" id="boxErrorBarWidth" value="2" min="0" max="10" />
                 </div>
               </div>
             </fieldset>
             <fieldset>
               <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
-                <label style="width:auto;"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px; align-items:center;">
-                <label style="width:auto;">
+              <div class="control idx-inline-032">
+                <label class="idx-inline-023">
                   <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log Scale (Y)</span>
                 </label>
-                <label style="width:auto;">Y min <input type="number" id="boxYMin" /></label>
-                <label style="width:auto;">Y max <input type="number" id="boxYMax" /></label>
+                <label class="idx-inline-023">Y min <input type="number" id="boxYMin" /></label>
+                <label class="idx-inline-023">Y max <input type="number" id="boxYMax" /></label>
               </div>
             </fieldset>
             <fieldset>
@@ -560,17 +560,17 @@
             </fieldset>
           </div>
         </div>
-        <div id="statsPanel" style="width:100%; margin-top:12px;">
+        <div id="statsPanel" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
             <div id="statsControls"></div>
-            <div id="statsPostHocHelp" class="stats-help-text" style="margin-top:4px; font-size:12px; color:#444;"></div>
-            <div id="statsCorrectionNote" class="stats-correction-note" style="margin-top:6px; font-size:12px; color:#444;"></div>
-            <div id="statsResults" style="margin-top:8px;"></div>
-            <div id="statsTable" style="margin-top:8px;"></div>
-            <div id="boxStatsActionRow" style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <div id="statsPostHocHelp" class="stats-help-text idx-inline-034"></div>
+            <div id="statsCorrectionNote" class="stats-correction-note idx-inline-035"></div>
+            <div id="statsResults" class="idx-inline-003"></div>
+            <div id="statsTable" class="idx-inline-003"></div>
+            <div id="boxStatsActionRow" class="idx-inline-036">
               <button type="button" class="btn" id="boxComputeStats">Calculate statistics</button>
-              <span id="boxStatsStatus" style="font-size:12px; color:#555;" aria-live="polite"></span>
+              <span id="boxStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
           </fieldset>
         </div>
@@ -582,13 +582,13 @@
   <div id="scatterPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="scatter">
       <div data-toolbar-root></div>
-      <input type="file" id="scatterGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="scatterGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
-        <div id="scatterHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="scatterHot" style="width:100%; height:100%;"></div>
+        <div id="scatterHotWrapper" class="idx-inline-020">
+          <div id="scatterHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -599,8 +599,8 @@
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-              <div id="scatterPlot" style="width:100%; height:100%;"></div>
-              <div class="row" id="scatterExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div id="scatterPlot" class="idx-inline-021"></div>
+              <div class="row idx-inline-004" id="scatterExportControls"></div>
             </div>
             <div id="scatterRenderRow" class="scatter-render-row" hidden>
               <button type="button" class="btn" id="scatterRenderButton" disabled>Update Plot</button>
@@ -619,7 +619,7 @@
                     <option value="ma">Ma plot</option>
                   </select>
                 </label>
-                <label class="config-panel__item config-panel__item--select-auto" id="scatterViewControls" style="display:none;">
+                <label class="config-panel__item config-panel__item--select-auto idx-inline-001" id="scatterViewControls">
                   <span class="config-panel__label">Plot view</span>
                   <select id="scatterViewMode">
                     <option value="2d">2D</option>
@@ -629,7 +629,7 @@
                 </label>
                 <label class="config-panel__checkbox config-panel__checkbox--inline"><input type="checkbox" id="scatterShowLegend" checked /> <span>Show legend</span></label>
               </div>
-              <div class="config-panel__line config-panel__line--split" id="scatterThresholdControls" style="display:none;">
+              <div class="config-panel__line config-panel__line--split idx-inline-001" id="scatterThresholdControls">
                 <label class="config-panel__item">
                   <span class="config-panel__label">log2FC threshold</span>
                   <input type="number" id="scatterLog2FCThreshold" value="1" step="0.1" />
@@ -639,7 +639,7 @@
                   <input type="number" id="scatterNegLogPThreshold" value="1.3" step="0.1" />
                 </label>
               </div>
-              <div class="config-panel__line config-panel__line--checkboxes" id="scatterSignificantOptions" style="display:none;">
+              <div class="config-panel__line config-panel__line--checkboxes idx-inline-001" id="scatterSignificantOptions">
                 <label class="config-panel__checkbox">
                   <input type="checkbox" id="scatterShowSignificantLabels" checked />
                   <span>Label significant points</span>
@@ -756,7 +756,7 @@
             </fieldset>
           </div>
         </div>
-        <div id="scatterStats" style="width:100%; margin-top:12px;">
+        <div id="scatterStats" class="idx-inline-033">
           <fieldset class="config-panel__fieldset">
             <legend>Statistics</legend>
             <div id="scatterStatsAdvisor"></div>
@@ -783,16 +783,16 @@
             </div>
             <div class="config-panel__line config-panel__line--checkboxes">
               <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowLine" /> <span>Show trend line</span></label>
-              <label class="config-panel__checkbox" style="margin-left:8px;"><input type="checkbox" id="scatterShowCI" /> <span>Confidence interval (CI)</span></label>
-              <label class="config-panel__checkbox" style="margin-left:6px;"><input type="checkbox" id="scatterShowPI" /> <span>Prediction interval (PI)</span></label>
+              <label class="config-panel__checkbox idx-inline-038"><input type="checkbox" id="scatterShowCI" /> <span>Confidence interval (CI)</span></label>
+              <label class="config-panel__checkbox idx-inline-039"><input type="checkbox" id="scatterShowPI" /> <span>Prediction interval (PI)</span></label>
               <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowDiagnostics" /> <span>Show diagnostics summary</span></label>
               <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPlotStats" /> <span>Show stats on plot</span></label>
             </div>
-            <div id="scatterStatsActionRow" class="config-panel__line" style="gap:8px; flex-wrap:wrap; align-items:center;">
+            <div id="scatterStatsActionRow" class="config-panel__line idx-inline-040">
               <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
-              <span id="scatterStatsStatus" style="font-size:12px; color:#555;" aria-live="polite"></span>
+              <span id="scatterStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
-            <div id="scatterStatsResults" style="margin-top:8px;"></div>
+            <div id="scatterStatsResults" class="idx-inline-003"></div>
           </fieldset>
         </div>
       </div>
@@ -803,20 +803,20 @@
   <div id="pcaPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="pca">
       <div data-toolbar-root></div>
-      <input type="file" id="pcaGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="pcaGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
         <div class="panel" id="pcaTablePanel">
           <div class="table-format-controls">
-            <label for="pcaTableFormat" style="margin:0;">Table format</label>
+            <label for="pcaTableFormat" class="idx-inline-019">Table format</label>
             <select id="pcaTableFormat">
               <option value="standard" selected>Standard</option>
               <option value="grouped">Grouped samples</option>
             </select>
             <button type="button" class="btn grouped-toggle" id="pcaGroupedToggle" aria-controls="pcaGroupedControls" aria-expanded="false" hidden>Show group settings</button>
           </div>
-        <div id="pcaGroupedControls" class="grouped-controls" style="display:none;">
+        <div id="pcaGroupedControls" class="grouped-controls idx-inline-001">
           <div class="grouped-config-row">
             <label for="pcaGroupedReplicates" class="grouped-config-inline">
               <span>Samples per group</span>
@@ -829,8 +829,8 @@
             <button type="button" class="btn" id="pcaGroupedRemove">Remove group</button>
           </div>
         </div>
-        <div id="pcaHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="pcaHot" style="width:100%; height:100%;"></div>
+        <div id="pcaHotWrapper" class="idx-inline-020">
+          <div id="pcaHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="pcaPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -841,8 +841,8 @@
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-              <div id="pcaPlot" style="width:100%; height:100%;"></div>
-              <div class="row" id="pcaExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div id="pcaPlot" class="idx-inline-021"></div>
+              <div class="row idx-inline-004" id="pcaExportControls"></div>
             </div>
             <div id="pcaRenderRow" class="pca-render-row" hidden>
               <button type="button" class="btn" id="pcaRenderButton" disabled>Update Plot</button>
@@ -852,8 +852,8 @@
           <div class="config-options">
             <fieldset>
               <legend>Method</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">
                   Algorithm
                   <select id="pcaMethod">
                     <option value="pca">PCA</option>
@@ -863,39 +863,39 @@
                   </select>
                 </label>
               </div>
-              <div class="control" id="pcaTsneControls" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Perplexity
+              <div class="control idx-inline-041" id="pcaTsneControls">
+                <label class="idx-inline-023">Perplexity
                   <input type="number" id="pcaTsnePerplexity" value="30" min="5" max="100" step="1" />
                 </label>
-                <label style="width:auto;">Learning Rate
+                <label class="idx-inline-023">Learning Rate
                   <input type="number" id="pcaTsneLearningRate" value="200" min="10" max="1000" step="10" />
                 </label>
-                <label style="width:auto;">Iterations
+                <label class="idx-inline-023">Iterations
                   <input type="number" id="pcaTsneIterations" value="500" min="100" max="1500" step="50" />
                 </label>
-                <label style="width:auto;">Early Exaggeration
+                <label class="idx-inline-023">Early Exaggeration
                   <input type="number" id="pcaTsneExaggeration" value="12" min="1" max="20" step="1" />
                 </label>
               </div>
-              <div class="control" id="pcaUmapControls" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Neighbors
+              <div class="control idx-inline-041" id="pcaUmapControls">
+                <label class="idx-inline-023">Neighbors
                   <input type="number" id="pcaUmapNeighbors" value="15" min="2" max="100" step="1" />
                 </label>
-                <label style="width:auto;">Min Distance
+                <label class="idx-inline-023">Min Distance
                   <input type="number" id="pcaUmapMinDist" value="0.1" min="0" max="0.99" step="0.01" />
                 </label>
-                <label style="width:auto;">Learning Rate
+                <label class="idx-inline-023">Learning Rate
                   <input type="number" id="pcaUmapLearningRate" value="1" min="0.01" max="10" step="0.1" />
                 </label>
-                <label style="width:auto;">Epochs
+                <label class="idx-inline-023">Epochs
                   <input type="number" id="pcaUmapEpochs" value="400" min="50" max="2000" step="50" />
                 </label>
               </div>
             </fieldset>
             <fieldset>
               <legend>View</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">
                   Plot View
                   <select id="pcaViewMode">
                     <option value="2d">2D</option>
@@ -903,20 +903,20 @@
                   </select>
                 </label>
               </div>
-              <div class="control" id="pcaAxis2DControls" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">X axis
+              <div class="control idx-inline-041" id="pcaAxis2DControls">
+                <label class="idx-inline-023">X axis
                   <select id="pcaXAxis" disabled>
                     <option value="1">PC1</option>
                   </select>
                 </label>
-                <label style="width:auto;">Y axis
+                <label class="idx-inline-023">Y axis
                   <select id="pcaYAxis" disabled>
                     <option value="2">PC2</option>
                   </select>
                 </label>
               </div>
-              <div class="control" id="pcaAxis3DControl" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Z axis
+              <div class="control idx-inline-041" id="pcaAxis3DControl">
+                <label class="idx-inline-023">Z axis
                   <select id="pcaZAxis" disabled>
                     <option value="3">PC3</option>
                   </select>
@@ -925,17 +925,17 @@
             </fieldset>
             <fieldset>
               <legend>Dots</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Size</label>
+              <div class="control idx-inline-031">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Size</label>
                   <input type="number" id="pcaDotSize" value="3" min="1" max="20" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Color</label>
                   <input type="color" id="pcaFill" value="#377eb8" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Transparency</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Transparency</label>
                   <input type="range" id="pcaAlpha" min="0" max="1" step="0.05" value="0" />
                   <output id="pcaAlphaVal">0</output>
                 </div>
@@ -943,33 +943,33 @@
             </fieldset>
             <fieldset>
               <legend>Border</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Thickness</label>
+              <div class="control idx-inline-031">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Thickness</label>
                   <input type="number" id="pcaBorderWidth" value="0" min="0" max="10" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Color</label>
                   <input type="color" id="pcaBorder" value="#000000" />
                 </div>
               </div>
             </fieldset>
             <fieldset>
               <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="pcaShowGrid" /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="pcaShowFrame" checked /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="pcaShowLegend" checked /> Show legend</label>
-                <label style="width:auto;"><input type="checkbox" id="pcaVarianceAxisScale" /> Variance-scaled axes</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="pcaShowGrid" /> Show Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pcaShowFrame" checked /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pcaShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pcaVarianceAxisScale" /> Variance-scaled axes</label>
               </div>
             </fieldset>
             <fieldset>
               <legend>Data</legend>
-              <div class="control" style="flex-wrap:wrap; gap:6px; align-items:center;">
-                <label style="width:auto;">
+              <div class="control idx-inline-032">
+                <label class="idx-inline-023">
                   <input type="checkbox" id="pcaScale" /> Scale Variables
                 </label>
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   <input type="checkbox" id="pcaLiveUpdate" checked /> Live update plot
                 </label>
               </div>
@@ -984,7 +984,7 @@
             </fieldset>
           </div>
         </div>
-        <div id="pcaStats" style="width:100%; margin-top:12px;">
+        <div id="pcaStats" class="idx-inline-033">
             <fieldset>
               <legend>Statistics</legend>
                 <div id="pcaStatsResults" class="stats-panel">
@@ -992,7 +992,7 @@
                 <div id="pcaScreeVarianceRow" class="scree-variance-row">
                   <div id="pcaScreeContainer" class="scree-card" hidden>
                     <div id="pcaScreePlot"></div>
-                    <div class="row" id="pcaScreeExportControls" style="justify-content:flex-end; margin-top:8px;"></div>
+                    <div class="row idx-inline-043" id="pcaScreeExportControls"></div>
                   </div>
                   <div id="pcaVarianceSummary" class="variance-card" hidden>
                     <div class="variance-card__title">Component Variance</div>
@@ -1026,13 +1026,13 @@
   <div id="surfacePage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="surface">
       <div data-toolbar-root></div>
-      <input type="file" id="surfaceGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="surfaceFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="surfaceGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="surfaceFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="surfaceTablePanel">
-        <div id="surfaceHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="surfaceHot" style="width:100%; height:100%;"></div>
+        <div id="surfaceHotWrapper" class="idx-inline-020">
+          <div id="surfaceHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="surfacePanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -1045,7 +1045,7 @@
               <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
               <svg id="surfaceSvg" viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg" aria-label="Surface plot"></svg>
               <div id="surfaceMessage" class="surface-message" role="status" aria-live="polite" hidden></div>
-              <div class="row" id="surfaceExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div class="row idx-inline-004" id="surfaceExportControls"></div>
             </div>
             <div id="surfaceRenderRow" class="surface-render-row" hidden>
               <button type="button" class="btn" id="surfaceRenderButton" disabled>Update Plot</button>
@@ -1056,25 +1056,25 @@
             <fieldset>
               <legend>Data Interpretation</legend>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   X Column
                   <select id="surfaceXAxis"></select>
                 </label>
               </div>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   Y Column
                   <select id="surfaceYAxis"></select>
                 </label>
               </div>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   Z Column
                   <select id="surfaceZAxis"></select>
                 </label>
               </div>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   Interpolation
                   <select id="surfaceInterpolation">
                     <option value="grid">Grid (rectangular)</option>
@@ -1086,7 +1086,7 @@
             <fieldset>
               <legend>Color Ramp</legend>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   Palette
                   <select id="surfaceColorRamp">
                     <option value="viridis">Viridis</option>
@@ -1097,8 +1097,8 @@
                   </select>
                 </label>
               </div>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="surfaceShowLegend" checked /> Show Legend</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowLegend" checked /> Show Legend</label>
               </div>
             </fieldset>
             <fieldset>
@@ -1113,14 +1113,14 @@
                 <input type="range" id="surfaceAxisStroke" min="0.5" max="4" step="0.25" value="1.2" />
                 <output id="surfaceAxisStrokeVal">1.2</output>
               </div>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">Axis Color</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">Axis Color</label>
                 <input type="color" id="surfaceAxisColor" value="#3b3b3b" />
               </div>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="surfaceShowGrid" checked /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="surfaceShowFrame" checked /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="surfaceShowPoints" /> Show Points</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowGrid" checked /> Show Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowFrame" checked /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowPoints" /> Show Points</label>
               </div>
             </fieldset>
           </div>
@@ -1139,14 +1139,14 @@
   <div id="linePage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="line">
       <div data-toolbar-root></div>
-      <input type="file" id="lineGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="lineGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
 
     <div class="wrap">
         <div class="panel" id="lineTablePanel">
           <div class="table-format-controls">
-            <label for="lineTableFormat" style="margin:0;">Table format</label>
+            <label for="lineTableFormat" class="idx-inline-019">Table format</label>
             <select id="lineTableFormat">
               <option value="single" selected>Single replicates</option>
               <option value="grouped">Grouped replicates</option>
@@ -1154,7 +1154,7 @@
             </select>
             <button type="button" class="btn grouped-toggle" id="lineGroupedToggle" aria-controls="lineGroupedControls" aria-expanded="false" hidden>Show group settings</button>
           </div>
-        <div id="lineGroupedControls" class="grouped-controls" style="display:none;" aria-hidden="true">
+        <div id="lineGroupedControls" class="grouped-controls idx-inline-001" aria-hidden="true">
           <div class="grouped-config-row">
             <label for="lineReplicates" class="grouped-config-inline">
               <span>Replicates per series</span>
@@ -1167,9 +1167,9 @@
             <button type="button" class="btn" id="lineGroupedRemove">Remove group</button>
           </div>
         </div>
-        <div id="line3dControls" class="grouped-controls" style="display:none;" aria-hidden="true">
+        <div id="line3dControls" class="grouped-controls idx-inline-001" aria-hidden="true">
           <div class="grouped-config-row">
-            <p style="margin:0; font-size:12px; color:#444;">3D datasets use paired columns per dataset: Y values then Z values.</p>
+            <p class="idx-inline-044">3D datasets use paired columns per dataset: Y values then Z values.</p>
           </div>
           <div id="line3dList" class="grouped-list"></div>
           <div class="grouped-actions">
@@ -1177,8 +1177,8 @@
             <button type="button" class="btn" id="line3dRemove">Remove dataset</button>
           </div>
         </div>
-        <div id="lineHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="lineHot" style="width:100%; height:100%;"></div>
+        <div id="lineHotWrapper" class="idx-inline-020">
+          <div id="lineHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="linePanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -1189,8 +1189,8 @@
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-              <div id="linePlot" style="width:100%; height:100%;"></div>
-              <div class="row" id="lineExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div id="linePlot" class="idx-inline-021"></div>
+              <div class="row idx-inline-004" id="lineExportControls"></div>
             </div>
             <div id="lineRenderRow" class="line-render-row" hidden>
               <button type="button" class="btn" id="lineRenderButton" disabled>Update Plot</button>
@@ -1201,7 +1201,7 @@
             <fieldset>
               <legend>Display</legend>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   View
                   <select id="lineViewMode">
                     <option value="2d" selected>2D</option>
@@ -1210,7 +1210,7 @@
                 </label>
               </div>
               <div class="control">
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   Mode
                   <select id="lineDisplayMode">
                     <option value="line" selected>Line</option>
@@ -1221,17 +1221,17 @@
             </fieldset>
             <fieldset>
               <legend>Dots</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Size</label>
+              <div class="control idx-inline-031">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Size</label>
                   <input type="number" id="lineDotSize" value="3" min="0" max="20" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Color</label>
                   <input type="color" id="lineFill" value="#377eb8" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Transparency</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Transparency</label>
                   <input type="range" id="lineAlpha" min="0" max="1" step="0.05" value="0" />
                   <output id="lineAlphaVal">0</output>
                 </div>
@@ -1239,56 +1239,56 @@
             </fieldset>
             <fieldset>
               <legend>Border</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Thickness</label>
+              <div class="control idx-inline-031">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Thickness</label>
                   <input type="number" id="lineBorderWidth" value="2" min="0" max="10" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Color</label>
                   <input type="color" id="lineBorder" value="#377eb8" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Error Bar Thickness</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Error Bar Thickness</label>
                   <input type="number" id="lineErrorBarWidth" value="2" min="0" max="10" />
                 </div>
               </div>
             </fieldset>
             <fieldset>
               <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="lineShowGrid" /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="lineShowFrame" /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="lineShowLegend" checked /> Show legend</label>
-                <label style="width:auto;">
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="lineShowGrid" /> Show Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023">
                   <input type="checkbox" id="lineLogX" /> Log Scale (X)
                 </label>
-                <label style="width:auto;">
+                <label class="idx-inline-023">
                   <input type="checkbox" id="lineLogY" /> Log Scale (Y)
                 </label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">X min <input type="number" id="lineXMin" /></label>
-                <label style="width:auto;">X max <input type="number" id="lineXMax" /></label>
+              <div class="control idx-inline-041">
+                <label class="idx-inline-023">X min <input type="number" id="lineXMin" /></label>
+                <label class="idx-inline-023">X max <input type="number" id="lineXMax" /></label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Y min <input type="number" id="lineYMin" /></label>
-                <label style="width:auto;">Y max <input type="number" id="lineYMax" /></label>
+              <div class="control idx-inline-041">
+                <label class="idx-inline-023">Y min <input type="number" id="lineYMin" /></label>
+                <label class="idx-inline-023">Y max <input type="number" id="lineYMax" /></label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Origin</label>
+              <div class="control idx-inline-041">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Origin</label>
                   <select id="lineOriginMode">
                     <option value="lower" selected>Lower Left</option>
                     <option value="custom">Custom</option>
                   </select>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">X</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">X</label>
                   <input type="number" id="lineOriginX" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Y</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Y</label>
                   <input type="number" id="lineOriginY" />
                 </div>
               </div>
@@ -1303,7 +1303,7 @@
             </fieldset>
           </div>
         </div>
-        <div id="lineStats" style="width:100%; margin-top:12px;">
+        <div id="lineStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
             <div id="lineStatsAdvisor"></div>
@@ -1332,19 +1332,19 @@
                 </select>
               </label>
             </div>
-            <div class="control" style="flex-wrap:wrap; gap:12px;">
-              <label style="width:auto;">
+            <div class="control idx-inline-045">
+              <label class="idx-inline-023">
                 <input type="checkbox" id="lineShowIntervals" /> Show Interval Shading
               </label>
-              <label style="width:auto;">
+              <label class="idx-inline-023">
                 <input type="checkbox" id="lineShowDiagnostics" /> Show Diagnostics Summary
               </label>
             </div>
-            <div class="control" id="lineStatsActionRow" style="gap:8px; flex-wrap:wrap; align-items:center;">
+            <div class="control idx-inline-040" id="lineStatsActionRow">
               <button type="button" class="btn" id="lineComputeStats" disabled>Calculate statistics</button>
-              <span id="lineStatsStatus" style="font-size:12px; color:#555;" aria-live="polite"></span>
+              <span id="lineStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
-            <fieldset id="lineForecastControls" style="margin-top:8px;">
+            <fieldset id="lineForecastControls" class="idx-inline-003">
               <legend>Forecasting</legend>
               <div class="control">
                 <label>
@@ -1358,8 +1358,8 @@
                   <input type="number" id="lineForecastSeasonLength" min="2" max="60" value="12" />
                 </label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:12px;">
-                <label style="width:auto;">
+              <div class="control idx-inline-045">
+                <label class="idx-inline-023">
                   <input type="checkbox" id="lineForecastAuto" checked /> Auto-tune parameters (AIC/BIC)
                 </label>
                 <label>
@@ -1371,7 +1371,7 @@
                 </label>
               </div>
             </fieldset>
-            <div id="lineStatsResults" style="margin-top:8px;"></div>
+            <div id="lineStatsResults" class="idx-inline-003"></div>
           </fieldset>
         </div>
       </div>
@@ -1382,13 +1382,13 @@
   <div id="heatmapPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="heatmap">
       <div data-toolbar-root></div>
-      <input type="file" id="heatmapGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="heatmapGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="heatmapTablePanel">
-        <div id="heatmapHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="heatmapHot" style="width:100%; height:100%;"></div>
+        <div id="heatmapHotWrapper" class="idx-inline-020">
+          <div id="heatmapHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="heatmapPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -1400,7 +1400,7 @@
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
               <svg id="heatmapSvg" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Correlation heatmap"></svg>
-              <div class="row" id="heatmapExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div class="row idx-inline-004" id="heatmapExportControls"></div>
             </div>
             <div id="heatmapRenderRow" class="heatmap-render-row" hidden>
               <button type="button" class="btn" id="heatmapRenderButton" disabled>Update Plot</button>
@@ -1624,10 +1624,10 @@
             </fieldset>
           </div>
         </div>
-        <div id="heatmapStats" style="width:100%; margin-top:12px;">
+        <div id="heatmapStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
-            <div id="heatmapStatsContent" style="font-size:13px;"></div>
+            <div id="heatmapStatsContent" class="idx-inline-046"></div>
           </fieldset>
         </div>
       </div>
@@ -1638,13 +1638,13 @@
   <div id="rocPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="roc">
       <div data-toolbar-root></div>
-      <input type="file" id="rocGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="rocGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="rocTablePanel">
-        <div id="rocHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="rocHot" style="width:100%; height:100%;"></div>
+        <div id="rocHotWrapper" class="idx-inline-020">
+          <div id="rocHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="rocPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -1655,8 +1655,8 @@
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-              <div id="rocPlot" style="width:100%; height:100%;"></div>
-              <div class="row" id="rocExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div id="rocPlot" class="idx-inline-021"></div>
+              <div class="row idx-inline-004" id="rocExportControls"></div>
             </div>
             <div id="rocRenderRow" class="roc-render-row" hidden>
               <button type="button" class="btn" id="rocRenderButton" disabled>Update Plot</button>
@@ -1666,8 +1666,8 @@
           <div class="config-options">
             <fieldset>
               <legend>Options</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">
                   Graph Type
                   <select id="rocGraphType">
                     <option value="roc">ROC</option>
@@ -1678,19 +1678,19 @@
             </fieldset>
             <fieldset>
               <legend>Border</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Thickness</label>
+              <div class="control idx-inline-031">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Thickness</label>
                   <input type="number" id="rocBorderWidth" value="2" min="0" max="10" />
                 </div>
               </div>
             </fieldset>
             <fieldset>
               <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="rocShowGrid" /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="rocShowFrame" /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowGrid" /> Show Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
               </div>
             </fieldset>
             <fieldset>
@@ -1703,12 +1703,12 @@
             </fieldset>
           </div>
         </div>
-        <div id="rocStats" style="width:100%; margin-top:12px;">
+        <div id="rocStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
             <div id="rocStatsAdvisor"></div>
-          <div id="rocStatsControls" class="row" style="gap:8px; align-items:center;"></div>
-          <div id="rocStatsResults" style="margin-top:8px;"></div>
+          <div id="rocStatsControls" class="row idx-inline-047"></div>
+          <div id="rocStatsResults" class="idx-inline-003"></div>
         </fieldset>
       </div>
     </div>
@@ -1719,15 +1719,15 @@
   <div id="survivalPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="survival">
       <div data-toolbar-root></div>
-      <input type="file" id="survivalGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="survivalGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="survivalTablePanel">
-        <div id="survivalHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="survivalHot" style="width:100%; height:100%;"></div>
+        <div id="survivalHotWrapper" class="idx-inline-020">
+          <div id="survivalHot" class="idx-inline-021"></div>
         </div>
-        <div id="survivalTableHint" style="font-size:12px; color:#555; margin-top:6px;">
+        <div id="survivalTableHint" class="idx-inline-048">
           Enter rows as: Group, Time, Event (1=event,0=censored), optional Entry Time, and any additional covariates.
         </div>
       </div>
@@ -1738,8 +1738,8 @@
             <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
-            <div id="survivalPlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="survivalExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            <div id="survivalPlot" class="idx-inline-021"></div>
+            <div class="row idx-inline-004" id="survivalExportControls"></div>
           </div>
           <div class="config-options">
             <fieldset id="survivalLabelColorsFieldset">
@@ -1748,29 +1748,29 @@
             </fieldset>
             <fieldset>
               <legend>Curve Options</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="survivalShowCI" /> Show 95% Confidence Interval</label>
-                <label style="width:auto;"><input type="checkbox" id="survivalShowCensor" checked /> Show Censor Marks</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowCI" /> Show 95% Confidence Interval</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowCensor" checked /> Show Censor Marks</label>
               </div>
             </fieldset>
             <fieldset>
               <legend>Grid &amp; Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="survivalShowFrame" /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="survivalShowLegend" checked /> Show legend</label>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowLegend" checked /> Show legend</label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Time Max <input type="number" id="survivalTimeMax" step="0.1" /></label>
+              <div class="control idx-inline-041">
+                <label class="idx-inline-023">Time Max <input type="number" id="survivalTimeMax" step="0.1" /></label>
               </div>
             </fieldset>
             <fieldset>
               <legend>Labels</legend>
-              <div class="control" style="flex-direction:column; gap:6px; align-items:flex-start;">
-                <label style="width:100%;">Time Axis
+              <div class="control idx-inline-049">
+                <label class="idx-inline-010">Time Axis
                   <input type="text" id="survivalXLabel" value="Time" />
                 </label>
-                <label style="width:100%;">Survival Axis
+                <label class="idx-inline-010">Survival Axis
                   <input type="text" id="survivalYLabel" value="Survival Probability" />
                 </label>
               </div>
@@ -1785,21 +1785,21 @@
             </fieldset>
           </div>
         </div>
-        <div id="survivalStats" style="width:100%; margin-top:12px;">
+        <div id="survivalStats" class="idx-inline-033">
             <fieldset>
               <legend>Statistics</legend>
               <div id="survivalStatsAdvisor"></div>
-              <div class="control stats-toggle-row" id="survivalStatsToggleRow" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
-                <label style="width:auto;"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
+              <div class="control stats-toggle-row idx-inline-031" id="survivalStatsToggleRow">
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
               </div>
-              <div class="control" id="survivalCovariateControls" style="flex-direction:column; gap:6px; align-items:flex-start;">
-                <div id="survivalCovariateHint" style="font-size:12px; color:#555;">Add extra columns to pick covariates for the Cox model.</div>
+              <div class="control idx-inline-049" id="survivalCovariateControls">
+                <div id="survivalCovariateHint" class="idx-inline-037">Add extra columns to pick covariates for the Cox model.</div>
               </div>
-              <div id="survivalStatsSummary" style="margin-bottom:8px;"></div>
+              <div id="survivalStatsSummary" class="idx-inline-050"></div>
               <div id="survivalStatsLogRank"></div>
-              <div id="survivalStatsHazardRatios" style="margin-top:8px;"></div>
-              <div id="survivalStatsCox" style="margin-top:8px;"></div>
+              <div id="survivalStatsHazardRatios" class="idx-inline-003"></div>
+              <div id="survivalStatsCox" class="idx-inline-003"></div>
             </fieldset>
         </div>
       </div>
@@ -1810,13 +1810,13 @@
   <div id="histPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="hist">
       <div data-toolbar-root></div>
-      <input type="file" id="histGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="histGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="histTablePanel">
-        <div id="histHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="histHot" style="width:100%; height:100%;"></div>
+        <div id="histHotWrapper" class="idx-inline-020">
+          <div id="histHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="histPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -1827,8 +1827,8 @@
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-              <div id="histPlot" style="width:100%; height:100%;"></div>
-              <div class="row" id="histExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+              <div id="histPlot" class="idx-inline-021"></div>
+              <div class="row idx-inline-004" id="histExportControls"></div>
             </div>
             <div id="histRenderRow" class="hist-render-row" hidden>
               <button type="button" class="btn" id="histRenderButton" disabled>Update Plot</button>
@@ -1838,17 +1838,17 @@
           <div class="config-options">
             <fieldset>
               <legend>Bars</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+              <div class="control idx-inline-031">
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Color</label>
                   <input type="color" id="histFill" value="#377eb8" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Border</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Border</label>
                   <input type="color" id="histBorder" value="#000000" />
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Thickness</label>
+                <div class="idx-inline-042">
+                  <label class="idx-inline-023">Thickness</label>
                   <input type="number" id="histBorderWidth" value="1" min="0" max="10" />
                 </div>
               </div>
@@ -1862,23 +1862,23 @@
             </fieldset>
             <fieldset>
               <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="histShowGrid" /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="histShowFrame" /> Show Frame</label>
-                <label style="width:auto;">
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="histShowGrid" /> Show Grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="histShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023">
                   <input type="checkbox" id="histLogY" /> Log Scale (Y)
                 </label>
               </div>
             </fieldset>
             <fieldset>
               <legend>Distribution Fits</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
+              <div class="control idx-inline-051">
                 <label>Distributions</label>
                 <div id="histDistributionList" class="hist-dist-list"></div>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:12px;">
-                <label style="width:auto;"><input type="checkbox" id="histShowPdf" checked /> Show PDF</label>
-                <label style="width:auto;"><input type="checkbox" id="histShowCdf" /> Show CDF</label>
+              <div class="control idx-inline-045">
+                <label class="idx-inline-023"><input type="checkbox" id="histShowPdf" checked /> Show PDF</label>
+                <label class="idx-inline-023"><input type="checkbox" id="histShowCdf" /> Show CDF</label>
               </div>
             </fieldset>
             <fieldset>
@@ -1891,7 +1891,7 @@
             </fieldset>
           </div>
         </div>
-        <div id="histStats" style="width:100%; margin-top:12px;">
+        <div id="histStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
             <div id="histStatsResults"></div>
@@ -1905,13 +1905,13 @@
   <div id="piePage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="pie">
       <div data-toolbar-root></div>
-      <input type="file" id="pieGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      <input type="file" id="pieGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="pieTablePanel">
-        <div id="pieHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
-          <div id="pieHot" style="width:100%; height:100%;"></div>
+        <div id="pieHotWrapper" class="idx-inline-020">
+          <div id="pieHot" class="idx-inline-021"></div>
         </div>
       </div>
       <div id="piePanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -1921,14 +1921,14 @@
             <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="piePlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="pieExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            <div id="piePlot" class="idx-inline-021"></div>
+            <div class="row idx-inline-004" id="pieExportControls"></div>
           </div>
           <div class="config-options">
             <fieldset>
               <legend>Options</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">
                   Chart Type
                   <select id="pieChartType">
                     <option value="pie">Pie</option>
@@ -1936,16 +1936,16 @@
                     <option value="stacked">Stacked Bar</option>
                   </select>
                 </label>
-                <label style="width:auto;"><input type="checkbox" id="pieShowPercents" /> Show Percentages</label>
-                <label style="width:auto;"><input type="checkbox" id="pieShowFrame" /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
-                <label style="width:auto;">
+                <label class="idx-inline-023"><input type="checkbox" id="pieShowPercents" /> Show Percentages</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pieShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023">
                   Start Angle <input type="number" id="pieStartAngle" value="0" />
                 </label>
-                <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                <label class="idx-inline-052">
                   Border
                   <input type="color" id="pieBorderColor" value="#ffffff" aria-label="Slice border color" />
-                  <input type="number" id="pieBorderWidth" value="0" min="0" step="0.5" style="width:70px;" aria-label="Slice border thickness" />
+                  <input type="number" id="pieBorderWidth" value="0" min="0" step="0.5" class="idx-inline-027" aria-label="Slice border thickness" />
                 </label>
               </div>
             </fieldset>
@@ -1959,15 +1959,15 @@
             </fieldset>
           </div>
         </div>
-        <div id="pieStats" style="width:100%; margin-top:12px;">
+        <div id="pieStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
-            <div class="control" style="flex-wrap:wrap;">
-              <label style="width:auto;">
+            <div class="control idx-inline-031">
+              <label class="idx-inline-023">
                 Observed Column
                 <select id="pieValueColumn"></select>
               </label>
-              <label style="width:auto;">
+              <label class="idx-inline-023">
                 Expected Column
                 <select id="pieExpectedColumn"></select>
               </label>
@@ -1983,7 +1983,7 @@
     <div id="workspaceTabsDock" class="workspace-tabs-dock" role="presentation">
       <div id="workspaceTabsList" class="workspace-tabs-list" role="tablist" aria-label="Workspace tabs"></div>
       <button id="addWorkspaceTab" type="button" class="workspace-tab workspace-add-tab" aria-label="Add workspace tab">+</button>
-      <input id="workspaceSessionInput" type="file" accept=".session,.json" style="display:none;" />
+      <input id="workspaceSessionInput" type="file" accept=".session,.json" class="idx-inline-001" />
     </div>
     <div id="tabContextMenu" class="tab-context-menu" hidden role="menu" aria-label="Tab actions">
       <button id="tabContextDuplicateReuse" type="button" class="tab-context-menu__item">Duplicate (Reuse data)</button>
@@ -2046,8 +2046,8 @@
   </div>
 
   <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.noStyle.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.noStyle.js" integrity="sha384-etrB9TIL7zKiOhcZpa4qlQsXHG1KuuQK1DiRggK05MVgseANVPTFaEs1qUCcs7uG" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js" integrity="sha384-G0LNImWgCl2Dv94gWHL462179lItxVdMl0mIkiGu4HaUYuC4jZlAVdyqTZxTKRTs" crossorigin="anonymous"></script>
   <script src="js/vendor.js"></script>
   <script src="js/shared/loaders.js"></script>
   <script src="js/shared/palette.js"></script>
