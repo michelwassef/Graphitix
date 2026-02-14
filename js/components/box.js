@@ -619,7 +619,7 @@
     // Prepare single-line form so toolbar height doesn't increase
     toolbarHost.innerHTML = '';
     const wrap = doc.createElement('div');
-    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-point-controls';
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-point-controls scatter-format-controls';
     wrap.dataset.pointControls = '1';
 
     const makeInput = (labelText, inputEl) => {
@@ -628,6 +628,9 @@
       const span = doc.createElement('span');
       span.className = 'workspace-toolbar__input-label';
       span.textContent = labelText;
+      if(inputEl && inputEl.classList){
+        inputEl.classList.add('workspace-toolbar__input-control');
+      }
       lbl.appendChild(span);
       lbl.appendChild(inputEl);
       return lbl;
@@ -1132,47 +1135,12 @@
         }
       }
     }catch(e){}
-    const sizeValues = [2,4,6,8,10,12,16,20,24,30];
-    const sizeCombo = doc.createElement('div');
-    sizeCombo.className = 'font-controls-panel__combo font-controls-panel__combo--size';
-    const sizeRow = doc.createElement('div');
-    sizeRow.className = 'font-controls-panel__combo-row';
     const sizeInput = doc.createElement('input');
     sizeInput.type = 'number';
-    sizeInput.min = '1';
+    sizeInput.min = '0';
     sizeInput.step = '0.5';
-    sizeInput.className = 'font-controls-panel__input font-controls-panel__input--combo font-controls-panel__input--number';
-    sizeInput.setAttribute('aria-label', 'Point size');
-    sizeInput.setAttribute('aria-haspopup', 'listbox');
-    sizeInput.setAttribute('aria-expanded', 'false');
-    const sizeMenuId = `box-point-size-menu-${Date.now()}`;
-    sizeInput.setAttribute('aria-controls', sizeMenuId);
     const normalizedDerived = Number.isFinite(derivedSize) ? Math.round(derivedSize * 10) / 10 : 4;
     sizeInput.value = String(normalizedDerived);
-    sizeRow.appendChild(sizeInput);
-
-    const sizeMenuToggle = doc.createElement('button');
-    sizeMenuToggle.type = 'button';
-    sizeMenuToggle.className = 'font-controls-panel__combo-toggle';
-    sizeMenuToggle.setAttribute('aria-label', 'Show preset sizes');
-    sizeMenuToggle.setAttribute('aria-haspopup', 'listbox');
-    sizeMenuToggle.setAttribute('aria-expanded', 'false');
-    sizeMenuToggle.setAttribute('aria-controls', sizeMenuId);
-    const sizeMenuIcon = doc.createElement('span');
-    sizeMenuIcon.className = 'font-controls-panel__combo-toggle-icon';
-    sizeMenuIcon.textContent = '?';
-    sizeMenuIcon.setAttribute('aria-hidden', 'true');
-    sizeMenuToggle.appendChild(sizeMenuIcon);
-    sizeRow.appendChild(sizeMenuToggle);
-    sizeCombo.appendChild(sizeRow);
-
-    const sizeMenuPopup = doc.createElement('div');
-    sizeMenuPopup.id = sizeMenuId;
-    sizeMenuPopup.className = 'font-controls-panel__combo-menu';
-    sizeMenuPopup.setAttribute('role', 'listbox');
-    sizeMenuPopup.setAttribute('aria-label', 'Point sizes');
-    sizeMenuPopup.hidden = true;
-    sizeCombo.appendChild(sizeMenuPopup);
 
     const schedulePointSizeRelayout = typeof Shared.debounceFrame === 'function'
       ? Shared.debounceFrame(() => {
@@ -1200,103 +1168,10 @@
       }
     };
 
-    const syncSizeMenuActive = () => {
-      const current = Number(sizeInput.value);
-      const rounded = Number.isFinite(current) ? Math.round(current) : null;
-      const options = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
-      options.forEach(option => {
-        const value = Number(option.dataset.value);
-        const isActive = rounded != null && Number.isFinite(value) && value === rounded;
-        option.classList.toggle('font-controls-panel__combo-option--active', isActive);
-      });
-    };
-
-    let sizeMenuVisible = false;
-    const openSizeMenu = () => {
-      if(sizeMenuVisible){ return; }
-      sizeMenuVisible = true;
-      sizeMenuPopup.hidden = false;
-      sizeMenuPopup.classList.add('font-controls-panel__combo-menu--open');
-      sizeInput.setAttribute('aria-expanded', 'true');
-      sizeMenuToggle.setAttribute('aria-expanded', 'true');
-      syncSizeMenuActive();
-    };
-    const closeSizeMenu = () => {
-      if(!sizeMenuVisible){ return; }
-      sizeMenuVisible = false;
-      sizeMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
-      sizeMenuPopup.hidden = true;
-      sizeInput.setAttribute('aria-expanded', 'false');
-      sizeMenuToggle.setAttribute('aria-expanded', 'false');
-    };
-    const toggleSizeMenu = () => {
-      if(sizeMenuVisible){
-        closeSizeMenu();
-      }else{
-        openSizeMenu();
-      }
-    };
-
-    const createSizeOption = value => {
-      const optionBtn = doc.createElement('button');
-      optionBtn.type = 'button';
-      optionBtn.className = 'font-controls-panel__combo-option';
-      optionBtn.dataset.value = String(value);
-      optionBtn.dataset.label = `${value}px`;
-      optionBtn.textContent = `${value}px`;
-      optionBtn.setAttribute('role', 'option');
-      optionBtn.setAttribute('tabindex', '-1');
-      optionBtn.addEventListener('mousedown', evt => {
-        evt.preventDefault();
-      });
-      optionBtn.addEventListener('click', () => {
-        sizeInput.value = String(value);
-        applySizeValue(value, true);
-        syncSizeMenuActive();
-        closeSizeMenu();
-        try{
-          sizeInput.focus({ preventScroll: true });
-        }catch(focusErr){
-          sizeInput.focus();
-        }
-      });
-      return optionBtn;
-    };
-
-    sizeValues.forEach(value => {
-      sizeMenuPopup.appendChild(createSizeOption(value));
-    });
-
     sizeInput.addEventListener('input', () => {
-      applySizeValue(sizeInput.value, false);
-      syncSizeMenuActive();
-    });
-    sizeInput.addEventListener('change', () => {
       applySizeValue(sizeInput.value, true);
-      syncSizeMenuActive();
     });
-
-    sizeMenuToggle.addEventListener('mousedown', evt => {
-      evt.preventDefault();
-    });
-    sizeMenuToggle.addEventListener('click', () => {
-      toggleSizeMenu();
-      try{
-        sizeInput.focus({ preventScroll: true });
-      }catch(focusErr){
-        sizeInput.focus();
-      }
-    });
-
-    wrap.addEventListener('click', evt => {
-      if(!sizeMenuVisible){ return; }
-      const target = evt?.target;
-      if(target && sizeCombo.contains(target)){ return; }
-      closeSizeMenu();
-    });
-
-    const sizeLabel = makeInput('Size', sizeCombo);
-    wrap.appendChild(sizeLabel);
+    wrap.appendChild(makeInput('Size', sizeInput));
 
     // Transparency slider (compact): 0 = opaque, 100 = fully transparent
     const opInput = doc.createElement('input');
@@ -1341,8 +1216,7 @@
       }
     });
     const opWrap = doc.createElement('div');
-    opWrap.style.display = 'inline-flex';
-    opWrap.style.alignItems = 'center';
+    opWrap.className = 'workspace-toolbar__range';
     opWrap.appendChild(opInput);
     opWrap.appendChild(opValue);
     wrap.appendChild(makeInput('Transparency', opWrap));
@@ -1368,7 +1242,6 @@
           // ignore clicks inside the shared color picker overlay
           if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
           // hide the toolbar host
-          closeSizeMenu();
           toolbarHost.classList.remove('font-toolbar-host--visible');
           toolbarHost.style.display = 'none';
           try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}

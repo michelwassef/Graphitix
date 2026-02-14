@@ -3293,6 +3293,9 @@
       const span = doc.createElement('span');
       span.className = 'workspace-toolbar__input-label';
       span.textContent = labelText;
+      if(inputEl && inputEl.classList){
+        inputEl.classList.add('workspace-toolbar__input-control');
+      }
       lbl.appendChild(span);
       lbl.appendChild(inputEl);
       return lbl;
@@ -3369,9 +3372,146 @@
       scheduleDrawScatter();
     };
 
-    // Fill color
-    const colorInput = doc.createElement('input');
-    colorInput.type = 'color';
+    const sanitizeCurrentShape = (shape, index = 0) => {
+      if(SCATTER_SHAPE_VALUES.has(shape)){
+        return shape;
+      }
+      const safeIndex = Number.isInteger(index) ? index : 0;
+      return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length] || 'circle';
+    };
+    const clampNumeric = (value, { min = 0, fallback = 0 } = {}) => {
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric)){
+        return fallback;
+      }
+      return Math.max(min, numeric);
+    };
+    const resolveCurrentBorderWidth = () => {
+      const fromLabel = labelStyle?.borderWidth;
+      if(Number.isFinite(Number(fromLabel))){
+        return clampNumeric(fromLabel, { min: 0, fallback: 0 });
+      }
+      if(Number.isFinite(Number(scatterBorderWidthInput?.value))){
+        return clampNumeric(scatterBorderWidthInput.value, { min: 0, fallback: 0 });
+      }
+      const fromTarget = Number(target.getAttribute('stroke-width'));
+      if(Number.isFinite(fromTarget)){
+        return clampNumeric(fromTarget, { min: 0, fallback: 0 });
+      }
+      return 0;
+    };
+    const resolveCurrentSize = () => {
+      const fromLabel = labelStyle?.size;
+      if(Number.isFinite(Number(fromLabel))){
+        return clampNumeric(fromLabel, { min: 0, fallback: 0 });
+      }
+      if(Number.isFinite(Number(scatterDotSizeInput?.value))){
+        return clampNumeric(scatterDotSizeInput.value, { min: 0, fallback: 0 });
+      }
+      const fromTarget = Number(target.getAttribute('r'));
+      if(Number.isFinite(fromTarget)){
+        return clampNumeric(fromTarget, { min: 0, fallback: 0 });
+      }
+      return 0;
+    };
+    let currentBorderWidth = resolveCurrentBorderWidth();
+    let currentMarkerSize = resolveCurrentSize();
+    let currentBorderColor = null;
+    let syncBorderChipUi = () => {};
+    let syncFillChipUi = () => {};
+    const applyBorderWidthValue = nextValue => {
+      const next = clampNumeric(nextValue, { min: 0, fallback: 0 });
+      currentBorderWidth = next;
+      if(useLabelScope() && scatterLabelKey){
+        applyLabelStylePatch({ borderWidth: next });
+      }else{
+        if(scatterBorderWidthInput){
+          applyAndDispatch(scatterBorderWidthInput, String(next));
+        }
+        applyGlobalStylePatch('borderWidth', next);
+      }
+      syncBorderChipUi();
+    };
+    const applySizeValue = nextValue => {
+      const next = clampNumeric(nextValue, { min: 0, fallback: 0 });
+      currentMarkerSize = next;
+      if(useLabelScope() && scatterLabelKey){
+        applyLabelStylePatch({ size: next });
+      }else{
+        if(scatterDotSizeInput){
+          applyAndDispatch(scatterDotSizeInput, String(next));
+        }
+        applyGlobalStylePatch('size', next);
+      }
+      syncFillChipUi();
+    };
+    const clearScatterPickerStyleSection = overlayEl => {
+      if(!overlayEl){ return; }
+      overlayEl.querySelectorAll('.shared-color-picker__section--scatter-style').forEach(node => node.remove());
+    };
+    const createScatterStyleSection = ({ titleText, value, onInput }) => {
+      const section = doc.createElement('section');
+      section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style';
+      const title = doc.createElement('div');
+      title.className = 'shared-color-picker__section-title';
+      title.textContent = titleText;
+      section.appendChild(title);
+      const row = doc.createElement('div');
+      row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
+      const field = doc.createElement('label');
+      field.className = 'shared-color-picker__scatter-style-field';
+      const input = doc.createElement('input');
+      input.className = 'shared-color-picker__scatter-style-input';
+      input.type = 'number';
+      input.min = '0';
+      input.step = '0.5';
+      input.setAttribute('aria-label', titleText);
+      input.value = String(Math.round(value * 10) / 10);
+      input.addEventListener('input', () => {
+        onInput(input.value);
+      });
+      field.appendChild(input);
+      row.appendChild(field);
+      section.appendChild(row);
+      return section;
+    };
+    const attachScatterPickerSizeSection = overlayEl => {
+      if(!overlayEl){ return () => {}; }
+      clearScatterPickerStyleSection(overlayEl);
+      const section = createScatterStyleSection({
+        titleText: 'Size',
+        value: resolveCurrentSize(),
+        onInput: applySizeValue
+      });
+      const shapeSection = overlayEl.querySelector('.shared-color-picker__section--shapes');
+      if(shapeSection && shapeSection.parentNode){
+        shapeSection.insertAdjacentElement('afterend', section);
+      }else{
+        overlayEl.appendChild(section);
+      }
+      return () => {
+        if(section && section.parentNode){
+          section.parentNode.removeChild(section);
+        }
+      };
+    };
+    const attachScatterPickerBorderSection = overlayEl => {
+      if(!overlayEl){ return () => {}; }
+      clearScatterPickerStyleSection(overlayEl);
+      const section = createScatterStyleSection({
+        titleText: 'Border thickness',
+        value: resolveCurrentBorderWidth(),
+        onInput: applyBorderWidthValue
+      });
+      overlayEl.insertBefore(section, overlayEl.firstChild || null);
+      return () => {
+        if(section && section.parentNode){
+          section.parentNode.removeChild(section);
+        }
+      };
+    };
+
+    // Fill/shape
     const targetFill = target.getAttribute('fill');
     const targetStroke = target.getAttribute('stroke');
     const labelColor = scatterLabelKey ? scatterLabelColors[scatterLabelKey] : null;
@@ -3384,98 +3524,140 @@
     if(scatterFillInput && resolvedFill){
       try{ scatterFillInput.value = resolvedFill; }catch(e){}
     }
-    try{ colorInput.value = resolvedFill; }catch(e){}
-    colorInput.addEventListener('input', () => {
-      const nextColor = colorInput.value;
+    const enableShapePicker = scatterCurrentGraphType === 'scatter'
+      && scatterState?.viewMode !== 'bubble'
+      && Array.isArray(SCATTER_SHAPE_OPTIONS)
+      && SCATTER_SHAPE_OPTIONS.length > 0;
+    const resolveInitialShape = () => {
       if(useLabelScope() && scatterLabelKey){
-        const prev = scatterLabelColors[scatterLabelKey] || '';
-        scatterLabelColors[scatterLabelKey] = nextColor;
-        target.setAttribute('fill', nextColor);
-        if(prev !== nextColor){
-          scheduleDrawScatter();
-        }
-      }else{
-        applyGlobalColor(nextColor);
+        return sanitizeCurrentShape(scatterLabelShapes[scatterLabelKey], 0);
       }
-    });
-    if(chartStyle?.normalizeColorInput){
-      try{ chartStyle.normalizeColorInput(colorInput, { reason: 'scatter.point.format-color' }); }catch(e){}
-    }
-    if(typeof Shared.openColorPicker === 'function'){
-      colorInput.addEventListener('click', (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        const enableShapePicker = scatterCurrentGraphType === 'scatter' && scatterState?.viewMode !== 'bubble' && Array.isArray(SCATTER_SHAPE_OPTIONS) && SCATTER_SHAPE_OPTIONS.length > 0;
-        const sanitizeCurrentShape = (shape, index = 0) => {
-          if(SCATTER_SHAPE_VALUES.has(shape)){
-            return shape;
-          }
-          const safeIndex = Number.isInteger(index) ? index : 0;
-          return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length] || 'circle';
-        };
-        const openWithShape = (shapeValue, onShapeChange) => {
-          Shared.openColorPicker({
-            anchor: colorInput,
-            color: colorInput.value,
-            element: colorInput,
-            shapePicker: enableShapePicker ? {
-              value: shapeValue,
-              options: SCATTER_SHAPE_OPTIONS,
-              onChange: onShapeChange
-            } : null,
-            onInput(value){
-              colorInput.value = value;
-              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
-            },
-            onChange(value){
-              colorInput.value = value;
-              colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+      const shapeKeys = Object.keys(scatterLabelShapes || {});
+      if(!shapeKeys.length){
+        return sanitizeCurrentShape(null, 0);
+      }
+      const shapes = shapeKeys.map((key, idx) => sanitizeCurrentShape(scatterLabelShapes[key], idx));
+      const unique = new Set(shapes);
+      return unique.size === 1 ? shapes[0] : sanitizeCurrentShape(null, 0);
+    };
+    let fillPickerCleanup = null;
+    const fillShapeSwatch = typeof Shared.createShapeColorSwatch === 'function'
+      ? Shared.createShapeColorSwatch({
+          document: doc,
+          label: 'Fill/Shape',
+          color: resolvedFill,
+          shape: resolveInitialShape(),
+          shapeOptions: enableShapePicker ? SCATTER_SHAPE_OPTIONS : [{ value: 'circle', label: 'Circle' }],
+          onColorInput(nextColor){
+            if(useLabelScope() && scatterLabelKey){
+              scatterLabelColors[scatterLabelKey] = nextColor;
+              scheduleDrawScatter();
+            }else{
+              applyGlobalColor(nextColor);
             }
-          });
-        };
-
-        if(useLabelScope() && scatterLabelKey){
-          const labelIndex = 0;
-          let previousShape = sanitizeCurrentShape(scatterLabelShapes[scatterLabelKey], labelIndex);
-          openWithShape(previousShape, (nextShape) => {
-            const sanitized = sanitizeCurrentShape(nextShape, labelIndex);
-            if(sanitized === previousShape){
+          },
+          onColorChange(nextColor){
+            if(useLabelScope() && scatterLabelKey){
+              scatterLabelColors[scatterLabelKey] = nextColor;
+              scheduleDrawScatter();
+            }else{
+              applyGlobalColor(nextColor);
+            }
+          },
+          onShapeChange(nextShape){
+            if(!enableShapePicker){
               return;
             }
-            scatterLabelShapes[scatterLabelKey] = sanitized;
-            scheduleDrawScatter();
-            previousShape = sanitized;
-          });
-          return;
-        }
-
-        if(!enableShapePicker){
-          openWithShape(null, null);
-          return;
-        }
-
-        const shapeKeys = Object.keys(scatterLabelShapes || {});
-        const unique = new Set(shapeKeys.map((key, idx) => sanitizeCurrentShape(scatterLabelShapes[key], idx)));
-        let initialShape = null;
-        if(unique.size === 1){
-          initialShape = unique.values().next().value;
-        }
-        openWithShape(initialShape, (nextShape) => {
-          const sanitized = sanitizeCurrentShape(nextShape, 0);
-          let changed = false;
-          shapeKeys.forEach((key, idx) => {
-            if(sanitizeCurrentShape(scatterLabelShapes[key], idx) !== sanitized){
-              scatterLabelShapes[key] = sanitized;
-              changed = true;
+            if(useLabelScope() && scatterLabelKey){
+              scatterLabelShapes[scatterLabelKey] = sanitizeCurrentShape(nextShape, 0);
+              scheduleDrawScatter();
+              return;
             }
-          });
-          if(changed){
-            scheduleDrawScatter();
+            const sanitized = sanitizeCurrentShape(nextShape, 0);
+            const shapeKeys = Object.keys(scatterLabelShapes || {});
+            let changed = false;
+            shapeKeys.forEach((key, idx) => {
+              if(sanitizeCurrentShape(scatterLabelShapes[key], idx) !== sanitized){
+                scatterLabelShapes[key] = sanitized;
+                changed = true;
+              }
+            });
+            if(changed){
+              scheduleDrawScatter();
+            }
+          },
+          onPickerOpen(payload){
+            fillPickerCleanup = attachScatterPickerSizeSection(payload?.overlay || null);
+          },
+          onPickerClose(){
+            if(typeof fillPickerCleanup === 'function'){
+              fillPickerCleanup();
+              fillPickerCleanup = null;
+            }
           }
-        });
+        })
+      : null;
+    if(fillShapeSwatch && fillShapeSwatch.swatch){
+      fillShapeSwatch.swatch.classList.add('shared-fill-style-chip');
+      syncFillChipUi = () => {
+        const sizeText = Number.isFinite(currentMarkerSize) ? (Math.round(currentMarkerSize * 10) / 10).toString() : '0';
+        fillShapeSwatch.swatch.dataset.sizeText = `${sizeText}px`;
+      };
+      syncFillChipUi();
+
+      fillShapeSwatch.swatch.title = 'Click to edit fill/shape. Wheel or Alt+drag to adjust marker size.';
+      fillShapeSwatch.swatch.addEventListener('wheel', evt => {
+        evt.preventDefault();
+        const step = evt.deltaY < 0 ? 0.5 : -0.5;
+        applySizeValue(currentMarkerSize + step);
+      }, { passive: false });
+
+      let fillDragState = null;
+      let suppressNextFillClick = false;
+      const onFillDragMove = evt => {
+        if(!fillDragState){ return; }
+        const deltaX = evt.clientX - fillDragState.startX;
+        const steps = Math.round(deltaX / 8);
+        const next = fillDragState.startValue + (steps * 0.5);
+        applySizeValue(next);
+      };
+      const onFillDragEnd = () => {
+        if(!fillDragState){ return; }
+        fillDragState = null;
+        global.removeEventListener('mousemove', onFillDragMove);
+        global.removeEventListener('mouseup', onFillDragEnd);
+      };
+      fillShapeSwatch.swatch.addEventListener('mousedown', evt => {
+        if(!evt.altKey || evt.button !== 0){ return; }
+        evt.preventDefault();
+        suppressNextFillClick = true;
+        fillDragState = { startX: evt.clientX, startValue: currentMarkerSize };
+        global.addEventListener('mousemove', onFillDragMove);
+        global.addEventListener('mouseup', onFillDragEnd);
       });
+      fillShapeSwatch.swatch.addEventListener('click', evt => {
+        if(!suppressNextFillClick){ return; }
+        suppressNextFillClick = false;
+        evt.preventDefault();
+        evt.stopPropagation();
+      }, true);
     }
-    const colorLabel = makeInput('Color', colorInput);
+    const fillControlElement = fillShapeSwatch && fillShapeSwatch.element ? fillShapeSwatch.element : (() => {
+      const fallback = doc.createElement('input');
+      fallback.type = 'color';
+      fallback.value = resolvedFill;
+      fallback.addEventListener('input', () => {
+        const nextColor = fallback.value;
+        if(useLabelScope() && scatterLabelKey){
+          scatterLabelColors[scatterLabelKey] = nextColor;
+          scheduleDrawScatter();
+        }else{
+          applyGlobalColor(nextColor);
+        }
+      });
+      return fallback;
+    })();
+    const colorLabel = makeInput('Fill/Shape', fillControlElement);
     colorLabel.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(colorLabel);
 
@@ -3487,12 +3669,40 @@
       || (labelStyle?.borderColor || null)
       || (scatterBorderInput?.value || null)
       || '#000000';
+    currentBorderColor = resolvedBorder;
     if(scatterBorderInput && resolvedBorder){
       try{ scatterBorderInput.value = resolvedBorder; }catch(e){}
     }
     try{ borderInput.value = resolvedBorder; }catch(e){}
+
+    const borderControl = doc.createElement('div');
+    borderControl.className = 'shared-border-style-control';
+    const borderChip = doc.createElement('button');
+    borderChip.type = 'button';
+    borderChip.className = 'shared-border-style-chip';
+    borderChip.setAttribute('aria-label', 'Border color and thickness');
+    borderChip.title = 'Click to edit border color. Wheel or Alt+drag to adjust border thickness.';
+    const borderChipPreview = doc.createElement('span');
+    borderChipPreview.className = 'shared-border-style-chip-preview';
+    const borderChipValue = doc.createElement('span');
+    borderChipValue.className = 'shared-border-style-chip-value';
+    borderChip.appendChild(borderChipPreview);
+    borderChip.appendChild(borderChipValue);
+    borderInput.className = 'shared-border-style-input';
+    borderControl.appendChild(borderChip);
+    borderControl.appendChild(borderInput);
+
+    syncBorderChipUi = () => {
+      const widthText = Number.isFinite(currentBorderWidth) ? (Math.round(currentBorderWidth * 10) / 10).toString() : '0';
+      borderChipValue.textContent = `${widthText}px`;
+      borderChipPreview.style.background = currentBorderColor || '#000000';
+      borderChip.dataset.noBorder = currentBorderWidth <= 0 ? '1' : '0';
+    };
+    syncBorderChipUi();
+
     borderInput.addEventListener('input', () => {
       const next = borderInput.value;
+      currentBorderColor = next;
       if(useLabelScope() && scatterLabelKey){
         applyLabelStylePatch({ borderColor: next });
       }else if(scatterBorderInput){
@@ -3502,67 +3712,75 @@
         });
         scheduleDrawScatter();
       }
+      syncBorderChipUi();
     });
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
+
+    borderChip.addEventListener('wheel', evt => {
+      evt.preventDefault();
+      const step = evt.deltaY < 0 ? 0.5 : -0.5;
+      applyBorderWidthValue(currentBorderWidth + step);
+    }, { passive: false });
+
+    let borderDragState = null;
+    const onBorderDragMove = evt => {
+      if(!borderDragState){ return; }
+      const deltaX = evt.clientX - borderDragState.startX;
+      const steps = Math.round(deltaX / 8);
+      const next = borderDragState.startValue + (steps * 0.5);
+      applyBorderWidthValue(next);
+    };
+    const onBorderDragEnd = () => {
+      if(!borderDragState){ return; }
+      borderDragState = null;
+      global.removeEventListener('mousemove', onBorderDragMove);
+      global.removeEventListener('mouseup', onBorderDragEnd);
+    };
+    borderChip.addEventListener('mousedown', evt => {
+      if(!evt.altKey || evt.button !== 0){ return; }
+      evt.preventDefault();
+      borderDragState = { startX: evt.clientX, startValue: currentBorderWidth };
+      global.addEventListener('mousemove', onBorderDragMove);
+      global.addEventListener('mouseup', onBorderDragEnd);
+    });
+
+    if(typeof Shared.openColorPicker === 'function'){
+      let borderPickerCleanup = null;
+      borderChip.addEventListener('click', evt => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const overlayEl = Shared.openColorPicker({
+          anchor: borderChip,
+          color: borderInput.value,
+          element: borderInput,
+          onInput(value){
+            borderInput.value = value;
+            borderInput.dispatchEvent(new Event('input', { bubbles: true }));
+          },
+          onChange(value){
+            borderInput.value = value;
+            borderInput.dispatchEvent(new Event('change', { bubbles: true }));
+          },
+          onClose(){
+            if(typeof borderPickerCleanup === 'function'){
+              borderPickerCleanup();
+              borderPickerCleanup = null;
+            }
+          }
+        });
+        borderPickerCleanup = attachScatterPickerBorderSection(overlayEl);
+      });
+    }else if(typeof Shared.attachColorPickerNear === 'function'){
+      try{
+        Shared.attachColorPickerNear(borderInput);
+        borderChip.addEventListener('click', evt => {
+          evt.preventDefault();
+          borderInput.click();
+        });
+      }catch(e){}
     }
-    const borderLabel = makeInput('Border', borderInput);
+    const borderLabel = makeInput('Border', borderControl);
     borderLabel.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(borderLabel);
-
-    // Border width
-    const borderWidthInput = doc.createElement('input');
-    borderWidthInput.type = 'number';
-    borderWidthInput.min = '0';
-    borderWidthInput.step = '0.5';
-    const resolvedBorderWidth = Number.isFinite(Number(scatterBorderWidthInput?.value))
-      ? Number(scatterBorderWidthInput.value)
-      : Number(target.getAttribute('stroke-width'));
-    if(Number.isFinite(resolvedBorderWidth)){
-      borderWidthInput.value = String(resolvedBorderWidth);
-    }
-    borderWidthInput.addEventListener('input', () => {
-      const numeric = Number(borderWidthInput.value);
-      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
-      if(useLabelScope() && scatterLabelKey){
-        applyLabelStylePatch({ borderWidth: next });
-      }else{
-        if(scatterBorderWidthInput){
-          applyAndDispatch(scatterBorderWidthInput, String(next));
-        }
-        applyGlobalStylePatch('borderWidth', next);
-      }
-    });
-    wrap.appendChild(makeInput('Border', borderWidthInput));
-
-    // Size
-    const sizeInput = doc.createElement('input');
-    sizeInput.type = 'number';
-    sizeInput.min = '0';
-    sizeInput.step = '0.5';
-    const derivedSize = Number.isFinite(Number(scatterDotSizeInput?.value))
-      ? Number(scatterDotSizeInput.value)
-      : Number(target.getAttribute('r'));
-    if(Number.isFinite(derivedSize)){
-      sizeInput.value = String(derivedSize);
-    }
-    sizeInput.addEventListener('input', () => {
-      const numeric = Number(sizeInput.value);
-      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : null;
-      if(useLabelScope() && scatterLabelKey){
-        if(next != null){
-          applyLabelStylePatch({ size: next });
-        }
-      }else{
-        if(scatterDotSizeInput && next != null){
-          applyAndDispatch(scatterDotSizeInput, String(next));
-        }
-        if(next != null){
-          applyGlobalStylePatch('size', next);
-        }
-      }
-    });
-    wrap.appendChild(makeInput('Size', sizeInput));
 
     // Transparency slider: 0 = opaque, 100 = fully transparent
     const opacityInput = doc.createElement('input');
@@ -3601,8 +3819,7 @@
       opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     const opacityWrap = doc.createElement('div');
-    opacityWrap.style.display = 'inline-flex';
-    opacityWrap.style.alignItems = 'center';
+    opacityWrap.className = 'workspace-toolbar__range';
     opacityWrap.appendChild(opacityInput);
     opacityWrap.appendChild(opacityValue);
     wrap.appendChild(makeInput('Transparency', opacityWrap));

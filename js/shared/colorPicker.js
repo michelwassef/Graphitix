@@ -633,10 +633,19 @@
           ? opts.shapeOptions
           : SHARED_SHAPE_OPTIONS;
         let previousColor = currentColor;
-        Shared.openColorPicker({
+        const pickerOptions = opts.pickerOptions && typeof opts.pickerOptions === 'object'
+          ? opts.pickerOptions
+          : null;
+        const requestedCloseOnSelect = pickerOptions && typeof pickerOptions.closeOnSelect === 'boolean'
+          ? pickerOptions.closeOnSelect
+          : (opts.closeOnSelect === true);
+        const pickerOnClose = pickerOptions && typeof pickerOptions.onClose === 'function'
+          ? pickerOptions.onClose
+          : null;
+        const overlayEl = Shared.openColorPicker({
           anchor: opts.anchor || swatch,
           color: currentColor,
-          closeOnSelect: opts.closeOnSelect === true,
+          closeOnSelect: requestedCloseOnSelect,
           shapePicker: {
             value: currentShape,
             options: shapeOptions,
@@ -674,8 +683,25 @@
               opts.onColorChange(currentColor, previousColor);
             }
             previousColor = currentColor;
+          },
+          onClose(payload){
+            if(typeof opts.onPickerClose === 'function'){
+              opts.onPickerClose(payload);
+            }
+            if(pickerOnClose){
+              pickerOnClose(payload);
+            }
           }
         });
+        if(typeof opts.onPickerOpen === 'function'){
+          opts.onPickerOpen({
+            overlay: overlayEl || null,
+            swatch,
+            input,
+            color: currentColor,
+            shape: currentShape
+          });
+        }
       }else{
         try{ input.click(); }catch(e){}
       }

@@ -23,6 +23,12 @@
     --ui-menu-shadow: 0 10px 24px rgba(15,23,42,0.18);
     --ui-menu-radius: 0;
     --ui-menu-item-hover-bg: #e7ecf5;
+    --ui-color-input-width: 46px;
+    --ui-color-input-height: 26px;
+    --ui-color-input-border: 1px solid #8d97a6;
+    --ui-color-input-radius: 0;
+    --ui-color-input-bg: #ffffff;
+    --ui-color-input-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
     --graph-square-size: calc(100vw / 3);
     --graph-default-width: var(--graph-square-size);
     --graph-default-height: var(--graph-square-size);
@@ -239,6 +245,44 @@
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
+}
+
+.shared-color-picker__scatter-style-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.shared-color-picker__scatter-style-row--single {
+    grid-template-columns: 1fr;
+}
+
+.shared-color-picker__scatter-style-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.shared-color-picker__scatter-style-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.shared-color-picker__scatter-style-input {
+    width: 100%;
+    height: 26px;
+    border: 1px solid #8d97a6;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+    line-height: 20px;
+    color: #111b29;
+    background: #fdfefe;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7);
 }
 
 .shared-color-picker__color-input {
@@ -2221,36 +2265,39 @@ select {
     min-width:120px;
 }
 .workspace-toolbar__input--color input[type="color"]{
-    /* make color control a fixed swatch and center it rigidly */
-    -webkit-appearance:none;
-    appearance:none;
-    padding:0 !important;
-    margin:0 !important;
-    width: var(--color-swatch-size) !important;
-    height: var(--color-swatch-size) !important;
-    border-radius:3px !important;
-    border:1px solid rgba(15,23,42,0.12) !important;
-    display:block !important;
-    box-sizing:border-box !important;
+    /* Use the shared color-input primitive tokens for toolbar parity. */
+    width: var(--ui-color-input-width);
+    height: var(--ui-color-input-height);
+    min-width: var(--ui-color-input-width);
+    min-height: var(--ui-color-input-height);
+    margin: 0;
+    padding: 0;
+    border: var(--ui-color-input-border);
+    border-radius: var(--ui-color-input-radius);
+    background: var(--ui-color-input-bg);
+    box-shadow: var(--ui-color-input-shadow);
+    display: block;
+    box-sizing: border-box;
 }
 .workspace-toolbar__input--color .box-point-fill-control,
 .workspace-toolbar__input--color .shared-shape-color-control{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    width:var(--color-swatch-size);
-    height:var(--color-swatch-size);
+    width:var(--ui-color-input-width);
+    height:var(--ui-color-input-height);
     box-sizing:border-box;
 }
 .box-point-fill-swatch,
 .shared-shape-color-swatch{
-    width:var(--color-swatch-size);
-    height:var(--color-swatch-size);
-    min-width:var(--color-swatch-size);
-    min-height:var(--color-swatch-size);
-    border-radius:3px;
-    border:1px solid rgba(15,23,42,0.12);
-    background:#ffffff;
+    width:var(--ui-color-input-width);
+    height:var(--ui-color-input-height);
+    min-width:var(--ui-color-input-width);
+    min-height:var(--ui-color-input-height);
+    border-radius:var(--ui-color-input-radius);
+    border:var(--ui-color-input-border);
+    background:var(--ui-color-input-bg);
+    box-shadow:var(--ui-color-input-shadow);
     padding:0;
     display:inline-flex;
     align-items:center;
@@ -2260,8 +2307,8 @@ select {
 }
 .box-point-fill-swatch svg,
 .shared-shape-color-swatch svg{
-    width:100%;
-    height:100%;
+    width:70%;
+    height:70%;
     display:block;
 }
 .box-point-fill-swatch:focus-visible,
@@ -2276,6 +2323,86 @@ select {
     width:0;
     height:0;
     pointer-events:none;
+}
+
+.shared-border-style-control{
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.shared-border-style-chip{
+    height:var(--ui-color-input-height);
+    min-width:74px;
+    padding:0 8px;
+    border:var(--ui-color-input-border);
+    border-radius:var(--ui-color-input-radius);
+    background:var(--ui-color-input-bg);
+    box-shadow:var(--ui-color-input-shadow);
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    cursor:pointer;
+    color:#111827;
+    font-size:11px;
+    line-height:1;
+    font-variant-numeric:tabular-nums;
+}
+
+.shared-border-style-chip-preview{
+    width:18px;
+    height:12px;
+    border:1px solid rgba(15,23,42,0.24);
+    background:#000000;
+    box-sizing:border-box;
+    flex:0 0 auto;
+}
+
+.shared-border-style-chip[data-no-border='1'] .shared-border-style-chip-preview{
+    background:repeating-linear-gradient(-45deg,#d1d5db 0,#d1d5db 2px,#ffffff 2px,#ffffff 4px);
+}
+
+.shared-border-style-chip-value{
+    min-width:28px;
+    text-align:right;
+    font-weight:600;
+}
+
+.shared-border-style-chip:focus-visible{
+    outline:var(--ui-focus-outline);
+    outline-offset:var(--ui-focus-offset);
+}
+
+.shared-border-style-input{
+    position:absolute;
+    opacity:0;
+    width:0;
+    height:0;
+    pointer-events:none;
+}
+
+.shared-fill-style-chip{
+    min-width:74px;
+    padding:0 8px;
+    gap:6px;
+    justify-content:flex-start;
+}
+
+.shared-fill-style-chip::after{
+    content:attr(data-size-text);
+    margin-left:auto;
+    font-size:11px;
+    line-height:1;
+    font-weight:600;
+    color:#111827;
+    font-variant-numeric:tabular-nums;
+}
+
+.shared-fill-style-chip svg{
+    width:14px;
+    height:14px;
+    flex:0 0 auto;
 }
 
 /* Histogram distribution swatches and other standalone swatches */
@@ -2349,6 +2476,46 @@ select {
 }
 .workspace-toolbar__section:last-child{
     margin-right:0;
+}
+.scatter-format-controls{
+    align-items:flex-end;
+}
+.scatter-format-controls .workspace-toolbar__input{
+    align-self:flex-end;
+    justify-content:flex-start;
+    gap:6px;
+    min-height:48px;
+}
+.scatter-format-controls .workspace-toolbar__input-label{
+    margin:0 !important;
+    min-height:16px;
+    line-height:16px;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+}
+.scatter-format-controls .workspace-toolbar__input--color .workspace-toolbar__input-label{
+    margin:0 !important;
+}
+.scatter-format-controls .workspace-toolbar__input-control{
+    display:flex;
+    align-items:center;
+    height:var(--ui-color-input-height);
+}
+.scatter-format-controls .workspace-toolbar__input-control.workspace-toolbar__range{
+    height:var(--ui-color-input-height);
+    min-height:var(--ui-color-input-height);
+}
+.scatter-format-controls .workspace-toolbar__range{
+    height:var(--ui-color-input-height);
+    align-items:center;
+}
+.scatter-format-controls .workspace-toolbar__range input[type="range"]{
+    margin:0;
+}
+.scatter-format-controls input[type="number"],
+.scatter-format-controls select{
+    height:var(--ui-color-input-height);
 }
 .workspace-page__topbar .row{
     margin:0;
@@ -3616,3 +3783,108 @@ select,
 .idx-inline-051 { flex-direction: column; align-items: flex-start; gap: 6px; }
 .idx-inline-052 { width: auto; display: flex; align-items: center; gap: 6px; }
 /* END index.html inline-style migration */
+
+/* Unified color input primitive used across workspace controls. */
+:is(
+    .config-panel input[type=color],
+    .config-panel__fieldset input[type=color],
+    .config-options input[type=color],
+    .config-options fieldset input[type=color],
+    .color-picker input[type=color],
+    .workspace-toolbar__form input[type=color],
+    .workspace-toolbar__input--color input[type=color],
+    .axis-controls-panel__color-input,
+    .font-controls-panel__color-input,
+    .dendrogram-controls-panel__color-input,
+    .significance-controls-panel__color-input,
+    .additional-line-controls-panel__color-input,
+    .shared-color-picker__color-input
+) {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: var(--ui-color-input-width);
+    height: var(--ui-color-input-height);
+    min-width: var(--ui-color-input-width);
+    min-height: var(--ui-color-input-height);
+    padding: 0;
+    margin: 0;
+    border: var(--ui-color-input-border);
+    border-radius: var(--ui-color-input-radius);
+    background: var(--ui-color-input-bg);
+    box-shadow: var(--ui-color-input-shadow);
+    cursor: pointer;
+}
+
+:is(
+    .config-panel input[type=color],
+    .config-panel__fieldset input[type=color],
+    .config-options input[type=color],
+    .config-options fieldset input[type=color],
+    .color-picker input[type=color],
+    .workspace-toolbar__form input[type=color],
+    .workspace-toolbar__input--color input[type=color],
+    .axis-controls-panel__color-input,
+    .font-controls-panel__color-input,
+    .dendrogram-controls-panel__color-input,
+    .significance-controls-panel__color-input,
+    .additional-line-controls-panel__color-input,
+    .shared-color-picker__color-input
+)::-webkit-color-swatch-wrapper {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+}
+
+:is(
+    .config-panel input[type=color],
+    .config-panel__fieldset input[type=color],
+    .config-options input[type=color],
+    .config-options fieldset input[type=color],
+    .color-picker input[type=color],
+    .workspace-toolbar__form input[type=color],
+    .workspace-toolbar__input--color input[type=color],
+    .axis-controls-panel__color-input,
+    .font-controls-panel__color-input,
+    .dendrogram-controls-panel__color-input,
+    .significance-controls-panel__color-input,
+    .additional-line-controls-panel__color-input,
+    .shared-color-picker__color-input
+)::-webkit-color-swatch,
+:is(
+    .config-panel input[type=color],
+    .config-panel__fieldset input[type=color],
+    .config-options input[type=color],
+    .config-options fieldset input[type=color],
+    .color-picker input[type=color],
+    .workspace-toolbar__form input[type=color],
+    .workspace-toolbar__input--color input[type=color],
+    .axis-controls-panel__color-input,
+    .font-controls-panel__color-input,
+    .dendrogram-controls-panel__color-input,
+    .significance-controls-panel__color-input,
+    .additional-line-controls-panel__color-input,
+    .shared-color-picker__color-input
+)::-moz-color-swatch {
+    border: none;
+    border-radius: 0;
+}
+
+:is(
+    .config-panel input[type=color],
+    .config-panel__fieldset input[type=color],
+    .config-options input[type=color],
+    .config-options fieldset input[type=color],
+    .color-picker input[type=color],
+    .workspace-toolbar__form input[type=color],
+    .workspace-toolbar__input--color input[type=color],
+    .axis-controls-panel__color-input,
+    .font-controls-panel__color-input,
+    .dendrogram-controls-panel__color-input,
+    .significance-controls-panel__color-input,
+    .additional-line-controls-panel__color-input,
+    .shared-color-picker__color-input
+):focus-visible {
+    outline: var(--ui-focus-outline);
+    outline-offset: var(--ui-focus-offset);
+}
