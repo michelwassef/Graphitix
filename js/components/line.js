@@ -2080,6 +2080,223 @@
     const doc = global.document;
     if(!doc){ return; }
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const dotSizeInput = doc.getElementById('lineDotSize');
+      const fillInput = doc.getElementById('lineFill');
+      const strokeInput = doc.getElementById('lineBorder');
+      const strokeWidthInput = doc.getElementById('lineBorderWidth');
+      const alphaInput = doc.getElementById('lineAlpha');
+      const alphaVal = doc.getElementById('lineAlphaVal');
+      const seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
+      const resolveAlpha = value => {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : null;
+      };
+      const applyAndDispatch = (inputEl, value, type = 'input') => {
+        if(!inputEl){ return; }
+        inputEl.value = value;
+        inputEl.dispatchEvent(new Event(type, { bubbles: true }));
+      };
+      const ensureSeriesStyle = () => {
+        if(!seriesKey){ return null; }
+        const prev = lineSeriesStyles[seriesKey];
+        if(prev && typeof prev === 'object'){
+          return prev;
+        }
+        lineSeriesStyles[seriesKey] = {};
+        return lineSeriesStyles[seriesKey];
+      };
+      const applySeriesPatch = patch => {
+        if(!seriesKey){ return; }
+        const style = ensureSeriesStyle();
+        Object.assign(style, patch);
+        scheduleLineDraw();
+      };
+      const applyGlobalPatch = (key, value) => {
+        Object.keys(lineSeriesStyles).forEach(k => {
+          lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
+        });
+        scheduleLineDraw();
+      };
+      const sanitizeShape = (shape, index = 0) => sanitizeLineGroupShape(shape, index);
+      Shared.symbolToolbar.show({
+        document: doc,
+        target,
+        anchorId: 'lineFontHost',
+        scopeId: 'line',
+        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls line-point-controls',
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'series', label: 'Series', disabled: !seriesKey },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: seriesKey ? 'series' : 'global'
+        },
+        fillShape: {
+          label: 'Fill/Shape',
+          shapeOptions: LINE_GROUP_SHAPE_OPTIONS?.length ? LINE_GROUP_SHAPE_OPTIONS : [{ value: 'circle', label: 'Circle' }],
+          getColor(ctx){
+            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
+            if(ctx.scope === 'series' && seriesKey){
+              return style?.fill || lineLabelColors[seriesKey] || fillInput?.value || '#377eb8';
+            }
+            return fillInput?.value || '#377eb8';
+          },
+          getShape(ctx){
+            if(ctx.scope === 'series' && seriesKey){
+              const idx = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.findIndex(name => name === seriesKey) : -1;
+              const safe = idx >= 0 ? idx : 0;
+              return sanitizeShape(getLineGroupShape(safe), safe);
+            }
+            const total = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
+            const shapes = ensureLineGroupShapeCapacity(total);
+            if(!shapes.length){
+              return sanitizeShape('circle', 0);
+            }
+            const unique = new Set(shapes.map((shapeValue, idx) => sanitizeShape(shapeValue, idx)));
+            return unique.size === 1 ? unique.values().next().value : sanitizeShape(shapes[0], 0);
+          },
+          onColorInput(nextColor, ctx){
+            if(ctx.scope === 'series' && seriesKey){
+              lineLabelColors[seriesKey] = nextColor;
+              applySeriesPatch({ fill: nextColor });
+            }else{
+              if(fillInput){ applyAndDispatch(fillInput, nextColor); }
+              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+              Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = nextColor; });
+              scheduleLineDraw();
+            }
+          },
+          onColorChange(nextColor, ctx){
+            if(ctx.scope === 'series' && seriesKey){
+              lineLabelColors[seriesKey] = nextColor;
+              applySeriesPatch({ fill: nextColor });
+            }else{
+              if(fillInput){ applyAndDispatch(fillInput, nextColor); }
+              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+              Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = nextColor; });
+              scheduleLineDraw();
+            }
+          },
+          onShapeChange(nextShape, ctx){
+            if(!LINE_GROUP_SHAPE_OPTIONS?.length){ return; }
+            if(ctx.scope === 'series' && seriesKey){
+              const idx = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.findIndex(name => name === seriesKey) : -1;
+              const safe = idx >= 0 ? idx : 0;
+              const shapes = ensureLineGroupShapeCapacity(Math.max((lineSeriesGroupLabels || []).length, safe + 1));
+              shapes[safe] = sanitizeShape(nextShape, safe);
+              lineGroupShapes = shapes;
+              updateLineGroupShapeSelect(safe, shapes[safe]);
+              scheduleLineDraw();
+              return;
+            }
+            const total = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
+            const shapes = ensureLineGroupShapeCapacity(total);
+            const sanitized = sanitizeShape(nextShape, 0);
+            let changed = false;
+            for(let i = 0; i < shapes.length; i += 1){
+              if(shapes[i] !== sanitized){
+                shapes[i] = sanitized;
+                updateLineGroupShapeSelect(i, sanitized);
+                changed = true;
+              }
+            }
+            if(changed){
+              lineGroupShapes = shapes;
+              scheduleLineDraw();
+            }
+          }
+        },
+        border: {
+          label: 'Border',
+          getColor(ctx){
+            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
+            if(ctx.scope === 'series' && seriesKey){
+              return style?.stroke || strokeInput?.value || '#000000';
+            }
+            return strokeInput?.value || '#000000';
+          },
+          onColorInput(nextColor, ctx){
+            if(ctx.scope === 'series' && seriesKey){
+              applySeriesPatch({ stroke: nextColor });
+            }else{
+              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+              applyGlobalPatch('stroke', nextColor);
+            }
+          },
+          onColorChange(nextColor, ctx){
+            if(ctx.scope === 'series' && seriesKey){
+              applySeriesPatch({ stroke: nextColor });
+            }else{
+              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+              applyGlobalPatch('stroke', nextColor);
+            }
+          },
+          getWidth(ctx){
+            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
+            if(ctx.scope === 'series' && seriesKey && Number.isFinite(Number(style?.strokeWidth))){
+              return Number(style.strokeWidth);
+            }
+            if(Number.isFinite(Number(strokeWidthInput?.value))){
+              return Number(strokeWidthInput.value);
+            }
+            return Number(target.getAttribute('stroke-width')) || 0;
+          },
+          onWidthChange(nextValue, ctx){
+            const next = Math.max(0, Number(nextValue) || 0);
+            if(ctx.scope === 'series' && seriesKey){
+              applySeriesPatch({ strokeWidth: next });
+            }else{
+              if(strokeWidthInput){ applyAndDispatch(strokeWidthInput, String(next)); }
+              applyGlobalPatch('strokeWidth', next);
+            }
+          }
+        },
+        size: {
+          get(ctx){
+            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
+            if(ctx.scope === 'series' && seriesKey && Number.isFinite(Number(style?.dotSize))){
+              return Number(style.dotSize);
+            }
+            if(Number.isFinite(Number(dotSizeInput?.value))){
+              return Number(dotSizeInput.value);
+            }
+            return Number(target.getAttribute('r')) || 0;
+          },
+          onChange(nextValue, ctx){
+            const next = Math.max(0, Number(nextValue) || 0);
+            if(ctx.scope === 'series' && seriesKey){
+              applySeriesPatch({ dotSize: next });
+            }else{
+              if(dotSizeInput){ applyAndDispatch(dotSizeInput, String(next)); }
+              applyGlobalPatch('dotSize', next);
+            }
+          }
+        },
+        transparency: {
+          label: 'Transparency',
+          get(ctx){
+            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
+            if(ctx.scope === 'series' && seriesKey && resolveAlpha(style?.alpha) != null){
+              return resolveAlpha(style.alpha);
+            }
+            return resolveAlpha(alphaInput?.value) || 0;
+          },
+          onChange(nextValue, ctx){
+            const normalized = Math.min(1, Math.max(0, Number(nextValue) || 0));
+            if(ctx.scope === 'series' && seriesKey){
+              applySeriesPatch({ alpha: normalized });
+            }else{
+              if(alphaInput){ applyAndDispatch(alphaInput, String(normalized)); }
+              if(alphaVal){ alphaVal.textContent = String(normalized); }
+              applyGlobalPatch('alpha', normalized);
+            }
+          }
+        }
+      });
+      return;
+    }
     const anchor = doc.getElementById('lineFontHost');
     if(!anchor){ return; }
     let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -3397,7 +3614,10 @@
     }
     const normalized = sanitizeLineGroupShape(shape, Number(options?.index) || 0);
     const radiusRaw = Number(options?.radius);
-    const radius = Number.isFinite(radiusRaw) && radiusRaw > 0 ? radiusRaw : 1;
+    const radius = Number.isFinite(radiusRaw) ? Math.max(0, radiusRaw) : 1;
+    if(radius <= 0){
+      return null;
+    }
     const cx = Number(options?.cx) || 0;
     const cy = Number(options?.cy) || 0;
     const fill = options?.fill ?? '#000000';
@@ -6488,6 +6708,13 @@
         const seriesAlpha = styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha;
         const seriesStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx;
         const seriesDotSize = Number.isFinite(Number(styleOverride.dotSize)) ? Number(styleOverride.dotSize) : dotSizePx;
+        const seriesMarkerStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth))
+          ? Number(styleOverride.strokeWidth)
+          : borderWidthPx;
+        const seriesMarkerStroke = (typeof styleOverride.stroke === 'string' && styleOverride.stroke)
+          || (typeof styleOverride.borderColor === 'string' && styleOverride.borderColor)
+          || borderColor
+          || color;
         let pathStr = '';
         let started = false;
         for(let p = 0; p < entry.projectedPoints.length; p += 1){
@@ -6517,7 +6744,7 @@
           lineLayer.appendChild(path);
           const mGroup = global.document.createElementNS(NS, 'g');
           markerLayer.appendChild(mGroup);
-          if(dotSizePx > 0){
+          if(seriesDotSize > 0){
             const markerEntries = [];
             for(let p = 0; p < entry.projectedPoints.length; p += 1){
               const proj = entry.projectedPoints[p];
@@ -6537,7 +6764,8 @@
                 cy: markerEntry.proj.y,
                 fill: color,
                 fillOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha),
-                strokeWidth: 0,
+                stroke: seriesMarkerStroke,
+                strokeWidth: Math.max(0, Number(seriesMarkerStrokeWidth) || 0),
                 strokeOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha)
               });
               if(marker){
@@ -8008,6 +8236,13 @@
         const seriesAlpha = styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha;
         const seriesStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx;
         const seriesDotSize = Number.isFinite(Number(styleOverride.dotSize)) ? Number(styleOverride.dotSize) : dotSizePx;
+        const seriesMarkerStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth))
+          ? Number(styleOverride.strokeWidth)
+          : borderWidthPx;
+        const seriesMarkerStroke = (typeof styleOverride.stroke === 'string' && styleOverride.stroke)
+          || (typeof styleOverride.borderColor === 'string' && styleOverride.borderColor)
+          || borderColor
+          || color;
         if(showIntervals && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
           intervalLayer.setAttribute('data-layer',`interval-${i}`);
@@ -8120,7 +8355,7 @@
                 errorGroup.appendChild(bottomCap);
               }
             }
-            if(dotSizeRaw>0){
+            if(seriesDotSize > 0){
               const markerShape = seriesShapes[i] || s.shape || 'circle';
               const marker=createLineMarkerShape(document, markerShape, {
                 index: i,
@@ -8129,7 +8364,8 @@
                 cy: py,
                 fill: lineLabelColors[s.name] || fill,
                 fillOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha),
-                strokeWidth: 0,
+                stroke: seriesMarkerStroke,
+                strokeWidth: Math.max(0, Number(seriesMarkerStrokeWidth) || 0),
                 strokeOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha)
               });
               if(marker){

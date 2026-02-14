@@ -529,6 +529,7 @@
     return pcaOverlayController?.force(reason, options) || false;
   }
   let pcaTooltipEl = null;
+  let pcaShowPointFormatControls = null;
   let pcaLegendControl = null;
   let pcaShowLegendInput = null;
   let pcaEqualAxesInput = null;
@@ -1586,6 +1587,16 @@
     showPcaPointContextMenu(evt, data);
   }
 
+  function handlePcaPointClick(evt){
+    const target = evt?.currentTarget;
+    if(!target || typeof pcaShowPointFormatControls !== 'function'){
+      return;
+    }
+    try{ evt.stopPropagation(); }catch(e){}
+    hidePcaTooltip('point-click');
+    pcaShowPointFormatControls(target);
+  }
+
   function bindPcaPlotContextMenuSuppression(node){
     if(!node || node.__pcaContextMenuSuppressionBound){
       return;
@@ -1606,6 +1617,7 @@
     el.addEventListener('mouseenter', handlePcaPointEnter);
     el.addEventListener('mousemove', handlePcaPointMove);
     el.addEventListener('mouseleave', handlePcaPointLeave);
+    el.addEventListener('click', handlePcaPointClick);
     el.addEventListener('contextmenu', handlePcaPointContextMenu);
   }
 
@@ -4694,6 +4706,7 @@
       }
       let pcaLabelColors={};
       let pcaLabelShapes={};
+      let pcaLabelPointStyles={};
       let pcaLabelStyleMode = null;
       let pcaLabelColorsBackup = null;
       let pcaLabelShapesBackup = null;
@@ -4730,6 +4743,189 @@
         }
         requestPcaViewRefresh('label-shape-change');
         return true;
+      };
+      pcaShowPointFormatControls = function showPcaPointFormatControls(targetNode){
+        if(!targetNode || !Shared.symbolToolbar || typeof Shared.symbolToolbar.show !== 'function'){
+          return;
+        }
+        const pointData = targetNode.__pcaPointData || {};
+        const labelKey = pointData.label ? String(pointData.label).trim() : '';
+        const hasLabelScope = !!labelKey;
+        const ensureLabelPointStyle = () => {
+          if(!hasLabelScope){ return null; }
+          const existing = pcaLabelPointStyles[labelKey];
+          if(existing && typeof existing === 'object'){
+            return existing;
+          }
+          pcaLabelPointStyles[labelKey] = {};
+          return pcaLabelPointStyles[labelKey];
+        };
+        const applyLabelPointPatch = patch => {
+          if(!hasLabelScope){ return; }
+          const style = ensureLabelPointStyle();
+          Object.assign(style, patch);
+          requestPcaViewRefresh('label-point-style');
+        };
+        const applyGlobalPointPatch = (key, value) => {
+          Object.keys(pcaLabelPointStyles).forEach(label => {
+            pcaLabelPointStyles[label] = Object.assign({}, pcaLabelPointStyles[label] || {}, { [key]: value });
+          });
+          requestPcaViewRefresh('global-point-style');
+        };
+        Shared.symbolToolbar.show({
+          document: global.document,
+          target: targetNode,
+          anchorId: 'pcaFontHost',
+          scopeId: 'pca',
+          formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls pca-point-controls',
+          scope: {
+            label: 'Scope',
+            options: [
+              { value: 'label', label: 'Label', disabled: !hasLabelScope },
+              { value: 'global', label: 'Global', disabled: false }
+            ],
+            value: hasLabelScope ? 'label' : 'global'
+          },
+          fillShape: {
+            label: 'Fill/Shape',
+            shapeOptions: GROUP_SHAPE_OPTIONS,
+            getColor(ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                return pcaLabelColors[labelKey] || pcaFill.value || '#377eb8';
+              }
+              return pcaFill.value || '#377eb8';
+            },
+            getShape(ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                return sanitizeGroupShape(pcaLabelShapes[labelKey] || 'circle', 0);
+              }
+              const labels = Object.keys(pcaLabelShapes || {});
+              if(!labels.length){
+                return 'circle';
+              }
+              const shapes = labels.map((label, idx) => sanitizeGroupShape(pcaLabelShapes[label], idx));
+              const unique = new Set(shapes);
+              return unique.size === 1 ? shapes[0] : 'circle';
+            },
+            onColorInput(value, ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyPcaLabelColor(labelKey, value);
+                return;
+              }
+              pcaFill.value = value;
+              Object.keys(pcaLabelColors).forEach(label => { pcaLabelColors[label] = value; });
+              requestPcaViewRefresh('fill-change');
+            },
+            onColorChange(value, ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyPcaLabelColor(labelKey, value);
+                return;
+              }
+              pcaFill.value = value;
+              Object.keys(pcaLabelColors).forEach(label => { pcaLabelColors[label] = value; });
+              requestPcaViewRefresh('fill-change');
+            },
+            onShapeChange(value, ctx){
+              const sanitized = sanitizeGroupShape(value || 'circle', 0);
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyPcaLabelShape(labelKey, sanitized, 0);
+                return;
+              }
+              Object.keys(pcaLabelShapes).forEach((label, idx) => {
+                pcaLabelShapes[label] = sanitizeGroupShape(sanitized, idx);
+              });
+              requestPcaViewRefresh('label-shape-change');
+            }
+          },
+          border: {
+            label: 'Border',
+            getColor(ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                const style = pcaLabelPointStyles[labelKey] || {};
+                return style.borderColor || style.stroke || pcaBorder.value || '#000000';
+              }
+              return pcaBorder.value || '#000000';
+            },
+            onColorInput(value, ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyLabelPointPatch({ borderColor: value, stroke: value });
+              }else{
+                pcaBorder.value = value;
+                applyGlobalPointPatch('borderColor', value);
+                applyGlobalPointPatch('stroke', value);
+                requestPcaViewRefresh('border-color-change');
+              }
+            },
+            onColorChange(value, ctx){
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyLabelPointPatch({ borderColor: value, stroke: value });
+              }else{
+                pcaBorder.value = value;
+                applyGlobalPointPatch('borderColor', value);
+                applyGlobalPointPatch('stroke', value);
+                requestPcaViewRefresh('border-color-change');
+              }
+            },
+            getWidth(ctx){
+              if(ctx.scope === 'label' && hasLabelScope && Number.isFinite(Number(pcaLabelPointStyles[labelKey]?.borderWidth))){
+                return Number(pcaLabelPointStyles[labelKey].borderWidth);
+              }
+              if(ctx.scope === 'label' && hasLabelScope && Number.isFinite(Number(pcaLabelPointStyles[labelKey]?.strokeWidth))){
+                return Number(pcaLabelPointStyles[labelKey].strokeWidth);
+              }
+              return Number(pcaBorderWidth.value) || 0;
+            },
+            onWidthChange(value, ctx){
+              const next = Math.max(0, Number(value) || 0);
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyLabelPointPatch({ borderWidth: next, strokeWidth: next });
+              }else{
+                pcaBorderWidth.value = String(next);
+                applyGlobalPointPatch('borderWidth', next);
+                applyGlobalPointPatch('strokeWidth', next);
+                requestPcaViewRefresh('border-width-change');
+              }
+            }
+          },
+          size: {
+            get(ctx){
+              if(ctx.scope === 'label' && hasLabelScope && Number.isFinite(Number(pcaLabelPointStyles[labelKey]?.size))){
+                return Number(pcaLabelPointStyles[labelKey].size);
+              }
+              return Number(pcaDotSize.value) || 0;
+            },
+            onChange(value, ctx){
+              const next = Math.max(0, Number(value) || 0);
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyLabelPointPatch({ size: next });
+              }else{
+                pcaDotSize.value = String(next);
+                applyGlobalPointPatch('size', next);
+                requestPcaViewRefresh('dot-size-change');
+              }
+            }
+          },
+          transparency: {
+            label: 'Transparency',
+            get(ctx){
+              if(ctx.scope === 'label' && hasLabelScope && Number.isFinite(Number(pcaLabelPointStyles[labelKey]?.alpha))){
+                return Number(pcaLabelPointStyles[labelKey].alpha);
+              }
+              return Number(pcaAlpha.value) || 0;
+            },
+            onChange(value, ctx){
+              const next = Math.min(1, Math.max(0, Number(value) || 0));
+              if(ctx.scope === 'label' && hasLabelScope){
+                applyLabelPointPatch({ alpha: next });
+              }else{
+                pcaAlpha.value = String(next);
+                pcaAlphaVal.textContent = String(next);
+                applyGlobalPointPatch('alpha', next);
+                requestPcaViewRefresh('alpha-change');
+              }
+            }
+          }
+        });
       };
       pcaAlphaVal.textContent=pcaAlpha.value;
       if(pcaViewMode){
@@ -4863,6 +5059,12 @@
           if(!labelSet.has(existing)){
             debugLog('Debug: pca label shape pruned',{label:existing});
             delete pcaLabelShapes[existing];
+          }
+        });
+        Object.keys(pcaLabelPointStyles).forEach(existing=>{
+          if(!labelSet.has(existing)){
+            debugLog('Debug: pca label point style pruned',{label:existing});
+            delete pcaLabelPointStyles[existing];
           }
         });
         debugLog('Debug: ensurePcaLabelStyles sync complete',{
@@ -6656,11 +6858,23 @@
         projectedPoints.forEach(pt => {
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
           const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
+          const labelPointStyle = pt.label ? (pcaLabelPointStyles[pt.label] || null) : null;
           const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
           const labelShape = pt.label ? pcaLabelShapes[pt.label] : null;
           const shape = style?.shape || labelShape || 'circle';
           const original = pt.original || {};
-          const markerRadius = dotSizePx;
+          const markerRadiusBase = Number.isFinite(Number(labelPointStyle?.size)) ? Number(labelPointStyle.size) : Number(pcaDotSize.value);
+          const markerRadius = chartStyle.scaleStrokeWidth(markerRadiusBase, styleScaleInfo, { context: 'pca-dot-size-label', min: 0.5 });
+          const pointTransparency = Number.isFinite(Number(labelPointStyle?.alpha)) ? Number(labelPointStyle.alpha) : alpha;
+          const pointOpacity = Math.min(Math.max(1 - pointTransparency, 0), 1);
+          const pointBorderWidthBase = Number.isFinite(Number(labelPointStyle?.borderWidth))
+            ? Number(labelPointStyle.borderWidth)
+            : (Number.isFinite(Number(labelPointStyle?.strokeWidth)) ? Number(labelPointStyle.strokeWidth) : borderWidthRaw);
+          const pointBorderWidthPx = chartStyle.scaleStrokeWidth(pointBorderWidthBase, styleScaleInfo, { context: 'pca-border-label', min: 0 });
+          const pointBorderColor = (typeof labelPointStyle?.borderColor === 'string' && labelPointStyle.borderColor)
+            ? labelPointStyle.borderColor
+            : ((typeof labelPointStyle?.stroke === 'string' && labelPointStyle.stroke) ? labelPointStyle.stroke : borderColor);
+          const pointStroke = pointOpacity > 0 && pointBorderWidthPx > 0 ? pointBorderColor : 'none';
           pointBounds3d.push({ cx: pt.x, cy: pt.y, r: markerRadius });
           const manualLabelText = pt.label ? String(pt.label).trim() : '';
           if(original.isManualLabel && manualLabelText){
@@ -6676,9 +6890,9 @@
             cy: pt.y,
             radius: markerRadius,
             fill: color,
-            stroke: alpha > 0 && borderWidthPx > 0 ? borderColor : 'none',
-            strokeWidth: borderWidthPx,
-            opacity: 1 - alpha
+            stroke: pointStroke,
+            strokeWidth: pointBorderWidthPx,
+            opacity: pointOpacity
           });
           if(pointNode){
             pointNode.dataset.plotPoint = '1';
@@ -7586,25 +7800,36 @@
       }
       debugLog('Debug: pca title rendered', { mode: '2d', text: pcaTitleText });
 
-      const strokeColor = alpha > 0 && borderWidthPx > 0 ? borderColor : 'none';
-      const pointOpacity = Math.min(Math.max(1 - alpha, 0), 1);
       if(fastPointModeActive && fastPointCtx){
         points.forEach((pt) => {
           const cx = x2px(pt.x);
           const cy = y2px(pt.y);
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
           const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
+          const labelPointStyle = pt.label ? (pcaLabelPointStyles[pt.label] || null) : null;
           const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
           const labelShape = pt.label ? pcaLabelShapes[pt.label] : null;
           const shape = style?.shape || labelShape || 'circle';
+          const pointRadiusBase = Number.isFinite(Number(labelPointStyle?.size)) ? Number(labelPointStyle.size) : Number(pcaDotSize.value);
+          const pointRadiusPx = chartStyle.scaleStrokeWidth(pointRadiusBase, styleScaleInfo, { context: 'pca-dot-size-label', min: 0.5 });
+          const pointTransparency = Number.isFinite(Number(labelPointStyle?.alpha)) ? Number(labelPointStyle.alpha) : alpha;
+          const pointOpacityLocal = Math.min(Math.max(1 - pointTransparency, 0), 1);
+          const pointBorderWidthBase = Number.isFinite(Number(labelPointStyle?.borderWidth))
+            ? Number(labelPointStyle.borderWidth)
+            : (Number.isFinite(Number(labelPointStyle?.strokeWidth)) ? Number(labelPointStyle.strokeWidth) : borderWidthRaw);
+          const pointBorderWidthPx = chartStyle.scaleStrokeWidth(pointBorderWidthBase, styleScaleInfo, { context: 'pca-border-label', min: 0 });
+          const pointBorderColor = (typeof labelPointStyle?.borderColor === 'string' && labelPointStyle.borderColor)
+            ? labelPointStyle.borderColor
+            : ((typeof labelPointStyle?.stroke === 'string' && labelPointStyle.stroke) ? labelPointStyle.stroke : borderColor);
+          const pointStroke = pointOpacityLocal > 0 && pointBorderWidthPx > 0 ? pointBorderColor : 'none';
           drawShapeOnCanvas(fastPointCtx, shape, {
             cx,
             cy,
-            radius: dotSizePx,
+            radius: pointRadiusPx,
             fill: color,
-            stroke: strokeColor,
-            strokeWidth: borderWidthPx,
-            opacity: pointOpacity,
+            stroke: pointStroke,
+            strokeWidth: pointBorderWidthPx,
+            opacity: pointOpacityLocal,
           });
         });
       } else {
@@ -7613,17 +7838,30 @@
           const cy = y2px(pt.y);
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
           const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
+          const labelPointStyle = pt.label ? (pcaLabelPointStyles[pt.label] || null) : null;
           const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
           const labelShape = pt.label ? pcaLabelShapes[pt.label] : null;
           const shape = style?.shape || labelShape || 'circle';
+          const pointRadiusBase = Number.isFinite(Number(labelPointStyle?.size)) ? Number(labelPointStyle.size) : Number(pcaDotSize.value);
+          const pointRadiusPx = chartStyle.scaleStrokeWidth(pointRadiusBase, styleScaleInfo, { context: 'pca-dot-size-label', min: 0.5 });
+          const pointTransparency = Number.isFinite(Number(labelPointStyle?.alpha)) ? Number(labelPointStyle.alpha) : alpha;
+          const pointOpacityLocal = Math.min(Math.max(1 - pointTransparency, 0), 1);
+          const pointBorderWidthBase = Number.isFinite(Number(labelPointStyle?.borderWidth))
+            ? Number(labelPointStyle.borderWidth)
+            : (Number.isFinite(Number(labelPointStyle?.strokeWidth)) ? Number(labelPointStyle.strokeWidth) : borderWidthRaw);
+          const pointBorderWidthPx = chartStyle.scaleStrokeWidth(pointBorderWidthBase, styleScaleInfo, { context: 'pca-border-label', min: 0 });
+          const pointBorderColor = (typeof labelPointStyle?.borderColor === 'string' && labelPointStyle.borderColor)
+            ? labelPointStyle.borderColor
+            : ((typeof labelPointStyle?.stroke === 'string' && labelPointStyle.stroke) ? labelPointStyle.stroke : borderColor);
+          const pointStroke = pointOpacityLocal > 0 && pointBorderWidthPx > 0 ? pointBorderColor : 'none';
           const pointNode = drawShape(add, shape, {
             cx,
             cy,
-            radius: dotSizePx,
+            radius: pointRadiusPx,
             fill: color,
-            stroke: strokeColor,
-            strokeWidth: borderWidthPx,
-            opacity: pointOpacity,
+            stroke: pointStroke,
+            strokeWidth: pointBorderWidthPx,
+            opacity: pointOpacityLocal,
           });
           if(pointNode){
             const groupLabel = Number.isInteger(assignment)
@@ -7937,6 +8175,7 @@
         alpha:pcaAlpha.value,
         labelColors:pcaLabelColors,
         labelShapes:pcaLabelShapes,
+        labelPointStyles:pcaLabelPointStyles,
         showGrid:pcaShowGrid.checked,
         showFrame:pcaShowFrame.checked,
         showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
@@ -8111,6 +8350,7 @@
         pcaAlphaVal.textContent=pcaAlpha.value;
         pcaLabelColors=c.labelColors||{};
         pcaLabelShapes=c.labelShapes||{};
+        pcaLabelPointStyles=c.labelPointStyles||{};
         if(c.grouped && typeof c.grouped === 'object'){
           pcaState.grouped = {
             replicatesPerGroup: c.grouped.replicatesPerGroup,
@@ -8511,3 +8751,5 @@
   });
 
 })(window);
+
+

@@ -666,6 +666,163 @@
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
+    if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const shapeValues = Shared.getShapePickerValues && typeof Shared.getShapePickerValues === 'function'
+        ? Shared.getShapePickerValues()
+        : new Set(['circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star']);
+      const sanitizeShape = shape => shapeValues.has(shape) ? shape : 'circle';
+      const applyTracePatch = patch => {
+        if(traceIndex == null){ return; }
+        state.pointStyles = state.pointStyles || {};
+        const prev = state.pointStyles[traceIndex] && typeof state.pointStyles[traceIndex] === 'object'
+          ? state.pointStyles[traceIndex]
+          : {};
+        state.pointStyles[traceIndex] = Object.assign({}, prev, patch);
+        if(typeof state.scheduleDraw === 'function'){
+          state.scheduleDraw();
+        }
+      };
+      const applyGlobalPatch = patch => {
+        state.pointStyles = state.pointStyles || {};
+        Object.keys(state.pointStyles).forEach(key => {
+          state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, patch);
+        });
+        state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
+        if(typeof state.scheduleDraw === 'function'){
+          state.scheduleDraw();
+        }
+      };
+      const resolvePointStyle = ctx => {
+        if(ctx.scope === 'trace' && traceIndex != null){
+          return getPointStyle(traceIndex) || {};
+        }
+        return state.pointGlobalStyle || {};
+      };
+      const sourcePoint = el;
+      Shared.symbolToolbar.show({
+        document: doc,
+        target: el,
+        anchorId: 'boxFontHost',
+        scopeId: 'box',
+        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls box-point-controls',
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'trace', label: 'Trace', disabled: traceIndex == null },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: traceIndex != null ? 'trace' : 'global'
+        },
+        fillShape: {
+          label: 'Fill/Shape',
+          shapeOptions: Shared.getShapePickerOptions ? Shared.getShapePickerOptions() : [{ value: 'circle', label: 'Circle' }],
+          getColor(ctx){
+            const style = resolvePointStyle(ctx);
+            return style.fill || sourcePoint.getAttribute('fill') || '#000000';
+          },
+          getShape(ctx){
+            const style = resolvePointStyle(ctx);
+            return sanitizeShape(style.shape || sourcePoint.getAttribute('data-shape') || 'circle');
+          },
+          onColorInput(value, ctx){
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ fill: value });
+            }else{
+              applyGlobalPatch({ fill: value });
+            }
+          },
+          onColorChange(value, ctx){
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ fill: value });
+            }else{
+              applyGlobalPatch({ fill: value });
+            }
+          },
+          onShapeChange(value, ctx){
+            const shape = sanitizeShape(value);
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ shape });
+            }else{
+              applyGlobalPatch({ shape });
+            }
+          }
+        },
+        border: {
+          label: 'Border',
+          getColor(ctx){
+            const style = resolvePointStyle(ctx);
+            return style.stroke || style.borderColor || sourcePoint.getAttribute('stroke') || '#000000';
+          },
+          onColorInput(value, ctx){
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ stroke: value, borderColor: value });
+            }else{
+              applyGlobalPatch({ stroke: value, borderColor: value });
+            }
+          },
+          onColorChange(value, ctx){
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ stroke: value, borderColor: value });
+            }else{
+              applyGlobalPatch({ stroke: value, borderColor: value });
+            }
+          },
+          getWidth(ctx){
+            const style = resolvePointStyle(ctx);
+            if(Number.isFinite(Number(style.borderWidth))){ return Number(style.borderWidth); }
+            if(Number.isFinite(Number(style.strokeWidth))){ return Number(style.strokeWidth); }
+            return Number(sourcePoint.getAttribute('stroke-width')) || 0;
+          },
+          onWidthChange(value, ctx){
+            const next = Math.max(0, Number(value) || 0);
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ borderWidth: next, strokeWidth: next });
+            }else{
+              applyGlobalPatch({ borderWidth: next, strokeWidth: next });
+            }
+          }
+        },
+        size: {
+          get(ctx){
+            const style = resolvePointStyle(ctx);
+            if(Number.isFinite(Number(style.size))){ return Number(style.size); }
+            const explicit = Number(sourcePoint.getAttribute('data-point-size'));
+            if(Number.isFinite(explicit) && explicit > 0){ return explicit / 2; }
+            return Number(sourcePoint.getAttribute('r')) || 4;
+          },
+          onChange(value, ctx){
+            const next = Math.max(0, Number(value) || 0);
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ size: next });
+            }else{
+              applyGlobalPatch({ size: next });
+            }
+          }
+        },
+        transparency: {
+          label: 'Transparency',
+          get(ctx){
+            const style = resolvePointStyle(ctx);
+            if(Number.isFinite(Number(style.opacity))){
+              return 1 - Math.min(1, Math.max(0, Number(style.opacity)));
+            }
+            const raw = Number(sourcePoint.getAttribute('fill-opacity'));
+            const opacity = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 1;
+            return 1 - opacity;
+          },
+          onChange(value, ctx){
+            const transparency = Math.min(1, Math.max(0, Number(value) || 0));
+            const opacity = 1 - transparency;
+            if(ctx.scope === 'trace'){
+              applyTracePatch({ opacity });
+            }else{
+              applyGlobalPatch({ opacity });
+            }
+          }
+        }
+      });
+      return;
+    }
     const shouldApplyPointStyleDirectly = () => state && state.autoDrawEnabled === false;
     const resolveAllPointNodes = () => {
       const plot = doc.getElementById('boxPlot');
@@ -695,6 +852,14 @@
       }
       if(normalized.stroke != null){
         nodes.forEach(node => node.setAttribute('stroke', normalized.stroke));
+      }
+      if(normalized.borderWidth != null || normalized.strokeWidth != null){
+        const widthRaw = normalized.borderWidth != null ? normalized.borderWidth : normalized.strokeWidth;
+        const width = Number(widthRaw);
+        if(Number.isFinite(width)){
+          const clamped = Math.max(0, width);
+          nodes.forEach(node => node.setAttribute('stroke-width', String(clamped)));
+        }
       }
       if(normalized.opacity != null){
         const opacityValue = Math.min(1, Math.max(0, Number(normalized.opacity)));
@@ -13229,7 +13394,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? resolvedRadius
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
         const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
-        const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
+        const traceStrokeColor = traceStyle && (traceStyle.stroke || traceStyle.borderColor)
+          ? (traceStyle.stroke || traceStyle.borderColor)
+          : borderColor;
+        const traceStrokeWidthRaw = traceStyle && Number.isFinite(Number(traceStyle.borderWidth))
+          ? Number(traceStyle.borderWidth)
+          : (traceStyle && Number.isFinite(Number(traceStyle.strokeWidth))
+            ? Number(traceStyle.strokeWidth)
+            : borderWidthRaw);
+        const effectiveStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
+        const effectiveStroke = effectiveStrokeWidth > 0 && traceStrokeColor && traceStrokeColor !== 'none'
+          ? traceStrokeColor
+          : 'none';
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
@@ -13260,7 +13436,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             pts[idx] = { x: cx + offset, y: pointCoords[idx] };
           }
-          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex, shape: effectiveShape });
+          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), {
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidth || 0),
+            dataTrace: traceIndex,
+            shape: effectiveShape
+          });
           pathNode.__batchedPoints = pts;
           group.appendChild(pathNode);
           attachBoxPointTooltip(pathNode, {
@@ -13311,7 +13494,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             if(node){
               node.setAttribute('fill', effectiveFill);
-              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+              if(effectiveStroke && effectiveStroke !== 'none'){
+                node.setAttribute('stroke', effectiveStroke);
+                node.setAttribute('stroke-width', String(Math.max(0, effectiveStrokeWidth || 0)));
+              }
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
               node.setAttribute('data-point-size', String(effectiveRadius * 2));
@@ -13985,7 +14171,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? resolvedRadius
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
         const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
-        const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
+        const traceStrokeColorH = traceStyleH && (traceStyleH.stroke || traceStyleH.borderColor)
+          ? (traceStyleH.stroke || traceStyleH.borderColor)
+          : borderColor;
+        const traceStrokeWidthRawH = traceStyleH && Number.isFinite(Number(traceStyleH.borderWidth))
+          ? Number(traceStyleH.borderWidth)
+          : (traceStyleH && Number.isFinite(Number(traceStyleH.strokeWidth))
+            ? Number(traceStyleH.strokeWidth)
+            : borderWidthRaw);
+        const effectiveStrokeWidthH = chartStyle.scaleStrokeWidth(traceStrokeWidthRawH, styleScaleInfo, { context: 'box-point-border', min: 0 });
+        const effectiveStroke = effectiveStrokeWidthH > 0 && traceStrokeColorH && traceStrokeColorH !== 'none'
+          ? traceStrokeColorH
+          : 'none';
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
@@ -14016,7 +14213,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             pts[idx] = { x: pointCoords[idx], y: cy + offset };
           }
-          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex, shape: effectiveShape });
+          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), {
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidthH || 0),
+            dataTrace: traceIndex,
+            shape: effectiveShape
+          });
           pathNode.__batchedPoints = pts;
           group.appendChild(pathNode);
           attachBoxPointTooltip(pathNode, {
@@ -14067,7 +14271,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             if(node){
               node.setAttribute('fill', effectiveFill);
-              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+              if(effectiveStroke && effectiveStroke !== 'none'){
+                node.setAttribute('stroke', effectiveStroke);
+                node.setAttribute('stroke-width', String(Math.max(0, effectiveStrokeWidthH || 0)));
+              }
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
               node.setAttribute('data-point-size', String(effectiveRadius * 2));

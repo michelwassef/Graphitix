@@ -3263,6 +3263,250 @@
     const doc = global.document;
     if(!doc){ return; }
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const scatterFillInput = doc.getElementById('scatterFill');
+      const scatterBorderInput = doc.getElementById('scatterBorder');
+      const scatterBorderWidthInput = doc.getElementById('scatterBorderWidth');
+      const scatterDotSizeInput = doc.getElementById('scatterDotSize');
+      const scatterAlphaInput = doc.getElementById('scatterAlpha');
+      const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
+      const scatterLabelKey = target?.__scatterPointData?.label || null;
+      const resolveAlpha = value => {
+        const clamped = clampScatterAlpha(value);
+        return clamped != null ? clamped : null;
+      };
+      const sanitizeCurrentShape = (shape, index = 0) => {
+        if(SCATTER_SHAPE_VALUES.has(shape)){
+          return shape;
+        }
+        const safeIndex = Number.isInteger(index) ? index : 0;
+        return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length] || 'circle';
+      };
+      const applyAndDispatch = (inputEl, value, type = 'input') => {
+        if(!inputEl){ return; }
+        inputEl.value = value;
+        inputEl.dispatchEvent(new Event(type, { bubbles: true }));
+      };
+      const getLabelStyle = () => {
+        if(!scatterLabelKey){ return null; }
+        const existing = scatterLabelStyles[scatterLabelKey];
+        return existing && typeof existing === 'object' ? existing : null;
+      };
+      const ensureLabelStyle = () => {
+        if(!scatterLabelKey){ return null; }
+        const existing = scatterLabelStyles[scatterLabelKey];
+        if(existing && typeof existing === 'object'){
+          return existing;
+        }
+        scatterLabelStyles[scatterLabelKey] = {};
+        return scatterLabelStyles[scatterLabelKey];
+      };
+      const applyLabelStylePatch = patch => {
+        const style = ensureLabelStyle();
+        if(!style){ return; }
+        Object.assign(style, patch);
+        scheduleDrawScatter();
+      };
+      const applyGlobalStylePatch = (key, value) => {
+        Object.keys(scatterLabelStyles).forEach(k => {
+          scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { [key]: value });
+        });
+        scheduleDrawScatter();
+      };
+      Shared.symbolToolbar.show({
+        document: doc,
+        target,
+        anchorId: 'scatterFontHost',
+        scopeId: 'scatter',
+        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls',
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'label', label: 'Label', disabled: !scatterLabelKey },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: scatterLabelKey ? 'label' : 'global'
+        },
+        fillShape: {
+          label: 'Fill/Shape',
+          shapeOptions: scatterCurrentGraphType === 'scatter' && scatterState?.viewMode !== 'bubble' ? SCATTER_SHAPE_OPTIONS : [{ value: 'circle', label: 'Circle' }],
+          getColor(ctx){
+            const labelStyle = getLabelStyle();
+            const targetFill = target.getAttribute('fill');
+            const targetStroke = target.getAttribute('stroke');
+            if(ctx.scope === 'label' && scatterLabelKey){
+              return (scatterLabelColors[scatterLabelKey] || labelStyle?.color || targetFill || scatterFillInput?.value || '#377eb8');
+            }
+            return (targetFill && targetFill !== 'none' ? targetFill : null)
+              || (targetStroke && targetStroke !== 'none' ? targetStroke : null)
+              || (scatterFillInput?.value || '#377eb8');
+          },
+          getShape(ctx){
+            if(ctx.scope === 'label' && scatterLabelKey){
+              return sanitizeCurrentShape(scatterLabelShapes[scatterLabelKey], 0);
+            }
+            const shapeKeys = Object.keys(scatterLabelShapes || {});
+            if(!shapeKeys.length){
+              return sanitizeCurrentShape(null, 0);
+            }
+            const shapes = shapeKeys.map((key, idx) => sanitizeCurrentShape(scatterLabelShapes[key], idx));
+            const unique = new Set(shapes);
+            return unique.size === 1 ? shapes[0] : sanitizeCurrentShape(null, 0);
+          },
+          onColorInput(nextColor, ctx){
+            if(ctx.scope === 'label' && scatterLabelKey){
+              scatterLabelColors[scatterLabelKey] = nextColor;
+              scheduleDrawScatter();
+              return;
+            }
+            if(scatterFillInput){
+              applyAndDispatch(scatterFillInput, nextColor);
+            }
+            Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = nextColor; });
+            scheduleDrawScatter();
+          },
+          onColorChange(nextColor, ctx){
+            if(ctx.scope === 'label' && scatterLabelKey){
+              scatterLabelColors[scatterLabelKey] = nextColor;
+              scheduleDrawScatter();
+              return;
+            }
+            if(scatterFillInput){
+              applyAndDispatch(scatterFillInput, nextColor);
+            }
+            Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = nextColor; });
+            scheduleDrawScatter();
+          },
+          onShapeChange(nextShape, ctx){
+            if(scatterCurrentGraphType !== 'scatter' || scatterState?.viewMode === 'bubble'){
+              return;
+            }
+            if(ctx.scope === 'label' && scatterLabelKey){
+              scatterLabelShapes[scatterLabelKey] = sanitizeCurrentShape(nextShape, 0);
+              scheduleDrawScatter();
+              return;
+            }
+            const sanitized = sanitizeCurrentShape(nextShape, 0);
+            const shapeKeys = Object.keys(scatterLabelShapes || {});
+            let changed = false;
+            shapeKeys.forEach((key, idx) => {
+              if(sanitizeCurrentShape(scatterLabelShapes[key], idx) !== sanitized){
+                scatterLabelShapes[key] = sanitized;
+                changed = true;
+              }
+            });
+            if(changed){
+              scheduleDrawScatter();
+            }
+          }
+        },
+        border: {
+          label: 'Border',
+          getColor(ctx){
+            const labelStyle = getLabelStyle();
+            const targetStroke = target.getAttribute('stroke');
+            if(ctx.scope === 'label' && scatterLabelKey){
+              return labelStyle?.borderColor || (targetStroke && targetStroke !== 'none' ? targetStroke : null) || scatterBorderInput?.value || '#000000';
+            }
+            return (targetStroke && targetStroke !== 'none' ? targetStroke : null)
+              || (scatterBorderInput?.value || '#000000');
+          },
+          onColorInput(nextColor, ctx){
+            if(ctx.scope === 'label' && scatterLabelKey){
+              applyLabelStylePatch({ borderColor: nextColor });
+            }else if(scatterBorderInput){
+              applyAndDispatch(scatterBorderInput, nextColor);
+              Object.keys(scatterLabelStyles).forEach(k => {
+                scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: nextColor });
+              });
+              scheduleDrawScatter();
+            }
+          },
+          onColorChange(nextColor, ctx){
+            if(ctx.scope === 'label' && scatterLabelKey){
+              applyLabelStylePatch({ borderColor: nextColor });
+            }else if(scatterBorderInput){
+              applyAndDispatch(scatterBorderInput, nextColor);
+              Object.keys(scatterLabelStyles).forEach(k => {
+                scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: nextColor });
+              });
+              scheduleDrawScatter();
+            }
+          },
+          getWidth(ctx){
+            const labelStyle = getLabelStyle();
+            if(ctx.scope === 'label' && scatterLabelKey && Number.isFinite(Number(labelStyle?.borderWidth))){
+              return Number(labelStyle.borderWidth);
+            }
+            if(Number.isFinite(Number(scatterBorderWidthInput?.value))){
+              return Number(scatterBorderWidthInput.value);
+            }
+            const fromTarget = Number(target.getAttribute('stroke-width'));
+            return Number.isFinite(fromTarget) ? fromTarget : 0;
+          },
+          onWidthChange(nextValue, ctx){
+            const next = Math.max(0, Number(nextValue) || 0);
+            if(ctx.scope === 'label' && scatterLabelKey){
+              applyLabelStylePatch({ borderWidth: next });
+            }else{
+              if(scatterBorderWidthInput){
+                applyAndDispatch(scatterBorderWidthInput, String(next));
+              }
+              applyGlobalStylePatch('borderWidth', next);
+            }
+          }
+        },
+        size: {
+          get(ctx){
+            const labelStyle = getLabelStyle();
+            if(ctx.scope === 'label' && scatterLabelKey && Number.isFinite(Number(labelStyle?.size))){
+              return Number(labelStyle.size);
+            }
+            if(Number.isFinite(Number(scatterDotSizeInput?.value))){
+              return Number(scatterDotSizeInput.value);
+            }
+            const fromTarget = Number(target.getAttribute('r'));
+            return Number.isFinite(fromTarget) ? fromTarget : 0;
+          },
+          onChange(nextValue, ctx){
+            const next = Math.max(0, Number(nextValue) || 0);
+            if(ctx.scope === 'label' && scatterLabelKey){
+              applyLabelStylePatch({ size: next });
+            }else{
+              if(scatterDotSizeInput){
+                applyAndDispatch(scatterDotSizeInput, String(next));
+              }
+              applyGlobalStylePatch('size', next);
+            }
+          }
+        },
+        transparency: {
+          label: 'Transparency',
+          get(ctx){
+            const labelStyle = getLabelStyle();
+            if(ctx.scope === 'label' && scatterLabelKey && resolveAlpha(labelStyle?.alpha) != null){
+              return resolveAlpha(labelStyle.alpha);
+            }
+            return resolveAlpha(scatterAlphaInput?.value) || 0;
+          },
+          onChange(nextValue, ctx){
+            const normalized = Math.min(1, Math.max(0, Number(nextValue) || 0));
+            if(ctx.scope === 'label' && scatterLabelKey){
+              applyLabelStylePatch({ alpha: normalized });
+            }else{
+              if(scatterAlphaInput){
+                applyAndDispatch(scatterAlphaInput, String(normalized));
+              }
+              if(scatterAlphaVal){
+                scatterAlphaVal.textContent = String(normalized);
+              }
+              applyGlobalStylePatch('alpha', normalized);
+            }
+          }
+        }
+      });
+      return;
+    }
     const anchor = doc.getElementById('scatterFontHost');
     if(!anchor){ return; }
     let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
