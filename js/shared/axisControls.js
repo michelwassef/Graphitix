@@ -13,6 +13,12 @@
   let minorTicksToggleInput = null;
   let minorTicksSubdivInput = null;
   let minorTicksSubdivWrapper = null;
+  let styleChipEl = null;
+  let styleChipPreviewEl = null;
+  let styleChipValueEl = null;
+  let stylePickerCleanup = null;
+  let styleDragState = null;
+  let suppressStyleChipClick = false;
   let thicknessInput = null;
   let colorInput = null;
   let notationFieldEl = null;
@@ -620,6 +626,80 @@
     return '#000000';
   }
 
+  function formatThicknessChipValue(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '0px';
+    }
+    const rounded = Math.round(numeric * 10) / 10;
+    return `${rounded}px`;
+  }
+
+  function syncStyleChipUi(){
+    if(!styleChipEl || !styleChipPreviewEl || !styleChipValueEl || !thicknessInput || !colorInput){
+      return;
+    }
+    const thicknessValue = sanitizeThicknessValue(thicknessInput.value);
+    styleChipPreviewEl.style.background = toColorInputValue(colorInput.value);
+    styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue == null ? 0 : thicknessValue);
+    styleChipEl.dataset.noBorder = thicknessValue == null || thicknessValue <= 0 ? '1' : '0';
+  }
+
+  function clearAxisStylePickerSection(overlayEl){
+    if(!overlayEl || !overlayEl.querySelectorAll){
+      return;
+    }
+    overlayEl.querySelectorAll('.shared-color-picker__section--axis-style').forEach(node => node.remove());
+  }
+
+  function attachAxisStylePickerThicknessSection(overlayEl){
+    if(!overlayEl){
+      return () => {};
+    }
+    clearAxisStylePickerSection(overlayEl);
+    const doc = overlayEl.ownerDocument || global.document;
+    if(!doc){
+      return () => {};
+    }
+    const section = doc.createElement('section');
+    section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--axis-style';
+    const title = doc.createElement('div');
+    title.className = 'shared-color-picker__section-title';
+    title.textContent = 'Line width';
+    section.appendChild(title);
+    const row = doc.createElement('div');
+    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
+    const field = doc.createElement('label');
+    field.className = 'shared-color-picker__scatter-style-field';
+    const input = doc.createElement('input');
+    input.className = 'shared-color-picker__scatter-style-input';
+    input.type = 'number';
+    input.min = thicknessInput?.min || '0.25';
+    input.max = thicknessInput?.max || '10';
+    input.step = thicknessInput?.step || '0.25';
+    input.value = thicknessInput?.value || '1';
+    input.setAttribute('aria-label', 'Line width');
+    input.addEventListener('input', () => {
+      if(!thicknessInput){ return; }
+      thicknessInput.value = input.value;
+      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    input.addEventListener('change', () => {
+      if(!thicknessInput){ return; }
+      thicknessInput.value = input.value;
+      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    field.appendChild(input);
+    row.appendChild(field);
+    section.appendChild(row);
+    overlayEl.insertBefore(section, overlayEl.firstChild || null);
+    return () => {
+      if(section.parentNode){
+        section.parentNode.removeChild(section);
+      }
+    };
+  }
+
   function getUndoScope(config){
     if(!config){ return null; }
     if(typeof config.undoScope === 'string' && config.undoScope){
@@ -1028,6 +1108,7 @@
     thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
     const colorValueRaw = config.getColor ? config.getColor() : null;
     colorInput.value = toColorInputValue(colorValueRaw);
+    syncStyleChipUi();
 
     const notationSupported = notationMenuToggle && typeof config.isNotationSupported === 'function'
       ? config.isNotationSupported(config.axis) !== false
@@ -1296,47 +1377,56 @@
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
     panelEl = doc.createElement('div');
-    panelEl.className = 'axis-controls-panel';
+    panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--axis axis-controls-panel';
     panelEl.setAttribute('role', 'toolbar');
     panelEl.setAttribute('aria-label', 'Axis controls');
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
 
+    const panelTitleEl = doc.createElement('div');
+    panelTitleEl.className = 'workspace-toolbar__panel-title axis-controls-panel__title';
+    panelTitleEl.textContent = 'Axis';
+    panelEl.appendChild(panelTitleEl);
+
+    const fieldsRowEl = doc.createElement('div');
+    fieldsRowEl.className = 'additional-line-controls-panel__row axis-controls-panel__row';
+    panelEl.appendChild(fieldsRowEl);
+
     const axisGroup = doc.createElement('div');
-    axisGroup.className = 'axis-controls-panel__summary';
+    axisGroup.className = 'axis-controls-panel__summary axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--axis-summary';
     const axisLabelTitle = doc.createElement('span');
-    axisLabelTitle.className = 'axis-controls-panel__summary-label';
+    axisLabelTitle.className = 'axis-controls-panel__summary-label axis-controls-panel__field-label additional-line-controls-panel__field-label';
     axisLabelTitle.textContent = 'Axis';
     axisLabelEl = doc.createElement('span');
     axisLabelEl.className = 'axis-controls-panel__summary-value';
     axisGroup.appendChild(axisLabelTitle);
     axisGroup.appendChild(axisLabelEl);
-    panelEl.appendChild(axisGroup);
+    fieldsRowEl.appendChild(axisGroup);
 
     const tickField = doc.createElement('label');
-    tickField.className = 'axis-controls-panel__field';
+    tickField.className = 'axis-controls-panel__field additional-line-controls-panel__field';
     tickField.classList.add('axis-controls-panel__field--numeric');
     const tickLabel = doc.createElement('span');
-    tickLabel.className = 'axis-controls-panel__field-label';
+    tickLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
     tickLabel.textContent = 'Tick Interval';
     tickInput = doc.createElement('input');
     tickInput.type = 'number';
     tickInput.min = '0';
     tickInput.step = '0.1';
     tickInput.placeholder = 'Auto';
-    tickInput.className = 'axis-controls-panel__input';
+    tickInput.className = 'axis-controls-panel__input additional-line-controls-panel__input';
     tickInput.classList.add('axis-controls-panel__input--small');
     tickInput.setAttribute('data-undo-ignore','1');
     tickField.appendChild(tickLabel);
     tickField.appendChild(tickInput);
-    panelEl.appendChild(tickField);
+    fieldsRowEl.appendChild(tickField);
     tickFieldEl = tickField;
 
     const minorTicksField = doc.createElement('div');
-    minorTicksField.className = 'axis-controls-panel__field axis-controls-panel__field--toggle';
+    minorTicksField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--toggle';
     const minorTicksLabel = doc.createElement('span');
-    minorTicksLabel.className = 'axis-controls-panel__field-label';
+    minorTicksLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
     minorTicksLabel.textContent = 'Minor Ticks';
     minorTicksField.appendChild(minorTicksLabel);
 
@@ -1378,50 +1468,51 @@
     minorToggleRow.appendChild(minorTicksSubdivWrapper);
 
     minorTicksField.appendChild(minorToggleRow);
-    panelEl.appendChild(minorTicksField);
+    fieldsRowEl.appendChild(minorTicksField);
     minorTicksFieldEl = minorTicksField;
 
-    const thicknessField = doc.createElement('label');
-    thicknessField.className = 'axis-controls-panel__field';
-    thicknessField.classList.add('axis-controls-panel__field--numeric');
-    const thicknessLabel = doc.createElement('span');
-    thicknessLabel.className = 'axis-controls-panel__field-label';
-    thicknessLabel.textContent = 'Thickness';
+    const styleField = doc.createElement('label');
+    styleField.className = 'axis-controls-panel__field additional-line-controls-panel__field additional-line-controls-panel__field--style axis-controls-panel__field--style';
+    const styleLabel = doc.createElement('span');
+    styleLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
+    styleLabel.textContent = 'Line';
+    const styleControl = doc.createElement('div');
+    styleControl.className = 'shared-border-style-control';
+    styleChipEl = doc.createElement('button');
+    styleChipEl.type = 'button';
+    styleChipEl.className = 'shared-border-style-chip';
+    styleChipEl.title = 'Click to edit axis line color. Wheel or Alt+drag to adjust line thickness.';
+    styleChipPreviewEl = doc.createElement('span');
+    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
+    styleChipValueEl = doc.createElement('span');
+    styleChipValueEl.className = 'shared-border-style-chip-value';
+    styleChipEl.appendChild(styleChipPreviewEl);
+    styleChipEl.appendChild(styleChipValueEl);
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
     thicknessInput.min = '0.25';
     thicknessInput.max = '10';
     thicknessInput.step = '0.25';
     thicknessInput.placeholder = '1';
-    thicknessInput.className = 'axis-controls-panel__input';
-    thicknessInput.classList.add('axis-controls-panel__input--small');
+    thicknessInput.className = 'axis-controls-panel__input additional-line-controls-panel__input axis-controls-panel__input--small';
     thicknessInput.setAttribute('data-undo-ignore','1');
-    thicknessField.appendChild(thicknessLabel);
-    thicknessField.appendChild(thicknessInput);
-    panelEl.appendChild(thicknessField);
-
-    const colorField = doc.createElement('label');
-    colorField.className = 'axis-controls-panel__field';
-    colorField.classList.add('axis-controls-panel__field--color');
-    const colorLabel = doc.createElement('span');
-    colorLabel.className = 'axis-controls-panel__field-label';
-    colorLabel.textContent = 'Color';
+    thicknessInput.hidden = true;
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
-    colorInput.className = 'axis-controls-panel__color-input';
+    colorInput.className = 'shared-border-style-input axis-controls-panel__color-input';
     colorInput.setAttribute('data-undo-ignore','1');
-    colorField.appendChild(colorLabel);
-    colorField.appendChild(colorInput);
-    panelEl.appendChild(colorField);
-
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      Shared.attachColorPickerNear(colorInput);
-    }
+    styleControl.appendChild(styleChipEl);
+    styleControl.appendChild(colorInput);
+    styleField.appendChild(styleLabel);
+    styleField.appendChild(styleControl);
+    // Keep thickness input in DOM for shared event wiring while using the style chip UI.
+    styleField.appendChild(thicknessInput);
+    fieldsRowEl.appendChild(styleField);
 
     const notationField = doc.createElement('label');
-    notationField.className = 'axis-controls-panel__field axis-controls-panel__field--notation';
+    notationField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--notation';
     const notationLabel = doc.createElement('span');
-    notationLabel.className = 'axis-controls-panel__field-label';
+    notationLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
     notationLabel.textContent = 'Number Format';
     notationField.appendChild(notationLabel);
 
@@ -1502,11 +1593,11 @@
     notationComboWrapper.appendChild(notationMenuPopup);
     setNotationDisplayValue(AXIS_NOTATION_DEFAULT);
     notationField.appendChild(notationComboWrapper);
-    panelEl.appendChild(notationField);
+    fieldsRowEl.appendChild(notationField);
     notationFieldEl = notationField;
 
     additionalTicksFieldEl = doc.createElement('div');
-    additionalTicksFieldEl.className = 'axis-controls-panel__field axis-controls-panel__field--additional-ticks';
+    additionalTicksFieldEl.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--additional-ticks';
     additionalTicksFieldEl.hidden = true;
 
     additionalTicksButton = doc.createElement('button');
@@ -1539,11 +1630,11 @@
     additionalTicksAddButton.setAttribute('aria-disabled', 'true');
     additionalTicksDropdown.appendChild(additionalTicksAddButton);
 
-    panelEl.appendChild(additionalTicksFieldEl);
+    fieldsRowEl.appendChild(additionalTicksFieldEl);
 
     // Broken axis controls
     brokenAxisFieldEl = doc.createElement('div');
-    brokenAxisFieldEl.className = 'axis-controls-panel__field axis-controls-panel__field--broken-axis';
+    brokenAxisFieldEl.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--broken-axis';
     brokenAxisFieldEl.hidden = true;
 
     const brokenAxisHeader = doc.createElement('div');
@@ -1592,7 +1683,7 @@
     brokenAxisAddButton.setAttribute('aria-disabled', 'true');
     brokenAxisDropdown.appendChild(brokenAxisAddButton);
 
-    panelEl.appendChild(brokenAxisFieldEl);
+    fieldsRowEl.appendChild(brokenAxisFieldEl);
 
     if(notationDisplayInput){
       notationDisplayInput.addEventListener('click', evt => {
@@ -1772,31 +1863,108 @@
       );
     });
 
-    thicknessInput.addEventListener('change', () => {
+    const applyThicknessFromInput = (recordUndo) => {
       if(applyingFromUndo){ return; }
       if(!activeConfig){ return; }
       const config = activeConfig;
       const raw = thicknessInput.value;
       const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
       const requestedValue = sanitizeThicknessValue(raw);
-      logDebug('thickness change',{ raw, numeric: requestedValue });
+      logDebug('thickness change',{ raw, numeric: requestedValue, recordUndo: !!recordUndo });
       if(config.onThicknessChange){
         config.onThicknessChange(requestedValue);
       }
       const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
       syncPanelInputsFromConfig(config);
-      recordAxisStateChange(
-        config,
-        'thickness',
-        previousValue,
-        nextValue,
-        value => {
-          if(config.onThicknessChange){
-            config.onThicknessChange(value);
+      if(recordUndo){
+        recordAxisStateChange(
+          config,
+          'thickness',
+          previousValue,
+          nextValue,
+          value => {
+            if(config.onThicknessChange){
+              config.onThicknessChange(value);
+            }
           }
-        }
-      );
-    });
+        );
+      }
+    };
+    thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
+    thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+
+    if(styleChipEl){
+      styleChipEl.addEventListener('wheel', evt => {
+        evt.preventDefault();
+        const step = evt.deltaY < 0 ? 0.5 : -0.5;
+        const current = sanitizeThicknessValue(thicknessInput?.value);
+        const next = (current == null ? 0 : current) + step;
+        thicknessInput.value = String(next);
+        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }, { passive: false });
+      const onStyleDragMove = evt => {
+        if(!styleDragState){ return; }
+        const deltaX = evt.clientX - styleDragState.startX;
+        const steps = Math.round(deltaX / 8);
+        const next = styleDragState.startValue + (steps * 0.5);
+        thicknessInput.value = String(next);
+        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const onStyleDragUp = () => {
+        if(!styleDragState){ return; }
+        styleDragState = null;
+        thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+        global.removeEventListener('mousemove', onStyleDragMove);
+        global.removeEventListener('mouseup', onStyleDragUp);
+      };
+      styleChipEl.addEventListener('mousedown', evt => {
+        if(!evt.altKey || evt.button !== 0){ return; }
+        evt.preventDefault();
+        suppressStyleChipClick = true;
+        const current = sanitizeThicknessValue(thicknessInput?.value);
+        styleDragState = { startX: evt.clientX, startValue: current == null ? 0 : current };
+        global.addEventListener('mousemove', onStyleDragMove);
+        global.addEventListener('mouseup', onStyleDragUp);
+      });
+      styleChipEl.addEventListener('click', evt => {
+        if(!suppressStyleChipClick){ return; }
+        suppressStyleChipClick = false;
+        evt.preventDefault();
+        evt.stopPropagation();
+      }, true);
+      if(typeof Shared.openColorPicker === 'function'){
+        styleChipEl.addEventListener('click', evt => {
+          evt.preventDefault();
+          evt.stopPropagation();
+          const overlayEl = Shared.openColorPicker({
+            anchor: styleChipEl,
+            color: colorInput.value,
+            element: colorInput,
+            onInput(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            onChange(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            onClose(){
+              if(typeof stylePickerCleanup === 'function'){
+                stylePickerCleanup();
+                stylePickerCleanup = null;
+              }
+            }
+          });
+          stylePickerCleanup = attachAxisStylePickerThicknessSection(overlayEl);
+        });
+      }else if(typeof Shared.attachColorPickerNear === 'function'){
+        Shared.attachColorPickerNear(colorInput);
+        styleChipEl.addEventListener('click', evt => {
+          evt.preventDefault();
+          colorInput.click();
+        });
+      }
+    }
 
     colorInput.addEventListener('input', () => {
       if(applyingFromUndo){ return; }
@@ -1823,6 +1991,7 @@
         },
         (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
       );
+      syncStyleChipUi();
     });
 
     // Broken axis event listeners
@@ -1987,6 +2156,10 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    if(typeof stylePickerCleanup === 'function'){
+      try{ stylePickerCleanup(); }catch(err){}
+      stylePickerCleanup = null;
+    }
     closeNotationMenu(reason || 'panel-close');
     panelEl.style.display = 'none';
     panelEl.hidden = true;
@@ -2038,7 +2211,20 @@
       // remove any point-format or workspace toolbar forms so axis open doesn't
       // show lingering component controls in the same host
       try{
-        host.querySelectorAll('.box-point-controls, .workspace-toolbar__form, [data-point-controls="1"]').forEach(n => n.remove());
+        host.querySelectorAll('.workspace-toolbar__panel--symbol, .additional-line-controls-panel').forEach(node => {
+          if(node === panelEl){ return; }
+          try{ node.remove(); }catch(e){}
+        });
+        host.querySelectorAll('.box-point-controls, .workspace-toolbar__form, [data-point-controls="1"]').forEach(node => {
+          const parentPanel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
+          if(parentPanel && parentPanel !== panelEl){
+            try{ parentPanel.remove(); }catch(e){}
+            return;
+          }
+          if(node !== panelEl){
+            try{ node.remove(); }catch(e){}
+          }
+        });
       }catch(e){}
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);

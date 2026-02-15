@@ -2166,7 +2166,7 @@
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
     panelEl = doc.createElement('div');
-    panelEl.className = 'font-controls-panel';
+    panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--font font-controls-panel';
     panelEl.setAttribute('role', 'toolbar');
     panelEl.setAttribute('aria-label', 'Font controls');
     panelEl.style.display = 'none';
@@ -2177,24 +2177,26 @@
       delete panelEl.dataset.scope;
     }
 
-    const body = doc.createElement('div');
-    body.className = 'font-controls-panel__body';
+    const panelTitleEl = doc.createElement('div');
+    panelTitleEl.className = 'workspace-toolbar__panel-title';
+    panelTitleEl.textContent = 'Font';
+    panelEl.appendChild(panelTitleEl);
 
     const controlsRow = doc.createElement('div');
-    controlsRow.className = 'font-controls-panel__controls';
+    controlsRow.className = 'font-controls-panel__controls additional-line-controls-panel__row';
 
     scopeFieldEl = doc.createElement('label');
-    scopeFieldEl.className = 'font-controls-panel__field font-controls-panel__field--scope';
+    scopeFieldEl.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--scope';
     const scopeLabelEl = doc.createElement('span');
-    scopeLabelEl.className = 'font-controls-panel__field-label';
-    scopeLabelEl.textContent = 'Scope:';
+    scopeLabelEl.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    scopeLabelEl.textContent = 'Scope';
     const scopeWrapper = doc.createElement('div');
     scopeWrapper.className = 'font-controls-panel__select-wrapper';
     const scopeList = doc.createElement('div');
     scopeList.className = 'font-controls-panel__select-menu';
     scopeList.hidden = true;
     scopeSelectEl = doc.createElement('select');
-    scopeSelectEl.className = 'font-controls-panel__select';
+    scopeSelectEl.className = 'font-controls-panel__select additional-line-controls-panel__input additional-line-controls-panel__input--select';
     const scopeSelectionOpt = doc.createElement('option');
     scopeSelectionOpt.value = FONT_SCOPE_SELECTION;
     scopeSelectionOpt.textContent = 'Selection';
@@ -2227,7 +2229,11 @@
     });
 
     const fontField = doc.createElement('label');
-    fontField.className = 'font-controls-panel__field font-controls-panel__field--font';
+    fontField.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--font';
+    const fontFieldLabel = doc.createElement('span');
+    fontFieldLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    fontFieldLabel.textContent = 'Font';
+    fontField.appendChild(fontFieldLabel);
 
     fontComboWrapper = doc.createElement('div');
     fontComboWrapper.className = 'font-controls-panel__combo';
@@ -2361,7 +2367,10 @@
     fontField.appendChild(fontComboWrapper);
 
     const formatField = doc.createElement('div');
-    formatField.className = 'font-controls-panel__field font-controls-panel__field--format';
+    formatField.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--format';
+    const formatLabel = doc.createElement('span');
+    formatLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    formatLabel.textContent = 'Format';
     formatField.setAttribute('role', 'group');
     formatField.setAttribute('aria-label', 'Text formatting');
     formatButtonsRow = doc.createElement('div');
@@ -2394,10 +2403,11 @@
     formatButtonsRow.appendChild(underlineToggle);
     formatButtonsRow.appendChild(subscriptToggle);
     formatButtonsRow.appendChild(superscriptToggle);
+    formatField.appendChild(formatLabel);
     formatField.appendChild(formatButtonsRow);
-    fontField.appendChild(formatField);
     logDebug('font datalist initialized', { count: uniqueFonts.length });
     controlsRow.appendChild(fontField);
+    controlsRow.appendChild(formatField);
 
     function createFontMenuOption(value, label){
       const optionBtn = doc.createElement('button');
@@ -2507,7 +2517,10 @@
     });
 
     const sizeField = doc.createElement('label');
-    sizeField.className = 'font-controls-panel__field font-controls-panel__field--size';
+    sizeField.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--size';
+    const sizeLabel = doc.createElement('span');
+    sizeLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    sizeLabel.textContent = 'Size';
 
     sizeComboWrapper = doc.createElement('div');
     sizeComboWrapper.className = 'font-controls-panel__combo font-controls-panel__combo--size';
@@ -2614,6 +2627,7 @@
       const optionBtn = createSizeMenuOption(sizeValue);
       sizeMenuPopup.appendChild(optionBtn);
     });
+    sizeField.appendChild(sizeLabel);
     sizeField.appendChild(sizeComboWrapper);
     controlsRow.appendChild(sizeField);
 
@@ -2657,20 +2671,22 @@
     });
 
     const colorField = doc.createElement('label');
-    colorField.className = 'font-controls-panel__field font-controls-panel__field--color';
+    colorField.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--color';
+    const colorLabel = doc.createElement('span');
+    colorLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    colorLabel.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'font-controls-panel__color-input';
     colorInput.setAttribute('aria-label', 'Font color');
+    colorField.appendChild(colorLabel);
     colorField.appendChild(colorInput);
     controlsRow.appendChild(colorField);
 
     logDebug('format toggles initialized', { toggleCount: formatButtonsRow.children.length });
     resolveFormatRowWidth();
 
-    body.appendChild(controlsRow);
-
-    panelEl.appendChild(body);
+    panelEl.appendChild(controlsRow);
 
     footerEl = doc.createElement('div');
     footerEl.className = 'font-controls-panel__footer';
@@ -3021,8 +3037,21 @@
       // remove any per-component toolbar form nodes from this host so the
       // font panel does not share the same host DOM with component controls.
       try{
+        host.querySelectorAll('.workspace-toolbar__panel--symbol, .additional-line-controls-panel').forEach(node => {
+          if(node === panelEl){ return; }
+          try{ node.remove(); }catch(e){}
+        });
         const removable = host.querySelectorAll('.workspace-toolbar__form, [data-point-controls="1"]');
-        removable.forEach(n => { try{ n.remove(); }catch(e){} });
+        removable.forEach(node => {
+          const parentPanel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
+          if(parentPanel && parentPanel !== panelEl){
+            try{ parentPanel.remove(); }catch(e){}
+            return;
+          }
+          if(node !== panelEl){
+            try{ node.remove(); }catch(e){}
+          }
+        });
       }catch(e){}
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);

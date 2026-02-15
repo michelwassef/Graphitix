@@ -3206,7 +3206,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host{margin:0;display:none;justify-content:flex-start;align-items:stretch;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:100%;padding:0}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
 .font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
-.font-toolbar-host.font-toolbar-host--axis{flex:1 1 100%;justify-content:flex-start;align-self:stretch;width:100%;margin-left:0;margin-right:0}
+.font-toolbar-host.font-toolbar-host--axis{flex:0 0 auto;justify-content:flex-start;align-self:center;width:100%;max-width:100%;margin-left:0;margin-right:0}
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
 .font-toolbar-host--box-dual.font-toolbar-host--visible,
 .font-toolbar-host--scatter-dual.font-toolbar-host--visible{display:grid}
@@ -3406,6 +3406,127 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__format-button:active{background:rgba(15,23,42,0.16)}
 .font-controls-panel__toggle--active{background:#1e293b;color:#f8fafc;border-color:#0f172a}
 .font-controls-panel__footer{display:none}
+
+/* Refactor alignment: axis/font toolbars share the same structural layout primitives
+   as symbol/line toolbars: panel title + single row + homogeneous fields. */
+.axis-controls-panel,
+.font-controls-panel{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    justify-content:flex-start;
+    gap:0;
+    padding:0;
+    border:none;
+    background:transparent;
+    box-shadow:none;
+    width:max-content;
+    max-width:100%;
+}
+.axis-controls-panel{
+    padding-top:18px;
+}
+.axis-controls-panel__row,
+.font-controls-panel__controls{
+    display:grid;
+    grid-auto-flow:column;
+    grid-auto-columns:max-content;
+    align-items:start;
+    gap:var(--workspace-toolbar-section-gap);
+    width:max-content;
+}
+.axis-controls-panel__field,
+.font-controls-panel__field{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    gap:4px;
+    min-width:0;
+    min-height:52px;
+    text-align:center;
+    flex:0 0 auto;
+}
+.axis-controls-panel__field-label,
+.font-controls-panel__field-label,
+.axis-controls-panel__summary-label{
+    font-weight:600;
+    color:#1e293b;
+    font-size:11px;
+    text-transform:none;
+    letter-spacing:0.01em;
+    white-space:nowrap;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    line-height:14px;
+    min-height:14px;
+    margin:0;
+}
+.axis-controls-panel__summary{
+    min-width:0;
+}
+.axis-controls-panel__summary-value{
+    font-size:13px;
+    font-weight:600;
+    color:#1e293b;
+    white-space:nowrap;
+}
+.axis-controls-panel__field--numeric{
+    min-width:48px;
+    max-width:48px;
+}
+.axis-controls-panel__field--numeric .axis-controls-panel__input--small{
+    width:48px;
+    min-width:48px;
+    max-width:48px;
+    border-radius:0 !important;
+}
+.axis-controls-panel__field--additional-ticks,
+.axis-controls-panel__field--broken-axis{
+    align-self:auto;
+    align-items:center;
+    justify-content:flex-start;
+    padding-top:18px;
+    margin-left:0;
+    margin-right:0;
+}
+.axis-controls-panel__broken-axis-header{
+    display:none;
+}
+.axis-controls-panel__input--subdivision{
+    border-radius:0 !important;
+}
+.font-controls-panel__field--scope,
+.font-controls-panel__field--font,
+.font-controls-panel__field--size,
+.font-controls-panel__field--color,
+.font-controls-panel__field--format{
+    grid-column:auto;
+    grid-row:auto;
+    max-width:none;
+    width:max-content;
+    align-items:center;
+    justify-self:auto;
+    margin-top:0;
+}
+.font-controls-panel__field--scope{
+    flex-direction:column;
+    gap:4px;
+}
+.font-controls-panel__field--color .font-controls-panel__color-input{
+    width:var(--ui-color-input-width);
+    max-width:var(--ui-color-input-width);
+    height:var(--ui-color-input-height);
+}
+.font-controls-panel__field--color .font-controls-panel__field-label{
+    width:100%;
+}
+.axis-controls-panel__input,
+.font-controls-panel__select,
+.font-controls-panel__input--number{
+    height:var(--ui-control-height);
+}
 @media (max-width:680px){
   .font-toolbar-host{flex:1 1 100%;margin-left:0}
   .font-controls-panel{width:100%;max-width:100%;justify-content:flex-start;padding:12px 14px}
