@@ -16,6 +16,13 @@
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/additionalLineControls.js');
+    }catch(err){
+      console.debug('Debug: box component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const formControls = Shared.formControls = Shared.formControls || {};
   box.__installed = true;
   box.ready = false;
@@ -448,14 +455,96 @@
     // prevent the click from bubbling to other handlers
     try{ evt.stopPropagation(); }catch(e){}
     const data = el.__boxPointData;
-    showPointFormatControls(el, data);
+    openBoxPointAndSummaryControls({ pointTarget: el, pointData: data, source: 'point' });
   }
 
   function handleBoxSummaryClick(evt){
     const el = evt?.currentTarget;
     if(!el){ return; }
     try{ evt.stopPropagation(); }catch(e){}
-    showSummaryFormatControls(el);
+    openBoxPointAndSummaryControls({ summaryTarget: el, source: 'summary' });
+  }
+
+  function resolveBoxTraceIndexFromNode(node){
+    if(!node){ return null; }
+    const traceAttr = node.getAttribute && node.getAttribute('data-trace');
+    if(traceAttr != null && traceAttr !== '' && traceAttr !== 'null'){
+      return String(traceAttr);
+    }
+    const traceGroup = node.closest && node.closest('g[data-trace]');
+    if(traceGroup && traceGroup.dataset && traceGroup.dataset.trace != null){
+      return String(traceGroup.dataset.trace);
+    }
+    return null;
+  }
+
+  function findBoxPointNodeForTrace(traceIndex, fallbackNode){
+    const doc = global.document;
+    const plot = doc ? doc.getElementById('boxPlot') : null;
+    if(!plot){
+      return fallbackNode || null;
+    }
+    if(traceIndex != null){
+      const selector = `g[data-export-layer="box-points"][data-trace="${traceIndex}"] circle, g[data-export-layer="box-points"][data-trace="${traceIndex}"] rect, g[data-export-layer="box-points"][data-trace="${traceIndex}"] path`;
+      const node = plot.querySelector(selector);
+      if(node){
+        return node;
+      }
+    }
+    return fallbackNode || plot.querySelector('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] rect, g[data-export-layer="box-points"] path') || null;
+  }
+
+  function findBoxSummaryNodeForTrace(traceIndex, fallbackNode){
+    const doc = global.document;
+    const plot = doc ? doc.getElementById('boxPlot') : null;
+    if(!plot){
+      return fallbackNode || null;
+    }
+    if(traceIndex != null){
+      const scoped = plot.querySelector(`g[data-trace="${traceIndex}"] line[data-summary-line="1"]`);
+      if(scoped){
+        return scoped;
+      }
+    }
+    return fallbackNode || plot.querySelector('line[data-summary-line="1"]') || null;
+  }
+
+  function openBoxPointAndSummaryControls(options){
+    const opts = options || {};
+    const sourcePoint = opts.pointTarget || null;
+    const sourceSummary = opts.summaryTarget || null;
+    const sourceTrace = resolveBoxTraceIndexFromNode(sourcePoint) || resolveBoxTraceIndexFromNode(sourceSummary);
+    const pointTarget = findBoxPointNodeForTrace(sourceTrace, sourcePoint);
+    const summaryTarget = findBoxSummaryNodeForTrace(sourceTrace, sourceSummary);
+    if(!pointTarget && !summaryTarget){
+      return;
+    }
+    const pointState = pointTarget
+      ? showPointFormatControls(pointTarget, opts.pointData || pointTarget.__boxPointData || null, {
+          skipHideAll: false
+        })
+      : null;
+    if(summaryTarget){
+      showSummaryFormatControls(summaryTarget, {
+        skipHideAll: true,
+        host: pointState?.host || null,
+        appendToHost: !!pointState?.host,
+        keepOpenWithinHost: true,
+        keepHostVisible: true,
+        hostClass: 'font-toolbar-host--box-dual',
+        hostDisplay: 'grid',
+        traceIndex: sourceTrace
+      });
+    }
+    const host = pointState?.host || null;
+    if(host){
+      host.classList.add('font-toolbar-host--box-dual');
+      host.style.display = 'grid';
+      host.style.gridAutoFlow = 'column';
+      host.style.gridAutoColumns = 'max-content';
+      host.style.columnGap = '10px';
+      host.style.alignItems = 'flex-start';
+    }
   }
 
   function handleBoxShapeClick(evt){
@@ -475,6 +564,55 @@
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){ return null; }
     return Math.min(1, Math.max(0, numeric));
+  }
+  function sanitizeSummaryLinePattern(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    if(normalized === 'solid' || normalized === 'continuous'){
+      return 'solid';
+    }
+    if(normalized === 'dotted' || normalized === 'dots'){
+      return 'dotted';
+    }
+    if(normalized === 'dashed'){
+      return 'dashed';
+    }
+    return 'solid';
+  }
+  function inferSummaryPatternFromNode(node){
+    if(!node){
+      return 'solid';
+    }
+    const dash = String(node.getAttribute('stroke-dasharray') || '').trim();
+    if(!dash){
+      return 'solid';
+    }
+    if(dash.startsWith('0')){
+      return 'dotted';
+    }
+    return 'dashed';
+  }
+  function getSummaryStrokePatternAttrs(width, patternValue){
+    const widthValue = Math.max(0.2, Number(width) || 0.2);
+    const pattern = sanitizeSummaryLinePattern(patternValue);
+    if(pattern === 'dashed'){
+      const dash = Math.max(4, widthValue * 3);
+      const gap = Math.max(3, widthValue * 2);
+      return {
+        'stroke-dasharray': `${dash} ${gap}`,
+        'stroke-linecap': 'butt'
+      };
+    }
+    if(pattern === 'dotted'){
+      const gap = Math.max(2.5, widthValue * 2.25);
+      return {
+        'stroke-dasharray': `0 ${gap}`,
+        'stroke-linecap': 'round'
+      };
+    }
+    return {
+      'stroke-dasharray': null,
+      'stroke-linecap': 'square'
+    };
   }
   function isEmptyStyleObject(value){
     return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0;
@@ -518,6 +656,9 @@
     const previous = cloneSimple(state.summaryStyles[traceIndexValue]) || {};
     const next = Object.assign({}, previous, patch);
     state.summaryStyles[traceIndexValue] = next;
+    if(typeof state.scheduleDraw === 'function'){
+      try{ state.scheduleDraw(); }catch(err){ console.warn('persistBoxSummaryStyle scheduleDraw error', err); }
+    }
     try{
       recordBoxChange(`box:summary-style:${traceIndexValue}`, previous, next, value => {
         state.summaryStyles[traceIndexValue] = value || null;
@@ -589,10 +730,13 @@
     };
   })();
 
-  function showPointFormatControls(el, data){
+  function showPointFormatControls(el, data, options){
+    const opts = options || {};
     const doc = global.document;
     if(!doc){ return; }
-    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    if(opts.skipHideAll !== true){
+      try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    }
     const anchor = doc.getElementById('boxFontHost');
     if(!anchor){ return; }
 
@@ -699,7 +843,7 @@
         return state.pointGlobalStyle || {};
       };
       const sourcePoint = el;
-      Shared.symbolToolbar.show({
+      const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
         target: el,
         anchorId: 'boxFontHost',
@@ -821,7 +965,11 @@
           }
         }
       });
-      return;
+      const hostNode = symbolToolbarState?.host
+        || doc.querySelector('.font-toolbar-host[data-font-toolbar-scope="box"]')
+        || toolbarHost
+        || null;
+      return { host: hostNode, traceIndex, scopeSelect: symbolToolbarState?.scopeSelect || null };
     }
     const shouldApplyPointStyleDirectly = () => state && state.autoDrawEnabled === false;
     const resolveAllPointNodes = () => {
@@ -1421,230 +1569,185 @@
     }catch(err){ console.warn('attach doc click for box point controls failed', err); }
   }
 
-  function showSummaryFormatControls(target){
-    const doc = global.document;
-    if(!doc || !target){ return; }
-    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
-    const anchor = doc.getElementById('boxFontHost');
-    if(!anchor){ return; }
-
-    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
-      ? anchor.nextElementSibling
-      : null;
-    if(!toolbarHost){
-      toolbarHost = doc.createElement('div');
-      toolbarHost.className = 'font-toolbar-host';
-      toolbarHost.dataset.fontToolbarScope = 'box';
-      toolbarHost.style.display = 'none';
-      anchor.insertAdjacentElement('afterend', toolbarHost);
+  function showSummaryFormatControls(target, options){
+    const opts = options || {};
+    if(!target || !additionalLineControls || typeof additionalLineControls.show !== 'function'){
+      return;
     }
-
-    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
-      if(h !== toolbarHost){
-        h.classList.remove('font-toolbar-host--visible');
-        h.style.display = 'none';
-      }
-    });
-
-    toolbarHost.innerHTML = '';
-    const wrap = doc.createElement('div');
-    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-summary-controls';
-    wrap.dataset.summaryControls = '1';
-
-    const makeInput = (labelText, inputEl) => {
-      const lbl = doc.createElement('label');
-      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
-      const span = doc.createElement('span');
-      span.className = 'workspace-toolbar__input-label';
-      span.textContent = labelText;
-      lbl.appendChild(span);
-      lbl.appendChild(inputEl);
-      return lbl;
-    };
-
     const parentGroup = target.closest && target.closest('g[data-trace]') ? target.closest('g[data-trace]') : null;
-    const traceIndex = parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null;
-    const resolveTargets = () => parentGroup ? Array.from(parentGroup.querySelectorAll('line[data-summary-line="1"]')) : [target];
-    const persisted = traceIndex != null && state.summaryStyles ? state.summaryStyles[traceIndex] : null;
-    const scopeName = `boxSummaryScope_${Date.now()}`;
-    const scopeField = doc.createElement('label');
-    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
-    const scopeLabel = doc.createElement('span');
-    scopeLabel.className = 'workspace-toolbar__input-label';
-    scopeLabel.textContent = 'Scope';
-    const scopeSelect = doc.createElement('select');
-    scopeSelect.name = scopeName;
-    scopeSelect.className = 'workspace-toolbar__select';
-    const optTrace = doc.createElement('option');
-    optTrace.value = 'trace';
-    optTrace.textContent = 'Trace';
-    optTrace.disabled = traceIndex == null;
-    const optGlobal = doc.createElement('option');
-    optGlobal.value = 'global';
-    optGlobal.textContent = 'Global';
-    scopeSelect.appendChild(optTrace);
-    scopeSelect.appendChild(optGlobal);
-    scopeSelect.value = traceIndex != null ? 'trace' : 'global';
-    scopeField.appendChild(scopeLabel);
-    scopeField.appendChild(scopeSelect);
-    wrap.appendChild(scopeField);
-
-    // Color picker
-    const colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    const initialColor = persisted?.color || target.getAttribute('stroke') || '#000000';
-    try{ colorInput.value = initialColor; }catch(e){}
-    colorInput.addEventListener('input', () => {
-      const next = colorInput.value;
-      resolveTargets().forEach(node => node.setAttribute('stroke', next));
-      if(scopeSelect.value === 'global'){
-        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { color: next });
-        if(state.summaryStyles && typeof state.summaryStyles === 'object'){
-          Object.keys(state.summaryStyles).forEach(k => {
-            state.summaryStyles[k] = Object.assign({}, state.summaryStyles[k] || {}, { color: next });
-          });
+    const traceIndex = opts.traceIndex != null
+      ? String(opts.traceIndex)
+      : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null);
+    const sourceLine = (target && String(target.tagName || '').toLowerCase() === 'line')
+      ? target
+      : (target.querySelector ? (target.querySelector('line[data-summary-line="1"]') || target) : target);
+    const resolveSummaryTargets = scopeValue => {
+      const doc = global.document;
+      const plot = doc ? doc.getElementById('boxPlot') : null;
+      if(!plot){
+        return sourceLine ? [sourceLine] : [];
+      }
+      if(scopeValue === 'trace' && traceIndex != null){
+        return Array.from(plot.querySelectorAll(`g[data-trace="${traceIndex}"] line[data-summary-line="1"]`));
+      }
+      return Array.from(plot.querySelectorAll('line[data-summary-line="1"]'));
+    };
+    const applyPatternToNodes = (nodes, width, patternValue) => {
+      const attrs = getSummaryStrokePatternAttrs(width, patternValue);
+      nodes.forEach(node => {
+        if(!node){ return; }
+        if(attrs['stroke-dasharray']){
+          node.setAttribute('stroke-dasharray', attrs['stroke-dasharray']);
+        }else{
+          node.removeAttribute('stroke-dasharray');
         }
-        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
-      }
-    });
-    colorInput.addEventListener('change', () => {
-      if(scopeSelect.value === 'global'){
-        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { color: colorInput.value });
-        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
-      }else if(traceIndex != null){
-        persistBoxSummaryStyle(traceIndex, { color: colorInput.value });
-      }
-    });
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
-    }
-    const colorLabel = makeInput('Color', colorInput);
-    colorLabel.classList.add('workspace-toolbar__input--color');
-    wrap.appendChild(colorLabel);
-
-    // Thickness
-    const thicknessInput = doc.createElement('input');
-    thicknessInput.type = 'number';
-    thicknessInput.min = '0.2';
-    thicknessInput.step = '0.1';
-    const derivedThickness = Number.isFinite(Number(persisted?.thickness))
-      ? Number(persisted.thickness)
-      : Number(target.getAttribute('stroke-width'));
-    if(Number.isFinite(derivedThickness)){
-      thicknessInput.value = String(derivedThickness);
-    }
-    thicknessInput.addEventListener('input', () => {
-      const numeric = Number(thicknessInput.value);
-      const value = Number.isFinite(numeric) ? Math.max(0.2, numeric) : 0.2;
-      resolveTargets().forEach(node => node.setAttribute('stroke-width', String(value)));
-    });
-    thicknessInput.addEventListener('change', () => {
-      const numeric = Number(thicknessInput.value);
-      const normalized = Number.isFinite(numeric) ? Math.max(0.2, numeric) : null;
-      if(scopeSelect.value === 'global'){
-        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { thickness: normalized });
-        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
-        if(state.summaryStyles && typeof state.summaryStyles === 'object'){
-          Object.keys(state.summaryStyles).forEach(k => {
-            state.summaryStyles[k] = Object.assign({}, state.summaryStyles[k] || {}, { thickness: normalized });
-          });
+        if(attrs['stroke-linecap']){
+          node.setAttribute('stroke-linecap', attrs['stroke-linecap']);
         }
-      }else if(traceIndex != null){
-        persistBoxSummaryStyle(traceIndex, { thickness: normalized });
+      });
+    };
+    const resolveScope = ctx => {
+      const requested = ctx?.scope === 'global' ? 'global' : 'trace';
+      if(requested === 'trace' && traceIndex == null){
+        return 'global';
       }
-    });
-    wrap.appendChild(makeInput('Thickness', thicknessInput));
-
-    // Transparency: slider indicates transparency (0 = opaque, 100 = fully transparent)
-    const opacityInput = doc.createElement('input');
-    opacityInput.type = 'range';
-    opacityInput.min = '0';
-    opacityInput.max = '100';
-    opacityInput.step = '1';
-    const initialOpacity = clampSummaryOpacity(persisted?.opacity);
-    const derivedOpacity = initialOpacity != null
-      ? initialOpacity
-      : clampSummaryOpacity(target.getAttribute('stroke-opacity'));
-    const initialTransparency = Number.isFinite(derivedOpacity) ? Math.round((1 - derivedOpacity) * 100) : 0;
-    const opacityValue = doc.createElement('span');
-    opacityValue.className = 'workspace-toolbar__input-value';
-    opacityInput.value = String(initialTransparency);
-    opacityValue.textContent = `${opacityInput.value}%`;
-    let pendingSummaryOpacity = null;
-    const applySummaryOpacityLive = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(() => {
-          if(pendingSummaryOpacity == null){ return; }
-          resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(pendingSummaryOpacity)));
-        })
-      : null;
-    opacityInput.addEventListener('input', () => {
-      const pct = Number(opacityInput.value);
-      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-      const transparency = bounded / 100;
-      const normalized = 1 - transparency;
-      pendingSummaryOpacity = normalized;
-      if(scopeSelect.value === 'global'){
-        scheduleBoxGlobalOpacityApply(normalized);
-      }else if(applySummaryOpacityLive){
-        applySummaryOpacityLive();
-      }else{
-        resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(normalized)));
+      return requested;
+    };
+    const resolveStyle = scopeValue => {
+      if(scopeValue === 'trace' && traceIndex != null){
+        return getSummaryStyle(traceIndex) || null;
       }
-      opacityValue.textContent = `${Math.round(bounded)}%`;
-    });
-    opacityInput.addEventListener('change', () => {
-      const pct = Number(opacityInput.value);
-      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-      const normalized = 1 - (bounded / 100);
-      if(scopeSelect.value === 'global'){
-        scheduleBoxGlobalOpacityApply(normalized);
-        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { opacity: normalized });
-        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
-        if(state.summaryStyles && typeof state.summaryStyles === 'object'){
-          Object.keys(state.summaryStyles).forEach(k => {
-            state.summaryStyles[k] = Object.assign({}, state.summaryStyles[k] || {}, { opacity: normalized });
-          });
+      return state.summaryGlobalStyle || null;
+    };
+    const applyPatch = (patch, scopeValue) => {
+      if(scopeValue === 'trace' && traceIndex != null){
+        persistBoxSummaryStyle(traceIndex, patch);
+        return;
+      }
+      state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, patch);
+      state.summaryStyles = state.summaryStyles || {};
+      Object.keys(state.summaryStyles).forEach(key => {
+        state.summaryStyles[key] = Object.assign({}, state.summaryStyles[key] || {}, patch);
+      });
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+    additionalLineControls.show({
+      scopeId: 'box',
+      target,
+      host: opts.host || undefined,
+      appendToHost: opts.appendToHost === true,
+      clearHost: opts.appendToHost === true ? false : undefined,
+      skipHideAll: opts.skipHideAll === true,
+      keepOpenWithinHost: opts.keepOpenWithinHost === true,
+      keepHostVisible: opts.keepHostVisible === true,
+      hostClass: opts.hostClass || undefined,
+      hostDisplay: opts.hostDisplay || undefined,
+      controls: {
+        showSummary: true,
+        showScope: true,
+        showPattern: true,
+        summaryLabel: 'Summary',
+        scopeLabel: 'Scope',
+        colorLabel: 'Line',
+        thicknessLabel: 'Line width',
+        patternLabel: 'Line pattern',
+        transparencyLabel: 'Line transparency',
+        thicknessMin: 0.2,
+        thicknessStep: 0.1,
+        thicknessMax: 20
+      },
+      scope: {
+        label: 'Scope',
+        options: [
+          { value: 'trace', label: 'Trace', disabled: traceIndex == null },
+          { value: 'global', label: 'Global', disabled: false }
+        ],
+        value: traceIndex != null ? 'trace' : 'global'
+      },
+      getSummary: ctx => {
+        const scopeValue = resolveScope(ctx);
+        if(scopeValue === 'trace' && traceIndex != null){
+          const index = Number(traceIndex);
+          if(Number.isFinite(index)){
+            return `Trace ${index + 1}`;
+          }
+          return 'Trace';
         }
-      }else if(traceIndex != null){
-        persistBoxSummaryStyle(traceIndex, { opacity: normalized });
+        return 'Global';
+      },
+      getColor: ctx => {
+        const style = resolveStyle(resolveScope(ctx));
+        return style?.color || sourceLine.getAttribute('stroke') || '#000000';
+      },
+      getThickness: ctx => {
+        const style = resolveStyle(resolveScope(ctx));
+        if(Number.isFinite(Number(style?.thickness))){
+          return Number(style.thickness);
+        }
+        const attrValue = Number(sourceLine.getAttribute('stroke-width'));
+        return Number.isFinite(attrValue) ? attrValue : 1;
+      },
+      getPattern: ctx => {
+        const style = resolveStyle(resolveScope(ctx));
+        const persistedPattern = style?.pattern ?? style?.linePattern;
+        if(persistedPattern){
+          return sanitizeSummaryLinePattern(persistedPattern);
+        }
+        const node = resolveSummaryTargets(resolveScope(ctx))[0] || sourceLine;
+        return inferSummaryPatternFromNode(node);
+      },
+      getTransparency: ctx => {
+        const style = resolveStyle(resolveScope(ctx));
+        const opacity = clampSummaryOpacity(style?.opacity);
+        if(opacity != null){
+          return Math.round((1 - opacity) * 100);
+        }
+        const node = resolveSummaryTargets(resolveScope(ctx))[0] || sourceLine;
+        const attrOpacity = clampSummaryOpacity(node?.getAttribute ? node.getAttribute('stroke-opacity') : null);
+        return Number.isFinite(attrOpacity) ? Math.round((1 - attrOpacity) * 100) : 0;
+      },
+      onColorInput: (value, ctx) => {
+        const scopeValue = resolveScope(ctx);
+        resolveSummaryTargets(scopeValue).forEach(node => node.setAttribute('stroke', value));
+        applyPatch({ color: value }, scopeValue);
+      },
+      onColorChange: (value, ctx) => {
+        const scopeValue = resolveScope(ctx);
+        resolveSummaryTargets(scopeValue).forEach(node => node.setAttribute('stroke', value));
+        applyPatch({ color: value }, scopeValue);
+      },
+      onThicknessChange: (value, ctx) => {
+        const numeric = Number(value);
+        const normalized = Number.isFinite(numeric) ? Math.max(0.2, numeric) : null;
+        const scopeValue = resolveScope(ctx);
+        const appliedWidth = Number.isFinite(normalized) ? normalized : 0.2;
+        const nodes = resolveSummaryTargets(scopeValue);
+        nodes.forEach(node => node.setAttribute('stroke-width', String(appliedWidth)));
+        const patternValue = sanitizeSummaryLinePattern((resolveStyle(scopeValue)?.pattern ?? resolveStyle(scopeValue)?.linePattern) || inferSummaryPatternFromNode(nodes[0] || sourceLine));
+        applyPatternToNodes(nodes, appliedWidth, patternValue);
+        applyPatch({ thickness: normalized }, scopeValue);
+      },
+      onPatternChange: (value, ctx) => {
+        const scopeValue = resolveScope(ctx);
+        const patternValue = sanitizeSummaryLinePattern(value);
+        const nodes = resolveSummaryTargets(scopeValue);
+        const widthCandidate = Number(resolveStyle(scopeValue)?.thickness);
+        const width = Number.isFinite(widthCandidate)
+          ? Math.max(0.2, widthCandidate)
+          : Math.max(0.2, Number(nodes[0]?.getAttribute?.('stroke-width')) || 0.2);
+        applyPatternToNodes(nodes, width, patternValue);
+        applyPatch({ pattern: patternValue }, scopeValue);
+      },
+      onTransparencyChange: (value, ctx) => {
+        const bounded = Math.min(100, Math.max(0, Number(value) || 0));
+        const opacity = 1 - (bounded / 100);
+        const scopeValue = resolveScope(ctx);
+        resolveSummaryTargets(scopeValue).forEach(node => node.setAttribute('stroke-opacity', String(opacity)));
+        applyPatch({ opacity }, scopeValue);
       }
     });
-    const opacityWrap = doc.createElement('div');
-    opacityWrap.style.display = 'inline-flex';
-    opacityWrap.style.alignItems = 'center';
-    opacityWrap.appendChild(opacityInput);
-    opacityWrap.appendChild(opacityValue);
-    wrap.appendChild(makeInput('Transparency', opacityWrap));
-
-    toolbarHost.appendChild(wrap);
-    toolbarHost.style.display = 'block';
-    toolbarHost.classList.add('font-toolbar-host--visible');
-    const dock = toolbarHost.closest('.workspace-toolbar__dock');
-    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
-
-    try{
-      if(toolbarHost.__boxDocClickHandler){
-        document.removeEventListener('click', toolbarHost.__boxDocClickHandler);
-        toolbarHost.__boxDocClickHandler = null;
-      }
-      const onDocClick = function(evt){
-        try{
-          const tgt = evt && evt.target ? evt.target : null;
-          if(!tgt){ return; }
-          if(toolbarHost.contains(tgt)){ return; }
-          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
-          toolbarHost.classList.remove('font-toolbar-host--visible');
-          toolbarHost.style.display = 'none';
-          try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
-          const d = toolbarHost.closest('.workspace-toolbar__dock');
-          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
-          document.removeEventListener('click', onDocClick);
-          toolbarHost.__boxDocClickHandler = null;
-        }catch(err){ console.warn('box.summary docClick error', err); }
-      };
-      document.addEventListener('click', onDocClick);
-      toolbarHost.__boxDocClickHandler = onDocClick;
-    }catch(err){ console.warn('attach doc click for box summary controls failed', err); }
   }
 
   function showBoxShapeFormatControls(target){
@@ -13277,7 +13380,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           document.addEventListener('mouseup', onUp);
         });
       }
-      const defaultYX = marginLocal.left - (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const yLabelOffsetSpan = (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const defaultYX = marginLocal.left - yLabelOffsetSpan;
       const defaultYY = marginLocal.top + plotHLocal / 2;
       const yLabelPos = state.labelPositions?.yLabel;
       
@@ -13287,7 +13391,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if (yLabelPos) {
         if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
           // Use relative positioning
-          absoluteYTextX = marginLocal.left - (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+          absoluteYTextX = marginLocal.left + yLabelPos.relX * yLabelOffsetSpan;
           absoluteYTextY = marginLocal.top + yLabelPos.relY * plotHLocal;
         } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
@@ -13321,7 +13425,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         Shared.enableLabelDrag(yText, svg, {
           onDragEnd: pos => {
             // Store both absolute and relative positions for yLabel
-            const relX = (pos.x - marginLocal.left) / (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+            const relX = (pos.x - marginLocal.left) / yLabelOffsetSpan;
             const relY = (pos.y - marginLocal.top) / plotHLocal;
             state.labelPositions.yLabel = { 
               x: pos.x, 
@@ -13872,15 +13976,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
             const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
             const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
+            const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
             const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
             const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
             const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (errorBarWidthPx || borderWidthPx || summaryStrokeWidth));
             const summaryStrokeAttrs = width => {
+              const effectiveWidth = Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth);
+              const patternAttrs = getSummaryStrokePatternAttrs(effectiveWidth, summaryPattern);
               const attrs = {
                 stroke: summaryColor,
-                'stroke-width': Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth),
+                'stroke-width': effectiveWidth,
                 'data-summary-line': '1'
               };
+              if(patternAttrs['stroke-dasharray']){
+                attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
+              }
+              if(patternAttrs['stroke-linecap']){
+                attrs['stroke-linecap'] = patternAttrs['stroke-linecap'];
+              }
               if(summaryOpacity !== 1){
                 attrs['stroke-opacity'] = summaryOpacity;
               }
@@ -14989,15 +15102,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
             const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
             const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
+            const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
             const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
             const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
             const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (errorBarWidthPx || borderWidthPx || summaryStrokeWidth));
             const summaryStrokeAttrs = width => {
+              const effectiveWidth = Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth);
+              const patternAttrs = getSummaryStrokePatternAttrs(effectiveWidth, summaryPattern);
               const attrs = {
                 stroke: summaryColor,
-                'stroke-width': Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth),
+                'stroke-width': effectiveWidth,
                 'data-summary-line': '1'
               };
+              if(patternAttrs['stroke-dasharray']){
+                attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
+              }
+              if(patternAttrs['stroke-linecap']){
+                attrs['stroke-linecap'] = patternAttrs['stroke-linecap'];
+              }
               if(summaryOpacity !== 1){
                 attrs['stroke-opacity'] = summaryOpacity;
               }

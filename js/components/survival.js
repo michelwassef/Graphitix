@@ -2794,7 +2794,8 @@
       });
     }
 
-    const defaultYTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const defaultYTitleX = margin.left - yLabelOffsetSpan;
     const defaultYTitleY = margin.top + plotH / 2;
     const yLabelPos = state.labelPositions?.yLabel;
     
@@ -2804,7 +2805,7 @@
     if (yLabelPos) {
       if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
         // Use relative positioning
-        yTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+        yTitleX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
         yTitleY = margin.top + yLabelPos.relY * plotH;
       } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
         // Use absolute positioning (backward compatibility)
@@ -2829,7 +2830,7 @@
       Shared.enableLabelDrag(yTitle, svg, {
         onDragEnd: pos => {
           // Store both absolute and relative positions for yLabel
-          const relX = (pos.x - margin.left) / (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+          const relX = (pos.x - margin.left) / yLabelOffsetSpan;
           const relY = (pos.y - margin.top) / plotH;
           state.labelPositions.yLabel = { 
             x: pos.x, 

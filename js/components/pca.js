@@ -7617,6 +7617,13 @@
       const defaultXLabelX = margin.left + plotW / 2;
       const defaultXLabelY = margin.top + plotH + bottomLayout.titleOffset;
       const xLabelPos = pcaState.labelPositions?.xLabel;
+      const hasCustomXLabelPos = !!(
+        xLabelPos
+        && (
+          (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined)
+          || (xLabelPos.x !== undefined && xLabelPos.y !== undefined)
+        )
+      );
       
       // Convert relative positions to absolute if needed for xLabel
       let absoluteXLabelX = defaultXLabelX;
@@ -7659,7 +7666,7 @@
         });
       }
 
-      if(xTickNodes.length){
+      if(xTickNodes.length && !hasCustomXLabelPos){
         const svgRect = typeof svg?.getBoundingClientRect === 'function' ? svg.getBoundingClientRect() : null;
         const measureBottom = (node) => {
           if(!node){ return null; }
@@ -7705,9 +7712,12 @@
           xAxisText.setAttribute('y', currentY + shift);
           debugLog('Debug: pca x-axis title shifted to avoid tick overlap', { shift, maxTickBottom, titleTop });
         }
+      }else if(xTickNodes.length && hasCustomXLabelPos){
+        debugLog('Debug: pca x-axis title overlap auto-shift skipped (custom position retained)');
       }
 
-      const defaultYLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const defaultYLabelX = margin.left - yLabelOffsetSpan;
       const defaultYLabelY = margin.top + plotH / 2;
       const yLabelPos = pcaState.labelPositions?.yLabel;
       
@@ -7717,7 +7727,7 @@
       if (yLabelPos) {
         if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
           // Use relative positioning
-          absoluteYTextX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+          absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
           absoluteYTextY = margin.top + yLabelPos.relY * plotH;
         } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
@@ -7740,7 +7750,7 @@
         Shared.enableLabelDrag(yAxisText, svg, {
           onDragEnd: pos => {
             // Store both absolute and relative positions for yLabel
-            const relX = (pos.x - margin.left) / (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+            const relX = (pos.x - margin.left) / yLabelOffsetSpan;
             const relY = (pos.y - margin.top) / plotH;
             pcaState.labelPositions.yLabel = { 
               x: pos.x, 

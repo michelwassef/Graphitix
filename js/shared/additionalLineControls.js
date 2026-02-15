@@ -5,14 +5,27 @@
 
   const hostCache = new Map();
   let panelEl = null;
+  let summaryLabelEl = null;
   let summaryValueEl = null;
+  let scopeField = null;
+  let scopeLabelEl = null;
+  let scopeSelect = null;
+  let thicknessField = null;
+  let thicknessLabelEl = null;
   let thicknessInput = null;
+  let colorField = null;
+  let colorLabelEl = null;
   let colorInput = null;
+  let patternField = null;
+  let patternLabelEl = null;
   let patternSelect = null;
+  let transparencyField = null;
+  let transparencyLabelEl = null;
   let transparencyInput = null;
   let transparencyValueEl = null;
   let activeConfig = null;
   let activeHost = null;
+  let activeScope = null;
   let hasDocListener = false;
   let applyingFromUndo = false;
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -36,7 +49,7 @@
       return null;
     }
     const numeric = Number(value);
-    if(!Number.isFinite(numeric) || numeric <= 0){
+    if(!Number.isFinite(numeric) || numeric < 0){
       return null;
     }
     return numeric;
@@ -114,9 +127,47 @@
     return null;
   }
 
-  function formatSummary(config){
+  function getContext(scopeOverride){
+    const scope = scopeOverride == null ? activeScope : scopeOverride;
+    return {
+      scope: scope || null,
+      target: activeConfig?.target || null
+    };
+  }
+
+  function resolveControls(config){
+    const controls = (config && typeof config.controls === 'object') ? config.controls : {};
+    return {
+      showSummary: controls.showSummary !== false,
+      showScope: controls.showScope !== false,
+      showColor: controls.showColor !== false,
+      showThickness: controls.showThickness !== false,
+      showPattern: controls.showPattern !== false,
+      showTransparency: controls.showTransparency !== false,
+      summaryLabel: controls.summaryLabel || 'Line',
+      scopeLabel: controls.scopeLabel || (config?.scope?.label || 'Scope'),
+      colorLabel: controls.colorLabel || 'Color',
+      thicknessLabel: controls.thicknessLabel || 'Thickness',
+      patternLabel: controls.patternLabel || 'Pattern',
+      transparencyLabel: controls.transparencyLabel || 'Transparency',
+      thicknessMin: Number.isFinite(Number(controls.thicknessMin)) ? Number(controls.thicknessMin) : 0,
+      thicknessMax: Number.isFinite(Number(controls.thicknessMax)) ? Number(controls.thicknessMax) : 10,
+      thicknessStep: Number.isFinite(Number(controls.thicknessStep)) && Number(controls.thicknessStep) > 0 ? Number(controls.thicknessStep) : 0.25
+    };
+  }
+
+  function formatSummary(config, context){
+    if(config && typeof config.getSummary === 'function'){
+      const custom = config.getSummary(context);
+      if(custom != null){
+        const text = String(custom).trim();
+        if(text){
+          return text;
+        }
+      }
+    }
     const axis = (config?.axis || '').toUpperCase() || '?';
-    const rawValue = config && typeof config.getValue === 'function' ? Number(config.getValue()) : NaN;
+    const rawValue = config && typeof config.getValue === 'function' ? Number(config.getValue(context)) : NaN;
     if(Number.isFinite(rawValue)){
       return `${axis} @ ${Number.parseFloat(rawValue.toPrecision(6))}`;
     }
@@ -127,15 +178,57 @@
     if(!panelEl || !config || !thicknessInput || !colorInput || !patternSelect || !transparencyInput){
       return;
     }
+    const context = getContext();
+    const controls = resolveControls(config);
     if(summaryValueEl){
-      summaryValueEl.textContent = formatSummary(config);
+      summaryValueEl.textContent = formatSummary(config, context);
     }
-    const thicknessValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
-    thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
-    const colorValue = sanitizeColorValue(config.getColor ? config.getColor() : null);
+    if(summaryLabelEl){
+      summaryLabelEl.textContent = controls.summaryLabel;
+      if(summaryLabelEl.parentElement){
+        summaryLabelEl.parentElement.hidden = !controls.showSummary;
+      }
+    }
+    if(scopeLabelEl){
+      scopeLabelEl.textContent = controls.scopeLabel;
+    }
+    if(thicknessLabelEl){
+      thicknessLabelEl.textContent = controls.thicknessLabel;
+    }
+    if(colorLabelEl){
+      colorLabelEl.textContent = controls.colorLabel;
+    }
+    if(patternLabelEl){
+      patternLabelEl.textContent = controls.patternLabel;
+    }
+    if(transparencyLabelEl){
+      transparencyLabelEl.textContent = controls.transparencyLabel;
+    }
+    if(scopeField){
+      const hasScopeOptions = !!(scopeSelect && scopeSelect.options && scopeSelect.options.length > 0);
+      scopeField.hidden = !controls.showScope || !hasScopeOptions;
+    }
+    if(thicknessField){
+      thicknessField.hidden = !controls.showThickness;
+    }
+    if(colorField){
+      colorField.hidden = !controls.showColor;
+    }
+    if(patternField){
+      patternField.hidden = !controls.showPattern;
+    }
+    if(transparencyField){
+      transparencyField.hidden = !controls.showTransparency;
+    }
+    const thicknessValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
+    thicknessInput.min = String(controls.thicknessMin);
+    thicknessInput.max = String(controls.thicknessMax);
+    thicknessInput.step = String(controls.thicknessStep);
+    thicknessInput.value = thicknessValue === null ? '' : String(Math.max(controls.thicknessMin, thicknessValue));
+    const colorValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
     colorInput.value = toColorInputValue(colorValue);
-    patternSelect.value = sanitizePatternValue(config.getPattern ? config.getPattern() : 'dotted');
-    const transparencyValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency() : 0);
+    patternSelect.value = sanitizePatternValue(config.getPattern ? config.getPattern(context) : 'dotted');
+    const transparencyValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency(context) : 0);
     transparencyInput.value = String(Math.round(transparencyValue));
     if(transparencyValueEl){
       transparencyValueEl.textContent = `${Math.round(transparencyValue)}%`;
@@ -157,6 +250,7 @@
     if(compare(previousValue, nextValue)){ return; }
     const parts = ['additionalLine'];
     if(config?.scopeId){ parts.push(config.scopeId); }
+    if(activeScope){ parts.push(String(activeScope)); }
     if(config?.axis){ parts.push(config.axis); }
     if(Number.isInteger(config?.index)){ parts.push(String(config.index)); }
     parts.push(type);
@@ -199,6 +293,7 @@
     global.document.addEventListener('click', evt => {
       if(!panelEl || panelEl.dataset.open !== '1'){ return; }
       if(panelEl.contains(evt.target)){ return; }
+      if(activeConfig?.keepOpenWithinHost && activeHost && activeHost.contains && activeHost.contains(evt.target)){ return; }
       if(evt.target?.dataset?.additionalLineControl === '1'){ return; }
       if(evt.target?.closest && evt.target.closest('.shared-color-picker')){ return; }
       closePanel('outside');
@@ -290,42 +385,54 @@
 
     const summary = doc.createElement('div');
     summary.className = 'additional-line-controls-panel__summary';
-    const summaryLabel = doc.createElement('span');
-    summaryLabel.className = 'additional-line-controls-panel__summary-label';
-    summaryLabel.textContent = 'Line';
+    summaryLabelEl = doc.createElement('span');
+    summaryLabelEl.className = 'additional-line-controls-panel__summary-label';
+    summaryLabelEl.textContent = 'Line';
     summaryValueEl = doc.createElement('span');
     summaryValueEl.className = 'additional-line-controls-panel__summary-value';
-    summary.appendChild(summaryLabel);
+    summary.appendChild(summaryLabelEl);
     summary.appendChild(summaryValueEl);
     panelEl.appendChild(summary);
 
-    const thicknessField = doc.createElement('label');
+    scopeField = doc.createElement('label');
+    scopeField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--scope';
+    scopeLabelEl = doc.createElement('span');
+    scopeLabelEl.className = 'additional-line-controls-panel__field-label';
+    scopeLabelEl.textContent = 'Scope';
+    scopeSelect = doc.createElement('select');
+    scopeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
+    scopeSelect.setAttribute('data-undo-ignore','1');
+    scopeField.appendChild(scopeLabelEl);
+    scopeField.appendChild(scopeSelect);
+    scopeField.hidden = true;
+    panelEl.appendChild(scopeField);
+
+    thicknessField = doc.createElement('label');
     thicknessField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric';
-    const thicknessLabel = doc.createElement('span');
-    thicknessLabel.className = 'additional-line-controls-panel__field-label';
-    thicknessLabel.textContent = 'Thickness';
+    thicknessLabelEl = doc.createElement('span');
+    thicknessLabelEl.className = 'additional-line-controls-panel__field-label';
+    thicknessLabelEl.textContent = 'Thickness';
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
-    thicknessInput.min = '0.25';
+    thicknessInput.min = '0';
     thicknessInput.max = '10';
     thicknessInput.step = '0.25';
-    thicknessInput.placeholder = 'Auto';
     thicknessInput.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small';
     thicknessInput.setAttribute('data-undo-ignore','1');
-    thicknessField.appendChild(thicknessLabel);
+    thicknessField.appendChild(thicknessLabelEl);
     thicknessField.appendChild(thicknessInput);
     panelEl.appendChild(thicknessField);
 
-    const colorField = doc.createElement('label');
+    colorField = doc.createElement('label');
     colorField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--color';
-    const colorLabel = doc.createElement('span');
-    colorLabel.className = 'additional-line-controls-panel__field-label';
-    colorLabel.textContent = 'Color';
+    colorLabelEl = doc.createElement('span');
+    colorLabelEl.className = 'additional-line-controls-panel__field-label';
+    colorLabelEl.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'additional-line-controls-panel__color-input';
     colorInput.setAttribute('data-undo-ignore','1');
-    colorField.appendChild(colorLabel);
+    colorField.appendChild(colorLabelEl);
     colorField.appendChild(colorInput);
     panelEl.appendChild(colorField);
 
@@ -333,11 +440,11 @@
       Shared.attachColorPickerNear(colorInput);
     }
 
-    const patternField = doc.createElement('label');
+    patternField = doc.createElement('label');
     patternField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern';
-    const patternLabel = doc.createElement('span');
-    patternLabel.className = 'additional-line-controls-panel__field-label';
-    patternLabel.textContent = 'Pattern';
+    patternLabelEl = doc.createElement('span');
+    patternLabelEl.className = 'additional-line-controls-panel__field-label';
+    patternLabelEl.textContent = 'Pattern';
     patternSelect = doc.createElement('select');
     patternSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
     patternSelect.setAttribute('data-undo-ignore','1');
@@ -352,15 +459,15 @@
       optionEl.textContent = opt.label;
       patternSelect.appendChild(optionEl);
     });
-    patternField.appendChild(patternLabel);
+    patternField.appendChild(patternLabelEl);
     patternField.appendChild(patternSelect);
     panelEl.appendChild(patternField);
 
-    const transparencyField = doc.createElement('label');
+    transparencyField = doc.createElement('label');
     transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
-    const transparencyLabel = doc.createElement('span');
-    transparencyLabel.className = 'additional-line-controls-panel__field-label';
-    transparencyLabel.textContent = 'Transparency';
+    transparencyLabelEl = doc.createElement('span');
+    transparencyLabelEl.className = 'additional-line-controls-panel__field-label';
+    transparencyLabelEl.textContent = 'Transparency';
     const transparencyWrap = doc.createElement('div');
     transparencyWrap.className = 'additional-line-controls-panel__range';
     transparencyInput = doc.createElement('input');
@@ -375,43 +482,92 @@
     transparencyValueEl.textContent = '0%';
     transparencyWrap.appendChild(transparencyInput);
     transparencyWrap.appendChild(transparencyValueEl);
-    transparencyField.appendChild(transparencyLabel);
+    transparencyField.appendChild(transparencyLabelEl);
     transparencyField.appendChild(transparencyWrap);
     panelEl.appendChild(transparencyField);
 
-    thicknessInput.addEventListener('change', () => {
+    scopeSelect.addEventListener('change', () => {
+      if(!activeConfig){ return; }
+      activeScope = scopeSelect.value || null;
+      const scopeCfg = activeConfig.scope;
+      if(scopeCfg && typeof scopeCfg.onChange === 'function'){
+        try{ scopeCfg.onChange(activeScope, getContext()); }catch(err){}
+      }
+      syncPanelInputsFromConfig(activeConfig);
+    });
+
+    const applyThicknessFromInput = (recordUndo) => {
       if(applyingFromUndo){ return; }
       if(!activeConfig || typeof activeConfig.onThicknessChange !== 'function'){ return; }
       const config = activeConfig;
-      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
-      const requested = sanitizeThicknessValue(thicknessInput.value);
-      config.onThicknessChange(requested);
-      const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
+      const context = getContext();
+      const controls = resolveControls(config);
+      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
+      const requestedRaw = sanitizeThicknessValue(thicknessInput.value);
+      const requested = requestedRaw == null ? null : Math.max(controls.thicknessMin, requestedRaw);
+      config.onThicknessChange(requested, context);
+      const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
       syncPanelInputsFromConfig(config);
-      recordStyleStateChange(
-        config,
-        'thickness',
-        previousValue,
-        nextValue,
-        value => config.onThicknessChange(sanitizeThicknessValue(value))
-      );
-    });
+      if(recordUndo){
+        const scopeSnapshot = context.scope;
+        recordStyleStateChange(
+          config,
+          'thickness',
+          previousValue,
+          nextValue,
+          value => {
+            const normalizedRaw = sanitizeThicknessValue(value);
+            const normalized = normalizedRaw == null ? null : Math.max(controls.thicknessMin, normalizedRaw);
+            config.onThicknessChange(normalized, getContext(scopeSnapshot));
+          }
+        );
+      }
+    };
+    thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
+    thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
 
     colorInput.addEventListener('input', () => {
       if(applyingFromUndo){ return; }
-      if(!activeConfig || typeof activeConfig.onColorChange !== 'function'){ return; }
+      if(!activeConfig || (typeof activeConfig.onColorChange !== 'function' && typeof activeConfig.onColorInput !== 'function')){ return; }
       const config = activeConfig;
-      const previousValue = sanitizeColorValue(config.getColor ? config.getColor() : null);
+      const context = getContext();
+      const previousValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
       const requested = sanitizeColorValue(colorInput.value || null);
-      config.onColorChange(requested);
-      const nextValue = sanitizeColorValue(config.getColor ? config.getColor() : null);
+      if(typeof config.onColorInput === 'function'){
+        config.onColorInput(requested, context);
+      }else{
+        config.onColorChange(requested, context);
+      }
+      const nextValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
+      const scopeSnapshot = context.scope;
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
         'color',
         previousValue,
         nextValue,
-        value => config.onColorChange(sanitizeColorValue(value)),
+        value => config.onColorChange(sanitizeColorValue(value), getContext(scopeSnapshot)),
+        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
+      );
+    });
+
+    colorInput.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
+      if(!activeConfig || typeof activeConfig.onColorChange !== 'function'){ return; }
+      const config = activeConfig;
+      const context = getContext();
+      const previousValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
+      const requested = sanitizeColorValue(colorInput.value || null);
+      config.onColorChange(requested, context);
+      const nextValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
+      const scopeSnapshot = context.scope;
+      syncPanelInputsFromConfig(config);
+      recordStyleStateChange(
+        config,
+        'color',
+        previousValue,
+        nextValue,
+        value => config.onColorChange(sanitizeColorValue(value), getContext(scopeSnapshot)),
         (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
       );
     });
@@ -420,17 +576,19 @@
       if(applyingFromUndo){ return; }
       if(!activeConfig || typeof activeConfig.onPatternChange !== 'function'){ return; }
       const config = activeConfig;
-      const previousValue = sanitizePatternValue(config.getPattern ? config.getPattern() : null);
+      const context = getContext();
+      const previousValue = sanitizePatternValue(config.getPattern ? config.getPattern(context) : null);
       const requested = sanitizePatternValue(patternSelect.value);
-      config.onPatternChange(requested);
-      const nextValue = sanitizePatternValue(config.getPattern ? config.getPattern() : requested);
+      config.onPatternChange(requested, context);
+      const nextValue = sanitizePatternValue(config.getPattern ? config.getPattern(context) : requested);
+      const scopeSnapshot = context.scope;
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
         'pattern',
         previousValue,
         nextValue,
-        value => config.onPatternChange(sanitizePatternValue(value))
+        value => config.onPatternChange(sanitizePatternValue(value), getContext(scopeSnapshot))
       );
     });
 
@@ -438,17 +596,19 @@
       if(applyingFromUndo){ return; }
       if(!activeConfig || typeof activeConfig.onTransparencyChange !== 'function'){ return; }
       const config = activeConfig;
-      const previousValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency() : 0);
+      const context = getContext();
+      const previousValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency(context) : 0);
       const requested = sanitizeTransparencyValue(transparencyInput.value);
-      config.onTransparencyChange(requested);
-      const nextValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency() : requested);
+      config.onTransparencyChange(requested, context);
+      const nextValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency(context) : requested);
+      const scopeSnapshot = context.scope;
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
         'transparency',
         previousValue,
         nextValue,
-        value => config.onTransparencyChange(sanitizeTransparencyValue(value))
+        value => config.onTransparencyChange(sanitizeTransparencyValue(value), getContext(scopeSnapshot))
       );
     });
 
@@ -509,7 +669,7 @@
       ? new MutationObserver(() => { updateOverlayBounds(element, overlay, padding); })
       : null;
     if(observer){
-      observer.observe(element, { attributes: true, attributeFilter: ['x1','y1','x2','y2','transform','x','y','width','height'] });
+      observer.observe(element, { attributes: true, attributeFilter: ['x1','y1','x2','y2','transform','x','y','width','height','d'] });
     }
     let removalObserver = null;
     if(parent && typeof MutationObserver === 'function'){
@@ -547,14 +707,20 @@
     panelEl.dataset.open = '0';
     if(activeHost){
       activeHost.classList.remove('font-toolbar-host--additional-line');
+      if(typeof activeConfig?.hostClass === 'string' && activeConfig.hostClass){
+        activeHost.classList.remove(activeConfig.hostClass);
+      }
       const fontPanel = activeHost.querySelector('.font-controls-panel');
       const axisPanel = activeHost.querySelector('.axis-controls-panel');
       const significancePanel = activeHost.querySelector('.significance-controls-panel');
       const dendrogramPanel = activeHost.querySelector('.dendrogram-controls-panel');
+      const hasEmbeddedForm = !!activeHost.querySelector('.workspace-toolbar__form, .box-point-controls, [data-point-controls=\"1\"]');
       if((!fontPanel || fontPanel.dataset.open !== '1')
         && (!axisPanel || axisPanel.dataset.open !== '1')
         && (!significancePanel || significancePanel.dataset.open !== '1')
-        && (!dendrogramPanel || dendrogramPanel.dataset.open !== '1')){
+        && (!dendrogramPanel || dendrogramPanel.dataset.open !== '1')
+        && !hasEmbeddedForm
+        && !activeConfig?.keepHostVisible){
         activeHost.classList.remove('font-toolbar-host--visible');
         activeHost.style.display = 'none';
         updateDockActiveState(activeHost, false);
@@ -563,16 +729,19 @@
     logDebug('panel closed',{ reason });
     activeConfig = null;
     activeHost = null;
+    activeScope = null;
   }
 
   function openPanel(config){
     ensurePanel();
-    if(!panelEl){ return; }
-    try{
-      if(Shared && typeof Shared.hideAllFormatControls === 'function'){
-        try{ Shared.hideAllFormatControls(); }catch(e){}
-      }
-    }catch(e){}
+    if(!panelEl || !config){ return; }
+    if(config.skipHideAll !== true){
+      try{
+        if(Shared && typeof Shared.hideAllFormatControls === 'function'){
+          try{ Shared.hideAllFormatControls(); }catch(e){}
+        }
+      }catch(e){}
+    }
     try{
       const dendrogramControls = global.Shared?.dendrogramControls;
       if(dendrogramControls && typeof dendrogramControls.close === 'function'){
@@ -582,18 +751,47 @@
       logDebug('dendrogram close failed',{ error: err?.message || String(err) });
     }
     activeConfig = config;
-    const host = resolveToolbarHost(config.scopeId);
+
+    if(scopeSelect){
+      scopeSelect.innerHTML = '';
+      const scopeCfg = config.scope && typeof config.scope === 'object' ? config.scope : null;
+      const options = Array.isArray(scopeCfg?.options) ? scopeCfg.options : [];
+      options.forEach(option => {
+        const opt = scopeSelect.ownerDocument.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label || option.value;
+        opt.disabled = !!option.disabled;
+        scopeSelect.appendChild(opt);
+      });
+      if(scopeSelect.options.length){
+        const preferred = typeof scopeCfg?.value === 'string' ? scopeCfg.value : scopeSelect.options[0].value;
+        scopeSelect.value = preferred;
+        activeScope = scopeSelect.value || null;
+      }else{
+        activeScope = null;
+      }
+    }
+
+    const host = config.host || resolveToolbarHost(config.scopeId);
     if(host){
-      try{
-        host.querySelectorAll('.workspace-toolbar__form, .box-point-controls, [data-point-controls="1"]').forEach(n => n.remove());
-      }catch(e){}
+      if(config.clearHost === true || (config.appendToHost !== true && config.clearHost !== false)){
+        try{
+          host.querySelectorAll('.workspace-toolbar__form, .box-point-controls, [data-point-controls="1"]').forEach(n => n.remove());
+        }catch(e){}
+      }
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      host.style.display = 'block';
+      const requestedHostDisplay = typeof config.hostDisplay === 'string' && config.hostDisplay.trim()
+        ? config.hostDisplay.trim()
+        : 'block';
+      host.style.display = requestedHostDisplay;
       host.classList.add('font-toolbar-host--visible');
       host.classList.add('font-toolbar-host--additional-line');
+      if(typeof config.hostClass === 'string' && config.hostClass){
+        host.classList.add(config.hostClass);
+      }
       updateDockActiveState(host, true);
       activeHost = host;
     }else{
@@ -611,34 +809,25 @@
     if(!element || !config){ return; }
     element.dataset.additionalLineControl = '1';
     element.style.cursor = 'pointer';
-    const overlayInfo = ensureLineOverlay(element);
+    element.__additionalLineControlConfig = config;
+    const overlayInfo = config.disableOverlay ? null : ensureLineOverlay(element);
     const handler = evt => {
       evt.preventDefault();
       evt.stopPropagation();
-      logDebug('line clicked',{ scopeId: config.scopeId, axis: config.axis, index: config.index });
-      openPanel({
-        scopeId: config.scopeId,
-        undoScope: config.undoScope,
-        axis: config.axis,
-        index: config.index,
-        getValue: config.getValue,
-        getColor: config.getColor,
-        getThickness: config.getThickness,
-        getPattern: config.getPattern,
-        getTransparency: config.getTransparency,
-        onColorChange: config.onColorChange,
-        onThicknessChange: config.onThicknessChange,
-        onPatternChange: config.onPatternChange,
-        onTransparencyChange: config.onTransparencyChange
-      });
+      const liveConfig = element.__additionalLineControlConfig || config;
+      logDebug('line clicked',{ scopeId: liveConfig.scopeId, axis: liveConfig.axis, index: liveConfig.index });
+      openPanel(Object.assign({}, liveConfig, { target: element }));
     };
     if(!element.__additionalLineControlHandler){
       element.addEventListener('click', handler);
       element.__additionalLineControlHandler = handler;
     }
-    if(overlayInfo && !overlayInfo.element.__additionalLineControlHandler){
-      overlayInfo.element.addEventListener('click', handler);
-      overlayInfo.element.__additionalLineControlHandler = handler;
+    if(overlayInfo){
+      overlayInfo.element.__additionalLineControlConfig = config;
+      if(!overlayInfo.element.__additionalLineControlHandler){
+        overlayInfo.element.addEventListener('click', handler);
+        overlayInfo.element.__additionalLineControlHandler = handler;
+      }
     }
   }
 
@@ -646,4 +835,6 @@
   additionalLineControls.registerAdditionalLineElement = registerAdditionalLineElement;
   additionalLineControls.close = closePanel;
   additionalLineControls.updateOverlayBounds = updateOverlayBounds;
+  additionalLineControls.show = openPanel;
+  additionalLineControls.refresh = () => syncPanelInputsFromConfig(activeConfig);
 })(typeof window !== 'undefined' ? window : globalThis);

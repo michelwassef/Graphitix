@@ -16,6 +16,13 @@
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/additionalLineControls.js');
+    }catch(err){
+      console.debug('Debug: scatter component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const formControls = Shared.formControls = Shared.formControls || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
@@ -261,6 +268,56 @@
     shapesValid: false
   };
   let scatterLabelStyles = {};
+  const SCATTER_OVERLAY_STYLE_DEFAULTS = Object.freeze({
+    trend: Object.freeze({ color: '#d00', thickness: 1.5, transparency: 0 }),
+    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85 }),
+    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92 })
+  });
+  function cloneScatterOverlayStyleDefaults(){
+    return {
+      trend: { ...SCATTER_OVERLAY_STYLE_DEFAULTS.trend },
+      confidence: { ...SCATTER_OVERLAY_STYLE_DEFAULTS.confidence },
+      prediction: { ...SCATTER_OVERLAY_STYLE_DEFAULTS.prediction }
+    };
+  }
+  function sanitizeScatterOverlayKey(key){
+    const normalized = String(key || '').trim().toLowerCase();
+    if(normalized === 'trend' || normalized === 'confidence' || normalized === 'prediction'){
+      return normalized;
+    }
+    return null;
+  }
+  function sanitizeScatterOverlayStyleEntry(entry, key){
+    const safeKey = sanitizeScatterOverlayKey(key);
+    if(!safeKey){
+      return null;
+    }
+    const fallback = SCATTER_OVERLAY_STYLE_DEFAULTS[safeKey] || SCATTER_OVERLAY_STYLE_DEFAULTS.trend;
+    const next = entry && typeof entry === 'object' ? entry : {};
+    const color = typeof next.color === 'string' && next.color.trim()
+      ? next.color.trim()
+      : fallback.color;
+    const thicknessRaw = Number(next.thickness);
+    const thickness = Number.isFinite(thicknessRaw)
+      ? Math.max(0, thicknessRaw)
+      : fallback.thickness;
+    const transparencyRaw = Number(next.transparency);
+    const transparency = Number.isFinite(transparencyRaw)
+      ? Math.min(100, Math.max(0, transparencyRaw))
+      : fallback.transparency;
+    return { color, thickness, transparency };
+  }
+  function sanitizeScatterOverlayStylesMap(value){
+    const defaults = cloneScatterOverlayStyleDefaults();
+    if(!value || typeof value !== 'object'){
+      return defaults;
+    }
+    Object.keys(defaults).forEach(key => {
+      defaults[key] = sanitizeScatterOverlayStyleEntry(value[key], key) || defaults[key];
+    });
+    return defaults;
+  }
+  let scatterOverlayStyles = cloneScatterOverlayStyleDefaults();
   const scatterRowSelectionsByTab = new Map();
   const scatterThresholdSelectionsByTab = new Map();
   let scatterSelectionSyncInProgress = false;
@@ -294,6 +351,29 @@
   function clampScatterBorderWidth(value){
     const numeric = Number(value);
     return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+  }
+  function getScatterOverlayStyle(key){
+    const safeKey = sanitizeScatterOverlayKey(key);
+    if(!safeKey){
+      return null;
+    }
+    return sanitizeScatterOverlayStyleEntry(scatterOverlayStyles?.[safeKey], safeKey)
+      || sanitizeScatterOverlayStyleEntry(SCATTER_OVERLAY_STYLE_DEFAULTS[safeKey], safeKey);
+  }
+  function updateScatterOverlayStyle(key, patch){
+    const safeKey = sanitizeScatterOverlayKey(key);
+    if(!safeKey){
+      return;
+    }
+    const previous = getScatterOverlayStyle(safeKey) || sanitizeScatterOverlayStyleEntry(null, safeKey);
+    const merged = sanitizeScatterOverlayStyleEntry(Object.assign({}, previous || {}, patch || {}), safeKey);
+    if(!merged){
+      return;
+    }
+    scatterOverlayStyles = scatterOverlayStyles && typeof scatterOverlayStyles === 'object'
+      ? scatterOverlayStyles
+      : cloneScatterOverlayStyleDefaults();
+    scatterOverlayStyles[safeKey] = merged;
   }
   function getScatterLabelStyle(label){
     if(!label){ return null; }
@@ -3257,6 +3337,61 @@
     if(!target){ return; }
     try{ evt.stopPropagation(); }catch(e){}
     showScatterFormatControls(target);
+  }
+
+  function registerScatterOverlayControlElement(element, overlayKey){
+    if(!element || !additionalLineControls || typeof additionalLineControls.registerAdditionalLineElement !== 'function'){
+      return;
+    }
+    const safeKey = sanitizeScatterOverlayKey(overlayKey);
+    if(!safeKey){
+      return;
+    }
+    const isBand = safeKey === 'confidence' || safeKey === 'prediction';
+    const overlayLabel = safeKey === 'trend'
+      ? 'Trend line'
+      : (safeKey === 'confidence' ? 'Confidence interval' : 'Prediction interval');
+    additionalLineControls.registerAdditionalLineElement(element, {
+      scopeId: 'scatter',
+      axis: 'overlay',
+      index: safeKey === 'trend' ? 0 : (safeKey === 'confidence' ? 1 : 2),
+      disableOverlay: isBand,
+      getSummary: () => overlayLabel,
+      controls: {
+        showSummary: true,
+        showScope: false,
+        showPattern: false,
+        summaryLabel: 'Overlay',
+        colorLabel: isBand ? 'Fill' : 'Line',
+        thicknessLabel: isBand ? 'Border thickness' : 'Line width',
+        transparencyLabel: isBand ? 'Fill transparency' : 'Line transparency',
+        thicknessMin: 0,
+        thicknessStep: 0.5,
+        thicknessMax: 20
+      },
+      getColor: () => getScatterOverlayStyle(safeKey)?.color,
+      getThickness: () => getScatterOverlayStyle(safeKey)?.thickness,
+      getTransparency: () => getScatterOverlayStyle(safeKey)?.transparency,
+      onColorInput: value => {
+        updateScatterOverlayStyle(safeKey, { color: value });
+        scheduleDrawScatter();
+      },
+      onColorChange: value => {
+        updateScatterOverlayStyle(safeKey, { color: value });
+        scheduleDrawScatter();
+      },
+      onThicknessChange: value => {
+        const numeric = Number(value);
+        updateScatterOverlayStyle(safeKey, { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
+        scheduleDrawScatter();
+      },
+      onTransparencyChange: value => {
+        const numeric = Number(value);
+        const bounded = Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+        updateScatterOverlayStyle(safeKey, { transparency: bounded });
+        scheduleDrawScatter();
+      }
+    });
   }
 
   function showScatterFormatControls(target){
@@ -10548,7 +10683,8 @@
             }
           });
         }
-        const defaultYX = margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+        const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+        const defaultYX = margin.left - yLabelOffsetSpan;
         const defaultYY = margin.top+plotH/2;
         const yLabelPos = scatterLabelPositions?.yLabel;
         
@@ -10558,7 +10694,7 @@
         if (yLabelPos) {
           if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
             // Use relative positioning
-            absoluteYTextX = margin.left - (maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+            absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
             absoluteYTextY = margin.top + yLabelPos.relY * plotH;
           } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
             // Use absolute positioning (backward compatibility)
@@ -10819,7 +10955,7 @@
           Shared.enableLabelDrag(yText, svg, {
             onDragEnd: pos => {
               // Store both absolute and relative positions
-              const relX = (pos.x - margin.left) / (maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+              const relX = (pos.x - margin.left) / yLabelOffsetSpan;
               const relY = (pos.y - margin.top) / plotH;
               scatterLabelPositions.yLabel = { 
                 x: pos.x, 
@@ -10973,23 +11109,43 @@
                 };
                 const confidencePath = drawCI ? buildIntervalPath('ciLow','ciHigh') : null;
                 const predictionPath = drawPI ? buildIntervalPath('piLow','piHigh') : null;
+                const confidenceStyle = getScatterOverlayStyle('confidence');
+                const predictionStyle = getScatterOverlayStyle('prediction');
                 if(confidencePath){
                   const confEl=document.createElementNS(NS,'path');
                   confEl.setAttribute('d',confidencePath);
-                  confEl.setAttribute('fill','#d62728');
-                  confEl.setAttribute('fill-opacity','0.15');
-                  confEl.setAttribute('stroke','none');
+                  confEl.setAttribute('fill',confidenceStyle?.color || '#d62728');
+                  confEl.setAttribute('fill-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
+                  const confidenceThickness = Number(confidenceStyle?.thickness);
+                  if(Number.isFinite(confidenceThickness) && confidenceThickness > 0){
+                    confEl.setAttribute('stroke',confidenceStyle?.color || '#d62728');
+                    confEl.setAttribute('stroke-width',String(confidenceThickness));
+                    confEl.setAttribute('stroke-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
+                  }else{
+                    confEl.setAttribute('stroke','none');
+                  }
                   confEl.dataset.band='confidence';
+                  confEl.dataset.scatterOverlay='confidence';
                   intervalLayer.appendChild(confEl);
+                  registerScatterOverlayControlElement(confEl, 'confidence');
                 }
                 if(predictionPath){
                   const predEl=document.createElementNS(NS,'path');
                   predEl.setAttribute('d',predictionPath);
-                  predEl.setAttribute('fill','#d62728');
-                  predEl.setAttribute('fill-opacity','0.08');
-                  predEl.setAttribute('stroke','none');
+                  predEl.setAttribute('fill',predictionStyle?.color || '#d62728');
+                  predEl.setAttribute('fill-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
+                  const predictionThickness = Number(predictionStyle?.thickness);
+                  if(Number.isFinite(predictionThickness) && predictionThickness > 0){
+                    predEl.setAttribute('stroke',predictionStyle?.color || '#d62728');
+                    predEl.setAttribute('stroke-width',String(predictionThickness));
+                    predEl.setAttribute('stroke-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
+                  }else{
+                    predEl.setAttribute('stroke','none');
+                  }
                   predEl.dataset.band='prediction';
+                  predEl.dataset.scatterOverlay='prediction';
                   intervalLayer.appendChild(predEl);
+                  registerScatterOverlayControlElement(predEl, 'prediction');
                 }
                 debug('Debug: scatter interval shading rendered', {
                   sampleCount: intervalSamples.length,
@@ -11018,9 +11174,21 @@
                 pathCommands.push(command);
               });
               if(pathCommands.length>1){
-                const strokeWidth=chartStyle.scaleStrokeWidth(1.5, styleScaleInfo, { context: 'scatter-trend', min: 0.75 });
-                const path=add('path',{d:pathCommands.join(' '),fill:'none',stroke:'#d00','stroke-width':strokeWidth});
+                const trendStyle = getScatterOverlayStyle('trend');
+                const rawTrendThickness = Number(trendStyle?.thickness);
+                const trendThickness = Number.isFinite(rawTrendThickness) ? Math.max(0, rawTrendThickness) : 1.5;
+                const strokeWidth=chartStyle.scaleStrokeWidth(trendThickness, styleScaleInfo, { context: 'scatter-trend', min: 0 });
+                const trendOpacity = 1 - ((trendStyle?.transparency ?? 0) / 100);
+                const path=add('path',{
+                  d:pathCommands.join(' '),
+                  fill:'none',
+                  stroke: trendStyle?.color || '#d00',
+                  'stroke-width': strokeWidth,
+                  'stroke-opacity': String(Math.min(1, Math.max(0, trendOpacity)))
+                });
                 path.setAttribute('vector-effect','non-scaling-stroke');
+                path.dataset.scatterOverlay='trend';
+                registerScatterOverlayControlElement(path, 'trend');
                 debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
               }else{
                 debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
@@ -11453,6 +11621,7 @@
             labelColors:{ ...scatterLabelColors },
             labelShapes:{ ...scatterLabelShapes },
             labelStyles:{ ...scatterLabelStyles },
+            overlayStyles: sanitizeScatterOverlayStylesMap(scatterOverlayStyles),
             showGrid:scatterShowGrid.checked,
             showFrame:scatterShowFrame.checked,
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
@@ -11641,6 +11810,7 @@
         scatterLabelColors=c.labelColors||{};
         scatterLabelStyles=c.labelStyles||{};
         scatterLabelShapes=c.labelShapes||{};
+        scatterOverlayStyles=sanitizeScatterOverlayStylesMap(c.overlayStyles);
         scatterLabelCache.colorsSet = null;
         scatterLabelCache.shapesSet = null;
         scatterLabelCache.colorsValid = false;
