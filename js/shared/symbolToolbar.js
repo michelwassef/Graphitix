@@ -122,22 +122,34 @@
 
     const wrap = doc.createElement('div');
     const className = cfg.formClass || 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls';
-    wrap.className = className;
+    const normalizedClassName = /\badditional-line-controls-panel__row\b/.test(className)
+      ? className
+      : `${className} additional-line-controls-panel__row`;
+    wrap.className = normalizedClassName;
     if(cfg.formDataKey){
       wrap.dataset[cfg.formDataKey] = '1';
     }
 
     const makeInput = (labelText, inputEl, extraClass) => {
       const lbl = doc.createElement('label');
-      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      lbl.className = 'additional-line-controls-panel__field';
       if(extraClass){
-        lbl.classList.add(extraClass);
+        String(extraClass)
+          .split(/\s+/)
+          .filter(Boolean)
+          .forEach(cls => lbl.classList.add(cls));
       }
       const span = doc.createElement('span');
-      span.className = 'workspace-toolbar__input-label';
+      span.className = 'additional-line-controls-panel__field-label';
       span.textContent = labelText;
       if(inputEl && inputEl.classList){
         inputEl.classList.add('workspace-toolbar__input-control');
+        const tagName = String(inputEl.tagName || '').toUpperCase();
+        if(tagName === 'SELECT'){
+          inputEl.classList.add('additional-line-controls-panel__input', 'additional-line-controls-panel__input--select');
+        }else if(tagName === 'INPUT' && inputEl.type === 'number'){
+          inputEl.classList.add('additional-line-controls-panel__input', 'additional-line-controls-panel__input--small');
+        }
       }
       lbl.appendChild(span);
       lbl.appendChild(inputEl);
@@ -159,7 +171,7 @@
       const desired = typeof scopeCfg.value === 'string' ? scopeCfg.value : scopeSelect.options[0].value;
       scopeSelect.value = desired;
     }
-    wrap.appendChild(makeInput(scopeCfg.label || 'Scope', scopeSelect, 'workspace-toolbar__input--scope'));
+    wrap.appendChild(makeInput(scopeCfg.label || 'Scope', scopeSelect, 'additional-line-controls-panel__field--scope'));
 
     const getContext = () => ({
       scope: scopeSelect.value,
@@ -336,8 +348,7 @@
         evt.stopPropagation();
       }, true);
     }
-    const fillLabel = makeInput(fillCfg.label || 'Fill/Shape', fillControlElement);
-    fillLabel.classList.add('workspace-toolbar__input--color');
+    const fillLabel = makeInput(fillCfg.label || 'Fill/Shape', fillControlElement, 'additional-line-controls-panel__field--style additional-line-controls-panel__field--symbol-fill');
     wrap.appendChild(fillLabel);
 
     const borderInput = doc.createElement('input');
@@ -442,8 +453,7 @@
       });
     }
 
-    const borderLabel = makeInput(borderCfg.label || 'Border', borderControl);
-    borderLabel.classList.add('workspace-toolbar__input--color');
+    const borderLabel = makeInput(borderCfg.label || 'Border', borderControl, 'additional-line-controls-panel__field--style additional-line-controls-panel__field--symbol-border');
     wrap.appendChild(borderLabel);
 
     const transparencyField = doc.createElement('label');

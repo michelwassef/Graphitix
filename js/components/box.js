@@ -1646,10 +1646,9 @@
       hostClass: opts.hostClass || undefined,
       hostDisplay: opts.hostDisplay || undefined,
       controls: {
-        showSummary: true,
+        showSummary: false,
         showScope: true,
         showPattern: true,
-        summaryLabel: 'Summary',
         scopeLabel: 'Scope',
         colorLabel: 'Line',
         thicknessLabel: 'Line width',

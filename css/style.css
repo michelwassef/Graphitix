@@ -29,6 +29,7 @@
     --ui-color-input-radius: 0;
     --ui-color-input-bg: #ffffff;
     --ui-color-input-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
+    --workspace-toolbar-section-gap: 10px;
     --graph-square-size: calc(100vw / 3);
     --graph-default-width: var(--graph-square-size);
     --graph-default-height: var(--graph-square-size);
@@ -2264,7 +2265,9 @@ select {
 .workspace-toolbar__input--range{
     min-width:120px;
 }
-.workspace-toolbar__input--color input[type="color"]{
+.workspace-toolbar__input--color input[type="color"],
+.additional-line-controls-panel__field--symbol-fill input[type="color"],
+.additional-line-controls-panel__field--symbol-border input[type="color"]{
     /* Use the shared color-input primitive tokens for toolbar parity. */
     width: var(--ui-color-input-width);
     height: var(--ui-color-input-height);
@@ -2280,11 +2283,14 @@ select {
     box-sizing: border-box;
 }
 .workspace-toolbar__input--color .box-point-fill-control,
-.workspace-toolbar__input--color .shared-shape-color-control{
+.workspace-toolbar__input--color .shared-shape-color-control,
+.additional-line-controls-panel__field--symbol-fill .box-point-fill-control,
+.additional-line-controls-panel__field--symbol-fill .shared-shape-color-control{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    width:var(--ui-color-input-width);
+    width:auto;
+    min-width:var(--ui-color-input-width);
     height:var(--ui-color-input-height);
     box-sizing:border-box;
 }
@@ -2423,7 +2429,11 @@ select {
 
 /* Defensive: center any label-wrapped color inputs used elsewhere */
 .workspace-toolbar__input--color > input[type="color"],
-.workspace-toolbar__input--color > .hist-dist-swatch{
+.workspace-toolbar__input--color > .hist-dist-swatch,
+.additional-line-controls-panel__field--symbol-fill > input[type="color"],
+.additional-line-controls-panel__field--symbol-fill > .hist-dist-swatch,
+.additional-line-controls-panel__field--symbol-border > input[type="color"],
+.additional-line-controls-panel__field--symbol-border > .hist-dist-swatch{
     margin-left: auto !important;
     margin-right: auto !important;
 }
@@ -2499,21 +2509,30 @@ select {
     margin-right:0;
 }
 .scatter-format-controls{
+    display:flex;
+    flex-wrap:nowrap;
+    column-gap:var(--workspace-toolbar-section-gap);
+    row-gap:0;
     align-items:flex-end;
 }
 .scatter-format-controls .workspace-toolbar__input{
     align-self:flex-end;
+    min-width:0;
+    width:max-content;
     display:grid;
-    grid-template-rows:16px auto;
-    row-gap:6px;
+    grid-template-rows:14px auto;
+    row-gap:4px;
     justify-items:center;
     align-content:start;
-    min-height:48px;
+    min-height:52px;
+}
+.scatter-format-controls .workspace-toolbar__input--scope{
+    justify-content:center !important;
 }
 .scatter-format-controls .workspace-toolbar__input-label{
     margin:0 !important;
-    min-height:16px;
-    line-height:16px;
+    min-height:14px;
+    line-height:14px;
     font-size:11px;
     display:flex;
     align-items:flex-end;
@@ -2544,18 +2563,18 @@ select {
 }
 .scatter-format-controls [data-symbol-transparency-control="1"]{
     display:grid;
-    grid-template-rows:16px auto;
-    row-gap:6px;
+    grid-template-rows:14px auto;
+    row-gap:4px;
     align-self:flex-end;
     align-content:start;
-    min-height:48px;
+    min-height:52px;
     margin:0;
 }
 .scatter-format-controls [data-symbol-transparency-control="1"] .additional-line-controls-panel__field-label{
     grid-row:1;
     margin:0;
-    min-height:16px;
-    line-height:16px;
+    min-height:14px;
+    line-height:14px;
     font-size:11px;
     display:flex;
     align-items:flex-end;
@@ -3591,14 +3610,14 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-toolbar-host--additional-line{display:block}
 .additional-line-controls-panel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:max-content;justify-content:flex-start}
 .additional-line-controls-panel__title{font-size:11px;line-height:1.2;font-weight:600;letter-spacing:0.01em;color:#1e293b;text-transform:none;white-space:nowrap;width:100%;text-align:center;align-self:stretch}
-.additional-line-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:22px;width:max-content}
+.additional-line-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content}
 .additional-line-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
 .additional-line-controls-panel__summary-label{font-size:11px;text-transform:none;letter-spacing:0.01em;color:#1e293b;font-weight:600}
 .additional-line-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-.additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:56px;min-height:48px;flex:0 0 auto;text-align:center}
+.additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:0;min-height:52px;flex:0 0 auto;text-align:center}
 .additional-line-controls-panel__summary[hidden],
 .additional-line-controls-panel__field[hidden]{display:none !important}
-.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:16px;min-height:16px;margin:0}
+.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .additional-line-controls-panel__input{min-width:0;width:auto;max-width:108px;text-align:center}
 .additional-line-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .additional-line-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
@@ -3608,6 +3627,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__transparency-input{flex:1 1 auto;min-width:120px;accent-color:#1f2937}
 .additional-line-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
 .additional-line-controls-panel__field--style{min-width:90px}
+.additional-line-controls-panel__field--symbol-border{min-width:max-content}
 
 /* UI harmonization: shared typography and control primitives across advanced panels */
 .axis-controls-panel,
