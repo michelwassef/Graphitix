@@ -39,18 +39,54 @@
     return host;
   }
 
+  function resetHostPresentation(host, options){
+    if(!host){ return; }
+    const opts = options || {};
+    const keepVisible = !!opts.keepVisible;
+    try{
+      Array.from(host.classList || []).forEach(cls => {
+        if(typeof cls !== 'string' || cls.indexOf('font-toolbar-host--') !== 0){ return; }
+        if(keepVisible && cls === 'font-toolbar-host--visible'){ return; }
+        host.classList.remove(cls);
+      });
+    }catch(e){
+      if(!keepVisible){
+        host.classList.remove('font-toolbar-host--visible');
+      }
+    }
+    host.style.removeProperty('grid-auto-flow');
+    host.style.removeProperty('grid-auto-columns');
+    host.style.removeProperty('column-gap');
+    host.style.removeProperty('row-gap');
+    host.style.removeProperty('align-items');
+    host.style.removeProperty('justify-content');
+    host.style.removeProperty('overflow-x');
+    host.style.removeProperty('overflow-y');
+    host.style.removeProperty('min-width');
+    host.style.removeProperty('max-width');
+    host.style.removeProperty('width');
+    const dock = host.closest('.workspace-toolbar__dock');
+    if(dock){
+      dock.style.removeProperty('min-width');
+      dock.style.removeProperty('max-width');
+      dock.style.removeProperty('width');
+      if(!keepVisible){
+        dock.classList.remove('workspace-toolbar__dock--active');
+      }
+    }
+  }
+
   function hideOtherVisibleHosts(currentHost, doc){
     doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(host => {
       if(host !== currentHost){
-        host.classList.remove('font-toolbar-host--visible');
-        host.style.display = 'none';
+        hideHost(host);
       }
     });
   }
 
   function hideHost(host){
     if(!host){ return; }
-    host.classList.remove('font-toolbar-host--visible');
+    resetHostPresentation(host, { keepVisible: false });
     host.style.display = 'none';
     const dock = host.closest('.workspace-toolbar__dock');
     if(dock){
@@ -69,6 +105,7 @@
     const host = ensureToolbarHost(anchor, cfg.scopeId, doc);
     if(!host){ return null; }
 
+    resetHostPresentation(host, { keepVisible: false });
     hideOtherVisibleHosts(host, doc);
     host.innerHTML = '';
 
@@ -480,4 +517,3 @@
     return { host, wrap, scopeSelect };
   };
 })(window);
-

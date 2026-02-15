@@ -2112,14 +2112,90 @@
         Object.assign(style, patch);
         scheduleLineDraw();
       };
+      const knownSeriesKeys = () => {
+        const keys = new Set(Object.keys(lineSeriesStyles || {}));
+        if(Array.isArray(lineSeriesGroupLabels)){
+          lineSeriesGroupLabels.forEach(name => {
+            const normalized = name == null ? '' : String(name).trim();
+            if(normalized){ keys.add(normalized); }
+          });
+        }
+        if(seriesKey){ keys.add(seriesKey); }
+        return Array.from(keys);
+      };
       const applyGlobalPatch = (key, value) => {
-        Object.keys(lineSeriesStyles).forEach(k => {
+        const keys = knownSeriesKeys();
+        keys.forEach(k => {
           lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
         });
         scheduleLineDraw();
       };
+      const resolveSeriesStyle = () => (seriesKey ? (lineSeriesStyles[seriesKey] || {}) : {});
+      const getMarkerFill = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          return style?.markerFill || style?.fill || lineLabelColors[seriesKey] || fillInput?.value || '#377eb8';
+        }
+        return fillInput?.value || '#377eb8';
+      };
+      const getMarkerBorderColor = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          return style?.markerStroke || style?.stroke || style?.borderColor || '#000000';
+        }
+        if(typeof style?.markerStroke === 'string' && style.markerStroke){ return style.markerStroke; }
+        if(typeof style?.stroke === 'string' && style.stroke){ return style.stroke; }
+        if(typeof style?.borderColor === 'string' && style.borderColor){ return style.borderColor; }
+        return '#000000';
+      };
+      const getMarkerBorderWidth = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          if(Number.isFinite(Number(style?.markerStrokeWidth))){ return Number(style.markerStrokeWidth); }
+          if(Number.isFinite(Number(style?.strokeWidth))){ return Number(style.strokeWidth); }
+        }
+        if(Number.isFinite(Number(style?.markerStrokeWidth))){ return Number(style.markerStrokeWidth); }
+        if(Number.isFinite(Number(style?.strokeWidth))){ return Number(style.strokeWidth); }
+        return 0;
+      };
+      const getMarkerAlpha = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          if(resolveAlpha(style?.markerAlpha) != null){ return resolveAlpha(style.markerAlpha); }
+          if(resolveAlpha(style?.alpha) != null){ return resolveAlpha(style.alpha); }
+        }
+        if(resolveAlpha(style?.markerAlpha) != null){ return resolveAlpha(style.markerAlpha); }
+        if(resolveAlpha(style?.alpha) != null){ return resolveAlpha(style.alpha); }
+        return resolveAlpha(alphaInput?.value) || 0;
+      };
+      const getPathColor = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          return style?.lineStroke || lineLabelColors[seriesKey] || strokeInput?.value || '#000000';
+        }
+        return strokeInput?.value || '#000000';
+      };
+      const getPathWidth = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          if(Number.isFinite(Number(style?.lineStrokeWidth))){ return Number(style.lineStrokeWidth); }
+          if(Number.isFinite(Number(style?.strokeWidth))){ return Number(style.strokeWidth); }
+        }
+        if(Number.isFinite(Number(strokeWidthInput?.value))){
+          return Number(strokeWidthInput.value);
+        }
+        return Number(target.getAttribute('stroke-width')) || 0;
+      };
+      const getPathAlpha = scope => {
+        const style = resolveSeriesStyle();
+        if(scope === 'series' && seriesKey){
+          if(resolveAlpha(style?.lineAlpha) != null){ return resolveAlpha(style.lineAlpha); }
+          if(resolveAlpha(style?.alpha) != null){ return resolveAlpha(style.alpha); }
+        }
+        return resolveAlpha(alphaInput?.value) || 0;
+      };
       const sanitizeShape = (shape, index = 0) => sanitizeLineGroupShape(shape, index);
-      Shared.symbolToolbar.show({
+      const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
         target,
         anchorId: 'lineFontHost',
@@ -2137,11 +2213,7 @@
           label: 'Fill/Shape',
           shapeOptions: LINE_GROUP_SHAPE_OPTIONS?.length ? LINE_GROUP_SHAPE_OPTIONS : [{ value: 'circle', label: 'Circle' }],
           getColor(ctx){
-            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
-            if(ctx.scope === 'series' && seriesKey){
-              return style?.fill || lineLabelColors[seriesKey] || fillInput?.value || '#377eb8';
-            }
-            return fillInput?.value || '#377eb8';
+            return getMarkerFill(ctx.scope);
           },
           getShape(ctx){
             if(ctx.scope === 'series' && seriesKey){
@@ -2159,24 +2231,20 @@
           },
           onColorInput(nextColor, ctx){
             if(ctx.scope === 'series' && seriesKey){
-              lineLabelColors[seriesKey] = nextColor;
-              applySeriesPatch({ fill: nextColor });
+              applySeriesPatch({ markerFill: nextColor, fill: nextColor });
             }else{
               if(fillInput){ applyAndDispatch(fillInput, nextColor); }
-              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
-              Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = nextColor; });
-              scheduleLineDraw();
+              applyGlobalPatch('markerFill', nextColor);
+              applyGlobalPatch('fill', nextColor);
             }
           },
           onColorChange(nextColor, ctx){
             if(ctx.scope === 'series' && seriesKey){
-              lineLabelColors[seriesKey] = nextColor;
-              applySeriesPatch({ fill: nextColor });
+              applySeriesPatch({ markerFill: nextColor, fill: nextColor });
             }else{
               if(fillInput){ applyAndDispatch(fillInput, nextColor); }
-              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
-              Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = nextColor; });
-              scheduleLineDraw();
+              applyGlobalPatch('markerFill', nextColor);
+              applyGlobalPatch('fill', nextColor);
             }
           },
           onShapeChange(nextShape, ctx){
@@ -2211,45 +2279,31 @@
         border: {
           label: 'Border',
           getColor(ctx){
-            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
-            if(ctx.scope === 'series' && seriesKey){
-              return style?.stroke || strokeInput?.value || '#000000';
-            }
-            return strokeInput?.value || '#000000';
+            return getMarkerBorderColor(ctx.scope);
           },
           onColorInput(nextColor, ctx){
             if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ stroke: nextColor });
+              applySeriesPatch({ markerStroke: nextColor });
             }else{
-              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
-              applyGlobalPatch('stroke', nextColor);
+              applyGlobalPatch('markerStroke', nextColor);
             }
           },
           onColorChange(nextColor, ctx){
             if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ stroke: nextColor });
+              applySeriesPatch({ markerStroke: nextColor });
             }else{
-              if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
-              applyGlobalPatch('stroke', nextColor);
+              applyGlobalPatch('markerStroke', nextColor);
             }
           },
           getWidth(ctx){
-            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
-            if(ctx.scope === 'series' && seriesKey && Number.isFinite(Number(style?.strokeWidth))){
-              return Number(style.strokeWidth);
-            }
-            if(Number.isFinite(Number(strokeWidthInput?.value))){
-              return Number(strokeWidthInput.value);
-            }
-            return Number(target.getAttribute('stroke-width')) || 0;
+            return getMarkerBorderWidth(ctx.scope);
           },
           onWidthChange(nextValue, ctx){
             const next = Math.max(0, Number(nextValue) || 0);
             if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ strokeWidth: next });
+              applySeriesPatch({ markerStrokeWidth: next });
             }else{
-              if(strokeWidthInput){ applyAndDispatch(strokeWidthInput, String(next)); }
-              applyGlobalPatch('strokeWidth', next);
+              applyGlobalPatch('markerStrokeWidth', next);
             }
           }
         },
@@ -2277,565 +2331,265 @@
         transparency: {
           label: 'Transparency',
           get(ctx){
-            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
-            if(ctx.scope === 'series' && seriesKey && resolveAlpha(style?.alpha) != null){
-              return resolveAlpha(style.alpha);
-            }
-            return resolveAlpha(alphaInput?.value) || 0;
+            return getMarkerAlpha(ctx.scope);
           },
           onChange(nextValue, ctx){
             const normalized = Math.min(1, Math.max(0, Number(nextValue) || 0));
             if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ alpha: normalized });
+              applySeriesPatch({ markerAlpha: normalized });
             }else{
-              if(alphaInput){ applyAndDispatch(alphaInput, String(normalized)); }
-              if(alphaVal){ alphaVal.textContent = String(normalized); }
-              applyGlobalPatch('alpha', normalized);
+              applyGlobalPatch('markerAlpha', normalized);
             }
           }
         }
       });
+      const toolbarHost = symbolToolbarState?.host || null;
+      const markerScopeSelect = symbolToolbarState?.scopeSelect || null;
+      if(toolbarHost){
+        toolbarHost.classList.add('font-toolbar-host--line-dual');
+        toolbarHost.style.display = 'grid';
+        toolbarHost.style.gridAutoFlow = 'column';
+        toolbarHost.style.gridAutoColumns = 'max-content';
+        toolbarHost.style.columnGap = '10px';
+        toolbarHost.style.alignItems = 'flex-start';
+        const lineWrap = doc.createElement('div');
+        lineWrap.className = 'workspace-toolbar__form line-stroke-controls line-path-controls';
+        lineWrap.dataset.linePathControls = '1';
+        const makeLineInput = (labelText, inputEl) => {
+          const lbl = doc.createElement('label');
+          lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+          const span = doc.createElement('span');
+          span.className = 'workspace-toolbar__input-label';
+          span.textContent = labelText;
+          lbl.appendChild(span);
+          lbl.appendChild(inputEl);
+          return lbl;
+        };
+        const resolveScope = () => {
+          const scopeValue = markerScopeSelect?.value || 'global';
+          if(scopeValue === 'series' && seriesKey){
+            return 'series';
+          }
+          return 'global';
+        };
+        const lineColorInput = doc.createElement('input');
+        lineColorInput.type = 'color';
+        lineColorInput.className = 'shared-border-style-input';
+        const lineControl = doc.createElement('div');
+        lineControl.className = 'shared-border-style-control';
+        const lineChip = doc.createElement('button');
+        lineChip.type = 'button';
+        lineChip.className = 'shared-border-style-chip';
+        lineChip.setAttribute('aria-label', 'Line color and width');
+        lineChip.title = 'Click to edit line color and width. Wheel or Alt+drag to adjust line width.';
+        const lineChipPreview = doc.createElement('span');
+        lineChipPreview.className = 'shared-border-style-chip-preview';
+        const lineChipValue = doc.createElement('span');
+        lineChipValue.className = 'shared-border-style-chip-value';
+        lineChip.appendChild(lineChipPreview);
+        lineChip.appendChild(lineChipValue);
+        lineControl.appendChild(lineChip);
+        lineControl.appendChild(lineColorInput);
+        let currentLineColor = '#000000';
+        let currentLineWidth = 0;
+        let syncLineChipUi = () => {};
+        const applyLineColor = nextColor => {
+          const scope = resolveScope();
+          if(scope === 'series' && seriesKey){
+            applySeriesPatch({ lineStroke: nextColor });
+          }else{
+            if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+            applyGlobalPatch('lineStroke', nextColor);
+          }
+          currentLineColor = nextColor || '#000000';
+          syncLineChipUi();
+        };
+        const applyLineWidth = nextValue => {
+          const next = Math.max(0, Number(nextValue) || 0);
+          const scope = resolveScope();
+          if(scope === 'series' && seriesKey){
+            applySeriesPatch({ lineStrokeWidth: next });
+          }else{
+            if(strokeWidthInput){ applyAndDispatch(strokeWidthInput, String(next)); }
+            applyGlobalPatch('lineStrokeWidth', next);
+          }
+          currentLineWidth = next;
+          syncLineChipUi();
+        };
+        const clearLinePickerStyleSection = overlayEl => {
+          if(!overlayEl){ return; }
+          overlayEl.querySelectorAll('.shared-color-picker__section--line-style').forEach(node => node.remove());
+        };
+        const attachLinePickerWidthSection = overlayEl => {
+          if(!overlayEl){ return () => {}; }
+          clearLinePickerStyleSection(overlayEl);
+          const section = doc.createElement('section');
+          section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--line-style';
+          const title = doc.createElement('div');
+          title.className = 'shared-color-picker__section-title';
+          title.textContent = 'Line width';
+          section.appendChild(title);
+          const row = doc.createElement('div');
+          row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
+          const field = doc.createElement('label');
+          field.className = 'shared-color-picker__scatter-style-field';
+          const input = doc.createElement('input');
+          input.className = 'shared-color-picker__scatter-style-input';
+          input.type = 'number';
+          input.min = '0';
+          input.step = '0.5';
+          input.setAttribute('aria-label', 'Line width');
+          input.value = String(Math.round(currentLineWidth * 10) / 10);
+          input.addEventListener('input', () => {
+            applyLineWidth(input.value);
+          });
+          field.appendChild(input);
+          row.appendChild(field);
+          section.appendChild(row);
+          overlayEl.insertBefore(section, overlayEl.firstChild || null);
+          return () => {
+            if(section && section.parentNode){
+              section.parentNode.removeChild(section);
+            }
+          };
+        };
+        syncLineChipUi = () => {
+          const widthText = Number.isFinite(currentLineWidth) ? (Math.round(currentLineWidth * 10) / 10).toString() : '0';
+          lineChipValue.textContent = `${widthText}px`;
+          lineChipPreview.style.background = currentLineColor || '#000000';
+          lineChip.dataset.noBorder = currentLineWidth <= 0 ? '1' : '0';
+        };
+        const lineAlphaInput = doc.createElement('input');
+        lineAlphaInput.type = 'range';
+        lineAlphaInput.min = '0';
+        lineAlphaInput.max = '100';
+        lineAlphaInput.step = '1';
+        const lineAlphaValue = doc.createElement('span');
+        lineAlphaValue.className = 'workspace-toolbar__input-value';
+        const syncPathToolbar = () => {
+          const scope = resolveScope();
+          const lineColor = getPathColor(scope);
+          const lineWidth = getPathWidth(scope);
+          const lineAlpha = getPathAlpha(scope);
+          if(lineColor){
+            try{ lineColorInput.value = lineColor; }catch(e){}
+            currentLineColor = lineColor;
+          }
+          if(Number.isFinite(Number(lineWidth))){
+            currentLineWidth = Math.max(0, Number(lineWidth));
+          }
+          syncLineChipUi();
+          const alphaPct = Math.round(Math.min(1, Math.max(0, Number(lineAlpha) || 0)) * 100);
+          lineAlphaInput.value = String(alphaPct);
+          lineAlphaValue.textContent = `${alphaPct}%`;
+        };
+        lineColorInput.addEventListener('input', () => {
+          applyLineColor(lineColorInput.value);
+        });
+        lineColorInput.addEventListener('change', () => {
+          applyLineColor(lineColorInput.value);
+        });
+        lineChip.addEventListener('wheel', evt => {
+          evt.preventDefault();
+          const step = evt.deltaY < 0 ? 0.5 : -0.5;
+          applyLineWidth(currentLineWidth + step);
+        }, { passive: false });
+        let lineDragState = null;
+        let suppressLineChipClick = false;
+        const onLineDragMove = evt => {
+          if(!lineDragState){ return; }
+          const deltaX = evt.clientX - lineDragState.startX;
+          const steps = Math.round(deltaX / 8);
+          applyLineWidth(lineDragState.startValue + (steps * 0.5));
+        };
+        const onLineDragEnd = () => {
+          if(!lineDragState){ return; }
+          lineDragState = null;
+          global.removeEventListener('mousemove', onLineDragMove);
+          global.removeEventListener('mouseup', onLineDragEnd);
+        };
+        lineChip.addEventListener('mousedown', evt => {
+          if(!evt.altKey || evt.button !== 0){ return; }
+          evt.preventDefault();
+          suppressLineChipClick = true;
+          lineDragState = { startX: evt.clientX, startValue: currentLineWidth };
+          global.addEventListener('mousemove', onLineDragMove);
+          global.addEventListener('mouseup', onLineDragEnd);
+        });
+        lineChip.addEventListener('click', evt => {
+          if(!suppressLineChipClick){ return; }
+          suppressLineChipClick = false;
+          evt.preventDefault();
+          evt.stopPropagation();
+        }, true);
+        if(typeof Shared.openColorPicker === 'function'){
+          let linePickerCleanup = null;
+          lineChip.addEventListener('click', evt => {
+            evt.preventDefault();
+            evt.stopPropagation();
+            const overlayEl = Shared.openColorPicker({
+              anchor: lineChip,
+              color: lineColorInput.value,
+              element: lineColorInput,
+              onInput(value){
+                lineColorInput.value = value;
+                lineColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+              },
+              onChange(value){
+                lineColorInput.value = value;
+                lineColorInput.dispatchEvent(new Event('change', { bubbles: true }));
+              },
+              onClose(){
+                if(typeof linePickerCleanup === 'function'){
+                  linePickerCleanup();
+                  linePickerCleanup = null;
+                }
+              }
+            });
+            linePickerCleanup = attachLinePickerWidthSection(overlayEl);
+          });
+        }else if(typeof Shared.attachColorPickerNear === 'function'){
+          try{
+            Shared.attachColorPickerNear(lineColorInput);
+            lineChip.addEventListener('click', evt => {
+              evt.preventDefault();
+              lineColorInput.click();
+            });
+          }catch(e){}
+        }
+        lineAlphaInput.addEventListener('input', () => {
+          const scope = resolveScope();
+          const pct = Number(lineAlphaInput.value);
+          const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+          const normalized = bounded / 100;
+          if(scope === 'series' && seriesKey){
+            applySeriesPatch({ lineAlpha: normalized });
+          }else{
+            if(alphaInput){ applyAndDispatch(alphaInput, String(normalized)); }
+            if(alphaVal){ alphaVal.textContent = String(normalized); }
+            applyGlobalPatch('lineAlpha', normalized);
+          }
+          lineAlphaValue.textContent = `${Math.round(bounded)}%`;
+        });
+        const lineAlphaWrap = doc.createElement('div');
+        lineAlphaWrap.className = 'workspace-toolbar__range';
+        lineAlphaWrap.appendChild(lineAlphaInput);
+        lineAlphaWrap.appendChild(lineAlphaValue);
+        const lineLabel = makeLineInput('Line', lineControl);
+        lineLabel.classList.add('workspace-toolbar__input--color');
+        lineWrap.appendChild(lineLabel);
+        lineWrap.appendChild(makeLineInput('Line Transparency', lineAlphaWrap));
+        toolbarHost.appendChild(lineWrap);
+        if(markerScopeSelect){
+          markerScopeSelect.addEventListener('change', syncPathToolbar);
+        }
+        syncPathToolbar();
+      }
       return;
     }
-    const anchor = doc.getElementById('lineFontHost');
-    if(!anchor){ return; }
-    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
-      ? anchor.nextElementSibling
-      : null;
-    if(!toolbarHost){
-      toolbarHost = doc.createElement('div');
-      toolbarHost.className = 'font-toolbar-host';
-      toolbarHost.dataset.fontToolbarScope = 'line';
-      toolbarHost.style.display = 'none';
-      anchor.insertAdjacentElement('afterend', toolbarHost);
-    }
-    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
-      if(h !== toolbarHost){
-        h.classList.remove('font-toolbar-host--visible');
-        h.style.display = 'none';
-      }
-    });
-
-    toolbarHost.innerHTML = '';
-    const wrap = doc.createElement('div');
-    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single line-point-controls';
-    wrap.dataset.linePointControls = '1';
-
-    const makeInput = (labelText, inputEl) => {
-      const lbl = doc.createElement('label');
-      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
-      const span = doc.createElement('span');
-      span.className = 'workspace-toolbar__input-label';
-      span.textContent = labelText;
-      lbl.appendChild(span);
-      lbl.appendChild(inputEl);
-      return lbl;
-    };
-
-    const dotSizeInput = doc.getElementById('lineDotSize');
-    const fillInput = doc.getElementById('lineFill');
-    const strokeInput = doc.getElementById('lineBorder');
-    const alphaInput = doc.getElementById('lineAlpha');
-    const alphaVal = doc.getElementById('lineAlphaVal');
-    const seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
-    const seriesStyle = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
-    const resolveAlpha = value => {
-      const n = Number(value);
-      return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : null;
-    };
-    const seriesAlpha = resolveAlpha(seriesStyle?.alpha);
-    const scopeName = `linePointScope_${Date.now()}`;
-    const scopeField = doc.createElement('label');
-    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
-    const scopeLabel = doc.createElement('span');
-    scopeLabel.className = 'workspace-toolbar__input-label';
-    scopeLabel.textContent = 'Scope';
-    const scopeSelect = doc.createElement('select');
-    scopeSelect.name = scopeName;
-    scopeSelect.className = 'workspace-toolbar__select';
-    const optSeries = doc.createElement('option');
-    optSeries.value = 'series';
-    optSeries.textContent = 'Series';
-    optSeries.disabled = !seriesKey;
-    const optGlobal = doc.createElement('option');
-    optGlobal.value = 'global';
-    optGlobal.textContent = 'Global';
-    scopeSelect.appendChild(optSeries);
-    scopeSelect.appendChild(optGlobal);
-    scopeSelect.value = seriesKey ? 'series' : 'global';
-    scopeField.appendChild(scopeLabel);
-    scopeField.appendChild(scopeSelect);
-    wrap.appendChild(scopeField);
-
-    const applyAndDispatch = (inputEl, value, type = 'input') => {
-      if(!inputEl){ return; }
-      inputEl.value = value;
-      inputEl.dispatchEvent(new Event(type, { bubbles: true }));
-    };
-    const useSeriesScopeStroke = () => scopeSelect.value === 'series' && !!seriesKey;
-    const applySeriesStylePatchStroke = patch => {
-      if(!seriesKey){ return; }
-      const prev = lineSeriesStyles[seriesKey] && typeof lineSeriesStyles[seriesKey] === 'object' ? lineSeriesStyles[seriesKey] : {};
-      lineSeriesStyles[seriesKey] = Object.assign({}, prev, patch);
-      scheduleLineDraw();
-    };
-    const applyGlobalSeriesPatchStroke = (key, value) => {
-      Object.keys(lineSeriesStyles).forEach(k => {
-        lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
-      });
-      scheduleLineDraw();
-    };
-    const applyGlobalStrokeColor = value => {
-      if(strokeInput){
-        applyAndDispatch(strokeInput, value);
-      }
-      Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = value; });
-      scheduleLineDraw();
-    };
-    const useSeriesScopePoints = () => scopeSelect.value === 'series' && !!seriesKey;
-    const applySeriesStylePatchPoints = patch => {
-      if(!seriesKey){ return; }
-      const prev = lineSeriesStyles[seriesKey] && typeof lineSeriesStyles[seriesKey] === 'object' ? lineSeriesStyles[seriesKey] : {};
-      lineSeriesStyles[seriesKey] = Object.assign({}, prev, patch);
-      scheduleLineDraw();
-    };
-    const applyGlobalSeriesPatchPoints = (key, value) => {
-      Object.keys(lineSeriesStyles).forEach(k => {
-        lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
-      });
-      scheduleLineDraw();
-    };
-    const applyGlobalColorPoints = value => {
-      if(fillInput){
-        applyAndDispatch(fillInput, value);
-      }
-      Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = value; });
-      scheduleLineDraw();
-    };
-
-    // Color
-    const colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    const targetFill = target.getAttribute('fill');
-    const targetStroke = target.getAttribute('stroke');
-    const resolvedFill =
-      (targetFill && targetFill !== 'none' ? targetFill : null)
-      || (seriesKey && lineLabelColors[seriesKey] ? lineLabelColors[seriesKey] : null)
-      || (targetStroke && targetStroke !== 'none' ? targetStroke : null)
-      || (fillInput?.value || null)
-      || '#377eb8';
-    if(fillInput && resolvedFill){
-      try{ fillInput.value = resolvedFill; }catch(e){}
-    }
-    if(strokeInput && resolvedFill){
-      try{ strokeInput.value = resolvedFill; }catch(e){}
-    }
-    try{ colorInput.value = resolvedFill; }catch(e){}
-    colorInput.addEventListener('input', () => {
-      const nextColor = colorInput.value;
-      if(useSeriesScopePoints() && seriesKey){
-        const prev = lineLabelColors[seriesKey] || '';
-        lineLabelColors[seriesKey] = nextColor;
-        target.setAttribute('fill', nextColor);
-        if(prev !== nextColor){
-          scheduleLineDraw();
-        }
-      }else{
-        applyGlobalColorPoints(nextColor);
-      }
-    });
-    if(chartStyle?.normalizeColorInput){
-      try{ chartStyle.normalizeColorInput(colorInput, { reason: 'line.point.format-color' }); }catch(e){}
-    }
-    if(typeof Shared.openColorPicker === 'function'){
-      colorInput.addEventListener('click', (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        if(!useSeriesScopePoints()){
-          const totalSeries = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
-          const shapes = ensureLineGroupShapeCapacity(totalSeries);
-          let initialShape = null;
-          if(shapes.length){
-            const unique = new Set(shapes.map((shapeValue, idx) => sanitizeLineGroupShape(shapeValue, idx)));
-            if(unique.size === 1){
-              initialShape = unique.values().next().value;
-            }
-          }
-          Shared.openColorPicker({
-            anchor: colorInput,
-            color: colorInput.value,
-            element: colorInput,
-            shapePicker: LINE_GROUP_SHAPE_OPTIONS?.length ? {
-              value: initialShape,
-              options: LINE_GROUP_SHAPE_OPTIONS,
-              onChange(nextShape){
-                const sanitized = sanitizeLineGroupShape(nextShape, 0);
-                let changed = false;
-                for(let i = 0; i < shapes.length; i += 1){
-                  if(shapes[i] !== sanitized){
-                    shapes[i] = sanitized;
-                    updateLineGroupShapeSelect(i, sanitized);
-                    changed = true;
-                  }
-                }
-                if(changed){
-                  lineGroupShapes = shapes;
-                  scheduleLineDraw();
-                }
-              }
-            } : null,
-            onInput(value){
-              colorInput.value = value;
-              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
-            },
-            onChange(value){
-              colorInput.value = value;
-              colorInput.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          });
-          return;
-        }
-
-        const seriesIndex = seriesKey && Array.isArray(lineSeriesGroupLabels)
-          ? lineSeriesGroupLabels.findIndex(name => name === seriesKey)
-          : -1;
-        const safeIndex = seriesIndex >= 0 ? seriesIndex : 0;
-        let previousShape = seriesIndex >= 0 ? sanitizeLineGroupShape(getLineGroupShape(seriesIndex), safeIndex) : null;
-        Shared.openColorPicker({
-          anchor: colorInput,
-          color: colorInput.value,
-          element: colorInput,
-          shapePicker: seriesIndex >= 0 && LINE_GROUP_SHAPE_OPTIONS?.length ? {
-            value: previousShape,
-            options: LINE_GROUP_SHAPE_OPTIONS,
-            onChange(nextShape){
-              const sanitized = sanitizeLineGroupShape(nextShape, safeIndex);
-              if(sanitized === previousShape){
-                return;
-              }
-              const shapes = ensureLineGroupShapeCapacity(Math.max(lineSeriesGroupLabels.length, safeIndex + 1));
-              shapes[safeIndex] = sanitized;
-              lineGroupShapes = shapes;
-              updateLineGroupShapeSelect(safeIndex, sanitized);
-              scheduleLineDraw();
-              previousShape = sanitized;
-            }
-          } : null,
-          onInput(value){
-            colorInput.value = value;
-            colorInput.dispatchEvent(new Event('input', { bubbles: true }));
-          },
-          onChange(value){
-            colorInput.value = value;
-            colorInput.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        });
-      });
-    }
-    const colorLabel = makeInput('Color', colorInput);
-    colorLabel.classList.add('workspace-toolbar__input--color');
-    wrap.appendChild(colorLabel);
-
-    // Size
-    const sizeInput = doc.createElement('input');
-    sizeInput.type = 'number';
-    sizeInput.min = '0';
-    sizeInput.step = '0.5';
-    const derivedSize = Number.isFinite(Number(dotSizeInput?.value))
-      ? Number(dotSizeInput.value)
-      : Number(target.getAttribute('r'));
-    if(Number.isFinite(derivedSize)){
-      sizeInput.value = String(derivedSize);
-    }
-    sizeInput.addEventListener('input', () => {
-      const numeric = Number(sizeInput.value);
-      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : null;
-      if(useSeriesScopePoints() && seriesKey){
-        if(next != null){
-          applySeriesStylePatchPoints({ dotSize: next });
-        }
-      }else{
-        if(dotSizeInput && next != null){
-          applyAndDispatch(dotSizeInput, String(next));
-        }
-        if(next != null){
-          applyGlobalSeriesPatchPoints('dotSize', next);
-        }
-      }
-    });
-    wrap.appendChild(makeInput('Size', sizeInput));
-
-    // Transparency (alpha): slider indicates transparency (0 = opaque, 100 = fully transparent)
-    const opacityInput = doc.createElement('input');
-    opacityInput.type = 'range';
-    opacityInput.min = '0';
-    opacityInput.max = '100';
-    opacityInput.step = '1';
-    const currentAlpha = seriesAlpha != null ? seriesAlpha : resolveAlpha(alphaInput?.value);
-    if(alphaInput && currentAlpha != null){
-      alphaInput.value = String(currentAlpha);
-      if(alphaVal){
-        alphaVal.textContent = String(currentAlpha);
-      }
-    }
-    let resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
-    opacityInput.value = String(resolvedTransparencyPct);
-    const opacityValue = doc.createElement('span');
-    opacityValue.className = 'workspace-toolbar__input-value';
-    opacityValue.textContent = `${opacityInput.value}%`;
-    opacityInput.addEventListener('input', () => {
-      const pct = Number(opacityInput.value);
-      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-      const transparency = bounded / 100;
-      const normalized = transparency; // normalized transparency (0..1)
-      if(useSeriesScopePoints() && seriesKey){
-        applySeriesStylePatchPoints({ alpha: normalized });
-      }else{
-        if(alphaInput){
-          applyAndDispatch(alphaInput, String(normalized));
-        }
-        if(alphaVal){
-          alphaVal.textContent = String(normalized);
-        }
-        applyGlobalSeriesPatchPoints('alpha', normalized);
-      }
-      opacityValue.textContent = `${Math.round(bounded)}%`;
-    });
-    const opacityWrap = doc.createElement('div');
-    opacityWrap.style.display = 'inline-flex';
-    opacityWrap.style.alignItems = 'center';
-    opacityWrap.appendChild(opacityInput);
-    opacityWrap.appendChild(opacityValue);
-    wrap.appendChild(makeInput('Transparency', opacityWrap));
-
-    toolbarHost.appendChild(wrap);
-    toolbarHost.style.display = 'block';
-    toolbarHost.classList.add('font-toolbar-host--visible');
-    const dock = toolbarHost.closest('.workspace-toolbar__dock');
-    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
-
-    try{
-      if(toolbarHost.__lineDocClickHandler){
-        document.removeEventListener('click', toolbarHost.__lineDocClickHandler);
-        toolbarHost.__lineDocClickHandler = null;
-      }
-      const onDocClick = function(evt){
-        try{
-          const tgt = evt && evt.target ? evt.target : null;
-          if(!tgt){ return; }
-          if(toolbarHost.contains(tgt)){ return; }
-          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
-          toolbarHost.classList.remove('font-toolbar-host--visible');
-          toolbarHost.style.display = 'none';
-          try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
-          const d = toolbarHost.closest('.workspace-toolbar__dock');
-          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
-          document.removeEventListener('click', onDocClick);
-          toolbarHost.__lineDocClickHandler = null;
-        }catch(err){ console.warn('line.point format docClick error', err); }
-      };
-      document.addEventListener('click', onDocClick);
-      toolbarHost.__lineDocClickHandler = onDocClick;
-    }catch(err){ console.warn('attach doc click for line point controls failed', err); }
+    return;
   }
 
-  function showLineStrokeFormatControls(target){
-    const doc = global.document;
-    if(!doc){ return; }
-    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
-    const anchor = doc.getElementById('lineFontHost');
-    if(!anchor){ return; }
-    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
-      ? anchor.nextElementSibling
-      : null;
-    if(!toolbarHost){
-      toolbarHost = doc.createElement('div');
-      toolbarHost.className = 'font-toolbar-host';
-      toolbarHost.dataset.fontToolbarScope = 'line';
-      toolbarHost.style.display = 'none';
-      anchor.insertAdjacentElement('afterend', toolbarHost);
-    }
-    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
-      if(h !== toolbarHost){
-        h.classList.remove('font-toolbar-host--visible');
-        h.style.display = 'none';
-      }
-    });
-
-    toolbarHost.innerHTML = '';
-    const wrap = doc.createElement('div');
-    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single line-stroke-controls';
-    wrap.dataset.lineStrokeControls = '1';
-
-    const makeInput = (labelText, inputEl) => {
-      const lbl = doc.createElement('label');
-      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
-      const span = doc.createElement('span');
-      span.className = 'workspace-toolbar__input-label';
-      span.textContent = labelText;
-      lbl.appendChild(span);
-      lbl.appendChild(inputEl);
-      return lbl;
-    };
-
-    const strokeInput = doc.getElementById('lineBorder');
-    const strokeWidthInput = doc.getElementById('lineBorderWidth');
-    const alphaInput = doc.getElementById('lineAlpha');
-    const alphaVal = doc.getElementById('lineAlphaVal');
-    const seriesKey = target?.dataset?.series || null;
-    const scopeName = `lineStrokeScope_${Date.now()}`;
-    const scopeField = doc.createElement('div');
-    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
-    const scopeLabel = doc.createElement('span');
-    scopeLabel.className = 'workspace-toolbar__input-label';
-    scopeLabel.textContent = 'Scope';
-    const scopeSeries = doc.createElement('label');
-    scopeSeries.style.display = 'inline-flex';
-    scopeSeries.style.alignItems = 'center';
-    scopeSeries.style.gap = '4px';
-    const radioSeries = doc.createElement('input');
-    radioSeries.type = 'radio'; radioSeries.name = scopeName; radioSeries.value = 'series';
-    radioSeries.checked = !!seriesKey;
-    radioSeries.disabled = !seriesKey;
-    scopeSeries.appendChild(radioSeries);
-    scopeSeries.appendChild(doc.createTextNode('Series'));
-    const scopeGlobal = doc.createElement('label');
-    scopeGlobal.style.display = 'inline-flex';
-    scopeGlobal.style.alignItems = 'center';
-    scopeGlobal.style.gap = '4px';
-    const radioGlobal = doc.createElement('input');
-    radioGlobal.type = 'radio'; radioGlobal.name = scopeName; radioGlobal.value = 'global';
-    radioGlobal.checked = !seriesKey;
-    scopeGlobal.appendChild(radioGlobal);
-    scopeGlobal.appendChild(doc.createTextNode('Global'));
-    scopeField.appendChild(scopeLabel);
-    scopeField.appendChild(scopeSeries);
-    scopeField.appendChild(scopeGlobal);
-    wrap.appendChild(scopeField);
-
-    const applyAndDispatch = (inputEl, value, type = 'input') => {
-      if(!inputEl){ return; }
-      inputEl.value = value;
-      inputEl.dispatchEvent(new Event(type, { bubbles: true }));
-    };
-
-    // Stroke color
-    const colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    const resolvedStroke = strokeInput?.value || target.getAttribute('stroke') || '#377eb8';
-    try{ colorInput.value = resolvedStroke; }catch(e){}
-    colorInput.addEventListener('input', () => {
-      const nextColor = colorInput.value;
-      if(useSeriesScopeStroke() && seriesKey){
-        const prev = lineLabelColors[seriesKey] || '';
-        lineLabelColors[seriesKey] = nextColor;
-        target.setAttribute('stroke', nextColor);
-        if(prev !== nextColor){
-          scheduleLineDraw();
-        }
-      }else{
-        applyGlobalStrokeColor(nextColor);
-      }
-    });
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
-    }
-    const colorLabel = makeInput('Line', colorInput);
-    colorLabel.classList.add('workspace-toolbar__input--color');
-    wrap.appendChild(colorLabel);
-
-    // Stroke width
-    const widthInput = doc.createElement('input');
-    widthInput.type = 'number';
-    widthInput.min = '0';
-    widthInput.step = '0.5';
-    const resolvedWidth = Number.isFinite(Number(strokeWidthInput?.value))
-      ? Number(strokeWidthInput.value)
-      : Number(target.getAttribute('stroke-width'));
-    if(Number.isFinite(resolvedWidth)){
-      widthInput.value = String(resolvedWidth);
-    }
-    widthInput.addEventListener('input', () => {
-      const numeric = Number(widthInput.value);
-      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
-      if(useSeriesScopeStroke() && seriesKey){
-        applySeriesStylePatchStroke({ strokeWidth: next });
-      }else{
-        if(strokeWidthInput){
-          applyAndDispatch(strokeWidthInput, String(next));
-        }
-        applyGlobalSeriesPatchStroke('strokeWidth', next);
-      }
-    });
-    wrap.appendChild(makeInput('Thickness', widthInput));
-
-    // Transparency: slider indicates transparency (0 = opaque, 100 = fully transparent)
-    const opacityInput = doc.createElement('input');
-    opacityInput.type = 'range';
-    opacityInput.min = '0';
-    opacityInput.max = '100';
-    opacityInput.step = '1';
-    const currentAlpha = Number(alphaInput?.value);
-    let resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
-    opacityInput.value = String(resolvedTransparencyPct);
-    const opacityValue = doc.createElement('span');
-    opacityValue.className = 'workspace-toolbar__input-value';
-    opacityValue.textContent = `${opacityInput.value}%`;
-    opacityInput.addEventListener('input', () => {
-      const pct = Number(opacityInput.value);
-      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-      const transparency = bounded / 100;
-      const normalized = transparency; // normalized transparency (0..1)
-      if(useSeriesScopeStroke() && seriesKey){
-        applySeriesStylePatchStroke({ alpha: normalized });
-      }else{
-        if(alphaInput){
-          applyAndDispatch(alphaInput, String(normalized));
-        }
-        if(alphaVal){
-          alphaVal.textContent = String(normalized);
-        }
-        applyGlobalSeriesPatchStroke('alpha', normalized);
-      }
-      opacityValue.textContent = `${Math.round(bounded)}%`;
-    });
-    const opacityWrap = doc.createElement('div');
-    opacityWrap.style.display = 'inline-flex';
-    opacityWrap.style.alignItems = 'center';
-    opacityWrap.appendChild(opacityInput);
-    opacityWrap.appendChild(opacityValue);
-    wrap.appendChild(makeInput('Transparency', opacityWrap));
-
-    toolbarHost.appendChild(wrap);
-    toolbarHost.style.display = 'block';
-    toolbarHost.classList.add('font-toolbar-host--visible');
-    const dock = toolbarHost.closest('.workspace-toolbar__dock');
-    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
-
-    try{
-      if(toolbarHost.__lineDocClickHandler){
-        document.removeEventListener('click', toolbarHost.__lineDocClickHandler);
-        toolbarHost.__lineDocClickHandler = null;
-      }
-      const onDocClick = function(evt){
-        try{
-          const tgt = evt && evt.target ? evt.target : null;
-          if(!tgt){ return; }
-          if(toolbarHost.contains(tgt)){ return; }
-          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
-          toolbarHost.classList.remove('font-toolbar-host--visible');
-          toolbarHost.style.display = 'none';
-          try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
-          const d = toolbarHost.closest('.workspace-toolbar__dock');
-          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
-          document.removeEventListener('click', onDocClick);
-          toolbarHost.__lineDocClickHandler = null;
-        }catch(err){ console.warn('line.stroke format docClick error', err); }
-      };
-      document.addEventListener('click', onDocClick);
-      toolbarHost.__lineDocClickHandler = onDocClick;
-    }catch(err){ console.warn('attach doc click for line stroke controls failed', err); }
-  }
   console.debug('Debug: line replicates initialized', {
     lineReplicates,
     min: LINE_MIN_REPLICATES,
@@ -6705,15 +6459,31 @@
         const s = entry.series;
         const color = colors[entry.index] || borderColor || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
         const styleOverride = lineSeriesStyles?.[s.name] || {};
-        const seriesAlpha = styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha;
-        const seriesStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx;
+        const seriesAlpha = styleOverride && styleOverride.markerAlpha != null
+          ? clampLineAlpha(styleOverride.markerAlpha)
+          : (styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha);
+        const seriesStrokeWidth = Number.isFinite(Number(styleOverride.lineStrokeWidth))
+          ? Number(styleOverride.lineStrokeWidth)
+          : (Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx);
+        const seriesLineColor = (typeof styleOverride.lineStroke === 'string' && styleOverride.lineStroke)
+          ? styleOverride.lineStroke
+          : color;
+        const seriesLineAlpha = styleOverride && styleOverride.lineAlpha != null
+          ? clampLineAlpha(styleOverride.lineAlpha)
+          : (styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha);
         const seriesDotSize = Number.isFinite(Number(styleOverride.dotSize)) ? Number(styleOverride.dotSize) : dotSizePx;
-        const seriesMarkerStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth))
-          ? Number(styleOverride.strokeWidth)
-          : borderWidthPx;
-        const seriesMarkerStroke = (typeof styleOverride.stroke === 'string' && styleOverride.stroke)
+        const seriesMarkerStrokeWidth = Number.isFinite(Number(styleOverride.markerStrokeWidth))
+          ? Number(styleOverride.markerStrokeWidth)
+          : (Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : 0);
+        const seriesMarkerStroke = (typeof styleOverride.markerStroke === 'string' && styleOverride.markerStroke)
+          || (typeof styleOverride.stroke === 'string' && styleOverride.stroke)
           || (typeof styleOverride.borderColor === 'string' && styleOverride.borderColor)
           || borderColor
+          || color;
+        const seriesMarkerFill = (typeof styleOverride.markerFill === 'string' && styleOverride.markerFill)
+          || (typeof styleOverride.fill === 'string' && styleOverride.fill)
+          || lineLabelColors[s.name]
+          || fill
           || color;
         let pathStr = '';
         let started = false;
@@ -6734,9 +6504,9 @@
           const path = global.document.createElementNS(NS, 'path');
           path.setAttribute('d', pathStr);
           path.setAttribute('fill', 'none');
-          path.setAttribute('stroke', color);
+          path.setAttribute('stroke', seriesLineColor);
           path.setAttribute('stroke-width', String(seriesStrokeWidth));
-          path.setAttribute('stroke-opacity', String(Math.max(0, 1 - (seriesAlpha != null ? seriesAlpha : alpha))));
+          path.setAttribute('stroke-opacity', String(Math.max(0, 1 - (seriesLineAlpha != null ? seriesLineAlpha : alpha))));
           path.dataset.series = s.name || '';
           path.dataset.viewMode = '3d';
           path.style.cursor = 'pointer';
@@ -6762,7 +6532,7 @@
                 radius: seriesDotSize,
                 cx: markerEntry.proj.x,
                 cy: markerEntry.proj.y,
-                fill: color,
+                fill: seriesMarkerFill,
                 fillOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha),
                 stroke: seriesMarkerStroke,
                 strokeWidth: Math.max(0, Number(seriesMarkerStrokeWidth) || 0),
@@ -8233,15 +8003,31 @@
       seriesWithData.forEach((s,i)=>{
         const color=colors[i];
         const styleOverride = lineSeriesStyles[s.name] || {};
-        const seriesAlpha = styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha;
-        const seriesStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx;
+        const seriesAlpha = styleOverride && styleOverride.markerAlpha != null
+          ? clampLineAlpha(styleOverride.markerAlpha)
+          : (styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha);
+        const seriesLineAlpha = styleOverride && styleOverride.lineAlpha != null
+          ? clampLineAlpha(styleOverride.lineAlpha)
+          : (styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha);
+        const seriesStrokeWidth = Number.isFinite(Number(styleOverride.lineStrokeWidth))
+          ? Number(styleOverride.lineStrokeWidth)
+          : (Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx);
+        const seriesLineColor = (typeof styleOverride.lineStroke === 'string' && styleOverride.lineStroke)
+          ? styleOverride.lineStroke
+          : color;
         const seriesDotSize = Number.isFinite(Number(styleOverride.dotSize)) ? Number(styleOverride.dotSize) : dotSizePx;
-        const seriesMarkerStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth))
-          ? Number(styleOverride.strokeWidth)
-          : borderWidthPx;
-        const seriesMarkerStroke = (typeof styleOverride.stroke === 'string' && styleOverride.stroke)
+        const seriesMarkerStrokeWidth = Number.isFinite(Number(styleOverride.markerStrokeWidth))
+          ? Number(styleOverride.markerStrokeWidth)
+          : (Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : 0);
+        const seriesMarkerStroke = (typeof styleOverride.markerStroke === 'string' && styleOverride.markerStroke)
+          || (typeof styleOverride.stroke === 'string' && styleOverride.stroke)
           || (typeof styleOverride.borderColor === 'string' && styleOverride.borderColor)
           || borderColor
+          || color;
+        const seriesMarkerFill = (typeof styleOverride.markerFill === 'string' && styleOverride.markerFill)
+          || (typeof styleOverride.fill === 'string' && styleOverride.fill)
+          || lineLabelColors[s.name]
+          || fill
           || color;
         if(showIntervals && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
@@ -8304,10 +8090,10 @@
         const errorGroup=showErrorBars?document.createElementNS(NS,'g'):null;
         if(errorGroup){
           errorGroup.setAttribute('fill','none');
-          errorGroup.setAttribute('stroke',color);
+          errorGroup.setAttribute('stroke',seriesLineColor);
           errorGroup.setAttribute('stroke-width',errorStrokeWidth);
           errorGroup.setAttribute('stroke-linecap','square');
-          errorGroup.setAttribute('stroke-opacity',1-alpha);
+          errorGroup.setAttribute('stroke-opacity',1-(seriesLineAlpha != null ? seriesLineAlpha : alpha));
         }
         s.points.forEach(pt=>{
           if(pt){
@@ -8362,7 +8148,7 @@
                 radius: seriesDotSize,
                 cx: px,
                 cy: py,
-                fill: lineLabelColors[s.name] || fill,
+                fill: seriesMarkerFill,
                 fillOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha),
                 stroke: seriesMarkerStroke,
                 strokeWidth: Math.max(0, Number(seriesMarkerStrokeWidth) || 0),
@@ -8402,7 +8188,7 @@
           const areaPathStr=fillCommands.join('');
           areaPathEl=document.createElementNS(NS,'path');
           areaPathEl.setAttribute('d',areaPathStr);
-          areaPathEl.setAttribute('fill',color);
+          areaPathEl.setAttribute('fill',seriesLineColor);
           areaPathEl.setAttribute('fill-opacity',String(areaFillOpacity));
           areaPathEl.setAttribute('stroke','none');
           areaPathEl.dataset.series=s.name;
@@ -8416,9 +8202,9 @@
         }
         const pathAttrs={
           d:pathStr,
-          stroke:color,
+          stroke:seriesLineColor,
           'stroke-width':seriesStrokeWidth,
-          'stroke-opacity':1-(seriesAlpha != null ? seriesAlpha : alpha),
+          'stroke-opacity':1-(seriesLineAlpha != null ? seriesLineAlpha : alpha),
           fill:'none'
         };
         pathAttrs['data-render-mode']=displayModeCurrent;

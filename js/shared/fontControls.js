@@ -1239,6 +1239,21 @@
 
   function showToolbarHost(host){
     if(!host){ return; }
+    try{
+      Array.from(host.classList || []).forEach(cls => {
+        if(typeof cls === 'string' && cls.indexOf('font-toolbar-host--') === 0 && cls !== 'font-toolbar-host--visible'){
+          host.classList.remove(cls);
+        }
+      });
+      host.style.removeProperty('grid-auto-flow');
+      host.style.removeProperty('grid-auto-columns');
+      host.style.removeProperty('column-gap');
+      host.style.removeProperty('row-gap');
+      host.style.removeProperty('align-items');
+      host.style.removeProperty('justify-content');
+      host.style.removeProperty('overflow-x');
+      host.style.removeProperty('overflow-y');
+    }catch(e){}
     host.style.display = 'block';
     host.classList.add('font-toolbar-host--visible');
     updateDockActiveState(host, true);
@@ -1247,8 +1262,24 @@
 
   function hideToolbarHost(host){
     if(!host){ return; }
-    host.classList.remove('font-toolbar-host--visible');
+    try{
+      Array.from(host.classList || []).forEach(cls => {
+        if(typeof cls === 'string' && cls.indexOf('font-toolbar-host--') === 0){
+          host.classList.remove(cls);
+        }
+      });
+    }catch(e){
+      host.classList.remove('font-toolbar-host--visible');
+    }
     host.style.display = 'none';
+    host.style.removeProperty('grid-auto-flow');
+    host.style.removeProperty('grid-auto-columns');
+    host.style.removeProperty('column-gap');
+    host.style.removeProperty('row-gap');
+    host.style.removeProperty('align-items');
+    host.style.removeProperty('justify-content');
+    host.style.removeProperty('overflow-x');
+    host.style.removeProperty('overflow-y');
     host.style.removeProperty('min-width');
     host.style.removeProperty('max-width');
     host.style.removeProperty('width');
@@ -1267,7 +1298,7 @@
     if(!global.document) return;
     try{
       const doc = global.document;
-      const hosts = Array.from(doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible'));
+      const hosts = Array.from(doc.querySelectorAll('.font-toolbar-host'));
       hosts.forEach(h => {
         try{
           // attempt to remove any attached doc click handlers stored on the host
