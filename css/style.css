@@ -46,7 +46,7 @@
 
 .shared-color-picker {
     background: #ffffff;
-    border: 1px solid #c7ccd3;
+    border: 0.5px solid #c7ccd3;
     border-radius: 0;
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
     color: #1f2937;
@@ -61,7 +61,12 @@
 
 .shared-color-picker:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.28), 0 6px 18px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.shared-color-picker:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.22), 0 6px 18px rgba(15, 23, 42, 0.12);
 }
 
 .shared-color-picker__section {
@@ -75,8 +80,8 @@
 .shared-color-picker__section-title {
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
+    letter-spacing: 0.01em;
     margin-bottom: 6px;
     color: #111827;
 }
@@ -269,8 +274,8 @@
     font-size: 10px;
     font-weight: 600;
     color: #cbd5e1;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    text-transform: none;
+    letter-spacing: 0.01em;
 }
 
 .shared-color-picker__scatter-style-input {
@@ -376,60 +381,61 @@
 
 @media (prefers-color-scheme: dark) {
     .shared-color-picker {
-        border: 1px solid #c7ccd3;
+        border: 0.5px solid #c7ccd3;
         border-radius: 4px;
         padding: 4px 8px;
         transition: background-color 0.2s ease, color 0.2s ease;
-        background: #0f172a;
-        border-color: #1e293b;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-        color: #e2e8f0;
+        background: #f8fafc;
+        border-color: #c7ccd3;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+        color: #1f2937;
     }
 
     .shared-color-picker__section-title {
-        color: #e2e8f0;
+        color: #111827;
     }
 
     .shared-color-picker__swatch {
-        border-color: rgba(148, 163, 184, 0.45);
+        border-color: rgba(15, 23, 42, 0.12);
     }
 
     .shared-color-picker__hex-input {
-        background: #0f172a;
-        color: #e2e8f0;
-        border-color: #334155;
+        background: #ffffff;
+        color: #111b29;
+        border-color: #c7ccd3;
     }
 
     .shared-color-picker__hex-input:focus {
-        border-color: #60a5fa;
-        box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.32);
     }
 
     .shared-color-picker__eyedropper {
-        border-color: #475569;
-        background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
-        color: #f8fafc;
+        border-color: #94a3b8;
+        background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+        color: #1f2937;
     }
 
     .shared-color-picker__eyedropper:hover,
     .shared-color-picker__eyedropper:focus-visible {
-        border-color: #60a5fa;
-        box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.4);
+        border-color: #4c51bf;
+        box-shadow: 0 0 0 1px rgba(76, 81, 191, 0.35);
+        background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
     }
 
     .shared-color-picker__eyedropper--fallback {
         border-style: dashed;
-        color: #e2e8f0;
+        color: #334155;
     }
 
     .shared-color-picker__more-toggle {
-        color: #60a5fa;
+        color: #2563eb;
     }
 
     .shared-color-picker__more-toggle:hover,
     .shared-color-picker__more-toggle:focus-visible {
-        background: rgba(96, 165, 250, 0.16);
-        color: #93c5fd;
+        background: rgba(37, 99, 235, 0.08);
+        color: #1d4ed8;
     }
 }
 
@@ -3424,6 +3430,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     max-width:100%;
 }
 .axis-controls-panel{
+    --axis-toolbar-section-gap: 20px;
     padding-top:18px;
 }
 .axis-controls-panel__row,
@@ -3434,6 +3441,9 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     align-items:start;
     gap:var(--workspace-toolbar-section-gap);
     width:max-content;
+}
+.axis-controls-panel .axis-controls-panel__row.additional-line-controls-panel__row{
+    gap:0 var(--axis-toolbar-section-gap);
 }
 .axis-controls-panel__field,
 .font-controls-panel__field{
@@ -3446,6 +3456,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     min-height:52px;
     text-align:center;
     flex:0 0 auto;
+    margin:0;
 }
 .axis-controls-panel__field-label,
 .font-controls-panel__field-label,

@@ -358,7 +358,7 @@
 
     const title = documentRef.createElement('div');
     title.className = 'shared-color-picker__section-title';
-    title.textContent = 'More Fill Colors';
+    title.textContent = 'More fill colors';
     header.appendChild(title);
 
     const toggle = documentRef.createElement('button');
@@ -398,7 +398,7 @@
     section.className = 'shared-color-picker__section shared-color-picker__section--recent shared-color-picker__section--empty';
     const title = documentRef.createElement('div');
     title.className = 'shared-color-picker__section-title';
-    title.textContent = 'Recent Colors';
+    title.textContent = 'Recent colors';
     section.appendChild(title);
     const rowEl = documentRef.createElement('div');
     rowEl.className = 'shared-color-picker__swatch-row';
@@ -412,7 +412,7 @@
     section.className = 'shared-color-picker__section shared-color-picker__section--custom';
     const title = documentRef.createElement('div');
     title.className = 'shared-color-picker__section-title';
-    title.textContent = 'Custom Color';
+    title.textContent = 'Custom color';
     section.appendChild(title);
 
     const row = documentRef.createElement('div');
@@ -923,7 +923,7 @@
     overlayState.shapeContainer = shapeSection.container;
     overlay.appendChild(shapeSection.section);
 
-    const standardSection = createPaletteRowSection('Standard Colors', STANDARD_COLORS);
+    const standardSection = createPaletteRowSection('Standard colors', STANDARD_COLORS);
     overlay.appendChild(standardSection);
 
     const moreFillSection = createMoreFillSection();

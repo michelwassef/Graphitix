@@ -5,7 +5,7 @@
 
   const hostCache = new Map();
   let panelEl = null;
-  let axisLabelEl = null;
+  let panelTitleEl = null;
   let tickFieldEl = null;
   let tickInput = null;
   let minorTicksFieldEl = null;
@@ -1017,10 +1017,12 @@
 
   function updatePanelInputs(config){
     if(!panelEl || !config || !tickInput || !thicknessInput || !colorInput){ return; }
-    const axisName = config.axis === 'y' ? 'Y axis' : 'X axis';
-    if(axisLabelEl){
-      axisLabelEl.textContent = axisName;
+    const axisKey = String(config.axis || '').trim().toLowerCase();
+    const axisName = axisKey === 'y' ? 'Y axis' : 'X axis';
+    if(panelTitleEl){
+      panelTitleEl.textContent = axisName;
     }
+    panelEl.setAttribute('aria-label', `${axisName} controls`);
     const tickSupported = config.isTickIntervalEnabled
       ? !!config.isTickIntervalEnabled(config.axis)
       : true;
@@ -1384,7 +1386,7 @@
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
 
-    const panelTitleEl = doc.createElement('div');
+    panelTitleEl = doc.createElement('div');
     panelTitleEl.className = 'workspace-toolbar__panel-title axis-controls-panel__title';
     panelTitleEl.textContent = 'Axis';
     panelEl.appendChild(panelTitleEl);
@@ -1392,17 +1394,6 @@
     const fieldsRowEl = doc.createElement('div');
     fieldsRowEl.className = 'additional-line-controls-panel__row axis-controls-panel__row';
     panelEl.appendChild(fieldsRowEl);
-
-    const axisGroup = doc.createElement('div');
-    axisGroup.className = 'axis-controls-panel__summary axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--axis-summary';
-    const axisLabelTitle = doc.createElement('span');
-    axisLabelTitle.className = 'axis-controls-panel__summary-label axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    axisLabelTitle.textContent = 'Axis';
-    axisLabelEl = doc.createElement('span');
-    axisLabelEl.className = 'axis-controls-panel__summary-value';
-    axisGroup.appendChild(axisLabelTitle);
-    axisGroup.appendChild(axisLabelEl);
-    fieldsRowEl.appendChild(axisGroup);
 
     const tickField = doc.createElement('label');
     tickField.className = 'axis-controls-panel__field additional-line-controls-panel__field';
