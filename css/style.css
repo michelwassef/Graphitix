@@ -2030,6 +2030,10 @@ select {
     align-items:flex-start;
     min-width:0;
 }
+/* Keep axis toolbars anchored to the same top baseline across components. */
+.workspace-toolbar__section--dock.workspace-toolbar__section--axis-active{
+    justify-content:flex-start;
+}
 .workspace-toolbar__section::after{
     display:none;
 }
@@ -3324,12 +3328,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .axis-controls-panel__checkbox-label,
 .axis-controls-panel__extra-toggle{padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);letter-spacing:.04em;text-transform:none;white-space:nowrap}
 .axis-controls-panel__button--segments-toggle{align-self:flex-start;width:100%;justify-content:space-between;display:flex;align-items:center;gap:6px;font-weight:600;letter-spacing:.04em}
-.axis-controls-panel__button--additional-ticks{width:auto;min-width:0;height:26px;padding:0 12px;border-radius:0 !important;background:#f5f7fb;color:#111b29;border:1px solid #cbd5e1;font-size:11px;letter-spacing:.02em;text-transform:none;gap:8px;line-height:1;justify-content:center;align-items:center;font-weight:600;margin-left:0}
+.axis-controls-panel__button--additional-ticks{width:auto;min-width:0;height:var(--ui-control-height);min-height:var(--ui-control-height);max-height:var(--ui-control-height);padding:var(--ui-control-padding);box-sizing:border-box;border-radius:0 !important;background:#f5f7fb;color:#111b29;border:1px solid #cbd5e1;font-size:11px;letter-spacing:.04em;text-transform:none;gap:8px;line-height:1;justify-content:center;align-items:center;font-weight:600;margin-left:0}
 .axis-controls-panel__button--additional-ticks:not([aria-disabled='true']):hover{background:#e7ecf5;color:#0f172a}
 .axis-controls-panel__button--additional-ticks[aria-disabled='true']{opacity:.6;color:#94a3b8;background:#f8fafc;border-color:#e2e8f0}
 .axis-controls-panel__dropdown--additional-ticks{left:auto;right:0;min-width:360px;max-width:min(520px,calc(100vw - 44px))}
 .axis-controls-panel__extras-container{display:flex;width:100%;gap:8px;flex-direction:column;margin-top:2px;padding:0;border:none;background:transparent;align-self:stretch;align-items:stretch}
-.axis-controls-panel__extras-empty{width:100%;padding:8px 10px;border:1px dashed rgba(148,163,184,0.8);border-radius:0;font-size:11px;color:#475569;background:#f8fafc;text-align:left;text-transform:uppercase;letter-spacing:.08em}
 .axis-controls-panel__extra-head{display:grid;grid-template-columns:minmax(70px,88px) auto auto minmax(120px,1fr) auto;align-items:end;column-gap:8px;width:100%;padding:0 0 2px}
 .axis-controls-panel__extra-head-cell{font-size:10px;font-weight:700;color:#334155;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
 .axis-controls-panel__extra-row{display:grid;grid-template-columns:minmax(70px,88px) auto auto minmax(120px,1fr) auto;align-items:center;column-gap:8px;row-gap:4px;width:100%;padding:0;border:none;background:transparent;box-shadow:none;min-height:0}
@@ -3337,11 +3340,18 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .axis-controls-panel__extra-input{height:26px;font-size:12px;padding:2px 6px}
 .axis-controls-panel__extra-input--value{width:80px;min-width:70px;max-width:88px;text-align:center}
 .axis-controls-panel__extra-input--label{width:100%;min-width:120px;text-align:left}
+.axis-controls-panel__extra-input,
+.axis-controls-panel__extra-toggle{
+    border-radius:0 !important;
+}
+.axis-controls-panel__extra-row .axis-controls-panel__checkbox{
+    border-radius:0 !important;
+}
 .axis-controls-panel__button--add-extra{width:auto;align-self:flex-start;margin-top:4px;display:none;align-items:center;justify-content:center;font-weight:600;letter-spacing:0;text-transform:none;min-height:30px;font-size:12px;padding:6px 10px;font-family:var(--ui-font-family);margin-left:0}
 .axis-controls-panel__button--add-extra:hover{background:#e0e0e0}
 .axis-controls-panel__button--remove-extra{width:26px;height:26px;padding:0;font-size:16px;line-height:1;color:#384255;margin-left:0;flex:0 0 auto;justify-self:end}
 .axis-controls-panel__button--remove-extra:hover{background:#edf2ff;border-color:#6c7bb1}
-.axis-controls-panel__button--break-axis{width:auto;min-width:0;height:26px;padding:0 12px;border-radius:0 !important;background:#f5f7fb;color:#111b29;border:1px solid #cbd5e1;font-size:11px;letter-spacing:.04em;text-transform:none;gap:8px;line-height:1;justify-content:center;align-items:center;font-weight:600;margin-left:0}
+.axis-controls-panel__button--break-axis{width:auto;min-width:0;height:var(--ui-control-height);min-height:var(--ui-control-height);max-height:var(--ui-control-height);padding:var(--ui-control-padding);box-sizing:border-box;border-radius:0 !important;background:#f5f7fb;color:#111b29;border:1px solid #cbd5e1;font-size:11px;letter-spacing:.04em;text-transform:none;gap:8px;line-height:1;justify-content:center;align-items:center;font-weight:600;margin-left:0}
 .axis-controls-panel__button--break-axis:not([aria-disabled='true']):hover{background:#e7ecf5;color:#0f172a}
 .axis-controls-panel__button--break-axis[aria-disabled='true']{opacity:.6;color:#94a3b8;background:#f8fafc;border-color:#e2e8f0}
 .axis-controls-panel__button--segments-toggle[aria-disabled='true']{opacity:.5;cursor:not-allowed}
@@ -3365,6 +3375,21 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .axis-controls-panel__button--remove-segment:hover{background:#edf2ff;border-color:#6c7bb1}
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__notation-combo{pointer-events:none;cursor:not-allowed;opacity:.65}
 .axis-controls-panel__field--compact{min-width:100px;flex-direction:row;align-items:center;justify-content:center;gap:10px}
+
+/* Break-axis dropdown: compact enable chip and sharp corners for all controls. */
+.axis-controls-panel__field--broken-axis .axis-controls-panel__checkbox-label{
+    width:fit-content !important;
+    max-width:100%;
+    align-self:flex-start;
+    box-sizing:border-box;
+    border-radius:0 !important;
+}
+.axis-controls-panel__field--broken-axis .axis-controls-panel__checkbox,
+.axis-controls-panel__field--broken-axis .axis-controls-panel__segment-input,
+.axis-controls-panel__field--broken-axis .axis-controls-panel__button--add-segment,
+.axis-controls-panel__field--broken-axis .axis-controls-panel__button--remove-segment{
+    border-radius:0 !important;
+}
 .font-controls-panel{position:static;z-index:auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;min-width:0;max-width:100%;padding:0 12px;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family)}
 .font-controls-panel--floating{position:fixed;top:12px;left:50%;transform:translateX(-50%);right:auto;z-index:3000;width:auto;max-width:min(720px,calc(100% - 32px));box-shadow:none}
 .font-controls-panel__title-group{display:flex;flex-direction:column;gap:2px}
@@ -3470,7 +3495,8 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 }
 .axis-controls-panel{
     --axis-toolbar-section-gap: 20px;
-    padding-top:18px;
+    padding-top:0;
+    padding-left:8px;
 }
 .axis-controls-panel__row,
 .font-controls-panel__controls{
@@ -3537,9 +3563,16 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     align-self:auto;
     align-items:center;
     justify-content:flex-start;
-    padding-top:18px;
+    padding-top:0;
     margin-left:0;
     margin-right:0;
+}
+.axis-controls-panel__field--additional-ticks::before,
+.axis-controls-panel__field--broken-axis::before{
+    content:"";
+    display:block;
+    height:14px;
+    min-height:14px;
 }
 .axis-controls-panel__broken-axis-header{
     display:none;
@@ -3871,6 +3904,24 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .axis-controls-panel__button--add-segment:focus{
     outline:var(--ui-focus-outline);
     outline-offset:var(--ui-focus-offset);
+}
+
+/* Force parity with input/select control height for axis top-level action boxes. */
+.axis-controls-panel__button--additional-ticks,
+.axis-controls-panel__button--break-axis{
+    appearance:none;
+    -webkit-appearance:none;
+    height:var(--ui-control-height) !important;
+    min-height:var(--ui-control-height) !important;
+    max-height:var(--ui-control-height) !important;
+    padding:2px 10px !important;
+    line-height:20px !important;
+    font-size:12px !important;
+    font-weight:500 !important;
+    box-sizing:border-box;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
 }
 
 /* Shared focus primitive for non-menu controls. */

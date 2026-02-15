@@ -845,10 +845,6 @@
     const entries = Array.isArray(rawEntries) ? rawEntries : [];
 
     if(!entries.length){
-      const emptyState = doc.createElement('div');
-      emptyState.className = 'axis-controls-panel__extras-empty';
-      emptyState.textContent = 'No custom marks yet - add a value to draw a tick, line, or label.';
-      additionalTicksContainer.appendChild(emptyState);
       return;
     }
 
@@ -1217,6 +1213,7 @@
         setBrokenAxisConfigExpanded(false);
       }
     }
+
   }
 
   function syncPanelInputsFromConfig(config){
@@ -1373,6 +1370,13 @@
     if(!hasVisibleHost){
       dock.classList.remove('workspace-toolbar__dock--active');
     }
+  }
+
+  function updateAxisSectionActiveState(host, isActive){
+    if(!host || typeof host.closest !== 'function'){ return; }
+    const section = host.closest('.workspace-toolbar__section--dock');
+    if(!section || !section.classList){ return; }
+    section.classList.toggle('workspace-toolbar__section--axis-active', !!isActive);
   }
 
   function ensurePanel(){
@@ -2156,6 +2160,7 @@
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
+      updateAxisSectionActiveState(activeHost, false);
       activeHost.classList.remove('font-toolbar-host--axis');
       const fontPanel = activeHost.querySelector('.font-controls-panel');
       if(!fontPanel || fontPanel.dataset.open !== '1'){
@@ -2199,23 +2204,10 @@
     brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
-      // remove any point-format or workspace toolbar forms so axis open doesn't
-      // show lingering component controls in the same host
+      // Mount axis controls in a clean host so layout is identical across components
+      // (histogram still has legacy toolbar content that can otherwise affect vertical flow).
       try{
-        host.querySelectorAll('.workspace-toolbar__panel--symbol, .additional-line-controls-panel').forEach(node => {
-          if(node === panelEl){ return; }
-          try{ node.remove(); }catch(e){}
-        });
-        host.querySelectorAll('.box-point-controls, .workspace-toolbar__form, [data-point-controls="1"]').forEach(node => {
-          const parentPanel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
-          if(parentPanel && parentPanel !== panelEl){
-            try{ parentPanel.remove(); }catch(e){}
-            return;
-          }
-          if(node !== panelEl){
-            try{ node.remove(); }catch(e){}
-          }
-        });
+        host.innerHTML = '';
       }catch(e){}
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
@@ -2224,6 +2216,7 @@
       host.style.display = 'block';
       host.classList.add('font-toolbar-host--visible');
       host.classList.add('font-toolbar-host--axis');
+      updateAxisSectionActiveState(host, true);
       updateDockActiveState(host, true);
       activeHost = host;
     } else {
