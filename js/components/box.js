@@ -1636,6 +1636,7 @@
     additionalLineControls.show({
       scopeId: 'box',
       target,
+      panelTitle: 'Overlay',
       host: opts.host || undefined,
       appendToHost: opts.appendToHost === true,
       clearHost: opts.appendToHost === true ? false : undefined,

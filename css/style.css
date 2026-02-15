@@ -1916,7 +1916,7 @@ select {
     align-items:stretch;
     gap:0;
     --workspace-toolbar-tabs-height:26px;
-    --workspace-toolbar-content-height:68px;
+    --workspace-toolbar-content-height:78px;
 }
 .workspace-toolbar__tabs{
     display:flex;
@@ -1965,7 +1965,7 @@ select {
     align-items:flex-start;
     justify-content:center;
     gap:0;
-    padding:2px 8px;
+    padding:4px 8px;
     background:linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(226,232,240,0.25) 100%);
     border-radius:var(--ui-rounded-radius);
     border:none;
@@ -2473,6 +2473,27 @@ select {
     align-self:flex-start;
     font-size:11px;
     color:#1f2937;
+}
+.workspace-toolbar__panel-title{
+    font-size:11px;
+    line-height:1.2;
+    font-weight:600;
+    letter-spacing:0.01em;
+    color:#1e293b;
+    text-transform:none;
+    margin:0 0 4px 0;
+    white-space:nowrap;
+    width:100%;
+    text-align:center;
+    align-self:stretch;
+}
+.workspace-toolbar__panel{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    gap:0;
+    width:max-content;
 }
 .workspace-toolbar__section:last-child{
     margin-right:0;
@@ -3131,8 +3152,10 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
 .font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host.font-toolbar-host--axis{flex:1 1 100%;justify-content:flex-start;align-self:stretch;width:100%;margin-left:0;margin-right:0}
-.font-toolbar-host--line-dual.font-toolbar-host--visible{display:grid}
-.font-toolbar-host--line-dual{
+.font-toolbar-host--line-dual.font-toolbar-host--visible,
+.font-toolbar-host--box-dual.font-toolbar-host--visible{display:grid}
+.font-toolbar-host--line-dual,
+.font-toolbar-host--box-dual{
   grid-auto-flow:column;
   grid-auto-columns:max-content;
   column-gap:10px;
@@ -3142,21 +3165,20 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   overflow-y:visible;
   max-width:100%;
 }
-.font-toolbar-host--line-dual .line-point-controls.workspace-toolbar__form--single{
+.font-toolbar-host--line-dual .line-point-controls.workspace-toolbar__form--single,
+.font-toolbar-host--box-dual .box-point-controls.workspace-toolbar__form--single{
   width:max-content;
   min-width:max-content;
   flex:0 0 auto;
 }
-.font-toolbar-host--line-dual .additional-line-controls-panel{
+.font-toolbar-host--line-dual .additional-line-controls-panel,
+.font-toolbar-host--box-dual .additional-line-controls-panel{
   width:max-content;
   min-width:max-content;
   flex:0 0 auto;
   align-self:stretch;
   padding-left:10px;
   border-left:1px solid #cbd5e1;
-  grid-auto-flow:column;
-  grid-auto-columns:max-content;
-  column-gap:16px;
 }
 .axis-controls-panel{display:flex;align-items:flex-start;padding:0 8px;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:56px}
@@ -3527,12 +3549,16 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 /* Additional line controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.additional-line-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host--additional-line{display:block}
-.additional-line-controls-panel{display:grid;grid-auto-flow:column;grid-auto-columns:max-content !important;align-items:start;gap:22px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
+.additional-line-controls-panel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:max-content;justify-content:flex-start}
+.additional-line-controls-panel__title{font-size:11px;line-height:1.2;font-weight:600;letter-spacing:0.01em;color:#1e293b;text-transform:none;white-space:nowrap;width:100%;text-align:center;align-self:stretch}
+.additional-line-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:22px;width:max-content}
 .additional-line-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
-.additional-line-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
+.additional-line-controls-panel__summary-label{font-size:11px;text-transform:none;letter-spacing:0.01em;color:#1e293b;font-weight:600}
 .additional-line-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
 .additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:56px;flex:0 0 auto;text-align:center}
-.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;display:block}
+.additional-line-controls-panel__summary[hidden],
+.additional-line-controls-panel__field[hidden]{display:none !important}
+.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:block}
 .additional-line-controls-panel__input{min-width:0;width:auto;max-width:108px;text-align:center}
 .additional-line-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .additional-line-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
@@ -3541,13 +3567,15 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__range{display:flex;align-items:center;gap:8px;min-width:170px}
 .additional-line-controls-panel__transparency-input{flex:1 1 auto;min-width:120px}
 .additional-line-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
+.additional-line-controls-panel__field--style{min-width:90px}
 
 /* UI harmonization: shared typography and control primitives across advanced panels */
 .axis-controls-panel,
 .font-controls-panel,
 .dendrogram-controls-panel,
 .significance-controls-panel,
-.additional-line-controls-panel{
+.additional-line-controls-panel,
+.workspace-toolbar__panel{
     font-family:var(--ui-font-family);
 }
 

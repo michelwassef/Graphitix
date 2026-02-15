@@ -3353,6 +3353,7 @@
       : (safeKey === 'confidence' ? 'Confidence interval' : 'Prediction interval');
     additionalLineControls.registerAdditionalLineElement(element, {
       scopeId: 'scatter',
+      panelTitle: 'Trend line',
       axis: 'overlay',
       index: safeKey === 'trend' ? 0 : (safeKey === 'confidence' ? 1 : 2),
       disableOverlay: isBand,

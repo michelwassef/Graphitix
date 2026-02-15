@@ -5,6 +5,8 @@
 
   const hostCache = new Map();
   let panelEl = null;
+  let panelTitleEl = null;
+  let panelFieldsRowEl = null;
   let summaryLabelEl = null;
   let summaryValueEl = null;
   let scopeField = null;
@@ -13,6 +15,15 @@
   let thicknessField = null;
   let thicknessLabelEl = null;
   let thicknessInput = null;
+  let styleField = null;
+  let styleLabelEl = null;
+  let styleControlEl = null;
+  let styleChipEl = null;
+  let styleChipPreviewEl = null;
+  let styleChipValueEl = null;
+  let stylePickerCleanup = null;
+  let styleDragState = null;
+  let suppressStyleChipClick = false;
   let colorField = null;
   let colorLabelEl = null;
   let colorInput = null;
@@ -138,6 +149,7 @@
   function resolveControls(config){
     const controls = (config && typeof config.controls === 'object') ? config.controls : {};
     return {
+      panelTitle: controls.panelTitle || config?.panelTitle || 'Line',
       showSummary: controls.showSummary !== false,
       showScope: controls.showScope !== false,
       showColor: controls.showColor !== false,
@@ -174,12 +186,87 @@
     return `${axis} line`;
   }
 
+  function formatThicknessChipValue(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '0px';
+    }
+    const rounded = Math.round(numeric * 10) / 10;
+    return `${rounded}px`;
+  }
+
+  function syncStyleChipUi(){
+    if(!styleChipEl || !styleChipPreviewEl || !styleChipValueEl || !colorInput || !thicknessInput){
+      return;
+    }
+    const color = toColorInputValue(colorInput.value);
+    const thicknessValue = sanitizeThicknessValue(thicknessInput.value);
+    styleChipPreviewEl.style.background = color;
+    styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue == null ? 0 : thicknessValue);
+    styleChipEl.dataset.noBorder = thicknessValue == null || thicknessValue <= 0 ? '1' : '0';
+  }
+
+  function clearStylePickerSection(overlayEl){
+    if(!overlayEl || !overlayEl.querySelectorAll){
+      return;
+    }
+    overlayEl.querySelectorAll('.shared-color-picker__section--additional-line-style').forEach(node => node.remove());
+  }
+
+  function attachStylePickerThicknessSection(overlayEl){
+    if(!overlayEl){
+      return () => {};
+    }
+    clearStylePickerSection(overlayEl);
+    const controls = resolveControls(activeConfig || {});
+    const section = overlayEl.ownerDocument.createElement('section');
+    section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--additional-line-style';
+    const title = overlayEl.ownerDocument.createElement('div');
+    title.className = 'shared-color-picker__section-title';
+    title.textContent = controls.thicknessLabel || 'Line width';
+    section.appendChild(title);
+    const row = overlayEl.ownerDocument.createElement('div');
+    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
+    const field = overlayEl.ownerDocument.createElement('label');
+    field.className = 'shared-color-picker__scatter-style-field';
+    const input = overlayEl.ownerDocument.createElement('input');
+    input.className = 'shared-color-picker__scatter-style-input';
+    input.type = 'number';
+    input.min = thicknessInput?.min || '0';
+    input.max = thicknessInput?.max || '10';
+    input.step = thicknessInput?.step || '0.25';
+    input.value = thicknessInput?.value || '0';
+    input.setAttribute('aria-label', controls.thicknessLabel || 'Line width');
+    input.addEventListener('input', () => {
+      if(!thicknessInput){ return; }
+      thicknessInput.value = input.value;
+      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    input.addEventListener('change', () => {
+      if(!thicknessInput){ return; }
+      thicknessInput.value = input.value;
+      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    field.appendChild(input);
+    row.appendChild(field);
+    section.appendChild(row);
+    overlayEl.insertBefore(section, overlayEl.firstChild || null);
+    return () => {
+      if(section.parentNode){
+        section.parentNode.removeChild(section);
+      }
+    };
+  }
+
   function updatePanelInputs(config){
     if(!panelEl || !config || !thicknessInput || !colorInput || !patternSelect || !transparencyInput){
       return;
     }
     const context = getContext();
     const controls = resolveControls(config);
+    if(panelTitleEl){
+      panelTitleEl.textContent = controls.panelTitle;
+    }
     if(summaryValueEl){
       summaryValueEl.textContent = formatSummary(config, context);
     }
@@ -198,6 +285,9 @@
     if(colorLabelEl){
       colorLabelEl.textContent = controls.colorLabel;
     }
+    if(styleLabelEl){
+      styleLabelEl.textContent = controls.colorLabel;
+    }
     if(patternLabelEl){
       patternLabelEl.textContent = controls.patternLabel;
     }
@@ -209,10 +299,14 @@
       scopeField.hidden = !controls.showScope || !hasScopeOptions;
     }
     if(thicknessField){
-      thicknessField.hidden = !controls.showThickness;
+      // Thickness is edited via the shared border-style chip section in the color picker.
+      thicknessField.hidden = true;
     }
     if(colorField){
-      colorField.hidden = !controls.showColor;
+      colorField.hidden = true;
+    }
+    if(styleField){
+      styleField.hidden = !(controls.showColor || controls.showThickness);
     }
     if(patternField){
       patternField.hidden = !controls.showPattern;
@@ -233,6 +327,7 @@
     if(transparencyValueEl){
       transparencyValueEl.textContent = `${Math.round(transparencyValue)}%`;
     }
+    syncStyleChipUi();
   }
 
   function syncPanelInputsFromConfig(config){
@@ -382,6 +477,14 @@
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
+    panelTitleEl = doc.createElement('div');
+    panelTitleEl.className = 'additional-line-controls-panel__title';
+    panelTitleEl.textContent = 'Line';
+    panelEl.appendChild(panelTitleEl);
+
+    panelFieldsRowEl = doc.createElement('div');
+    panelFieldsRowEl.className = 'additional-line-controls-panel__row';
+    panelEl.appendChild(panelFieldsRowEl);
 
     const summary = doc.createElement('div');
     summary.className = 'additional-line-controls-panel__summary';
@@ -392,7 +495,7 @@
     summaryValueEl.className = 'additional-line-controls-panel__summary-value';
     summary.appendChild(summaryLabelEl);
     summary.appendChild(summaryValueEl);
-    panelEl.appendChild(summary);
+    panelFieldsRowEl.appendChild(summary);
 
     scopeField = doc.createElement('label');
     scopeField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--scope';
@@ -405,7 +508,7 @@
     scopeField.appendChild(scopeLabelEl);
     scopeField.appendChild(scopeSelect);
     scopeField.hidden = true;
-    panelEl.appendChild(scopeField);
+    panelFieldsRowEl.appendChild(scopeField);
 
     thicknessField = doc.createElement('label');
     thicknessField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric';
@@ -421,24 +524,39 @@
     thicknessInput.setAttribute('data-undo-ignore','1');
     thicknessField.appendChild(thicknessLabelEl);
     thicknessField.appendChild(thicknessInput);
-    panelEl.appendChild(thicknessField);
+    thicknessField.hidden = true;
 
-    colorField = doc.createElement('label');
-    colorField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--color';
+    styleField = doc.createElement('label');
+    styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style';
+    styleLabelEl = doc.createElement('span');
+    styleLabelEl.className = 'additional-line-controls-panel__field-label';
+    styleLabelEl.textContent = 'Line';
+    styleControlEl = doc.createElement('div');
+    styleControlEl.className = 'shared-border-style-control';
+    styleChipEl = doc.createElement('button');
+    styleChipEl.type = 'button';
+    styleChipEl.className = 'shared-border-style-chip';
+    styleChipEl.title = 'Click to edit line color. Wheel or Alt+drag to adjust line thickness.';
+    styleChipPreviewEl = doc.createElement('span');
+    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
+    styleChipValueEl = doc.createElement('span');
+    styleChipValueEl.className = 'shared-border-style-chip-value';
+    styleChipEl.appendChild(styleChipPreviewEl);
+    styleChipEl.appendChild(styleChipValueEl);
     colorLabelEl = doc.createElement('span');
     colorLabelEl.className = 'additional-line-controls-panel__field-label';
     colorLabelEl.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
-    colorInput.className = 'additional-line-controls-panel__color-input';
+    colorInput.className = 'shared-border-style-input additional-line-controls-panel__color-input';
     colorInput.setAttribute('data-undo-ignore','1');
-    colorField.appendChild(colorLabelEl);
-    colorField.appendChild(colorInput);
-    panelEl.appendChild(colorField);
+    styleControlEl.appendChild(styleChipEl);
+    styleControlEl.appendChild(colorInput);
+    styleField.appendChild(styleLabelEl);
+    styleField.appendChild(styleControlEl);
+    panelFieldsRowEl.appendChild(styleField);
 
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      Shared.attachColorPickerNear(colorInput);
-    }
+    colorField = styleField;
 
     patternField = doc.createElement('label');
     patternField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern';
@@ -461,7 +579,7 @@
     });
     patternField.appendChild(patternLabelEl);
     patternField.appendChild(patternSelect);
-    panelEl.appendChild(patternField);
+    panelFieldsRowEl.appendChild(patternField);
 
     transparencyField = doc.createElement('label');
     transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
@@ -484,7 +602,7 @@
     transparencyWrap.appendChild(transparencyValueEl);
     transparencyField.appendChild(transparencyLabelEl);
     transparencyField.appendChild(transparencyWrap);
-    panelEl.appendChild(transparencyField);
+    panelFieldsRowEl.appendChild(transparencyField);
 
     scopeSelect.addEventListener('change', () => {
       if(!activeConfig){ return; }
@@ -525,6 +643,83 @@
     };
     thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
     thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+
+    if(styleChipEl){
+      styleChipEl.addEventListener('wheel', evt => {
+        evt.preventDefault();
+        const step = evt.deltaY < 0 ? 0.5 : -0.5;
+        const current = sanitizeThicknessValue(thicknessInput?.value);
+        const next = (current == null ? 0 : current) + step;
+        if(thicknessInput){
+          thicknessInput.value = String(next);
+          thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }, { passive: false });
+      const onStyleDragMove = evt => {
+        if(!styleDragState || !thicknessInput){ return; }
+        const deltaX = evt.clientX - styleDragState.startX;
+        const steps = Math.round(deltaX / 8);
+        const next = styleDragState.startValue + (steps * 0.5);
+        thicknessInput.value = String(next);
+        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const onStyleDragUp = () => {
+        if(!styleDragState){ return; }
+        styleDragState = null;
+        if(thicknessInput){
+          thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        global.removeEventListener('mousemove', onStyleDragMove);
+        global.removeEventListener('mouseup', onStyleDragUp);
+      };
+      styleChipEl.addEventListener('mousedown', evt => {
+        if(!evt.altKey || evt.button !== 0){ return; }
+        evt.preventDefault();
+        suppressStyleChipClick = true;
+        const current = sanitizeThicknessValue(thicknessInput?.value);
+        styleDragState = { startX: evt.clientX, startValue: current == null ? 0 : current };
+        global.addEventListener('mousemove', onStyleDragMove);
+        global.addEventListener('mouseup', onStyleDragUp);
+      });
+      styleChipEl.addEventListener('click', evt => {
+        if(!suppressStyleChipClick){ return; }
+        suppressStyleChipClick = false;
+        evt.preventDefault();
+        evt.stopPropagation();
+      }, true);
+      if(typeof Shared.openColorPicker === 'function'){
+        styleChipEl.addEventListener('click', evt => {
+          evt.preventDefault();
+          evt.stopPropagation();
+          const overlayEl = Shared.openColorPicker({
+            anchor: styleChipEl,
+            color: colorInput.value,
+            element: colorInput,
+            onInput(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            onChange(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+            },
+            onClose(){
+              if(typeof stylePickerCleanup === 'function'){
+                stylePickerCleanup();
+                stylePickerCleanup = null;
+              }
+            }
+          });
+          stylePickerCleanup = attachStylePickerThicknessSection(overlayEl);
+        });
+      }else if(typeof Shared.attachColorPickerNear === 'function'){
+        Shared.attachColorPickerNear(colorInput);
+        styleChipEl.addEventListener('click', evt => {
+          evt.preventDefault();
+          colorInput.click();
+        });
+      }
+    }
 
     colorInput.addEventListener('input', () => {
       if(applyingFromUndo){ return; }
@@ -702,6 +897,10 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    if(typeof stylePickerCleanup === 'function'){
+      try{ stylePickerCleanup(); }catch(err){}
+      stylePickerCleanup = null;
+    }
     panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
@@ -805,6 +1004,32 @@
     logDebug('panel opened',{ axis: config.axis, index: config.index, scopeId: config.scopeId });
   }
 
+  function setScope(nextScope, options){
+    if(!scopeSelect || !activeConfig || !panelEl || panelEl.dataset.open !== '1'){
+      return;
+    }
+    const opts = options || {};
+    const requested = String(nextScope || '').trim();
+    if(!requested){
+      return;
+    }
+    const hasOption = Array.from(scopeSelect.options || []).some(opt => opt.value === requested && !opt.disabled);
+    if(!hasOption){
+      return;
+    }
+    if(scopeSelect.value !== requested){
+      scopeSelect.value = requested;
+    }
+    activeScope = scopeSelect.value || null;
+    if(opts.triggerChange === true){
+      const scopeCfg = activeConfig.scope;
+      if(scopeCfg && typeof scopeCfg.onChange === 'function'){
+        try{ scopeCfg.onChange(activeScope, getContext()); }catch(err){}
+      }
+    }
+    syncPanelInputsFromConfig(activeConfig);
+  }
+
   function registerAdditionalLineElement(element, config){
     if(!element || !config){ return; }
     element.dataset.additionalLineControl = '1';
@@ -837,4 +1062,5 @@
   additionalLineControls.updateOverlayBounds = updateOverlayBounds;
   additionalLineControls.show = openPanel;
   additionalLineControls.refresh = () => syncPanelInputsFromConfig(activeConfig);
+  additionalLineControls.setScope = setScope;
 })(typeof window !== 'undefined' ? window : globalThis);

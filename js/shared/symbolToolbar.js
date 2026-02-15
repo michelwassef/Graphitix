@@ -109,6 +109,17 @@
     hideOtherVisibleHosts(host, doc);
     host.innerHTML = '';
 
+    const panel = doc.createElement('div');
+    panel.className = 'workspace-toolbar__panel workspace-toolbar__panel--symbol';
+
+    const panelTitleText = typeof cfg.panelTitle === 'string' && cfg.panelTitle.trim()
+      ? cfg.panelTitle.trim()
+      : 'Symbol';
+    const panelTitleEl = doc.createElement('div');
+    panelTitleEl.className = 'workspace-toolbar__panel-title';
+    panelTitleEl.textContent = panelTitleText;
+    panel.appendChild(panelTitleEl);
+
     const wrap = doc.createElement('div');
     const className = cfg.formClass || 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls';
     wrap.className = className;
@@ -482,7 +493,8 @@
       }
     });
 
-    host.appendChild(wrap);
+    panel.appendChild(wrap);
+    host.appendChild(panel);
     host.style.display = 'block';
     host.classList.add('font-toolbar-host--visible');
     const dock = host.closest('.workspace-toolbar__dock');
@@ -514,6 +526,6 @@
       host.__symbolToolbarDocClickHandler = onDocClick;
     }catch(e){}
 
-    return { host, wrap, scopeSelect };
+    return { host, panel, wrap, scopeSelect };
   };
 })(window);

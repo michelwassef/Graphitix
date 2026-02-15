@@ -2353,15 +2353,27 @@
       const toolbarHost = symbolToolbarState?.host || null;
       const markerScopeSelect = symbolToolbarState?.scopeSelect || null;
       if(toolbarHost){
-        const resolveScope = () => {
-          const scopeValue = markerScopeSelect?.value || 'global';
-          if(scopeValue === 'series' && seriesKey){
-            return 'series';
+        const normalizeScope = value => (value === 'series' && seriesKey) ? 'series' : 'global';
+        let lineScopeValue = normalizeScope(markerScopeSelect?.value || (seriesKey ? 'series' : 'global'));
+        const resolveScope = ctx => normalizeScope(ctx?.scope || lineScopeValue || markerScopeSelect?.value || 'global');
+        const setLineScope = (value, options) => {
+          const opts = options || {};
+          const normalized = normalizeScope(value);
+          lineScopeValue = normalized;
+          if(markerScopeSelect && markerScopeSelect.value !== normalized){
+            markerScopeSelect.value = normalized;
+            if(opts.dispatchMarkerChange !== false){
+              markerScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
           }
-          return 'global';
+          return normalized;
         };
         const syncPathToolbar = () => {
           try{
+            lineScopeValue = normalizeScope(markerScopeSelect?.value || lineScopeValue);
+            if(additionalLineControls && typeof additionalLineControls.setScope === 'function'){
+              additionalLineControls.setScope(lineScopeValue, { triggerChange: false });
+            }
             if(additionalLineControls && typeof additionalLineControls.refresh === 'function'){
               additionalLineControls.refresh();
             }
@@ -2373,6 +2385,7 @@
             host: toolbarHost,
             target,
             scopeId: 'line',
+            panelTitle: 'Line',
             skipHideAll: true,
             appendToHost: true,
             clearHost: false,
@@ -2380,9 +2393,20 @@
             keepHostVisible: true,
             hostClass: 'font-toolbar-host--line-dual',
             hostDisplay: 'grid',
+            scope: {
+              label: 'Scope',
+              options: [
+                { value: 'series', label: 'Series', disabled: !seriesKey },
+                { value: 'global', label: 'Global', disabled: false }
+              ],
+              value: lineScopeValue,
+              onChange(nextScope){
+                setLineScope(nextScope);
+              }
+            },
             controls: {
               showSummary: false,
-              showScope: false,
+              showScope: true,
               showPattern: false,
               colorLabel: 'Line',
               thicknessLabel: 'Line width',
@@ -2392,11 +2416,11 @@
               thicknessMax: 24
             },
             getSummary: () => '',
-            getColor: () => getPathColor(resolveScope()),
-            getThickness: () => getPathWidth(resolveScope()),
-            getTransparency: () => Math.round(Math.min(1, Math.max(0, Number(getPathAlpha(resolveScope())) || 0)) * 100),
-            onColorInput: (nextColor) => {
-              const scope = resolveScope();
+            getColor: ctx => getPathColor(resolveScope(ctx)),
+            getThickness: ctx => getPathWidth(resolveScope(ctx)),
+            getTransparency: ctx => Math.round(Math.min(1, Math.max(0, Number(getPathAlpha(resolveScope(ctx))) || 0)) * 100),
+            onColorInput: (nextColor, ctx) => {
+              const scope = resolveScope(ctx);
               if(scope === 'series' && seriesKey){
                 applySeriesPatch({ lineStroke: nextColor });
               }else{
@@ -2404,8 +2428,8 @@
                 applyGlobalPatch('lineStroke', nextColor);
               }
             },
-            onColorChange: (nextColor) => {
-              const scope = resolveScope();
+            onColorChange: (nextColor, ctx) => {
+              const scope = resolveScope(ctx);
               if(scope === 'series' && seriesKey){
                 applySeriesPatch({ lineStroke: nextColor });
               }else{
@@ -2413,9 +2437,9 @@
                 applyGlobalPatch('lineStroke', nextColor);
               }
             },
-            onThicknessChange: (nextValue) => {
+            onThicknessChange: (nextValue, ctx) => {
               const next = Math.max(0, Number(nextValue) || 0);
-              const scope = resolveScope();
+              const scope = resolveScope(ctx);
               if(scope === 'series' && seriesKey){
                 applySeriesPatch({ lineStrokeWidth: next });
               }else{
@@ -2423,10 +2447,10 @@
                 applyGlobalPatch('lineStrokeWidth', next);
               }
             },
-            onTransparencyChange: (nextValue) => {
+            onTransparencyChange: (nextValue, ctx) => {
               const bounded = Math.min(100, Math.max(0, Number(nextValue) || 0));
               const normalized = bounded / 100;
-              const scope = resolveScope();
+              const scope = resolveScope(ctx);
               if(scope === 'series' && seriesKey){
                 applySeriesPatch({ lineAlpha: normalized });
               }else{
@@ -2443,7 +2467,10 @@
           toolbarHost.style.alignItems = 'flex-start';
         }
         if(markerScopeSelect){
-          markerScopeSelect.addEventListener('change', syncPathToolbar);
+          markerScopeSelect.addEventListener('change', () => {
+            setLineScope(markerScopeSelect.value, { dispatchMarkerChange: false });
+            syncPathToolbar();
+          });
         }
         syncPathToolbar();
       }
