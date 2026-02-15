@@ -1067,14 +1067,25 @@
         hideFillHandle();
         return;
       }
-      const viewport = resolveViewport();
+      const viewport = resolveFillHandleViewport();
       if(viewport && typeof viewport.getBoundingClientRect === 'function'){
         const viewportRect = viewport.getBoundingClientRect();
-        const intersects = cellRect.right > viewportRect.left
-          && cellRect.left < viewportRect.right
+        const anchorInsideViewport = cellRect.right > viewportRect.left
+          && cellRect.right <= viewportRect.right
           && cellRect.bottom > viewportRect.top
-          && cellRect.top < viewportRect.bottom;
-        if(!intersects){
+          && cellRect.bottom <= viewportRect.bottom;
+        if(!anchorInsideViewport){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot fill handle hidden (outside center viewport)', {
+              debugLabel,
+              cellRight: cellRect.right,
+              cellBottom: cellRect.bottom,
+              viewportLeft: viewportRect.left,
+              viewportRight: viewportRect.right,
+              viewportTop: viewportRect.top,
+              viewportBottom: viewportRect.bottom
+            });
+          }
           hideFillHandle();
           return;
         }
@@ -2998,6 +3009,14 @@
         return null;
       }
       return container.querySelector('.ag-body-viewport');
+    };
+
+    const resolveFillHandleViewport = ()=>{
+      if(!container || typeof container.querySelector !== 'function'){
+        return null;
+      }
+      return container.querySelector('.ag-center-cols-viewport')
+        || resolveViewport();
     };
 
     const scrollViewportToTop = ()=>{
