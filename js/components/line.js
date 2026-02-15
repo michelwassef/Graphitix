@@ -7525,6 +7525,9 @@
         axis,
         scopeId: 'line',
         additionalTickDefaults: DEFAULT_AXIS_ADDITIONAL_TICK,
+        getAxisBounds: () => axis === 'x'
+          ? { min: xScale.min, max: xScale.max }
+          : { min: yScale.min, max: yScale.max },
         getTickInterval: () => getLineAxisTickInterval(axis),
         getThickness: () => getLineAxisStrokeWidth(),
         getColor: () => getLineAxisColor(),

@@ -9858,6 +9858,9 @@
           axis,
           scopeId: 'scatter',
           additionalTickDefaults: DEFAULT_AXIS_ADDITIONAL_TICK,
+          getAxisBounds: () => axis === 'x'
+            ? { min: xScale.min, max: xScale.max }
+            : { min: yScale.min, max: yScale.max },
           getTickInterval: () => getScatterAxisTickInterval(axis),
           getThickness: () => getScatterAxisStrokeWidth(),
           getColor: () => getScatterAxisColor(),

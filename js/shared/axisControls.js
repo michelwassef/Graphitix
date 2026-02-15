@@ -78,6 +78,129 @@
     return numeric;
   }
 
+  function resolveAxisBounds(config){
+    if(!config || typeof config !== 'object'){
+      return null;
+    }
+    let bounds = null;
+    if(typeof config.getAxisBounds === 'function'){
+      try{
+        bounds = config.getAxisBounds(config.axis, config) || null;
+      }catch(err){
+        bounds = null;
+      }
+    }
+    const minRaw = bounds && bounds.min !== undefined
+      ? bounds.min
+      : (bounds && bounds.axisMin !== undefined ? bounds.axisMin : config.axisMin);
+    const maxRaw = bounds && bounds.max !== undefined
+      ? bounds.max
+      : (bounds && bounds.axisMax !== undefined ? bounds.axisMax : config.axisMax);
+    const min = Number(minRaw);
+    const max = Number(maxRaw);
+    if(!Number.isFinite(min) || !Number.isFinite(max) || max <= min){
+      return null;
+    }
+    return { min, max };
+  }
+
+  function areNumbersClose(a, b, tolerance){
+    if(!Number.isFinite(a) || !Number.isFinite(b)){
+      return false;
+    }
+    const delta = Math.abs(a - b);
+    const base = Math.max(1, Math.abs(a), Math.abs(b));
+    const epsilon = Number.isFinite(tolerance) && tolerance > 0
+      ? tolerance
+      : base * 1e-9;
+    return delta <= epsilon;
+  }
+
+  function normalizeBrokenAxisSegmentsForBounds(rawSegments, bounds){
+    if(!Array.isArray(rawSegments)){
+      return [];
+    }
+    const segments = rawSegments.map(segment => {
+      const safe = segment && typeof segment === 'object' ? segment : {};
+      const start = Number(safe.start);
+      const end = Number(safe.end);
+      return {
+        ...safe,
+        start: Number.isFinite(start) ? start : null,
+        end: Number.isFinite(end) ? end : null
+      };
+    });
+    if(!bounds || !segments.length){
+      return segments;
+    }
+    segments[0].start = bounds.min;
+    segments[segments.length - 1].end = bounds.max;
+    return segments;
+  }
+
+  function buildInitialBrokenAxisSegments(bounds){
+    if(!bounds || !Number.isFinite(bounds.min) || !Number.isFinite(bounds.max) || bounds.max <= bounds.min){
+      return null;
+    }
+    const span = bounds.max - bounds.min;
+    if(!Number.isFinite(span) || span <= 0){
+      return null;
+    }
+    // Keep a visible gap while leaving enough room for both edge segments.
+    const minGap = Math.max(span * 0.08, span * 0.02);
+    let firstEnd = bounds.min + span * 0.45;
+    let secondStart = bounds.min + span * 0.55;
+    if(secondStart - firstEnd < minGap){
+      const mid = bounds.min + span * 0.5;
+      firstEnd = mid - (minGap / 2);
+      secondStart = mid + (minGap / 2);
+    }
+    firstEnd = Math.max(bounds.min + (span * 0.05), Math.min(firstEnd, bounds.max - (span * 0.1)));
+    secondStart = Math.min(bounds.max - (span * 0.05), Math.max(secondStart, bounds.min + (span * 0.1)));
+    if(!(firstEnd > bounds.min && secondStart < bounds.max && firstEnd < secondStart)){
+      return null;
+    }
+    return [
+      { start: bounds.min, end: firstEnd },
+      { start: secondStart, end: bounds.max }
+    ];
+  }
+
+  function normalizeEdgeBrokenSegment(segment, index, total, bounds){
+    const safe = segment && typeof segment === 'object' ? segment : {};
+    let start = Number(safe.start);
+    let end = Number(safe.end);
+    if(!bounds || !Number.isFinite(bounds.min) || !Number.isFinite(bounds.max) || bounds.max <= bounds.min){
+      return {
+        start: Number.isFinite(start) ? start : null,
+        end: Number.isFinite(end) ? end : null
+      };
+    }
+    const span = bounds.max - bounds.min;
+    if(total <= 1){
+      return { start: bounds.min, end: bounds.max };
+    }
+    const pad = Math.max(span * 0.02, span * 0.001);
+    if(index === 0){
+      start = bounds.min;
+      if(!Number.isFinite(end) || end <= (start + pad) || end >= (bounds.max - pad)){
+        end = bounds.min + span * 0.45;
+      }
+      end = Math.max(start + pad, Math.min(end, bounds.max - pad));
+    }
+    if(index === (total - 1)){
+      end = bounds.max;
+      if(!Number.isFinite(start) || start >= (end - pad) || start <= (bounds.min + pad)){
+        start = bounds.min + span * 0.55;
+      }
+      start = Math.min(end - pad, Math.max(start, bounds.min + pad));
+    }
+    return {
+      start: Number.isFinite(start) ? start : null,
+      end: Number.isFinite(end) ? end : null
+    };
+  }
+
   const MIN_MINOR_SUBDIVISIONS = 1;
   const MAX_MINOR_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_SUBDIVISIONS = (
@@ -720,9 +843,39 @@
     brokenAxisSegmentsContainer.innerHTML = '';
     
     const rawSegments = config.getBrokenAxisSegments ? config.getBrokenAxisSegments(config.axis) : [];
-    const segments = Array.isArray(rawSegments) ? rawSegments : [];
+    const rawSegmentList = Array.isArray(rawSegments) ? rawSegments : [];
+    const bounds = resolveAxisBounds(config);
+    const segments = normalizeBrokenAxisSegmentsForBounds(rawSegmentList, bounds);
+    const normalizedSegments = segments.map((segment, index) =>
+      normalizeEdgeBrokenSegment(segment, index, segments.length, bounds)
+    );
+    if(bounds && typeof config.onBrokenAxisSegmentChange === 'function' && rawSegmentList.length === segments.length){
+      const span = Math.abs(bounds.max - bounds.min) || 1;
+      const tolerance = Math.max(1e-9, span / 1000000000);
+      normalizedSegments.forEach((segment, index) => {
+        const previous = rawSegmentList[index] && typeof rawSegmentList[index] === 'object'
+          ? rawSegmentList[index]
+          : {};
+        const prevStart = Number(previous.start);
+        const prevEnd = Number(previous.end);
+        const nextStart = Number(segment.start);
+        const nextEnd = Number(segment.end);
+        if(!Number.isFinite(nextStart) || !Number.isFinite(nextEnd)){
+          return;
+        }
+        if(!(nextStart < nextEnd)){
+          // Do not auto-write invalid intervals (can happen before user edits defaults).
+          return;
+        }
+        const startChanged = !areNumbersClose(prevStart, nextStart, tolerance);
+        const endChanged = !areNumbersClose(prevEnd, nextEnd, tolerance);
+        if(startChanged || endChanged){
+          config.onBrokenAxisSegmentChange(config.axis, index, { start: nextStart, end: nextEnd });
+        }
+      });
+    }
 
-    if(!segments.length){
+    if(!normalizedSegments.length){
       const emptyState = doc.createElement('div');
       emptyState.className = 'axis-controls-panel__segments-empty';
       emptyState.textContent = 'No breaks yet — add an interval to hide a range of values.';
@@ -730,7 +883,9 @@
       return;
     }
 
-    segments.forEach((segment, index) => {
+    normalizedSegments.forEach((segment, index) => {
+      const lockStartToAxisMin = !!bounds && index === 0;
+      const lockEndToAxisMax = !!bounds && index === (normalizedSegments.length - 1);
       const segmentRow = doc.createElement('div');
       segmentRow.className = 'axis-controls-panel__segment-row';
 
@@ -752,6 +907,12 @@
       startInput.setAttribute('data-undo-ignore', '1');
       startInput.setAttribute('data-segment-index', index);
       startInput.setAttribute('data-segment-field', 'start');
+      if(lockStartToAxisMin && bounds){
+        startInput.value = String(bounds.min);
+        startInput.readOnly = true;
+        startInput.setAttribute('aria-readonly', 'true');
+        startInput.title = 'Locked to the axis minimum';
+      }
 
       const separator = doc.createElement('span');
       separator.className = 'axis-controls-panel__segment-separator';
@@ -768,6 +929,12 @@
       endInput.setAttribute('data-undo-ignore', '1');
       endInput.setAttribute('data-segment-index', index);
       endInput.setAttribute('data-segment-field', 'end');
+      if(lockEndToAxisMax && bounds){
+        endInput.value = String(bounds.max);
+        endInput.readOnly = true;
+        endInput.setAttribute('aria-readonly', 'true');
+        endInput.title = 'Locked to the axis maximum';
+      }
 
       inputsGroup.appendChild(startInput);
       inputsGroup.appendChild(separator);
@@ -788,8 +955,16 @@
       const updateSegment = () => {
         if(applyingFromUndo){ return; }
         if(!config || typeof config.onBrokenAxisSegmentChange !== 'function'){ return; }
-        const start = Number(startInput.value);
-        const end = Number(endInput.value);
+        let start = Number(startInput.value);
+        let end = Number(endInput.value);
+        if(lockStartToAxisMin && bounds){
+          start = bounds.min;
+          startInput.value = String(start);
+        }
+        if(lockEndToAxisMax && bounds){
+          end = bounds.max;
+          endInput.value = String(end);
+        }
         if(Number.isFinite(start) && Number.isFinite(end) && start < end){
           config.onBrokenAxisSegmentChange(config.axis, index, { start, end });
           logDebug('broken axis segment changed',{ index, start, end });
@@ -2002,9 +2177,18 @@
         if(enabled && typeof config.getBrokenAxisSegments === 'function' && typeof config.onBrokenAxisAddSegment === 'function'){
           const currentSegments = config.getBrokenAxisSegments(config.axis) || [];
           if(!currentSegments.length){
-            logDebug('broken axis auto segments',{ count: 2 });
+            const bounds = resolveAxisBounds(config);
+            const seeded = buildInitialBrokenAxisSegments(bounds);
+            logDebug('broken axis auto segments',{ count: 2, seeded: !!seeded, bounds });
             config.onBrokenAxisAddSegment(config.axis);
             config.onBrokenAxisAddSegment(config.axis);
+            if(
+              seeded &&
+              typeof config.onBrokenAxisSegmentChange === 'function'
+            ){
+              config.onBrokenAxisSegmentChange(config.axis, 0, seeded[0]);
+              config.onBrokenAxisSegmentChange(config.axis, 1, seeded[1]);
+            }
           }
         }
         syncPanelInputsFromConfig(config);
@@ -2277,6 +2461,16 @@
         onAdditionalTickAdd: config.onAdditionalTickAdd,
         onAdditionalTickRemove: config.onAdditionalTickRemove
       };
+      if(typeof config.getAxisBounds === 'function'){
+        openConfig.getAxisBounds = config.getAxisBounds;
+      }else{
+        if(config.axisMin !== undefined){
+          openConfig.axisMin = config.axisMin;
+        }
+        if(config.axisMax !== undefined){
+          openConfig.axisMax = config.axisMax;
+        }
+      }
       if(typeof config.getBrokenAxisEnabled === 'function' && typeof config.onBrokenAxisEnabledChange === 'function'){
         openConfig.getBrokenAxisEnabled = config.getBrokenAxisEnabled;
         openConfig.onBrokenAxisEnabledChange = config.onBrokenAxisEnabledChange;

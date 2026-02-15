@@ -12760,10 +12760,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
     }
 
-    const axisControlConfig = axis => ({
+    const axisControlConfig = (axis, axisBounds = null) => ({
       axis,
       scopeId: 'box',
       additionalTickDefaults: DEFAULT_AXIS_ADDITIONAL_TICK,
+      getAxisBounds: () => {
+        const min = Number(axisBounds && axisBounds.min);
+        const max = Number(axisBounds && axisBounds.max);
+        if(!Number.isFinite(min) || !Number.isFinite(max) || max <= min){
+          return null;
+        }
+        return { min, max };
+      },
       getTickInterval: () => getAxisTickInterval(axis),
       getThickness: () => getAxisStrokeWidthBase(),
       getColor: () => getAxisColor(),
@@ -13152,14 +13160,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             'pointer-events': 'stroke'
           });
           if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-            axisControls.registerAxisElement(hitLine, axisControlConfig('y'));
+            axisControls.registerAxisElement(hitLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
           }
         }
       }else{
         // Standard continuous y-axis
         const yAxisLine = addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
         if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
         }
       }
       const yMajorTickLabels = [];
@@ -14625,7 +14633,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const xAxisBottom = marginLocal.top + plotHLocal;
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
       }
       const yIntervalSetting = getAxisTickInterval('y');
       const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
