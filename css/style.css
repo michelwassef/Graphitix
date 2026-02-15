@@ -3383,6 +3383,9 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
     align-self:flex-start;
     box-sizing:border-box;
     border-radius:0 !important;
+    border:none !important;
+    background:transparent !important;
+    padding:0 !important;
 }
 .axis-controls-panel__field--broken-axis .axis-controls-panel__checkbox,
 .axis-controls-panel__field--broken-axis .axis-controls-panel__segment-input,
