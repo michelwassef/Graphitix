@@ -13590,6 +13590,58 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const coord = pointCoords[idx];
               const d = `M ${cx + offset} ${coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${coord} L ${cx + offset} ${coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${coord} Z`;
               node.setAttribute('d', d);
+            }else if(effectiveShape === 'cross'){
+              node = document.createElementNS(NS, 'path');
+              const coord = pointCoords[idx];
+              const centerX = cx + offset;
+              const size = Math.max(effectiveRadius * 2, 2);
+              const half = size / 2;
+              const bar = Math.max(size / 3, 2);
+              const hb = bar / 2;
+              const top = coord - half;
+              const bottom = coord + half;
+              const left = centerX - half;
+              const right = centerX + half;
+              const d = [
+                `M ${left} ${top + hb}`,
+                `L ${left + hb} ${top}`,
+                `L ${centerX} ${coord - hb}`,
+                `L ${right - hb} ${top}`,
+                `L ${right} ${top + hb}`,
+                `L ${centerX + hb} ${coord}`,
+                `L ${right} ${bottom - hb}`,
+                `L ${right - hb} ${bottom}`,
+                `L ${centerX} ${coord + hb}`,
+                `L ${left + hb} ${bottom}`,
+                `L ${left} ${bottom - hb}`,
+                `L ${centerX - hb} ${coord}`,
+                'Z'
+              ].join(' ');
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'plus'){
+              node = document.createElementNS(NS, 'path');
+              const coord = pointCoords[idx];
+              const centerX = cx + offset;
+              const size = Math.max(effectiveRadius * 2, 2);
+              const half = size / 2;
+              const bar = Math.max(size / 3, 2);
+              const hb = bar / 2;
+              const d = `M ${centerX - hb} ${coord - half} H ${centerX + hb} V ${coord - hb} H ${centerX + half} V ${coord + hb} H ${centerX + hb} V ${coord + half} H ${centerX - hb} V ${coord + hb} H ${centerX - half} V ${coord - hb} H ${centerX - hb} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'star'){
+              node = document.createElementNS(NS, 'path');
+              const coord = pointCoords[idx];
+              const centerX = cx + offset;
+              const innerRadius = Math.max(effectiveRadius * 0.45, 1);
+              const starPoints = [];
+              for(let k = 0; k < 5; k += 1){
+                const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
+                starPoints.push({ x: centerX + Math.cos(a) * effectiveRadius, y: coord + Math.sin(a) * effectiveRadius });
+                const b = a + Math.PI / 5;
+                starPoints.push({ x: centerX + Math.cos(b) * innerRadius, y: coord + Math.sin(b) * innerRadius });
+              }
+              const d = starPoints.map((ptVal, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${ptVal.x} ${ptVal.y}`).join(' ') + ' Z';
+              node.setAttribute('d', d);
             }else{
               node = document.createElementNS(NS, 'circle');
               node.setAttribute('cx', cx + offset);
@@ -14375,6 +14427,58 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               node = document.createElementNS(NS, 'path');
               const coord = pointCoords[idx];
               const d = `M ${coord} ${cy + offset - effectiveRadius} L ${coord + effectiveRadius} ${cy + offset} L ${coord} ${cy + offset + effectiveRadius} L ${coord - effectiveRadius} ${cy + offset} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'cross'){
+              node = document.createElementNS(NS, 'path');
+              const coord = pointCoords[idx];
+              const centerY = cy + offset;
+              const size = Math.max(effectiveRadius * 2, 2);
+              const half = size / 2;
+              const bar = Math.max(size / 3, 2);
+              const hb = bar / 2;
+              const top = centerY - half;
+              const bottom = centerY + half;
+              const left = coord - half;
+              const right = coord + half;
+              const d = [
+                `M ${left} ${top + hb}`,
+                `L ${left + hb} ${top}`,
+                `L ${coord} ${centerY - hb}`,
+                `L ${right - hb} ${top}`,
+                `L ${right} ${top + hb}`,
+                `L ${coord + hb} ${centerY}`,
+                `L ${right} ${bottom - hb}`,
+                `L ${right - hb} ${bottom}`,
+                `L ${coord} ${centerY + hb}`,
+                `L ${left + hb} ${bottom}`,
+                `L ${left} ${bottom - hb}`,
+                `L ${coord - hb} ${centerY}`,
+                'Z'
+              ].join(' ');
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'plus'){
+              node = document.createElementNS(NS, 'path');
+              const coord = pointCoords[idx];
+              const centerY = cy + offset;
+              const size = Math.max(effectiveRadius * 2, 2);
+              const half = size / 2;
+              const bar = Math.max(size / 3, 2);
+              const hb = bar / 2;
+              const d = `M ${coord - hb} ${centerY - half} H ${coord + hb} V ${centerY - hb} H ${coord + half} V ${centerY + hb} H ${coord + hb} V ${centerY + half} H ${coord - hb} V ${centerY + hb} H ${coord - half} V ${centerY - hb} H ${coord - hb} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'star'){
+              node = document.createElementNS(NS, 'path');
+              const coord = pointCoords[idx];
+              const centerY = cy + offset;
+              const innerRadius = Math.max(effectiveRadius * 0.45, 1);
+              const starPoints = [];
+              for(let k = 0; k < 5; k += 1){
+                const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
+                starPoints.push({ x: coord + Math.cos(a) * effectiveRadius, y: centerY + Math.sin(a) * effectiveRadius });
+                const b = a + Math.PI / 5;
+                starPoints.push({ x: coord + Math.cos(b) * innerRadius, y: centerY + Math.sin(b) * innerRadius });
+              }
+              const d = starPoints.map((ptVal, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${ptVal.x} ${ptVal.y}`).join(' ') + ' Z';
               node.setAttribute('d', d);
             }else{
               node = document.createElementNS(NS, 'circle');
