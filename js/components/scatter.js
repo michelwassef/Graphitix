@@ -318,6 +318,7 @@
     return defaults;
   }
   let scatterOverlayStyles = cloneScatterOverlayStyleDefaults();
+  let scatterOverlayToolbarScope = 'trend';
   const scatterRowSelectionsByTab = new Map();
   const scatterThresholdSelectionsByTab = new Map();
   let scatterSelectionSyncInProgress = false;
@@ -374,6 +375,68 @@
       ? scatterOverlayStyles
       : cloneScatterOverlayStyleDefaults();
     scatterOverlayStyles[safeKey] = merged;
+  }
+  function normalizeScatterOverlayToolbarScope(value){
+    return sanitizeScatterOverlayKey(value) || 'trend';
+  }
+  function getScatterOverlayToolbarLabels(scopeKey){
+    const safeScope = normalizeScatterOverlayToolbarScope(scopeKey);
+    if(safeScope === 'trend'){
+      return {
+        colorLabel: 'Line',
+        thicknessLabel: 'Line width',
+        transparencyLabel: 'Line transparency'
+      };
+    }
+    return {
+      colorLabel: 'Fill',
+      thicknessLabel: 'Border thickness',
+      transparencyLabel: 'Fill transparency'
+    };
+  }
+  function getScatterOverlaySummary(scopeKey){
+    const safeScope = normalizeScatterOverlayToolbarScope(scopeKey);
+    if(safeScope === 'confidence'){
+      return 'Confidence interval';
+    }
+    if(safeScope === 'prediction'){
+      return 'Prediction interval';
+    }
+    return 'Trend line';
+  }
+  function resolveScatterToolbarHost(doc){
+    if(!doc){ return null; }
+    const anchor = doc.getElementById('scatterFontHost');
+    if(anchor && anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')){
+      return anchor.nextElementSibling;
+    }
+    return doc.querySelector('.font-toolbar-host[data-font-toolbar-scope="scatter"]') || null;
+  }
+  function resetScatterDualHostLayout(host){
+    if(!host){ return; }
+    host.classList.remove('font-toolbar-host--scatter-dual');
+    host.style.removeProperty('grid-auto-flow');
+    host.style.removeProperty('grid-auto-columns');
+    host.style.removeProperty('column-gap');
+    host.style.removeProperty('align-items');
+  }
+  function clearScatterSymbolPanel(host){
+    if(!host || !host.querySelectorAll){ return; }
+    host.querySelectorAll('.workspace-toolbar__panel--symbol').forEach(node => node.remove());
+    host.querySelectorAll('.scatter-point-controls.workspace-toolbar__form--single').forEach(node => {
+      const panel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
+      if(panel && panel.parentNode){
+        panel.parentNode.removeChild(panel);
+      }else if(node.parentNode){
+        node.parentNode.removeChild(node);
+      }
+    });
+  }
+  function isScatterTrendLineEnabled(){
+    const doc = global.document;
+    if(!doc){ return false; }
+    const toggle = doc.getElementById('scatterShowLine');
+    return !!(toggle && toggle.checked);
   }
   function getScatterLabelStyle(label){
     if(!label){ return null; }
@@ -3259,22 +3322,24 @@
     el.addEventListener('contextmenu', handleScatterPointContextMenu);
   }
 
+  function resolveScatterPointTarget(node, stopNode){
+    let current = node || null;
+    while(current && current !== stopNode){
+      if(current.__scatterPointData){
+        return current;
+      }
+      current = current.parentNode || null;
+    }
+    return null;
+  }
+
   function ensureScatterPointDelegation(container){
     if(!container || container.__scatterPointDelegationBound){
       return;
     }
     container.__scatterPointDelegationBound = true;
     let hoverTarget = null;
-    const resolveTarget = evt => {
-      let node = evt?.target;
-      while(node && node !== container){
-        if(node.__scatterPointData){
-          return node;
-        }
-        node = node.parentNode;
-      }
-      return null;
-    };
+    const resolveTarget = evt => resolveScatterPointTarget(evt?.target, container);
     const updateHover = (evt, target) => {
       if(target === hoverTarget){
         return;
@@ -3315,6 +3380,8 @@
     container.addEventListener('click', evt => {
       const target = resolveTarget(evt);
       if(!target){
+        try{ evt.stopPropagation(); }catch(e){}
+        showScatterOverlayFormatControls({ target: evt?.target || null });
         return;
       }
       try{ evt.stopPropagation(); }catch(e){}
@@ -3340,59 +3407,127 @@
   }
 
   function registerScatterOverlayControlElement(element, overlayKey){
-    if(!element || !additionalLineControls || typeof additionalLineControls.registerAdditionalLineElement !== 'function'){
+    if(!element){
       return;
     }
     const safeKey = sanitizeScatterOverlayKey(overlayKey);
     if(!safeKey){
       return;
     }
-    const isBand = safeKey === 'confidence' || safeKey === 'prediction';
-    const overlayLabel = safeKey === 'trend'
-      ? 'Trend line'
-      : (safeKey === 'confidence' ? 'Confidence interval' : 'Prediction interval');
-    additionalLineControls.registerAdditionalLineElement(element, {
+    element.dataset.scatterOverlay = safeKey;
+    element.style.pointerEvents = 'none';
+    element.style.cursor = 'default';
+    try{
+      element.setAttribute('pointer-events', 'none');
+    }catch(e){}
+  }
+
+  function showScatterOverlayFormatControls(options){
+    const opts = options || {};
+    const doc = global.document;
+    if(!doc){
+      return null;
+    }
+    if(scatterCurrentGraphType !== 'scatter'){
+      return null;
+    }
+    if(!additionalLineControls || typeof additionalLineControls.show !== 'function'){
+      return null;
+    }
+    const appendToHost = opts.appendToHost === true;
+    const host = opts.host || resolveScatterToolbarHost(doc);
+    if(!isScatterTrendLineEnabled()){
+      try{
+        if(typeof additionalLineControls.close === 'function'){
+          additionalLineControls.close('scatter-trend-disabled');
+        }
+      }catch(e){}
+      if(host && !appendToHost){
+        resetScatterDualHostLayout(host);
+      }
+      return null;
+    }
+    if(host && !appendToHost){
+      clearScatterSymbolPanel(host);
+      resetScatterDualHostLayout(host);
+    }
+    const resolveScope = ctx => normalizeScatterOverlayToolbarScope(ctx?.scope || scatterOverlayToolbarScope);
+    const applyOverlayControlLabels = config => {
+      if(!config || typeof config !== 'object'){
+        return;
+      }
+      const labels = getScatterOverlayToolbarLabels(scatterOverlayToolbarScope);
+      config.panelTitle = 'Trend line';
+      config.controls = Object.assign({}, config.controls || {}, {
+        colorLabel: labels.colorLabel,
+        thicknessLabel: labels.thicknessLabel,
+        transparencyLabel: labels.transparencyLabel
+      });
+    };
+    const overlayConfig = {
       scopeId: 'scatter',
+      target: opts.target || null,
       panelTitle: 'Trend line',
-      axis: 'overlay',
-      index: safeKey === 'trend' ? 0 : (safeKey === 'confidence' ? 1 : 2),
-      disableOverlay: isBand,
-      getSummary: () => overlayLabel,
+      host: host || undefined,
+      appendToHost,
+      clearHost: appendToHost ? opts.clearHost : true,
+      skipHideAll: opts.skipHideAll === true,
+      keepOpenWithinHost: opts.keepOpenWithinHost === true,
+      keepHostVisible: opts.keepHostVisible === true,
+      hostClass: opts.hostClass || undefined,
+      hostDisplay: opts.hostDisplay || undefined,
       controls: {
-        showSummary: true,
-        showScope: false,
+        showSummary: false,
+        showScope: true,
         showPattern: false,
-        summaryLabel: 'Overlay',
-        colorLabel: isBand ? 'Fill' : 'Line',
-        thicknessLabel: isBand ? 'Border thickness' : 'Line width',
-        transparencyLabel: isBand ? 'Fill transparency' : 'Line transparency',
+        scopeLabel: 'Scope',
+        colorLabel: 'Line',
+        thicknessLabel: 'Line width',
+        transparencyLabel: 'Line transparency',
         thicknessMin: 0,
         thicknessStep: 0.5,
         thicknessMax: 20
       },
-      getColor: () => getScatterOverlayStyle(safeKey)?.color,
-      getThickness: () => getScatterOverlayStyle(safeKey)?.thickness,
-      getTransparency: () => getScatterOverlayStyle(safeKey)?.transparency,
-      onColorInput: value => {
-        updateScatterOverlayStyle(safeKey, { color: value });
+      scope: {
+        label: 'Scope',
+        options: [
+          { value: 'trend', label: 'Trend line', disabled: false },
+          { value: 'confidence', label: 'Confidence interval', disabled: false },
+          { value: 'prediction', label: 'Prediction interval', disabled: false }
+        ],
+        value: normalizeScatterOverlayToolbarScope(scatterOverlayToolbarScope),
+        onChange(nextScope){
+          scatterOverlayToolbarScope = normalizeScatterOverlayToolbarScope(nextScope);
+          applyOverlayControlLabels(overlayConfig);
+        }
+      },
+      getSummary: ctx => getScatterOverlaySummary(resolveScope(ctx)),
+      getColor: ctx => getScatterOverlayStyle(resolveScope(ctx))?.color,
+      getThickness: ctx => getScatterOverlayStyle(resolveScope(ctx))?.thickness,
+      getTransparency: ctx => getScatterOverlayStyle(resolveScope(ctx))?.transparency,
+      onColorInput: (value, ctx) => {
+        updateScatterOverlayStyle(resolveScope(ctx), { color: value });
         scheduleDrawScatter();
       },
-      onColorChange: value => {
-        updateScatterOverlayStyle(safeKey, { color: value });
+      onColorChange: (value, ctx) => {
+        updateScatterOverlayStyle(resolveScope(ctx), { color: value });
         scheduleDrawScatter();
       },
-      onThicknessChange: value => {
+      onThicknessChange: (value, ctx) => {
         const numeric = Number(value);
-        updateScatterOverlayStyle(safeKey, { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
+        updateScatterOverlayStyle(resolveScope(ctx), { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
         scheduleDrawScatter();
       },
-      onTransparencyChange: value => {
+      onTransparencyChange: (value, ctx) => {
         const numeric = Number(value);
         const bounded = Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
-        updateScatterOverlayStyle(safeKey, { transparency: bounded });
+        updateScatterOverlayStyle(resolveScope(ctx), { transparency: bounded });
         scheduleDrawScatter();
       }
-    });
+    };
+    applyOverlayControlLabels(overlayConfig);
+    additionalLineControls.show(overlayConfig);
+    return overlayConfig;
   }
 
   function showScatterFormatControls(target){
@@ -3449,12 +3584,12 @@
         });
         scheduleDrawScatter();
       };
-      Shared.symbolToolbar.show({
+      const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
         target,
         anchorId: 'scatterFontHost',
         scopeId: 'scatter',
-        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls',
+        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls scatter-point-controls',
         scope: {
           label: 'Scope',
           options: [
@@ -3641,6 +3776,30 @@
           }
         }
       });
+      const toolbarHost = symbolToolbarState?.host || null;
+      if(toolbarHost && scatterCurrentGraphType === 'scatter'){
+        const overlayState = showScatterOverlayFormatControls({
+          host: toolbarHost,
+          target,
+          skipHideAll: true,
+          appendToHost: true,
+          clearHost: false,
+          keepOpenWithinHost: true,
+          keepHostVisible: true,
+          hostClass: 'font-toolbar-host--scatter-dual',
+          hostDisplay: 'grid'
+        });
+        if(overlayState){
+          toolbarHost.classList.add('font-toolbar-host--scatter-dual');
+          toolbarHost.style.display = 'grid';
+          toolbarHost.style.gridAutoFlow = 'column';
+          toolbarHost.style.gridAutoColumns = 'max-content';
+          toolbarHost.style.columnGap = '10px';
+          toolbarHost.style.alignItems = 'flex-start';
+        }else{
+          resetScatterDualHostLayout(toolbarHost);
+        }
+      }
       return;
     }
     const anchor = doc.getElementById('scatterFontHost');
@@ -7146,7 +7305,22 @@
       };
       updateCIEnabled();
       if(scatterShowLine){
-        scatterShowLine.addEventListener('change',()=>{ updateCIEnabled(); persistTabState('scatter-trendline-change'); scheduleDrawScatter(); });
+        scatterShowLine.addEventListener('change',()=>{
+          updateCIEnabled();
+          if(!scatterShowLine.checked){
+            try{
+              if(additionalLineControls && typeof additionalLineControls.close === 'function'){
+                additionalLineControls.close('scatter-trendline-toggle-off');
+              }
+            }catch(e){}
+            try{
+              const host = resolveScatterToolbarHost(global.document);
+              resetScatterDualHostLayout(host);
+            }catch(e){}
+          }
+          persistTabState('scatter-trendline-change');
+          scheduleDrawScatter();
+        });
       }
       if(scatterShowCI){
         scatterShowCI.addEventListener('change',()=>{
@@ -7620,6 +7794,30 @@
         };
         scatterPlotDiv.addEventListener('pointerdown', onPlotPointerDown);
         scatterPlotDiv.__scatterAxesLengthCloseHandler = onPlotPointerDown;
+      }
+      if(scatterPlotDiv && !scatterPlotDiv.__scatterOverlayToolbarClickHandler){
+        const onPlotClick = evt => {
+          const clickTarget = evt?.target || null;
+          if(!clickTarget){
+            return;
+          }
+          if(scatterCurrentGraphType !== 'scatter'){
+            return;
+          }
+          if(resolveScatterPointTarget(clickTarget, scatterPlotDiv)){
+            return;
+          }
+          if(clickTarget.closest && clickTarget.closest('[data-additional-line-control="1"]')){
+            return;
+          }
+          if(clickTarget.closest && clickTarget.closest('.scatter-point-context-menu')){
+            return;
+          }
+          try{ evt.stopPropagation(); }catch(e){}
+          showScatterOverlayFormatControls({ target: clickTarget });
+        };
+        scatterPlotDiv.addEventListener('click', onPlotClick);
+        scatterPlotDiv.__scatterOverlayToolbarClickHandler = onPlotClick;
       }
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
       if(!scatterContainer){

@@ -446,34 +446,66 @@
     borderLabel.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(borderLabel);
 
+    const transparencyField = doc.createElement('label');
+    transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
+    transparencyField.dataset.symbolTransparencyControl = '1';
+    const transparencyLabel = doc.createElement('span');
+    transparencyLabel.className = 'additional-line-controls-panel__field-label';
+    transparencyLabel.textContent = transparencyCfg.label || 'Transparency';
+    const transparencyWrap = doc.createElement('div');
+    transparencyWrap.className = 'additional-line-controls-panel__range';
     const transparencyInput = doc.createElement('input');
     transparencyInput.type = 'range';
     transparencyInput.min = '0';
     transparencyInput.max = '100';
     transparencyInput.step = '1';
+    transparencyInput.className = 'additional-line-controls-panel__transparency-input';
     const transparencyValue = doc.createElement('span');
-    transparencyValue.className = 'workspace-toolbar__input-value';
+    transparencyValue.className = 'additional-line-controls-panel__range-value';
+    const resolveTransparencyPercent = () => {
+      const raw = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(getContext()) : 0;
+      const numeric = Number(raw);
+      if(!Number.isFinite(numeric)){
+        return 0;
+      }
+      const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
+      const asPercent = scale === 'percent' || (scale !== 'fraction' && numeric > 1);
+      return asPercent
+        ? Math.min(100, Math.max(0, numeric))
+        : (Math.min(1, Math.max(0, numeric)) * 100);
+    };
+    const quantizeTransparencyPercent = value => {
+      const bounded = Number.isFinite(Number(value)) ? Math.min(100, Math.max(0, Number(value))) : 0;
+      let display = Math.round(bounded);
+      if(display === 0 && bounded > 0){
+        display = 1;
+      }else if(display === 100 && bounded < 100){
+        display = 99;
+      }
+      return display;
+    };
     const syncTransparency = () => {
-      const t = clampNumeric(typeof transparencyCfg.get === 'function' ? transparencyCfg.get(getContext()) : 0, 0, 0);
-      const pct = Math.round(Math.min(1, Math.max(0, t)) * 100);
-      transparencyInput.value = String(pct);
-      transparencyValue.textContent = `${pct}%`;
+      const display = quantizeTransparencyPercent(resolveTransparencyPercent());
+      transparencyInput.value = String(display);
+      transparencyValue.textContent = `${display}%`;
     };
     syncTransparency();
     transparencyInput.addEventListener('input', () => {
       const pct = Number(transparencyInput.value);
       const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-      const normalized = bounded / 100;
+      const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
+      const outgoing = scale === 'percent' ? bounded : (bounded / 100);
       if(typeof transparencyCfg.onChange === 'function'){
-        transparencyCfg.onChange(normalized, getContext());
+        transparencyCfg.onChange(outgoing, getContext());
       }
-      transparencyValue.textContent = `${Math.round(bounded)}%`;
+      const display = quantizeTransparencyPercent(bounded);
+      transparencyValue.textContent = `${display}%`;
     });
-    const transparencyWrap = doc.createElement('div');
-    transparencyWrap.className = 'workspace-toolbar__range';
     transparencyWrap.appendChild(transparencyInput);
     transparencyWrap.appendChild(transparencyValue);
-    wrap.appendChild(makeInput(transparencyCfg.label || 'Transparency', transparencyWrap));
+    transparencyField.appendChild(transparencyLabel);
+    transparencyField.appendChild(transparencyWrap);
+    wrap.appendChild(transparencyField);
 
     scopeSelect.addEventListener('change', () => {
       if(typeof scopeCfg.onChange === 'function'){

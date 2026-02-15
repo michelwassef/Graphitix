@@ -2503,17 +2503,22 @@ select {
 }
 .scatter-format-controls .workspace-toolbar__input{
     align-self:flex-end;
-    justify-content:flex-start;
-    gap:6px;
+    display:grid;
+    grid-template-rows:16px auto;
+    row-gap:6px;
+    justify-items:center;
+    align-content:start;
     min-height:48px;
 }
 .scatter-format-controls .workspace-toolbar__input-label{
     margin:0 !important;
     min-height:16px;
     line-height:16px;
+    font-size:11px;
     display:flex;
     align-items:flex-end;
     justify-content:center;
+    grid-row:1;
 }
 .scatter-format-controls .workspace-toolbar__input--color .workspace-toolbar__input-label{
     margin:0 !important;
@@ -2522,6 +2527,11 @@ select {
     display:flex;
     align-items:center;
     height:var(--ui-color-input-height);
+    grid-row:2;
+}
+.scatter-format-controls .workspace-toolbar__input-control.additional-line-controls-panel__range{
+    height:auto;
+    min-height:0;
 }
 .scatter-format-controls .workspace-toolbar__input-control.workspace-toolbar__range{
     height:var(--ui-color-input-height);
@@ -2529,6 +2539,32 @@ select {
 }
 .scatter-format-controls .workspace-toolbar__range{
     height:var(--ui-color-input-height);
+    align-items:center;
+    grid-row:2;
+}
+.scatter-format-controls [data-symbol-transparency-control="1"]{
+    display:grid;
+    grid-template-rows:16px auto;
+    row-gap:6px;
+    align-self:flex-end;
+    align-content:start;
+    min-height:48px;
+    margin:0;
+}
+.scatter-format-controls [data-symbol-transparency-control="1"] .additional-line-controls-panel__field-label{
+    grid-row:1;
+    margin:0;
+    min-height:16px;
+    line-height:16px;
+    font-size:11px;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+}
+.scatter-format-controls [data-symbol-transparency-control="1"] .additional-line-controls-panel__range{
+    grid-row:2;
+    height:var(--ui-color-input-height);
+    min-height:var(--ui-color-input-height);
     align-items:center;
 }
 .scatter-format-controls .workspace-toolbar__range input[type="range"]{
@@ -3153,9 +3189,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host.font-toolbar-host--axis{flex:1 1 100%;justify-content:flex-start;align-self:stretch;width:100%;margin-left:0;margin-right:0}
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
-.font-toolbar-host--box-dual.font-toolbar-host--visible{display:grid}
+.font-toolbar-host--box-dual.font-toolbar-host--visible,
+.font-toolbar-host--scatter-dual.font-toolbar-host--visible{display:grid}
 .font-toolbar-host--line-dual,
-.font-toolbar-host--box-dual{
+.font-toolbar-host--box-dual,
+.font-toolbar-host--scatter-dual{
   grid-auto-flow:column;
   grid-auto-columns:max-content;
   column-gap:10px;
@@ -3166,13 +3204,15 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   max-width:100%;
 }
 .font-toolbar-host--line-dual .line-point-controls.workspace-toolbar__form--single,
-.font-toolbar-host--box-dual .box-point-controls.workspace-toolbar__form--single{
+.font-toolbar-host--box-dual .box-point-controls.workspace-toolbar__form--single,
+.font-toolbar-host--scatter-dual .scatter-point-controls.workspace-toolbar__form--single{
   width:max-content;
   min-width:max-content;
   flex:0 0 auto;
 }
 .font-toolbar-host--line-dual .additional-line-controls-panel,
-.font-toolbar-host--box-dual .additional-line-controls-panel{
+.font-toolbar-host--box-dual .additional-line-controls-panel,
+.font-toolbar-host--scatter-dual .additional-line-controls-panel{
   width:max-content;
   min-width:max-content;
   flex:0 0 auto;
@@ -3555,17 +3595,17 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
 .additional-line-controls-panel__summary-label{font-size:11px;text-transform:none;letter-spacing:0.01em;color:#1e293b;font-weight:600}
 .additional-line-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-.additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:56px;flex:0 0 auto;text-align:center}
+.additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:56px;min-height:48px;flex:0 0 auto;text-align:center}
 .additional-line-controls-panel__summary[hidden],
 .additional-line-controls-panel__field[hidden]{display:none !important}
-.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:block}
+.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:16px;min-height:16px;margin:0}
 .additional-line-controls-panel__input{min-width:0;width:auto;max-width:108px;text-align:center}
 .additional-line-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .additional-line-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
 .additional-line-controls-panel__color-input{height:24px;width:24px;padding:0;cursor:pointer;display:block;margin:0 auto}
 .additional-line-controls-panel__field--transparency{min-width:170px;align-items:stretch}
 .additional-line-controls-panel__range{display:flex;align-items:center;gap:8px;min-width:170px}
-.additional-line-controls-panel__transparency-input{flex:1 1 auto;min-width:120px}
+.additional-line-controls-panel__transparency-input{flex:1 1 auto;min-width:120px;accent-color:#1f2937}
 .additional-line-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
 .additional-line-controls-panel__field--style{min-width:90px}
 
