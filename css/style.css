@@ -1537,26 +1537,24 @@ select {
     right: 14px;
     top: 50%;
     transform: translateY(-50%);
-    height: 32px;
-    border-radius: 6px;
-    border: 1px solid #94a3b8;
-    padding: 0 12px;
+    height: 26px;
+    border-radius: 0;
+    border: none;
+    padding: 0;
     font-size: 13px;
-    background: #ffffff;
-    color: #0f172a;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
 }
 
 .workspace-tab__rename:focus {
     outline: none;
-    border-color: #6366f1;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.24);
+    border: none;
+    box-shadow: none;
 }
 
 .workspace-tab.is-active .workspace-tab__rename {
-    border-color: #6366f1;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
-    color: #111827;
+    color: inherit;
 }
 
 .workspace-tab.is-renaming .workspace-tab__label {
