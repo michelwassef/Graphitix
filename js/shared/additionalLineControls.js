@@ -913,11 +913,13 @@
       const axisPanel = activeHost.querySelector('.axis-controls-panel');
       const significancePanel = activeHost.querySelector('.significance-controls-panel');
       const dendrogramPanel = activeHost.querySelector('.dendrogram-controls-panel');
+      const gridPanel = activeHost.querySelector('.grid-controls-panel');
       const hasEmbeddedForm = !!activeHost.querySelector('.workspace-toolbar__form, .box-point-controls, [data-point-controls=\"1\"]');
       if((!fontPanel || fontPanel.dataset.open !== '1')
         && (!axisPanel || axisPanel.dataset.open !== '1')
         && (!significancePanel || significancePanel.dataset.open !== '1')
         && (!dendrogramPanel || dendrogramPanel.dataset.open !== '1')
+        && (!gridPanel || gridPanel.dataset.open !== '1')
         && !hasEmbeddedForm
         && !activeConfig?.keepHostVisible){
         activeHost.classList.remove('font-toolbar-host--visible');

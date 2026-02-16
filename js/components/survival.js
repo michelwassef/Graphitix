@@ -93,6 +93,14 @@
     try{ if(toolbarHost.__survivalDocClickHandler){ document.removeEventListener('click', toolbarHost.__survivalDocClickHandler); toolbarHost.__survivalDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt=evt && evt.target?evt.target:null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){} const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__survivalDocClickHandler=null; }catch(err){ console.warn('survival.stroke format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__survivalDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for survival stroke controls failed', err); }
   }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: survival component gridControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const formControls = Shared.formControls = Shared.formControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   const survivalUndoManager = Shared.undoManager || null;
@@ -223,6 +231,7 @@
   };
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_GRID_COLOR = '#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -262,6 +271,7 @@
     covariateSettings: {},
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings(),
+    gridStyle: null,
     labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
   };
 
@@ -308,6 +318,47 @@
       state.axisSettings.color = DEFAULT_AXIS_COLOR;
     }
     return state.axisSettings;
+  }
+
+  function createDefaultGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeGridStyle(style, fallbackThickness){
+    const fallback = createDefaultGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureGridStyle(fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(state.gridStyle, fallbackThickness);
+    return state.gridStyle;
+  }
+
+  function getGridStyle(fallbackThickness){
+    return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setGridStyle(style, fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
   }
 
   function getAxisTickInterval(axis){
@@ -395,6 +446,30 @@
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     logDebug('axis color updated',{ color: settings.color });
     state.scheduleDraw?.();
+  }
+
+  function registerSurvivalGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'survival',
+      getVisible: () => !!refs.showGrid?.checked,
+      onVisibleChange: value => {
+        if(refs.showGrid){
+          refs.showGrid.checked = !!value;
+        }
+        state.scheduleDraw?.();
+      },
+      getStyle: () => getGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setGridStyle(style, fallbackThickness);
+        state.scheduleDraw?.();
+      },
+      defaults: createDefaultGridStyle(fallbackThickness)
+    });
   }
 
   function applyAxisSettings(settings){
@@ -2442,6 +2517,13 @@
     const axisStrokeWidthBase = axisSettings.strokeWidth;
     const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'survival-axis', min: 0.5 }) : axisStrokeWidthBase;
     const axisStroke = axisSettings.color || '#000';
+    const gridStyleBase = getGridStyle(axisStrokeWidthBase);
+    const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+      thickness: chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'survival-grid', min: 0 }) : gridStyleBase.thickness
+    });
+    const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+      ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+      : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
     const curveStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(2, styleScaleInfo, { context: 'survival-curve', min: 0.8 }) : 2;
 
     const axisMetrics = chartStyle.createAxisMetrics ? chartStyle.createAxisMetrics(fs) : { tickLength: 6, tickLabelGap: 6, axisTitleGap: 8, outerPadding: 8 };
@@ -2619,11 +2701,13 @@
     if(showGrid){
       xScale.ticks.forEach(val => {
         const x = x2px(val);
-        add('line', { x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#ddd', 'stroke-width': axisStrokeWidth });
+        const gridLine = add('line', Object.assign({ x1: x, y1: margin.top, x2: x, y2: margin.top + plotH }, gridStrokeAttrs));
+        gridLine.setAttribute('data-grid-control', '1');
       });
       yScale.ticks.forEach(val => {
         const y = y2px(val);
-        add('line', { x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#ddd', 'stroke-width': axisStrokeWidth });
+        const gridLine = add('line', Object.assign({ x1: margin.left, y1: y, x2: margin.left + plotW, y2: y }, gridStrokeAttrs));
+        gridLine.setAttribute('data-grid-control', '1');
       });
     }
 
@@ -2977,6 +3061,7 @@
     }
 
     updateStats({ ...summary, series: groupsForDraw });
+    registerSurvivalGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     autoResizeSvgHelper(svg);
     state.layout?.syncPanels?.({ skipSchedule: true });
     logDebug('draw complete', { debugStamp });
@@ -3202,6 +3287,7 @@
         showHazardRatios: !!refs.showHazardRatios?.checked,
         fitCoxModel: !!refs.fitCoxModel?.checked,
         showGrid: !!refs.showGrid?.checked,
+        gridStyle: getGridStyle(axisSettings.strokeWidth),
         showFrame: !!refs.showFrame?.checked,
         showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
         timeMax: refs.timeMax?.value || '',
@@ -3311,6 +3397,7 @@
     if(refs.showHazardRatios) refs.showHazardRatios.checked = config.showHazardRatios !== false;
     if(refs.fitCoxModel) refs.fitCoxModel.checked = config.fitCoxModel !== false;
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
+    setGridStyle(config.gridStyle, config.axis?.strokeWidth);
     if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
     if(refs.showLegend){
       refs.showLegend.checked = config.showLegend !== false;

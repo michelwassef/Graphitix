@@ -11,6 +11,14 @@
   const tableImport = Shared.tableImport = Shared.tableImport || {};
   const exporter = Shared.exporter = Shared.exporter || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: surface component gridControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scope)
     : null;
@@ -29,6 +37,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 80;
   const DEFAULT_COLS = 3;
+  const DEFAULT_GRID_COLOR = '#dddddd';
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -113,6 +122,7 @@
       showPoints: false,
       showLegend: true
     },
+    gridStyle: null,
     labels: { title: 'Surface Plot', x: DEFAULT_AXIS_LABELS.x, y: DEFAULT_AXIS_LABELS.y, z: DEFAULT_AXIS_LABELS.z },
     rotation: typeof plot3d.createRotationState === 'function'
       ? plot3d.createRotationState(DEFAULT_ROTATION)
@@ -121,6 +131,77 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+
+  function getAxisStrokeWidthBase(){
+    const numeric = Number(state.settings?.axisStroke);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;
+  }
+
+  function createDefaultGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1.2;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeGridStyle(style, fallbackThickness){
+    const fallback = createDefaultGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureGridStyle(fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(state.gridStyle, fallbackThickness);
+    return state.gridStyle;
+  }
+
+  function getGridStyle(fallbackThickness){
+    return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setGridStyle(style, fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+  }
+
+  function registerSurfaceGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'surface',
+      getVisible: () => !!state.settings.showGrid,
+      onVisibleChange: value => {
+        state.settings.showGrid = !!value;
+        if(state.controls.showGrid){
+          state.controls.showGrid.checked = !!value;
+        }
+        state.scheduleDraw?.();
+      },
+      getStyle: () => getGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setGridStyle(style, fallbackThickness);
+        state.scheduleDraw?.();
+      },
+      defaults: createDefaultGridStyle(fallbackThickness)
+    });
+  }
 
   function attachListener(node, type, handler, options){
     if(!node || typeof node.addEventListener !== 'function'){ return; }
@@ -1264,9 +1345,22 @@
       chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, fontInfo, input: state.controls.fontSize });
     }
     const fs = fontInfo.scaledPx || state.settings.fontSize;
+    const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = typeof chartStyle.scaleStrokeWidth === 'function'
-      ? chartStyle.scaleStrokeWidth(state.settings.axisStroke, fontInfo.scaleInfo, { context: 'surface-axis', min: 0.4 })
-      : state.settings.axisStroke;
+      ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, fontInfo.scaleInfo, { context: 'surface-axis', min: 0.4 })
+      : axisStrokeWidthBase;
+    const gridStyleBase = getGridStyle(axisStrokeWidthBase);
+    const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+      thickness: typeof chartStyle.scaleStrokeWidth === 'function'
+        ? chartStyle.scaleStrokeWidth(gridStyleBase.thickness, fontInfo.scaleInfo, { context: 'surface-grid', min: 0 })
+        : gridStyleBase.thickness
+    });
+    const gridDash = (gridControls && typeof gridControls.patternToDasharray === 'function')
+      ? gridControls.patternToDasharray(gridStrokeStyle.pattern, gridStrokeStyle.thickness)
+      : null;
+    const gridOpacity = (gridControls && typeof gridControls.transparencyToOpacity === 'function')
+      ? gridControls.transparencyToOpacity(gridStrokeStyle.transparency)
+      : Math.max(0, Math.min(1, 1 - (Number(gridStrokeStyle.transparency || 0) / 100)));
     const margin = {
       top: Math.max(fs * 3.2, 42),
       right: Math.max(fs * 6.5, state.settings.showLegend ? 140 : 60),
@@ -1386,6 +1480,10 @@
         showFrame: state.settings.showFrame,
         showPanes: state.settings.showFrame,
         axisColor: state.settings.axisColor,
+        gridColor: gridStrokeStyle.color,
+        gridDash: gridDash || undefined,
+        gridOpacity,
+        gridStrokeWidth: gridStrokeStyle.thickness,
         debugLabel: 'surface-axes',
         paneTarget: backgroundLayer,
         gridTarget: backgroundLayer,
@@ -1715,6 +1813,7 @@
       console.log('SURFACE: removeLegend called');
       removeLegend(svg);
     }
+    registerSurfaceGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     updateStats(parsed.stats);
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncSurfaceAutoDrawNoticeWidth('draw');
@@ -1926,6 +2025,7 @@
     if(config.settings && typeof config.settings === 'object'){
       state.settings = Object.assign({}, state.settings, config.settings);
     }
+    setGridStyle(config.gridStyle, config.settings?.axisStroke ?? state.settings?.axisStroke);
     if(config.labels && typeof config.labels === 'object'){
       state.labels = Object.assign({}, state.labels, config.labels);
     }
@@ -1996,6 +2096,7 @@
       config: {
         axisMap: Object.assign({}, state.axisMap),
         settings: Object.assign({}, state.settings),
+        gridStyle: getGridStyle(state.settings?.axisStroke),
         labels: Object.assign({}, state.labels),
         // Save legend position in labelPositions (following roc.js pattern)
         labelPositions: state.labelPositions || null,

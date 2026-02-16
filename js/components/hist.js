@@ -49,6 +49,14 @@
     }
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: hist component gridControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -78,6 +86,7 @@
   });
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_GRID_COLOR = '#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -174,6 +183,7 @@
     lastDataShape: { rows: 0, cols: 0 },
     lastAutoDrawEvaluation: null,
     axisSettings: createDefaultAxisSettings(),
+    gridStyle: null,
     distributionSettings: createDefaultDistributionSettings(),
     distributionOptions: [],
     distributionInputs: {
@@ -297,6 +307,47 @@
     return state.axisSettings;
   }
 
+  function createDefaultGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeGridStyle(style, fallbackThickness){
+    const fallback = createDefaultGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureGridStyle(fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(state.gridStyle, fallbackThickness);
+    return state.gridStyle;
+  }
+
+  function getGridStyle(fallbackThickness){
+    return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setGridStyle(style, fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+  }
+
   function getAxisNotation(axis){
     if(axis !== 'x' && axis !== 'y'){ return 'auto'; }
     const settings = ensureAxisSettings();
@@ -410,6 +461,31 @@
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
+  }
+
+  function registerHistGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'hist',
+      getVisible: () => !!document.getElementById('histShowGrid')?.checked,
+      onVisibleChange: value => {
+        const input = document.getElementById('histShowGrid');
+        if(input){
+          input.checked = !!value;
+        }
+        state.scheduleDraw?.();
+      },
+      getStyle: () => getGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setGridStyle(style, fallbackThickness);
+        state.scheduleDraw?.();
+      },
+      defaults: createDefaultGridStyle(fallbackThickness)
+    });
   }
 
   function applyAxisSettings(settings){
@@ -1006,6 +1082,7 @@
         borderWidth:$('#histBorderWidth').value,
         bins:$('#histBins').value,
         showGrid:$('#histShowGrid').checked,
+        gridStyle:getGridStyle(axisSettings.strokeWidth),
         showFrame:$('#histShowFrame').checked,
         logY:$('#histLogY').checked,
         fontSize:$('#histFontSize').value,
@@ -1081,6 +1158,7 @@
       if(histBinsInput){ histBinsInput.value = config.bins || histBinsInput.value; }
       const histShowGridInput = document.getElementById('histShowGrid');
       if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
+      setGridStyle(config.gridStyle, config.axis?.strokeWidth);
       const histShowFrameInput = document.getElementById('histShowFrame');
       if(histShowFrameInput){ histShowFrameInput.checked = config.showFrame !== false; }
       const histLogYInput = document.getElementById('histLogY');
@@ -1480,6 +1558,13 @@
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0.25 });
     const axisStroke = getAxisColor();
+    const gridStyleBase = getGridStyle(axisStrokeWidthBase);
+    const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+      thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'hist-grid', min: 0 })
+    });
+    const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+      ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+      : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
     const borderWidthRaw=Number(histBorderWidth.value)||0;
     const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
     console.debug('Debug: hist style scaling applied',{
@@ -1634,9 +1719,10 @@
       if(showGrid){
         yScale.ticks.forEach(t=>{
           const y=y2px(t);
-          add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});
+          const gridLine = add('line',Object.assign({x1:margin.left,y1:y,x2:margin.left+plotW,y2:y},gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control','1');
         });
-        console.debug('Debug: hist grid stroke scaled',{horizontal:yScale.ticks.length,axisStrokeWidth});
+        console.debug('Debug: hist grid stroke scaled',{horizontal:yScale.ticks.length,gridStrokeStyle});
       }
     const xTickPositions=xScale.ticks.map(t=>x2px(t));
     const yTickPositions=yScale.ticks.map(t=>y2px(t));
@@ -2154,6 +2240,7 @@
         }
       });
     }
+    registerHistGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');

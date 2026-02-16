@@ -1067,19 +1067,52 @@
         hideFillHandle();
         return;
       }
-      const viewport = resolveFillHandleViewport();
+      let handleWidth = 8;
+      let handleHeight = 8;
+      const handleDoc = handle.ownerDocument || document;
+      const handleWin = handleDoc.defaultView || global;
+      if(handleWin && typeof handleWin.getComputedStyle === 'function'){
+        try{
+          const handleStyle = handleWin.getComputedStyle(handle);
+          const styleWidth = Number.parseFloat(handleStyle?.width);
+          const styleHeight = Number.parseFloat(handleStyle?.height);
+          if(Number.isFinite(styleWidth) && styleWidth > 0){
+            handleWidth = styleWidth;
+          }
+          if(Number.isFinite(styleHeight) && styleHeight > 0){
+            handleHeight = styleHeight;
+          }
+        }catch(styleErr){
+          // best-effort size read
+        }
+      }
+      if(Number.isFinite(handle?.offsetWidth) && handle.offsetWidth > 0){
+        handleWidth = handle.offsetWidth;
+      }
+      if(Number.isFinite(handle?.offsetHeight) && handle.offsetHeight > 0){
+        handleHeight = handle.offsetHeight;
+      }
+      const viewport = resolveFillHandleViewport(cell);
       if(viewport && typeof viewport.getBoundingClientRect === 'function'){
         const viewportRect = viewport.getBoundingClientRect();
-        const anchorInsideViewport = cellRect.right > viewportRect.left
-          && cellRect.right <= viewportRect.right
-          && cellRect.bottom > viewportRect.top
-          && cellRect.bottom <= viewportRect.bottom;
-        if(!anchorInsideViewport){
+        const markerRect = {
+          left: cellRect.right - handleWidth,
+          top: cellRect.bottom - handleHeight,
+          right: cellRect.right,
+          bottom: cellRect.bottom
+        };
+        const edgeTolerance = 0.5;
+        const markerInsideViewport = markerRect.left >= (viewportRect.left - edgeTolerance)
+          && markerRect.right <= (viewportRect.right + edgeTolerance)
+          && markerRect.top >= (viewportRect.top - edgeTolerance)
+          && markerRect.bottom <= (viewportRect.bottom + edgeTolerance);
+        if(!markerInsideViewport){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot fill handle hidden (outside center viewport)', {
+            console.debug('Debug: Shared.hot fill handle hidden (marker overlaps viewport boundary)', {
               debugLabel,
-              cellRight: cellRect.right,
-              cellBottom: cellRect.bottom,
+              markerRect,
+              handleWidth,
+              handleHeight,
               viewportLeft: viewportRect.left,
               viewportRight: viewportRect.right,
               viewportTop: viewportRect.top,
@@ -3011,7 +3044,17 @@
       return container.querySelector('.ag-body-viewport');
     };
 
-    const resolveFillHandleViewport = ()=>{
+    const resolveFillHandleViewport = (cell)=>{
+      if(cell && typeof cell.closest === 'function'){
+        const scopedCenterViewport = cell.closest('.ag-center-cols-viewport');
+        if(scopedCenterViewport){
+          return scopedCenterViewport;
+        }
+        const scopedBodyViewport = cell.closest('.ag-body-viewport');
+        if(scopedBodyViewport){
+          return scopedBodyViewport;
+        }
+      }
       if(!container || typeof container.querySelector !== 'function'){
         return null;
       }

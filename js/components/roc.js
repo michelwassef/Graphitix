@@ -76,6 +76,14 @@
     try{ if(toolbarHost.__rocDocClickHandler){ document.removeEventListener('click', toolbarHost.__rocDocClickHandler); toolbarHost.__rocDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt=evt && evt.target?evt.target:null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){} const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler=null; }catch(err){ console.warn('roc.stroke format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for roc stroke controls failed', err); }
   }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: roc component gridControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const formControls = Shared.formControls = Shared.formControls || {};
   roc.__installed = true;
   roc.ready = false;
@@ -165,6 +173,7 @@
   }
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_GRID_COLOR = '#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -209,6 +218,7 @@
     fileName: 'roc.graph',
     titleText: 'ROC curve',
     axisSettings: createDefaultAxisSettings(),
+    gridStyle: null,
     autoDrawEnabled: true,
     autoDrawReason: null,
     autoDrawLockedByThreshold: false,
@@ -423,6 +433,47 @@
     return state.axisSettings;
   }
 
+  function createDefaultGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeGridStyle(style, fallbackThickness){
+    const fallback = createDefaultGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureGridStyle(fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(state.gridStyle, fallbackThickness);
+    return state.gridStyle;
+  }
+
+  function getGridStyle(fallbackThickness){
+    return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setGridStyle(style, fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+  }
+
   function getAxisTickInterval(axis){
     if(axis !== 'x' && axis !== 'y'){ return null; }
     const settings = ensureAxisSettings();
@@ -508,6 +559,30 @@
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     console.debug('Debug: roc axis color updated', { color: settings.color });
     state.scheduleDraw?.();
+  }
+
+  function registerRocGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'roc',
+      getVisible: () => !!refs.showGrid?.checked,
+      onVisibleChange: value => {
+        if(refs.showGrid){
+          refs.showGrid.checked = !!value;
+        }
+        state.scheduleDraw?.();
+      },
+      getStyle: () => getGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setGridStyle(style, fallbackThickness);
+        state.scheduleDraw?.();
+      },
+      defaults: createDefaultGridStyle(fallbackThickness)
+    });
   }
 
   function applyAxisSettings(settings){
@@ -1530,6 +1605,13 @@
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'roc-axis', min: 0.5 });
     const axisStroke = getAxisColor();
+    const gridStyleBase = getGridStyle(axisStrokeWidthBase);
+    const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+      thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'roc-grid', min: 0 })
+    });
+    const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+      ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+      : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
     const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'roc-curve', min: 0 });
     console.debug('Debug: roc style scaling applied',{
       borderWidthRaw,
@@ -1827,13 +1909,15 @@
     if(showGrid){
       xTicks.forEach(tick => {
         const x = xToPx(tick);
-        add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight, stroke: '#ddd', 'stroke-width': axisStrokeWidth});
+        const gridLine = add('line', Object.assign({x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight}, gridStrokeAttrs));
+        gridLine.setAttribute('data-grid-control', '1');
       });
       yTicks.forEach(tick => {
         const y = yToPx(tick);
-        add('line', {x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y, stroke: '#ddd', 'stroke-width': axisStrokeWidth});
+        const gridLine = add('line', Object.assign({x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y}, gridStrokeAttrs));
+        gridLine.setAttribute('data-grid-control', '1');
       });
-      console.debug('Debug: roc grid stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, axisStrokeWidth});
+      console.debug('Debug: roc grid stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, gridStrokeStyle});
     }
 
     const xTickPositions = xTicks.map(tick => xToPx(tick));
@@ -2303,6 +2387,7 @@
     }else if(state.compareResult){
       state.compareResult.textContent = '';
     }
+    registerRocGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     ensureGraphViewport(svg, { padding: Math.max(fontSize, 16), debugLabel: 'roc-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncRocAutoDrawNoticeWidth('draw');
@@ -2317,6 +2402,7 @@
       config: {
         borderWidth: refs.borderWidth?.value,
         showGrid: !!refs.showGrid?.checked,
+        gridStyle: getGridStyle(getAxisStrokeWidthBase()),
         showFrame: !!refs.showFrame?.checked,
         showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
         fontSize: refs.fontSize?.value,
@@ -2389,6 +2475,7 @@
     importFontStyles('roc', config.fontStyles || null);
     if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
+    setGridStyle(config.gridStyle, config.axis?.strokeWidth);
     if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
     if(refs.showLegend){
       refs.showLegend.checked = config.showLegend !== false;

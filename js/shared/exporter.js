@@ -273,6 +273,30 @@
     return removed;
   }
 
+  function removeGridControlOverlays(svgNode) {
+    if (!svgNode || !svgNode.querySelectorAll) {
+      return 0;
+    }
+    const candidates = svgNode.querySelectorAll('[data-grid-hit-layer="1"], [data-grid-hit-overlay="1"]');
+    let removed = 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const node = candidates[i];
+      if (!node || typeof node.tagName !== 'string') {
+        continue;
+      }
+      const isLayer = node.getAttribute && node.getAttribute('data-grid-hit-layer') === '1';
+      const isOverlay = node.getAttribute && node.getAttribute('data-grid-hit-overlay') === '1';
+      if (!isLayer && !isOverlay) {
+        continue;
+      }
+      if (typeof node.remove === 'function') {
+        node.remove();
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   function removeEditHighlightArtifacts(svgNode) {
     if (!svgNode || !svgNode.querySelectorAll) {
       return 0;
@@ -3367,6 +3391,8 @@
       axisHandlesRemoved: 0,
       dendrogramOverlaysRemoved: 0,
       significanceOverlaysRemoved: 0,
+      additionalLineOverlaysRemoved: 0,
+      gridOverlaysRemoved: 0,
       editHighlightsRemoved: 0,
       scatterOptimization: null
     };
@@ -3401,6 +3427,7 @@
       counters.dendrogramOverlaysRemoved = removeDendrogramControlOverlays(svgNode);
       counters.significanceOverlaysRemoved = removeSignificanceControlOverlays(svgNode);
       counters.additionalLineOverlaysRemoved = removeAdditionalLineControlOverlays(svgNode);
+      counters.gridOverlaysRemoved = removeGridControlOverlays(svgNode);
       counters.editHighlightsRemoved = removeEditHighlightArtifacts(svgNode);
 
       // Apply scatter point optimization for large datasets

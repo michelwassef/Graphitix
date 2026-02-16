@@ -16,11 +16,19 @@
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
   if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
     try{
       require('../shared/additionalLineControls.js');
     }catch(err){
       console.debug('Debug: line component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: line component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
   const formControls = Shared.formControls = Shared.formControls || {};
@@ -452,6 +460,7 @@
   };
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_GRID_COLOR = '#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -556,6 +565,48 @@
   }
 
   let lineAxisSettings = createLineAxisSettings();
+  let lineGridStyle = null;
+
+  function createDefaultLineGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeLineGridStyle(style, fallbackThickness){
+    const fallback = createDefaultLineGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureLineGridStyle(fallbackThickness){
+    lineGridStyle = sanitizeLineGridStyle(lineGridStyle, fallbackThickness);
+    return lineGridStyle;
+  }
+
+  function getLineGridStyle(fallbackThickness){
+    return sanitizeLineGridStyle(ensureLineGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setLineGridStyle(style, fallbackThickness){
+    lineGridStyle = sanitizeLineGridStyle(style, fallbackThickness);
+  }
 
   function ensureLineAxisSettings(){
     if(!lineAxisSettings || typeof lineAxisSettings !== 'object'){
@@ -832,6 +883,31 @@
     if(typeof scheduleLineDraw === 'function'){
       scheduleLineDraw();
     }
+  }
+
+  function registerLineGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getLineAxisStrokeWidth();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'line',
+      hostClass: 'font-toolbar-host--line-dual',
+      getVisible: () => !!refs.showGrid?.checked,
+      onVisibleChange: value => {
+        if(refs.showGrid){
+          refs.showGrid.checked = !!value;
+        }
+        scheduleLineDraw();
+      },
+      getStyle: () => getLineGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setLineGridStyle(style, fallbackThickness);
+        scheduleLineDraw();
+      },
+      defaults: createDefaultLineGridStyle(fallbackThickness)
+    });
   }
 
   function getBrokenAxisEnabled(axis){
@@ -5104,6 +5180,7 @@
         seriesStyles:{ ...lineSeriesStyles },
         displayMode: sanitizeLineDisplayMode(refs.displayMode?.value ?? lineDisplayMode),
         showGrid:refs.showGrid?.checked,
+        gridStyle: getLineGridStyle(getLineAxisStrokeWidth()),
         showFrame:refs.showFrame?.checked,
         showLegend:refs.showLegend ? !!refs.showLegend.checked : true,
         equalAxes: lineViewState.equalAxes,
@@ -5420,6 +5497,7 @@
     lineLabelColors=c.labelColors||{};
     lineSeriesStyles=c.seriesStyles||{};
     if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
+    setLineGridStyle(c.gridStyle, c.axis?.strokeWidth);
     if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
     if(refs.showLegend) refs.showLegend.checked=c.showLegend !== false;
     if(refs.logX) refs.logX.checked=!!c.logX;
@@ -5746,6 +5824,16 @@
       const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series-3d', min: 0 });
       chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
       const showGrid = !!refs.showGrid?.checked;
+      const gridStyleBase3d = getLineGridStyle(axisStrokeWidthBase);
+      const gridStrokeStyle3d = Object.assign({}, gridStyleBase3d, {
+        thickness: chartStyle.scaleStrokeWidth(gridStyleBase3d.thickness, styleScaleInfo, { context: 'line-grid-3d', min: 0 })
+      });
+      const gridDash3d = (gridControls && typeof gridControls.patternToDasharray === 'function')
+        ? gridControls.patternToDasharray(gridStrokeStyle3d.pattern, gridStrokeStyle3d.thickness)
+        : null;
+      const gridOpacity3d = (gridControls && typeof gridControls.transparencyToOpacity === 'function')
+        ? gridControls.transparencyToOpacity(gridStrokeStyle3d.transparency)
+        : 1;
       const showFrame = true;
       const showLegend = refs.showLegend ? !!refs.showLegend.checked : true;
       ensureLineResizerControls();
@@ -6285,6 +6373,10 @@
         axisStrokeWidth,
         axisColor: axisStroke,
         frameColor: axisStroke,
+        gridColor: gridStrokeStyle3d.color,
+        gridDash: gridDash3d || undefined,
+        gridOpacity: gridOpacity3d,
+        gridStrokeWidth: gridStrokeStyle3d.thickness,
         chartStyle,
         showGrid,
         showFrame,
@@ -6580,6 +6672,7 @@
         });
       }
 
+      registerLineGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
       handleLineStatsUnavailable(null, 'Statistics are available in 2D view.');
       ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
@@ -6653,6 +6746,13 @@
       const axisMetrics=chartStyle.createAxisMetrics(fs);
       console.debug('Debug: line axis metrics',axisMetrics);
       const showGrid=!!refs.showGrid?.checked;
+      const gridStyleBase = getLineGridStyle(axisStrokeWidthBase);
+      const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+        thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'line-grid', min: 0 })
+      });
+      const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+        ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+        : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
       const showFrame=!!refs.showFrame?.checked;
       console.debug('Debug: line showFrame state',{showFrame});
       ensureLineResizerControls();
@@ -7358,14 +7458,16 @@
         xScale.ticks.forEach(t=>{
           if(!isXValueVisible(t)){ return; }
           const x=x2px(t);
-          add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});
+          const gridLine = add('line',Object.assign({x1:x,y1:margin.top,x2:x,y2:margin.top+plotH},gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control','1');
         });
         yScale.ticks.forEach(t=>{
           if(!isYValueVisible(t)){ return; }
           const y=y2px(t);
-          add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});
+          const gridLine = add('line',Object.assign({x1:margin.left,y1:y,x2:margin.left+plotW,y2:y},gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control','1');
         });
-        console.debug('Debug: line grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
+        console.debug('Debug: line grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,gridStrokeStyle});
       }
       let originXT,originYT;
       if(originMode==='custom'){
@@ -8539,6 +8641,7 @@
         }
       });
       captureLineRegressionSummaries(seriesWithData, { mode: regressionModeCurrent });
+      registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
@@ -8555,6 +8658,7 @@
       return;
     }
     ensureLineAxisSettings();
+    ensureLineGridStyle(getLineAxisStrokeWidth());
     const $ = global.$ || (sel=>document.querySelector(sel));
     refs.tablePanel=document.getElementById('lineTablePanel');
     refs.graphPanel=document.getElementById('lineGraphPanel');

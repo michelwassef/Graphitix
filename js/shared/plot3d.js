@@ -497,7 +497,54 @@
     const paneFill = cfg.paneFill || 'rgba(0,0,0,0.008)';
     const paneOpacityRange = cfg.paneOpacityRange || { min: 0.004, max: 0.012 };
     const gridColor = cfg.gridColor || 'rgba(0,0,0,0.12)';
-    const gridDash = cfg.gridDash || null;
+    const normalizeDashValue = value => {
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric) || numeric <= 0){
+        return null;
+      }
+      return numeric;
+    };
+    const normalizeDashArray = value => {
+      if(Array.isArray(value)){
+        const parts = [];
+        for(let i = 0; i < value.length; i += 1){
+          const normalized = normalizeDashValue(value[i]);
+          if(normalized !== null){
+            parts.push(normalized);
+          }
+        }
+        return parts.length ? parts.join(' ') : null;
+      }
+      if(typeof value === 'string'){
+        const trimmed = value.trim();
+        if(!trimmed){
+          return null;
+        }
+        if(trimmed.indexOf(',') !== -1){
+          const tokens = trimmed.split(',');
+          const parts = [];
+          for(let i = 0; i < tokens.length; i += 1){
+            const normalized = normalizeDashValue(tokens[i].trim());
+            if(normalized !== null){
+              parts.push(normalized);
+            }
+          }
+          return parts.length ? parts.join(' ') : null;
+        }
+        return trimmed;
+      }
+      return null;
+    };
+    const gridDashAttr = normalizeDashArray(cfg.gridDash);
+    const gridStrokeWidth = Number.isFinite(Number(cfg.gridStrokeWidth))
+      ? Math.max(0, Number(cfg.gridStrokeWidth))
+      : Math.max(0, axisStrokeWidth * 0.6);
+    const gridOpacity = Number.isFinite(Number(cfg.gridOpacity))
+      ? Math.max(0, Math.min(1, Number(cfg.gridOpacity)))
+      : null;
+    const gridOutlineWidth = Number.isFinite(Number(cfg.gridOutlineWidth))
+      ? Math.max(0, Number(cfg.gridOutlineWidth))
+      : gridStrokeWidth;
     const gridOutlineColors = cfg.gridOutlineColors || { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' };
     const frameColor = cfg.frameColor || '#000000';
     const onAxisLabel = typeof cfg.onAxisLabel === 'function' ? cfg.onAxisLabel : null;
@@ -790,12 +837,16 @@
     }
     const gridGroup = (showGrid || showFrame) && doc ? doc.createElementNS(NS, 'g') : null;
     if(gridGroup){
+      gridGroup.setAttribute('data-grid-control', '1');
       gridGroup.setAttribute('fill', 'none');
       gridGroup.setAttribute('stroke', gridColor);
-      if(gridDash && gridDash.length){
-        gridGroup.setAttribute('stroke-dasharray', gridDash.join(' '));
+      if(gridDashAttr){
+        gridGroup.setAttribute('stroke-dasharray', gridDashAttr);
       }
-      gridGroup.setAttribute('stroke-width', axisStrokeWidth * 0.6);
+      gridGroup.setAttribute('stroke-width', gridStrokeWidth);
+      if(gridOpacity !== null && gridOpacity < 1){
+        gridGroup.setAttribute('stroke-opacity', gridOpacity);
+      }
       (gridTarget || svg).appendChild(gridGroup);
     }
     const appendLine = (startRot, endRot, attrs, target) => {
@@ -813,7 +864,11 @@
           }
         }
       }
-      (target || axisTarget || svg).appendChild(line);
+      const targetNode = target || axisTarget || svg;
+      if(targetNode && typeof targetNode.getAttribute === 'function' && targetNode.getAttribute('data-grid-control') === '1'){
+        line.setAttribute('data-grid-control', '1');
+      }
+      targetNode.appendChild(line);
       return line;
     };
     if(paneGroup && showPanes){
@@ -895,10 +950,10 @@
         const fixedValue = plane.fixed.value;
         const startMin = makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue });
         const endMax = makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue });
-        appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })), { stroke: gridOutlineColors.primary, 'stroke-width': axisStrokeWidth * 0.55 }, gridGroup);
-        appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })), { stroke: gridOutlineColors.primary, 'stroke-width': axisStrokeWidth * 0.55 }, gridGroup);
-        appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })), rotatePoint(endMax), { stroke: gridOutlineColors.secondary, 'stroke-width': axisStrokeWidth * 0.55 }, gridGroup);
-        appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })), rotatePoint(endMax), { stroke: gridOutlineColors.secondary, 'stroke-width': axisStrokeWidth * 0.55 }, gridGroup);
+        appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })), { stroke: gridOutlineColors.primary, 'stroke-width': gridOutlineWidth }, gridGroup);
+        appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })), { stroke: gridOutlineColors.primary, 'stroke-width': gridOutlineWidth }, gridGroup);
+        appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })), rotatePoint(endMax), { stroke: gridOutlineColors.secondary, 'stroke-width': gridOutlineWidth }, gridGroup);
+        appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })), rotatePoint(endMax), { stroke: gridOutlineColors.secondary, 'stroke-width': gridOutlineWidth }, gridGroup);
         const ticksA = axisInterior[axisA];
         const ticksB = axisInterior[axisB];
         for(let j=0;j<ticksA.length;j+=1){

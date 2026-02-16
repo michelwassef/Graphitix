@@ -2366,7 +2366,18 @@
       updateAxisSectionActiveState(activeHost, false);
       activeHost.classList.remove('font-toolbar-host--axis');
       const fontPanel = activeHost.querySelector('.font-controls-panel');
-      if(!fontPanel || fontPanel.dataset.open !== '1'){
+      const additionalLinePanel = activeHost.querySelector('.additional-line-controls-panel');
+      const significancePanel = activeHost.querySelector('.significance-controls-panel');
+      const dendrogramPanel = activeHost.querySelector('.dendrogram-controls-panel');
+      const gridPanel = activeHost.querySelector('.grid-controls-panel');
+      const hasEmbeddedForm = !!activeHost.querySelector('.workspace-toolbar__form, .box-point-controls, [data-point-controls=\"1\"]');
+      const additionalLineOpen = !!(additionalLinePanel && additionalLinePanel !== panelEl && additionalLinePanel.dataset.open === '1');
+      if((!fontPanel || fontPanel.dataset.open !== '1')
+        && (!significancePanel || significancePanel.dataset.open !== '1')
+        && (!dendrogramPanel || dendrogramPanel.dataset.open !== '1')
+        && (!gridPanel || gridPanel.dataset.open !== '1')
+        && !additionalLineOpen
+        && !hasEmbeddedForm){
         activeHost.classList.remove('font-toolbar-host--visible');
         activeHost.style.display = 'none';
         updateDockActiveState(activeHost, false);

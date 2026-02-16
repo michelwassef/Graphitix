@@ -1347,6 +1347,12 @@
           try{ additionalLineControls.close('hideAllFromFont'); }catch(e){}
         }
       }catch(e){}
+      try{
+        const gridControls = Shared?.gridControls || (global && global.Shared && global.Shared.gridControls);
+        if(gridControls && typeof gridControls.close === 'function'){
+          try{ gridControls.close('hideAllFromFont'); }catch(e){}
+        }
+      }catch(e){}
     }catch(err){
       logDebug('hideAllFormatControls error', { err: String(err) });
     }

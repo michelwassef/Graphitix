@@ -16,11 +16,19 @@
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
   if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
     try{
       require('../shared/additionalLineControls.js');
     }catch(err){
       console.debug('Debug: box component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: box component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
   const formControls = Shared.formControls = Shared.formControls || {};
@@ -39,6 +47,7 @@
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const DEFAULT_AXIS_COLOR='#000000';
+  const DEFAULT_GRID_COLOR='#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -5233,7 +5242,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: null };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -5308,6 +5317,47 @@
     }
     state.axisSettings = settings;
     return settings;
+  }
+
+  function createDefaultGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeGridStyle(style, fallbackThickness){
+    const fallback = createDefaultGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureGridStyle(fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(state.gridStyle, fallbackThickness);
+    return state.gridStyle;
+  }
+
+  function getGridStyle(fallbackThickness){
+    return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setGridStyle(style, fallbackThickness){
+    state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
   }
 
   function getAxisNotation(axis){
@@ -5617,6 +5667,35 @@
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
+  }
+
+  function registerBoxGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'box',
+      hostClass: 'font-toolbar-host--box-dual',
+      getVisible: () => !!els.boxShowGrid?.checked,
+      onVisibleChange: value => {
+        if(els.boxShowGrid){
+          els.boxShowGrid.checked = !!value;
+        }
+        if(typeof state.scheduleDraw === 'function'){
+          state.scheduleDraw();
+        }
+      },
+      getStyle: () => getGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setGridStyle(style, fallbackThickness);
+        if(typeof state.scheduleDraw === 'function'){
+          state.scheduleDraw();
+        }
+      },
+      defaults: createDefaultGridStyle(fallbackThickness)
+    });
   }
 
   // PART: BROKEN AXIS SCALE COMPUTATION
@@ -6825,6 +6904,7 @@
         console.log('boxplot example loaded');
       }
       state.axisSettings = createDefaultAxisSettings();
+      state.gridStyle = null;
       console.debug('Debug: box axis settings reset from example load');
       state.scheduleDraw();
     });
@@ -11795,7 +11875,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const axisStrokeBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeBase, styleScaleInfo, { context: 'box-axis', min: 0.5 });
     const axisStrokeColor = getAxisColor();
-    const gridStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-grid', min: 0.25 });
+    const gridStyleBase = getGridStyle(axisStrokeBase);
+    const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+      thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'box-grid', min: 0 })
+    });
+    const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+      ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+      : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
     const errorBarWidthPx = chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'box-errorbar', min: 0 });
     const DEFAULT_POINT_SIZE = 5;
@@ -11842,7 +11928,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       errorBarWidthRaw,
       errorBarWidthPx,
       axisStrokeWidth,
-      gridStrokeWidth,
+      gridStrokeStyle,
       pointRadius,
       annotationStrokeWidth,
       annotationStrokeWidthBase,
@@ -13093,9 +13179,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(showGrid){
         yScale.ticks.forEach(t => {
           const y = y2px(t);
-          addGrid('line',{ x1: yAxisX, y1: y, x2: yAxisX + plotWLocal, y2: y, stroke: '#ddd', 'stroke-width': gridStrokeWidth });
+          const gridLine = addGrid('line',Object.assign({ x1: yAxisX, y1: y, x2: yAxisX + plotWLocal, y2: y }, gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control','1');
         });
-        console.debug('Debug: box grid stroke scaled',{ horizontal: yScale.ticks.length, gridStrokeWidth });
+        console.debug('Debug: box grid stroke scaled',{ horizontal: yScale.ticks.length, gridStrokeStyle });
       }
       const yTickPositions = yScale.ticks.map(t => y2px(t));
       let axisYStart = yTickPositions.length ? Math.min(...yTickPositions) : marginLocal.top;
@@ -14625,9 +14712,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(showGrid){
         yScale.ticks.forEach(t => {
           const x = valueToX(t);
-          addGrid('line',{ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal, stroke: '#ddd', 'stroke-width': gridStrokeWidth });
+          const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal }, gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control','1');
         });
-        console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeWidth });
+        console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle });
       }
       const yAxisLeft = marginLocal.left;
       const xAxisBottom = marginLocal.top + plotHLocal;
@@ -15552,6 +15640,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         titleText.setAttribute('y', newY);
       }
     }
+    registerBoxGridControlTarget(svg, { fallbackThickness: axisStrokeBase });
     ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncBoxAutoDrawNoticeWidth('draw');
@@ -15599,6 +15688,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         fontSize:els.boxFontSize.value,
         fontStyles: (exportFontStyles('box') || undefined),
         showGrid:els.boxShowGrid.checked,
+        gridStyle: getGridStyle(axisSnapshot.strokeWidth),
         showFrame:!!els.boxShowFrame?.checked,
         showLegend:els.boxShowLegend ? !!els.boxShowLegend.checked : true,
         logScale:els.boxLogScale.checked,
@@ -15852,6 +15942,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
     els.boxShowGrid.checked=!!c.showGrid;
+    setGridStyle(c.gridStyle, c.axis?.strokeWidth);
     if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
     if(els.boxShowLegend) els.boxShowLegend.checked=c.showLegend !== false;
     els.boxLogScale.checked=!!c.logScale;
@@ -16079,6 +16170,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
     } else {
       state.axisSettings = createDefaultAxisSettings();
+      state.gridStyle = null;
       console.debug('Debug: box axis settings reset to default from payload');
     }
     const statsAnalysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);

@@ -623,7 +623,8 @@ select {
     border-radius: 0;
     box-shadow: none;
     transform: translate(-100%, -100%);
-    z-index: 5;
+    /* Keep below AG Grid header/pinned layers so overlap is naturally clipped. */
+    z-index: 2;
     cursor: grab;
     display: none;
 }
@@ -3274,10 +3275,12 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host.font-toolbar-host--axis{flex:0 0 auto;justify-content:flex-start;align-self:center;width:100%;max-width:100%;margin-left:0;margin-right:0}
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
 .font-toolbar-host--box-dual.font-toolbar-host--visible,
-.font-toolbar-host--scatter-dual.font-toolbar-host--visible{display:grid}
+.font-toolbar-host--scatter-dual.font-toolbar-host--visible,
+.font-toolbar-host--grid-dual.font-toolbar-host--visible{display:grid}
 .font-toolbar-host--line-dual,
 .font-toolbar-host--box-dual,
-.font-toolbar-host--scatter-dual{
+.font-toolbar-host--scatter-dual,
+.font-toolbar-host--grid-dual{
   grid-auto-flow:column;
   grid-auto-columns:max-content;
   column-gap:10px;
@@ -3301,6 +3304,22 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   min-width:max-content;
   flex:0 0 auto;
   align-self:stretch;
+  padding-left:10px;
+  border-left:1px solid #cbd5e1;
+}
+.font-toolbar-host--line-dual .grid-controls-panel,
+.font-toolbar-host--box-dual .grid-controls-panel,
+.font-toolbar-host--scatter-dual .grid-controls-panel,
+.font-toolbar-host--grid-dual .grid-controls-panel{
+  width:max-content;
+  min-width:max-content;
+  flex:0 0 auto;
+  align-self:stretch;
+}
+.font-toolbar-host--line-dual>.grid-controls-panel:not(:first-child),
+.font-toolbar-host--box-dual>.grid-controls-panel:not(:first-child),
+.font-toolbar-host--scatter-dual>.grid-controls-panel:not(:first-child),
+.font-toolbar-host--grid-dual>.grid-controls-panel:not(:first-child){
   padding-left:10px;
   border-left:1px solid #cbd5e1;
 }
@@ -3859,12 +3878,36 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__field--style{min-width:90px}
 .additional-line-controls-panel__field--symbol-border{min-width:max-content}
 
+/* Grid controls panel */
+.font-toolbar-host.font-toolbar-host--visible>.grid-controls-panel{position:static;margin:0;max-width:100%}
+.font-toolbar-host--grid{display:block}
+.grid-controls-panel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:max-content;justify-content:flex-start}
+.grid-controls-panel__title{font-size:11px;line-height:1.2;font-weight:600;letter-spacing:0.01em;color:#1e293b;text-transform:none;white-space:nowrap;width:100%;text-align:center;align-self:stretch}
+.grid-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content}
+.grid-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:0;min-height:52px;flex:0 0 auto;text-align:center}
+.grid-controls-panel__field[hidden]{display:none !important}
+.grid-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
+.grid-controls-panel__input{min-width:0;width:auto;max-width:108px;text-align:center}
+.grid-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
+.grid-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
+.grid-controls-panel__color-input{height:24px;width:24px;padding:0;cursor:pointer;display:block;margin:0 auto}
+.grid-controls-panel__field--transparency{min-width:170px;align-items:stretch}
+.grid-controls-panel__field--toggle{min-width:112px;align-items:flex-start}
+.grid-controls-panel__field--style{min-width:90px}
+.grid-controls-panel__checkbox-chip{display:inline-flex;align-items:center;gap:6px}
+.grid-controls-panel__checkbox{margin:0}
+.grid-controls-panel__range{display:flex;align-items:center;gap:8px;min-width:170px}
+.grid-controls-panel__transparency-input{flex:1 1 auto;min-width:120px;accent-color:#1f2937}
+.grid-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
+[data-grid-control="1"]{cursor:pointer}
+
 /* UI harmonization: shared typography and control primitives across advanced panels */
 .axis-controls-panel,
 .font-controls-panel,
 .dendrogram-controls-panel,
 .significance-controls-panel,
 .additional-line-controls-panel,
+.grid-controls-panel,
 .workspace-toolbar__panel{
     font-family:var(--ui-font-family);
 }
@@ -3873,6 +3916,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .dendrogram-controls-panel__input,
 .significance-controls-panel__input,
 .additional-line-controls-panel__input,
+.grid-controls-panel__input,
 .font-controls-panel__input:not(.font-controls-panel__input--combo){
     height:var(--ui-control-height);
     padding:var(--ui-control-padding);
@@ -3889,6 +3933,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .dendrogram-controls-panel__input:focus,
 .significance-controls-panel__input:focus,
 .additional-line-controls-panel__input:focus,
+.grid-controls-panel__input:focus,
 .font-controls-panel__input:not(.font-controls-panel__input--combo):focus{
     outline:var(--ui-focus-outline);
     outline-offset:var(--ui-focus-offset);
@@ -3900,6 +3945,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .dendrogram-controls-panel__color-input,
 .significance-controls-panel__color-input,
 .additional-line-controls-panel__color-input,
+.grid-controls-panel__color-input,
 .font-controls-panel__color-input{
     border-radius:var(--ui-control-radius);
     border:var(--ui-control-border);
@@ -4285,4 +4331,32 @@ input[type="reset"],
     border-top-right-radius: 0 !important;
     border-bottom-left-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
+}
+
+/* Welcome page section tiles: keep a slight rounding for card affordance. */
+#welcomeScreen .graph-card,
+.welcome-screen .graph-card,
+#graphSelectionGrid .graph-card {
+    border-radius: 4px !important;
+    border-top-left-radius: 4px !important;
+    border-top-right-radius: 4px !important;
+    border-bottom-left-radius: 4px !important;
+    border-bottom-right-radius: 4px !important;
+}
+
+/* Welcome quick launcher: apply slight rounding to the container and primary controls. */
+#welcomeScreen .welcome-picker,
+.welcome-screen .welcome-picker {
+    border-radius: 4px !important;
+}
+
+#welcomeScreen .welcome-picker__input,
+.welcome-screen .welcome-picker__input,
+#welcomeScreen .welcome-picker__launch,
+.welcome-screen .welcome-picker__launch {
+    border-radius: 4px !important;
+    border-top-left-radius: 4px !important;
+    border-top-right-radius: 4px !important;
+    border-bottom-left-radius: 4px !important;
+    border-bottom-right-radius: 4px !important;
 }

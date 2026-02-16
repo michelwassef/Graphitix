@@ -88,6 +88,7 @@
             configPatch.labelColors = cloneValue(cfg.labelColors);
           }
           setIfDefined(configPatch, 'showGrid', cfg.showGrid);
+          setIfDefined(configPatch, 'gridStyle', cfg.gridStyle);
           setIfDefined(configPatch, 'showFrame', cfg.showFrame);
           setIfDefined(configPatch, 'showIntervals', cfg.showIntervals);
           setIfDefined(configPatch, 'showDiagnostics', cfg.showDiagnostics);
@@ -153,6 +154,7 @@
             configPatch.labelColors = cloneValue(cfg.labelColors);
           }
           setIfDefined(configPatch, 'showGrid', cfg.showGrid);
+          setIfDefined(configPatch, 'gridStyle', cfg.gridStyle);
           setIfDefined(configPatch, 'showFrame', cfg.showFrame);
           setIfDefined(configPatch, 'showLine', cfg.showLine);
           setIfDefined(configPatch, 'showIntervals', cfg.showIntervals);
@@ -202,6 +204,7 @@
           setIfDefined(configPatch, 'borderWidth', cfg.borderWidth);
           setIfDefined(configPatch, 'bins', cfg.bins);
           setIfDefined(configPatch, 'showGrid', cfg.showGrid);
+          setIfDefined(configPatch, 'gridStyle', cfg.gridStyle);
           return { config: configPatch };
         },
         axes: payload => {
@@ -270,6 +273,7 @@
           setIfDefined(configPatch, 'border', cfg.border);
           setIfDefined(configPatch, 'borderWidth', cfg.borderWidth);
           setIfDefined(configPatch, 'showGrid', cfg.showGrid);
+          setIfDefined(configPatch, 'gridStyle', cfg.gridStyle);
           setIfDefined(configPatch, 'showFrame', cfg.showFrame);
           setIfDefined(configPatch, 'logScale', cfg.logScale);
           setIfDefined(configPatch, 'graphType', cfg.graphType);

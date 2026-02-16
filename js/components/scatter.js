@@ -16,11 +16,19 @@
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
   if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
     try{
       require('../shared/additionalLineControls.js');
     }catch(err){
       console.debug('Debug: scatter component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      console.debug('Debug: scatter component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
   const formControls = Shared.formControls = Shared.formControls || {};
@@ -476,6 +484,7 @@
     : (value => (Number.isFinite(value) ? value : NaN));
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_GRID_COLOR = '#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -4452,6 +4461,48 @@
   }
 
   let scatterAxisSettings = createScatterAxisSettings();
+  let scatterGridStyle = null;
+
+  function createDefaultScatterGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeScatterGridStyle(style, fallbackThickness){
+    const fallback = createDefaultScatterGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureScatterGridStyle(fallbackThickness){
+    scatterGridStyle = sanitizeScatterGridStyle(scatterGridStyle, fallbackThickness);
+    return scatterGridStyle;
+  }
+
+  function getScatterGridStyle(fallbackThickness){
+    return sanitizeScatterGridStyle(ensureScatterGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setScatterGridStyle(style, fallbackThickness){
+    scatterGridStyle = sanitizeScatterGridStyle(style, fallbackThickness);
+  }
 
   function ensureScatterAxisSettings(){
     if(!scatterAxisSettings || typeof scatterAxisSettings !== 'object'){
@@ -4727,6 +4778,31 @@
     if(typeof scheduleDrawScatter === 'function'){
       scheduleDrawScatter();
     }
+  }
+
+  function registerScatterGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getScatterAxisStrokeWidth();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'scatter',
+      hostClass: 'font-toolbar-host--scatter-dual',
+      getVisible: () => !!scatterShowGrid?.checked,
+      onVisibleChange: value => {
+        if(scatterShowGrid){
+          scatterShowGrid.checked = !!value;
+        }
+        scheduleDrawScatter();
+      },
+      getStyle: () => getScatterGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setScatterGridStyle(style, fallbackThickness);
+        scheduleDrawScatter();
+      },
+      defaults: createDefaultScatterGridStyle(fallbackThickness)
+    });
   }
 
   function getBrokenAxisEnabled(axis){
@@ -5061,6 +5137,7 @@
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
     ensureScatterAxisSettings();
+    ensureScatterGridStyle(getScatterAxisStrokeWidth());
     const $ = global.$;
     const document = global.document;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
@@ -7914,6 +7991,19 @@
         const axisMetrics=chartStyle.createAxisMetrics(fs);
         debug('Debug: scatter axis metrics',axisMetrics);
         const showGrid=scatterShowGrid.checked;
+        const gridStyleBase = getScatterGridStyle(axisStrokeWidthBase);
+        const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+          thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'scatter-grid', min: 0 })
+        });
+        const gridDash = (gridControls && typeof gridControls.patternToDasharray === 'function')
+          ? gridControls.patternToDasharray(gridStrokeStyle.pattern, gridStrokeStyle.thickness)
+          : null;
+        const gridOpacity = (gridControls && typeof gridControls.transparencyToOpacity === 'function')
+          ? gridControls.transparencyToOpacity(gridStrokeStyle.transparency)
+          : 1;
+        const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+          ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+          : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
         info('scatter showGrid', showGrid);
         const showFrame=scatterShowFrame.checked;
         debug('Debug: scatter showFrame state',{showFrame});
@@ -8991,6 +9081,10 @@
             },
             fontSize: fs,
             axisStrokeWidth,
+            gridColor: gridStrokeStyle.color,
+            gridDash: gridDash || undefined,
+            gridOpacity,
+            gridStrokeWidth: gridStrokeStyle.thickness,
             chartStyle,
             showGrid,
             showFrame,
@@ -9361,6 +9455,7 @@
               }
             });
           }
+          registerScatterGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
           ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph' });
           return;
         }
@@ -9673,11 +9768,17 @@
         if(showGrid){
           xScale.ticks.forEach(t=>{
             if(!isXValueVisible(t)){ return; }
-            const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
+            const x=x2px(t);
+            const gridLine = add('line',Object.assign({x1:x,y1:margin.top,x2:x,y2:margin.top+plotH},gridStrokeAttrs));
+            gridLine.setAttribute('data-grid-control','1');
+          });
           yScale.ticks.forEach(t=>{
             if(!isYValueVisible(t)){ return; }
-            const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
-          debug('Debug: scatter grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
+            const y=y2px(t);
+            const gridLine = add('line',Object.assign({x1:margin.left,y1:y,x2:margin.left+plotW,y2:y},gridStrokeAttrs));
+            gridLine.setAttribute('data-grid-control','1');
+          });
+          debug('Debug: scatter grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,gridStrokeStyle});
         }
         if(scatterCurrentGraphType === 'volcano'){
           const thresholdStroke = '#9b9b9b';
@@ -11485,6 +11586,7 @@
           component: 'scatter',
           token
         });
+        registerScatterGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
         ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
         if(perfApi && viewportPerf){
           perfApi.end(viewportPerf, { component: 'scatter', token });
@@ -11825,6 +11927,7 @@
             labelStyles:{ ...scatterLabelStyles },
             overlayStyles: sanitizeScatterOverlayStylesMap(scatterOverlayStyles),
             showGrid:scatterShowGrid.checked,
+            gridStyle: getScatterGridStyle(getScatterAxisStrokeWidth()),
             showFrame:scatterShowFrame.checked,
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
             equalAxes: scatterState.equalAxes,
@@ -12018,6 +12121,7 @@
         scatterLabelCache.colorsValid = false;
         scatterLabelCache.shapesValid = false;
         scatterShowGrid.checked=!!c.showGrid;
+        setScatterGridStyle(c.gridStyle, c.axis?.strokeWidth);
         scatterShowFrame.checked=!!c.showFrame;
         if(scatterShowLegend){
           scatterShowLegend.checked = c.showLegend !== false;

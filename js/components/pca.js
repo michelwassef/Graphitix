@@ -75,7 +75,15 @@
     }
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const gridControls = Shared.gridControls = Shared.gridControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
+  if((typeof gridControls.show !== 'function' || typeof gridControls.registerGraphElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/gridControls.js');
+    }catch(err){
+      debugLog('Debug: pca component gridControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -93,6 +101,7 @@
   const PCA_3D_DEFAULTS={ rotationX: 0.24, rotationY: 1.96, aspectRatio: 4 / 3 };
   const MIN_VARIANCE_WEIGHT = 1e-3;
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_GRID_COLOR = '#dddddd';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
   const MAX_MINOR_TICK_SUBDIVISIONS = 9;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
@@ -2659,6 +2668,7 @@
     equalScaleAxes: true,
     equalAxes: false,
     axisSettings: createDefaultAxisSettings(),
+    gridStyle: null,
       tableFormat: 'standard',
       groupedControlsCollapsed: false,
       grouped: {
@@ -2885,6 +2895,47 @@
     return pcaState.axisSettings;
   }
 
+  function createDefaultGridStyle(fallbackThickness){
+    const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
+      ? Number(fallbackThickness)
+      : 1;
+    return {
+      color: DEFAULT_GRID_COLOR,
+      thickness,
+      pattern: 'solid',
+      transparency: 0
+    };
+  }
+
+  function sanitizeGridStyle(style, fallbackThickness){
+    const fallback = createDefaultGridStyle(fallbackThickness);
+    if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
+      return gridControls.sanitizeStyle(style, fallback);
+    }
+    const source = style && typeof style === 'object' ? style : {};
+    const color = typeof source.color === 'string' && source.color.trim() ? source.color : fallback.color;
+    const thicknessRaw = Number(source.thickness);
+    const thickness = Number.isFinite(thicknessRaw) && thicknessRaw >= 0 ? thicknessRaw : fallback.thickness;
+    const patternRaw = String(source.pattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+    const transparencyRaw = Number(source.transparency);
+    const transparency = Number.isFinite(transparencyRaw) ? Math.max(0, Math.min(100, transparencyRaw)) : fallback.transparency;
+    return { color, thickness, pattern, transparency };
+  }
+
+  function ensureGridStyle(fallbackThickness){
+    pcaState.gridStyle = sanitizeGridStyle(pcaState.gridStyle, fallbackThickness);
+    return pcaState.gridStyle;
+  }
+
+  function getGridStyle(fallbackThickness){
+    return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
+  }
+
+  function setGridStyle(style, fallbackThickness){
+    pcaState.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+  }
+
   function getAxisTickInterval(axis){
     if(axis !== 'x' && axis !== 'y'){ return null; }
     const settings = ensureAxisSettings();
@@ -2970,6 +3021,30 @@
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     debugLog('Debug: pca axis color updated',{ color: settings.color });
     requestPcaViewRefresh('axis-color');
+  }
+
+  function registerPcaGridControlTarget(target, options){
+    if(!target || !gridControls || typeof gridControls.registerGraphElement !== 'function'){
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    gridControls.registerGraphElement(target, {
+      scopeId: 'pca',
+      getVisible: () => !!pcaShowGrid?.checked,
+      onVisibleChange: value => {
+        if(pcaShowGrid){
+          pcaShowGrid.checked = !!value;
+        }
+        requestPcaViewRefresh('grid-visible');
+      },
+      getStyle: () => getGridStyle(fallbackThickness),
+      onStyleChange: style => {
+        setGridStyle(style, fallbackThickness);
+        requestPcaViewRefresh('grid-style');
+      },
+      defaults: createDefaultGridStyle(fallbackThickness)
+    });
   }
 
   function applyAxisSettings(settings){
@@ -5362,6 +5437,19 @@
       debugLog('Debug: pca axis metrics',axisMetrics);
       const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
       const showGrid = pcaShowGrid.checked;
+      const gridStyleBase = getGridStyle(axisStrokeWidthBase);
+      const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+        thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'pca-grid', min: 0 })
+      });
+      const gridDash = (gridControls && typeof gridControls.patternToDasharray === 'function')
+        ? gridControls.patternToDasharray(gridStrokeStyle.pattern, gridStrokeStyle.thickness)
+        : null;
+      const gridOpacity = (gridControls && typeof gridControls.transparencyToOpacity === 'function')
+        ? gridControls.transparencyToOpacity(gridStrokeStyle.transparency)
+        : 1;
+      const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+        ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+        : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
       const showFrame = pcaShowFrame.checked;
       debugLog('Debug: pca showFrame state',{showFrame});
       const dotSize = dotSizeRaw; // retain original reference for downstream logs
@@ -6705,8 +6793,10 @@
           showPanes: showFrame,
           paneFill: 'rgba(0,0,0,0.008)',
           paneOpacityRange: { min: 0.004, max: 0.012 },
-          gridColor: 'rgba(0,0,0,0.12)',
-          gridDash: [Math.max(1, axisStrokeWidth * 2.5), Math.max(1, axisStrokeWidth * 1.5)],
+          gridColor: gridStrokeStyle.color,
+          gridDash: gridDash || undefined,
+          gridOpacity,
+          gridStrokeWidth: gridStrokeStyle.thickness,
           gridOutlineColors: { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' },
           frameColor: '#000000',
           axisColor: neutralAxisColor,
@@ -7154,6 +7244,7 @@
           debugLog('Debug: pca legend skipped',{ mode: '3d', legendVisible, entryCount: legendEntries.length });
         }
         debugLog('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges: renderAxisRanges3d });
+        registerPcaGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
         ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph' });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
         syncPcaAutoDrawNoticeWidth('draw');
@@ -7472,13 +7563,15 @@
       if (showGrid) {
         xScale.ticks.forEach((t) => {
           const x = x2px(t);
-          add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#eee', 'stroke-width': axisStrokeWidth});
+          const gridLine = add('line', Object.assign({x1: x, y1: margin.top, x2: x, y2: margin.top + plotH}, gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control', '1');
         });
         yScale.ticks.forEach((t) => {
           const y = y2px(t);
-          add('line', {x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#eee', 'stroke-width': axisStrokeWidth});
+          const gridLine = add('line', Object.assign({x1: margin.left, y1: y, x2: margin.left + plotW, y2: y}, gridStrokeAttrs));
+          gridLine.setAttribute('data-grid-control', '1');
         });
-        debugLog('Debug: pca grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
+        debugLog('Debug: pca grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,gridStrokeStyle});
       }
 
       const xTickPositions = xScale.ticks.map(t => x2px(t));
@@ -8099,6 +8192,7 @@
         loadingsTotal: loadingsTotalCount,
         loadingsTruncated
       });
+      registerPcaGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       ensureGraphViewport(svg, { padding: Math.max(fs, 18), debugLabel: 'pca-2d-graph' });
       pcaLayout?.syncPanels?.({ skipSchedule: true });
       syncPcaAutoDrawNoticeWidth('draw');
@@ -8187,6 +8281,7 @@
         labelShapes:pcaLabelShapes,
         labelPointStyles:pcaLabelPointStyles,
         showGrid:pcaShowGrid.checked,
+        gridStyle:getGridStyle(axisSettings?.strokeWidth),
         showFrame:pcaShowFrame.checked,
         showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
         scale:pcaScale.checked,
@@ -8379,6 +8474,7 @@
         }
         syncLoadingsLimitUi(PCA_LOADINGS_ROW_LIMIT);
         pcaShowGrid.checked=!!c.showGrid;
+        setGridStyle(c.gridStyle, c.axis?.strokeWidth);
         pcaShowFrame.checked=!!c.showFrame;
         if(pcaShowLegendInput){
           pcaShowLegendInput.checked = c.showLegend !== false;
