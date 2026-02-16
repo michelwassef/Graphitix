@@ -1937,6 +1937,94 @@
       maxLabelWidth
     };
     console.debug('Debug: chartStyle.createLegendRenderer metrics', debugSummary);
+    const createLegendSwatch = (doc, entry, idx, baselineY) => {
+      const rawShape = entry?.raw?.shape;
+      const shape = typeof rawShape === 'string' ? rawShape : 'square';
+      const swatchTop = baselineY - fontSize + rowGap;
+      const centerX = swatchSize / 2;
+      const centerY = swatchTop + (swatchSize / 2);
+      const radius = Math.max(1, swatchSize * 0.42);
+      let node = null;
+      if(shape === 'circle'){
+        node = doc.createElementNS(NS, 'circle');
+        node.setAttribute('cx', String(centerX));
+        node.setAttribute('cy', String(centerY));
+        node.setAttribute('r', String(radius));
+      }else if(shape === 'triangle'){
+        node = doc.createElementNS(NS, 'path');
+        const d = `M ${centerX} ${centerY - radius} L ${centerX + radius} ${centerY + radius} L ${centerX - radius} ${centerY + radius} Z`;
+        node.setAttribute('d', d);
+      }else if(shape === 'diamond'){
+        node = doc.createElementNS(NS, 'path');
+        const d = `M ${centerX} ${centerY - radius} L ${centerX + radius} ${centerY} L ${centerX} ${centerY + radius} L ${centerX - radius} ${centerY} Z`;
+        node.setAttribute('d', d);
+      }else if(shape === 'cross'){
+        node = doc.createElementNS(NS, 'path');
+        const half = radius;
+        const bar = Math.max((radius * 2) / 3, 2);
+        const hb = bar / 2;
+        const top = centerY - half;
+        const bottom = centerY + half;
+        const left = centerX - half;
+        const right = centerX + half;
+        const d = [
+          `M ${left} ${top + hb}`,
+          `L ${left + hb} ${top}`,
+          `L ${centerX} ${centerY - hb}`,
+          `L ${right - hb} ${top}`,
+          `L ${right} ${top + hb}`,
+          `L ${centerX + hb} ${centerY}`,
+          `L ${right} ${bottom - hb}`,
+          `L ${right - hb} ${bottom}`,
+          `L ${centerX} ${centerY + hb}`,
+          `L ${left + hb} ${bottom}`,
+          `L ${left} ${bottom - hb}`,
+          `L ${centerX - hb} ${centerY}`,
+          'Z'
+        ].join(' ');
+        node.setAttribute('d', d);
+      }else if(shape === 'plus'){
+        node = doc.createElementNS(NS, 'path');
+        const half = radius;
+        const bar = Math.max((radius * 2) / 3, 2);
+        const halfBar = bar / 2;
+        const d = `M ${centerX - halfBar} ${centerY - half} H ${centerX + halfBar} V ${centerY - halfBar} H ${centerX + half} V ${centerY + halfBar} H ${centerX + halfBar} V ${centerY + half} H ${centerX - halfBar} V ${centerY + halfBar} H ${centerX - half} V ${centerY - halfBar} H ${centerX - halfBar} Z`;
+        node.setAttribute('d', d);
+      }else if(shape === 'star'){
+        node = doc.createElementNS(NS, 'path');
+        const outer = Math.max(radius, 1);
+        const inner = Math.max(outer * 0.45, 1);
+        const points = [];
+        for(let i = 0; i < 5; i += 1){
+          const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+          points.push({ x: centerX + Math.cos(a) * outer, y: centerY + Math.sin(a) * outer });
+          const b = a + Math.PI / 5;
+          points.push({ x: centerX + Math.cos(b) * inner, y: centerY + Math.sin(b) * inner });
+        }
+        const d = points.map((pt, pointIdx) => `${pointIdx === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
+        node.setAttribute('d', d);
+      }else{
+        node = doc.createElementNS(NS, 'rect');
+        node.setAttribute('x', '0');
+        node.setAttribute('y', String(swatchTop));
+        node.setAttribute('width', String(swatchSize));
+        node.setAttribute('height', String(swatchSize));
+      }
+      if(entry.key){
+        node.dataset.legendKey = entry.key;
+      }
+      node.dataset.legendIndex = String(idx);
+      node.setAttribute('fill', entry.fill);
+      const effectiveStrokeWidth = entry.strokeWidth > 0 ? entry.strokeWidth : 0;
+      if(effectiveStrokeWidth > 0){
+        node.setAttribute('stroke', entry.stroke || entry.fill);
+        node.setAttribute('stroke-width', effectiveStrokeWidth);
+      }else if(entry.stroke){
+        node.setAttribute('stroke', entry.stroke);
+        node.setAttribute('stroke-width', '0');
+      }
+      return node;
+    };
     const renderer = {
       entries: normalizedEntries,
       width,
@@ -1965,24 +2053,7 @@
         group.setAttribute('transform', `translate(${posX},${posY})`);
         normalizedEntries.forEach((entry, idx) => {
           const baselineY = idx * rowHeight + baselineOffset;
-          const swatch = doc.createElementNS(NS, 'rect');
-          swatch.setAttribute('x', 0);
-          swatch.setAttribute('y', baselineY - fontSize + rowGap);
-          swatch.setAttribute('width', swatchSize);
-          swatch.setAttribute('height', swatchSize);
-          swatch.setAttribute('fill', entry.fill);
-          if(entry.key){
-            swatch.dataset.legendKey = entry.key;
-          }
-          swatch.dataset.legendIndex = String(idx);
-          const effectiveStrokeWidth = entry.strokeWidth > 0 ? entry.strokeWidth : 0;
-          if(effectiveStrokeWidth > 0){
-            swatch.setAttribute('stroke', entry.stroke || entry.fill);
-            swatch.setAttribute('stroke-width', effectiveStrokeWidth);
-          }else if(entry.stroke){
-            swatch.setAttribute('stroke', entry.stroke);
-            swatch.setAttribute('stroke-width', 0);
-          }
+          const swatch = createLegendSwatch(doc, entry, idx, baselineY);
           if(entry.editable && typeof opts.onSwatchClick === 'function'){
             swatch.style.cursor = 'pointer';
             swatch.addEventListener('click', (evt) => {

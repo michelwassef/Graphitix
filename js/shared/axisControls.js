@@ -1480,8 +1480,10 @@
     if(hasDocListener || !global.document){ return; }
     global.document.addEventListener('click', evt => {
       if(!panelEl || panelEl.dataset.open !== '1'){ return; }
-      if(panelEl.contains(evt.target)){ return; }
-      if(evt.target?.dataset?.axisControl === '1'){ return; }
+      const target = evt.target;
+      if(panelEl.contains(target)){ return; }
+      if(target?.dataset?.axisControl === '1'){ return; }
+      if(target?.closest && (target.closest('.shared-color-picker') || target.closest('[data-font-controls-overlay="1"]'))){ return; }
       closePanel('outside');
     });
     hasDocListener = true;

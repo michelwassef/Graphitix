@@ -2955,7 +2955,7 @@
         logDebug('panel click ignored (inline edit overlay)', {});
         return;
       }
-      if(target?.dataset?.fontControlsOverlay === '1'){
+      if(target?.closest?.('.shared-color-picker') || target?.closest?.('[data-font-controls-overlay="1"]')){
         logDebug('panel click ignored (color overlay focus)', {});
         return;
       }

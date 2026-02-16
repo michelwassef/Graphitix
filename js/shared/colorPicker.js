@@ -6,7 +6,7 @@
   const Shared = global.Shared = global.Shared || {};
   const documentRef = global.document;
 
-  const STANDARD_COLORS = ['#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0'];
+  const STANDARD_COLORS = ['#000000', '#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0'];
   const MORE_TOGGLE_LABELS = { show: 'Show more', hide: 'Hide' };
   const RECENT_LIMIT = 12;
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -356,16 +356,13 @@
     header.className = 'shared-color-picker__more-header';
     section.appendChild(header);
 
-    const title = documentRef.createElement('div');
-    title.className = 'shared-color-picker__section-title';
-    title.textContent = 'More fill colors';
-    header.appendChild(title);
-
     const toggle = documentRef.createElement('button');
     toggle.type = 'button';
     toggle.className = 'shared-color-picker__more-toggle';
     toggle.textContent = MORE_TOGGLE_LABELS.show;
     toggle.setAttribute('aria-expanded', 'false');
+    // Keep overlay sections stable when expanding/collapsing the extended palette.
+    toggle.addEventListener('mousedown', (evt)=>{ evt.preventDefault(); });
     const matrixId = `shared-color-picker-more-${++moreSectionIdCounter}`;
     toggle.setAttribute('aria-controls', matrixId);
     header.appendChild(toggle);
@@ -895,12 +892,15 @@
     }
     const currentExpanded = toggle.getAttribute('aria-expanded') === 'true';
     const nextExpanded = typeof expand === 'boolean' ? expand : !currentExpanded;
+    const previousScrollTop = overlay ? overlay.scrollTop : 0;
     toggle.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
     toggle.classList.toggle('shared-color-picker__more-toggle--expanded', nextExpanded);
     toggle.textContent = nextExpanded ? MORE_TOGGLE_LABELS.hide : MORE_TOGGLE_LABELS.show;
     matrix.hidden = !nextExpanded;
+    if(overlay && Number.isFinite(previousScrollTop)){
+      overlay.scrollTop = previousScrollTop;
+    }
     logDebug('more-fill-toggle', { expanded: nextExpanded });
-    scheduleReposition();
   }
 
   function ensureOverlay(){
@@ -991,12 +991,20 @@
     if(viewportWidth){
       const minLeft = scrollX;
       const maxLeft = scrollX + viewportWidth - overlay.offsetWidth;
-      left = Math.min(Math.max(left, minLeft), maxLeft);
+      if(maxLeft < minLeft){
+        left = minLeft;
+      }else{
+        left = Math.min(Math.max(left, minLeft), maxLeft);
+      }
     }
     if(viewportHeight){
       const minTop = scrollY;
       const maxTop = scrollY + viewportHeight - overlay.offsetHeight;
-      top = Math.min(Math.max(top, minTop), maxTop);
+      if(maxTop < minTop){
+        top = minTop;
+      }else{
+        top = Math.min(Math.max(top, minTop), maxTop);
+      }
     }
 
     overlay.style.left = `${left}px`;

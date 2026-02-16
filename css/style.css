@@ -30,6 +30,9 @@
     --ui-color-input-bg: #ffffff;
     --ui-color-input-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
     --workspace-toolbar-section-gap: 10px;
+    --shared-color-picker-surface: #ffffff;
+    --shared-color-picker-border: #c7ccd3;
+    --shared-color-picker-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
     --graph-square-size: calc(100vw / 3);
     --graph-default-width: var(--graph-square-size);
     --graph-default-height: var(--graph-square-size);
@@ -45,10 +48,10 @@
 }
 
 .shared-color-picker {
-    background: #ffffff;
-    border: 0.5px solid #c7ccd3;
+    background: var(--shared-color-picker-surface);
+    border: 0.5px solid var(--shared-color-picker-border);
     border-radius: 0;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+    box-shadow: var(--shared-color-picker-shadow);
     color: #1f2937;
     display: none;
     max-width: min(296px, calc(100vw - 24px));
@@ -107,7 +110,7 @@
     width: 32px;
     height: 32px;
     border: 1px solid #c7ccd3;
-    border-radius: 6px;
+    border-radius: 0;
     background: #f8fafc;
     cursor: pointer;
     transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
@@ -198,7 +201,7 @@
 .shared-color-picker__more-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 8px;
 }
 
@@ -282,7 +285,7 @@
     width: 100%;
     height: 26px;
     border: 1px solid #8d97a6;
-    border-radius: 4px;
+    border-radius: 0;
     padding: 2px 6px;
     font-size: 12px;
     line-height: 20px;
@@ -323,7 +326,7 @@
     border: 1px solid #94a3b8;
     background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
     color: #1f2937;
-    border-radius: 4px;
+    border-radius: 0;
     padding: 0;
     font-size: 0;
     cursor: pointer;
@@ -357,6 +360,13 @@
     fill: currentColor;
 }
 
+.shared-color-picker input.shared-color-picker__scatter-style-input[type="number"],
+.shared-color-picker input.shared-color-picker__hex-input[type="text"],
+.shared-color-picker input.shared-color-picker__color-input[type="color"],
+.shared-color-picker button.shared-color-picker__eyedropper {
+    border-radius: 0 !important;
+}
+
 .shared-color-picker__sr-only,
 .variance-card__sr-only {
     position: absolute;
@@ -380,14 +390,20 @@
 }
 
 @media (prefers-color-scheme: dark) {
+    :root {
+        --shared-color-picker-surface: #f8fafc;
+        --shared-color-picker-border: #c7ccd3;
+        --shared-color-picker-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+    }
+
     .shared-color-picker {
-        border: 0.5px solid #c7ccd3;
-        border-radius: 4px;
+        border: 0.5px solid var(--shared-color-picker-border);
+        border-radius: 0;
         padding: 4px 8px;
         transition: background-color 0.2s ease, color 0.2s ease;
-        background: #f8fafc;
-        border-color: #c7ccd3;
-        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+        background: var(--shared-color-picker-surface);
+        border-color: var(--shared-color-picker-border);
+        box-shadow: var(--shared-color-picker-shadow);
         color: #1f2937;
     }
 
@@ -3319,7 +3335,14 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__input{pointer-events:none;cursor:not-allowed;background:rgba(241,245,249,0.8);border-color:rgba(148,163,184,0.4)}
 .axis-controls-panel__field--additional-ticks{position:relative;flex-direction:column;align-items:flex-end;align-self:flex-end;min-width:auto;max-width:none;gap:4px;padding-top:0;background:transparent;border-radius:0;overflow:visible;margin-left:8px;margin-right:0}
 .axis-controls-panel__field--broken-axis{position:relative;flex-direction:column;align-items:flex-end;align-self:flex-end;min-width:auto;max-width:none;gap:4px;padding-top:0;background:transparent;border-radius:0;overflow:visible;margin-left:8px;margin-right:0}
-.axis-controls-panel__dropdown{position:absolute;top:100%;left:0;display:none;flex-direction:column;width:auto;min-width:260px;max-width:clamp(260px,30vw,360px);padding:14px 14px;background:var(--ui-menu-bg);border-radius:0;border:var(--ui-menu-border);box-shadow:var(--ui-menu-shadow);z-index:50;box-sizing:border-box}
+.axis-controls-panel__dropdown{position:absolute;top:100%;left:0;display:none;flex-direction:column;width:auto;min-width:260px;max-width:clamp(260px,30vw,360px);padding:14px 14px;background:var(--shared-color-picker-surface,#ffffff);border-radius:0;border:0.5px solid var(--shared-color-picker-border,#c7ccd3);box-shadow:var(--shared-color-picker-shadow,0 6px 18px rgba(15, 23, 42, 0.12));z-index:50;box-sizing:border-box}
+.axis-controls-panel__dropdown,
+.axis-controls-panel__dropdown--additional-ticks{
+    background:var(--shared-color-picker-surface,#ffffff) !important;
+    border:0.5px solid var(--shared-color-picker-border,#c7ccd3) !important;
+    box-shadow:var(--shared-color-picker-shadow,0 6px 18px rgba(15, 23, 42, 0.12)) !important;
+    background-clip:padding-box;
+}
 .axis-controls-panel__dropdown>.axis-controls-panel__checkbox-label,
 .axis-controls-panel__dropdown>.axis-controls-panel__segments-container{width:100%;}
 .axis-controls-panel__dropdown[data-open='1']{display:flex}
@@ -4227,4 +4250,39 @@ select,
 ):focus-visible {
     outline: var(--ui-focus-outline);
     outline-offset: var(--ui-focus-offset);
+}
+
+/* Global sharp-corner policy for all button-like controls across workspaces/toolbars. */
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+[role="button"],
+.btn,
+.workspace-action-btn,
+.workspace-toolbar__button,
+.workspace-toolbar__tab,
+.workspace-toolbar__menu-item,
+.workspace-toolbar__icon,
+.workspace-tab,
+.workspace-tab__close,
+.workspace-add-tab,
+.welcome-picker__clear,
+.welcome-picker__option,
+.graph-card,
+.font-controls-panel__format-button,
+#boxPage .grouped-row button.grouped-remove,
+#pcaPage .grouped-row button.grouped-remove,
+#linePage .grouped-row button.grouped-remove,
+.export-dropdown .export-option,
+.shared-border-style-chip,
+.shared-fill-style-chip,
+.axis-controls-panel__button,
+.axis-controls-panel__checkbox-chip,
+.significance-controls-panel__checkbox-chip {
+    border-radius: 0 !important;
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
 }
