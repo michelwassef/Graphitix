@@ -1157,6 +1157,9 @@
     if(additionalTicksDropdown){
       additionalTicksDropdown.hidden = !shouldShow;
       additionalTicksDropdown.dataset.open = shouldShow ? '1' : '0';
+      if(shouldShow){
+        alignDropdownToTrigger(additionalTicksButton, additionalTicksDropdown);
+      }
     }
     if(additionalTicksAddButton){
       additionalTicksAddButton.style.display = shouldShow ? 'inline-flex' : 'none';
@@ -1172,6 +1175,9 @@
     if(brokenAxisDropdown){
       brokenAxisDropdown.hidden = !shouldShow;
       brokenAxisDropdown.dataset.open = shouldShow ? '1' : '0';
+      if(shouldShow){
+        alignDropdownToTrigger(brokenAxisConfigButton, brokenAxisDropdown);
+      }
     }
     const segmentsVisible = shouldShow && brokenAxisCheckbox && brokenAxisCheckbox.checked;
     if(brokenAxisSegmentsContainer){
@@ -1183,6 +1189,17 @@
       brokenAxisAddButton.disabled = !enabled;
       brokenAxisAddButton.setAttribute('aria-disabled', enabled ? 'false' : 'true');
     }
+  }
+
+  function alignDropdownToTrigger(triggerEl, dropdownEl){
+    if(!triggerEl || !dropdownEl){
+      return;
+    }
+    const left = Number(triggerEl.offsetLeft) || 0;
+    const top = (Number(triggerEl.offsetTop) || 0) + (Number(triggerEl.offsetHeight) || 0);
+    dropdownEl.style.left = `${left}px`;
+    dropdownEl.style.top = `${top}px`;
+    dropdownEl.style.right = 'auto';
   }
 
 

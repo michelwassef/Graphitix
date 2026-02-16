@@ -982,48 +982,26 @@
     const scrollX = global.pageXOffset || docEl?.scrollLeft || 0;
     const scrollY = global.pageYOffset || docEl?.scrollTop || 0;
 
-    const placementCandidates = [];
-    placementCandidates.push({ left: rect.right + scrollX + 8, top: rect.top + scrollY });
-    placementCandidates.push({ left: rect.left + scrollX, top: rect.bottom + scrollY + 8 });
-    placementCandidates.push({ left: rect.left + scrollX, top: rect.top + scrollY - overlay.offsetHeight - 8 });
-    placementCandidates.push({ left: rect.left + scrollX - overlay.offsetWidth - 8, top: rect.top + scrollY });
-
     const viewportWidth = global.innerWidth || docEl?.clientWidth || 0;
     const viewportHeight = global.innerHeight || docEl?.clientHeight || 0;
 
-    const avoidRect = anchorEl.__fontControlsAvoidRect || null;
-    let applied = null;
+    let left = rect.left + scrollX;
+    let top = rect.bottom + scrollY;
 
-    for(let i = 0; i < placementCandidates.length; i += 1){
-      const candidate = placementCandidates[i];
-      let left = candidate.left;
-      let top = candidate.top;
-      if(viewportWidth){
-        const minLeft = scrollX + 8;
-        const maxLeft = scrollX + viewportWidth - overlay.offsetWidth - 8;
-        left = Math.min(Math.max(left, minLeft), maxLeft);
-      }
-      if(viewportHeight){
-        const minTop = scrollY + 8;
-        const maxTop = scrollY + viewportHeight - overlay.offsetHeight - 8;
-        top = Math.min(Math.max(top, minTop), maxTop);
-      }
-      const candidateRect = { left, right: left + overlay.offsetWidth, top, bottom: top + overlay.offsetHeight };
-      if(!avoidRect || candidateRect.left >= avoidRect.right || candidateRect.right <= avoidRect.left || candidateRect.top >= avoidRect.bottom || candidateRect.bottom <= avoidRect.top){
-        applied = candidateRect;
-        overlay.style.left = `${left}px`;
-        overlay.style.top = `${top}px`;
-        break;
-      }
+    if(viewportWidth){
+      const minLeft = scrollX;
+      const maxLeft = scrollX + viewportWidth - overlay.offsetWidth;
+      left = Math.min(Math.max(left, minLeft), maxLeft);
+    }
+    if(viewportHeight){
+      const minTop = scrollY;
+      const maxTop = scrollY + viewportHeight - overlay.offsetHeight;
+      top = Math.min(Math.max(top, minTop), maxTop);
     }
 
-    if(!applied){
-      const fallbackLeft = scrollX + Math.max(8, viewportWidth / 2 - overlay.offsetWidth / 2);
-      const fallbackTop = scrollY + Math.max(8, viewportHeight / 2 - overlay.offsetHeight / 2);
-      overlay.style.left = `${fallbackLeft}px`;
-      overlay.style.top = `${fallbackTop}px`;
-      applied = { left: fallbackLeft, top: fallbackTop };
-    }
+    overlay.style.left = `${left}px`;
+    overlay.style.top = `${top}px`;
+    const applied = { left, top };
 
     logDebug('overlay-positioned', { left: applied.left, top: applied.top });
   }
