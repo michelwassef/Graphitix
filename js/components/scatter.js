@@ -3387,10 +3387,17 @@
       }
     });
     container.addEventListener('click', evt => {
+      const clickTarget = evt?.target || null;
+      if(clickTarget?.closest && clickTarget.closest('text')){
+        return;
+      }
+      if(clickTarget?.closest && clickTarget.closest('[data-grid-control="1"]')){
+        return;
+      }
       const target = resolveTarget(evt);
       if(!target){
         try{ evt.stopPropagation(); }catch(e){}
-        showScatterOverlayFormatControls({ target: evt?.target || null });
+        showScatterOverlayFormatControls({ target: clickTarget });
         return;
       }
       try{ evt.stopPropagation(); }catch(e){}
@@ -7878,6 +7885,9 @@
           if(!clickTarget){
             return;
           }
+          if(clickTarget.closest && clickTarget.closest('text')){
+            return;
+          }
           if(scatterCurrentGraphType !== 'scatter'){
             return;
           }
@@ -7885,6 +7895,9 @@
             return;
           }
           if(clickTarget.closest && clickTarget.closest('[data-additional-line-control="1"]')){
+            return;
+          }
+          if(clickTarget.closest && clickTarget.closest('[data-grid-control="1"]')){
             return;
           }
           if(clickTarget.closest && clickTarget.closest('.scatter-point-context-menu')){

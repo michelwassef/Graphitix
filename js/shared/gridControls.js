@@ -34,6 +34,7 @@
   let activeHost = null;
   let hasDocListener = false;
   let applyingSync = false;
+  let applyingFromUndo = false;
   let colorPickerAttached = false;
 
   const DEFAULTS = Object.freeze({
@@ -66,6 +67,73 @@
     if(numeric < min){ return min; }
     if(numeric > max){ return max; }
     return numeric;
+  }
+
+  function getUndoManager(){
+    const manager = global.Shared?.undoManager;
+    if(manager && typeof manager.recordStateChange === 'function'){
+      return manager;
+    }
+    return null;
+  }
+
+  function normalizeColorForCompare(value){
+    const normalized = sanitizeColor(value, DEFAULTS.color);
+    return normalized ? normalized.toLowerCase() : '';
+  }
+
+  function getUndoScope(config){
+    if(!config){ return null; }
+    if(typeof config.undoScope === 'string' && config.undoScope){
+      return config.undoScope;
+    }
+    if(typeof config.scopeId === 'string' && config.scopeId){
+      return `${config.scopeId}GraphPanel`;
+    }
+    return null;
+  }
+
+  function buildContext(config, targetOverride){
+    return {
+      target: targetOverride || config?.target || null
+    };
+  }
+
+  function syncPanelFromConfigIfOpen(config){
+    if(!panelEl || panelEl.dataset.open !== '1'){ return; }
+    if(activeConfig !== config){ return; }
+    syncPanelFromConfig(config);
+  }
+
+  function recordGridStateChange(config, target, fieldType, previousValue, nextValue, applyFn, equals){
+    const manager = getUndoManager();
+    if(!manager || applyingFromUndo){ return; }
+    const compare = typeof equals === 'function'
+      ? equals
+      : ((a, b) => a === b);
+    if(compare(previousValue, nextValue)){ return; }
+    const parts = ['grid'];
+    if(config?.scopeId){ parts.push(config.scopeId); }
+    parts.push(fieldType);
+    manager.recordStateChange({
+      label: parts.filter(Boolean).join(':'),
+      scope: getUndoScope(config),
+      from: previousValue,
+      to: nextValue,
+      equals: compare,
+      apply(value){
+        applyingFromUndo = true;
+        try{
+          if(typeof applyFn === 'function'){
+            applyFn(value);
+          }
+        }finally{
+          applyingFromUndo = false;
+        }
+        syncPanelFromConfigIfOpen(config);
+        return true;
+      }
+    });
   }
 
   function sanitizePattern(value){
@@ -301,6 +369,132 @@
     }
   }
 
+  function hasVisibleToolbarContent(host){
+    if(!host || typeof host.querySelector !== 'function'){
+      return false;
+    }
+    const fontPanel = host.querySelector('.font-controls-panel');
+    const axisPanel = host.querySelector('.axis-controls-panel');
+    const additionalLinePanel = host.querySelector('.additional-line-controls-panel');
+    const significancePanel = host.querySelector('.significance-controls-panel');
+    const dendrogramPanel = host.querySelector('.dendrogram-controls-panel');
+    const gridPanel = host.querySelector('.grid-controls-panel');
+    const symbolPanel = host.querySelector('.workspace-toolbar__panel--symbol');
+    const hasEmbeddedForm = !!host.querySelector('.workspace-toolbar__form, .box-point-controls, [data-point-controls="1"]');
+    return !!(
+      (fontPanel && fontPanel.dataset.open === '1')
+      || (axisPanel && axisPanel.dataset.open === '1')
+      || (additionalLinePanel && additionalLinePanel.dataset.open === '1')
+      || (significancePanel && significancePanel.dataset.open === '1')
+      || (dendrogramPanel && dendrogramPanel.dataset.open === '1')
+      || (gridPanel && gridPanel.dataset.open === '1')
+      || symbolPanel
+      || hasEmbeddedForm
+    );
+  }
+
+  function closeSymbolToolbars(){
+    if(!global.document){ return; }
+    const doc = global.document;
+    const hosts = Array.from(doc.querySelectorAll('.font-toolbar-host'));
+    for(let i = 0; i < hosts.length; i += 1){
+      const host = hosts[i];
+      if(!host || typeof host.querySelector !== 'function'){
+        continue;
+      }
+      const symbolPanels = host.querySelectorAll('.workspace-toolbar__panel--symbol');
+      if(!symbolPanels || !symbolPanels.length){
+        continue;
+      }
+      symbolPanels.forEach(panel => {
+        if(panel && typeof panel.remove === 'function'){
+          panel.remove();
+        }
+      });
+      if(host.__symbolToolbarDocClickHandler && typeof doc.removeEventListener === 'function'){
+        try{
+          doc.removeEventListener('click', host.__symbolToolbarDocClickHandler);
+        }catch(err){}
+        host.__symbolToolbarDocClickHandler = null;
+      }
+      if(!hasVisibleToolbarContent(host)){
+        host.classList.remove('font-toolbar-host--visible');
+        host.style.display = 'none';
+        updateDockActiveState(host, false);
+      }
+    }
+  }
+
+  function closeAxisToolbars(){
+    try{
+      const axisControls = Shared?.axisControls || global?.Shared?.axisControls;
+      if(axisControls && typeof axisControls.close === 'function'){
+        axisControls.close('grid-open');
+        return;
+      }
+    }catch(err){
+      logDebug('axisControls.close failed', { error: err?.message || String(err) });
+    }
+    if(!global.document){ return; }
+    // Fallback: if axisControls API is unavailable, force-hide any open axis panels.
+    const doc = global.document;
+    const panels = Array.from(doc.querySelectorAll('.axis-controls-panel'));
+    for(let i = 0; i < panels.length; i += 1){
+      const panel = panels[i];
+      if(!panel || panel.dataset.open !== '1'){
+        continue;
+      }
+      panel.dataset.open = '0';
+      panel.hidden = true;
+      panel.style.display = 'none';
+    }
+    const hosts = Array.from(doc.querySelectorAll('.font-toolbar-host'));
+    for(let i = 0; i < hosts.length; i += 1){
+      const host = hosts[i];
+      if(!host || hasVisibleToolbarContent(host)){
+        continue;
+      }
+      host.classList.remove('font-toolbar-host--visible');
+      host.style.display = 'none';
+      updateDockActiveState(host, false);
+    }
+  }
+
+  function closeFontToolbars(){
+    try{
+      const fontControls = Shared?.fontControls || global?.Shared?.fontControls;
+      if(fontControls && typeof fontControls.close === 'function'){
+        fontControls.close('grid-open');
+        return;
+      }
+    }catch(err){
+      logDebug('fontControls.close failed', { error: err?.message || String(err) });
+    }
+    if(!global.document){ return; }
+    // Fallback: force-hide any open font panel if fontControls API is unavailable.
+    const doc = global.document;
+    const panels = Array.from(doc.querySelectorAll('.font-controls-panel'));
+    for(let i = 0; i < panels.length; i += 1){
+      const panel = panels[i];
+      if(!panel || panel.dataset.open !== '1'){
+        continue;
+      }
+      panel.dataset.open = '0';
+      panel.hidden = true;
+      panel.style.display = 'none';
+    }
+    const hosts = Array.from(doc.querySelectorAll('.font-toolbar-host'));
+    for(let i = 0; i < hosts.length; i += 1){
+      const host = hosts[i];
+      if(!host || hasVisibleToolbarContent(host)){
+        continue;
+      }
+      host.classList.remove('font-toolbar-host--visible');
+      host.style.display = 'none';
+      updateDockActiveState(host, false);
+    }
+  }
+
   function getContext(){
     return {
       target: activeConfig?.target || null
@@ -310,6 +504,15 @@
   function isGridClickTarget(target){
     if(!target || typeof target !== 'object'){
       return false;
+    }
+    if(typeof target.closest === 'function'){
+      // Axis/symbol selectors must win when overlapping grid hit targets.
+      if(target.closest('[data-axis-control="1"], [data-additional-line-control="1"], [data-significance-control="1"], [data-dendrogram-control="1"]')){
+        return false;
+      }
+      if(target.closest('[data-plot-point="1"], [data-point-size], [data-shape], [data-symbol-control="1"]')){
+        return false;
+      }
     }
     if(target.getAttribute && target.getAttribute('data-grid-control') === '1'){
       return true;
@@ -415,7 +618,25 @@
       hitCount += 1;
     }
     if(hitCount > 0){
-      root.appendChild(layer);
+      let insertBeforeNode = null;
+      const children = root.childNodes || [];
+      for(let idx = 0; idx < children.length; idx += 1){
+        const child = children[idx];
+        if(!child || typeof child.nodeType !== 'number' || child.nodeType !== 1){
+          continue;
+        }
+        const tagName = (child.tagName || '').toLowerCase();
+        if(tagName === 'defs'){
+          continue;
+        }
+        insertBeforeNode = child;
+        break;
+      }
+      if(insertBeforeNode){
+        root.insertBefore(layer, insertBeforeNode);
+      }else{
+        root.appendChild(layer);
+      }
       logDebug('grid hit layer created', { count: hitCount });
     }
   }
@@ -530,6 +751,7 @@
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
     thicknessInput.className = 'grid-controls-panel__input grid-controls-panel__input--small';
+    thicknessInput.setAttribute('data-undo-ignore', '1');
     thicknessInput.min = '0';
     thicknessInput.max = '10';
     thicknessInput.step = '0.25';
@@ -559,6 +781,7 @@
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'shared-border-style-input grid-controls-panel__color-input';
+    colorInput.setAttribute('data-undo-ignore', '1');
     colorInput.value = DEFAULTS.color;
     styleControlEl.appendChild(styleChipEl);
     styleControlEl.appendChild(colorInput);
@@ -576,6 +799,7 @@
     patternField.appendChild(patternLabelEl);
     patternSelect = doc.createElement('select');
     patternSelect.className = 'grid-controls-panel__input grid-controls-panel__input--select';
+    patternSelect.setAttribute('data-undo-ignore', '1');
     [
       { value: 'solid', label: 'Solid' },
       { value: 'dashed', label: 'Dashed' },
@@ -600,6 +824,7 @@
     transparencyInput = doc.createElement('input');
     transparencyInput.type = 'range';
     transparencyInput.className = 'grid-controls-panel__transparency-input';
+    transparencyInput.setAttribute('data-undo-ignore', '1');
     transparencyInput.min = '0';
     transparencyInput.max = '100';
     transparencyInput.step = '1';
@@ -615,15 +840,24 @@
     thicknessInput.addEventListener('input', () => {
       if(applyingSync){ return; }
       if(!activeConfig || typeof activeConfig.onStyleChange !== 'function'){ return; }
+      const config = activeConfig;
       const context = getContext();
-      const style = sanitizeStyle(typeof activeConfig.getStyle === 'function' ? activeConfig.getStyle(context) : null, activeConfig.defaults);
-      style.thickness = sanitizeThickness(thicknessInput.value, style.thickness);
+      const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
+      const previousThickness = sanitizeThickness(baseStyle.thickness, DEFAULTS.thickness);
+      const nextThickness = sanitizeThickness(thicknessInput.value, previousThickness);
+      const style = Object.assign({}, baseStyle, { thickness: nextThickness });
       try{
-        activeConfig.onStyleChange(style, context);
+        config.onStyleChange(style, context);
       }catch(err){
         logDebug('onStyleChange(thickness) failed', { error: err?.message || String(err) });
       }
-      syncPanelFromConfig(activeConfig);
+      recordGridStateChange(config, context.target, 'thickness', previousThickness, nextThickness, value => {
+        const applyContext = buildContext(config, context.target);
+        const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
+        const applied = Object.assign({}, current, { thickness: sanitizeThickness(value, current.thickness) });
+        config.onStyleChange(applied, applyContext);
+      });
+      syncPanelFromConfig(config);
     });
 
     if(styleChipEl){
@@ -674,57 +908,109 @@
     colorInput.addEventListener('input', () => {
       if(applyingSync){ return; }
       if(!activeConfig || typeof activeConfig.onStyleChange !== 'function'){ return; }
+      const config = activeConfig;
       const context = getContext();
-      const style = sanitizeStyle(typeof activeConfig.getStyle === 'function' ? activeConfig.getStyle(context) : null, activeConfig.defaults);
-      style.color = sanitizeColor(colorInput.value, style.color);
+      const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
+      const previousColor = sanitizeColor(baseStyle.color, DEFAULTS.color);
+      const nextColor = sanitizeColor(colorInput.value, previousColor);
+      const style = Object.assign({}, baseStyle, { color: nextColor });
       try{
-        activeConfig.onStyleChange(style, context);
+        config.onStyleChange(style, context);
       }catch(err){
         logDebug('onStyleChange(color) failed', { error: err?.message || String(err) });
       }
-      syncPanelFromConfig(activeConfig);
+      recordGridStateChange(
+        config,
+        context.target,
+        'color',
+        previousColor,
+        nextColor,
+        value => {
+          const applyContext = buildContext(config, context.target);
+          const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
+          const applied = Object.assign({}, current, { color: sanitizeColor(value, current.color) });
+          config.onStyleChange(applied, applyContext);
+        },
+        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
+      );
+      syncPanelFromConfig(config);
     });
 
     colorInput.addEventListener('change', () => {
       if(applyingSync){ return; }
       if(!activeConfig || typeof activeConfig.onStyleChange !== 'function'){ return; }
+      const config = activeConfig;
       const context = getContext();
-      const style = sanitizeStyle(typeof activeConfig.getStyle === 'function' ? activeConfig.getStyle(context) : null, activeConfig.defaults);
-      style.color = sanitizeColor(colorInput.value, style.color);
+      const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
+      const previousColor = sanitizeColor(baseStyle.color, DEFAULTS.color);
+      const nextColor = sanitizeColor(colorInput.value, previousColor);
+      const style = Object.assign({}, baseStyle, { color: nextColor });
       try{
-        activeConfig.onStyleChange(style, context);
+        config.onStyleChange(style, context);
       }catch(err){
         logDebug('onStyleChange(color-change) failed', { error: err?.message || String(err) });
       }
-      syncPanelFromConfig(activeConfig);
+      recordGridStateChange(
+        config,
+        context.target,
+        'color',
+        previousColor,
+        nextColor,
+        value => {
+          const applyContext = buildContext(config, context.target);
+          const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
+          const applied = Object.assign({}, current, { color: sanitizeColor(value, current.color) });
+          config.onStyleChange(applied, applyContext);
+        },
+        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
+      );
+      syncPanelFromConfig(config);
     });
 
     patternSelect.addEventListener('change', () => {
       if(applyingSync){ return; }
       if(!activeConfig || typeof activeConfig.onStyleChange !== 'function'){ return; }
+      const config = activeConfig;
       const context = getContext();
-      const style = sanitizeStyle(typeof activeConfig.getStyle === 'function' ? activeConfig.getStyle(context) : null, activeConfig.defaults);
-      style.pattern = sanitizePattern(patternSelect.value);
+      const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
+      const previousPattern = sanitizePattern(baseStyle.pattern);
+      const nextPattern = sanitizePattern(patternSelect.value);
+      const style = Object.assign({}, baseStyle, { pattern: nextPattern });
       try{
-        activeConfig.onStyleChange(style, context);
+        config.onStyleChange(style, context);
       }catch(err){
         logDebug('onStyleChange(pattern) failed', { error: err?.message || String(err) });
       }
-      syncPanelFromConfig(activeConfig);
+      recordGridStateChange(config, context.target, 'pattern', previousPattern, nextPattern, value => {
+        const applyContext = buildContext(config, context.target);
+        const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
+        const applied = Object.assign({}, current, { pattern: sanitizePattern(value) });
+        config.onStyleChange(applied, applyContext);
+      });
+      syncPanelFromConfig(config);
     });
 
     transparencyInput.addEventListener('input', () => {
       if(applyingSync){ return; }
       if(!activeConfig || typeof activeConfig.onStyleChange !== 'function'){ return; }
+      const config = activeConfig;
       const context = getContext();
-      const style = sanitizeStyle(typeof activeConfig.getStyle === 'function' ? activeConfig.getStyle(context) : null, activeConfig.defaults);
-      style.transparency = sanitizeTransparency(transparencyInput.value, style.transparency);
+      const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
+      const previousTransparency = sanitizeTransparency(baseStyle.transparency, DEFAULTS.transparency);
+      const nextTransparency = sanitizeTransparency(transparencyInput.value, previousTransparency);
+      const style = Object.assign({}, baseStyle, { transparency: nextTransparency });
       try{
-        activeConfig.onStyleChange(style, context);
+        config.onStyleChange(style, context);
       }catch(err){
         logDebug('onStyleChange(transparency) failed', { error: err?.message || String(err) });
       }
-      syncPanelFromConfig(activeConfig);
+      recordGridStateChange(config, context.target, 'transparency', previousTransparency, nextTransparency, value => {
+        const applyContext = buildContext(config, context.target);
+        const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
+        const applied = Object.assign({}, current, { transparency: sanitizeTransparency(value, current.transparency) });
+        config.onStyleChange(applied, applyContext);
+      });
+      syncPanelFromConfig(config);
     });
 
     if(!colorPickerAttached){
@@ -811,6 +1097,9 @@
   function openPanel(config){
     ensurePanel();
     if(!panelEl || !config){ return; }
+    closeSymbolToolbars();
+    closeAxisToolbars();
+    closeFontToolbars();
     if(config.skipHideAll !== true){
       try{
         if(Shared && typeof Shared.hideAllFormatControls === 'function'){

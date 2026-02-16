@@ -3028,11 +3028,17 @@
     if(!panelEl){ return; }
     // ensure any per-component toolbar hosts are hidden before opening the font panel
     try{ hideComponentHosts(); }catch(e){}
-    // also close axis controls so the font panel is the only active FORMAT UI
+    // also close axis/grid controls so the font panel is the only active FORMAT UI
     try{
       const axisControls = Shared?.axisControls || (global && global.Shared && global.Shared.axisControls);
       if(axisControls && typeof axisControls.close === 'function'){
         try{ axisControls.close('font-open'); }catch(e){}
+      }
+    }catch(e){}
+    try{
+      const gridControls = Shared?.gridControls || (global && global.Shared && global.Shared.gridControls);
+      if(gridControls && typeof gridControls.close === 'function'){
+        try{ gridControls.close('font-open'); }catch(e){}
       }
     }catch(e){}
     const host = resolveToolbarHost(currentScope);
@@ -3043,7 +3049,7 @@
       // remove any per-component toolbar form nodes from this host so the
       // font panel does not share the same host DOM with component controls.
       try{
-        host.querySelectorAll('.workspace-toolbar__panel--symbol, .additional-line-controls-panel').forEach(node => {
+        host.querySelectorAll('.workspace-toolbar__panel--symbol, .additional-line-controls-panel, .grid-controls-panel').forEach(node => {
           if(node === panelEl){ return; }
           try{ node.remove(); }catch(e){}
         });
