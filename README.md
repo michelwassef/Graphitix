@@ -7,7 +7,7 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 - **Spreadsheet comfort.** Each module embeds an AG Grid table with undo/redo, paste-special helpers (including transpose), CSV/TSV/Excel/ODS import, and column reordering.
 - **Inline styling & stats.** Workspace toolbars with undo/redo, axis controls, typography tools, and per-module statistics live beside every chart so you can tune visuals and analyses in real time.
 - **Offline friendly.** Everything runs client-side in HTML, CSS, and vanilla JavaScript; only GO and STRING enrichment lookups require network access.
-- **Reusable sessions.** Save `.graph` files for individual charts or `.session` files for entire multi-tab workspaces, then reopen them later to pick up where you left off.
+- **Reusable workspaces.** Save `.graph` archives for either the current tab or all tabs, then reopen them later to pick up where you left off.
 
 ## Visualization Modules
 | Module | Primary use cases | Notable tools |
@@ -216,7 +216,7 @@ Some modules support multiple visualization variants accessible via dropdown con
 2. **Edit like a spreadsheet.** Sort columns, undo/redo changes, and use *Paste → Transposed* to rotate clipboard selections when switching between wide and tall formats. The workspace toolbar provides quick access to undo/redo buttons.
 3. **Configure visuals.** Adjust colors, fonts, axes, and overlays from the side controls. Inline text editing keeps the font toolbar active so you can fine-tune titles and labels without modal dialogs.
 4. **Run analyses.** Enable overlap significance, hypothesis tests, regression models, Chi² checks, or AUC comparisons from the module-specific statistics panels.
-5. **Save or export.** Download SVG/PNG snapshots, save individual charts as `.graph` files, or persist entire multi-tab workspaces as `.session` files to capture all your work.
+5. **Save or export.** Download SVG/PNG snapshots and save `.graph` archives (current tab or all tabs) to capture your work.
 
 ## Example Workflow
 1. Open `index.html` in a modern browser.
@@ -226,7 +226,7 @@ Some modules support multiple visualization variants accessible via dropdown con
 5. In the new tab, switch to a **Volcano** plot variant using the graph type dropdown to visualize differential expression.
 6. Use *Match Styles* from the toolbar to copy fonts, colors, and axis settings from your scatter plot.
 7. Create additional tabs for **Line Graph** or **Box Plot** visualizations of the same dataset.
-8. Save the entire workspace as a `.session` file to preserve all tabs, or export individual charts as `.graph` files or SVG/PNG images.
+8. Save a `.graph` archive and choose whether to include the current tab only or all tabs, or export individual charts as SVG/PNG images.
 
 ### Tab Management
 - **Create tabs:** Click the "+" button or use the quick launcher on the welcome screen to add new visualization workspaces.
@@ -254,8 +254,8 @@ Some modules support multiple visualization variants accessible via dropdown con
 4. **Debug logging:** Toggle verbose output with `Shared.enableDebugLogging()` / `Shared.disableDebugLogging()` in the browser console.
 
 ### File Formats
-- **`.graph` files:** JSON format storing data, styling, and layout for a single chart. Can be opened via the toolbar *Open* menu or drag-dropped onto the welcome screen.
-- **`.session` files:** JSON format storing an entire multi-tab workspace including all charts, tab order, and active tab state. Use *File → Save Session* or *Load Session* from the toolbar.
+- **`.graph` files:** ZIP archive format that stores each tab in its own folder with `raw/data.csv`, `graph-config.json`, and full payload/layout JSON for fast, lossless reloads. A `.graph` file can contain one tab or multiple tabs.
+- **Legacy `.session` files:** Older JSON session files are still loadable for backward compatibility.
 - **Data imports:** CSV, TSV, TXT, XLS, XLSX, ODS formats supported via the *Import* toolbar button or paste operations.
 
 ## Testing & Quality
@@ -270,9 +270,9 @@ Some modules support multiple visualization variants accessible via dropdown con
 - **Network calls:** GO enrichment and STRING network fetches require internet access; all other features operate offline.
 - **Avoid redraw loops:** When modifying layouts from draw routines, call `Shared.syncPanelWidths({ skipSchedule: true })` to prevent recursive scheduling.
 - **Memory profiling:** Run `node --expose-gc scripts/volcano-benchmark.js` to compare optimized volcano handling against legacy behavior.
-- **Session files:** If a `.session` file fails to load, verify it's valid JSON and contains the expected `tabs` array structure. Individual `.graph` files can be recovered from corrupted sessions by extracting the `payload` field from each tab.
+- **Archive files:** If a `.graph` file fails to load, verify it is a valid ZIP archive containing `manifest.json`. Legacy `.session` JSON files should include a `tabs` array.
 - **Undo/Redo:** Each workspace maintains its own undo stack. Use the toolbar undo/redo buttons or keyboard shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z).
-- **Tab management:** Tabs are auto-saved to browser storage. Closing the browser preserves your workspace, but explicitly saving a `.session` file provides a permanent backup.
+- **Tab management:** Tabs are auto-saved to browser storage. Closing the browser preserves your workspace, but explicitly saving a `.graph` archive provides a permanent backup.
 - **Style matching:** The *Match Styles* feature copies fonts, colors, and axis settings but not data or analysis configurations.
 
 ## Contributing

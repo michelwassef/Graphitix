@@ -5,7 +5,15 @@
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   const payloadBlobMap = new WeakMap();
 
-  const DEFAULT_FILE_TYPES = [{description: 'Graph Files', accept: {'application/json': ['.graph']}}];
+  const DEFAULT_FILE_TYPES = [
+    {
+      description: 'Graph Files',
+      accept: {
+        'application/zip': ['.graph'],
+        'application/json': ['.graph', '.json', '.session']
+      }
+    }
+  ];
 
   function debug(label, details){
     const message = `Debug: fileIO.${label}`;
@@ -56,11 +64,66 @@
     }
   }
 
-  function serializePayload(payload){
+  function isBlobLike(value){
+    return !!value
+      && typeof value === 'object'
+      && typeof value.arrayBuffer === 'function'
+      && typeof value.size === 'number';
+  }
+
+  function isBinaryLike(value){
+    if(isBlobLike(value)){
+      return true;
+    }
+    if(typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer){
+      return true;
+    }
+    if(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)){
+      return true;
+    }
+    return false;
+  }
+
+  function normalizeWritablePayload(payload){
+    if(isBlobLike(payload)){
+      return {
+        kind: 'blob',
+        value: payload,
+        length: payload.size || 0,
+        mimeType: payload.type || 'application/octet-stream'
+      };
+    }
+    if(typeof ArrayBuffer !== 'undefined' && payload instanceof ArrayBuffer){
+      return {
+        kind: 'binary',
+        value: payload,
+        length: payload.byteLength || 0,
+        mimeType: 'application/octet-stream'
+      };
+    }
+    if(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(payload)){
+      const view = payload;
+      const byteOffset = view.byteOffset || 0;
+      const byteLength = view.byteLength || 0;
+      const buffer = view.buffer ? view.buffer.slice(byteOffset, byteOffset + byteLength) : view;
+      return {
+        kind: 'binary',
+        value: buffer,
+        length: byteLength,
+        mimeType: 'application/octet-stream'
+      };
+    }
     try{
-      return typeof payload === 'string' ? payload : JSON.stringify(payload);
+      const serializedRaw = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      const serialized = typeof serializedRaw === 'string' ? serializedRaw : '';
+      return {
+        kind: 'text',
+        value: serialized,
+        length: serialized.length,
+        mimeType: 'application/json'
+      };
     }catch(err){
-      console.error('fileIO.serializePayload error', err);
+      console.error('fileIO.normalizeWritablePayload error', err);
       throw err;
     }
   }
@@ -102,10 +165,15 @@
       console.warn('fileIO.writeToHandle invalid handle', { context });
       return;
     }
-    const serialized = serializePayload(payload);
-    debug('writeToHandle.start', { context, hasPayload: !!payload, length: serialized.length });
+    const normalized = normalizeWritablePayload(payload);
+    debug('writeToHandle.start', {
+      context,
+      hasPayload: !!payload,
+      kind: normalized.kind,
+      length: normalized.length
+    });
     const writable = await handle.createWritable();
-    await writable.write(serialized);
+    await writable.write(normalized.value);
     await writable.close();
     debug('writeToHandle.complete', { context, handleName: handle.name });
   }
@@ -114,7 +182,10 @@
     const fileName = ensureName(name, 'graph.json');
     debug('downloadJSON.start', { fileName });
     try{
-      const serialized = serializePayload(payload);
+      const normalized = normalizeWritablePayload(payload);
+      const serialized = typeof normalized.value === 'string'
+        ? normalized.value
+        : JSON.stringify(payload);
       const BlobCtor = global.Blob || Blob;
       const URLCtor = global.URL || URL;
       const blob = new BlobCtor([serialized], { type: 'application/json' });
@@ -126,6 +197,30 @@
       }, 5000);
     }catch(err){
       console.error('fileIO.downloadJSON error', err);
+    }
+  };
+
+  fileIO.downloadBlob = function downloadBlob(payload, name, mimeType){
+    const fileName = ensureName(name, 'graph.graph');
+    debug('downloadBlob.start', { fileName });
+    try{
+      const normalized = normalizeWritablePayload(payload);
+      const BlobCtor = global.Blob || Blob;
+      const URLCtor = global.URL || URL;
+      let blob = null;
+      if(normalized.kind === 'blob'){
+        blob = normalized.value;
+      }else{
+        blob = new BlobCtor([normalized.value], { type: mimeType || normalized.mimeType || 'application/octet-stream' });
+      }
+      const url = URLCtor.createObjectURL(blob);
+      downloadURL(url, fileName);
+      global.setTimeout?.(() => {
+        URLCtor.revokeObjectURL(url);
+        debug('downloadBlob.revoke', { fileName });
+      }, 5000);
+    }catch(err){
+      console.error('fileIO.downloadBlob error', err);
     }
   };
 
@@ -162,11 +257,19 @@
       setFileName,
       fileName,
       downloadFileName,
-      fileTypes
+      fileTypes,
+      mimeType
     } = options || {};
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
     const data = await resolvePayload(getPayload, payload);
-    debug('saveGraphFile.start', { context, hasHandle: !!fileHandle, targetName });
+    const normalized = normalizeWritablePayload(data);
+    debug('saveGraphFile.start', {
+      context,
+      hasHandle: !!fileHandle,
+      targetName,
+      payloadKind: normalized.kind,
+      payloadLength: normalized.length
+    });
     if(fileHandle && typeof fileHandle.createWritable === 'function'){
       const permitted = await fileIO.verifyPermission(fileHandle, true);
       debug('saveGraphFile.permission', { context, permitted });
@@ -188,11 +291,16 @@
         fileName: targetName,
         downloadFileName: targetName,
         fileTypes,
+        mimeType,
         skipPayloadBuild: true
       });
     }
     debug('saveGraphFile.downloadFallback', { context });
-    fileIO.downloadJSON(data, targetName);
+    if(isBinaryLike(data)){
+      fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
+    }else{
+      fileIO.downloadJSON(data, targetName);
+    }
     return { status: 'downloaded', via: 'download', fileName: targetName, payload: data };
   };
 
@@ -206,11 +314,19 @@
       fileName,
       downloadFileName,
       fileTypes,
+      mimeType,
       skipPayloadBuild
     } = options || {};
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
     const data = skipPayloadBuild ? payload : await resolvePayload(getPayload, payload);
-    debug('saveGraphFileAs.start', { context, targetName, hasPicker: !!global.showSaveFilePicker });
+    const normalized = normalizeWritablePayload(data);
+    debug('saveGraphFileAs.start', {
+      context,
+      targetName,
+      hasPicker: !!global.showSaveFilePicker,
+      payloadKind: normalized.kind,
+      payloadLength: normalized.length
+    });
     if(global.showSaveFilePicker){
       try{
         const handle = await global.showSaveFilePicker({
@@ -227,7 +343,11 @@
       }
     }
     debug('saveGraphFileAs.downloadFallback', { context });
-    fileIO.downloadJSON(data, targetName);
+    if(isBinaryLike(data)){
+      fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
+    }else{
+      fileIO.downloadJSON(data, targetName);
+    }
     return { status: 'downloaded', via: 'download', fileName: targetName, payload: data };
   };
 
@@ -292,7 +412,12 @@
       if(entry){
         let serialized = '';
         try{
-          serialized = typeof entry.value === 'string' ? entry.value : JSON.stringify(entry.value);
+          const normalized = normalizeWritablePayload(entry.value);
+          if(normalized.kind === 'text'){
+            serialized = normalized.value;
+          }else{
+            serialized = '';
+          }
         }catch(err){
           console.error('fileIO.payloadReader serialization error', err);
         }
@@ -320,6 +445,7 @@
 
   // Expose helpers for legacy callers expecting globals
   global.downloadJSON = fileIO.downloadJSON;
+  global.downloadBlob = fileIO.downloadBlob;
   global.verifyPermission = fileIO.verifyPermission;
 })(window);
 

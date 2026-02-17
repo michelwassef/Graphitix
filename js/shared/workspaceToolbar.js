@@ -969,26 +969,17 @@
     const openMenuItems = (key) => [
       {
         id: `open${capitalize(key)}Graph`,
-        label: 'Open Graph (.graph)'
-      },
-      {
-        id: `open${capitalize(key)}Session`,
-        label: 'Load Session (.session)',
-        dataset: { sessionAction: 'open', sessionActionNewWindow: 'dirty' },
-        ariaLabel: 'Load a saved session in a new window when needed'
+        label: 'Open (.graph)',
+        dataset: { fileAction: 'open' }
       }
     ];
 
     const saveMenuItems = (key) => [
       {
         id: `save${capitalize(key)}Graph`,
-        label: 'Save Graph (.graph)'
-      },
-      {
-        id: `save${capitalize(key)}Session`,
-        label: 'Save Session (.session)',
-        dataset: { sessionAction: 'save' },
-        ariaLabel: 'Save the current workspace session'
+        label: 'Save (.graph)',
+        dataset: { fileAction: 'save' },
+        ariaLabel: 'Save to a .graph archive'
       }
     ];
 

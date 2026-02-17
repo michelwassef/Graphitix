@@ -105,9 +105,7 @@
   const dom = bootstrap.dom;
   const workspaceState = bootstrap.workspaceState;
   const withSessionContext = bootstrap.withSessionContext;
-  const GRAPH_FILE_TYPES = [
-    { description: 'Workspace Graph', accept: { 'application/json': ['.graph', '.json'] } }
-  ];
+  const WORKSPACE_FILE_TYPES = bootstrap.sessionFileTypes || [];
 
   const requiredSessionHelpers = [
     'getActiveTab',
@@ -283,8 +281,8 @@
 
   const getSessionActionsContext = () => tabsManager.getSessionActionsContext();
 
-  async function handleSessionSaveClick() {
-    await MainSessionActions.handleSessionSaveClick(getSessionActionsContext());
+  async function handleSessionSaveClick(options) {
+    await MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), options || {});
   }
 
   async function handleSessionLoadClick(options) {
@@ -295,100 +293,25 @@
     MainSessionActions.handleSessionInputChange(getSessionActionsContext(), event);
   }
 
-  function deriveGraphTitle(fileName, type) {
-    const trimmed = (fileName || '').replace(/\.[^/.]+$/, '').trim();
-    if (trimmed) {
-      return trimmed;
-    }
-    const info = GRAPH_TYPES.find(entry => entry.type === type);
-    return info ? info.label : '';
-  }
-
-  function extractGraphLayout(payload) {
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
-    if (payload.layoutState && typeof payload.layoutState === 'object') {
-      return payload.layoutState;
-    }
-    if (payload.layout && typeof payload.layout === 'object') {
-      return payload.layout;
-    }
-    return null;
-  }
-
   async function importGraphFileFromWelcome(file, meta = {}) {
     if (!file) {
       debug('Debug: welcome graph import skipped', { reason: 'no-file' });
       return false;
     }
-    let text;
     try {
-      text = await file.text();
+      await MainSessionActions.loadWorkspaceFile(getSessionActionsContext(), file, {
+        reason: 'welcome-graph-load',
+        fileHandle: meta.fileHandle || null,
+        fileName: meta.fileName || file.name || ''
+      });
+      debug('Debug: welcome graph imported', {
+        fileName: meta.fileName || file.name || null
+      });
+      return true;
     } catch (err) {
-      console.error('welcome graph read error', err);
+      console.error('welcome graph import error', err);
       return false;
     }
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch (err) {
-      console.error('welcome graph parse error', err);
-      return false;
-    } finally {
-      text = null;
-    }
-    const rawType = typeof payload?.type === 'string' ? payload.type.trim() : '';
-    const type = rawType.toLowerCase();
-    if (!type) {
-      console.warn('welcome graph missing type', { fileName: meta.fileName || file.name || null });
-      return false;
-    }
-    if (!WORKSPACES || !WORKSPACES[type]) {
-      console.warn('welcome graph unknown type', { type });
-      return false;
-    }
-    tabsManager.handleGraphSelection(type);
-    const activeTab = tabsManager.getActiveTab();
-    if (!activeTab || activeTab.type !== type) {
-      console.error('welcome graph active tab mismatch', { requested: type, active: activeTab ? activeTab.type : null });
-      return false;
-    }
-    const baseTitle = deriveGraphTitle(meta.fileName || file.name || '', type);
-    if (baseTitle) {
-      const uniqueTitle = MainSession.generateUniqueTabTitle(baseTitle, { excludeTabId: activeTab.id });
-      if (uniqueTitle !== activeTab.title) {
-        const previousTitle = activeTab.title;
-        activeTab.title = uniqueTitle;
-        MainSession.markSessionDirty('tab-title-updated', { tabId: activeTab.id, previousTitle, nextTitle: uniqueTitle });
-      }
-    }
-    const layoutState = extractGraphLayout(payload);
-    if (layoutState) {
-      activeTab.layoutState = layoutState;
-      activeTab.layoutSignature = MainSession.serializePayloadSignature(layoutState);
-    } else {
-      activeTab.layoutState = null;
-      activeTab.layoutSignature = MainSession.serializePayloadSignature(null);
-    }
-    MainSession.assignTabPayload(activeTab, payload, { reason: 'welcome-graph-load' });
-    MainSession.markSessionDirty('welcome-graph-load', { tabId: activeTab.id, type });
-    tabsManager.renderTabs();
-    const workspaceConfig = WORKSPACES[type];
-    try {
-      if (typeof workspaceConfig.loadFromPayload === 'function') {
-        workspaceConfig.loadFromPayload(payload);
-      } else if (typeof workspaceConfig.loadFromFile === 'function') {
-        workspaceConfig.loadFromFile(file);
-      }
-      if (typeof workspaceConfig.draw === 'function') {
-        workspaceConfig.draw();
-      }
-    } catch (err) {
-      console.error('welcome graph apply error', { type, err });
-    }
-    debug('Debug: welcome graph imported', { type, tabId: activeTab.id });
-    return true;
   }
 
   function debugInteraction(message, payload) {
@@ -417,6 +340,13 @@
   async function handleWelcomeGraphOpen() {
     const context = getSessionActionsContext();
     const shared = context.Shared;
+    const shouldConfirm = MainSessionActions.shouldWarnBeforeUnload(context);
+    if (shouldConfirm && typeof window.confirm === 'function') {
+      const proceed = window.confirm('This will replace your current workspace tabs. Continue without saving first?');
+      if (!proceed) {
+        return;
+      }
+    }
     if (!shared?.fileIO || typeof shared.fileIO.openGraphFile !== 'function') {
       console.warn('Welcome graph picker unavailable: missing Shared.fileIO.openGraphFile');
       if (dom?.welcomeGraphInput) {
@@ -430,7 +360,7 @@
     try {
       const result = await shared.fileIO.openGraphFile({
         context: 'welcome-graph',
-        fileTypes: GRAPH_FILE_TYPES,
+        fileTypes: WORKSPACE_FILE_TYPES,
         setFileHandle: handle => { pendingHandle = handle || null; },
         setFileName: name => { pendingName = name || ''; },
         loadFromFile: async selectedFile => {
@@ -461,6 +391,17 @@
       debug('Debug: welcome graph input change without file');
       return;
     }
+    const context = getSessionActionsContext();
+    const shouldConfirm = MainSessionActions.shouldWarnBeforeUnload(context);
+    if (shouldConfirm && typeof window.confirm === 'function') {
+      const proceed = window.confirm('This will replace your current workspace tabs. Continue without saving first?');
+      if (!proceed) {
+        if (event?.target) {
+          event.target.value = '';
+        }
+        return;
+      }
+    }
     void importGraphFileFromWelcome(file, { fileName: file.name }).catch(err => {
       console.error('welcome graph input import error', err);
     }).finally(() => {
@@ -470,69 +411,48 @@
     });
   }
 
-  function shouldWarnBeforeUnload() {
-    return MainSessionActions.shouldWarnBeforeUnload(getSessionActionsContext());
+  function resolveUnifiedFileActionTarget(target) {
+    const explicit = findClosestInteractive(target, '[data-file-action]');
+    if (explicit) {
+      const action = explicit.dataset.fileAction || '';
+      if (action === 'open' || action === 'save' || action === 'saveAs') {
+        return { action, element: explicit };
+      }
+    }
+    const idOwner = findClosestInteractive(target, '[id]');
+    if (!idOwner || !idOwner.id) {
+      return null;
+    }
+    const id = idOwner.id;
+    if (id === 'welcomeOpenGraph') {
+      return { action: 'open-welcome', element: idOwner };
+    }
+    if (/^open[A-Z].*Graph$/.test(id)) {
+      return { action: 'open', element: idOwner };
+    }
+    if (/^save[A-Z].*Graph$/.test(id)) {
+      return { action: 'save', element: idOwner };
+    }
+    if (/^saveAs[A-Z].*/.test(id)) {
+      return { action: 'saveAs', element: idOwner };
+    }
+    return null;
   }
 
-  async function consumeTransferredSessionIfAvailable() {
-    const win = window;
-    if (!win || !win.localStorage) {
+  function closeToolbarMenuFromActionTarget(target) {
+    const menuWrapper = target?.closest?.('.workspace-toolbar__menu');
+    if (!menuWrapper) {
       return;
     }
-    let url;
-    try {
-      url = new URL(win.location.href);
-    } catch (err) {
-      console.error('session transfer URL parse error', err);
-      return;
+    menuWrapper.classList.remove('workspace-toolbar__menu--open');
+    const trigger = menuWrapper.querySelector('.workspace-toolbar__button[data-menu-id]');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
     }
-    const transferKey = url.searchParams.get('sessionTransferKey');
-    if (!transferKey) {
-      return;
-    }
-    url.searchParams.delete('sessionTransferKey');
-    try {
-      win.history.replaceState({}, document.title, url.toString());
-    } catch (err) {
-      console.error('session transfer history update error', err);
-    }
-    let stored = null;
-    try {
-      stored = win.localStorage.getItem(transferKey);
-    } catch (err) {
-      console.error('session transfer storage read error', err);
-    }
-    if (!stored) {
-      return;
-    }
-    const context = getSessionActionsContext();
-    try {
-      const parsed = JSON.parse(stored);
-      const data = typeof parsed === 'string' ? parsed : parsed?.data;
-      const fileName = parsed?.fileName || 'workspace.session';
-      win.localStorage.removeItem(transferKey);
-      if (!data) {
-        return;
-      }
-      const BlobCtor = win.Blob || Blob;
-      const blob = new BlobCtor([data], { type: 'application/json' });
-      await MainSession.loadWorkspaceSessionBlob(blob, withSessionContext({
-        reason: 'session-transfer',
-        fileHandle: null,
-        fileName,
-        hideDuplicatePrompt: context.hideDuplicatePrompt,
-        renderTabs: context.renderTabs,
-        activateTab: context.activateTab,
-        showGraphSelection: context.showGraphSelection
-      }));
-    } catch (err) {
-      console.error('session transfer consume error', err);
-      try {
-        win.localStorage.removeItem(transferKey);
-      } catch (cleanupErr) {
-        console.error('session transfer cleanup error', cleanupErr);
-      }
-    }
+  }
+
+  function shouldWarnBeforeUnload() {
+    return MainSessionActions.shouldWarnBeforeUnload(getSessionActionsContext());
   }
 
   initializeWorkspace({
@@ -543,7 +463,31 @@
     onWelcomeGraphInputChange: handleWelcomeGraphInputChange
   });
 
-  void consumeTransferredSessionIfAvailable();
+  document.addEventListener('click', event => {
+    const actionTarget = resolveUnifiedFileActionTarget(event.target);
+    if (!actionTarget) {
+      return;
+    }
+    closeToolbarMenuFromActionTarget(actionTarget.element);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const action = actionTarget.action;
+    if (action === 'open-welcome') {
+      void handleWelcomeGraphOpen();
+      return;
+    }
+    if (action === 'open') {
+      void handleSessionLoadClick({ reason: 'toolbar-open' });
+      return;
+    }
+    if (action === 'save') {
+      void handleSessionSaveClick({ reason: 'toolbar-save' });
+      return;
+    }
+    if (action === 'saveAs') {
+      void handleSessionSaveClick({ reason: 'toolbar-save-as', forcePicker: true });
+    }
+  }, true);
 
   document.addEventListener('click', event => {
     const target = event.target;
@@ -580,7 +524,7 @@
 
   window.addEventListener('beforeunload', event => {
     if (shouldWarnBeforeUnload()) {
-      const message = 'You have unsaved workspace changes. Save your session before leaving?';
+      const message = 'You have unsaved workspace changes. Save your .graph file before leaving?';
       event.preventDefault();
       event.returnValue = message;
       debug('Debug: beforeunload prompt engaged', { message }); // Debug: beforeunload trigger trace

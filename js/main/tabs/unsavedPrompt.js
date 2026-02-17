@@ -81,15 +81,23 @@
           console.debug('Debug: unsaved prompt activating tab', { tabId: tab.id, previousActiveId: currentActive?.id || null });
           activateTab(tab.id, { reason: 'unsaved-save' });
         }
-        const component = window.Components?.[tab.type];
-        if (component && typeof component.save === 'function') {
-          console.debug('Debug: unsaved prompt invoking save', { tabId: tab.id, type: tab.type });
-          await component.save();
-        } else if (component && typeof component.saveAs === 'function') {
-          console.debug('Debug: unsaved prompt invoking saveAs fallback', { tabId: tab.id, type: tab.type });
-          await component.saveAs();
+        const sessionActions = window.Main?.sessionActions;
+        const tabsApi = window.Main?.tabs;
+        if (sessionActions && typeof sessionActions.saveWorkspaceArchiveWithScope === 'function' && tabsApi && typeof tabsApi.getSessionActionsContext === 'function') {
+          console.debug('Debug: unsaved prompt invoking archive save', { tabId: tab.id, type: tab.type });
+          const saveContext = tabsApi.getSessionActionsContext();
+          const saveResult = await sessionActions.saveWorkspaceArchiveWithScope(saveContext, {
+            scope: 'tab',
+            targetTabId: tab.id,
+            reason: 'unsaved-tab-save'
+          });
+          if (!saveResult || (saveResult.status !== 'saved' && saveResult.status !== 'downloaded')) {
+            workspaceState.pendingClosePrompt = pending;
+            showUnsavedPrompt(tab, { wasActive: true, reason: 'save-cancelled', previousActiveId: pending.previousActiveId });
+            return;
+          }
         } else {
-          console.warn('Unsaved prompt save unavailable', { tabId: tab.id, type: tab.type });
+          console.warn('Unsaved prompt save unavailable: missing sessionActions archive save', { tabId: tab.id, type: tab.type });
           workspaceState.pendingClosePrompt = pending;
           showUnsavedPrompt(tab, { wasActive: true, reason: 'no-save-handler', previousActiveId: pending.previousActiveId });
           return;

@@ -33,6 +33,7 @@
    * @property {Object|null} pendingClosePrompt Tracks the state for unsaved-close prompts.
    * @property {FileSystemFileHandle|Object|null} sessionFileHandle Handle returned by the File System Access API.
    * @property {string} sessionFileName Friendly name of the current session file.
+   * @property {'tab'|'workspace'|null} sessionFileScope Scope of the last saved/opened `.graph` archive.
    * @property {boolean} sessionDirty True when the in-memory session differs from disk.
    * @property {string|null} draggingTabId Tab currently being dragged in the UI.
    * @property {number|null} dragStartIndex Starting index for the active drag operation.
@@ -52,6 +53,7 @@
     pendingClosePrompt: null,
     sessionFileHandle: null,
     sessionFileName: '',
+    sessionFileScope: null,
     sessionDirty: false,
     draggingTabId: null,
     dragStartIndex: null,
@@ -832,6 +834,12 @@
     if (options.fileName) {
       workspaceState.sessionFileName = options.fileName;
       console.debug('Debug: session file name applied', { name: workspaceState.sessionFileName });
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'fileScope')) {
+      workspaceState.sessionFileScope = options.fileScope || null;
+      console.debug('Debug: session file scope applied', { scope: workspaceState.sessionFileScope });
+    } else {
+      workspaceState.sessionFileScope = tabs.length > 1 ? 'workspace' : (tabs.length === 1 ? 'tab' : null);
     }
     const welcomeTab = createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
     workspaceState.tabs.push(welcomeTab);

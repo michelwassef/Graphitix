@@ -42,7 +42,13 @@
   ];
 
   const SESSION_FILE_TYPES = [
-    { description: 'Workspace Session', accept: { 'application/json': ['.session', '.json'] } }
+    {
+      description: 'Workspace Graph Archive',
+      accept: {
+        'application/zip': ['.graph'],
+        'application/json': ['.graph', '.json', '.session']
+      }
+    }
   ];
 
   function validateMain(main) {
