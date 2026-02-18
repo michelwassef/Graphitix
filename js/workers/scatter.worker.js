@@ -174,7 +174,10 @@
     try{
       regressionTools = ensureRegressionTools();
       if(regressionTools && typeof regressionTools.fitRegression === 'function'){
-        regression = regressionTools.fitRegression(points, { mode: regressionMode });
+        regression = regressionTools.fitRegression(points, {
+          mode: regressionMode,
+          preferDoseResponse: regressionMode === 'logistic'
+        });
         if(regression && domainOption){
           const minCandidate = Number.isFinite(domainOption.minX)
             ? domainOption.minX

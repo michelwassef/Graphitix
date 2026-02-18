@@ -594,6 +594,7 @@
       const normalized = typeof shapeValue === 'string' ? shapeValue.toLowerCase() : '';
       return SHARED_SHAPE_VALUES.has(normalized) ? normalized : 'circle';
     };
+    const showShapePicker = opts.showShapePicker !== false;
     let currentColor = normalizeHex(opts.color) || '#000000';
     let currentShape = normalizeShape(opts.shape);
     input.value = currentColor;
@@ -639,25 +640,10 @@
         const pickerOnClose = pickerOptions && typeof pickerOptions.onClose === 'function'
           ? pickerOptions.onClose
           : null;
-        const overlayEl = Shared.openColorPicker({
+        const openOptions = {
           anchor: opts.anchor || swatch,
           color: currentColor,
           closeOnSelect: requestedCloseOnSelect,
-          shapePicker: {
-            value: currentShape,
-            options: shapeOptions,
-            onChange(nextShape){
-              const normalized = normalizeShape(nextShape);
-              if(normalized === currentShape){
-                return;
-              }
-              currentShape = normalized;
-              renderSwatch();
-              if(typeof opts.onShapeChange === 'function'){
-                opts.onShapeChange(currentShape);
-              }
-            }
-          },
           onInput(value){
             const normalized = normalizeHex(value);
             if(!normalized){
@@ -689,7 +675,25 @@
               pickerOnClose(payload);
             }
           }
-        });
+        };
+        if(showShapePicker){
+          openOptions.shapePicker = {
+            value: currentShape,
+            options: shapeOptions,
+            onChange(nextShape){
+              const normalized = normalizeShape(nextShape);
+              if(normalized === currentShape){
+                return;
+              }
+              currentShape = normalized;
+              renderSwatch();
+              if(typeof opts.onShapeChange === 'function'){
+                opts.onShapeChange(currentShape);
+              }
+            }
+          };
+        }
+        const overlayEl = Shared.openColorPicker(openOptions);
         if(typeof opts.onPickerOpen === 'function'){
           opts.onPickerOpen({
             overlay: overlayEl || null,

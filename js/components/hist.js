@@ -35,6 +35,14 @@
   const hist = Components.hist = Components.hist || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/additionalLineControls.js');
+    }catch(err){
+      console.debug('Debug: hist component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
   let histRenderRowEl = null;
   let histRenderButtonEl = null;
   let histAutoDrawNoticeEl = null;
@@ -562,6 +570,86 @@
     const doc = global.document;
     if(!doc) return;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const histFillInput = doc.getElementById('histFill');
+      const histBorderInput = doc.getElementById('histBorder');
+      const histBorderWidthInput = doc.getElementById('histBorderWidth');
+      const resolveBars = () => {
+        const root = state.svgBox || doc;
+        const nodes = Array.from(root.querySelectorAll('#histSvg [data-hist-bar="1"], #histSvg .hist-bar'));
+        return nodes.length ? nodes : (target ? [target] : []);
+      };
+      const dispatchInputValue = (inputEl, value) => {
+        if(!inputEl){ return; }
+        inputEl.value = value;
+        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      Shared.symbolToolbar.show({
+        document: doc,
+        target,
+        anchorId: 'histFontHost',
+        scopeId: 'hist',
+        panelTitle: 'Trace',
+        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls hist-bar-controls',
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'trace', label: 'Trace', disabled: false },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: 'trace'
+        },
+        fillShape: {
+          label: 'Fill',
+          showShapePicker: false,
+          shapeOptions: [{ value: 'square', label: 'Square' }],
+          getColor(){
+            return histFillInput?.value || target?.getAttribute?.('fill') || '#d95f02';
+          },
+          getShape(){
+            return 'square';
+          },
+          onColorInput(value){
+            resolveBars().forEach(node => node.setAttribute('fill', value));
+          },
+          onColorChange(value){
+            dispatchInputValue(histFillInput, value);
+          }
+        },
+        border: {
+          label: 'Border',
+          getColor(){
+            return histBorderInput?.value || target?.getAttribute?.('stroke') || '#000000';
+          },
+          onColorInput(value){
+            resolveBars().forEach(node => node.setAttribute('stroke', value));
+          },
+          onColorChange(value){
+            dispatchInputValue(histBorderInput, value);
+          },
+          getWidth(){
+            const inputWidth = Number(histBorderWidthInput?.value);
+            if(Number.isFinite(inputWidth)){ return inputWidth; }
+            const nodeWidth = Number(target?.getAttribute?.('stroke-width'));
+            return Number.isFinite(nodeWidth) ? nodeWidth : 0;
+          },
+          onWidthChange(value){
+            const numeric = Number(value);
+            const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+            dispatchInputValue(histBorderWidthInput, String(normalized));
+          }
+        },
+        size: {
+          enabled: false,
+          get(){ return 0; },
+          onChange(){ return; }
+        },
+        transparency: {
+          enabled: false
+        }
+      });
+      return;
+    }
     const anchor = doc.getElementById('histFontHost');
     if(!anchor) return;
     let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -634,6 +722,152 @@
 
   // Format toolbar for overlay (pdf/cdf) paths
   function showHistOverlayFormatControls(target){
+    if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
+      const distKey = target.getAttribute('data-dist') || null;
+      const resolveTargets = scopeValue => {
+        const root = state.svgBox || global.document;
+        if(!root || !root.querySelectorAll){
+          return target ? [target] : [];
+        }
+        if(scopeValue === 'series' && distKey){
+          return Array.from(root.querySelectorAll(`.hist-overlay[data-dist="${distKey.replace(/"/g, '\\"')}"]`));
+        }
+        return Array.from(root.querySelectorAll('.hist-overlay'));
+      };
+      additionalLineControls.show({
+        scopeId: 'hist',
+        target,
+        panelTitle: 'Distribution fit',
+        controls: {
+          showSummary: false,
+          showScope: true,
+          showPattern: true,
+          scopeLabel: 'Scope',
+          colorLabel: 'Line',
+          thicknessLabel: 'Line width',
+          patternLabel: 'Line pattern',
+          transparencyLabel: 'Line transparency',
+          thicknessMin: 0.2,
+          thicknessStep: 0.1,
+          thicknessMax: 20
+        },
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'series', label: 'Series', disabled: !distKey },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: distKey ? 'series' : 'global'
+        },
+        getSummary: ctx => (ctx?.scope === 'series' && distKey) ? distKey : 'Global',
+        getColor: ctx => {
+          if(ctx?.scope === 'series' && distKey){
+            return target.getAttribute('stroke') || state.distributionOptions?.find(o => o.key === distKey)?.color || '#d95f02';
+          }
+          const first = Array.isArray(state.distributionOptions) && state.distributionOptions.length ? state.distributionOptions[0] : null;
+          return first?.color || target.getAttribute('stroke') || '#d95f02';
+        },
+        getThickness: ctx => {
+          if(ctx?.scope === 'series' && distKey){
+            const option = state.distributionOptions?.find(o => o.key === distKey);
+            const byOption = Number(option?.strokeWidth);
+            if(Number.isFinite(byOption)){ return byOption; }
+          }
+          const byAttr = Number(target.getAttribute('stroke-width'));
+          if(Number.isFinite(byAttr)){ return byAttr; }
+          return 1;
+        },
+        getPattern: ctx => {
+          if(ctx?.scope === 'series' && distKey){
+            const option = state.distributionOptions?.find(o => o.key === distKey);
+            if(option?.pattern){ return sanitizeHistOverlayPattern(option.pattern); }
+          }
+          return inferHistOverlayPattern(target);
+        },
+        getTransparency: ctx => {
+          let opacity = null;
+          if(ctx?.scope === 'series' && distKey){
+            const option = state.distributionOptions?.find(o => o.key === distKey);
+            if(Number.isFinite(Number(option?.alpha))){
+              opacity = Number(option.alpha);
+            }
+          }
+          if(!Number.isFinite(opacity)){
+            const byAttr = Number(target.getAttribute('stroke-opacity'));
+            opacity = Number.isFinite(byAttr) ? byAttr : 1;
+          }
+          const bounded = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+          return Math.round((1 - bounded) * 100);
+        },
+        onColorInput: (value, ctx) => {
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          if(scopeValue === 'series' && distKey){
+            const opt = state.distributionOptions.find(o => o.key === distKey);
+            if(opt){ opt.color = value; }
+          }else{
+            state.distributionOptions.forEach(o => { o.color = value; });
+          }
+          state.scheduleDraw?.();
+        },
+        onColorChange: (value, ctx) => {
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          if(scopeValue === 'series' && distKey){
+            const opt = state.distributionOptions.find(o => o.key === distKey);
+            if(opt){ opt.color = value; }
+          }else{
+            state.distributionOptions.forEach(o => { o.color = value; });
+          }
+          state.scheduleDraw?.();
+        },
+        onThicknessChange: (value, ctx) => {
+          const next = Number(value);
+          if(!Number.isFinite(next)){ return; }
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke-width', String(next)); }catch(e){} });
+          if(scopeValue === 'series' && distKey){
+            const opt = state.distributionOptions.find(o => o.key === distKey);
+            if(opt){ opt.strokeWidth = next; }
+          }else{
+            state.distributionOptions.forEach(o => { o.strokeWidth = next; });
+          }
+          state.scheduleDraw?.();
+        },
+        onPatternChange: (value, ctx) => {
+          const pattern = sanitizeHistOverlayPattern(value);
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => applyHistOverlayPattern(node, pattern));
+          if(scopeValue === 'series' && distKey){
+            const opt = state.distributionOptions.find(o => o.key === distKey);
+            if(opt){ opt.pattern = pattern; }
+          }else{
+            state.distributionOptions.forEach(o => { o.pattern = pattern; });
+          }
+          state.scheduleDraw?.();
+        },
+        onTransparencyChange: (value, ctx) => {
+          const pct = Number(value);
+          const bounded = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
+          const opacity = 1 - (bounded / 100);
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke-opacity', String(opacity)); }catch(e){} });
+          if(scopeValue === 'series' && distKey){
+            const opt = state.distributionOptions.find(o => o.key === distKey);
+            if(opt){ opt.alpha = opacity; }
+          }else{
+            state.distributionOptions.forEach(o => { o.alpha = opacity; });
+          }
+          state.scheduleDraw?.();
+        }
+      });
+      return;
+    }
     const doc = global.document;
     if(!doc) return;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
@@ -762,6 +996,36 @@
     return value;
   }
 
+  function sanitizeHistOverlayPattern(value){
+    const patternRaw = String(value || 'solid').toLowerCase();
+    return (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+  }
+
+  function histOverlayPatternToDasharray(pattern){
+    const normalized = sanitizeHistOverlayPattern(pattern);
+    if(normalized === 'dashed'){ return '6 3'; }
+    if(normalized === 'dotted'){ return '2 3'; }
+    return '';
+  }
+
+  function inferHistOverlayPattern(el){
+    const dash = String(el?.getAttribute?.('stroke-dasharray') || '').trim();
+    if(!dash){ return 'solid'; }
+    const compact = dash.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    if(compact === '6 3' || compact === '4 4'){ return 'dashed'; }
+    return 'dotted';
+  }
+
+  function applyHistOverlayPattern(el, pattern){
+    if(!el || !el.setAttribute){ return; }
+    const dash = histOverlayPatternToDasharray(pattern);
+    if(dash){
+      el.setAttribute('stroke-dasharray', dash);
+    }else{
+      el.removeAttribute('stroke-dasharray');
+    }
+  }
+
   function prepareDistributionFits(values){
     if(!Array.isArray(values) || !values.length){
       return [];
@@ -803,6 +1067,7 @@
           // store as normalized 0..1
           fitResult.alpha = Math.min(1, Math.max(0, Number(option.alpha)));
         }
+        fitResult.pattern = sanitizeHistOverlayPattern(option.pattern || 'solid');
       }
       results.push(fitResult);
       if(debugEnabled){
@@ -1851,7 +2116,7 @@
     console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
     const fill=histFill.value; const borderColor=histBorder.value;
-    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
+    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill,'class':'hist-bar','data-hist-bar':'1'}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
     if(distributionFits.length && (includePdf || includeCdf)){
       const overlayGroup = add('g',{ 'class':'hist-overlay-group' });
       const sampleCount = values.length;
@@ -1870,6 +2135,7 @@
         if(!fit || fit.valid === false){ return; }
         const strokeColor = fit.color || DEFAULT_DISTRIBUTION_COLORS[index % DEFAULT_DISTRIBUTION_COLORS.length];
         const strokeWidth = Number.isFinite(Number(fit.strokeWidth)) ? Number(fit.strokeWidth) : Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
+        const strokePattern = sanitizeHistOverlayPattern(fit.pattern || 'solid');
         if(includePdf && typeof fit.pdf === 'function' && effectiveBinWidth > 0){
           const parts=[];
           for(let step=0;step<sampleSteps;step++){
@@ -1888,6 +2154,7 @@
               stroke:strokeColor,
               'stroke-width':strokeWidth,
               'stroke-opacity': Number.isFinite(Number(fit.alpha)) ? fit.alpha : 1,
+              'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
               'stroke-linejoin':'round',
               'stroke-linecap':'round',
               'data-dist':fit.key || fit.label,
@@ -1915,7 +2182,7 @@
               stroke:strokeColor,
               'stroke-width':strokeWidth,
               'stroke-opacity': Number.isFinite(Number(fit.alpha)) ? fit.alpha : 1,
-              'stroke-dasharray':'6 3',
+              'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
               'stroke-linejoin':'round',
               'stroke-linecap':'round',
               'data-dist':fit.key || fit.label,

@@ -182,12 +182,16 @@
     const borderCfg = cfg.border || {};
     const sizeCfg = cfg.size || {};
     const transparencyCfg = cfg.transparency || {};
+    const sizeEnabled = sizeCfg.enabled !== false;
+    const shapePickerEnabled = fillCfg.showShapePicker !== false;
+    const transparencyEnabled = transparencyCfg.enabled !== false;
 
     let currentSize = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(getContext()) : 0, 0, 0);
     let currentBorderWidth = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(getContext()) : 0, 0, 0);
     let currentBorderColor = typeof borderCfg.getColor === 'function' ? borderCfg.getColor(getContext()) : '#000000';
 
     const applySize = (nextValue) => {
+      if(!sizeEnabled){ return; }
       const next = clampNumeric(nextValue, 0, 0);
       currentSize = next;
       if(typeof sizeCfg.onChange === 'function'){
@@ -236,6 +240,9 @@
     };
 
     const attachSizeSection = overlayEl => {
+      if(!sizeEnabled){
+        return () => {};
+      }
       if(!overlayEl){ return () => {}; }
       clearStyleSection(overlayEl);
       const section = createStyleSection('Size', currentSize, applySize);
@@ -266,6 +273,7 @@
           color: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#377eb8',
           shape: typeof fillCfg.getShape === 'function' ? fillCfg.getShape(getContext()) : 'circle',
           shapeOptions: resolveShapeOptions(fillCfg.shapeOptions),
+          showShapePicker: shapePickerEnabled,
           onColorInput(value){
             if(typeof fillCfg.onColorInput === 'function'){
               fillCfg.onColorInput(value, getContext());
@@ -309,16 +317,24 @@
     if(fillShapeSwatch?.swatch){
       fillShapeSwatch.swatch.classList.add('shared-fill-style-chip');
       syncFillChipUi = () => {
+        if(!sizeEnabled){
+          delete fillShapeSwatch.swatch.dataset.sizeText;
+          return;
+        }
         const text = Number.isFinite(currentSize) ? (Math.round(currentSize * 10) / 10).toString() : '0';
         fillShapeSwatch.swatch.dataset.sizeText = `${text}px`;
       };
       syncFillChipUi();
-      fillShapeSwatch.swatch.title = 'Click to edit fill/shape. Wheel or Alt+drag to adjust marker size.';
-      fillShapeSwatch.swatch.addEventListener('wheel', evt => {
-        evt.preventDefault();
-        const step = evt.deltaY < 0 ? 0.5 : -0.5;
-        applySize(currentSize + step);
-      }, { passive: false });
+      fillShapeSwatch.swatch.title = sizeEnabled
+        ? 'Click to edit fill/shape. Wheel or Alt+drag to adjust marker size.'
+        : 'Click to edit fill.';
+      if(sizeEnabled){
+        fillShapeSwatch.swatch.addEventListener('wheel', evt => {
+          evt.preventDefault();
+          const step = evt.deltaY < 0 ? 0.5 : -0.5;
+          applySize(currentSize + step);
+        }, { passive: false });
+      }
       let fillDragState = null;
       let suppressClick = false;
       const onMove = evt => {
@@ -333,14 +349,16 @@
         global.removeEventListener('mousemove', onMove);
         global.removeEventListener('mouseup', onUp);
       };
-      fillShapeSwatch.swatch.addEventListener('mousedown', evt => {
-        if(!evt.altKey || evt.button !== 0){ return; }
-        evt.preventDefault();
-        suppressClick = true;
-        fillDragState = { startX: evt.clientX, startValue: currentSize };
-        global.addEventListener('mousemove', onMove);
-        global.addEventListener('mouseup', onUp);
-      });
+      if(sizeEnabled){
+        fillShapeSwatch.swatch.addEventListener('mousedown', evt => {
+          if(!evt.altKey || evt.button !== 0){ return; }
+          evt.preventDefault();
+          suppressClick = true;
+          fillDragState = { startX: evt.clientX, startValue: currentSize };
+          global.addEventListener('mousemove', onMove);
+          global.addEventListener('mouseup', onUp);
+        });
+      }
       fillShapeSwatch.swatch.addEventListener('click', evt => {
         if(!suppressClick){ return; }
         suppressClick = false;
@@ -456,72 +474,77 @@
     const borderLabel = makeInput(borderCfg.label || 'Border', borderControl, 'additional-line-controls-panel__field--style additional-line-controls-panel__field--symbol-border');
     wrap.appendChild(borderLabel);
 
-    const transparencyField = doc.createElement('label');
-    transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
-    transparencyField.dataset.symbolTransparencyControl = '1';
-    const transparencyLabel = doc.createElement('span');
-    transparencyLabel.className = 'additional-line-controls-panel__field-label';
-    transparencyLabel.textContent = transparencyCfg.label || 'Transparency';
-    const transparencyWrap = doc.createElement('div');
-    transparencyWrap.className = 'additional-line-controls-panel__range';
-    const transparencyInput = doc.createElement('input');
-    transparencyInput.type = 'range';
-    transparencyInput.min = '0';
-    transparencyInput.max = '100';
-    transparencyInput.step = '1';
-    transparencyInput.className = 'additional-line-controls-panel__transparency-input';
-    const transparencyValue = doc.createElement('span');
-    transparencyValue.className = 'additional-line-controls-panel__range-value';
-    const resolveTransparencyPercent = () => {
-      const raw = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(getContext()) : 0;
-      const numeric = Number(raw);
-      if(!Number.isFinite(numeric)){
-        return 0;
-      }
-      const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
-      const asPercent = scale === 'percent' || (scale !== 'fraction' && numeric > 1);
-      return asPercent
-        ? Math.min(100, Math.max(0, numeric))
-        : (Math.min(1, Math.max(0, numeric)) * 100);
-    };
-    const quantizeTransparencyPercent = value => {
-      const bounded = Number.isFinite(Number(value)) ? Math.min(100, Math.max(0, Number(value))) : 0;
-      let display = Math.round(bounded);
-      if(display === 0 && bounded > 0){
-        display = 1;
-      }else if(display === 100 && bounded < 100){
-        display = 99;
-      }
-      return display;
-    };
-    const syncTransparency = () => {
-      const display = quantizeTransparencyPercent(resolveTransparencyPercent());
-      transparencyInput.value = String(display);
-      transparencyValue.textContent = `${display}%`;
-    };
-    syncTransparency();
-    transparencyInput.addEventListener('input', () => {
-      const pct = Number(transparencyInput.value);
-      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-      const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
-      const outgoing = scale === 'percent' ? bounded : (bounded / 100);
-      if(typeof transparencyCfg.onChange === 'function'){
-        transparencyCfg.onChange(outgoing, getContext());
-      }
-      const display = quantizeTransparencyPercent(bounded);
-      transparencyValue.textContent = `${display}%`;
-    });
-    transparencyWrap.appendChild(transparencyInput);
-    transparencyWrap.appendChild(transparencyValue);
-    transparencyField.appendChild(transparencyLabel);
-    transparencyField.appendChild(transparencyWrap);
-    wrap.appendChild(transparencyField);
+    let syncTransparency = () => {};
+    if(transparencyEnabled){
+      const transparencyField = doc.createElement('label');
+      transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
+      transparencyField.dataset.symbolTransparencyControl = '1';
+      const transparencyLabel = doc.createElement('span');
+      transparencyLabel.className = 'additional-line-controls-panel__field-label';
+      transparencyLabel.textContent = transparencyCfg.label || 'Transparency';
+      const transparencyWrap = doc.createElement('div');
+      transparencyWrap.className = 'additional-line-controls-panel__range';
+      const transparencyInput = doc.createElement('input');
+      transparencyInput.type = 'range';
+      transparencyInput.min = '0';
+      transparencyInput.max = '100';
+      transparencyInput.step = '1';
+      transparencyInput.className = 'additional-line-controls-panel__transparency-input';
+      const transparencyValue = doc.createElement('span');
+      transparencyValue.className = 'additional-line-controls-panel__range-value';
+      const resolveTransparencyPercent = () => {
+        const raw = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(getContext()) : 0;
+        const numeric = Number(raw);
+        if(!Number.isFinite(numeric)){
+          return 0;
+        }
+        const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
+        const asPercent = scale === 'percent' || (scale !== 'fraction' && numeric > 1);
+        return asPercent
+          ? Math.min(100, Math.max(0, numeric))
+          : (Math.min(1, Math.max(0, numeric)) * 100);
+      };
+      const quantizeTransparencyPercent = value => {
+        const bounded = Number.isFinite(Number(value)) ? Math.min(100, Math.max(0, Number(value))) : 0;
+        let display = Math.round(bounded);
+        if(display === 0 && bounded > 0){
+          display = 1;
+        }else if(display === 100 && bounded < 100){
+          display = 99;
+        }
+        return display;
+      };
+      syncTransparency = () => {
+        const display = quantizeTransparencyPercent(resolveTransparencyPercent());
+        transparencyInput.value = String(display);
+        transparencyValue.textContent = `${display}%`;
+      };
+      syncTransparency();
+      transparencyInput.addEventListener('input', () => {
+        const pct = Number(transparencyInput.value);
+        const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+        const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
+        const outgoing = scale === 'percent' ? bounded : (bounded / 100);
+        if(typeof transparencyCfg.onChange === 'function'){
+          transparencyCfg.onChange(outgoing, getContext());
+        }
+        const display = quantizeTransparencyPercent(bounded);
+        transparencyValue.textContent = `${display}%`;
+      });
+      transparencyWrap.appendChild(transparencyInput);
+      transparencyWrap.appendChild(transparencyValue);
+      transparencyField.appendChild(transparencyLabel);
+      transparencyField.appendChild(transparencyWrap);
+      wrap.appendChild(transparencyField);
+    }
 
     scopeSelect.addEventListener('change', () => {
       if(typeof scopeCfg.onChange === 'function'){
         scopeCfg.onChange(scopeSelect.value);
       }
-      currentSize = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(getContext()) : currentSize, 0, currentSize);
+      if(sizeEnabled){
+        currentSize = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(getContext()) : currentSize, 0, currentSize);
+      }
       currentBorderWidth = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(getContext()) : currentBorderWidth, 0, currentBorderWidth);
       currentBorderColor = typeof borderCfg.getColor === 'function' ? (borderCfg.getColor(getContext()) || currentBorderColor) : currentBorderColor;
       syncFillChipUi();

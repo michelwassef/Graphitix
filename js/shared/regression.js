@@ -4,6 +4,13 @@
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   const jStatLib = global.jStat;
   const debugNs = 'shared-regression';
+  const regressionDebugEnabled = () => (typeof Shared.isDebugEnabled === 'function' ? !!Shared.isDebugEnabled() : true);
+  const regressionDebug = (...args) => {
+    if(!regressionDebugEnabled()){
+      return;
+    }
+    console.debug('Debug:', debugNs, ...args);
+  };
 
   const ensureFiniteNumber = (value) => (Number.isFinite(value) ? value : NaN);
   regressionTools.ensureFiniteNumber = ensureFiniteNumber;
@@ -618,6 +625,537 @@
       console.error('Polynomial regression failure', err);
       return null;
     }
+  };
+
+  const safePow10 = (exponent) => {
+    if(!Number.isFinite(exponent)){
+      return NaN;
+    }
+    const bounded = Math.max(-308, Math.min(308, exponent));
+    return Math.pow(10, bounded);
+  };
+
+  const isLikelyBinaryResponse = (points) => {
+    if(!Array.isArray(points) || !points.length){
+      return false;
+    }
+    let withinUnit = true;
+    let boundaryCount = 0;
+    const rounded = new Set();
+    points.forEach(pt => {
+      const yVal = Number(pt?.y);
+      if(!Number.isFinite(yVal)){
+        return;
+      }
+      if(yVal < 0 || yVal > 1){
+        withinUnit = false;
+      }else{
+        if(Math.abs(yVal) <= 1e-6 || Math.abs(yVal - 1) <= 1e-6){
+          boundaryCount += 1;
+        }
+        rounded.add(Math.round(yVal * 1000) / 1000);
+      }
+    });
+    if(!withinUnit){
+      return false;
+    }
+    if(rounded.size <= 2){
+      return true;
+    }
+    const boundaryRatio = boundaryCount / Math.max(points.length, 1);
+    return rounded.size <= 4 && boundaryRatio >= 0.8;
+  };
+
+  const evaluateDoseResponse4PL = (params, x) => {
+    if(!params || !Number.isFinite(x)){
+      return NaN;
+    }
+    const bottom = Number(params.bottom);
+    const top = Number(params.top);
+    const logIC50 = Number(params.logIC50);
+    const hillSlope = Number(params.hillSlope);
+    if(!Number.isFinite(bottom) || !Number.isFinite(top) || !Number.isFinite(logIC50) || !Number.isFinite(hillSlope)){
+      return NaN;
+    }
+    const span = top - bottom;
+    if(!Number.isFinite(span)){
+      return NaN;
+    }
+    const exponent = (logIC50 - x) * hillSlope;
+    const powTerm = safePow10(exponent);
+    if(!Number.isFinite(powTerm)){
+      return NaN;
+    }
+    const denominator = 1 + powTerm;
+    if(!Number.isFinite(denominator) || denominator === 0){
+      return NaN;
+    }
+    return bottom + (span / denominator);
+  };
+
+  const decodeDoseResponseVector = (vector) => {
+    const bottom = Number(vector?.[0]);
+    const logSpanRaw = Number(vector?.[1]);
+    const logIC50 = Number(vector?.[2]);
+    const hillSlopeRaw = Number(vector?.[3]);
+    const logSpan = Number.isFinite(logSpanRaw) ? Math.max(-40, Math.min(40, logSpanRaw)) : 0;
+    const span = Math.exp(logSpan);
+    const top = bottom + span;
+    const hillSlope = Number.isFinite(hillSlopeRaw) ? Math.max(-12, Math.min(12, hillSlopeRaw)) : 0;
+    return { bottom, top, span, logIC50, hillSlope };
+  };
+
+  const toDoseResponseParamVector = (params) => [
+    Number(params?.bottom),
+    Number(params?.top),
+    Number(params?.logIC50),
+    Number(params?.hillSlope)
+  ];
+
+  const fromDoseResponseParamVector = (vector) => ({
+    bottom: Number(vector?.[0]),
+    top: Number(vector?.[1]),
+    logIC50: Number(vector?.[2]),
+    hillSlope: Number(vector?.[3])
+  });
+
+  const normalizeDoseResponseParamVector = (vector) => {
+    const normalized = Array.isArray(vector) ? vector.slice(0,4) : [NaN, NaN, NaN, NaN];
+    while(normalized.length < 4){
+      normalized.push(0);
+    }
+    if(normalized[1] <= normalized[0]){
+      normalized[1] = normalized[0] + 1e-6;
+    }
+    return normalized;
+  };
+
+  const computeDoseResponseSse = (vector, points) => {
+    const params = decodeDoseResponseVector(vector);
+    if(!Number.isFinite(params.bottom) || !Number.isFinite(params.top) || !Number.isFinite(params.logIC50) || !Number.isFinite(params.hillSlope)){
+      return { sse: Infinity, predictions: [], params };
+    }
+    const predictions = new Array(points.length);
+    let sse = 0;
+    for(let i = 0; i < points.length; i++){
+      const point = points[i];
+      const prediction = evaluateDoseResponse4PL(params, point.x);
+      if(!Number.isFinite(prediction)){
+        return { sse: Infinity, predictions: [], params };
+      }
+      const residual = point.y - prediction;
+      predictions[i] = prediction;
+      sse += residual * residual;
+    }
+    return { sse, predictions, params };
+  };
+
+  const computeDoseResponseGradient = (vector, points) => {
+    const gradient = new Array(vector.length).fill(0);
+    for(let idx = 0; idx < vector.length; idx++){
+      const baseValue = Number(vector[idx]);
+      const step = Math.max(1e-5, Math.abs(baseValue) * 1e-4);
+      const plus = vector.slice();
+      const minus = vector.slice();
+      plus[idx] = baseValue + step;
+      minus[idx] = baseValue - step;
+      const plusEval = computeDoseResponseSse(plus, points).sse;
+      const minusEval = computeDoseResponseSse(minus, points).sse;
+      if(Number.isFinite(plusEval) && Number.isFinite(minusEval)){
+        const rawGradient = (plusEval - minusEval) / (2 * step);
+        gradient[idx] = Number.isFinite(rawGradient)
+          ? Math.max(-1e6, Math.min(1e6, rawGradient))
+          : 0;
+      }
+    }
+    return gradient;
+  };
+
+  const fitDoseResponseByAdam = ({ points, initialVector, maxIterations = 450 }) => {
+    let vector = Array.isArray(initialVector) ? initialVector.slice(0,4) : [0,0,0,0];
+    while(vector.length < 4){
+      vector.push(0);
+    }
+    const beta1 = 0.9;
+    const beta2 = 0.999;
+    const epsilon = 1e-8;
+    const m = [0,0,0,0];
+    const v = [0,0,0,0];
+    let learningRate = 0.08;
+    let bestEval = computeDoseResponseSse(vector, points);
+    let bestVector = vector.slice();
+    let stallCount = 0;
+    let iteration = 0;
+    for(iteration = 1; iteration <= maxIterations; iteration++){
+      const currentEval = computeDoseResponseSse(vector, points);
+      if(currentEval.sse < bestEval.sse){
+        bestEval = currentEval;
+        bestVector = vector.slice();
+        stallCount = 0;
+      }else{
+        stallCount += 1;
+      }
+      const gradient = computeDoseResponseGradient(vector, points);
+      const nextVector = vector.slice();
+      let gradNormSq = 0;
+      for(let idx = 0; idx < gradient.length; idx++){
+        const g = gradient[idx];
+        gradNormSq += g * g;
+        m[idx] = beta1 * m[idx] + (1 - beta1) * g;
+        v[idx] = beta2 * v[idx] + (1 - beta2) * (g * g);
+        const mHat = m[idx] / (1 - Math.pow(beta1, iteration));
+        const vHat = v[idx] / (1 - Math.pow(beta2, iteration));
+        const step = learningRate * (mHat / (Math.sqrt(vHat) + epsilon));
+        nextVector[idx] = vector[idx] - step;
+      }
+      const nextEval = computeDoseResponseSse(nextVector, points);
+      if(nextEval.sse <= currentEval.sse || !Number.isFinite(currentEval.sse)){
+        vector = nextVector;
+        if(nextEval.sse < bestEval.sse){
+          bestEval = nextEval;
+          bestVector = vector.slice();
+          stallCount = 0;
+        }
+        learningRate = Math.min(0.2, learningRate * 1.015);
+      }else{
+        learningRate = Math.max(1e-4, learningRate * 0.5);
+      }
+      if(gradNormSq < 1e-12){
+        break;
+      }
+      if(learningRate <= 1e-4 && stallCount > 70){
+        break;
+      }
+      if(stallCount > 160){
+        break;
+      }
+    }
+    return {
+      vector: bestVector,
+      sse: bestEval.sse,
+      predictions: bestEval.predictions,
+      params: bestEval.params,
+      iterations: iteration,
+      converged: stallCount <= 240
+    };
+  };
+
+  const approximateDoseResponseGradientAtX = (parameterVector, x) => {
+    const gradient = new Array(4).fill(0);
+    const baseVector = normalizeDoseResponseParamVector(parameterVector);
+    for(let idx = 0; idx < gradient.length; idx++){
+      const baseValue = baseVector[idx];
+      const step = Math.max(1e-6, Math.abs(baseValue) * 1e-4);
+      const plus = baseVector.slice();
+      const minus = baseVector.slice();
+      plus[idx] = baseValue + step;
+      minus[idx] = baseValue - step;
+      const plusAdjusted = normalizeDoseResponseParamVector(plus);
+      const minusAdjusted = normalizeDoseResponseParamVector(minus);
+      const plusPrediction = evaluateDoseResponse4PL(fromDoseResponseParamVector(plusAdjusted), x);
+      const minusPrediction = evaluateDoseResponse4PL(fromDoseResponseParamVector(minusAdjusted), x);
+      if(Number.isFinite(plusPrediction) && Number.isFinite(minusPrediction)){
+        gradient[idx] = (plusPrediction - minusPrediction) / (2 * step);
+      }
+    }
+    return gradient;
+  };
+
+  const estimateDoseResponseCovariance = ({ points, params, sse, alpha }) => {
+    const parameterVector = normalizeDoseResponseParamVector(toDoseResponseParamVector(params));
+    const parameterCount = parameterVector.length;
+    const dof = points.length - parameterCount;
+    if(!hasMatrixOps || dof <= 0){
+      return {
+        covariance: null,
+        standardErrors: new Array(parameterCount).fill(NaN),
+        sigmaSq: NaN,
+        tCritical: NaN,
+        degreesOfFreedom: dof
+      };
+    }
+    const jacobian = points.map(point => approximateDoseResponseGradientAtX(parameterVector, point.x));
+    const jacobianT = safeTranspose(jacobian);
+    if(!jacobianT){
+      return {
+        covariance: null,
+        standardErrors: new Array(parameterCount).fill(NaN),
+        sigmaSq: NaN,
+        tCritical: NaN,
+        degreesOfFreedom: dof
+      };
+    }
+    const jtj = safeMultiply(jacobianT, jacobian);
+    if(!jtj){
+      return {
+        covariance: null,
+        standardErrors: new Array(parameterCount).fill(NaN),
+        sigmaSq: NaN,
+        tCritical: NaN,
+        degreesOfFreedom: dof
+      };
+    }
+    const jtjInv = safeInverse(jtj);
+    if(!jtjInv){
+      return {
+        covariance: null,
+        standardErrors: new Array(parameterCount).fill(NaN),
+        sigmaSq: NaN,
+        tCritical: NaN,
+        degreesOfFreedom: dof
+      };
+    }
+    const sigmaSq = sse / Math.max(dof, 1);
+    const covariance = jtjInv.map(row => row.map(value => Number.isFinite(value) ? value * sigmaSq : NaN));
+    const standardErrors = covariance.map((row, idx) => {
+      const variance = row?.[idx];
+      return Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
+    });
+    const tDist = jStatLib?.studentt;
+    const tCritical = (tDist && typeof tDist.inv === 'function' && dof > 0)
+      ? tDist.inv(1 - alpha / 2, dof)
+      : NaN;
+    return {
+      covariance,
+      standardErrors,
+      sigmaSq,
+      tCritical,
+      degreesOfFreedom: dof
+    };
+  };
+
+  const buildDoseResponseIntervals = ({ params, covariance, sigmaSq, tCritical, domain, sampleCount = 200 }) => {
+    if(!covariance || !Number.isFinite(sigmaSq) || !Number.isFinite(tCritical)){
+      return { samples: [], summary: null };
+    }
+    const minX = Number.isFinite(domain?.minX) ? domain.minX : NaN;
+    const maxX = Number.isFinite(domain?.maxX) ? domain.maxX : NaN;
+    if(!Number.isFinite(minX) || !Number.isFinite(maxX) || minX === maxX){
+      return { samples: [], summary: null };
+    }
+    const parameterVector = normalizeDoseResponseParamVector(toDoseResponseParamVector(params));
+    const step = (maxX - minX) / Math.max(sampleCount - 1, 1);
+    const samples = [];
+    let ciMin = Infinity;
+    let ciMax = -Infinity;
+    let piMin = Infinity;
+    let piMax = -Infinity;
+    for(let idx = 0; idx < sampleCount; idx++){
+      const x = idx === sampleCount - 1 ? maxX : (minX + (step * idx));
+      const y = evaluateDoseResponse4PL(params, x);
+      if(!Number.isFinite(y)){
+        continue;
+      }
+      const gradient = approximateDoseResponseGradientAtX(parameterVector, x);
+      let meanVariance = 0;
+      for(let i = 0; i < gradient.length; i++){
+        const row = covariance[i] || [];
+        for(let j = 0; j < gradient.length; j++){
+          const covValue = row[j];
+          if(Number.isFinite(covValue)){
+            meanVariance += gradient[i] * covValue * gradient[j];
+          }
+        }
+      }
+      const meanSe = meanVariance >= 0 ? Math.sqrt(meanVariance) : NaN;
+      const ciHalf = Number.isFinite(meanSe) ? tCritical * meanSe : NaN;
+      const predictionSe = Number.isFinite(meanVariance) ? Math.sqrt(Math.max(meanVariance + sigmaSq, 0)) : NaN;
+      const piHalf = Number.isFinite(predictionSe) ? tCritical * predictionSe : NaN;
+      const ciLow = Number.isFinite(ciHalf) ? y - ciHalf : NaN;
+      const ciHigh = Number.isFinite(ciHalf) ? y + ciHalf : NaN;
+      const piLow = Number.isFinite(piHalf) ? y - piHalf : NaN;
+      const piHigh = Number.isFinite(piHalf) ? y + piHalf : NaN;
+      if(Number.isFinite(ciLow) && ciLow < ciMin){ ciMin = ciLow; }
+      if(Number.isFinite(ciHigh) && ciHigh > ciMax){ ciMax = ciHigh; }
+      if(Number.isFinite(piLow) && piLow < piMin){ piMin = piLow; }
+      if(Number.isFinite(piHigh) && piHigh > piMax){ piMax = piHigh; }
+      samples.push({ x, y, ciLow, ciHigh, piLow, piHigh });
+    }
+    const summary = samples.length
+      ? {
+          ciMin: Number.isFinite(ciMin) ? ciMin : NaN,
+          ciMax: Number.isFinite(ciMax) ? ciMax : NaN,
+          piMin: Number.isFinite(piMin) ? piMin : NaN,
+          piMax: Number.isFinite(piMax) ? piMax : NaN
+        }
+      : null;
+    return { samples, summary };
+  };
+
+  const computeDoseResponse4PLModel = ({ points, alpha, domain }) => {
+    if(!Array.isArray(points) || points.length < 4){
+      return null;
+    }
+    const sortedByX = points.slice().sort((a,b) => a.x - b.x);
+    const xVals = sortedByX.map(pt => pt.x);
+    const yVals = sortedByX.map(pt => pt.y);
+    const yMin = Math.min(...yVals);
+    const yMax = Math.max(...yVals);
+    const spanGuess = Math.max(yMax - yMin, 1e-6);
+    const yMid = yMin + (spanGuess / 2);
+    const xNearMid = sortedByX.reduce((best, point) => {
+      const distance = Math.abs(point.y - yMid);
+      if(!best || distance < best.distance){
+        return { x: point.x, distance };
+      }
+      return best;
+    }, null);
+    const sortedXOnly = xVals.slice().sort((a,b) => a - b);
+    const medianX = sortedXOnly.length % 2 === 0
+      ? (sortedXOnly[(sortedXOnly.length / 2) - 1] + sortedXOnly[sortedXOnly.length / 2]) / 2
+      : sortedXOnly[Math.floor(sortedXOnly.length / 2)];
+    const meanX = jStatLib.mean(xVals);
+    const meanY = jStatLib.mean(yVals);
+    const slopeNumerator = xVals.reduce((sum, value, idx) => sum + ((value - meanX) * (yVals[idx] - meanY)), 0);
+    const slopeDenominator = xVals.reduce((sum, value) => sum + Math.pow(value - meanX, 2), 0);
+    const linearSlope = slopeDenominator !== 0 ? slopeNumerator / slopeDenominator : 0;
+    const hillSeed = linearSlope <= 0 ? -1 : 1;
+    const logSpanGuess = Math.log(spanGuess);
+    const seedCenter = Number.isFinite(xNearMid?.x) ? xNearMid.x : (Number.isFinite(medianX) ? medianX : meanX);
+    const initialVectors = [
+      [yMin, logSpanGuess, seedCenter, hillSeed],
+      [yMin - (0.1 * spanGuess), Math.log(spanGuess * 1.2), seedCenter, hillSeed],
+      [yMin, logSpanGuess, medianX, hillSeed * 0.5],
+      [yMin, logSpanGuess, meanX, hillSeed],
+      [yMin, logSpanGuess, seedCenter, -hillSeed]
+    ].filter(vector => vector.every(value => Number.isFinite(value)));
+    if(!initialVectors.length){
+      initialVectors.push([yMin, logSpanGuess, 0, hillSeed]);
+    }
+    let bestFit = null;
+    initialVectors.forEach(initial => {
+      const fit = fitDoseResponseByAdam({ points: sortedByX, initialVector: initial, maxIterations: 450 });
+      if(!bestFit || fit.sse < bestFit.sse){
+        bestFit = fit;
+      }
+    });
+    if(!bestFit || !Number.isFinite(bestFit.sse)){
+      return null;
+    }
+    const params = bestFit.params || decodeDoseResponseVector(bestFit.vector);
+    const predictions = Array.isArray(bestFit.predictions) ? bestFit.predictions : sortedByX.map(pt => evaluateDoseResponse4PL(params, pt.x));
+    const residuals = predictions.map((prediction, idx) => sortedByX[idx].y - prediction);
+    const sse = residuals.reduce((sum, value) => sum + (value * value), 0);
+    const sst = yVals.reduce((sum, value) => sum + Math.pow(value - meanY, 2), 0);
+    const rmse = Math.sqrt(sse / sortedByX.length);
+    const mae = residuals.reduce((sum, value) => sum + Math.abs(value), 0) / sortedByX.length;
+    const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+    const parameterCount = 4;
+    const adjR2 = sortedByX.length > parameterCount
+      ? 1 - ((1 - r2) * ((sortedByX.length - 1) / (sortedByX.length - parameterCount)))
+      : r2;
+    const covarianceInfo = estimateDoseResponseCovariance({ points: sortedByX, params, sse, alpha });
+    const standardErrors = covarianceInfo.standardErrors || [NaN, NaN, NaN, NaN];
+    const tCritical = covarianceInfo.tCritical;
+    const degreesOfFreedom = covarianceInfo.degreesOfFreedom;
+    const tDist = jStatLib?.studentt;
+    const terms = ['Bottom','Top','LogIC50','HillSlope'];
+    const estimates = [params.bottom, params.top, params.logIC50, params.hillSlope];
+    const coefficientStats = terms.map((term, idx) => {
+      const estimate = estimates[idx];
+      const standardError = standardErrors[idx];
+      const tStatistic = Number.isFinite(standardError) && standardError !== 0
+        ? estimate / standardError
+        : NaN;
+      const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && degreesOfFreedom > 0)
+        ? 2 * (1 - tDist.cdf(Math.abs(tStatistic), degreesOfFreedom))
+        : NaN;
+      const ciHalfWidth = Number.isFinite(tCritical) && Number.isFinite(standardError)
+        ? tCritical * standardError
+        : NaN;
+      return {
+        term,
+        estimate,
+        standardError,
+        tStatistic,
+        pValue,
+        ciLow: Number.isFinite(ciHalfWidth) ? estimate - ciHalfWidth : NaN,
+        ciHigh: Number.isFinite(ciHalfWidth) ? estimate + ciHalfWidth : NaN
+      };
+    });
+    const logIC50Stat = coefficientStats.find(entry => entry.term === 'LogIC50') || null;
+    const ic50Value = safePow10(params.logIC50);
+    const ic50StandardError = Number.isFinite(logIC50Stat?.standardError) && Number.isFinite(ic50Value)
+      ? Math.log(10) * ic50Value * logIC50Stat.standardError
+      : NaN;
+    coefficientStats.push({
+      term: 'IC50',
+      estimate: ic50Value,
+      standardError: ic50StandardError,
+      tStatistic: Number.isFinite(logIC50Stat?.tStatistic) ? logIC50Stat.tStatistic : NaN,
+      pValue: Number.isFinite(logIC50Stat?.pValue) ? logIC50Stat.pValue : NaN,
+      ciLow: Number.isFinite(logIC50Stat?.ciLow) ? safePow10(logIC50Stat.ciLow) : NaN,
+      ciHigh: Number.isFinite(logIC50Stat?.ciHigh) ? safePow10(logIC50Stat.ciHigh) : NaN
+    });
+    const intervals = buildDoseResponseIntervals({
+      params,
+      covariance: covarianceInfo.covariance,
+      sigmaSq: covarianceInfo.sigmaSq,
+      tCritical,
+      domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }
+    });
+    const warnings = [];
+    if(!bestFit.converged){
+      warnings.push('Dose-response optimization did not fully converge; interpret IC50 with caution.');
+    }
+    if(!covarianceInfo.covariance){
+      warnings.push('IC50 confidence intervals are unavailable because the covariance matrix could not be estimated.');
+    }
+    regressionDebug('dose-response 4PL fit', {
+      sampleSize: sortedByX.length,
+      iterations: bestFit.iterations,
+      sse,
+      r2,
+      ic50: ic50Value,
+      logIC50: params.logIC50,
+      hillSlope: params.hillSlope
+    });
+    return {
+      mode: 'doseResponse4pl',
+      coefficients: [params.bottom, params.top, params.logIC50, params.hillSlope],
+      metrics: {
+        sampleSize: sortedByX.length,
+        predictors: 4,
+        sse,
+        sst,
+        r2,
+        adjR2,
+        rmse,
+        mae,
+        iterations: bestFit.iterations
+      },
+      residuals: summarizeResiduals(residuals),
+      predictions,
+      predict: (x) => evaluateDoseResponse4PL(params, x),
+      diagnostics: computeResidualDiagnostics(residuals),
+      coefficientStats,
+      intervals: intervals.summary ? {
+        alpha,
+        tCritical,
+        degreesOfFreedom,
+        samples: intervals.samples,
+        summary: intervals.summary
+      } : null,
+      summary: {
+        intercept: params.bottom,
+        slope: params.hillSlope,
+        equation: `y = ${params.bottom.toFixed(4)} + ${(params.top - params.bottom).toFixed(4)} / (1 + 10^((${params.logIC50.toFixed(4)} - x) * ${params.hillSlope.toFixed(4)}))`,
+        parameters: {
+          Bottom: params.bottom,
+          Top: params.top,
+          LogIC50: params.logIC50,
+          HillSlope: params.hillSlope,
+          IC50: ic50Value,
+          Span: params.top - params.bottom
+        },
+        primaryParameter: {
+          label: 'IC50',
+          value: ic50Value
+        }
+      },
+      domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) },
+      warnings
+    };
   };
 
   const computeLogisticModel = ({ points, alpha, domain }) => {
@@ -1767,7 +2305,16 @@
       }else if(mode === 'holtWinters'){
         model = computeHoltWintersModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, forecast: forecastOptions });
       }else if(mode === 'logistic'){
-        model = computeLogisticModel({ points: cleanPoints, alpha, domain });
+        const preferDoseResponse = options.preferDoseResponse === true;
+        if(preferDoseResponse && !isLikelyBinaryResponse(cleanPoints)){
+          model = computeDoseResponse4PLModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
+          if(model){
+            model.warnings = (model.warnings || []).concat(['Applied a four-parameter dose-response fit to estimate IC50.']);
+          }
+        }
+        if(!model){
+          model = computeLogisticModel({ points: cleanPoints, alpha, domain });
+        }
       }else if(mode === 'quadratic' || mode === 'cubic'){
         const degree = mode === 'quadratic' ? 2 : 3;
         model = computePolynomialModel({ points: cleanPoints, degree, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, xVals, yVals, sst });
@@ -1787,7 +2334,7 @@
         }
       }
       model = model || { coefficients: [], metrics: { sampleSize }, residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN } };
-      model.mode = mode;
+      model.mode = model.mode || mode;
       if(!model.domain){
         model.domain = domain;
       }
@@ -1925,7 +2472,8 @@
       const minX = Number.isFinite(options.minX) ? options.minX : domain.minX;
       const maxX = Number.isFinite(options.maxX) ? options.maxX : domain.maxX;
       if(!Number.isFinite(minX) || !Number.isFinite(maxX) || minX === maxX){ return []; }
-      const sampleCount = Math.max(2, options.sampleCount || (model.mode === 'logistic' ? 200 : 150));
+      const defaultSampleCount = (model.mode === 'logistic' || model.mode === 'doseResponse4pl') ? 200 : 150;
+      const sampleCount = Math.max(2, options.sampleCount || defaultSampleCount);
       const step = (maxX - minX) / (sampleCount - 1);
       const samples = [];
       for(let i = 0; i < sampleCount; i++){

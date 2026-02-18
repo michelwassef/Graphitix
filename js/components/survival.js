@@ -15,8 +15,196 @@
       fontControls.importScopeStyles(scopeId, styles, { prune: true });
     }
   };
+  const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  if((typeof additionalLineControls.show !== 'function' || typeof additionalLineControls.registerAdditionalLineElement !== 'function') && typeof require === 'function'){
+    try{
+      require('../shared/additionalLineControls.js');
+    }catch(err){
+      console.debug('Debug: survival component additionalLineControls helper require failed', { message: err?.message || String(err) });
+    }
+  }
+
+  function sanitizeSurvivalLinePattern(value){
+    const patternRaw = String(value || 'solid').toLowerCase();
+    return (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
+  }
+
+  function survivalPatternToDasharray(pattern){
+    const normalized = sanitizeSurvivalLinePattern(pattern);
+    if(normalized === 'dashed'){ return '6 3'; }
+    if(normalized === 'dotted'){ return '2 3'; }
+    return '';
+  }
+
+  function inferSurvivalPatternFromElement(el){
+    const dash = String(el?.getAttribute?.('stroke-dasharray') || '').trim();
+    if(!dash){ return 'solid'; }
+    const compact = dash.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    if(compact === '6 3' || compact === '4 4'){ return 'dashed'; }
+    return 'dotted';
+  }
+
+  function applySurvivalPatternToElement(el, pattern){
+    if(!el || !el.setAttribute){ return; }
+    const dash = survivalPatternToDasharray(pattern);
+    if(dash){
+      el.setAttribute('stroke-dasharray', dash);
+    }else{
+      el.removeAttribute('stroke-dasharray');
+    }
+  }
 
   function showSurvivalStrokeFormatControls(target){
+    if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
+      const seriesKey = target.getAttribute('data-group') || null;
+      const resolveTargets = scopeValue => {
+        const doc = global.document;
+        const svg = doc ? doc.getElementById('survivalSvg') : null;
+        if(!svg){ return target ? [target] : []; }
+        if(scopeValue === 'series' && seriesKey){
+          return Array.from(svg.querySelectorAll(`path[data-group="${seriesKey.replace(/"/g, '\\"')}"]`));
+        }
+        return Array.from(svg.querySelectorAll('path[data-group]'));
+      };
+      additionalLineControls.show({
+        scopeId: 'survival',
+        target,
+        panelTitle: 'Curve',
+        controls: {
+          showSummary: false,
+          showScope: true,
+          showPattern: true,
+          scopeLabel: 'Scope',
+          colorLabel: 'Line',
+          thicknessLabel: 'Line width',
+          patternLabel: 'Line pattern',
+          transparencyLabel: 'Line transparency',
+          thicknessMin: 0.2,
+          thicknessStep: 0.1,
+          thicknessMax: 20
+        },
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'series', label: 'Series', disabled: !seriesKey },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: seriesKey ? 'series' : 'global'
+        },
+        getSummary: ctx => (ctx?.scope === 'series' && seriesKey) ? seriesKey : 'Global',
+        getColor: ctx => {
+          if(ctx?.scope === 'series' && seriesKey){
+            return state.labelColors[seriesKey] || target.getAttribute('stroke') || '#377eb8';
+          }
+          const keys = Object.keys(state.labelColors || {});
+          return (keys.length ? state.labelColors[keys[0]] : null) || target.getAttribute('stroke') || '#377eb8';
+        },
+        getThickness: ctx => {
+          if(ctx?.scope === 'series' && seriesKey){
+            const byState = Number(state.labelStrokeWidth?.[seriesKey]);
+            if(Number.isFinite(byState)){ return byState; }
+          }
+          const byAttr = Number(target.getAttribute('stroke-width'));
+          if(Number.isFinite(byAttr)){ return byAttr; }
+          return 2;
+        },
+        getPattern: ctx => {
+          if(ctx?.scope === 'series' && seriesKey){
+            const persisted = state.labelLinePattern?.[seriesKey];
+            if(persisted){ return sanitizeSurvivalLinePattern(persisted); }
+          }
+          return inferSurvivalPatternFromElement(target);
+        },
+        getTransparency: ctx => {
+          let opacity = null;
+          if(ctx?.scope === 'series' && seriesKey && state.labelOpacity && typeof state.labelOpacity[seriesKey] !== 'undefined'){
+            opacity = Number(state.labelOpacity[seriesKey]);
+          }else{
+            const attrOpacity = Number(target.getAttribute('stroke-opacity'));
+            opacity = Number.isFinite(attrOpacity) ? attrOpacity : 1;
+          }
+          const bounded = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+          return Math.round((1 - bounded) * 100);
+        },
+        onColorInput: (value, ctx) => {
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          if(scopeValue === 'series' && seriesKey){
+            state.labelColors[seriesKey] = value;
+          }else{
+            nodes.forEach(node => {
+              const key = node.getAttribute('data-group');
+              if(key){ state.labelColors[key] = value; }
+            });
+          }
+          state.scheduleDraw?.();
+        },
+        onColorChange: (value, ctx) => {
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          if(scopeValue === 'series' && seriesKey){
+            state.labelColors[seriesKey] = value;
+          }else{
+            nodes.forEach(node => {
+              const key = node.getAttribute('data-group');
+              if(key){ state.labelColors[key] = value; }
+            });
+          }
+          state.scheduleDraw?.();
+        },
+        onThicknessChange: (value, ctx) => {
+          const next = Number(value);
+          if(!Number.isFinite(next)){ return; }
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke-width', String(next)); }catch(e){} });
+          if(scopeValue === 'series' && seriesKey){
+            state.labelStrokeWidth[seriesKey] = next;
+          }else{
+            nodes.forEach(node => {
+              const key = node.getAttribute('data-group');
+              if(key){ state.labelStrokeWidth[key] = next; }
+            });
+          }
+          state.scheduleDraw?.();
+        },
+        onPatternChange: (value, ctx) => {
+          const pattern = sanitizeSurvivalLinePattern(value);
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => applySurvivalPatternToElement(node, pattern));
+          if(scopeValue === 'series' && seriesKey){
+            state.labelLinePattern[seriesKey] = pattern;
+          }else{
+            nodes.forEach(node => {
+              const key = node.getAttribute('data-group');
+              if(key){ state.labelLinePattern[key] = pattern; }
+            });
+          }
+          state.scheduleDraw?.();
+        },
+        onTransparencyChange: (value, ctx) => {
+          const pct = Number(value);
+          const bounded = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
+          const opacity = 1 - (bounded / 100);
+          const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
+          const nodes = resolveTargets(scopeValue);
+          nodes.forEach(node => { try{ node.setAttribute('stroke-opacity', String(opacity)); }catch(e){} });
+          if(scopeValue === 'series' && seriesKey){
+            state.labelOpacity[seriesKey] = opacity;
+          }else{
+            nodes.forEach(node => {
+              const key = node.getAttribute('data-group');
+              if(key){ state.labelOpacity[key] = opacity; }
+            });
+          }
+          state.scheduleDraw?.();
+        }
+      });
+      return;
+    }
     const doc = global.document;
     if(!doc) return;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
@@ -260,6 +448,9 @@
     hot: null,
     scheduleDraw: null,
     labelColors: {},
+    labelStrokeWidth: {},
+    labelOpacity: {},
+    labelLinePattern: {},
     groupOrder: [],
     minSvgWidth: 0,
     layout: null,
@@ -2540,7 +2731,16 @@
     const legendStrokeWidth = curveStrokeWidth;
     const groupsForDraw = summary.series.map((group, index) => {
       const color = state.labelColors[group.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
-      return { ...group, color };
+      const configuredStrokeWidth = Number(state.labelStrokeWidth?.[group.name]);
+      const configuredOpacity = Number(state.labelOpacity?.[group.name]);
+      const configuredPattern = sanitizeSurvivalLinePattern(state.labelLinePattern?.[group.name] || 'solid');
+      return {
+        ...group,
+        color,
+        strokeWidth: Number.isFinite(configuredStrokeWidth) ? configuredStrokeWidth : curveStrokeWidth,
+        strokeOpacity: Number.isFinite(configuredOpacity) ? Math.max(0, Math.min(1, configuredOpacity)) : 1,
+        strokePattern: configuredPattern
+      };
     });
     const legendEditable = typeof Shared.openColorPicker === 'function';
     const legendEntries = showLegend ? groupsForDraw.map(group => ({
@@ -3017,7 +3217,9 @@
           d: stepPath,
           fill: 'none',
           stroke: group.color,
-          'stroke-width': curveStrokeWidth,
+          'stroke-width': group.strokeWidth,
+          'stroke-opacity': group.strokeOpacity,
+          'stroke-dasharray': survivalPatternToDasharray(group.strokePattern) || null,
           'stroke-linejoin': 'bevel',
           'data-group': group.name
         });
@@ -3282,6 +3484,9 @@
       exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
         labelColors: state.labelColors,
+        labelStrokeWidth: state.labelStrokeWidth,
+        labelOpacity: state.labelOpacity,
+        labelLinePattern: state.labelLinePattern,
         showCI: !!refs.showCI?.checked,
         showCensor: !!refs.showCensor?.checked,
         showHazardRatios: !!refs.showHazardRatios?.checked,
@@ -3383,6 +3588,9 @@
       return;
     }
     state.labelColors = Object.assign({}, config.labelColors || {});
+    state.labelStrokeWidth = Object.assign({}, config.labelStrokeWidth || {});
+    state.labelOpacity = Object.assign({}, config.labelOpacity || {});
+    state.labelLinePattern = Object.assign({}, config.labelLinePattern || {});
     if(config.covariateSettings && typeof config.covariateSettings === 'object'){
       state.covariateSettings = Object.assign({}, config.covariateSettings);
       logDebug('covariate settings restored', { keys: Object.keys(state.covariateSettings) });

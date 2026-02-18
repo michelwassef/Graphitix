@@ -1764,6 +1764,182 @@
     const doc = global.document;
     if(!doc || !target){ return; }
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const traceAttrValue = target.getAttribute('data-trace');
+      const selectedTraceIndex = traceAttrValue != null && traceAttrValue !== '' && traceAttrValue !== 'null'
+        ? Number(traceAttrValue)
+        : null;
+      const colorIndexAttrValue = target.getAttribute('data-color-index');
+      const selectedColorIndex = colorIndexAttrValue != null && colorIndexAttrValue !== ''
+        ? Number(colorIndexAttrValue)
+        : (selectedTraceIndex != null ? selectedTraceIndex : null);
+      const plotRootNode = doc.getElementById('boxPlot');
+      const resolveBodyTargets = scopeValue => {
+        if(scopeValue === 'global'){
+          return plotRootNode ? Array.from(plotRootNode.querySelectorAll('[data-box-shape="body"]')) : [target];
+        }
+        if(selectedTraceIndex == null){
+          return plotRootNode ? Array.from(plotRootNode.querySelectorAll('[data-box-shape="body"]')) : [target];
+        }
+        return plotRootNode
+          ? Array.from(plotRootNode.querySelectorAll(`[data-box-shape="body"][data-trace="${selectedTraceIndex}"]`))
+          : [target];
+      };
+      const resolveScope = ctx => (ctx?.scope === 'global' ? 'global' : 'trace');
+      const resolveStyleByScope = scopeValue => {
+        if(scopeValue === 'global'){
+          return (state.traceShapeGlobalStyle && typeof state.traceShapeGlobalStyle === 'object')
+            ? state.traceShapeGlobalStyle
+            : {};
+        }
+        return getTraceShapeStyle(selectedTraceIndex);
+      };
+      const applyScopePatch = (patch, scopeValue) => {
+        if(scopeValue === 'global'){
+          applyTraceShapeGlobalStyle(patch);
+        }else if(selectedTraceIndex != null){
+          persistTraceShapeStyle(selectedTraceIndex, patch);
+        }
+      };
+      const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || '#4472c4';
+      const fallbackBorderColor = target.getAttribute('stroke') || state.borderColors?.[selectedColorIndex] || shadeColor(fallbackFillColor, -30);
+      Shared.symbolToolbar.show({
+        document: doc,
+        target,
+        anchorId: 'boxFontHost',
+        scopeId: 'box',
+        panelTitle: 'Trace',
+        formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls box-shape-controls',
+        scope: {
+          label: 'Scope',
+          options: [
+            { value: 'trace', label: 'Trace', disabled: selectedTraceIndex == null },
+            { value: 'global', label: 'Global', disabled: false }
+          ],
+          value: selectedTraceIndex != null ? 'trace' : 'global'
+        },
+        fillShape: {
+          label: 'Fill',
+          showShapePicker: false,
+          shapeOptions: [{ value: 'square', label: 'Square' }],
+          getColor(ctx){
+            const scopeValue = resolveScope(ctx);
+            const style = resolveStyleByScope(scopeValue);
+            return style?.fill || fallbackFillColor;
+          },
+          getShape(){
+            return 'square';
+          },
+          onColorInput(value, ctx){
+            const scopeValue = resolveScope(ctx);
+            resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
+          },
+          onColorChange(value, ctx){
+            const scopeValue = resolveScope(ctx);
+            resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
+            if(scopeValue === 'global'){
+              if(Array.isArray(state.fillColors)){
+                for(let i = 0; i < state.fillColors.length; i += 1){
+                  state.fillColors[i] = value;
+                }
+              }
+              if(els?.boxFill){
+                try{ els.boxFill.value = value; }catch(e){}
+              }
+              state.lastDefaultFill = value;
+            }else if(selectedColorIndex != null && selectedColorIndex >= 0){
+              state.fillColors[selectedColorIndex] = value;
+            }
+            applyScopePatch({ fill: value }, scopeValue);
+            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+          }
+        },
+        border: {
+          label: 'Border',
+          getColor(ctx){
+            const scopeValue = resolveScope(ctx);
+            const style = resolveStyleByScope(scopeValue);
+            return style?.border || fallbackBorderColor;
+          },
+          onColorInput(value, ctx){
+            const scopeValue = resolveScope(ctx);
+            resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('stroke', value));
+          },
+          onColorChange(value, ctx){
+            const scopeValue = resolveScope(ctx);
+            resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('stroke', value));
+            if(scopeValue === 'global'){
+              if(Array.isArray(state.borderColors)){
+                for(let i = 0; i < state.borderColors.length; i += 1){
+                  state.borderColors[i] = value;
+                }
+              }
+              if(els?.boxBorder){
+                try{ els.boxBorder.value = value; }catch(e){}
+              }
+            }else if(selectedColorIndex != null && selectedColorIndex >= 0){
+              state.borderColors[selectedColorIndex] = value;
+            }
+            applyScopePatch({ border: value }, scopeValue);
+            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+          },
+          getWidth(ctx){
+            const scopeValue = resolveScope(ctx);
+            const style = resolveStyleByScope(scopeValue);
+            const configured = Number(style?.thickness);
+            if(Number.isFinite(configured)){ return Math.max(0, configured); }
+            const node = resolveBodyTargets(scopeValue)[0] || target;
+            const attrWidth = Number(node?.getAttribute ? node.getAttribute('stroke-width') : null);
+            if(Number.isFinite(attrWidth)){ return Math.max(0, attrWidth); }
+            return Number(els?.boxBorderWidth?.value) || 1;
+          },
+          onWidthChange(value, ctx){
+            const numeric = Number(value);
+            const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+            const scopeValue = resolveScope(ctx);
+            resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('stroke-width', String(normalized)));
+            applyScopePatch({ thickness: normalized }, scopeValue);
+            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+          }
+        },
+        size: {
+          enabled: false,
+          get(){ return 0; },
+          onChange(){ return; }
+        },
+        transparency: {
+          label: 'Transparency',
+          scale: 'percent',
+          get(ctx){
+            const scopeValue = resolveScope(ctx);
+            const style = resolveStyleByScope(scopeValue);
+            const opacity = Number(style?.opacity);
+            if(Number.isFinite(opacity)){
+              return Math.round((1 - Math.min(1, Math.max(0, opacity))) * 100);
+            }
+            const node = resolveBodyTargets(scopeValue)[0] || target;
+            const attrOpacity = Number(node?.getAttribute ? node.getAttribute('fill-opacity') : null);
+            const resolved = Number.isFinite(attrOpacity) ? attrOpacity : 1;
+            return Math.round((1 - Math.min(1, Math.max(0, resolved))) * 100);
+          },
+          onChange(value, ctx){
+            const bounded = Math.min(100, Math.max(0, Number(value) || 0));
+            const opacity = 1 - (bounded / 100);
+            const scopeValue = resolveScope(ctx);
+            resolveBodyTargets(scopeValue).forEach(node => {
+              node.setAttribute('fill-opacity', String(opacity));
+              node.setAttribute('stroke-opacity', String(opacity));
+            });
+            if(scopeValue === 'global'){
+              scheduleBoxGlobalOpacityApply(opacity);
+            }
+            applyScopePatch({ opacity }, scopeValue);
+            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+          }
+        }
+      });
+      return;
+    }
     const anchor = doc.getElementById('boxFontHost');
     if(!anchor){ return; }
 

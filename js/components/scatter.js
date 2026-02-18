@@ -277,9 +277,9 @@
   };
   let scatterLabelStyles = {};
   const SCATTER_OVERLAY_STYLE_DEFAULTS = Object.freeze({
-    trend: Object.freeze({ color: '#d00', thickness: 1.5, transparency: 0 }),
-    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85 }),
-    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92 })
+    trend: Object.freeze({ color: '#d00', thickness: 1.5, transparency: 0, pattern: 'solid' }),
+    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85, pattern: 'solid' }),
+    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92, pattern: 'solid' })
   });
   function cloneScatterOverlayStyleDefaults(){
     return {
@@ -313,7 +313,22 @@
     const transparency = Number.isFinite(transparencyRaw)
       ? Math.min(100, Math.max(0, transparencyRaw))
       : fallback.transparency;
-    return { color, thickness, transparency };
+    const patternRaw = String(next.pattern || next.linePattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid' || patternRaw === 'continuous')
+      ? (patternRaw === 'continuous' ? 'solid' : patternRaw)
+      : 'solid';
+    return { color, thickness, transparency, pattern };
+  }
+  function scatterOverlayPatternToDasharray(pattern, width){
+    const normalized = String(pattern || 'solid').toLowerCase();
+    const thickness = Number.isFinite(Number(width)) ? Math.max(0.5, Number(width)) : 1;
+    if(normalized === 'dashed'){
+      return `${Math.max(2, Math.round(thickness * 4))} ${Math.max(2, Math.round(thickness * 2.4))}`;
+    }
+    if(normalized === 'dotted'){
+      return `${Math.max(1, Math.round(thickness))} ${Math.max(2, Math.round(thickness * 2.2))}`;
+    }
+    return '';
   }
   function sanitizeScatterOverlayStylesMap(value){
     const defaults = cloneScatterOverlayStyleDefaults();
@@ -393,12 +408,14 @@
       return {
         colorLabel: 'Line',
         thicknessLabel: 'Line width',
+        patternLabel: 'Line pattern',
         transparencyLabel: 'Line transparency'
       };
     }
     return {
       colorLabel: 'Fill',
       thicknessLabel: 'Border thickness',
+      patternLabel: 'Line pattern',
       transparencyLabel: 'Fill transparency'
     };
   }
@@ -3473,17 +3490,18 @@
         return;
       }
       const labels = getScatterOverlayToolbarLabels(scatterOverlayToolbarScope);
-      config.panelTitle = 'Trend line';
+      config.panelTitle = 'Overlay';
       config.controls = Object.assign({}, config.controls || {}, {
         colorLabel: labels.colorLabel,
         thicknessLabel: labels.thicknessLabel,
+        patternLabel: labels.patternLabel || 'Line pattern',
         transparencyLabel: labels.transparencyLabel
       });
     };
     const overlayConfig = {
       scopeId: 'scatter',
       target: opts.target || null,
-      panelTitle: 'Trend line',
+      panelTitle: 'Overlay',
       host: host || undefined,
       appendToHost,
       clearHost: appendToHost ? opts.clearHost : true,
@@ -3495,10 +3513,11 @@
       controls: {
         showSummary: false,
         showScope: true,
-        showPattern: false,
+        showPattern: true,
         scopeLabel: 'Scope',
         colorLabel: 'Line',
         thicknessLabel: 'Line width',
+        patternLabel: 'Line pattern',
         transparencyLabel: 'Line transparency',
         thicknessMin: 0,
         thicknessStep: 0.5,
@@ -3520,6 +3539,7 @@
       getSummary: ctx => getScatterOverlaySummary(resolveScope(ctx)),
       getColor: ctx => getScatterOverlayStyle(resolveScope(ctx))?.color,
       getThickness: ctx => getScatterOverlayStyle(resolveScope(ctx))?.thickness,
+      getPattern: ctx => getScatterOverlayStyle(resolveScope(ctx))?.pattern || 'solid',
       getTransparency: ctx => getScatterOverlayStyle(resolveScope(ctx))?.transparency,
       onColorInput: (value, ctx) => {
         updateScatterOverlayStyle(resolveScope(ctx), { color: value });
@@ -3532,6 +3552,10 @@
       onThicknessChange: (value, ctx) => {
         const numeric = Number(value);
         updateScatterOverlayStyle(resolveScope(ctx), { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
+        scheduleDrawScatter();
+      },
+      onPatternChange: (value, ctx) => {
+        updateScatterOverlayStyle(resolveScope(ctx), { pattern: value });
         scheduleDrawScatter();
       },
       onTransparencyChange: (value, ctx) => {
@@ -5225,7 +5249,17 @@
       target.appendChild(table);
       console.debug('Debug: scatter renderStatsCard fallback',{ caption:model.caption || null, rows:model.rows?.length || 0 });
     };
-    const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
+    const formatMetricValue = (value, digits = 4) => {
+      if(!Number.isFinite(value)){
+        return 'n/a';
+      }
+      const absValue = Math.abs(value);
+      const lowerBound = Math.pow(10, -Math.max(2, digits));
+      if(absValue !== 0 && (absValue < lowerBound || absValue >= 1e6)){
+        return value.toExponential(Math.max(2, digits));
+      }
+      return value.toFixed(digits);
+    };
     console.debug('Debug: scatter component DOM helpers resolved', {
       hasSharedEditable: typeof Shared.makeEditable === 'function',
       hasSharedResize: typeof Shared.autoResizeSvg === 'function',
@@ -6174,6 +6208,25 @@
           rows.push({ metric:'Slope', value:formatMetricValue(stats?.m) });
           rows.push({ metric:'Intercept', value:formatMetricValue(stats?.b) });
         }
+        if(regressionModel?.mode==='doseResponse4pl' && Array.isArray(regressionModel?.coefficientStats)){
+          const logIc50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'LogIC50') || null;
+          const ic50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'IC50') || null;
+          if(Number.isFinite(ic50Stat?.standardError)){
+            rows.push({ metric:'IC50 Std. Error', value:formatMetricValue(ic50Stat.standardError) });
+          }
+          if(Number.isFinite(logIc50Stat?.ciLow) && Number.isFinite(logIc50Stat?.ciHigh)){
+            rows.push({
+              metric:'LogIC50 (95% CI)',
+              value:`${formatMetricValue(logIc50Stat.ciLow)} – ${formatMetricValue(logIc50Stat.ciHigh)}`
+            });
+          }
+          if(Number.isFinite(ic50Stat?.ciLow) && Number.isFinite(ic50Stat?.ciHigh)){
+            rows.push({
+              metric:'IC50 (95% CI)',
+              value:`${formatMetricValue(ic50Stat.ciLow)} – ${formatMetricValue(ic50Stat.ciHigh)}`
+            });
+          }
+        }
         if(regressionModel?.residuals){
           rows.push({ metric:'Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
           rows.push({ metric:'Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
@@ -6985,7 +7038,7 @@
         const trendLabels={
           linear:'linear regression line',
           curved:'quadratic regression curve',
-          sShape:'logistic regression curve',
+          sShape:'logistic / dose-response curve',
           exponential:'exponential regression curve',
           power:'power-law regression curve',
           multiple:'spline smoother'
@@ -7001,7 +7054,7 @@
             break;
           case 'sShape':
             recommendation.regression='logistic';
-            recommendation.rationale.push('Logistic regression models S-shaped responses bounded between 0 and 1.');
+            recommendation.rationale.push('Logistic mode fits S-shaped trends and can estimate IC50 via a 4-parameter dose-response model for non-binary responses.');
             break;
           case 'exponential':
             recommendation.regression='exponential';
@@ -7027,20 +7080,20 @@
             break;
           case 'intervals':
             recommendation.showLine=true;
-            recommendation.showIntervals=recommendation.regression!=='spline' && recommendation.regression!=='logistic';
+            recommendation.showIntervals=recommendation.regression!=='spline';
             recommendation.showDiagnostics=false;
             recommendation.rationale.push('Confidence/prediction intervals highlight model uncertainty.');
-            if(recommendation.regression==='spline' || recommendation.regression==='logistic'){
-              recommendation.warnings.push('Interval shading is unavailable for spline or logistic fits and will remain hidden.');
+            if(recommendation.regression==='spline'){
+              recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
             }
             break;
           case 'diagnostics':
             recommendation.showLine=true;
-            recommendation.showIntervals=recommendation.regression!=='spline' && recommendation.regression!=='logistic';
+            recommendation.showIntervals=recommendation.regression!=='spline';
             recommendation.showDiagnostics=true;
             recommendation.rationale.push('Diagnostics summarize residuals to check model assumptions.');
-            if(recommendation.regression==='spline' || recommendation.regression==='logistic'){
-              recommendation.warnings.push('Interval shading is unavailable for spline or logistic fits and will remain hidden.');
+            if(recommendation.regression==='spline'){
+              recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
             }
             break;
           case 'hide':
@@ -7053,7 +7106,7 @@
             break;
         }
         if(recommendation.regression==='logistic' && !context.approxBinaryY && !context.yWithinZeroOne){
-          recommendation.warnings.push('Logistic regression expects a binary or 0–1 bounded response; verify that Y meets this condition.');
+          recommendation.warnings.push('Non-binary responses in logistic mode use a 4-parameter dose-response fit and report IC50/LogIC50.');
         }
         if(context.pointCount>0 && context.pointCount<6){
           recommendation.warnings.push('With fewer than six paired observations the fitted model may be unstable.');
@@ -11437,6 +11490,12 @@
                     confEl.setAttribute('stroke',confidenceStyle?.color || '#d62728');
                     confEl.setAttribute('stroke-width',String(confidenceThickness));
                     confEl.setAttribute('stroke-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
+                    const confidenceDash = scatterOverlayPatternToDasharray(confidenceStyle?.pattern, confidenceThickness);
+                    if(confidenceDash){
+                      confEl.setAttribute('stroke-dasharray', confidenceDash);
+                    }else{
+                      confEl.removeAttribute('stroke-dasharray');
+                    }
                   }else{
                     confEl.setAttribute('stroke','none');
                   }
@@ -11455,6 +11514,12 @@
                     predEl.setAttribute('stroke',predictionStyle?.color || '#d62728');
                     predEl.setAttribute('stroke-width',String(predictionThickness));
                     predEl.setAttribute('stroke-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
+                    const predictionDash = scatterOverlayPatternToDasharray(predictionStyle?.pattern, predictionThickness);
+                    if(predictionDash){
+                      predEl.setAttribute('stroke-dasharray', predictionDash);
+                    }else{
+                      predEl.removeAttribute('stroke-dasharray');
+                    }
                   }else{
                     predEl.setAttribute('stroke','none');
                   }
@@ -11502,6 +11567,12 @@
                   'stroke-width': strokeWidth,
                   'stroke-opacity': String(Math.min(1, Math.max(0, trendOpacity)))
                 });
+                const trendDash = scatterOverlayPatternToDasharray(trendStyle?.pattern, strokeWidth);
+                if(trendDash){
+                  path.setAttribute('stroke-dasharray', trendDash);
+                }else{
+                  path.removeAttribute('stroke-dasharray');
+                }
                 path.setAttribute('vector-effect','non-scaling-stroke');
                 path.dataset.scatterOverlay='trend';
                 registerScatterOverlayControlElement(path, 'trend');
@@ -11792,7 +11863,10 @@
         let regression=null;
         if(typeof regressionTools.fitRegression==='function'){
           try{
-            regression=regressionTools.fitRegression(points,{ mode: regressionMode });
+            regression=regressionTools.fitRegression(points,{
+              mode: regressionMode,
+              preferDoseResponse: regressionMode === 'logistic'
+            });
             if(regression && domainOption){
               const minCandidate = Number.isFinite(domainOption.minX) ? domainOption.minX : Number.isFinite(domainOption.min) ? domainOption.min : undefined;
               const maxCandidate = Number.isFinite(domainOption.maxX) ? domainOption.maxX : Number.isFinite(domainOption.max) ? domainOption.max : undefined;

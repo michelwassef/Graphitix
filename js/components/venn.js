@@ -6,6 +6,16 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const symbolToolbar = Shared.symbolToolbar = Shared.symbolToolbar || {};
+  if(typeof symbolToolbar.show !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/symbolToolbar.js');
+    }catch(err){
+      if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+        console.debug('Debug: venn component symbolToolbar helper require failed', { message: err?.message || String(err) });
+      }
+    }
+  }
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -550,6 +560,11 @@
         upsetAxis: {
           color: DEFAULT_UPSET_SETTINGS.axisColor,
           width: DEFAULT_UPSET_SETTINGS.axisWidth
+        },
+        upsetTraceStyles: {
+          intersectionBars: { global: {}, traces: {} },
+          setBars: { global: {}, traces: {} },
+          matrix: { global: {}, traces: {} }
         }
       },
       persistence: {
@@ -1588,6 +1603,154 @@
     return trimmed ? trimmed : fallback;
   }
 
+  function cloneUpSetTraceStyles(styles){
+    const source = styles && typeof styles === 'object' ? styles : {};
+    const normalizeBucket = bucket => {
+      const value = bucket && typeof bucket === 'object' ? bucket : {};
+      return {
+        global: value.global && typeof value.global === 'object' ? { ...value.global } : {},
+        traces: value.traces && typeof value.traces === 'object' ? { ...value.traces } : {}
+      };
+    };
+    return {
+      intersectionBars: normalizeBucket(source.intersectionBars),
+      setBars: normalizeBucket(source.setBars),
+      matrix: normalizeBucket(source.matrix)
+    };
+  }
+
+  function ensureUpSetTraceStyles(){
+    state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(state.analysis?.upsetTraceStyles);
+    return state.analysis.upsetTraceStyles;
+  }
+
+  function getUpSetTraceStyle(kind, traceId, fallback = {}){
+    const styles = ensureUpSetTraceStyles();
+    const bucket = styles[kind] || { global: {}, traces: {} };
+    const globalStyle = bucket.global && typeof bucket.global === 'object' ? bucket.global : {};
+    const traceStyle = traceId && bucket.traces && bucket.traces[traceId] && typeof bucket.traces[traceId] === 'object'
+      ? bucket.traces[traceId]
+      : {};
+    return Object.assign({}, fallback, globalStyle, traceStyle);
+  }
+
+  function updateUpSetTraceStyle(kind, scope, traceId, patch){
+    if(!kind || !patch || typeof patch !== 'object'){
+      return;
+    }
+    const styles = ensureUpSetTraceStyles();
+    const bucket = styles[kind] || (styles[kind] = { global: {}, traces: {} });
+    const safeScope = scope === 'global' ? 'global' : 'trace';
+    const normalizedPatch = {};
+    if(Object.prototype.hasOwnProperty.call(patch, 'fill')){
+      normalizedPatch.fill = sanitizeColor(patch.fill, '#2f2f2f');
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'borderColor')){
+      normalizedPatch.borderColor = sanitizeColor(patch.borderColor, '#000000');
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'borderWidth')){
+      normalizedPatch.borderWidth = clampNumber(patch.borderWidth, 0, 0);
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'opacity')){
+      normalizedPatch.opacity = clampNumber(patch.opacity, 1, 0, 1);
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'size')){
+      normalizedPatch.size = clampNumber(patch.size, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
+    }
+    if(safeScope === 'global'){
+      bucket.global = Object.assign({}, bucket.global || {}, normalizedPatch);
+      if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'fill') && state.ui?.upset){
+        if(kind === 'intersectionBars' && state.ui.upset.barColor){
+          state.ui.upset.barColor.value = normalizedPatch.fill;
+        }else if(kind === 'setBars' && state.ui.upset.setBarColor){
+          state.ui.upset.setBarColor.value = normalizedPatch.fill;
+        }else if(kind === 'matrix' && state.ui.upset.dotColor){
+          state.ui.upset.dotColor.value = normalizedPatch.fill;
+        }
+      }
+      if(kind === 'matrix' && Object.prototype.hasOwnProperty.call(normalizedPatch, 'size') && state.ui?.upset?.dotSize){
+        state.ui.upset.dotSize.value = String(normalizedPatch.size);
+        updateUpSetDotSizeOutput(normalizedPatch.size);
+      }
+    }else if(traceId){
+      bucket.traces = bucket.traces || {};
+      bucket.traces[traceId] = Object.assign({}, bucket.traces[traceId] || {}, normalizedPatch);
+    }
+    requestScheduledDraw('upset-trace-style');
+    syncActiveVennPayload('venn-upset-trace-style');
+  }
+
+  function resolveVennSymbolToolbarAnchor(doc){
+    return doc.getElementById('vennFontHost')
+      || doc.getElementById('sample')
+      || null;
+  }
+
+  function showUpSetTraceSymbolToolbar(target, options = {}){
+    if(!target || !symbolToolbar || typeof symbolToolbar.show !== 'function'){
+      return;
+    }
+    const doc = global.document;
+    if(!doc){ return; }
+    const anchor = resolveVennSymbolToolbarAnchor(doc);
+    if(!anchor){ return; }
+    const kind = options.kind;
+    const traceId = options.traceId || null;
+    const fallback = options.fallback && typeof options.fallback === 'object' ? options.fallback : {};
+    const getStyle = ctx => getUpSetTraceStyle(kind, ctx?.scope === 'trace' ? traceId : null, fallback);
+    symbolToolbar.show({
+      document: doc,
+      target,
+      anchor,
+      scopeId: 'venn',
+      panelTitle: 'Trace',
+      formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls venn-upset-trace-controls',
+      scope: {
+        label: 'Scope',
+        options: [
+          { value: 'trace', label: 'Trace', disabled: !traceId },
+          { value: 'global', label: 'Global', disabled: false }
+        ],
+        value: traceId ? 'trace' : 'global'
+      },
+      fillShape: {
+        label: 'Fill',
+        showShapePicker: false,
+        shapeOptions: [{ value: 'square', label: 'Square' }],
+        getColor(ctx){ return getStyle(ctx).fill || '#2f2f2f'; },
+        getShape(){ return 'square'; },
+        onColorInput(value, ctx){ updateUpSetTraceStyle(kind, ctx?.scope, traceId, { fill: value }); },
+        onColorChange(value, ctx){ updateUpSetTraceStyle(kind, ctx?.scope, traceId, { fill: value }); }
+      },
+      border: {
+        label: 'Border',
+        getColor(ctx){ return getStyle(ctx).borderColor || '#000000'; },
+        onColorInput(value, ctx){ updateUpSetTraceStyle(kind, ctx?.scope, traceId, { borderColor: value }); },
+        onColorChange(value, ctx){ updateUpSetTraceStyle(kind, ctx?.scope, traceId, { borderColor: value }); },
+        getWidth(ctx){ return clampNumber(getStyle(ctx).borderWidth, 0, 0); },
+        onWidthChange(value, ctx){ updateUpSetTraceStyle(kind, ctx?.scope, traceId, { borderWidth: value }); }
+      },
+      size: {
+        enabled: kind === 'matrix',
+        get(ctx){ return clampNumber(getStyle(ctx).size, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12); },
+        onChange(value, ctx){ updateUpSetTraceStyle(kind, ctx?.scope, traceId, { size: value }); }
+      },
+      transparency: {
+        enabled: true,
+        scale: 'fraction',
+        label: 'Transparency',
+        get(ctx){
+          const opacity = clampNumber(getStyle(ctx).opacity, 1, 0, 1);
+          return 1 - opacity;
+        },
+        onChange(value, ctx){
+          const transparency = clampNumber(value, 0, 0, 1);
+          updateUpSetTraceStyle(kind, ctx?.scope, traceId, { opacity: 1 - transparency });
+        }
+      }
+    });
+  }
+
   function resolveUpSetSettings() {
     const ui = state.ui?.upset || {};
     const axisState = state.analysis?.upsetAxis || {};
@@ -1610,7 +1773,8 @@
       inactiveDotColor: sanitizeColor(ui.inactiveDotColor?.value, defaults.inactiveDotColor),
       gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor),
       axisColor: sanitizeColor(axisState.color, defaults.axisColor),
-      axisWidth: clampNumber(axisState.width, defaults.axisWidth, 0.25, 10)
+      axisWidth: clampNumber(axisState.width, defaults.axisWidth, 0.25, 10),
+      traceStyles: cloneUpSetTraceStyles(state.analysis?.upsetTraceStyles)
     };
     debug('Debug: venn upset settings resolved', settings);
     return settings;
@@ -3894,15 +4058,25 @@
       const barX = columnCenter - barWidth / 2;
       const barY = barBottom - barHeight;
       const canSelectEntry = !!(regionOptions && regionOptions.has(entry.code));
+      const intersectionStyle = getUpSetTraceStyle('intersectionBars', entry.code, {
+        fill: settings.barColor,
+        borderColor: barBorderColor,
+        borderWidth: barBorderWidth,
+        opacity: style.opacity
+      });
       const bar = makeEl('rect', {
         x: barX,
         y: barY,
         width: barWidth,
         height: Math.max(0, barHeight),
-        fill: settings.barColor,
-        'fill-opacity': style.opacity,
-        stroke: barStroke,
-        'stroke-width': barBorderWidth,
+        fill: sanitizeColor(intersectionStyle.fill, settings.barColor),
+        'fill-opacity': clampNumber(intersectionStyle.opacity, style.opacity, 0, 1),
+        stroke: clampNumber(intersectionStyle.borderWidth, barBorderWidth, 0) > 0
+          ? sanitizeColor(intersectionStyle.borderColor, barBorderColor)
+          : 'none',
+        'stroke-width': clampNumber(intersectionStyle.borderWidth, barBorderWidth, 0),
+        'data-upset-trace-kind': 'intersectionBars',
+        'data-upset-trace-id': entry.code,
         cursor: canSelectEntry ? 'pointer' : 'default'
       });
       const barTitle = document.createElementNS(NS, 'title');
@@ -3916,6 +4090,29 @@
             populateRegion(entry.code);
             syncActiveVennPayload('venn-upset-select');
           }
+          showUpSetTraceSymbolToolbar(bar, {
+            kind: 'intersectionBars',
+            traceId: entry.code,
+            fallback: {
+              fill: settings.barColor,
+              borderColor: barBorderColor,
+              borderWidth: barBorderWidth,
+              opacity: style.opacity
+            }
+          });
+        });
+      } else {
+        bar.addEventListener('click', () => {
+          showUpSetTraceSymbolToolbar(bar, {
+            kind: 'intersectionBars',
+            traceId: entry.code,
+            fallback: {
+              fill: settings.barColor,
+              borderColor: barBorderColor,
+              borderWidth: barBorderWidth,
+              opacity: style.opacity
+            }
+          });
         });
       }
       if (settings.showCounts) {
@@ -3953,15 +4150,44 @@
       });
 
       if (activeIndices.length) {
+        const matrixStyle = getUpSetTraceStyle('matrix', entry.code, {
+          fill: activeColor,
+          borderColor: activeColor,
+          borderWidth: 0,
+          opacity: activeMarkOpacity,
+          size: settings.dotSize
+        });
+        const activeDotSizePx = clampNumber(clampNumber(matrixStyle.size, settings.dotSize, 2, 12) * geometryScale, dotSizePx, 1.5, 48);
         const activeGroup = makeEl('g', {
-          color: activeColor,
-          opacity: activeMarkOpacity
+          color: sanitizeColor(matrixStyle.fill, activeColor),
+          opacity: clampNumber(matrixStyle.opacity, activeMarkOpacity, 0, 1),
+          cursor: 'pointer',
+          'data-upset-trace-kind': 'matrix',
+          'data-upset-trace-id': entry.code
+        });
+        activeGroup.addEventListener('click', () => {
+          if (canSelectEntry && state.ui.regionSelect) {
+            state.ui.regionSelect.value = entry.code;
+            populateRegion(entry.code);
+            syncActiveVennPayload('venn-upset-select');
+          }
+          showUpSetTraceSymbolToolbar(activeGroup, {
+            kind: 'matrix',
+            traceId: entry.code,
+            fallback: {
+              fill: activeColor,
+              borderColor: activeColor,
+              borderWidth: 0,
+              opacity: activeMarkOpacity,
+              size: settings.dotSize
+            }
+          });
         });
 
         if (activeIndices.length > 1) {
           const y1 = matrixTop + activeIndices[0] * rowHeight + rowHeight / 2;
           const y2 = matrixTop + activeIndices[activeIndices.length - 1] * rowHeight + rowHeight / 2;
-          const connectorWidth = Math.max(0.65, Math.min(dotSizePx * 0.45, rowHeight * 0.2));
+          const connectorWidth = Math.max(0.65, Math.min(activeDotSizePx * 0.45, rowHeight * 0.2));
           makeEl('rect', {
             x: columnCenter - connectorWidth / 2,
             y: y1,
@@ -3969,7 +4195,11 @@
             height: Math.max(0, y2 - y1),
             fill: 'currentColor',
             rx: connectorWidth / 2,
-            ry: connectorWidth / 2
+            ry: connectorWidth / 2,
+            stroke: clampNumber(matrixStyle.borderWidth, 0, 0) > 0 ? sanitizeColor(matrixStyle.borderColor, activeColor) : 'none',
+            'stroke-width': clampNumber(matrixStyle.borderWidth, 0, 0),
+            'data-upset-trace-kind': 'matrix',
+            'data-upset-trace-id': entry.code
           }, activeGroup);
         }
 
@@ -3977,19 +4207,14 @@
           const dot = makeEl('circle', {
             cx: columnCenter,
             cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
-            r: dotSizePx,
-            fill: 'currentColor'
+            r: activeDotSizePx,
+            fill: 'currentColor',
+            stroke: clampNumber(matrixStyle.borderWidth, 0, 0) > 0 ? sanitizeColor(matrixStyle.borderColor, activeColor) : 'none',
+            'stroke-width': clampNumber(matrixStyle.borderWidth, 0, 0),
+            'data-upset-trace-kind': 'matrix',
+            'data-upset-trace-id': entry.code
           }, activeGroup);
-          if (canSelectEntry) {
-            dot.setAttribute('cursor', 'pointer');
-            dot.addEventListener('click', () => {
-              if (state.ui.regionSelect) {
-                state.ui.regionSelect.value = entry.code;
-                populateRegion(entry.code);
-                syncActiveVennPayload('venn-upset-select');
-              }
-            });
-          }
+          dot.setAttribute('cursor', 'pointer');
         });
       }
     });
@@ -4010,15 +4235,38 @@
       const barY = rowCenter - barHeight / 2;
       const barFill = settings.useSetColors ? set.color : settings.setBarColor;
       const barX = setBarX + (barAreaWidth - barWidth);
-      makeEl('rect', {
+      const setBarStyle = getUpSetTraceStyle('setBars', set.key, {
+        fill: barFill,
+        borderColor: barBorderColor,
+        borderWidth: barBorderWidth,
+        opacity: style.opacity
+      });
+      const setBar = makeEl('rect', {
         x: barX,
         y: barY,
         width: Math.max(0, barWidth),
         height: barHeight,
-        fill: barFill,
-        'fill-opacity': style.opacity,
-        stroke: barStroke,
-        'stroke-width': barBorderWidth
+        fill: sanitizeColor(setBarStyle.fill, barFill),
+        'fill-opacity': clampNumber(setBarStyle.opacity, style.opacity, 0, 1),
+        stroke: clampNumber(setBarStyle.borderWidth, barBorderWidth, 0) > 0
+          ? sanitizeColor(setBarStyle.borderColor, barBorderColor)
+          : 'none',
+        'stroke-width': clampNumber(setBarStyle.borderWidth, barBorderWidth, 0),
+        cursor: 'pointer',
+        'data-upset-trace-kind': 'setBars',
+        'data-upset-trace-id': set.key
+      });
+      setBar.addEventListener('click', () => {
+        showUpSetTraceSymbolToolbar(setBar, {
+          kind: 'setBars',
+          traceId: set.key,
+          fallback: {
+            fill: barFill,
+            borderColor: barBorderColor,
+            borderWidth: barBorderWidth,
+            opacity: style.opacity
+          }
+        });
       });
       if (settings.showSetCounts) {
         const valueText = makeEl('text', {
@@ -4418,6 +4666,7 @@
             color: sanitizeColor(upset.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
             width: clampNumber(upset.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10)
           };
+          state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(upset.traceStyles);
         }
         if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
           const fontInfo = resolveFontInfo(savedFontValue);
@@ -4773,6 +5022,7 @@
         color: sanitizeColor(upset.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
         width: clampNumber(upset.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10)
       };
+      state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(upset.traceStyles);
     }
     // Restore label positions if saved
     if(s.labelPositions){
