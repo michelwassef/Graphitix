@@ -65,6 +65,14 @@
       console.debug('Debug: hist component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: hist component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -168,6 +176,52 @@
     ];
   }
 
+  function sanitizeDistributionOptionEntry(entry, index, fallback){
+    const source = entry && typeof entry === 'object' ? entry : {};
+    const fallbackOption = fallback && typeof fallback === 'object' ? fallback : {};
+    const fallbackKey = fallbackOption.key || `dist-${index + 1}`;
+    const key = (source.key == null ? fallbackKey : String(source.key)).trim() || fallbackKey;
+    const label = (source.label == null ? (fallbackOption.label || key) : String(source.label)).trim() || (fallbackOption.label || key);
+    const fallbackColor = fallbackOption.color || DEFAULT_DISTRIBUTION_COLORS[index % DEFAULT_DISTRIBUTION_COLORS.length];
+    const color = (typeof source.color === 'string' && source.color.trim()) ? source.color.trim() : fallbackColor;
+    const strokeWidthRaw = Number(source.strokeWidth);
+    const strokeWidth = Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0
+      ? strokeWidthRaw
+      : (Number.isFinite(Number(fallbackOption.strokeWidth)) && Number(fallbackOption.strokeWidth) > 0 ? Number(fallbackOption.strokeWidth) : undefined);
+    const pattern = sanitizeHistOverlayPattern(source.pattern || fallbackOption.pattern || 'solid');
+    const alphaRaw = Number(source.alpha);
+    const alpha = Number.isFinite(alphaRaw)
+      ? Math.max(0, Math.min(1, alphaRaw))
+      : (Number.isFinite(Number(fallbackOption.alpha)) ? Math.max(0, Math.min(1, Number(fallbackOption.alpha))) : undefined);
+    const out = { key, label, color };
+    if(Number.isFinite(strokeWidth) && strokeWidth > 0){
+      out.strokeWidth = strokeWidth;
+    }
+    if(pattern){
+      out.pattern = pattern;
+    }
+    if(Number.isFinite(alpha)){
+      out.alpha = alpha;
+    }
+    return out;
+  }
+
+  function mergeDistributionOptions(baseOptions, configured){
+    const defaults = Array.isArray(baseOptions) ? baseOptions : [];
+    const incoming = Array.isArray(configured) ? configured : [];
+    const byKey = {};
+    defaults.forEach((entry, index) => {
+      const normalized = sanitizeDistributionOptionEntry(entry, index, entry);
+      byKey[normalized.key] = normalized;
+    });
+    incoming.forEach((entry, index) => {
+      const fallback = byKey[String(entry?.key || '').trim()] || defaults[index] || {};
+      const normalized = sanitizeDistributionOptionEntry(entry, index, fallback);
+      byKey[normalized.key] = Object.assign({}, fallback, normalized);
+    });
+    return Object.keys(byKey).map((key, index) => sanitizeDistributionOptionEntry(byKey[key], index, byKey[key]));
+  }
+
   function getActiveDistributionKeys(){
     const selections = state.distributionSettings?.selections || {};
     return Object.keys(selections).filter(key => selections[key]);
@@ -198,6 +252,11 @@
       checkboxes: {},
       showPdf: null,
       showCdf: null
+    },
+    notes: {
+      text: '',
+      open: false,
+      control: null
     },
     labelPositions: {
       title: null,
@@ -1212,6 +1271,7 @@
         });
         const swatch=document.createElement('span');
         swatch.className='hist-dist-swatch';
+        swatch.dataset.distKey=opt.key;
         swatch.style.backgroundColor=opt.color;
         wrapper.appendChild(input);
         wrapper.appendChild(swatch);
@@ -1337,6 +1397,15 @@
 
     // File Save/Open
     function getPayload(){
+      const noteControl = state.notes?.control || null;
+      const notesText = noteControl && typeof noteControl.getValue === 'function'
+        ? noteControl.getValue()
+        : (state.notes?.text || '');
+      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+        ? noteControl.isOpen()
+        : !!state.notes?.open;
+      state.notes.text = notesText;
+      state.notes.open = notesOpen;
       const axisSettings = ensureAxisSettings();
       const c={
         title:state.titleText,
@@ -1368,7 +1437,14 @@
           selected:getActiveDistributionKeys(),
           showPdf:!!state.distributionSettings.showPdf,
           showCdf:!!state.distributionSettings.showCdf,
-          alpha:state.distributionSettings.alpha
+          alpha:state.distributionSettings.alpha,
+          options: Array.isArray(state.distributionOptions)
+            ? state.distributionOptions.map((entry, index) => sanitizeDistributionOptionEntry(entry, index, entry))
+            : []
+        },
+        notes: {
+          text: notesText,
+          open: notesOpen
         },
         labelPositions: state.labelPositions || null
       };
@@ -1457,6 +1533,9 @@
       if(!Array.isArray(state.distributionOptions) || !state.distributionOptions.length){
         state.distributionOptions = getDistributionOptions();
       }
+      if(Array.isArray(config.distributions?.options) && config.distributions.options.length){
+        state.distributionOptions = mergeDistributionOptions(state.distributionOptions, config.distributions.options);
+      }
       const defaultSelections = mergeDistributionSelections({}, state.distributionOptions);
       if(config.distributions){
         const selections = { ...defaultSelections };
@@ -1479,11 +1558,40 @@
           if(input){ input.checked = !!state.distributionSettings.selections[key]; }
         });
       }
+      const distListEl = document.getElementById('histDistributionList');
+      if(distListEl){
+        const colorByKey = {};
+        state.distributionOptions.forEach(option => {
+          if(option && option.key){
+            colorByKey[option.key] = option.color;
+          }
+        });
+        distListEl.querySelectorAll('.hist-dist-swatch[data-dist-key]').forEach(node => {
+          const key = node.dataset ? node.dataset.distKey : '';
+          if(key && colorByKey[key]){
+            node.style.backgroundColor = colorByKey[key];
+          }
+        });
+      }
       if(state.distributionInputs?.showPdf){
         state.distributionInputs.showPdf.checked = !!state.distributionSettings.showPdf;
       }
       if(state.distributionInputs?.showCdf){
         state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
+      }
+      if(config.notes && typeof config.notes === 'object'){
+        state.notes.text = config.notes.text == null ? '' : String(config.notes.text);
+        state.notes.open = !!config.notes.open;
+      }else if(typeof config.notes === 'string'){
+        state.notes.text = config.notes;
+        state.notes.open = !!state.notes.open;
+      }else{
+        state.notes.text = '';
+        state.notes.open = false;
+      }
+      if(state.notes.control){
+        state.notes.control.setValue(state.notes.text);
+        state.notes.control.setOpen(state.notes.open);
       }
       // Restore label positions if saved
       if(config.labelPositions){
@@ -1612,6 +1720,52 @@
     document.getElementById('saveHistGraph')?.addEventListener('click', hist.save);
     document.getElementById('saveAsHist').addEventListener('click', hist.saveAs);
     document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; hist.loadFromFile(f); }});
+  }
+
+  function initNotes(){
+    const stack = document.querySelector('#histGraphPanel .hist-plot-stack');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: hist notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('hist notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(state.notes?.control?.root && state.notes.control.root.isConnected){
+      state.notes.control.setValue(state.notes.text || '');
+      state.notes.control.setOpen(!!state.notes.open);
+      return;
+    }
+    state.notes.control = helper.mountFoldable({
+      container: stack,
+      id: 'hist-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'hist',
+      fontKey: 'notes',
+      value: state.notes.text || '',
+      open: !!state.notes.open,
+      onChange: value => {
+        state.notes.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        state.notes.open = !!open;
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: hist notes toggled', { open: state.notes.open });
+        }
+      }
+    });
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: hist notes initialized', {
+        mounted: !!state.notes.control,
+        open: !!state.notes.open
+      });
+    }
   }
 
   // Compute and render histogram summary statistics
@@ -2592,6 +2746,7 @@
     scheduleHistNoticeWidth('init');
     initHot();
     initControls();
+    initNotes();
     if(!histAutoDrawManager && Shared.hot?.createAutoDrawManager){
       histAutoDrawManager = Shared.hot.createAutoDrawManager({
         component: 'hist',

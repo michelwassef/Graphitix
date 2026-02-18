@@ -2951,6 +2951,17 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 #heatmapGraphPanel .config-options .heatmap-metric-select{min-width:180px}
 .color-picker input[type=color]{flex:0 0 var(--color-swatch-size,20px)}
 details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-radius);padding:8px}
+.shared-notes{width:100%;margin-top:6px;border:1px solid #ddd;background:#fff;padding:0}
+.shared-notes__summary{cursor:pointer;list-style:none;padding:8px 10px;font-size:12px;font-weight:600;color:inherit}
+.shared-notes__summary::-webkit-details-marker{display:none}
+.shared-notes__summary::before{content:"\25B8";display:inline-block;margin-right:6px;color:inherit;transition:transform .15s ease}
+.shared-notes[open] .shared-notes__summary::before{transform:rotate(90deg)}
+.shared-notes__body{padding:0 10px 10px}
+.shared-notes__textarea{width:100%;min-height:84px;resize:vertical;box-sizing:border-box}
+.shared-notes__editor{width:100%;min-height:84px;border:1px solid #ddd;background:#fff;padding:8px;box-sizing:border-box;line-height:1.45;white-space:pre-wrap;word-break:break-word;outline:none}
+.shared-notes__editor:focus{border-color:#ddd;box-shadow:none}
+.shared-notes__editor,.shared-notes__editor:focus,.shared-notes__editor:focus-visible{filter:none !important;box-shadow:none !important;outline:none !important}
+.shared-notes__editor:empty::before{content:attr(data-placeholder);color:#8a93a5;pointer-events:none}
 @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:280px}}
 #tooltip{position:absolute;background:var(--ui-menu-bg);border:var(--ui-menu-border);border-radius:0;padding:8px;display:none;column-width:160px;column-gap:12px;z-index:1000;overflow:visible;pointer-events:none;box-shadow:var(--ui-menu-shadow)}
 .analysis-controls{flex-wrap:nowrap}
@@ -3200,6 +3211,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #linePage .panel{display:flex;flex-direction:column;min-width:0}
 #linePage #linePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 #linePage .line-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#piePage .diagram-area .pie-plot-stack,#vennPage .diagram-area .venn-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#piePage .pie-plot-stack .svgbox,#vennPage .venn-plot-stack .svgbox{flex:0 0 auto;min-width:0}
 #linePage .line-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #linePage .line-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
 @media (max-width:1000px){#linePage .wrap{grid-template-columns:1fr}}

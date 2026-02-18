@@ -7,6 +7,15 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const dendrogramControls = Shared.dendrogramControls = Shared.dendrogramControls || {};
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: heatmap component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -4580,11 +4589,25 @@
     }
   }
   function getPayload(){
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     const payload = {
       type: 'heatmap',
       data: state.hot ? state.hot.getData() : [],
       exclusions: state.hot?.exportExclusions?.() || (state.hot ? Shared.hot.exportExclusions(state.hot) : Shared.hot.exportExclusions(null)),
       config: getConfig()
+    };
+    payload.config = payload.config || {};
+    payload.config.notes = {
+      text: notesText,
+      open: notesOpen
     };
     console.debug('Debug: heatmap.getPayload captured state', {
       hasHot: !!state.hot,
@@ -4686,13 +4709,28 @@
       state.scheduleDraw = () => {};
     }
     const matrix = Array.isArray(obj.data) ? obj.data : [];
+    const config = obj.config || {};
+    if(config.notes && typeof config.notes === 'object'){
+      notesState.text = config.notes.text == null ? '' : String(config.notes.text);
+      notesState.open = !!config.notes.open;
+    }else if(typeof config.notes === 'string'){
+      notesState.text = config.notes;
+      notesState.open = !!notesState.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
     if(state.hot){
       state.hot.loadData(matrix);
       if(obj.exclusions && state.hot.applyExclusions){
         state.hot.applyExclusions(obj.exclusions);
       }
     }
-    applyConfig(obj.config || {});
+    applyConfig(config);
     if(!skipDraw){
       state.lastStats = null;
       updateStats(null);
@@ -4736,6 +4774,44 @@
   });
 
   heatmap.draw = draw;
+
+  function initNotes(){
+    const stack = global.document.querySelector('#heatmapGraphPanel .heatmap-plot-stack')
+      || global.document.querySelector('#heatmapGraphPanel .diagram-area');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: heatmap notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('heatmap notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'heatmap-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'heatmap',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
 
   heatmap.init = function init(){
     if(heatmap.ready){
@@ -4805,6 +4881,7 @@
     }
     initHot();
     initControls();
+    initNotes();
     initFileButtons();
     const runHeatmapDrawCycle = () => {
       let status = 'complete';

@@ -310,6 +310,80 @@ describe('Venn UpSet integration', () => {
     svgBox.getBoundingClientRect = originalGetRect;
   });
 
+  test('UpSet global trace color applies after a prior trace-level color edit', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC', 'SetD'],
+      ['GeneShared', '', '', 'GeneShared'],
+      ['GeneA', '', '', ''],
+      ['', '', '', 'GeneD']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+
+    const firstBar = stage.querySelector('rect[data-upset-trace-kind="intersectionBars"]');
+    expect(firstBar).toBeTruthy();
+    const traceId = firstBar.getAttribute('data-upset-trace-id');
+    expect(traceId).toBeTruthy();
+
+    firstBar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    let panel = document.querySelector('.venn-upset-trace-controls');
+    expect(panel).toBeTruthy();
+
+    let scopeSelect = panel.querySelector('select.workspace-toolbar__select');
+    let fillInput = panel.querySelector('.shared-shape-color-input');
+    expect(scopeSelect).toBeTruthy();
+    expect(fillInput).toBeTruthy();
+    expect(scopeSelect.value).toBe('trace');
+
+    fillInput.value = '#ff0000';
+    dispatchInput(fillInput);
+    dispatchChange(fillInput);
+    venn.refreshDiagram();
+
+    let selectedBar = stage.querySelector(`rect[data-upset-trace-kind="intersectionBars"][data-upset-trace-id="${traceId}"]`);
+    expect(selectedBar).toBeTruthy();
+    expect((selectedBar.getAttribute('fill') || '').toLowerCase()).toBe('#ff0000');
+
+    selectedBar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    panel = document.querySelector('.venn-upset-trace-controls');
+    expect(panel).toBeTruthy();
+    scopeSelect = panel.querySelector('select.workspace-toolbar__select');
+    fillInput = panel.querySelector('.shared-shape-color-input');
+    expect(scopeSelect).toBeTruthy();
+    expect(fillInput).toBeTruthy();
+
+    scopeSelect.value = 'global';
+    dispatchChange(scopeSelect);
+    fillInput.value = '#00aa00';
+    dispatchInput(fillInput);
+    dispatchChange(fillInput);
+    venn.refreshDiagram();
+
+    const allBars = Array.from(stage.querySelectorAll('rect[data-upset-trace-kind="intersectionBars"]'));
+    expect(allBars.length).toBeGreaterThan(0);
+    allBars.forEach(bar => {
+      expect((bar.getAttribute('fill') || '').toLowerCase()).toBe('#00aa00');
+    });
+
+    const traceStyles = hooks.state.analysis?.upsetTraceStyles?.intersectionBars?.traces || {};
+    const traceStyle = traceStyles[traceId] || {};
+    expect(Object.prototype.hasOwnProperty.call(traceStyle, 'fill')).toBe(false);
+  });
+
   test('UpSet exposes clickable x/y axes through axis controls toolbar', async () => {
     await activateWorkspace('venn');
     const plotType = document.getElementById('vennPlotType');

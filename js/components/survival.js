@@ -7,6 +7,15 @@
   const survival = Components.survival = Components.survival || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: survival component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -3478,6 +3487,15 @@
       return null;
     }
     const axisSettings = ensureAxisSettings();
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     const payload = {
       type: 'survival',
       data: state.hot.getData(),
@@ -3511,6 +3529,10 @@
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
           minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
+        },
+        notes: {
+          text: notesText,
+          open: notesOpen
         },
         labelPositions: state.labelPositions || null
       },
@@ -3586,6 +3608,20 @@
   function applyConfig(config){
     if(!config){
       return;
+    }
+    if(config.notes && typeof config.notes === 'object'){
+      notesState.text = config.notes.text == null ? '' : String(config.notes.text);
+      notesState.open = !!config.notes.open;
+    }else if(typeof config.notes === 'string'){
+      notesState.text = config.notes;
+      notesState.open = !!notesState.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
     }
     state.labelColors = Object.assign({}, config.labelColors || {});
     state.labelStrokeWidth = Object.assign({}, config.labelStrokeWidth || {});
@@ -3799,6 +3835,44 @@
     chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value), input: refs.fontSize, manual: true });
   }
 
+  function initNotes(){
+    const stack = global.document.querySelector('#survivalGraphPanel .diagram-area')
+      || global.document.querySelector('#survivalGraphPanel');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        logDebug('notes mount skipped', { reason: 'missing-stack' });
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('survival notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'survival-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'survival',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
+
   function initExampleAndImport(){
     const example = [
       ['Control', 1.2, 1],
@@ -3917,6 +3991,7 @@
     }
     initHot();
     initControls();
+    initNotes();
     initExampleAndImport();
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();

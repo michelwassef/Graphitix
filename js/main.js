@@ -279,6 +279,19 @@
     debug('Debug: styleSync init skipped or unavailable');
   }
 
+  const colorSchemesApi = Shared.colorSchemes && typeof Shared.colorSchemes.init === 'function'
+    ? Shared.colorSchemes.init({
+      session: MainSession,
+      workspaceState,
+      workspaces: WORKSPACES,
+      domControls: MainDomControls,
+      components: MainComponents
+    })
+    : null;
+  if (!colorSchemesApi) {
+    debug('Debug: color schemes init skipped or unavailable');
+  }
+
   const getSessionActionsContext = () => tabsManager.getSessionActionsContext();
 
   async function handleSessionSaveClick(options) {

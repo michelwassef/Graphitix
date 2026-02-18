@@ -19,6 +19,15 @@
       console.debug('Debug: surface component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: surface component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scope)
     : null;
@@ -117,6 +126,9 @@
       fontSize: 13,
       axisStroke: 1.2,
       axisColor: '#3b3b3b',
+      textColor: chartStyle.TEXT_COLOR || '#1f2a3d',
+      backgroundColor: '#ffffff',
+      colorScheme: 'scientific',
       showGrid: false,
       showFrame: true,
       showPoints: false,
@@ -135,6 +147,14 @@
   function getAxisStrokeWidthBase(){
     const numeric = Number(state.settings?.axisStroke);
     return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;
+  }
+
+  function normalizeSurfaceThemeColor(value, fallback){
+    return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
+  }
+
+  function isSurfaceDarkTheme(){
+    return String(state.settings?.colorScheme || '').toLowerCase() === 'dark';
   }
 
   function createDefaultGridStyle(fallbackThickness){
@@ -848,6 +868,11 @@
     const positionSummary = pos ? `x:${pos.x},y:${pos.y},relX:${pos.relX},relY:${pos.relY}` : 'null';
     console.log(`SURFACE: renderLegend function called - position: ${positionSummary}, width: ${options.width}, height: ${options.height}`);
     if(!svg || !options){ return; }
+    const legendTextColor = normalizeSurfaceThemeColor(
+      options.textColor,
+      chartStyle.TEXT_COLOR || '#1f2a3d'
+    );
+    const legendStrokeColor = normalizeSurfaceThemeColor(options.axisColor, '#cbd5e1');
     const doc = svg.ownerDocument || global.document;
     const targetLayer = options.layer && options.layer.ownerDocument === doc && options.layer.nodeType === 1 ? options.layer : svg;
     let defs = svg.querySelector('defs');
@@ -994,7 +1019,7 @@
     rect.setAttribute('width', barWidth);
     rect.setAttribute('height', finalLegendHeight);
     rect.setAttribute('fill', `url(#${gradientId})`);
-    rect.setAttribute('stroke', '#cbd5e1');
+    rect.setAttribute('stroke', legendStrokeColor);
     rect.setAttribute('stroke-width', Math.max(0.6, options.fontSize * 0.04));
     rect.setAttribute('data-legend-key', 'surface-scale');
     legend.appendChild(rect);
@@ -1004,7 +1029,7 @@
     minText.setAttribute('x', barWidth / 2);
     minText.setAttribute('y', finalLegendHeight + labelOffset);
     minText.setAttribute('font-size', legendFontSize);
-    minText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+    minText.setAttribute('fill', legendTextColor);
     minText.setAttribute('text-anchor', 'middle');
     minText.setAttribute('data-legend-key', 'surface-scale');
     minText.textContent = formatNumber(options.min);
@@ -1013,7 +1038,7 @@
     maxText.setAttribute('x', barWidth / 2);
     maxText.setAttribute('y', -Math.max(6, legendFontSize * 0.4));
     maxText.setAttribute('font-size', legendFontSize);
-    maxText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+    maxText.setAttribute('fill', legendTextColor);
     maxText.setAttribute('text-anchor', 'middle');
     maxText.setAttribute('dominant-baseline', 'baseline');
     maxText.setAttribute('data-legend-key', 'surface-scale');
@@ -1361,6 +1386,19 @@
     const gridOpacity = (gridControls && typeof gridControls.transparencyToOpacity === 'function')
       ? gridControls.transparencyToOpacity(gridStrokeStyle.transparency)
       : Math.max(0, Math.min(1, 1 - (Number(gridStrokeStyle.transparency || 0) / 100)));
+    const surfaceThemeDark = isSurfaceDarkTheme();
+    const surfaceTextColor = normalizeSurfaceThemeColor(
+      state.settings?.textColor,
+      surfaceThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#1f2a3d')
+    );
+    const surfaceBackgroundColor = normalizeSurfaceThemeColor(
+      state.settings?.backgroundColor,
+      surfaceThemeDark ? '#000000' : '#ffffff'
+    );
+    const surfaceGeometryStroke = surfaceThemeDark
+      ? normalizeSurfaceThemeColor(state.settings?.axisColor, '#d1d5db')
+      : 'rgba(0,0,0,0.25)';
+    const surfaceGeometryStrokeOpacity = surfaceThemeDark ? 0.65 : 1;
     const margin = {
       top: Math.max(fs * 3.2, 42),
       right: Math.max(fs * 6.5, state.settings.showLegend ? 140 : 60),
@@ -1466,6 +1504,18 @@
       try{ while(axisLayer.firstChild){ axisLayer.removeChild(axisLayer.firstChild); } }catch(e){}
       try{ while(backgroundLayer.firstChild){ backgroundLayer.removeChild(backgroundLayer.firstChild); } }catch(e){}
       try{ while(frontLayer.firstChild){ frontLayer.removeChild(frontLayer.firstChild); } }catch(e){}
+      svg.style.backgroundColor = surfaceThemeDark ? surfaceBackgroundColor : '';
+      if(surfaceThemeDark){
+        const bgRect = doc.createElementNS(NS, 'rect');
+        bgRect.setAttribute('x', '0');
+        bgRect.setAttribute('y', '0');
+        bgRect.setAttribute('width', String(Math.max(1, width)));
+        bgRect.setAttribute('height', String(Math.max(1, height)));
+        bgRect.setAttribute('fill', surfaceBackgroundColor);
+        bgRect.setAttribute('pointer-events', 'none');
+        bgRect.setAttribute('data-color-scheme-background', '1');
+        backgroundLayer.appendChild(bgRect);
+      }
       plot3d.renderAxesAndGrid({
         svg: axisLayer,
         project: projectRotated,
@@ -1480,10 +1530,16 @@
         showFrame: state.settings.showFrame,
         showPanes: state.settings.showFrame,
         axisColor: state.settings.axisColor,
+        frameColor: state.settings.axisColor,
+        tickTextColor: surfaceTextColor,
+        axisLabelColor: surfaceTextColor,
+        paneFill: surfaceThemeDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
+        paneOpacityRange: surfaceThemeDark ? { min: 0.10, max: 0.22 } : { min: 0.01, max: 0.05 },
         gridColor: gridStrokeStyle.color,
         gridDash: gridDash || undefined,
         gridOpacity,
         gridStrokeWidth: gridStrokeStyle.thickness,
+        gridOutlineColors: { primary: gridStrokeStyle.color, secondary: gridStrokeStyle.color },
         debugLabel: 'surface-axes',
         paneTarget: backgroundLayer,
         gridTarget: backgroundLayer,
@@ -1581,7 +1637,8 @@
         polygon.setAttribute('points', face.projected.map(pt => `${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' '));
         polygon.setAttribute('fill', colorFor(face.value));
         polygon.setAttribute('fill-opacity', 0.95);
-        polygon.setAttribute('stroke', 'rgba(0,0,0,0.25)');
+        polygon.setAttribute('stroke', surfaceGeometryStroke);
+        polygon.setAttribute('stroke-opacity', String(surfaceGeometryStrokeOpacity));
         polygon.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.6, 0.6));
         // append to group to ensure draw order
         if(polygon.parentNode !== faceGroup){
@@ -1631,7 +1688,8 @@
         circle.setAttribute('cy', entry.y);
         circle.setAttribute('r', radius);
         circle.setAttribute('fill', colorFor(entry.value));
-        circle.setAttribute('stroke', 'rgba(0,0,0,0.25)');
+        circle.setAttribute('stroke', surfaceGeometryStroke);
+        circle.setAttribute('stroke-opacity', String(surfaceGeometryStrokeOpacity));
         circle.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.4, 0.4));
         circle.setAttribute('opacity', effectiveMode === 'grid' ? 0.78 : 0.95);
         if(circle.parentNode !== pointGroup){
@@ -1692,7 +1750,7 @@
       title.setAttribute('y', absoluteTitleY);
       title.setAttribute('text-anchor', 'middle');
       title.setAttribute('font-size', fs);
-      title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+      title.setAttribute('fill', surfaceTextColor);
       title.textContent = state.labels.title;
       markFontEditable(title, 'graphTitle', 'graphTitle');
       makeEditableHelper(title, text => {
@@ -1743,6 +1801,7 @@
       try{ title.setAttribute('x', absoluteTitleX); }catch(e){}
       try{ title.setAttribute('y', absoluteTitleY); }catch(e){}
       try{ title.setAttribute('font-size', fs); }catch(e){}
+      try{ title.setAttribute('fill', surfaceTextColor); }catch(e){}
       if(title.textContent !== state.labels.title){ title.textContent = state.labels.title; }
     }
     if(!hasTitlePos && axisLabelBounds.length && typeof title.getBBox === 'function'){
@@ -1804,9 +1863,12 @@
         max: parsed.stats.zMax,
         colorRamp: state.settings.colorRamp,
         width,
+        height,
         margin,
         fontSize: fs,
         layer: axisLayer,
+        textColor: surfaceTextColor,
+        axisColor: state.settings.axisColor,
         position: legendPosition
       }) || { width: 0, height: 0 };
     } else {
@@ -1825,6 +1887,44 @@
   }
 
   surface.draw = () => { runSurfaceDrawCycle(); };
+
+  function initNotes(){
+    const stack = global.document.querySelector('#surfaceGraphPanel .surface-plot-stack')
+      || global.document.querySelector('#surfaceGraphPanel .diagram-area');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: surface notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('surface notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'surface-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'surface',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
 
   surface.init = function init(){
     if(surface.ready){
@@ -1883,6 +1983,7 @@
     scheduleSurfaceNoticeWidth('init');
     initHot();
     initControls();
+    initNotes();
     if(!surfaceAutoDrawManager && Shared.hot?.createAutoDrawManager){
       surfaceAutoDrawManager = Shared.hot.createAutoDrawManager({
         component: 'surface',
@@ -2019,11 +2120,34 @@
       }
     }
     const config = payload.config || {};
+    if(config.notes && typeof config.notes === 'object'){
+      notesState.text = config.notes.text == null ? '' : String(config.notes.text);
+      notesState.open = !!config.notes.open;
+    }else if(typeof config.notes === 'string'){
+      notesState.text = config.notes;
+      notesState.open = !!notesState.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
     if(config.axisMap && typeof config.axisMap === 'object'){
       state.axisMap = Object.assign({}, state.axisMap, config.axisMap);
     }
     if(config.settings && typeof config.settings === 'object'){
       state.settings = Object.assign({}, state.settings, config.settings);
+    }
+    if(typeof config.colorScheme === 'string' && config.colorScheme.trim()){
+      state.settings.colorScheme = config.colorScheme.trim().toLowerCase();
+    }
+    if(typeof config.textColor === 'string' && config.textColor.trim()){
+      state.settings.textColor = config.textColor.trim();
+    }
+    if(typeof config.backgroundColor === 'string' && config.backgroundColor.trim()){
+      state.settings.backgroundColor = config.backgroundColor.trim();
     }
     setGridStyle(config.gridStyle, config.settings?.axisStroke ?? state.settings?.axisStroke);
     if(config.labels && typeof config.labels === 'object'){
@@ -2089,17 +2213,27 @@
     if(!state.hot || typeof state.hot.getData !== 'function'){
       return { type: 'surface', data: [] };
     }
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     const payload = {
       type: 'surface',
       data: state.hot.getData(),
       exclusions: state.hot.exportExclusions ? state.hot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(state.hot) : undefined),
       config: {
         axisMap: Object.assign({}, state.axisMap),
+        colorScheme: state.settings?.colorScheme || 'scientific',
+        textColor: state.settings?.textColor || (chartStyle.TEXT_COLOR || '#1f2a3d'),
+        backgroundColor: state.settings?.backgroundColor || '#ffffff',
         settings: Object.assign({}, state.settings),
         gridStyle: getGridStyle(state.settings?.axisStroke),
         labels: Object.assign({}, state.labels),
-        // Save legend position in labelPositions (following roc.js pattern)
-        labelPositions: state.labelPositions || null,
         // Also save legacy field for backward compatibility
         legendPosition: state.legendPosition ? { 
           x: state.legendPosition.x, 
@@ -2121,7 +2255,11 @@
             z: state.rotation.quaternion.z
           } : null
         },
-        fontStyles: exportFontStyles ? exportFontStyles('surface') : undefined
+        fontStyles: exportFontStyles ? exportFontStyles('surface') : undefined,
+        notes: {
+          text: notesText,
+          open: notesOpen
+        }
       }
     };
     debugLog('Debug: surface payload captured', { rows: payload.data.length });

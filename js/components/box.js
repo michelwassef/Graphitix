@@ -31,6 +31,15 @@
       console.debug('Debug: box component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: box component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const formControls = Shared.formControls = Shared.formControls || {};
   box.__installed = true;
   box.ready = false;
@@ -15841,6 +15850,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }
   // PART: SAVE_OPEN
   function getPayload(){
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     const selectedColumns = Array.from(state.selectedCols || [])
       .map(idx => Number(idx))
       .filter(idx => Number.isInteger(idx));
@@ -15958,6 +15976,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           resultsHtml: (els.statsResults && typeof els.statsResults.innerHTML === 'string') ? els.statsResults.innerHTML : null,
           lastRunVersion: Number.isFinite(Number(state.statsLastRunVersion)) ? Number(state.statsLastRunVersion) : 0,
           contextSignature: state.statsContextSignature || null
+        },
+        notes: {
+          text: notesText,
+          open: notesOpen
         },
         labelPositions: state.labelPositions || null
       }
@@ -16099,6 +16121,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.hot.applyExclusions?.(obj.exclusions);
     }
     const c=obj.config||{};
+    if(c.notes && typeof c.notes === 'object'){
+      notesState.text = c.notes.text == null ? '' : String(c.notes.text);
+      notesState.open = !!c.notes.open;
+    }else if(typeof c.notes === 'string'){
+      notesState.text = c.notes;
+      notesState.open = !!notesState.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
     importFontStyles('box', c.fontStyles || null);
     state.titleText=c.title||state.titleText;
     state.yLabelText=c.yLabel||state.yLabelText;
@@ -16558,6 +16594,44 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
   };
 
+  function initNotes(){
+    const stack = global.document.querySelector('#boxGraphPanel .box-plot-stack')
+      || global.document.querySelector('#boxGraphPanel .diagram-area');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('box notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'box-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'box',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
+
   box.init = function init(){
     if (box.ready) { console.debug('Debug: Components.box.init skipped'); return; }
     console.debug('Debug: Components.box.init');
@@ -16629,6 +16703,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
+    initNotes();
     const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
     const scheduleBoxDrawInstrumented = (opts) => {
       const nextOpts = opts || {};

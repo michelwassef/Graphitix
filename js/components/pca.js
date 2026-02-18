@@ -84,6 +84,15 @@
       debugLog('Debug: pca component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      debugLog('Debug: pca component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -2693,10 +2702,55 @@
     drawToken: 0,
     dataDirty: true,
     viewDirty: true,
-    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
+    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null },
+    theme: {
+      colorScheme: 'scientific',
+      textColor: chartStyle.TEXT_COLOR || '#000000',
+      backgroundColor: '#ffffff'
+    }
   };
   pcaState.scheduleDraw = (opts) => scheduleDrawPca(opts);
   let emptyPayloadTemplate = null;
+
+  function normalizePcaThemeColor(value, fallback){
+    return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
+  }
+
+  function applyPcaThemeConfig(config){
+    const cfg = config && typeof config === 'object' ? config : {};
+    const schemeId = typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
+      ? cfg.colorScheme.trim().toLowerCase()
+      : (pcaState.theme?.colorScheme || 'scientific');
+    const isDark = schemeId === 'dark';
+    if(!pcaState.theme || typeof pcaState.theme !== 'object'){
+      pcaState.theme = {};
+    }
+    pcaState.theme.colorScheme = schemeId || 'scientific';
+    pcaState.theme.textColor = normalizePcaThemeColor(
+      cfg.textColor,
+      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+    );
+    pcaState.theme.backgroundColor = normalizePcaThemeColor(
+      cfg.backgroundColor,
+      isDark ? '#000000' : '#ffffff'
+    );
+  }
+
+  function appendPca3dBackground(svg, width, height){
+    if(!svg || String(pcaState.theme?.colorScheme || '').toLowerCase() !== 'dark'){
+      return;
+    }
+    const bg = svg.ownerDocument.createElementNS(NS, 'rect');
+    bg.setAttribute('x', '0');
+    bg.setAttribute('y', '0');
+    bg.setAttribute('width', String(Math.max(1, Number(width) || 0)));
+    bg.setAttribute('height', String(Math.max(1, Number(height) || 0)));
+    bg.setAttribute('fill', normalizePcaThemeColor(pcaState.theme?.backgroundColor, '#000000'));
+    bg.setAttribute('pointer-events', 'none');
+    bg.setAttribute('data-color-scheme-background', '1');
+    svg.appendChild(bg);
+  }
+
   function resetPcaRotation(reason){
     if(typeof plot3d.createRotationState !== 'function'){
       pcaState.rotation.x = PCA_3D_DEFAULTS.rotationX;
@@ -5412,6 +5466,11 @@
       const axisStrokeWidthBase = axisSettings.strokeWidth;
       const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pca-axis', min: 0.5 });
       const axisStroke = axisSettings.color || '#000';
+      const pcaThemeDark = String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark';
+      const pcaThemeTextColor = normalizePcaThemeColor(
+        pcaState.theme?.textColor,
+        pcaThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+      );
       const dotSizeRaw = Number(pcaDotSize.value) || 3;
       const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'pca-point', min: 0 });
       const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'pca-border', min: 0 });
@@ -6438,7 +6497,12 @@
         key: entry.key,
         editable: true
       }));
-      const legendLayout = chartStyle.computeLegendLayout({ entries: legendMeasureEntries, fontSize: fs, strokeWidth: borderWidthPx });
+      const legendLayout = chartStyle.computeLegendLayout({
+        entries: legendMeasureEntries,
+        fontSize: fs,
+        strokeWidth: borderWidthPx,
+        textColor: pcaThemeTextColor
+      });
       const legendRenderer = legendLayout.renderer || { entries: [], rowGap: 0, swatchSize: 0, swatchGap: 0, baselineOffset: 0 };
       const legendVisible = showLegend && legendRenderer.entries.length > 0;
       const legendWidth = legendVisible ? legendLayout.legendWidthForMargin : 0;
@@ -6523,6 +6587,10 @@
         while (svg3.firstChild) {
           svg3.removeChild(svg3.firstChild);
         }
+        svg3.style.backgroundColor = pcaThemeDark
+          ? normalizePcaThemeColor(pcaState.theme?.backgroundColor, '#000000')
+          : '';
+        appendPca3dBackground(svg3, W3, H3);
         plot3d.attachRotationControls(svg3, {
           state: pcaState.rotation,
           onChange: () => scheduleRotationRedraw(),
@@ -6773,7 +6841,6 @@
           debugLog('Debug: pca 3d label hull resolved', { points: labelHull3d.length });
         }
         const axisTicks = axisTicks3d;
-        const neutralAxisColor = chartStyle.AXIS_COLOR || chartStyle.TEXT_COLOR || '#333';
         const frontFrameLayer = document.createElementNS(NS, 'g');
         frontFrameLayer.setAttribute('data-layer', 'frame-front');
         svg3.appendChild(frontFrameLayer);
@@ -6791,15 +6858,17 @@
           showFrame,
           axisTickFormatters: axisTickFormatters3d || undefined,
           showPanes: showFrame,
-          paneFill: 'rgba(0,0,0,0.008)',
-          paneOpacityRange: { min: 0.004, max: 0.012 },
+          paneFill: pcaThemeDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
+          paneOpacityRange: pcaThemeDark ? { min: 0.10, max: 0.22 } : { min: 0.01, max: 0.05 },
           gridColor: gridStrokeStyle.color,
           gridDash: gridDash || undefined,
           gridOpacity,
           gridStrokeWidth: gridStrokeStyle.thickness,
-          gridOutlineColors: { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' },
-          frameColor: '#000000',
-          axisColor: neutralAxisColor,
+          gridOutlineColors: { primary: gridStrokeStyle.color, secondary: gridStrokeStyle.color },
+          frameColor: axisStroke,
+          axisColor: axisStroke,
+          tickTextColor: pcaThemeTextColor,
+          axisLabelColor: pcaThemeTextColor,
           frontFrameTarget: frontFrameLayer,
           debugLabel: 'pca-3d',
           onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },
@@ -6857,7 +6926,7 @@
           y: absoluteTitleY3,
           'text-anchor': 'middle',
           'font-size': fs,
-          fill: chartStyle.TEXT_COLOR,
+          fill: pcaThemeTextColor,
         }, pcaTitleText);
         markFontEditable(title3d, 'graphTitle', 'graphTitle');
         makeEditableHelper(title3d, text => commitTitleChange(text, '3d-title'));
@@ -7023,7 +7092,7 @@
           const labelFontSize = Math.min(labelFontSizeRaw, tickFontSizeCap);
           const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
           const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'pca-point-label-3d', min: 0.25 });
-          const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const labelColor = pcaThemeTextColor;
           const plotLeft = labelBounds3d ? labelBounds3d.minX : margin3.left;
           const plotRight = labelBounds3d ? labelBounds3d.maxX : margin3.left + plotW3;
           const plotTop = labelBounds3d ? labelBounds3d.minY : margin3.top;
@@ -7217,7 +7286,7 @@
               y: itemY + legendMarkerSize3 / 2,
               'font-size': fs,
               'dominant-baseline': 'middle',
-              fill: chartStyle.TEXT_COLOR,
+              fill: pcaThemeTextColor,
             }, entry.label);
             markFontEditable(legendText,'legend',`legend-${i}`);
           });
@@ -8240,13 +8309,28 @@
     }
     }
     function getPcaGraphPayload(){
+      const noteControl = notesState.control || null;
+      const notesText = noteControl && typeof noteControl.getValue === 'function'
+        ? noteControl.getValue()
+        : (notesState.text || '');
+      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+        ? noteControl.isOpen()
+        : !!notesState.open;
+      notesState.text = notesText;
+      notesState.open = notesOpen;
       const axisSettings = ensureAxisSettings();
       ensurePcaHotForActiveTab();
       return {
         type:'pca',
         data:pcaHotInstance?.getData?.() || [],
         exclusions: pcaHotInstance?.exportExclusions?.() || Shared.hot.exportExclusions(pcaHotInstance),
-        config: snapshotPcaConfig(axisSettings),
+        config: {
+          ...snapshotPcaConfig(axisSettings),
+          notes: {
+            text: notesText,
+            open: notesOpen
+          }
+        },
         stats:lastPcaStats ? {
           method:lastPcaStats.method || null,
           eigenSummary:Array.isArray(lastPcaStats.eigenSummary) ? lastPcaStats.eigenSummary : [],
@@ -8266,6 +8350,9 @@
         method:pcaMethod.value,
         dotSize:pcaDotSize.value,
         fill:pcaFill.value,
+        colorScheme: pcaState.theme?.colorScheme || 'scientific',
+        textColor: pcaState.theme?.textColor || (chartStyle.TEXT_COLOR || '#000000'),
+        backgroundColor: pcaState.theme?.backgroundColor || '#ffffff',
         border:pcaBorder.value,
         borderWidth:pcaBorderWidth.value,
         tableFormat:pcaState.tableFormat,
@@ -8432,6 +8519,21 @@
           }
         }
         const c=obj.config||{};
+        applyPcaThemeConfig(c);
+        if(c.notes && typeof c.notes === 'object'){
+          notesState.text = c.notes.text == null ? '' : String(c.notes.text);
+          notesState.open = !!c.notes.open;
+        }else if(typeof c.notes === 'string'){
+          notesState.text = c.notes;
+          notesState.open = !!notesState.open;
+        }else{
+          notesState.text = '';
+          notesState.open = false;
+        }
+        if(notesState.control){
+          notesState.control.setValue(notesState.text);
+          notesState.control.setOpen(notesState.open);
+        }
         importFontStyles('pca', c.fontStyles || null);
         pcaDotSize.value=c.dotSize||pcaDotSize.value;
         pcaFill.value=c.fill||pcaFill.value;
@@ -8593,6 +8695,44 @@
         debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataMatrix.length });
         return true;
       }
+
+    function initNotes(){
+      const stack = global.document.querySelector('#pcaGraphPanel .pca-plot-stack')
+        || global.document.querySelector('#pcaGraphPanel .diagram-area');
+      if(!stack){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          debugLog('Debug: pca notes mount skipped (missing stack)');
+        }
+        return;
+      }
+      const helper = Shared.notes;
+      if(!helper || typeof helper.mountFoldable !== 'function'){
+        console.warn('pca notes helper unavailable', { hasSharedNotes: !!helper });
+        return;
+      }
+      if(notesState.control?.root && notesState.control.root.isConnected){
+        notesState.control.setValue(notesState.text || '');
+        notesState.control.setOpen(!!notesState.open);
+        return;
+      }
+      notesState.control = helper.mountFoldable({
+        container: stack,
+        id: 'pca-notes',
+        title: 'Notes',
+        placeholder: 'Write notes about the data being analyzed...',
+        richText: true,
+        scopeId: 'pca',
+        fontKey: 'notes',
+        value: notesState.text || '',
+        open: !!notesState.open,
+        onChange: value => {
+          notesState.text = value == null ? '' : String(value);
+        },
+        onToggle: open => {
+          notesState.open = !!open;
+        }
+      });
+    }
 
       function loadPcaGraphFile(file){
         const reader=new FileReader();
@@ -8781,6 +8921,7 @@
       return restored;
     };
     pca.__state = pcaState;
+    initNotes();
     ensureEmptyPayloadTemplate();
     pca.ready = true;
     console.debug('Debug: Components.pca.setup complete');

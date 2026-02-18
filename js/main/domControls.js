@@ -188,6 +188,40 @@
     }
   };
 
+  namespace.setWorkspaceDefaultPayload = function setWorkspaceDefaultPayload(session, type, payload) {
+    if (!type) {
+      console.debug('Debug: setWorkspaceDefaultPayload skipped', { reason: 'missing-type' });
+      return false;
+    }
+    if (!payload || typeof payload !== 'object') {
+      console.debug('Debug: setWorkspaceDefaultPayload skipped', { type, reason: 'invalid-payload' });
+      return false;
+    }
+    const cloneFn = session?.fastClonePayload || session?.clonePayload;
+    let cloned = null;
+    if (typeof cloneFn === 'function') {
+      try {
+        cloned = cloneFn.call(session, payload);
+      } catch (err) {
+        console.error('setWorkspaceDefaultPayload clone via session failed', { type, err });
+      }
+    }
+    if (!cloned) {
+      try {
+        cloned = JSON.parse(JSON.stringify(payload));
+      } catch (err) {
+        console.error('setWorkspaceDefaultPayload JSON clone failed', { type, err });
+        return false;
+      }
+    }
+    moduleState.workspaceDefaults[type] = cloned;
+    console.debug('Debug: workspace default payload overridden', {
+      type,
+      hasPayload: !!moduleState.workspaceDefaults[type]
+    });
+    return true;
+  };
+
   namespace.applyWorkspacePayload = function applyWorkspacePayload(config, payload, options = {}) {
     if (!config || payload === undefined) {
       console.debug('Debug: applyWorkspacePayload skipped', { hasConfig: !!config, hasPayload: payload !== undefined });

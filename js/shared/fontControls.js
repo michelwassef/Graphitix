@@ -2,6 +2,7 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const SVG_NS = 'http://www.w3.org/2000/svg';
 
   const DEFAULT_FONTS = [
     'Inter',
@@ -277,6 +278,9 @@
   let currentTarget = null;
   let currentScope = null;
   let currentKey = null;
+  let savedContentSelection = null;
+  let contentSelectionTrackingDoc = null;
+  let contentSelectionTrackingHandler = null;
   let activeScopeMode = FONT_SCOPE_SELECTION;
   let placementMonitoringAttached = false;
   let knownFontNames = null;
@@ -538,6 +542,7 @@
 
   function resetInlineSegments(node){
     if(!node){ return; }
+    if(!isSvgTextTarget(node)){ return; }
     if(!node.firstChild){ return; }
     const textValue = node.textContent || '';
     node.textContent = textValue;
@@ -546,6 +551,7 @@
 
   function applyInlineSegmentsToNode(node, segments){
     if(!node){ return; }
+    if(!isSvgTextTarget(node)){ return; }
     const sanitized = normalizeInlineSegments(segments);
     if(!sanitized.length){
       resetInlineSegments(node);
@@ -665,16 +671,346 @@
     });
   }
 
+  function isSvgTextTarget(node){
+    if(!node){ return false; }
+    const tag = node.tagName?.toLowerCase?.() || '';
+    if(node.namespaceURI === SVG_NS){ return true; }
+    return tag === 'text' || tag === 'tspan';
+  }
+
+  function isContentEditableTarget(node){
+    if(!node || node.nodeType !== 1){ return false; }
+    const raw = String(node.getAttribute?.('contenteditable') || '').toLowerCase();
+    return !!(node.isContentEditable || raw === 'true' || raw === 'plaintext-only');
+  }
+
+  function getSelectionObject(doc){
+    if(doc && typeof doc.getSelection === 'function'){
+      return doc.getSelection();
+    }
+    if(typeof global.getSelection === 'function'){
+      return global.getSelection();
+    }
+    return null;
+  }
+
+  function isRangeInsideTarget(range, target){
+    if(!range || !target || typeof target.contains !== 'function'){
+      return false;
+    }
+    const startNode = range.startContainer || null;
+    const endNode = range.endContainer || null;
+    const common = range.commonAncestorContainer || null;
+    if(!startNode || !endNode || !common){
+      return false;
+    }
+    return target.contains(startNode) && target.contains(endNode) && target.contains(common);
+  }
+
+  function cloneRangeSafe(range){
+    if(!range || typeof range.cloneRange !== 'function'){
+      return null;
+    }
+    try{
+      return range.cloneRange();
+    }catch(err){
+      logDebug('cloneRangeSafe failed', { error: err?.message || String(err) });
+      return null;
+    }
+  }
+
+  function cacheContentEditableSelection(target, reason){
+    if(!isContentEditableTarget(target)){
+      return false;
+    }
+    const doc = target.ownerDocument || global.document;
+    const selection = getSelectionObject(doc);
+    if(!selection || selection.rangeCount < 1){
+      return false;
+    }
+    const range = selection.getRangeAt(0);
+    if(!range || range.collapsed){
+      return false;
+    }
+    if(!isRangeInsideTarget(range, target)){
+      return false;
+    }
+    const cloned = cloneRangeSafe(range);
+    if(!cloned){
+      return false;
+    }
+    savedContentSelection = { target, range: cloned };
+    logDebug('contenteditable selection cached', { reason: reason || 'unknown' });
+    return true;
+  }
+
+  function restoreContentEditableSelection(target, reason){
+    if(!isContentEditableTarget(target)){
+      return false;
+    }
+    if(!savedContentSelection || savedContentSelection.target !== target || !savedContentSelection.range){
+      return false;
+    }
+    const doc = target.ownerDocument || global.document;
+    const selection = getSelectionObject(doc);
+    const cloned = cloneRangeSafe(savedContentSelection.range);
+    if(!selection || !cloned){
+      return false;
+    }
+    try{
+      selection.removeAllRanges();
+      selection.addRange(cloned);
+      logDebug('contenteditable selection restored', { reason: reason || 'unknown' });
+      return true;
+    }catch(err){
+      logDebug('contenteditable selection restore failed', {
+        reason: reason || 'unknown',
+        error: err?.message || String(err)
+      });
+      return false;
+    }
+  }
+
+  function clearContentEditableSelectionCache(target){
+    if(!savedContentSelection){
+      return;
+    }
+    if(!target || savedContentSelection.target === target){
+      savedContentSelection = null;
+    }
+  }
+
+  function resolveContentEditableSelectionRange(target){
+    if(!isContentEditableTarget(target)){
+      return null;
+    }
+    const doc = target.ownerDocument || global.document;
+    const selection = getSelectionObject(doc);
+    if(selection && selection.rangeCount > 0){
+      const range = selection.getRangeAt(0);
+      if(range && !range.collapsed && isRangeInsideTarget(range, target)){
+        cacheContentEditableSelection(target, 'active-range');
+        return { doc, selection, range };
+      }
+    }
+    if(restoreContentEditableSelection(target, 'restore-fallback')){
+      const restoredSelection = getSelectionObject(doc);
+      if(restoredSelection && restoredSelection.rangeCount > 0){
+        const restoredRange = restoredSelection.getRangeAt(0);
+        if(restoredRange && !restoredRange.collapsed && isRangeInsideTarget(restoredRange, target)){
+          return { doc, selection: restoredSelection, range: restoredRange };
+        }
+      }
+    }
+    return null;
+  }
+
+  function isFullSelectionForTarget(range, target){
+    if(!range || !target){ return false; }
+    const doc = target.ownerDocument || global.document;
+    if(!doc || typeof doc.createRange !== 'function'){
+      return false;
+    }
+    const view = doc.defaultView || global;
+    const RangeCtor = view && view.Range ? view.Range : null;
+    if(!RangeCtor){
+      return false;
+    }
+    const fullRange = doc.createRange();
+    try{
+      fullRange.selectNodeContents(target);
+      return range.compareBoundaryPoints(RangeCtor.START_TO_START, fullRange) === 0
+        && range.compareBoundaryPoints(RangeCtor.END_TO_END, fullRange) === 0;
+    }catch(err){
+      logDebug('full selection check failed', { error: err?.message || String(err) });
+      return false;
+    }finally{
+      try{ fullRange.detach?.(); }catch(e){}
+    }
+  }
+
+  function buildContentEditableStylePatch(patch){
+    const source = patch && typeof patch === 'object' ? patch : {};
+    const css = {};
+    let hasAny = false;
+    if(Object.prototype.hasOwnProperty.call(source, 'fontFamily')){
+      css.fontFamily = source.fontFamily ? String(source.fontFamily) : 'inherit';
+      hasAny = true;
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'fontWeight')){
+      css.fontWeight = source.fontWeight ? String(source.fontWeight) : 'normal';
+      hasAny = true;
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'fontStyle')){
+      css.fontStyle = source.fontStyle ? String(source.fontStyle) : 'normal';
+      hasAny = true;
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'fontSize')){
+      css.fontSize = source.fontSize ? String(source.fontSize) : 'inherit';
+      hasAny = true;
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'fill')){
+      css.color = source.fill ? String(source.fill) : 'inherit';
+      hasAny = true;
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'textDecoration')){
+      css.textDecoration = source.textDecoration ? String(source.textDecoration) : 'none';
+      hasAny = true;
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'baselineShift')){
+      const baseline = source.baselineShift;
+      css.verticalAlign = (baseline === 'sub' || baseline === 'super') ? baseline : 'baseline';
+      hasAny = true;
+    }
+    return { css, hasAny };
+  }
+
+  function applyCssPatchToStyle(styleDecl, patch){
+    if(!styleDecl || !patch){ return; }
+    Object.keys(patch).forEach(key => {
+      const value = patch[key];
+      if(value === undefined || value === null || value === ''){
+        try{ styleDecl.removeProperty(key.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)); }catch(e){}
+        try{ styleDecl[key] = ''; }catch(e){}
+      }else{
+        try{ styleDecl[key] = String(value); }catch(e){}
+      }
+    });
+  }
+
+  function applyContentEditableSelectionPatch(target, patch, meta){
+    if(!isContentEditableTarget(target)){
+      return { handled: false };
+    }
+    const resolved = resolveContentEditableSelectionRange(target);
+    if(!resolved || !resolved.range){
+      return { handled: false };
+    }
+    const patchInfo = buildContentEditableStylePatch(patch);
+    if(!patchInfo.hasAny){
+      return { handled: false };
+    }
+    const { doc, selection, range } = resolved;
+    const isFull = isFullSelectionForTarget(range, target);
+    try{
+      const fragment = range.extractContents();
+      const wrapper = doc.createElement('span');
+      wrapper.dataset.fontInlinePatch = '1';
+      applyCssPatchToStyle(wrapper.style, patchInfo.css);
+      wrapper.appendChild(fragment);
+      range.insertNode(wrapper);
+      const nextRange = doc.createRange();
+      nextRange.selectNodeContents(wrapper);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+      cacheContentEditableSelection(target, 'patch-applied');
+      logDebug('contenteditable selection patch applied', {
+        meta,
+        patchKeys: Object.keys(patch || {}),
+        entire: isFull
+      });
+      return { handled: true, partial: !isFull, entire: isFull };
+    }catch(err){
+      logDebug('contenteditable selection patch failed', {
+        meta,
+        error: err?.message || String(err)
+      });
+      return { handled: false };
+    }
+  }
+
+  function resolveSelectionStyleNode(target){
+    if(!isContentEditableTarget(target)){
+      return null;
+    }
+    const doc = target.ownerDocument || global.document;
+    const selection = getSelectionObject(doc);
+    if(!selection || selection.rangeCount < 1){
+      return null;
+    }
+    const range = selection.getRangeAt(0);
+    if(!range || range.collapsed || !isRangeInsideTarget(range, target)){
+      return null;
+    }
+    if(!range){ return null; }
+    let node = range.startContainer;
+    if(node && node.nodeType === 3){
+      node = node.parentElement || node.parentNode;
+    }
+    return (node && node.nodeType === 1) ? node : null;
+  }
+
+  function applyDirectStyleToken(node, attrName, value){
+    if(!node){ return; }
+    const useSvgAttr = isSvgTextTarget(node);
+    if(useSvgAttr){
+      if(value === undefined || value === null || value === ''){
+        node.removeAttribute(attrName);
+      }else{
+        node.setAttribute(attrName, value);
+      }
+      return;
+    }
+    if(!node.style){ return; }
+    const nextValue = value === undefined || value === null ? '' : String(value);
+    if(attrName === 'font-family'){
+      node.style.fontFamily = nextValue;
+      return;
+    }
+    if(attrName === 'font-weight'){
+      node.style.fontWeight = nextValue;
+      return;
+    }
+    if(attrName === 'font-style'){
+      node.style.fontStyle = nextValue;
+      return;
+    }
+    if(attrName === 'font-size'){
+      node.style.fontSize = nextValue;
+      return;
+    }
+    if(attrName === 'fill'){
+      node.style.color = nextValue;
+      return;
+    }
+    if(attrName === 'text-decoration'){
+      node.style.textDecoration = nextValue;
+      return;
+    }
+    if(attrName === 'baseline-shift'){
+      node.style.verticalAlign = nextValue;
+    }
+  }
+
   function captureStyleSnapshot(node){
     if(!node){ return null; }
+    const isSvgNode = isSvgTextTarget(node);
+    const readToken = (attrName, cssProp) => {
+      if(isSvgNode){
+        return node.getAttribute(attrName) || null;
+      }
+      const styleValue = node.style && cssProp ? (node.style[cssProp] || '') : '';
+      if(styleValue){
+        return styleValue;
+      }
+      if(attrName === 'fill'){
+        const colorValue = node.style ? (node.style.color || '') : '';
+        return colorValue || null;
+      }
+      if(attrName === 'baseline-shift'){
+        const baseline = node.style ? (node.style.verticalAlign || '') : '';
+        return baseline || null;
+      }
+      return node.getAttribute(attrName) || null;
+    };
     const snapshot = {
-      fontFamily: node.getAttribute('font-family') || null,
-      fontWeight: node.getAttribute('font-weight') || null,
-      fontStyle: node.getAttribute('font-style') || null,
-      fontSize: node.getAttribute('font-size') || null,
-      fill: node.getAttribute('fill') || null,
-      textDecoration: node.getAttribute('text-decoration') || null,
-      baselineShift: node.getAttribute('baseline-shift') || null,
+      fontFamily: readToken('font-family', 'fontFamily'),
+      fontWeight: readToken('font-weight', 'fontWeight'),
+      fontStyle: readToken('font-style', 'fontStyle'),
+      fontSize: readToken('font-size', 'fontSize'),
+      fill: readToken('fill', 'color'),
+      textDecoration: readToken('text-decoration', 'textDecoration'),
+      baselineShift: readToken('baseline-shift', 'verticalAlign'),
     };
     return snapshot;
   }
@@ -876,6 +1212,12 @@
         patchKeys: Object.keys(patch || {})
       });
       return { handled: false };
+    }
+    if(isContentEditableTarget(currentTarget)){
+      const contentEditableResult = applyContentEditableSelectionPatch(currentTarget, patch || {}, meta);
+      if(contentEditableResult.handled){
+        return contentEditableResult;
+      }
     }
     const inlineState = getInlineState(currentTarget);
     if(!inlineState){ return { handled: false }; }
@@ -1844,41 +2186,30 @@
 
   function applyStyleToNode(node, style){
     if(!node || !style){ return; }
-    if(style.fontFamily){
-      node.setAttribute('font-family', style.fontFamily);
-    } else {
-      node.removeAttribute('font-family');
-    }
-    if(style.fontWeight){
-      node.setAttribute('font-weight', style.fontWeight);
-    } else {
-      node.removeAttribute('font-weight');
-    }
-    if(style.fontStyle){
-      node.setAttribute('font-style', style.fontStyle);
-    } else {
-      node.removeAttribute('font-style');
-    }
-    if(style.fontSize){
-      node.setAttribute('font-size', style.fontSize);
-    } else {
-      node.removeAttribute('font-size');
-    }
-    if(style.fill){
-      node.setAttribute('fill', style.fill);
-    } else if(node.hasAttribute('fill')){
-      node.removeAttribute('fill');
-    }
-    if(style.textDecoration){
-      node.setAttribute('text-decoration', style.textDecoration);
-    } else {
-      node.removeAttribute('text-decoration');
-    }
-    if(style.baselineShift){
-      node.setAttribute('baseline-shift', style.baselineShift);
-    } else {
-      node.removeAttribute('baseline-shift');
-    }
+    const isSvgNode = isSvgTextTarget(node);
+    const applyToken = (attrName, cssProp, value) => {
+      if(isSvgNode){
+        if(value){ node.setAttribute(attrName, value); } else { node.removeAttribute(attrName); }
+        return;
+      }
+      if(!node.style){ return; }
+      if(cssProp === 'color'){
+        node.style.color = value || '';
+        return;
+      }
+      if(cssProp === 'verticalAlign'){
+        node.style.verticalAlign = value || '';
+        return;
+      }
+      node.style[cssProp] = value || '';
+    };
+    applyToken('font-family', 'fontFamily', style.fontFamily);
+    applyToken('font-weight', 'fontWeight', style.fontWeight);
+    applyToken('font-style', 'fontStyle', style.fontStyle);
+    applyToken('font-size', 'fontSize', style.fontSize);
+    applyToken('fill', 'color', style.fill);
+    applyToken('text-decoration', 'textDecoration', style.textDecoration);
+    applyToken('baseline-shift', 'verticalAlign', style.baselineShift);
     if(styleHasInlineSegments(style)){
       applyInlineSegmentsToNode(node, style.inlineSegments);
     } else {
@@ -1905,13 +2236,24 @@
 
   function clearStyleFromNode(node){
     if(!node){ return; }
-    node.removeAttribute('font-family');
-    node.removeAttribute('font-weight');
-    node.removeAttribute('font-style');
-    node.removeAttribute('font-size');
-    node.removeAttribute('fill');
-    node.removeAttribute('text-decoration');
-    node.removeAttribute('baseline-shift');
+    const isSvgNode = isSvgTextTarget(node);
+    if(isSvgNode){
+      node.removeAttribute('font-family');
+      node.removeAttribute('font-weight');
+      node.removeAttribute('font-style');
+      node.removeAttribute('font-size');
+      node.removeAttribute('fill');
+      node.removeAttribute('text-decoration');
+      node.removeAttribute('baseline-shift');
+    }else if(node.style){
+      node.style.fontFamily = '';
+      node.style.fontWeight = '';
+      node.style.fontStyle = '';
+      node.style.fontSize = '';
+      node.style.color = '';
+      node.style.textDecoration = '';
+      node.style.verticalAlign = '';
+    }
     resetInlineSegments(node);
     logDebug('clearStyleFromNode', {
       text: node?.textContent,
@@ -2112,14 +2454,16 @@
 
   function syncPanelStateFromTarget(){
     if(!panelEl || !currentTarget){ return; }
-    const computed = global.getComputedStyle(currentTarget);
-    const attrFamily = currentTarget.getAttribute('font-family') || computed.fontFamily || '';
-    const attrWeight = currentTarget.getAttribute('font-weight') || computed.fontWeight || '';
-    const attrStyle = currentTarget.getAttribute('font-style') || computed.fontStyle || '';
-    const attrSize = currentTarget.getAttribute('font-size') || computed.fontSize || '';
-    const attrFill = currentTarget.getAttribute('fill') || computed.fill || '#000000';
-    const attrDecoration = currentTarget.getAttribute('text-decoration') || computed.textDecoration || '';
-    const attrBaseline = currentTarget.getAttribute('baseline-shift') || computed.baselineShift || '';
+    const styleNode = resolveSelectionStyleNode(currentTarget) || currentTarget;
+    const computed = global.getComputedStyle(styleNode);
+    const snapshot = captureStyleSnapshot(styleNode) || captureStyleSnapshot(currentTarget) || {};
+    const attrFamily = snapshot.fontFamily || computed.fontFamily || '';
+    const attrWeight = snapshot.fontWeight || computed.fontWeight || '';
+    const attrStyle = snapshot.fontStyle || computed.fontStyle || '';
+    const attrSize = snapshot.fontSize || computed.fontSize || '';
+    const attrFill = snapshot.fill || computed.color || computed.fill || '#000000';
+    const attrDecoration = snapshot.textDecoration || computed.textDecoration || '';
+    const attrBaseline = snapshot.baselineShift || computed.verticalAlign || computed.baselineShift || '';
     const sanitizedFamily = attrFamily.replace(/"/g, '').trim();
     syncFontInputValue(sanitizedFamily, { source: 'target-sync' });
     if(colorInput){
@@ -2171,6 +2515,25 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
+    if(!contentSelectionTrackingHandler){
+      contentSelectionTrackingHandler = () => {
+        if(!currentTarget || !isContentEditableTarget(currentTarget)){ return; }
+        cacheContentEditableSelection(currentTarget, 'selectionchange');
+      };
+    }
+    if(contentSelectionTrackingDoc !== doc && contentSelectionTrackingHandler){
+      try{
+        if(contentSelectionTrackingDoc){
+          contentSelectionTrackingDoc.removeEventListener('selectionchange', contentSelectionTrackingHandler, true);
+        }
+      }catch(e){}
+      try{
+        doc.addEventListener('selectionchange', contentSelectionTrackingHandler, true);
+        contentSelectionTrackingDoc = doc;
+      }catch(err){
+        logDebug('selectionchange tracking attach failed', { error: err?.message || String(err) });
+      }
+    }
     panelEl = doc.createElement('div');
     panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--font font-controls-panel';
     panelEl.setAttribute('role', 'toolbar');
@@ -2722,11 +3085,7 @@
         updatePreviewFromInputs();
         return;
       }
-      if(value){
-        currentTarget.setAttribute('font-family', value);
-      } else {
-        currentTarget.removeAttribute('font-family');
-      }
+      applyDirectStyleToken(currentTarget, 'font-family', value || null);
       const nextStyle = captureStyleSnapshot(currentTarget);
       const storePayload = {
         ...nextStyle,
@@ -2802,7 +3161,7 @@
         updatePreviewFromInputs();
         return;
       }
-      currentTarget.setAttribute('fill', val);
+      applyDirectStyleToken(currentTarget, 'fill', val);
       const nextStyle = captureStyleSnapshot(currentTarget);
       storeStyleForNode(currentTarget, nextStyle, storeContext);
       if(inlineResult.entire){
@@ -2841,11 +3200,7 @@
         updatePreviewFromInputs();
         return;
       }
-      if(val){
-        currentTarget.setAttribute('font-size', val);
-      } else {
-        currentTarget.removeAttribute('font-size');
-      }
+      applyDirectStyleToken(currentTarget, 'font-size', val || null);
       const nextStyle = captureStyleSnapshot(currentTarget);
       const storePayload = {
         ...nextStyle,
@@ -2904,11 +3259,7 @@
           updatePreviewFromInputs();
           return;
         }
-        if(nextActive){
-          currentTarget.setAttribute(attr, activeValue);
-        } else {
-          currentTarget.removeAttribute(attr);
-        }
+        applyDirectStyleToken(currentTarget, attr, nextActive ? activeValue : null);
         const nextStyle = captureStyleSnapshot(currentTarget);
         const storePayload = {
           ...nextStyle,
@@ -3001,6 +3352,7 @@
     } catch(highlightErr){
       console.error('fontControls.closePanel highlight error', highlightErr);
     }
+    clearContentEditableSelectionCache(currentTarget);
     currentTarget = null;
     currentScope = null;
     currentKey = null;
@@ -3015,12 +3367,19 @@
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
+    if(isContentEditableTarget(currentTarget)){
+      cacheContentEditableSelection(currentTarget, 'panel-open');
+    }
     syncScopeModeForCurrentTarget();
     try {
       const editHighlight = Shared.editHighlight;
-      if(editHighlight && typeof editHighlight.highlightText === 'function'){
-        editHighlight.highlightText(target);
-        logDebug('text highlight requested', { scope: currentScope, key: currentKey });
+      if(editHighlight){
+        if(isSvgTextTarget(target) && typeof editHighlight.highlightText === 'function'){
+          editHighlight.highlightText(target);
+          logDebug('text highlight requested', { scope: currentScope, key: currentKey });
+        }else if(typeof editHighlight.clearText === 'function'){
+          editHighlight.clearText('non-svg-target');
+        }
       }
     } catch(highlightErr){
       console.error('fontControls.openPanelForTarget highlight error', highlightErr);

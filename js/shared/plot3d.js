@@ -245,26 +245,56 @@
 
   plot3d.attachRotationControls = function(svgEl, options){
     if(!svgEl){ return; }
-    if(svgEl.dataset.rotationControlsAttached === 'true'){
-      return;
-    }
     const opts = options || {};
-    const state = opts.state || plot3d.createRotationState();
-    const shouldIgnorePointer = typeof opts.shouldIgnorePointer === 'function'
-      ? opts.shouldIgnorePointer
-      : function(event){
+    const resolveRotationScale = (value) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : 0.01;
+    };
+    const resolveIgnorePointer = (fn) => {
+      if(typeof fn === 'function'){
+        return fn;
+      }
+      return function(event){
         return plot3d.isInteractivePointerTarget(event && event.target);
       };
-    const label = opts.debugLabel || 'plot3d-rotation';
-    const onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
-    const onStart = typeof opts.onStart === 'function' ? opts.onStart : null;
-    const onEnd = typeof opts.onEnd === 'function' ? opts.onEnd : null;
+    };
+    const existingControl = svgEl.__plot3dRotationControl || null;
+    if(svgEl.dataset.rotationControlsAttached === 'true'){
+      if(existingControl){
+        existingControl.state = opts.state || existingControl.state || plot3d.createRotationState();
+        existingControl.shouldIgnorePointer = resolveIgnorePointer(opts.shouldIgnorePointer);
+        existingControl.label = opts.debugLabel || existingControl.label || 'plot3d-rotation';
+        existingControl.onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
+        existingControl.onStart = typeof opts.onStart === 'function' ? opts.onStart : null;
+        existingControl.onEnd = typeof opts.onEnd === 'function' ? opts.onEnd : null;
+        existingControl.rotationScale = resolveRotationScale(opts.rotationScale);
+        svgEl.style.cursor = existingControl.pointerState?.active ? 'grabbing' : 'grab';
+        svgEl.style.touchAction = 'none';
+        svgEl.style.userSelect = 'none';
+        svgEl.style.webkitUserSelect = 'none';
+        debugLog('Debug: plot3d rotation controls rebound', { label: existingControl.label });
+        return;
+      }
+      delete svgEl.dataset.rotationControlsAttached;
+    }
+    const control = {
+      state: opts.state || plot3d.createRotationState(),
+      shouldIgnorePointer: resolveIgnorePointer(opts.shouldIgnorePointer),
+      label: opts.debugLabel || 'plot3d-rotation',
+      onChange: typeof opts.onChange === 'function' ? opts.onChange : null,
+      onStart: typeof opts.onStart === 'function' ? opts.onStart : null,
+      onEnd: typeof opts.onEnd === 'function' ? opts.onEnd : null,
+      rotationScale: resolveRotationScale(opts.rotationScale),
+      pointerState: null
+    };
+    svgEl.__plot3dRotationControl = control;
     svgEl.dataset.rotationControlsAttached = 'true';
     svgEl.style.cursor = 'grab';
     svgEl.style.touchAction = 'none';
     svgEl.style.userSelect = 'none';
     svgEl.style.webkitUserSelect = 'none';
     const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0 };
+    control.pointerState = pointerState;
     const selectionGuards = { applied: false, previous: null };
     const disableSelection = () => {
       if(selectionGuards.applied){ return; }
@@ -278,7 +308,7 @@
       body.style.userSelect = 'none';
       body.style.webkitUserSelect = 'none';
       selectionGuards.applied = true;
-      debugLog('Debug: plot3d selection disabled', { label });
+      debugLog('Debug: plot3d selection disabled', { label: control.label });
     };
     const restoreSelection = () => {
       if(!selectionGuards.applied){ return; }
@@ -290,12 +320,15 @@
       }
       selectionGuards.applied = false;
       selectionGuards.previous = null;
-      debugLog('Debug: plot3d selection restored', { label });
+      debugLog('Debug: plot3d selection restored', { label: control.label });
     };
     const startDrag = (event) => {
       if(!event){ return; }
-      if(shouldIgnorePointer(event)){
-        debugLog('Debug: plot3d rotation pointerdown ignored', { label, tag: event.target && event.target.tagName });
+      const ignorePointer = typeof control.shouldIgnorePointer === 'function'
+        ? control.shouldIgnorePointer
+        : resolveIgnorePointer(null);
+      if(ignorePointer(event)){
+        debugLog('Debug: plot3d rotation pointerdown ignored', { label: control.label, tag: event.target && event.target.tagName });
         return;
       }
       if(pointerState.active){
@@ -308,12 +341,13 @@
       svgEl.setPointerCapture(event.pointerId);
       svgEl.style.cursor = 'grabbing';
       disableSelection();
-      debugLog('Debug: plot3d rotation drag start', { label, pointerId: event.pointerId });
-      if(onStart){
+      const state = control.state || (control.state = plot3d.createRotationState());
+      debugLog('Debug: plot3d rotation drag start', { label: control.label, pointerId: event.pointerId });
+      if(control.onStart){
         try {
-          onStart(event, state);
+          control.onStart(event, state);
         } catch(err){
-          debugLog('Debug: plot3d rotation start callback error', { label, message: err && err.message });
+          debugLog('Debug: plot3d rotation start callback error', { label: control.label, message: err && err.message });
         }
       }
     };
@@ -324,24 +358,25 @@
       const dy = event.clientY - pointerState.lastY;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
-      const scale = opts.rotationScale || 0.01;
+      const scale = control.rotationScale || 0.01;
       const yawAngle = dx * scale;
       const pitchAngle = dy * scale;
       if(yawAngle === 0 && pitchAngle === 0){
         return;
       }
+      const state = control.state || (control.state = plot3d.createRotationState());
       const yawQuat = axisAngleQuaternion(0, 1, 0, yawAngle);
       const pitchQuat = axisAngleQuaternion(1, 0, 0, pitchAngle);
       const deltaQuat = normalizeQuaternion(multiplyQuaternions(yawQuat, pitchQuat));
       const currentQuat = ensureQuaternion(state);
       state.quaternion = normalizeQuaternion(multiplyQuaternions(deltaQuat, currentQuat));
       plot3d.normalizeRotation(state);
-      debugLog('Debug: plot3d rotation updated', { label, rotation: { x: state.x, y: state.y, z: state.z } });
-      if(onChange){
+      debugLog('Debug: plot3d rotation updated', { label: control.label, rotation: { x: state.x, y: state.y, z: state.z } });
+      if(control.onChange){
         try {
-          onChange(event, state);
+          control.onChange(event, state);
         } catch(err){
-          debugLog('Debug: plot3d rotation change callback error', { label, message: err && err.message });
+          debugLog('Debug: plot3d rotation change callback error', { label: control.label, message: err && err.message });
         }
       }
     };
@@ -356,19 +391,20 @@
           svgEl.releasePointerCapture(event.pointerId);
         }
       } catch(err){
-        debugLog('Debug: plot3d rotation pointer capture release error', { label, message: err && err.message });
+        debugLog('Debug: plot3d rotation pointer capture release error', { label: control.label, message: err && err.message });
       }
       restoreSelection();
+      const state = control.state || (control.state = plot3d.createRotationState());
       debugLog('Debug: plot3d rotation drag end', {
-        label,
+        label: control.label,
         reason: reason || 'unknown',
         rotation: { x: state.x, y: state.y, z: state.z }
       });
-      if(onEnd){
+      if(control.onEnd){
         try {
-          onEnd(event, state);
+          control.onEnd(event, state);
         } catch(err){
-          debugLog('Debug: plot3d rotation end callback error', { label, message: err && err.message });
+          debugLog('Debug: plot3d rotation end callback error', { label: control.label, message: err && err.message });
         }
       }
     };
@@ -577,6 +613,7 @@
     const tickLabelGap = Number.isFinite(cfg.tickLabelGap) ? cfg.tickLabelGap : Math.max(2, Math.round(fontSize * 0.3));
     const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));
     const tickTextColor = cfg.tickTextColor || chartStyle.TEXT_COLOR || '#333';
+    const axisLabelColor = cfg.axisLabelColor || tickTextColor || chartStyle.TEXT_COLOR || '#333';
     const tickFont = typeof chartStyle.makeFont === 'function'
       ? chartStyle.makeFont(tickFontSize)
       : `${tickFontSize}px Arial, Helvetica, sans-serif`;
@@ -909,7 +946,8 @@
         const depthRatio = (pane.avgDepth - minDepth) / depthRange;
         const opacity = minOpacity + (1 - depthRatio) * (maxOpacity - minOpacity);
         polygon.setAttribute('points', pointsAttr);
-        polygon.setAttribute('fill', `rgba(0,0,0,${opacity.toFixed(3)})`);
+        polygon.setAttribute('fill', paneFill);
+        polygon.setAttribute('fill-opacity', String(Math.max(0, Math.min(1, opacity))));
         polygon.setAttribute('stroke', 'none');
         paneGroup.appendChild(polygon);
       }
@@ -1222,7 +1260,7 @@
         'font-size': fontSize,
         'text-anchor': 'middle',
         'dominant-baseline': 'middle',
-        fill: chartStyle.TEXT_COLOR || '#333',
+        fill: axisLabelColor,
         transform: `rotate(${readableAngle} ${labelPos.x} ${labelPos.y})`,
         'data-axis-label': '1',
         'data-axis-key': def.key,

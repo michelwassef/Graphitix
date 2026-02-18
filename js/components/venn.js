@@ -6,6 +6,17 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+        console.debug('Debug: venn component notes helper require failed', { message: err?.message || String(err) });
+      }
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const symbolToolbar = Shared.symbolToolbar = Shared.symbolToolbar || {};
   if(typeof symbolToolbar.show !== 'function' && typeof require === 'function'){
     try{
@@ -676,6 +687,9 @@
     if(!payload) return null;
     const data = payload.data ? { ...payload.data } : {};
     const style = payload.style ? { ...payload.style } : {};
+    const notes = payload.notes && typeof payload.notes === 'object'
+      ? { text: payload.notes.text == null ? '' : String(payload.notes.text), open: !!payload.notes.open }
+      : null;
     const analysis = payload.analysis ? cloneSimple(payload.analysis) : null;
     if(style.fontStyles){
       style.fontStyles = cloneFontStyles(style.fontStyles);
@@ -684,6 +698,7 @@
       type: payload.type || 'venn',
       data,
       style,
+      notes,
       analysis
     };
   }
@@ -1657,8 +1672,52 @@
     if(Object.prototype.hasOwnProperty.call(patch, 'size')){
       normalizedPatch.size = clampNumber(patch.size, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
     }
+    const patchKeys = Object.keys(normalizedPatch);
+    if(!patchKeys.length){
+      return;
+    }
     if(safeScope === 'global'){
       bucket.global = Object.assign({}, bucket.global || {}, normalizedPatch);
+      // Global edits should become the new baseline for every trace.
+      // Remove overlapping trace-level keys so prior per-trace edits do not shadow the global update.
+      if(bucket.traces && typeof bucket.traces === 'object'){
+        let clearedStyleCount = 0;
+        let removedTraceCount = 0;
+        Object.keys(bucket.traces).forEach(currentTraceId => {
+          const traceStyle = bucket.traces[currentTraceId];
+          if(!traceStyle || typeof traceStyle !== 'object'){
+            delete bucket.traces[currentTraceId];
+            removedTraceCount += 1;
+            return;
+          }
+          const nextTraceStyle = { ...traceStyle };
+          let traceChanged = false;
+          patchKeys.forEach(styleKey => {
+            if(Object.prototype.hasOwnProperty.call(nextTraceStyle, styleKey)){
+              delete nextTraceStyle[styleKey];
+              clearedStyleCount += 1;
+              traceChanged = true;
+            }
+          });
+          if(!traceChanged){
+            return;
+          }
+          if(Object.keys(nextTraceStyle).length){
+            bucket.traces[currentTraceId] = nextTraceStyle;
+          }else{
+            delete bucket.traces[currentTraceId];
+            removedTraceCount += 1;
+          }
+        });
+        if(clearedStyleCount || removedTraceCount){
+          debugLog('upset global trace overrides cleared', {
+            kind,
+            clearedStyleCount,
+            removedTraceCount,
+            keys: patchKeys
+          });
+        }
+      }
       if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'fill') && state.ui?.upset){
         if(kind === 'intersectionBars' && state.ui.upset.barColor){
           state.ui.upset.barColor.value = normalizedPatch.fill;
@@ -1697,6 +1756,7 @@
     const kind = options.kind;
     const traceId = options.traceId || null;
     const fallback = options.fallback && typeof options.fallback === 'object' ? options.fallback : {};
+    debugLog('upset trace toolbar open requested', { kind, traceId });
     const getStyle = ctx => getUpSetTraceStyle(kind, ctx?.scope === 'trace' ? traceId : null, fallback);
     symbolToolbar.show({
       document: doc,
@@ -4084,7 +4144,10 @@
       barTitle.textContent = `${entryLabel}: ${formatCount(entry.size)}`;
       bar.appendChild(barTitle);
       if (canSelectEntry) {
-        bar.addEventListener('click', () => {
+        bar.addEventListener('click', (event) => {
+          if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+          }
           if (state.ui.regionSelect) {
             state.ui.regionSelect.value = entry.code;
             populateRegion(entry.code);
@@ -4102,7 +4165,10 @@
           });
         });
       } else {
-        bar.addEventListener('click', () => {
+        bar.addEventListener('click', (event) => {
+          if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+          }
           showUpSetTraceSymbolToolbar(bar, {
             kind: 'intersectionBars',
             traceId: entry.code,
@@ -4165,7 +4231,10 @@
           'data-upset-trace-kind': 'matrix',
           'data-upset-trace-id': entry.code
         });
-        activeGroup.addEventListener('click', () => {
+        activeGroup.addEventListener('click', (event) => {
+          if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+          }
           if (canSelectEntry && state.ui.regionSelect) {
             state.ui.regionSelect.value = entry.code;
             populateRegion(entry.code);
@@ -4256,7 +4325,10 @@
         'data-upset-trace-kind': 'setBars',
         'data-upset-trace-id': set.key
       });
-      setBar.addEventListener('click', () => {
+      setBar.addEventListener('click', (event) => {
+        if (event && typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
         showUpSetTraceSymbolToolbar(setBar, {
           kind: 'setBars',
           traceId: set.key,
@@ -4781,6 +4853,15 @@
       debug('Debug: venn.getPayload skipped - missing inputs reference');
       return null;
     }
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     const includeAnalysis = options.includeAnalysis !== false;
     const goToggle = state.ui.goResults?.querySelector?.('#toggleGoResults');
     const goLimit = goToggle?.dataset?.state === 'all'
@@ -4816,6 +4897,10 @@
         title: state.titleText,
         labelPositions: state.labelPositions || null,
         upset: resolveUpSetSettings()
+      },
+      notes: {
+        text: notesText,
+        open: notesOpen
       },
       analysis: includeAnalysis ? {
         goResult: state.analysis.lastGOResult ? cloneSimple(state.analysis.lastGOResult) : null,
@@ -4858,6 +4943,7 @@
       nABC: 0
     };
     payload.style = payload.style || {};
+    payload.notes = { text: '', open: false };
     payload.analysis = {
       goResult: null,
       goFormatted: [],
@@ -4965,6 +5051,20 @@
     c.nBC.value = d.nBC || 0;
     c.nABC.value = d.nABC || 0;
     const s = obj.style || {};
+    const notesConfig = (obj.notes && typeof obj.notes === 'object')
+      ? obj.notes
+      : (s.notes && typeof s.notes === 'object' ? s.notes : null);
+    if(notesConfig){
+      notesState.text = notesConfig.text == null ? '' : String(notesConfig.text);
+      notesState.open = !!notesConfig.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
     const plotType = normalizePlotType(s.plotType || DEFAULT_PLOT_TYPE);
     syncPlotMode(plotType, { updateTitle: false });
     importFontStyles('venn', s.fontStyles || null);
@@ -5683,6 +5783,66 @@
     debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
   }
 
+  function initNotes(){
+    const diagramArea = global.document?.querySelector('#vennGraphPanel .diagram-area');
+    const graphPanel = global.document?.querySelector('#vennGraphPanel');
+    let stack = global.document?.querySelector('#vennGraphPanel .venn-plot-stack');
+    if(!stack && diagramArea){
+      const svgBox = diagramArea.querySelector('.svgbox');
+      if(svgBox){
+        stack = global.document.createElement('div');
+        stack.className = 'venn-plot-stack';
+        const configOptions = diagramArea.querySelector('.config-options');
+        if(configOptions){
+          diagramArea.insertBefore(stack, configOptions);
+        }else{
+          diagramArea.appendChild(stack);
+        }
+        stack.appendChild(svgBox);
+      }
+    }
+    if(!stack){
+      stack = diagramArea || graphPanel;
+    }
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        debug('Debug: venn notes mount skipped', { reason: 'missing-stack' });
+      }
+      return;
+    }
+    const misplaced = graphPanel?.querySelector?.('[data-notes-id="venn-notes"]');
+    if(misplaced && misplaced.parentElement !== stack){
+      misplaced.remove();
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('venn notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'venn-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'venn',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
+
   venn.init = function init() {
     if (venn.ready) { debugLog('init skipped'); return; }
     const freshState = createInitialState();
@@ -5791,6 +5951,7 @@
     state.ui.goUseAllBackground = $('#goUseAllBackground');
     state.ui.stringOptsBtn = $('#stringOptsBtn');
     state.ui.stringOptions = $('#stringOptions');
+    initNotes();
     initVennTable();
     const exporter = Shared.exporter;
     if (exporter && typeof exporter.mountSvgControls === 'function') {

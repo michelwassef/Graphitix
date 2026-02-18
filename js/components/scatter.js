@@ -31,6 +31,15 @@
       console.debug('Debug: scatter component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: scatter component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const formControls = Shared.formControls = Shared.formControls || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
@@ -234,6 +243,47 @@
     activeDrawReasons: null,
     useDelegatedPointEvents: true
   };
+  let scatterColorSchemeId = 'scientific';
+  let scatterTextColor = chartStyle.TEXT_COLOR || '#000000';
+  let scatterBackgroundColor = '#ffffff';
+
+  function normalizeScatterThemeColor(value, fallback){
+    return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
+  }
+
+  function applyScatterThemeConfig(config){
+    const cfg = config && typeof config === 'object' ? config : {};
+    const schemeId = typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
+      ? cfg.colorScheme.trim().toLowerCase()
+      : scatterColorSchemeId;
+    const isDark = schemeId === 'dark';
+    scatterColorSchemeId = schemeId || 'scientific';
+    scatterTextColor = normalizeScatterThemeColor(
+      cfg.textColor,
+      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+    );
+    scatterBackgroundColor = normalizeScatterThemeColor(
+      cfg.backgroundColor,
+      isDark ? '#000000' : '#ffffff'
+    );
+  }
+
+  function appendScatter3dBackground(svg, width, height){
+    if(!svg){
+      return;
+    }
+    const staleBackgrounds = svg.querySelectorAll('[data-color-scheme-background="1"]');
+    staleBackgrounds.forEach(node => {
+      try { node.remove(); } catch (err) {}
+    });
+    const isDark = String(scatterColorSchemeId || '').toLowerCase() === 'dark';
+    if(isDark){
+      svg.setAttribute('data-color-scheme-bg-color', normalizeScatterThemeColor(scatterBackgroundColor, '#000000'));
+    }else{
+      svg.removeAttribute('data-color-scheme-bg-color');
+    }
+  }
+
   function resetScatterRotation(reason){
     if(typeof plot3d.createRotationState !== 'function'){
       scatterState.rotation.x = SCATTER_3D_DEFAULTS.rotationX;
@@ -6633,7 +6683,7 @@
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: scatter rotation redraw scheduled');
         }
-        scheduleDrawScatter();
+        scheduleDrawScatter({ viewOnly: true, reason: 'rotation' });
       }
       if(scatterViewMode){
         scatterViewMode.value = scatterState.viewMode;
@@ -6921,7 +6971,7 @@
           markScatterThresholdSelectionPending('graph-type-ui');
         }
         if(scatterViewControls){
-          scatterViewControls.style.display = type === 'scatter' ? '' : 'none';
+          scatterViewControls.style.display = type === 'scatter' ? 'flex' : 'none';
         }
         [scatterLogX,scatterLogY].forEach(el=>{
           if(!el) return;
@@ -8206,6 +8256,11 @@
         const axisStrokeWidthBase = getScatterAxisStrokeWidth();
         const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'scatter-axis', min: 0.25 });
         const axisStroke = getScatterAxisColor();
+        const scatterThemeDark = String(scatterColorSchemeId || '').toLowerCase() === 'dark';
+        const scatterThemeTextColor = normalizeScatterThemeColor(
+          scatterTextColor,
+          scatterThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+        );
         const dotSizeInputRaw=Number(scatterDotSize.value)||3;
         // Initial dotSizePx uses user input; will be recalculated with adaptive sizing after points are collected
         let dotSizeRaw=dotSizeInputRaw;
@@ -8830,6 +8885,7 @@
             entries:legendEntries,
             fontSize:fs,
             strokeWidth:borderWidthPx,
+            textColor: scatterThemeTextColor,
             onSwatchClick:({ entry, event, swatch, index })=>{
               const labelKey=entry?.key;
               if(!labelKey || entry?.editable===false || scatterColorModeApplied === 'density'){
@@ -9032,6 +9088,8 @@
           plotEl.style.position='relative';
           plotEl.style.aspectRatio = `${W3} / ${H3}`;
           plotEl.style.padding = plotEl.style.padding || '12px';
+          plotEl.style.backgroundColor = '';
+          plotEl.style.boxSizing = 'border-box';
           const svg3 = reuse3dSvg ? existingScatterSvg : document.createElementNS(NS,'svg');
           if(!svg3){
             return;
@@ -9049,6 +9107,12 @@
           while(svg3.firstChild){
             svg3.removeChild(svg3.firstChild);
           }
+          svg3.style.backgroundColor = scatterThemeDark
+            ? normalizeScatterThemeColor(scatterBackgroundColor, '#000000')
+            : '';
+          svg3.style.pointerEvents = 'all';
+          svg3.setAttribute('data-color-scheme', scatterColorSchemeId || 'scientific');
+          appendScatter3dBackground(svg3, W3, H3);
           svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
           plot3d.attachRotationControls(svg3, {
             state: scatterState.rotation,
@@ -9329,10 +9393,18 @@
             },
             fontSize: fs,
             axisStrokeWidth,
+            axisColor: axisStroke,
+            frameColor: axisStroke,
+            tickTextColor: scatterThemeTextColor,
+            axisLabelColor: scatterThemeTextColor,
+            showPanes: showFrame,
+            paneFill: scatterThemeDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
+            paneOpacityRange: scatterThemeDark ? { min: 0.10, max: 0.22 } : { min: 0.01, max: 0.05 },
             gridColor: gridStrokeStyle.color,
             gridDash: gridDash || undefined,
             gridOpacity,
             gridStrokeWidth: gridStrokeStyle.thickness,
+            gridOutlineColors: { primary: gridStrokeStyle.color, secondary: gridStrokeStyle.color },
             chartStyle,
             showGrid,
             showFrame,
@@ -9471,7 +9543,7 @@
             const labelFontSize = Math.min(labelFontSizeRaw, tickFontSizeCap);
             const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
             const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label-3d', min: 0.25 });
-            const labelColor = chartStyle.TEXT_COLOR || '#333333';
+            const labelColor = scatterThemeTextColor;
             const plotLeft = labelBounds3d ? labelBounds3d.minX : margin3.left;
             const plotRight = labelBounds3d ? labelBounds3d.maxX : margin3.left + plotW3;
             const plotTop = labelBounds3d ? labelBounds3d.minY : margin3.top;
@@ -9664,7 +9736,7 @@
             y: absoluteTitleY,
             'text-anchor':'middle',
             'font-size': fs,
-            fill: chartStyle.TEXT_COLOR
+            fill: scatterThemeTextColor
           }, scatterTitleText);
           markFontEditable(title3d,'graphTitle','graphTitle');
           plot3d.applyLegendPointerGuards(title3d, { label: 'scatter-title-3d' });
@@ -11900,6 +11972,8 @@
         if(scatterState.skipNextDraw && !opts.force){
           scatterState.skipNextDraw = false;
           scatterState.skipNextDrawReason = null;
+          scatterState.rotationPending = false;
+          scatterState.rotationPendingLogged = false;
           resolveScatterOverlay('skipped');
           scatterDebug('Debug: scatter draw skipped (render cache)');
           return;
@@ -11932,6 +12006,8 @@
         if(scatterState.skipNextDraw && !nextOpts.force){
           scatterState.skipNextDraw = false;
           scatterState.skipNextDrawReason = null;
+          scatterState.rotationPending = false;
+          scatterState.rotationPendingLogged = false;
           resolveScatterOverlay('skipped');
           scatterDebug('Debug: scatter schedule suppressed (render cache)');
           return;
@@ -11962,11 +12038,11 @@
         if(nextOpts.force){
           markScatterOverlayPending(overlayReason);
           forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
-        }else{
+        }else if(!nextOpts.viewOnly){
           queueScatterOverlay(overlayReason);
         }
         const runSchedule = (runOpts) => scheduleScatterBase(runOpts || nextOpts);
-        if(!nextOpts.force && scatterState.lastDrawAt){
+        if(!nextOpts.force && !nextOpts.viewOnly && scatterState.lastDrawAt){
           const now = (global.performance && typeof global.performance.now === 'function')
             ? global.performance.now()
             : Date.now();
@@ -12177,6 +12253,15 @@
       }
     
       function getScatterGraphPayload(){
+      const noteControl = notesState.control || null;
+      const notesText = noteControl && typeof noteControl.getValue === 'function'
+        ? noteControl.getValue()
+        : (notesState.text || '');
+      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+        ? noteControl.isOpen()
+        : !!notesState.open;
+      notesState.text = notesText;
+      notesState.open = notesOpen;
       const axisSettings = ensureScatterAxisSettings();
       const fontStyles = exportFontStyles('scatter');
       return {
@@ -12192,6 +12277,9 @@
             fill:scatterFill.value,
             colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
             densityPalette: scatterDensityPalette ? normalizeScatterDensityPalette(scatterDensityPalette.value) : SCATTER_DENSITY_PALETTE_DEFAULT,
+            colorScheme: scatterColorSchemeId,
+            textColor: scatterTextColor,
+            backgroundColor: scatterBackgroundColor,
             border:scatterBorder.value,
             borderWidth:scatterBorderWidth.value,
             alpha:scatterAlpha.value,
@@ -12284,6 +12372,10 @@
               showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
               showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
               showDiagnostics: scatterShowDiagnostics ? !!scatterShowDiagnostics.checked : undefined
+            },
+            notes: {
+              text: notesText,
+              open: notesOpen
             }
           }
         };
@@ -12371,6 +12463,21 @@
         ensureScatterHeaderTitles(scatterHot);
       }
         const c=obj.config||{};
+        applyScatterThemeConfig(c);
+        if(c.notes && typeof c.notes === 'object'){
+          notesState.text = c.notes.text == null ? '' : String(c.notes.text);
+          notesState.open = !!c.notes.open;
+        }else if(typeof c.notes === 'string'){
+          notesState.text = c.notes;
+          notesState.open = !!notesState.open;
+        }else{
+          notesState.text = '';
+          notesState.open = false;
+        }
+        if(notesState.control){
+          notesState.control.setValue(notesState.text);
+          notesState.control.setOpen(notesState.open);
+        }
         importFontStyles('scatter', c.fontStyles || null);
         scatterTitleText=c.title||scatterTitleText;
         scatterXLabelText=c.xLabel||scatterXLabelText;
@@ -12581,6 +12688,44 @@
         return true;
       }
 
+    function initNotes(){
+      const stack = global.document.querySelector('#scatterGraphPanel .scatter-plot-stack')
+        || global.document.querySelector('#scatterGraphPanel .diagram-area');
+      if(!stack){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: scatter notes mount skipped (missing stack)');
+        }
+        return;
+      }
+      const helper = Shared.notes;
+      if(!helper || typeof helper.mountFoldable !== 'function'){
+        console.warn('scatter notes helper unavailable', { hasSharedNotes: !!helper });
+        return;
+      }
+      if(notesState.control?.root && notesState.control.root.isConnected){
+        notesState.control.setValue(notesState.text || '');
+        notesState.control.setOpen(!!notesState.open);
+        return;
+      }
+      notesState.control = helper.mountFoldable({
+        container: stack,
+        id: 'scatter-notes',
+        title: 'Notes',
+        placeholder: 'Write notes about the data being analyzed...',
+        richText: true,
+        scopeId: 'scatter',
+        fontKey: 'notes',
+        value: notesState.text || '',
+        open: !!notesState.open,
+        onChange: value => {
+          notesState.text = value == null ? '' : String(value);
+        },
+        onToggle: open => {
+          notesState.open = !!open;
+        }
+      });
+    }
+
       function loadScatterGraphFile(file){
         const reader=new FileReader();
         reader.onload=e=>{
@@ -12662,6 +12807,7 @@
       return payload;
     };
     scatter.serialize = serializeSvg;
+    initNotes();
     ensureEmptyPayloadTemplate();
     scatter.ready = true;
     console.debug('Debug: Components.scatter.setup complete');

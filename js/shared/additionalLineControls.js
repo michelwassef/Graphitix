@@ -525,6 +525,7 @@
     thicknessField.appendChild(thicknessLabelEl);
     thicknessField.appendChild(thicknessInput);
     thicknessField.hidden = true;
+    panelFieldsRowEl.appendChild(thicknessField);
 
     styleField = doc.createElement('label');
     styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style';

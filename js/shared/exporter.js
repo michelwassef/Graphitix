@@ -3376,6 +3376,79 @@
     return true;
   }
 
+  function parseExportViewport(svgNode) {
+    if (!svgNode || typeof svgNode.getAttribute !== 'function') {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    const viewBox = parseViewBox(svgNode.getAttribute('viewBox'));
+    if (viewBox && Number.isFinite(viewBox.width) && viewBox.width > 0 && Number.isFinite(viewBox.height) && viewBox.height > 0) {
+      return {
+        x: Number.isFinite(viewBox.minX) ? viewBox.minX : 0,
+        y: Number.isFinite(viewBox.minY) ? viewBox.minY : 0,
+        width: viewBox.width,
+        height: viewBox.height
+      };
+    }
+    const fallback = computeSvgDimensions(svgNode, 0, 0);
+    return {
+      x: 0,
+      y: 0,
+      width: Number.isFinite(fallback.width) ? fallback.width : 0,
+      height: Number.isFinite(fallback.height) ? fallback.height : 0
+    };
+  }
+
+  function ensureDarkBackgroundRectForExport(svgNode, counters) {
+    if (!svgNode || typeof svgNode.getAttribute !== 'function') {
+      return false;
+    }
+    const schemeId = String(svgNode.getAttribute('data-color-scheme') || '').trim().toLowerCase();
+    if (schemeId !== 'dark') {
+      return false;
+    }
+    const viewport = parseExportViewport(svgNode);
+    if (!(Number.isFinite(viewport.width) && viewport.width > 0 && Number.isFinite(viewport.height) && viewport.height > 0)) {
+      return false;
+    }
+    const bgColor = String(svgNode.getAttribute('data-color-scheme-bg-color') || '#000000').trim() || '#000000';
+    let bgRect = svgNode.querySelector ? svgNode.querySelector('[data-color-scheme-background="1"]') : null;
+    if (!bgRect && svgNode.ownerDocument && typeof svgNode.ownerDocument.createElementNS === 'function') {
+      bgRect = svgNode.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bgRect.setAttribute('data-color-scheme-background', '1');
+      bgRect.setAttribute('data-export-injected-background', '1');
+      bgRect.setAttribute('pointer-events', 'none');
+      let reference = null;
+      const children = Array.from(svgNode.childNodes || []);
+      for (let i = 0; i < children.length; i += 1) {
+        const child = children[i];
+        if (!child || child.nodeType !== 1 || child === bgRect) continue;
+        const tag = String(child.nodeName || '').toLowerCase();
+        if (tag === 'defs' || tag === 'style' || tag === 'title' || tag === 'desc' || tag === 'metadata') {
+          continue;
+        }
+        reference = child;
+        break;
+      }
+      if (reference) {
+        svgNode.insertBefore(bgRect, reference);
+      } else {
+        svgNode.insertBefore(bgRect, svgNode.firstChild || null);
+      }
+      if (counters) {
+        counters.darkBackgroundInjected = (counters.darkBackgroundInjected || 0) + 1;
+      }
+    }
+    if (!bgRect) {
+      return false;
+    }
+    bgRect.setAttribute('x', String(viewport.x));
+    bgRect.setAttribute('y', String(viewport.y));
+    bgRect.setAttribute('width', String(viewport.width));
+    bgRect.setAttribute('height', String(viewport.height));
+    bgRect.setAttribute('fill', bgColor);
+    return true;
+  }
+
   function prepareSvgForExport(svgNode, contextLabel, options = {}) {
     if (!svgNode) {
       logDebug('prepareSvgForExport skipped', { contextLabel, reason: 'no svg node' });
@@ -3394,6 +3467,7 @@
       additionalLineOverlaysRemoved: 0,
       gridOverlaysRemoved: 0,
       editHighlightsRemoved: 0,
+      darkBackgroundInjected: 0,
       scatterOptimization: null
     };
     try {
@@ -3429,6 +3503,7 @@
       counters.additionalLineOverlaysRemoved = removeAdditionalLineControlOverlays(svgNode);
       counters.gridOverlaysRemoved = removeGridControlOverlays(svgNode);
       counters.editHighlightsRemoved = removeEditHighlightArtifacts(svgNode);
+      ensureDarkBackgroundRectForExport(svgNode, counters);
 
       // Apply scatter point optimization for large datasets
       counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });
@@ -5318,6 +5393,19 @@
       pngScale,
       hybridOptions
     } = config;
+    const resolveBackground = () => {
+      if (config.backgroundColor) {
+        return config.backgroundColor;
+      }
+      if (typeof config.getBackgroundColor === 'function') {
+        try {
+          return config.getBackgroundColor();
+        } catch (err) {
+          console.error('exporter svgActions getBackgroundColor error', err);
+        }
+      }
+      return null;
+    };
     const hybridConfig = hybridOptions && Array.isArray(hybridOptions.layers) && hybridOptions.layers.length
       ? hybridOptions
       : null;
@@ -5336,6 +5424,7 @@
         return;
       }
       if (format === 'png') {
+        const backgroundColor = resolveBackground();
         const blob = await svgElementToPngBlob(svgEl, {
           contextLabel: `${contextLabel}-png`,
           fallbackWidth,
@@ -5343,7 +5432,8 @@
           dpi,
           dpiX,
           dpiY,
-          pngScale
+          pngScale,
+          backgroundColor
         });
         if (!blob) return;
         if (mode === 'download') {
@@ -5400,13 +5490,15 @@
           }
         }
       } else if (format === 'emf') {
+        const backgroundColor = resolveBackground();
         const blob = await svgElementToEmfBlob(svgEl, {
           contextLabel: `${contextLabel}-emf`,
           fallbackWidth,
           fallbackHeight,
           dpi,
           dpiX,
-          dpiY
+          dpiY,
+          backgroundColor
         });
         if (!blob) return;
         if (mode === 'download') {
@@ -5423,6 +5515,7 @@
           }
         }
       } else if (format === 'pdf') {
+        const backgroundColor = resolveBackground();
         const blob = await svgElementToPdfBlob(svgEl, {
           contextLabel: `${contextLabel}-pdf`,
           fallbackWidth,
@@ -5430,7 +5523,8 @@
           dpi,
           dpiX,
           dpiY,
-          pngScale
+          pngScale,
+          backgroundColor
         });
         if (!blob) return;
         if (mode === 'download') {
@@ -5446,6 +5540,7 @@
           }
         }
       } else if (format === 'tiff') {
+        const backgroundColor = resolveBackground();
         const blob = await svgElementToTiffBlob(svgEl, {
           contextLabel: `${contextLabel}-tiff`,
           fallbackWidth,
@@ -5453,7 +5548,8 @@
           dpi,
           dpiX,
           dpiY,
-          pngScale
+          pngScale,
+          backgroundColor
         });
         if (!blob) return;
         if (mode === 'download') {
@@ -5895,7 +5991,9 @@
       dpiX: config.dpiX,
       dpiY: config.dpiY,
       pngScale: config.pngScale,
-      hybridOptions: config.hybridOptions
+      hybridOptions: config.hybridOptions,
+      backgroundColor: config.backgroundColor,
+      getBackgroundColor: config.getBackgroundColor
     });
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-export' });
   };

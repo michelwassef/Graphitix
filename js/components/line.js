@@ -31,6 +31,15 @@
       console.debug('Debug: line component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: line component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const formControls = Shared.formControls = Shared.formControls || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
@@ -228,7 +237,47 @@
   let lineZLabelText = 'Z';
   let lineLabelColors = {};
   let lineLabelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
+  let lineColorSchemeId = 'scientific';
+  let lineTextColor = chartStyle.TEXT_COLOR || '#000000';
+  let lineBackgroundColor = '#ffffff';
   let lineLegendControl = null;
+
+  function normalizeLineThemeColor(value, fallback){
+    return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
+  }
+
+  function applyLineThemeConfig(config){
+    const cfg = config && typeof config === 'object' ? config : {};
+    const schemeId = typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
+      ? cfg.colorScheme.trim().toLowerCase()
+      : lineColorSchemeId;
+    const isDark = schemeId === 'dark';
+    lineColorSchemeId = schemeId || 'scientific';
+    lineTextColor = normalizeLineThemeColor(
+      cfg.textColor,
+      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+    );
+    lineBackgroundColor = normalizeLineThemeColor(
+      cfg.backgroundColor,
+      isDark ? '#000000' : '#ffffff'
+    );
+  }
+
+  function appendLine3dBackground(svg, width, height){
+    if(!svg){
+      return;
+    }
+    const staleBackgrounds = svg.querySelectorAll('[data-color-scheme-background="1"]');
+    staleBackgrounds.forEach(node => {
+      try { node.remove(); } catch (err) {}
+    });
+    const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+    if(isDark){
+      svg.setAttribute('data-color-scheme-bg-color', normalizeLineThemeColor(lineBackgroundColor, '#000000'));
+    }else{
+      svg.removeAttribute('data-color-scheme-bg-color');
+    }
+  }
   let lineSvgBoxRef = null;
   let lineLockRatioInput = null;
   let lineEqualAxesInput = null;
@@ -5145,6 +5194,15 @@
     const axisSettings = ensureLineAxisSettings();
     const fontStyles = exportFontStyles('line');
     const viewMode = lineViewState.viewMode === '3d' ? '3d' : '2d';
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     return {
       type:'line',
       data:lineHot.getData(),
@@ -5172,6 +5230,9 @@
         groupShapes: Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [],
         dotSize:refs.dotSize?.value,
         fill:refs.fill?.value,
+        colorScheme: lineColorSchemeId,
+        textColor: lineTextColor,
+        backgroundColor: lineBackgroundColor,
         border:refs.border?.value,
         borderWidth:refs.borderWidth?.value,
         errorBarWidth:refs.errorBarWidth?.value ?? refs.borderWidth?.value,
@@ -5256,7 +5317,11 @@
               autoTune: !!refs.forecastAuto?.checked,
               criterion: refs.forecastCriterion?.value || null
             }
-          }
+            }
+          },
+        notes: {
+          text: notesText,
+          open: notesOpen
         }
       }
     };
@@ -5283,6 +5348,21 @@
     }
     console.debug('Debug: applyLineGraphPayload payload', obj);
     const c=obj.config||{};
+    applyLineThemeConfig(c);
+    if(c.notes && typeof c.notes === 'object'){
+      notesState.text = c.notes.text == null ? '' : String(c.notes.text);
+      notesState.open = !!c.notes.open;
+    }else if(typeof c.notes === 'string'){
+      notesState.text = c.notes;
+      notesState.open = !!notesState.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
     importFontStyles('line', c.fontStyles || null);
     const storedViewMode = typeof c.viewMode === 'string' ? String(c.viewMode).toLowerCase() : null;
     const storedTableFormat = typeof c.tableFormat === 'string' ? String(c.tableFormat).toLowerCase() : null;
@@ -5819,6 +5899,11 @@
       const axisStrokeWidthBase = getLineAxisStrokeWidth();
       const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis-3d', min: 0.25 });
       const axisStroke = getLineAxisColor();
+      const lineThemeDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+      const lineThemeTextColor = normalizeLineThemeColor(
+        lineTextColor,
+        lineThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+      );
       const dotSizeRaw = Number(refs.dotSize?.value) || 0;
       const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker-3d', min: 0 });
       const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series-3d', min: 0 });
@@ -5983,6 +6068,7 @@
         entries: showLegend ? legendEntries : [],
         fontSize: fs,
         strokeWidth: borderWidthPx,
+        textColor: lineThemeTextColor,
         onSwatchClick: ({ entry, swatch, event, index }) => {
           const legendKey = entry?.key || entry?.label;
           if(!legendKey || !swatch){
@@ -6116,6 +6202,8 @@
       plotEl.style.position = 'relative';
       plotEl.style.aspectRatio = `${W3} / ${H3}`;
       plotEl.style.padding = plotEl.style.padding || '12px';
+      plotEl.style.backgroundColor = '';
+      plotEl.style.boxSizing = 'border-box';
       const svg3 = reuse3dSvg ? existingSvg : global.document.createElementNS(NS, 'svg');
       if(!reuse3dSvg){
         svg3.setAttribute('id', 'lineSvg');
@@ -6130,6 +6218,12 @@
       while(svg3.firstChild){
         svg3.removeChild(svg3.firstChild);
       }
+      svg3.style.backgroundColor = lineThemeDark
+        ? normalizeLineThemeColor(lineBackgroundColor, '#000000')
+        : '';
+      svg3.style.pointerEvents = 'all';
+      svg3.setAttribute('data-color-scheme', lineColorSchemeId || 'scientific');
+      appendLine3dBackground(svg3, W3, H3);
       svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
       plot3d.attachRotationControls(svg3, {
         state: lineViewState.rotation,
@@ -6373,10 +6467,16 @@
         axisStrokeWidth,
         axisColor: axisStroke,
         frameColor: axisStroke,
+        tickTextColor: lineThemeTextColor,
+        axisLabelColor: lineThemeTextColor,
+        showPanes: showFrame,
+        paneFill: lineThemeDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
+        paneOpacityRange: lineThemeDark ? { min: 0.10, max: 0.22 } : { min: 0.01, max: 0.05 },
         gridColor: gridStrokeStyle3d.color,
         gridDash: gridDash3d || undefined,
         gridOpacity: gridOpacity3d,
         gridStrokeWidth: gridStrokeStyle3d.thickness,
+        gridOutlineColors: { primary: gridStrokeStyle3d.color, secondary: gridStrokeStyle3d.color },
         chartStyle,
         showGrid,
         showFrame,
@@ -6631,7 +6731,7 @@
       title3d.setAttribute('y', String(absoluteTitleY));
       title3d.setAttribute('text-anchor', 'middle');
       title3d.setAttribute('font-size', String(fs));
-      title3d.setAttribute('fill', chartStyle.TEXT_COLOR);
+      title3d.setAttribute('fill', lineThemeTextColor);
       title3d.textContent = lineTitleText;
       svg3.appendChild(title3d);
       markFontEditable(title3d, 'graphTitle', 'graphTitle');
@@ -8649,6 +8749,44 @@
     }catch(err){ console.error('drawLine error',err); }
   }
 
+  function initNotes(){
+    const stack = global.document.querySelector('#lineGraphPanel .line-plot-stack')
+      || global.document.querySelector('#lineGraphPanel .diagram-area');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: line notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('line notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'line-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'line',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
+
   function setup(){
     if(line.ready){ console.debug('Debug: Components.line.setup skipped'); return; }
     console.debug('Debug: Components.line.setup start'); // Debug: setup entry
@@ -9824,6 +9962,7 @@
     }
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
+    initNotes();
     ensureEmptyPayloadTemplate();
     line.ready = true;
     scheduleLineDraw();

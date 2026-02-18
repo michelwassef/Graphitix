@@ -8,6 +8,15 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const Main = global.Main = global.Main || {};
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: roc component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -2590,6 +2599,15 @@
 
   function getPayload(){
     ensureHotForActiveTab();
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
     const payload = {
       type: 'roc',
       data: state.hot?.getData() || [],
@@ -2607,7 +2625,11 @@
         labelOpacity: state.labelOpacity,
         labelLinePattern: state.labelLinePattern,
         title: state.titleText,
-        graphType: refs.graphType?.value
+        graphType: refs.graphType?.value,
+        notes: {
+          text: notesText,
+          open: notesOpen
+        }
       }
     };
     const axisSettings = ensureAxisSettings();
@@ -2670,6 +2692,20 @@
       }
     }
     const config = payload.config || {};
+    if(config.notes && typeof config.notes === 'object'){
+      notesState.text = config.notes.text == null ? '' : String(config.notes.text);
+      notesState.open = !!config.notes.open;
+    }else if(typeof config.notes === 'string'){
+      notesState.text = config.notes;
+      notesState.open = !!notesState.open;
+    }else{
+      notesState.text = '';
+      notesState.open = false;
+    }
+    if(notesState.control){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
     importFontStyles('roc', config.fontStyles || null);
     if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
@@ -2877,6 +2913,44 @@
     renderStatsControls();
   }
 
+  function initNotes(){
+    const stack = global.document.querySelector('#rocGraphPanel .roc-plot-stack')
+      || global.document.querySelector('#rocGraphPanel .diagram-area');
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: roc notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('roc notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'roc-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'roc',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
+
   function init(){
     if(roc.ready){
       return;
@@ -2996,6 +3070,7 @@
     scheduleRocNoticeWidth('init');
     ensureHotForActiveTab();
     initControls();
+    initNotes();
     initExampleAndImport();
     initExportsAndFiles();
     state.scheduleDraw?.();

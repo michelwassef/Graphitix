@@ -1893,6 +1893,9 @@
     const rawEntries = Array.isArray(opts.entries) ? opts.entries : [];
     const defaultFill = typeof opts.defaultFill === 'string' ? opts.defaultFill : chartStyle.TEXT_COLOR;
     const defaultStroke = typeof opts.defaultStroke === 'string' ? opts.defaultStroke : 'none';
+    const textColor = (typeof opts.textColor === 'string' && opts.textColor.trim())
+      ? opts.textColor
+      : chartStyle.TEXT_COLOR;
     const defaultStrokeWidth = Number.isFinite(opts.strokeWidth) ? Number(opts.strokeWidth) : 0;
     const normalizedEntries = [];
     rawEntries.forEach((entry, index) => {
@@ -2078,7 +2081,7 @@
           text.setAttribute('x', swatchSize + swatchGap);
           text.setAttribute('y', baselineY);
           text.setAttribute('font-size', fontSize);
-          text.setAttribute('fill', chartStyle.TEXT_COLOR);
+          text.setAttribute('fill', textColor);
           text.setAttribute('dominant-baseline', 'alphabetic');
           text.textContent = entry.label;
           if(entry.editable && typeof opts.onSwatchClick === 'function'){
@@ -2106,6 +2109,7 @@
       rowGap: opts.rowGap,
       minWidth: opts.minWidth,
       baselineOffset: opts.baselineOffset,
+      textColor: opts.textColor,
       onSwatchClick: opts.onSwatchClick
     });
     const entryCount = renderer.entries.length;

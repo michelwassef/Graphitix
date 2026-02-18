@@ -12,17 +12,37 @@
   const state = Shared.__textSelectionGuard = Shared.__textSelectionGuard || {
     installed: false,
     enabled: true,
-    allowSelector: 'input,textarea,select,option,[contenteditable="true"],[contenteditable=""],.allow-text-selection,.inline-edit-overlay,[data-font-controls-overlay="1"]'
+    allowSelector: 'input,textarea,select,option,[contenteditable="true"],[contenteditable=""],.allow-text-selection,.inline-edit-overlay,[data-font-controls-overlay="1"],[data-notes-editor="1"]'
   };
 
+  function normalizeTargetElement(target){
+    if(!target){
+      return null;
+    }
+    if(target.nodeType === 1){
+      return target;
+    }
+    if(target.nodeType === 3 && target.parentElement){
+      return target.parentElement;
+    }
+    if(target.parentElement){
+      return target.parentElement;
+    }
+    if(target.parentNode && target.parentNode.nodeType === 1){
+      return target.parentNode;
+    }
+    return null;
+  }
+
   function isAllowedTarget(target){
-    if(!target || typeof target.closest !== 'function'){ return false; }
+    const resolvedTarget = normalizeTargetElement(target);
+    if(!resolvedTarget || typeof resolvedTarget.closest !== 'function'){ return false; }
     try {
-      return !!target.closest(state.allowSelector);
+      return !!resolvedTarget.closest(state.allowSelector);
     } catch (err) {
       logDebug('invalid allowSelector; falling back to inputs only', { allowSelector: state.allowSelector, err });
       state.allowSelector = 'input,textarea,select,option,[contenteditable="true"],[contenteditable=""]';
-      return !!target.closest(state.allowSelector);
+      return !!resolvedTarget.closest(state.allowSelector);
     }
   }
 
@@ -60,4 +80,3 @@
 
   Shared.disableBrowserTextSelection();
 })(typeof window !== 'undefined' ? window : globalThis);
-

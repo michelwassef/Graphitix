@@ -8,6 +8,15 @@
   const pie = Components.pie = Components.pie || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const notesHelper = Shared.notes = Shared.notes || {};
+  if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/notes.js');
+    }catch(err){
+      console.debug('Debug: pie component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -643,11 +652,25 @@
 
     // Save/Open
     function getPayload(){
+      const noteControl = notesState.control || null;
+      const notesText = noteControl && typeof noteControl.getValue === 'function'
+        ? noteControl.getValue()
+        : (notesState.text || '');
+      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+        ? noteControl.isOpen()
+        : !!notesState.open;
+      notesState.text = notesText;
+      notesState.open = notesOpen;
       const payload = {
         type:'pie',
         data: state.hot.getData(),
         exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
         config: collectConfig()
+      };
+      payload.config = payload.config || {};
+      payload.config.notes = {
+        text: notesText,
+        open: notesOpen
       };
       console.debug('Debug: pie.getPayload captured state', {
         rows: payload.data?.length || 0,
@@ -690,6 +713,20 @@
         }
       }
       const config = payload.config || {};
+      if(config.notes && typeof config.notes === 'object'){
+        notesState.text = config.notes.text == null ? '' : String(config.notes.text);
+        notesState.open = !!config.notes.open;
+      }else if(typeof config.notes === 'string'){
+        notesState.text = config.notes;
+        notesState.open = !!notesState.open;
+      }else{
+        notesState.text = '';
+        notesState.open = false;
+      }
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
       importFontStyles('pie', config.fontStyles || null);
       state.titleText = config.title || state.titleText;
       const chartTypeInput = document.getElementById('pieChartType');
@@ -770,6 +807,10 @@
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
           minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
+        },
+        notes: {
+          text: notesState.text || '',
+          open: !!notesState.open
         },
         labelPositions: state.labelPositions || null
       };
@@ -1616,6 +1657,65 @@
     updatePieStats(labels, values, expected);
   }
   pie.draw = draw;
+  function initNotes(){
+    const diagramArea = document.querySelector('#pieGraphPanel .diagram-area');
+    const graphPanel = document.querySelector('#pieGraphPanel');
+    let stack = document.querySelector('#pieGraphPanel .pie-plot-stack');
+    if(!stack && diagramArea){
+      const svgBox = diagramArea.querySelector('.svgbox');
+      if(svgBox){
+        stack = document.createElement('div');
+        stack.className = 'pie-plot-stack';
+        const configOptions = diagramArea.querySelector('.config-options');
+        if(configOptions){
+          diagramArea.insertBefore(stack, configOptions);
+        }else{
+          diagramArea.appendChild(stack);
+        }
+        stack.appendChild(svgBox);
+      }
+    }
+    if(!stack){
+      stack = diagramArea || graphPanel;
+    }
+    if(!stack){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: pie notes mount skipped (missing stack)');
+      }
+      return;
+    }
+    const misplaced = graphPanel?.querySelector?.('[data-notes-id="pie-notes"]');
+    if(misplaced && misplaced.parentElement !== stack){
+      misplaced.remove();
+    }
+    const helper = Shared.notes;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn('pie notes helper unavailable', { hasSharedNotes: !!helper });
+      return;
+    }
+    if(notesState.control?.root && notesState.control.root.isConnected){
+      notesState.control.setValue(notesState.text || '');
+      notesState.control.setOpen(!!notesState.open);
+      return;
+    }
+    notesState.control = helper.mountFoldable({
+      container: stack,
+      id: 'pie-notes',
+      title: 'Notes',
+      placeholder: 'Write notes about the data being analyzed...',
+      richText: true,
+      scopeId: 'pie',
+      fontKey: 'notes',
+      value: notesState.text || '',
+      open: !!notesState.open,
+      onChange: value => {
+        notesState.text = value == null ? '' : String(value);
+      },
+      onToggle: open => {
+        notesState.open = !!open;
+      }
+    });
+  }
   pie.init = function init(){
     if (pie.ready) { console.debug('Debug: Components.pie.init skipped (already ready)'); return; }
     console.debug('Debug: Components.pie.init');
@@ -1657,6 +1757,7 @@
     }
     initHot();
     initControls();
+    initNotes();
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
