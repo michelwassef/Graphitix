@@ -86,6 +86,21 @@ describe('Regression controls persistence', () => {
     const regressionSelect = document.getElementById('scatterRegressionMode');
     regressionSelect.value = 'logistic';
     regressionSelect.dispatchEvent(new window.Event('change'));
+    const fitMethodSelect = document.getElementById('scatterFitMethod');
+    if(fitMethodSelect){
+      fitMethodSelect.value = 'huber';
+      fitMethodSelect.dispatchEvent(new window.Event('change'));
+    }
+    const fitRangeMin = document.getElementById('scatterFitRangeMinX');
+    const fitRangeMax = document.getElementById('scatterFitRangeMaxX');
+    const confidenceLevel = document.getElementById('scatterConfidenceLevel');
+    const initialJson = document.getElementById('scatterInitialValuesJson');
+    const constraintsJson = document.getElementById('scatterParameterConstraintsJson');
+    if(fitRangeMin){ fitRangeMin.value = '-8'; fitRangeMin.dispatchEvent(new window.Event('change')); }
+    if(fitRangeMax){ fitRangeMax.value = '-4'; fitRangeMax.dispatchEvent(new window.Event('change')); }
+    if(confidenceLevel){ confidenceLevel.value = '90'; confidenceLevel.dispatchEvent(new window.Event('change')); }
+    if(initialJson){ initialJson.value = '{"0":1000}'; initialJson.dispatchEvent(new window.Event('change')); }
+    if(constraintsJson){ constraintsJson.value = '{"HillSlope":{"lower":-5,"upper":5}}'; constraintsJson.dispatchEvent(new window.Event('change')); }
 
     scatter.draw();
     // Allow initial draw/UI sync, then compute stats explicitly (required for summaries).
@@ -107,6 +122,10 @@ describe('Regression controls persistence', () => {
 
     const nextPayload = scatter.getPayload();
     expect(nextPayload.config.regression.mode).toBe('logistic');
+    expect(nextPayload.config.regression.method).toBe('huber');
+    expect(nextPayload.config.regression.fitSpec).toBeTruthy();
+    expect(nextPayload.config.regression.fitSpec.confidenceLevel).toBe(90);
+    expect(nextPayload.config.regression.fitSpec.range).toEqual(expect.objectContaining({ minX: -8, maxX: -4 }));
     const summary = nextPayload.config.regression.summary;
     expect(summary).toBeTruthy();
     expect(summary.metrics).toEqual(expect.objectContaining({

@@ -118,6 +118,7 @@
     } : null;
     return {
       mode: model.mode || null,
+      fitMethod: model.fitMethod || 'ols',
       coefficients: Array.isArray(model.coefficients) ? model.coefficients.slice() : [],
       metrics: model.metrics ? { ...model.metrics } : null,
       residuals: model.residuals ? { ...model.residuals } : null,
@@ -127,7 +128,8 @@
       summary,
       domain: model.domain ? { ...model.domain } : null,
       warnings: Array.isArray(model.warnings) ? model.warnings.slice() : [],
-      forecast
+      forecast,
+      fitSpec: model.fitSpec && typeof model.fitSpec === 'object' ? { ...model.fitSpec } : null
     };
   }
 
@@ -136,6 +138,8 @@
     const points = Array.isArray(payload.points) ? payload.points : [];
     const method = payload.method === 'spearman' ? 'spearman' : 'pearson';
     const regressionMode = payload.regressionMode || 'linear';
+    const fitMethod = payload.fitMethod || 'ols';
+    const fitSpec = payload.fitSpec && typeof payload.fitSpec === 'object' ? payload.fitSpec : {};
     const domainOption = payload.domain || null;
     const sampleCount = Number(payload.sampleCount) || (regressionMode === 'linear' ? 60 : 160);
     const n = points.length;
@@ -176,6 +180,8 @@
       if(regressionTools && typeof regressionTools.fitRegression === 'function'){
         regression = regressionTools.fitRegression(points, {
           mode: regressionMode,
+          method: fitMethod,
+          fitSpec,
           preferDoseResponse: regressionMode === 'logistic'
         });
         if(regression && domainOption){

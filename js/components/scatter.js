@@ -5740,21 +5740,7 @@
       const scatterShowCI = $('#scatterShowCI');
       const scatterShowPI = $('#scatterShowPI');
       const scatterStatsRegressionOptionsRow=(scatterShowLine)?.closest('.config-panel__line--checkboxes')||null;
-      if(scatterStatsRegressionOptionsRow){
-        scatterStatsRegressionOptionsRow.hidden=true;
-        scatterStatsRegressionOptionsRow.style.display='none';
-        scatterStatsRegressionOptionsRow.setAttribute('aria-hidden','true');
-      }
       let scatterShowDiagnostics=$('#scatterShowDiagnostics');
-      if(scatterShowDiagnostics){
-        const diagLabel=scatterShowDiagnostics.closest('label')||scatterShowDiagnostics.parentElement;
-        if(diagLabel){
-          diagLabel.remove();
-        }else{
-          scatterShowDiagnostics.remove();
-        }
-        scatterShowDiagnostics=null;
-      }
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
       if(scatterFontSize?.dataset){
@@ -5776,6 +5762,16 @@
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');
       const scatterRegressionMode=$('#scatterRegressionMode');
+      const scatterFitMethod=$('#scatterFitMethod');
+      const scatterFitRangeMinX=$('#scatterFitRangeMinX');
+      const scatterFitRangeMaxX=$('#scatterFitRangeMaxX');
+      const scatterConfidenceLevel=$('#scatterConfidenceLevel');
+      const scatterInitialValuesJson=$('#scatterInitialValuesJson');
+      const scatterParameterConstraintsJson=$('#scatterParameterConstraintsJson');
+      const scatterFitSpecBadge=$('#scatterFitSpecBadge');
+      const scatterFitSpecStatus=$('#scatterFitSpecStatus');
+      const scatterInitialValuesJsonError=$('#scatterInitialValuesJsonError');
+      const scatterParameterConstraintsJsonError=$('#scatterParameterConstraintsJsonError');
       const scatterViewMode=$('#scatterViewMode');
       const scatterViewControls=$('#scatterViewControls');
       scatterViewModeInput = scatterViewMode;
@@ -5845,7 +5841,7 @@
         if(!scatterStatsRegressionOptionsRow){
           return;
         }
-        const shouldShow=scatterHasComputedStats();
+        const shouldShow=true;
         scatterStatsRegressionOptionsRow.hidden=!shouldShow;
         scatterStatsRegressionOptionsRow.style.display=shouldShow?'':'none';
         scatterStatsRegressionOptionsRow.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
@@ -5876,8 +5872,153 @@
       function getScatterStatsControlSignature(){
         return [
           scatterStatType?.value || 'pearson',
-          scatterRegressionMode?.value || 'linear'
+          scatterRegressionMode?.value || 'linear',
+          scatterFitMethod?.value || 'ols',
+          scatterFitRangeMinX?.value || '',
+          scatterFitRangeMaxX?.value || '',
+          scatterConfidenceLevel?.value || '95',
+          scatterInitialValuesJson?.value || '',
+          scatterParameterConstraintsJson?.value || ''
         ].join('|');
+      }
+
+      function parseScatterJsonWithError(rawValue){
+        const raw = typeof rawValue === 'string' ? rawValue.trim() : '';
+        if(!raw){
+          return { value: null, error: null, empty: true };
+        }
+        try{
+          return { value: JSON.parse(raw), error: null, empty: false };
+        }catch(err){
+          return {
+            value: null,
+            error: err?.message || 'Invalid JSON.',
+            empty: false
+          };
+        }
+      }
+
+      function setScatterFitSpecMessage(target, message, state){
+        if(!target){
+          return;
+        }
+        target.textContent = message || '';
+        if(state){
+          target.dataset.state = state;
+        }else{
+          target.removeAttribute('data-state');
+        }
+      }
+
+      function validateScatterFitSpecControls(){
+        const minX = Number(scatterFitRangeMinX?.value);
+        const maxX = Number(scatterFitRangeMaxX?.value);
+        const hasMin = Number.isFinite(minX);
+        const hasMax = Number.isFinite(maxX);
+        const confidence = Number(scatterConfidenceLevel?.value);
+        const initialParse = parseScatterJsonWithError(scatterInitialValuesJson?.value);
+        const constraintParse = parseScatterJsonWithError(scatterParameterConstraintsJson?.value);
+        const issues = [];
+        if(hasMin && hasMax && minX > maxX){
+          issues.push('Fit range min X cannot exceed max X.');
+        }
+        if(Number.isFinite(confidence) && (confidence < 1 || confidence >= 100)){
+          issues.push('Confidence level must be between 1 and 99.9.');
+        }
+        if(initialParse.error){
+          issues.push(`Initial values JSON: ${initialParse.error}`);
+        }
+        if(constraintParse.error){
+          issues.push(`Parameter constraints JSON: ${constraintParse.error}`);
+        }
+        if(initialParse.error){
+          setScatterFitSpecMessage(scatterInitialValuesJsonError, `Invalid JSON: ${initialParse.error}`, 'invalid');
+        }else if(!initialParse.empty){
+          setScatterFitSpecMessage(scatterInitialValuesJsonError, 'Initial values JSON is valid.', 'valid');
+        }else{
+          setScatterFitSpecMessage(scatterInitialValuesJsonError, '', null);
+        }
+        if(constraintParse.error){
+          setScatterFitSpecMessage(scatterParameterConstraintsJsonError, `Invalid JSON: ${constraintParse.error}`, 'invalid');
+        }else if(!constraintParse.empty){
+          setScatterFitSpecMessage(scatterParameterConstraintsJsonError, 'Parameter constraints JSON is valid.', 'valid');
+        }else{
+          setScatterFitSpecMessage(scatterParameterConstraintsJsonError, '', null);
+        }
+        if(issues.length){
+          setScatterFitSpecMessage(scatterFitSpecStatus, issues[0], 'invalid');
+          if(scatterFitSpecBadge){
+            scatterFitSpecBadge.textContent = 'Invalid';
+            scatterFitSpecBadge.dataset.state = 'invalid';
+          }
+          return false;
+        }
+        const hint = (!initialParse.empty || !constraintParse.empty || hasMin || hasMax)
+          ? 'Fit specification is valid.'
+          : 'Using default fit specification.';
+        setScatterFitSpecMessage(scatterFitSpecStatus, hint, 'valid');
+        if(scatterFitSpecBadge){
+          scatterFitSpecBadge.textContent = 'Valid';
+          scatterFitSpecBadge.dataset.state = 'valid';
+        }
+        return true;
+      }
+
+      function buildScatterFitSpec(){
+        const minX = Number(scatterFitRangeMinX?.value);
+        const maxX = Number(scatterFitRangeMaxX?.value);
+        const confidenceLevel = Number(scatterConfidenceLevel?.value);
+        const hasRange = Number.isFinite(minX) || Number.isFinite(maxX);
+        const initialParsed = parseScatterJsonWithError(scatterInitialValuesJson?.value);
+        const constraintsParsed = parseScatterJsonWithError(scatterParameterConstraintsJson?.value);
+        const initialValues = initialParsed.error ? null : initialParsed.value;
+        const parameters = constraintsParsed.error ? null : constraintsParsed.value;
+        const fitSpec = {};
+        if(hasRange){
+          fitSpec.range = {
+            minX: Number.isFinite(minX) ? minX : null,
+            maxX: Number.isFinite(maxX) ? maxX : null
+          };
+        }
+        if(Number.isFinite(confidenceLevel)){
+          fitSpec.confidenceLevel = Math.max(1, Math.min(99.9, confidenceLevel));
+        }
+        if(initialValues && typeof initialValues === 'object'){
+          fitSpec.initialValues = initialValues;
+        }
+        if(parameters && typeof parameters === 'object'){
+          fitSpec.parameters = parameters;
+        }
+        return fitSpec;
+      }
+
+      function applyScatterFitSpecControls(spec){
+        const fitSpec = spec && typeof spec === 'object' ? spec : {};
+        if(scatterFitRangeMinX){
+          const minX = Number(fitSpec?.range?.minX);
+          scatterFitRangeMinX.value = Number.isFinite(minX) ? String(minX) : '';
+        }
+        if(scatterFitRangeMaxX){
+          const maxX = Number(fitSpec?.range?.maxX);
+          scatterFitRangeMaxX.value = Number.isFinite(maxX) ? String(maxX) : '';
+        }
+        if(scatterConfidenceLevel){
+          const confidence = Number(fitSpec?.confidenceLevel);
+          scatterConfidenceLevel.value = Number.isFinite(confidence) ? String(confidence) : '95';
+        }
+        if(scatterInitialValuesJson){
+          const initial = fitSpec?.initialValues;
+          scatterInitialValuesJson.value = (initial && typeof initial === 'object')
+            ? JSON.stringify(initial)
+            : '';
+        }
+        if(scatterParameterConstraintsJson){
+          const constraints = fitSpec?.parameters;
+          scatterParameterConstraintsJson.value = (constraints && typeof constraints === 'object')
+            ? JSON.stringify(constraints)
+            : '';
+        }
+        validateScatterFitSpecControls();
       }
 
       function buildScatterStatsSignature(context){
@@ -5950,6 +6091,8 @@
           timeoutMs: SCATTER_STATS_WORKER.timeoutMs,
           fallback: (data) => computeScatterStats(data.points, data.method, {
             regressionMode: data.regressionMode,
+            fitMethod: data.fitMethod || 'ols',
+            fitSpec: data.fitSpec || {},
             domain: data.domain || null
           })
         });
@@ -6155,6 +6298,10 @@
         const controlSignature = settings?.controlSignature || null;
         cacheScatterStats(context, stats, controlSignature);
         const regressionModel = stats?.regression || null;
+        const fitMethodValue = regressionModel?.fitMethod || settings?.fitMethodValue || 'ols';
+        const fitSpecValue = regressionModel?.fitSpec && typeof regressionModel.fitSpec === 'object'
+          ? regressionModel.fitSpec
+          : (settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : null);
         if(regressionModel && Array.isArray(stats?.curveSamples) && !Array.isArray(regressionModel.curveSamples)){
           regressionModel.curveSamples = stats.curveSamples;
         }
@@ -6163,8 +6310,17 @@
           : null;
         const rows=[
           { metric:'r', value:formatMetricValue(stats?.r) },
-          { metric:'P value', value:formatP(stats?.p) }
+          { metric:'P value', value:formatP(stats?.p) },
+          { metric:'Fit method', value:fitMethodValue.toUpperCase() }
         ];
+        if(fitSpecValue?.range){
+          const minLabel = Number.isFinite(Number(fitSpecValue.range.minX)) ? formatMetricValue(Number(fitSpecValue.range.minX)) : 'Auto';
+          const maxLabel = Number.isFinite(Number(fitSpecValue.range.maxX)) ? formatMetricValue(Number(fitSpecValue.range.maxX)) : 'Auto';
+          rows.push({ metric:'Fit range X', value:`${minLabel} to ${maxLabel}` });
+        }
+        if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
+          rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
+        }
         if(regressionModel?.metrics){
           rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
           if(Number.isFinite(regressionModel.metrics.adjR2)){
@@ -6284,6 +6440,11 @@
         }
         scatterStatsResults.innerHTML='';
         if(context.graphType==='scatter'){
+          if(!validateScatterFitSpecControls()){
+            scatterStatsResults.textContent='Fix fit specification errors before computing statistics.';
+            finishStatsPerf({ outcome: 'fit-spec-invalid', pointCount: context.points?.length || 0 });
+            return Promise.resolve(false);
+          }
           if(!Array.isArray(context.points) || context.points.length<3){
             scatterStatsResults.textContent='Select at least three paired values to compute correlation statistics.';
             finishStatsPerf({ outcome: 'insufficient-points', pointCount: context.points?.length || 0 });
@@ -6291,12 +6452,14 @@
           }
           const method=scatterStatType?.value || 'pearson';
           const regressionModeValue=scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
+          const fitMethodValue=scatterFitMethod ? (scatterFitMethod.value || 'ols') : 'ols';
+          const fitSpec = buildScatterFitSpec();
           const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
           const showCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
           const showPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
           const showDiagnostics=!!scatterShowDiagnostics?.checked;
           const controlSignature=getScatterStatsControlSignature();
-          const settings = { regressionModeValue, showLineMaster, showCI, showPI, showDiagnostics, controlSignature };
+          const settings = { regressionModeValue, fitMethodValue, fitSpec, showLineMaster, showCI, showPI, showDiagnostics, controlSignature };
           let stats=context.precomputedStats;
           if(!stats || context.precomputedSignature!==controlSignature){
             const useWorker = shouldUseScatterStatsWorker(context.points, regressionModeValue);
@@ -6306,6 +6469,8 @@
                 points: context.points,
                 method,
                 regressionMode: regressionModeValue,
+                fitMethod: fitMethodValue,
+                fitSpec,
                 domain: context.domain || null,
                 sampleCount: regressionModeValue === 'linear' ? 60 : 160,
                 debug: (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled())
@@ -6327,7 +6492,7 @@
                 })
                 .catch(err => {
                   scatterDebug('Debug: scatter stats worker failed',{ message: err?.message || String(err) });
-                  stats = computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, domain:context.domain || null });
+                  stats = computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, fitMethod: fitMethodValue, fitSpec, domain:context.domain || null });
                   applyScatterStatsResults(context, stats, settings);
                   return true;
                 })
@@ -6335,7 +6500,7 @@
                   finishStatsPerf({ outcome: 'worker', pointCount: context.points.length });
                 });
             }
-            stats=computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, domain:context.domain || null });
+            stats=computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, fitMethod: fitMethodValue, fitSpec, domain:context.domain || null });
           }
           applyScatterStatsResults(context, stats, settings);
           finishStatsPerf({ outcome: 'sync', pointCount: context.points.length });
@@ -6360,7 +6525,8 @@
         scatterViewMode,
         scatterOriginMode,
         scatterStatType,
-        scatterRegressionMode
+        scatterRegressionMode,
+        scatterFitMethod
       ].filter(Boolean);
       scatterSelects.forEach(select=>{
         attachScatterSelectAutoSize(select, 'scatter');
@@ -7393,7 +7559,7 @@
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleDrawScatter();
       });
-      [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI,scatterShowDiagnostics]
+      [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI,scatterShowDiagnostics]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           if(el===scatterOriginMode){
@@ -7403,9 +7569,9 @@
               return;
             }
           }
-          if(el===scatterStatType){
+          if(el===scatterStatType || el===scatterFitMethod){
             requestScatterStatsContextRefresh(`${el.id||'scatter-control'}-change`);
-            persistTabState('scatter-stat-type-change');
+            persistTabState(el===scatterFitMethod ? 'scatter-fit-method-change' : 'scatter-stat-type-change');
           }else if(el===scatterShowDiagnostics && scatterHasComputedStats()){
             try{
               const ctx = scatterState.statsContext;
@@ -7424,6 +7590,22 @@
           }
           scheduleDrawScatter();
         }));
+      [scatterFitRangeMinX, scatterFitRangeMaxX, scatterConfidenceLevel, scatterInitialValuesJson, scatterParameterConstraintsJson]
+        .forEach(el => el && el.addEventListener('change', () => {
+          validateScatterFitSpecControls();
+          requestScatterStatsContextRefresh(`${el.id || 'scatter-fit-spec'}-change`);
+          persistTabState('scatter-fit-spec-change');
+          scheduleDrawScatter();
+        }));
+      [scatterInitialValuesJson, scatterParameterConstraintsJson]
+        .forEach(el => el && el.addEventListener('input', () => {
+          validateScatterFitSpecControls();
+        }));
+      [scatterFitRangeMinX, scatterFitRangeMaxX, scatterConfidenceLevel]
+        .forEach(el => el && el.addEventListener('input', () => {
+          validateScatterFitSpecControls();
+        }));
+      validateScatterFitSpecControls();
       // CI/PI controls depend on the trend line checkbox (scatterShowLine).
       const updateCIEnabled = ()=>{
         const masterOn = !!(scatterShowLine && scatterShowLine.checked);
@@ -11841,6 +12023,8 @@
       function computeScatterStats(points,method,options={}){
         console.log('computeScatterStats',method,points.length,options);
         const regressionMode = options.regressionMode || 'linear';
+        const fitMethod = options.fitMethod || 'ols';
+        const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
         const domainOption = options.domain || null;
         const x=points.map(p=>p.x);
         const y=points.map(p=>p.y);
@@ -11865,6 +12049,8 @@
           try{
             regression=regressionTools.fitRegression(points,{
               mode: regressionMode,
+              method: fitMethod,
+              fitSpec,
               preferDoseResponse: regressionMode === 'logistic'
             });
             if(regression && domainOption){
@@ -12042,6 +12228,8 @@
             showSignificantLabels: scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : undefined,
             regression:{
               mode: scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear',
+              method: scatterFitMethod ? (scatterFitMethod.value || 'ols') : 'ols',
+              fitSpec: buildScatterFitSpec(),
               summary: scatterLastRegressionSummary
             },
             axis:{
@@ -12091,6 +12279,8 @@
               contextVersion: Number.isFinite(scatterState.statsContextVersion) ? scatterState.statsContextVersion : 0,
               statType: scatterStatType ? scatterStatType.value : undefined,
               regressionMode: scatterRegressionMode ? scatterRegressionMode.value : undefined,
+              fitMethod: scatterFitMethod ? scatterFitMethod.value : undefined,
+              fitSpec: buildScatterFitSpec(),
               showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
               showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
               showDiagnostics: scatterShowDiagnostics ? !!scatterShowDiagnostics.checked : undefined
@@ -12272,6 +12462,12 @@
         if(scatterRegressionMode && c.regression?.mode){
           scatterRegressionMode.value=c.regression.mode;
         }
+        if(scatterFitMethod && c.regression?.method){
+          scatterFitMethod.value=c.regression.method;
+        }
+        if(c.regression?.fitSpec){
+          applyScatterFitSpecControls(c.regression.fitSpec);
+        }
         scatterLastRegressionSummary = c.regression?.summary || null;
         if(c.rotation){
           scatterState.rotation = plot3d.createRotationState(c.rotation);
@@ -12340,6 +12536,8 @@
             const savedCtxVer = Number.isFinite(Number(c.stats.contextVersion)) ? Number(c.stats.contextVersion) : 0;
             const savedStatType = typeof c.stats.statType === 'string' ? c.stats.statType : null;
             const savedRegressionMode = typeof c.stats.regressionMode === 'string' ? c.stats.regressionMode : null;
+            const savedFitMethod = typeof c.stats.fitMethod === 'string' ? c.stats.fitMethod : null;
+            const savedFitSpec = c.stats.fitSpec && typeof c.stats.fitSpec === 'object' ? c.stats.fitSpec : null;
             const savedShowCI = c.stats.showCI === true;
             const savedShowPI = c.stats.showPI === true;
             const savedShowDiagnostics = c.stats.showDiagnostics === true;
@@ -12349,6 +12547,8 @@
             // restore control values if present
             if(savedStatType && scatterStatType){ scatterStatType.value = savedStatType; }
             if(savedRegressionMode && scatterRegressionMode){ scatterRegressionMode.value = savedRegressionMode; }
+            if(savedFitMethod && scatterFitMethod){ scatterFitMethod.value = savedFitMethod; }
+            if(savedFitSpec){ applyScatterFitSpecControls(savedFitSpec); }
             if(typeof c.stats.showCI === 'boolean' && scatterShowCI){ scatterShowCI.checked = savedShowCI; }
             if(typeof c.stats.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = savedShowPI; }
             if((savedShowCI || savedShowPI) && scatterShowLine){ scatterShowLine.checked = true; }

@@ -760,13 +760,45 @@
               <label class="config-panel__item config-panel__item--wide">
                 <span class="config-panel__label">Regression</span>
                 <select id="scatterRegressionMode">
-                  <option value="linear" selected>Linear</option>
-                  <option value="quadratic">Polynomial (quadratic)</option>
-                  <option value="cubic">Polynomial (cubic)</option>
-                  <option value="exponential">Exponential</option>
-                  <option value="power">Power</option>
-                  <option value="spline">Spline</option>
-                  <option value="logistic">Logistic / Dose-response (IC50)</option>
+                  <optgroup label="Lines">
+                    <option value="linear" selected>Linear</option>
+                    <option value="linearThroughOrigin">Linear (through origin)</option>
+                    <option value="quadratic">Polynomial (quadratic)</option>
+                    <option value="cubic">Polynomial (cubic)</option>
+                  </optgroup>
+                  <optgroup label="Dose-response">
+                    <option value="logistic">Logistic / Dose-response (auto)</option>
+                    <option value="doseResponse3pl">3PL dose-response</option>
+                    <option value="doseResponse4pl">4PL dose-response (IC50)</option>
+                    <option value="doseResponse5pl">5PL dose-response (asymmetric)</option>
+                  </optgroup>
+                  <optgroup label="Exponential and Growth">
+                    <option value="exponential">Exponential</option>
+                    <option value="onePhaseAssociation">One-phase association</option>
+                    <option value="onePhaseDecay">One-phase decay</option>
+                    <option value="gompertz">Gompertz growth</option>
+                  </optgroup>
+                  <optgroup label="Specialized">
+                    <option value="power">Power</option>
+                    <option value="gaussian">Gaussian</option>
+                    <option value="spline">Spline</option>
+                  </optgroup>
+                  <optgroup label="Binding and Enzyme">
+                    <option value="bindingSaturation">Binding - saturation</option>
+                    <option value="bindingCompetitive">Binding - competitive</option>
+                    <option value="enzymeKineticsSubstrate">Enzyme kinetics - substrate</option>
+                    <option value="enzymeKineticsInhibition">Enzyme kinetics - inhibition</option>
+                  </optgroup>
+                </select>
+              </label>
+            </div>
+            <div class="config-panel__line">
+              <label class="config-panel__item config-panel__item--wide">
+                <span class="config-panel__label">Fit method</span>
+                <select id="scatterFitMethod">
+                  <option value="ols" selected>Ordinary least squares</option>
+                  <option value="wls">Weighted least squares</option>
+                  <option value="huber">Robust (Huber)</option>
                 </select>
               </label>
             </div>
@@ -781,6 +813,40 @@
               <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
               <span id="scatterStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
+            <fieldset class="config-panel__fieldset" id="scatterFitSpecControls">
+              <legend>Fit specification <span id="scatterFitSpecBadge" class="fit-spec-badge">Pending</span></legend>
+              <div id="scatterFitSpecStatus" class="fit-spec-status" aria-live="polite"></div>
+              <div class="config-panel__line config-panel__line--split">
+                <label class="config-panel__item config-panel__item--wide">
+                  <span class="config-panel__label">Fit range min X</span>
+                  <input type="number" id="scatterFitRangeMinX" step="any" placeholder="Auto" />
+                </label>
+                <label class="config-panel__item config-panel__item--wide">
+                  <span class="config-panel__label">Fit range max X</span>
+                  <input type="number" id="scatterFitRangeMaxX" step="any" placeholder="Auto" />
+                </label>
+              </div>
+              <div class="config-panel__line">
+                <label class="config-panel__item config-panel__item--wide">
+                  <span class="config-panel__label">Confidence level (%)</span>
+                  <input type="number" id="scatterConfidenceLevel" min="50" max="99.9" step="0.1" value="95" />
+                </label>
+              </div>
+              <div class="config-panel__line">
+                <label class="config-panel__item config-panel__item--wide">
+                  <span class="config-panel__label">Initial values (JSON)</span>
+                  <textarea id="scatterInitialValuesJson" rows="2" placeholder='{"0":1.0,"Slope":0.5}'></textarea>
+                </label>
+              </div>
+              <div id="scatterInitialValuesJsonError" class="fit-spec-status fit-spec-status--inline" aria-live="polite"></div>
+              <div class="config-panel__line">
+                <label class="config-panel__item config-panel__item--wide">
+                  <span class="config-panel__label">Parameter constraints (JSON)</span>
+                  <textarea id="scatterParameterConstraintsJson" rows="3" placeholder='{"Slope":{"lower":0,"upper":10,"fixed":false}}'></textarea>
+                </label>
+              </div>
+              <div id="scatterParameterConstraintsJsonError" class="fit-spec-status fit-spec-status--inline" aria-live="polite"></div>
+            </fieldset>
             <div id="scatterStatsResults" class="idx-inline-003"></div>
           </fieldset>
         </div>

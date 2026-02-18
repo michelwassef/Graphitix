@@ -4366,3 +4366,38 @@ input[type="reset"],
     border-bottom-left-radius: 4px !important;
     border-bottom-right-radius: 4px !important;
 }
+.fit-spec-badge{
+  display:inline-block;
+  margin-left:8px;
+  padding:1px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:600;
+  line-height:1.6;
+  background:#ececec;
+  color:#4b5563;
+  vertical-align:middle;
+}
+.fit-spec-badge[data-state="valid"]{
+  background:#dcfce7;
+  color:#166534;
+}
+.fit-spec-badge[data-state="invalid"]{
+  background:#fee2e2;
+  color:#991b1b;
+}
+.fit-spec-status{
+  font-size:12px;
+  line-height:1.45;
+  color:#4b5563;
+}
+.fit-spec-status--inline{
+  margin-top:-4px;
+  margin-bottom:4px;
+}
+.fit-spec-status[data-state="valid"]{
+  color:#166534;
+}
+.fit-spec-status[data-state="invalid"]{
+  color:#991b1b;
+}

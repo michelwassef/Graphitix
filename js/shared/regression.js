@@ -2246,6 +2246,1146 @@
     };
   };
 
+  const clampPositive = (value, fallback = 1e-6) => {
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return fallback;
+    }
+    return Math.max(fallback, numeric);
+  };
+
+  const resolveWeightedResidualScale = (residuals) => {
+    if(!Array.isArray(residuals) || !residuals.length){
+      return NaN;
+    }
+    const sortedAbs = residuals.map(val => Math.abs(val)).sort((a,b)=>a-b);
+    const middle = Math.floor(sortedAbs.length / 2);
+    const mad = sortedAbs.length % 2 === 0
+      ? (sortedAbs[middle - 1] + sortedAbs[middle]) / 2
+      : sortedAbs[middle];
+    const robustScale = Number.isFinite(mad) ? mad * 1.4826 : NaN;
+    if(Number.isFinite(robustScale) && robustScale > 0){
+      return robustScale;
+    }
+    const variance = residuals.length > 1
+      ? residuals.reduce((sum,val)=>sum + val * val,0) / (residuals.length - 1)
+      : 0;
+    return Math.sqrt(Math.max(variance, 0));
+  };
+
+  const buildRegressionWeights = ({ points, method, options, residuals }) => {
+    const count = Array.isArray(points) ? points.length : 0;
+    const resolvedMethod = typeof method === 'string' ? method.toLowerCase() : 'ols';
+    const weights = new Array(count).fill(1);
+    if(resolvedMethod === 'wls'){
+      const manual = Array.isArray(options?.weights) ? options.weights : null;
+      for(let i = 0; i < count; i++){
+        const manualWeight = Number(manual?.[i]);
+        if(Number.isFinite(manualWeight) && manualWeight > 0){
+          weights[i] = manualWeight;
+          continue;
+        }
+        const yMagnitude = Math.abs(Number(points[i]?.y));
+        const denom = Math.max(yMagnitude, 1e-6);
+        weights[i] = 1 / (denom * denom);
+      }
+    }else if(resolvedMethod === 'huber' && Array.isArray(residuals) && residuals.length === count){
+      const huberK = Number.isFinite(Number(options?.huberK)) ? Number(options.huberK) : 1.345;
+      const scale = resolveWeightedResidualScale(residuals);
+      if(Number.isFinite(scale) && scale > 0){
+        for(let i = 0; i < count; i++){
+          const r = Math.abs(residuals[i]);
+          const threshold = huberK * scale;
+          weights[i] = r <= threshold ? 1 : (threshold / Math.max(r, 1e-12));
+        }
+      }
+    }
+    return weights;
+  };
+
+  const computeJacobianNumeric = ({ points, params, predictFromParams }) => {
+    const paramCount = params.length;
+    const jacobian = new Array(points.length);
+    for(let i = 0; i < points.length; i++){
+      const x = points[i].x;
+      const row = new Array(paramCount).fill(0);
+      for(let pIdx = 0; pIdx < paramCount; pIdx++){
+        const base = params[pIdx];
+        const step = Math.max(1e-6, Math.abs(base) * 1e-4);
+        const plus = params.slice();
+        const minus = params.slice();
+        plus[pIdx] = base + step;
+        minus[pIdx] = base - step;
+        const yPlus = predictFromParams(plus, x);
+        const yMinus = predictFromParams(minus, x);
+        if(Number.isFinite(yPlus) && Number.isFinite(yMinus)){
+          row[pIdx] = (yPlus - yMinus) / (2 * step);
+        }else{
+          row[pIdx] = 0;
+        }
+      }
+      jacobian[i] = row;
+    }
+    return jacobian;
+  };
+
+  const applyParameterBounds = (params, bounds) => {
+    const lower = Array.isArray(bounds?.lower) ? bounds.lower : [];
+    const upper = Array.isArray(bounds?.upper) ? bounds.upper : [];
+    for(let i = 0; i < params.length; i++){
+      const lo = Number(lower[i]);
+      const hi = Number(upper[i]);
+      if(Number.isFinite(lo) && params[i] < lo){
+        params[i] = lo;
+      }
+      if(Number.isFinite(hi) && params[i] > hi){
+        params[i] = hi;
+      }
+    }
+    return params;
+  };
+
+  const solveNormalEquations = (a, b) => {
+    const aInv = safeInverse(a);
+    if(!aInv){
+      return null;
+    }
+    const delta = new Array(b.length).fill(0);
+    for(let r = 0; r < aInv.length; r++){
+      let sum = 0;
+      for(let c = 0; c < b.length; c++){
+        sum += (aInv[r]?.[c] || 0) * b[c];
+      }
+      delta[r] = sum;
+    }
+    return { delta, inverse: aInv };
+  };
+
+  const fitNonlinearLeastSquares = ({ points, initialParams, predictFromParams, bounds, fixedMask, method, options }) => {
+    const maxIterations = Math.max(30, Math.min(2000, Number(options?.maxIterations) || 450));
+    const tolerance = Number.isFinite(Number(options?.tolerance)) ? Math.max(Number(options.tolerance), 1e-12) : 1e-8;
+    const resolvedMethod = typeof method === 'string' ? method.toLowerCase() : 'ols';
+    let params = applyParameterBounds(initialParams.slice(), bounds);
+    const locked = Array.isArray(fixedMask) ? fixedMask.map(Boolean) : new Array(params.length).fill(false);
+    const freeIndices = [];
+    for(let i = 0; i < params.length; i++){
+      if(!locked[i]){
+        freeIndices.push(i);
+      }
+    }
+    let lambda = Number.isFinite(Number(options?.lambda)) ? Number(options.lambda) : 0.01;
+    let best = { params: params.slice(), sse: Infinity, residuals: [], predictions: [], weights: [], jacobian: null, covariance: null };
+    let converged = false;
+    let iteration = 0;
+
+    if(!freeIndices.length){
+      const predictions = points.map(pt => predictFromParams(params, pt.x));
+      const residuals = predictions.map((pred, idx) => points[idx].y - pred);
+      const weights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals });
+      const sse = residuals.reduce((sum, r, idx) => sum + ((weights[idx] || 1) * r * r), 0);
+      return {
+        params: params.slice(),
+        sse,
+        residuals,
+        predictions,
+        weights,
+        jacobian: null,
+        covarianceBase: null,
+        converged: true,
+        iterations: 1,
+        freeParameterCount: 0
+      };
+    }
+
+    for(iteration = 1; iteration <= maxIterations; iteration++){
+      const predictions = points.map(pt => predictFromParams(params, pt.x));
+      const residuals = predictions.map((pred, idx) => points[idx].y - pred);
+      const weights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals });
+      let sse = 0;
+      for(let i = 0; i < residuals.length; i++){
+        const r = residuals[i];
+        const w = weights[i] || 1;
+        sse += w * r * r;
+      }
+      if(sse < best.sse){
+        best = { ...best, params: params.slice(), sse, residuals: residuals.slice(), predictions: predictions.slice(), weights: weights.slice() };
+      }
+      const jacobian = computeJacobianNumeric({ points, params, predictFromParams });
+      const pCount = freeIndices.length;
+      const jtWj = Array.from({ length: pCount }, () => new Array(pCount).fill(0));
+      const jtWr = new Array(pCount).fill(0);
+      for(let i = 0; i < points.length; i++){
+        const w = weights[i] || 1;
+        const row = jacobian[i];
+        const r = residuals[i];
+        for(let aIdx = 0; aIdx < pCount; aIdx++){
+          const paramA = freeIndices[aIdx];
+          const ja = row[paramA];
+          jtWr[aIdx] += w * ja * r;
+          for(let bIdx = 0; bIdx < pCount; bIdx++){
+            const paramB = freeIndices[bIdx];
+            jtWj[aIdx][bIdx] += w * ja * row[paramB];
+          }
+        }
+      }
+      for(let d = 0; d < pCount; d++){
+        jtWj[d][d] += lambda;
+      }
+      const solved = solveNormalEquations(jtWj, jtWr);
+      if(!solved){
+        break;
+      }
+      const delta = solved.delta;
+      const deltaNorm = Math.sqrt(delta.reduce((sum,val)=>sum + val * val,0));
+      const candidate = params.slice();
+      for(let d = 0; d < freeIndices.length; d++){
+        const paramIndex = freeIndices[d];
+        candidate[paramIndex] = params[paramIndex] + delta[d];
+      }
+      applyParameterBounds(candidate, bounds);
+      const candidatePredictions = points.map(pt => predictFromParams(candidate, pt.x));
+      const candidateResiduals = candidatePredictions.map((pred, idx) => points[idx].y - pred);
+      const candidateWeights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals: candidateResiduals });
+      let candidateSse = 0;
+      for(let i = 0; i < candidateResiduals.length; i++){
+        candidateSse += (candidateWeights[i] || 1) * candidateResiduals[i] * candidateResiduals[i];
+      }
+      if(candidateSse < sse){
+        params = candidate;
+        lambda = Math.max(1e-8, lambda * 0.7);
+        if(candidateSse < best.sse){
+          best = {
+            params: params.slice(),
+            sse: candidateSse,
+            residuals: candidateResiduals.slice(),
+            predictions: candidatePredictions.slice(),
+            weights: candidateWeights.slice(),
+            jacobian: jacobian.map(row => row.slice()),
+            covariance: solved.inverse
+          };
+        }
+        if(deltaNorm < tolerance){
+          converged = true;
+          break;
+        }
+      }else{
+        lambda = Math.min(1e8, lambda * 2);
+        if(deltaNorm < tolerance){
+          break;
+        }
+      }
+    }
+
+    let expandedCovariance = null;
+    if(best.covariance){
+      expandedCovariance = Array.from({ length: params.length }, () => new Array(params.length).fill(0));
+      for(let r = 0; r < freeIndices.length; r++){
+        for(let c = 0; c < freeIndices.length; c++){
+          expandedCovariance[freeIndices[r]][freeIndices[c]] = best.covariance[r]?.[c] ?? 0;
+        }
+      }
+    }
+
+    return {
+      params: best.params,
+      sse: best.sse,
+      residuals: best.residuals,
+      predictions: best.predictions,
+      weights: best.weights,
+      jacobian: best.jacobian,
+      covarianceBase: expandedCovariance,
+      converged,
+      iterations: iteration,
+      freeParameterCount: freeIndices.length
+    };
+  };
+
+  const buildNonlinearCoefficientStats = ({ params, covarianceBase, residuals, alpha, termLabels, effectiveParamCount }) => {
+    if(!Array.isArray(params) || !params.length || !covarianceBase || !Array.isArray(residuals)){
+      return { stats: [], covariance: null, sigmaSq: NaN, tCritical: NaN, dof: NaN };
+    }
+    const usedParamCount = Number.isFinite(effectiveParamCount) ? Math.max(0, Math.round(effectiveParamCount)) : params.length;
+    const dof = residuals.length - usedParamCount;
+    if(dof <= 0){
+      return { stats: [], covariance: null, sigmaSq: NaN, tCritical: NaN, dof };
+    }
+    const sigmaSq = residuals.reduce((sum,val)=>sum + val * val,0) / Math.max(dof, 1);
+    const covariance = covarianceBase.map(row => row.map(val => Number.isFinite(val) ? val * sigmaSq : NaN));
+    const standardErrors = covariance.map((row, idx) => {
+      const variance = row?.[idx];
+      return Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
+    });
+    const tDist = jStatLib?.studentt;
+    const tCritical = (tDist && typeof tDist.inv === 'function' && dof > 0)
+      ? tDist.inv(1 - alpha / 2, dof)
+      : NaN;
+    const stats = params.map((estimate, idx) => {
+      const standardError = standardErrors[idx];
+      const tStatistic = Number.isFinite(standardError) && standardError !== 0 ? estimate / standardError : NaN;
+      const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && dof > 0)
+        ? 2 * (1 - tDist.cdf(Math.abs(tStatistic), dof))
+        : NaN;
+      const ciHalf = Number.isFinite(tCritical) && Number.isFinite(standardError)
+        ? tCritical * standardError
+        : NaN;
+      return {
+        term: termLabels?.[idx] || `Param ${idx + 1}`,
+        estimate,
+        standardError,
+        tStatistic,
+        pValue,
+        ciLow: Number.isFinite(ciHalf) ? estimate - ciHalf : NaN,
+        ciHigh: Number.isFinite(ciHalf) ? estimate + ciHalf : NaN
+      };
+    });
+    return { stats, covariance, sigmaSq, tCritical, dof };
+  };
+
+  const buildNonlinearIntervals = ({ params, predictFromParams, covariance, sigmaSq, tCritical, domain, sampleCount = 180 }) => {
+    if(!covariance || !Number.isFinite(sigmaSq) || !Number.isFinite(tCritical) || !domain){
+      return null;
+    }
+    const minX = Number.isFinite(domain.minX) ? domain.minX : NaN;
+    const maxX = Number.isFinite(domain.maxX) ? domain.maxX : NaN;
+    if(!Number.isFinite(minX) || !Number.isFinite(maxX) || minX === maxX){
+      return null;
+    }
+    const step = (maxX - minX) / Math.max(1, sampleCount - 1);
+    const samples = [];
+    let ciMin = Infinity;
+    let ciMax = -Infinity;
+    let piMin = Infinity;
+    let piMax = -Infinity;
+    for(let i = 0; i < sampleCount; i++){
+      const x = i === sampleCount - 1 ? maxX : (minX + i * step);
+      const y = predictFromParams(params, x);
+      if(!Number.isFinite(y)){
+        continue;
+      }
+      const gradient = new Array(params.length).fill(0);
+      for(let pIdx = 0; pIdx < params.length; pIdx++){
+        const base = params[pIdx];
+        const h = Math.max(1e-6, Math.abs(base) * 1e-4);
+        const plus = params.slice();
+        const minus = params.slice();
+        plus[pIdx] = base + h;
+        minus[pIdx] = base - h;
+        const yPlus = predictFromParams(plus, x);
+        const yMinus = predictFromParams(minus, x);
+        if(Number.isFinite(yPlus) && Number.isFinite(yMinus)){
+          gradient[pIdx] = (yPlus - yMinus) / (2 * h);
+        }
+      }
+      let meanVariance = 0;
+      for(let r = 0; r < gradient.length; r++){
+        for(let c = 0; c < gradient.length; c++){
+          const cov = covariance[r]?.[c];
+          if(Number.isFinite(cov)){
+            meanVariance += gradient[r] * cov * gradient[c];
+          }
+        }
+      }
+      const meanSe = meanVariance >= 0 ? Math.sqrt(meanVariance) : NaN;
+      const predSe = Number.isFinite(meanVariance) ? Math.sqrt(Math.max(meanVariance + sigmaSq, 0)) : NaN;
+      const ciHalf = Number.isFinite(meanSe) ? tCritical * meanSe : NaN;
+      const piHalf = Number.isFinite(predSe) ? tCritical * predSe : NaN;
+      const ciLow = Number.isFinite(ciHalf) ? y - ciHalf : NaN;
+      const ciHigh = Number.isFinite(ciHalf) ? y + ciHalf : NaN;
+      const piLow = Number.isFinite(piHalf) ? y - piHalf : NaN;
+      const piHigh = Number.isFinite(piHalf) ? y + piHalf : NaN;
+      if(Number.isFinite(ciLow)) ciMin = Math.min(ciMin, ciLow);
+      if(Number.isFinite(ciHigh)) ciMax = Math.max(ciMax, ciHigh);
+      if(Number.isFinite(piLow)) piMin = Math.min(piMin, piLow);
+      if(Number.isFinite(piHigh)) piMax = Math.max(piMax, piHigh);
+      samples.push({ x, y, ciLow, ciHigh, piLow, piHigh });
+    }
+    if(!samples.length){
+      return null;
+    }
+    return {
+      samples,
+      summary: {
+        ciMin: Number.isFinite(ciMin) ? ciMin : NaN,
+        ciMax: Number.isFinite(ciMax) ? ciMax : NaN,
+        piMin: Number.isFinite(piMin) ? piMin : NaN,
+        piMax: Number.isFinite(piMax) ? piMax : NaN
+      }
+    };
+  };
+
+  const computeLinearThroughOriginModel = ({ points, xVals, yVals, sst, alpha, domain }) => {
+    const denominator = xVals.reduce((sum,x)=>sum + x * x, 0);
+    if(denominator === 0){
+      return null;
+    }
+    const slope = xVals.reduce((sum,x,idx)=>sum + x * yVals[idx], 0) / denominator;
+    const intercept = 0;
+    const predictions = xVals.map(x => slope * x);
+    const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
+    const sse = residuals.reduce((sum,val)=>sum + val * val, 0);
+    const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+    const rmse = Math.sqrt(sse / Math.max(points.length, 1));
+    const diagnostics = computeResidualDiagnostics(residuals);
+    let coefficientStats = [];
+    if(hasMatrixOps){
+      const design = points.map(pt => [pt.x]);
+      const solved = solveLeastSquares(design, yVals.map(val => [val]));
+      if(solved?.xtxInv){
+        coefficientStats = buildCoefficientStats({
+          coefficients: [slope],
+          xtxInv: solved.xtxInv,
+          residuals,
+          alpha,
+          termLabels: ['Slope'],
+          degreesOfFreedom: points.length - 1
+        });
+      }
+    }
+    return {
+      mode: 'linearThroughOrigin',
+      coefficients: [slope],
+      metrics: {
+        sampleSize: points.length,
+        predictors: 1,
+        sse,
+        sst,
+        r2,
+        adjR2: points.length > 2 ? 1 - (1 - r2) * ((points.length - 1) / (points.length - 2)) : r2,
+        rmse,
+        mae: residuals.reduce((sum,val)=>sum + Math.abs(val),0) / Math.max(points.length, 1)
+      },
+      residuals: summarizeResiduals(residuals),
+      predictions,
+      predict: x => slope * x,
+      diagnostics,
+      coefficientStats,
+      intervals: null,
+      summary: {
+        intercept,
+        slope,
+        equation: `y = ${slope.toFixed(4)}x`,
+        parameters: {
+          Slope: slope,
+          Intercept: 0
+        },
+        primaryParameter: {
+          label: 'Slope',
+          value: slope
+        }
+      },
+      domain
+    };
+  };
+
+  const createModelRegistry = () => ([
+    { id: 'linear', family: 'Lines', label: 'Linear', implemented: true },
+    { id: 'linearThroughOrigin', family: 'Lines', label: 'Linear (through origin)', implemented: true },
+    { id: 'quadratic', family: 'Polynomial', label: 'Quadratic', implemented: true },
+    { id: 'cubic', family: 'Polynomial', label: 'Cubic', implemented: true },
+    { id: 'exponential', family: 'Exponential', label: 'Exponential', implemented: true },
+    { id: 'onePhaseAssociation', family: 'Exponential', label: 'One-phase association', implemented: true },
+    { id: 'onePhaseDecay', family: 'Exponential', label: 'One-phase decay', implemented: true },
+    { id: 'power', family: 'Classic', label: 'Power', implemented: true },
+    { id: 'spline', family: 'Curves', label: 'Spline', implemented: true },
+    { id: 'logistic', family: 'Dose-response', label: 'Logistic', implemented: true },
+    { id: 'doseResponse3pl', family: 'Dose-response', label: '3PL dose-response', implemented: true },
+    { id: 'doseResponse4pl', family: 'Dose-response', label: '4PL dose-response', implemented: true },
+    { id: 'doseResponse5pl', family: 'Dose-response', label: '5PL dose-response', implemented: true },
+    { id: 'gaussian', family: 'Gaussian', label: 'Gaussian', implemented: true },
+    { id: 'gompertz', family: 'Growth', label: 'Gompertz growth', implemented: true },
+    { id: 'arima', family: 'Forecasting', label: 'ARIMA', implemented: true },
+    { id: 'holtWinters', family: 'Forecasting', label: 'Holt-Winters', implemented: true },
+    { id: 'bindingSaturation', family: 'Binding', label: 'Binding - saturation', implemented: true },
+    { id: 'bindingCompetitive', family: 'Binding', label: 'Binding - competitive', implemented: true },
+    { id: 'enzymeKineticsSubstrate', family: 'Enzyme kinetics', label: 'Velocity as function of substrate', implemented: true },
+    { id: 'enzymeKineticsInhibition', family: 'Enzyme kinetics', label: 'Enzyme inhibition', implemented: true },
+    { id: 'sineWave', family: 'Sine waves', label: 'Sine wave', implemented: false }
+  ]);
+
+  const MODEL_REGISTRY = createModelRegistry();
+  const MODEL_INDEX = MODEL_REGISTRY.reduce((acc, item) => {
+    acc[item.id] = item;
+    return acc;
+  }, {});
+
+  const MODEL_ALIASES = {
+    linear: 'linear',
+    line: 'linear',
+    linearthroughorigin: 'linearThroughOrigin',
+    quadratic: 'quadratic',
+    cubic: 'cubic',
+    exponential: 'exponential',
+    onephaseassociation: 'onePhaseAssociation',
+    onephasedecay: 'onePhaseDecay',
+    power: 'power',
+    spline: 'spline',
+    logistic: 'logistic',
+    doseresponse3pl: 'doseResponse3pl',
+    doseresponse4pl: 'doseResponse4pl',
+    doseresponse5pl: 'doseResponse5pl',
+    gaussian: 'gaussian',
+    gompertz: 'gompertz',
+    bindingsaturation: 'bindingSaturation',
+    bindingcompetitive: 'bindingCompetitive',
+    enzymekineticssubstrate: 'enzymeKineticsSubstrate',
+    enzymekineticsinhibition: 'enzymeKineticsInhibition',
+    arima: 'arima',
+    holtwinters: 'holtWinters'
+  };
+
+  const resolveModelId = (candidate) => {
+    const raw = typeof candidate === 'string' ? candidate.trim() : '';
+    if(!raw){
+      return 'linear';
+    }
+    const normalized = raw.toLowerCase();
+    return MODEL_ALIASES[normalized] || raw;
+  };
+
+  const normalizeFitSpec = (options = {}) => {
+    const source = options?.fitSpec && typeof options.fitSpec === 'object'
+      ? options.fitSpec
+      : {};
+    const confidenceLevelRaw = Number(source.confidenceLevel);
+    const confidenceLevel = Number.isFinite(confidenceLevelRaw)
+      ? Math.max(1, Math.min(99.9, confidenceLevelRaw))
+      : null;
+    const alphaFromLevel = Number.isFinite(confidenceLevel) ? (1 - confidenceLevel / 100) : null;
+    const alphaRaw = Number(source.alpha);
+    const alpha = Number.isFinite(alphaRaw) && alphaRaw > 0 && alphaRaw < 1
+      ? alphaRaw
+      : (Number.isFinite(alphaFromLevel) && alphaFromLevel > 0 && alphaFromLevel < 1 ? alphaFromLevel : null);
+    const rangeRaw = source.range && typeof source.range === 'object' ? source.range : null;
+    const minRaw = rangeRaw?.minX;
+    const maxRaw = rangeRaw?.maxX;
+    const minX = (minRaw === '' || minRaw == null) ? NaN : Number(minRaw);
+    const maxX = (maxRaw === '' || maxRaw == null) ? NaN : Number(maxRaw);
+    const range = (Number.isFinite(minX) || Number.isFinite(maxX))
+      ? {
+          minX: Number.isFinite(minX) ? minX : NaN,
+          maxX: Number.isFinite(maxX) ? maxX : NaN
+        }
+      : null;
+    return {
+      raw: source,
+      alpha,
+      confidenceLevel,
+      range
+    };
+  };
+
+  const resolveParamIndex = (key, labels) => {
+    if(Number.isInteger(key)){
+      return key;
+    }
+    if(typeof key === 'string'){
+      const numeric = Number(key);
+      if(Number.isInteger(numeric)){
+        return numeric;
+      }
+      const normalized = key.trim().toLowerCase();
+      const index = Array.isArray(labels)
+        ? labels.findIndex(label => String(label || '').trim().toLowerCase() === normalized)
+        : -1;
+      if(index >= 0){
+        return index;
+      }
+    }
+    return -1;
+  };
+
+  const applyFitSpecToParameters = ({ initial, bounds, paramLabels, fitSpec }) => {
+    const init = Array.isArray(initial) ? initial.slice() : [];
+    const lower = Array.isArray(bounds?.lower) ? bounds.lower.slice() : new Array(init.length).fill(-Infinity);
+    const upper = Array.isArray(bounds?.upper) ? bounds.upper.slice() : new Array(init.length).fill(Infinity);
+    const fixedMask = new Array(init.length).fill(false);
+    const raw = fitSpec?.raw && typeof fitSpec.raw === 'object' ? fitSpec.raw : {};
+
+    if(Array.isArray(raw.initialValues)){
+      raw.initialValues.forEach((value, idx) => {
+        if(idx < init.length && Number.isFinite(Number(value))){
+          init[idx] = Number(value);
+        }
+      });
+    }else if(raw.initialValues && typeof raw.initialValues === 'object'){
+      Object.keys(raw.initialValues).forEach(key => {
+        const index = resolveParamIndex(key, paramLabels);
+        const value = Number(raw.initialValues[key]);
+        if(index >= 0 && index < init.length && Number.isFinite(value)){
+          init[index] = value;
+        }
+      });
+    }
+
+    const boundsRaw = raw.bounds && typeof raw.bounds === 'object' ? raw.bounds : null;
+    if(boundsRaw){
+      if(Array.isArray(boundsRaw.lower)){
+        boundsRaw.lower.forEach((value, idx) => {
+          const parsed = Number(value);
+          if(idx < lower.length && Number.isFinite(parsed)){
+            lower[idx] = parsed;
+          }
+        });
+      }
+      if(Array.isArray(boundsRaw.upper)){
+        boundsRaw.upper.forEach((value, idx) => {
+          const parsed = Number(value);
+          if(idx < upper.length && Number.isFinite(parsed)){
+            upper[idx] = parsed;
+          }
+        });
+      }
+    }
+
+    const fixedRaw = raw.fixedParameters;
+    if(Array.isArray(fixedRaw)){
+      fixedRaw.forEach((isFixed, idx) => {
+        if(idx < fixedMask.length){
+          fixedMask[idx] = !!isFixed;
+        }
+      });
+    }else if(fixedRaw && typeof fixedRaw === 'object'){
+      Object.keys(fixedRaw).forEach(key => {
+        const index = resolveParamIndex(key, paramLabels);
+        if(index >= 0 && index < fixedMask.length){
+          fixedMask[index] = !!fixedRaw[key];
+        }
+      });
+    }
+
+    const parametersRaw = raw.parameters && typeof raw.parameters === 'object' ? raw.parameters : null;
+    if(parametersRaw){
+      Object.keys(parametersRaw).forEach(key => {
+        const index = resolveParamIndex(key, paramLabels);
+        const entry = parametersRaw[key];
+        if(index < 0 || index >= init.length || !entry || typeof entry !== 'object'){
+          return;
+        }
+        const initialValue = Number(entry.initial ?? entry.value);
+        if(Number.isFinite(initialValue)){
+          init[index] = initialValue;
+        }
+        const lo = Number(entry.lower);
+        const hi = Number(entry.upper);
+        if(Number.isFinite(lo)){
+          lower[index] = lo;
+        }
+        if(Number.isFinite(hi)){
+          upper[index] = hi;
+        }
+        if(typeof entry.fixed === 'boolean'){
+          fixedMask[index] = entry.fixed;
+        }
+      });
+    }
+
+    for(let i = 0; i < init.length; i++){
+      if(Number.isFinite(lower[i]) && init[i] < lower[i]){
+        init[i] = lower[i];
+      }
+      if(Number.isFinite(upper[i]) && init[i] > upper[i]){
+        init[i] = upper[i];
+      }
+      if(fixedMask[i]){
+        if(Number.isFinite(init[i])){
+          lower[i] = init[i];
+          upper[i] = init[i];
+        }else{
+          fixedMask[i] = false;
+        }
+      }
+    }
+
+    return {
+      initial: init,
+      bounds: { lower, upper },
+      fixedMask
+    };
+  };
+
+  const appendModelWarning = (model, message) => {
+    if(!model || !message){
+      return;
+    }
+    const warnings = Array.isArray(model.warnings) ? model.warnings : [];
+    if(!warnings.includes(message)){
+      warnings.push(message);
+    }
+    model.warnings = warnings;
+  };
+
+  const addRegressionStabilityWarnings = (model) => {
+    if(!model || typeof model !== 'object'){
+      return model;
+    }
+    const metrics = model.metrics || {};
+    const sampleSize = Number(metrics.sampleSize);
+    const predictors = Number(metrics.predictors);
+    if(Number.isFinite(sampleSize) && Number.isFinite(predictors) && sampleSize <= predictors + 1){
+      appendModelWarning(model, 'Model may be over-parameterized for the available sample size.');
+    }
+    const coeffs = Array.isArray(model.coefficients) ? model.coefficients : [];
+    const largeCoeff = coeffs.find(value => Number.isFinite(value) && Math.abs(value) > 1e9);
+    if(Number.isFinite(largeCoeff)){
+      appendModelWarning(model, 'Large coefficient magnitudes detected; model may be numerically unstable.');
+    }
+    const nonFiniteCoeff = coeffs.find(value => !Number.isFinite(value));
+    if(typeof nonFiniteCoeff !== 'undefined'){
+      appendModelWarning(model, 'Non-finite coefficient estimates detected.');
+    }
+    if(Number.isFinite(metrics.r2) && (metrics.r2 > 1.000001 || metrics.r2 < -0.000001)){
+      appendModelWarning(model, 'R² is outside the expected range; verify model assumptions.');
+    }
+    if(Array.isArray(model.predictions)){
+      const invalidPredictionCount = model.predictions.reduce((count, value) => count + (Number.isFinite(value) ? 0 : 1), 0);
+      if(invalidPredictionCount > 0){
+        appendModelWarning(model, `Detected ${invalidPredictionCount} non-finite fitted values.`);
+      }
+    }
+    if(model.intervals?.summary){
+      const summary = model.intervals.summary;
+      const ciSpan = Number(summary.ciMax) - Number(summary.ciMin);
+      const piSpan = Number(summary.piMax) - Number(summary.piMin);
+      if(Number.isFinite(ciSpan) && Number.isFinite(piSpan) && piSpan > 0 && ciSpan > (piSpan * 1.2)){
+        appendModelWarning(model, 'Confidence interval span appears unusually wide relative to prediction interval span.');
+      }
+    }
+    if(model.domain && typeof model.predict === 'function'){
+      const minX = Number(model.domain.minX);
+      const maxX = Number(model.domain.maxX);
+      if(Number.isFinite(minX) && Number.isFinite(maxX) && minX !== maxX){
+        const yMin = model.predict(minX);
+        const yMax = model.predict(maxX);
+        if(!Number.isFinite(yMin) || !Number.isFinite(yMax)){
+          appendModelWarning(model, 'Model produced non-finite predictions at the fitted domain boundaries.');
+        }
+      }
+    }
+    return model;
+  };
+
+  const buildNonlinearModel = ({ points, domain, alpha, method, options, spec }) => {
+    const yVals = points.map(pt => pt.y);
+    const xVals = points.map(pt => pt.x);
+    const yMean = jStatLib.mean(yVals);
+    const sst = yVals.reduce((sum,val)=>sum + Math.pow(val - yMean, 2), 0);
+    const fitSpec = normalizeFitSpec(options);
+    const initial = spec.initial(points, options);
+    if(!Array.isArray(initial) || initial.some(v => !Number.isFinite(v))){
+      return null;
+    }
+    const baseBounds = spec.bounds ? spec.bounds(points, options) : null;
+    const constrained = applyFitSpecToParameters({
+      initial,
+      bounds: baseBounds,
+      paramLabels: spec.paramLabels || [],
+      fitSpec
+    });
+    const fit = fitNonlinearLeastSquares({
+      points,
+      initialParams: constrained.initial,
+      predictFromParams: spec.predict,
+      bounds: constrained.bounds,
+      fixedMask: constrained.fixedMask,
+      method,
+      options
+    });
+    if(!Array.isArray(fit.params) || !fit.params.length || !Number.isFinite(fit.sse)){
+      return null;
+    }
+    const coefficientInfo = buildNonlinearCoefficientStats({
+      params: fit.params,
+      covarianceBase: fit.covarianceBase,
+      residuals: fit.residuals,
+      alpha,
+      termLabels: spec.paramLabels,
+      effectiveParamCount: fit.freeParameterCount
+    });
+    const intervalInfo = buildNonlinearIntervals({
+      params: fit.params,
+      predictFromParams: spec.predict,
+      covariance: coefficientInfo.covariance,
+      sigmaSq: coefficientInfo.sigmaSq,
+      tCritical: coefficientInfo.tCritical,
+      domain
+    });
+    const r2 = sst === 0 ? 1 : 1 - (fit.sse / sst);
+    const pCount = fit.params.length;
+    const summary = spec.summary(fit.params);
+    const warnings = [];
+    if(!fit.converged){
+      warnings.push('Optimization did not fully converge; review parameter estimates with caution.');
+    }
+    if(method && String(method).toLowerCase() !== 'ols'){
+      warnings.push(`Model fitted using ${String(method).toUpperCase()} weighting.`);
+    }
+    if(Array.isArray(constrained.fixedMask) && constrained.fixedMask.some(Boolean)){
+      warnings.push('One or more parameters were fixed during fitting.');
+    }
+    return {
+      mode: spec.mode,
+      coefficients: fit.params.slice(),
+      domain,
+      metrics: {
+        sampleSize: points.length,
+        predictors: pCount,
+        sse: fit.sse,
+        sst,
+        r2,
+        adjR2: points.length > (pCount + 1) ? 1 - (1 - r2) * ((points.length - 1) / (points.length - pCount - 1)) : r2,
+        rmse: Math.sqrt(fit.sse / Math.max(points.length, 1)),
+        mae: fit.residuals.reduce((sum,val)=>sum + Math.abs(val),0) / Math.max(points.length, 1),
+        iterations: fit.iterations
+      },
+      residuals: summarizeResiduals(fit.residuals),
+      predictions: fit.predictions.slice(),
+      predict: x => spec.predict(fit.params, x),
+      diagnostics: computeResidualDiagnostics(fit.residuals),
+      coefficientStats: coefficientInfo.stats,
+      intervals: intervalInfo ? {
+        alpha,
+        tCritical: coefficientInfo.tCritical,
+        degreesOfFreedom: coefficientInfo.dof,
+        samples: intervalInfo.samples,
+        summary: intervalInfo.summary
+      } : null,
+      summary,
+      warnings
+    };
+  };
+
+  const computeGaussianModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'gaussian',
+      paramLabels: ['Baseline', 'Amplitude', 'Center', 'Sigma'],
+      initial: (list) => {
+        const ys = list.map(pt => pt.y);
+        const xs = list.map(pt => pt.x);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const maxIdx = ys.indexOf(maxY);
+        const center = maxIdx >= 0 ? xs[maxIdx] : jStatLib.mean(xs);
+        const sigma = Math.max((Math.max(...xs) - Math.min(...xs)) / 6, 1e-3);
+        return [minY, maxY - minY, center, sigma];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, -Infinity, 1e-9], upper: [Infinity, Infinity, Infinity, Infinity] }),
+      predict: (params, x) => {
+        const baseline = params[0];
+        const amplitude = params[1];
+        const center = params[2];
+        const sigma = clampPositive(params[3], 1e-9);
+        const z = (x - center) / sigma;
+        return baseline + amplitude * Math.exp(-0.5 * z * z);
+      },
+      summary: (params) => ({
+        intercept: params[0],
+        slope: params[1],
+        equation: 'y = baseline + amplitude * exp(-0.5*((x-center)/sigma)^2)',
+        parameters: {
+          Baseline: params[0],
+          Amplitude: params[1],
+          Center: params[2],
+          Sigma: params[3]
+        },
+        primaryParameter: { label: 'Center', value: params[2] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeOnePhaseAssociationModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'onePhaseAssociation',
+      paramLabels: ['Y0', 'Plateau', 'K'],
+      initial: (list) => {
+        const xs = list.map(pt => pt.x);
+        const ys = list.map(pt => pt.y);
+        const xRange = Math.max(1e-6, Math.max(...xs) - Math.min(...xs));
+        return [ys[0], ys[ys.length - 1], 1 / xRange];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, 1e-9], upper: [Infinity, Infinity, Infinity] }),
+      predict: (params, x) => {
+        const y0 = params[0];
+        const plateau = params[1];
+        const k = clampPositive(params[2], 1e-9);
+        return y0 + (plateau - y0) * (1 - Math.exp(-k * x));
+      },
+      summary: (params) => ({
+        intercept: params[0],
+        slope: params[2],
+        equation: 'y = Y0 + (Plateau - Y0) * (1 - exp(-K*x))',
+        parameters: { Y0: params[0], Plateau: params[1], K: params[2] },
+        primaryParameter: { label: 'K', value: params[2] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeOnePhaseDecayModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'onePhaseDecay',
+      paramLabels: ['Y0', 'Plateau', 'K'],
+      initial: (list) => {
+        const xs = list.map(pt => pt.x);
+        const ys = list.map(pt => pt.y);
+        const xRange = Math.max(1e-6, Math.max(...xs) - Math.min(...xs));
+        return [ys[0], ys[ys.length - 1], 1 / xRange];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, 1e-9], upper: [Infinity, Infinity, Infinity] }),
+      predict: (params, x) => {
+        const y0 = params[0];
+        const plateau = params[1];
+        const k = clampPositive(params[2], 1e-9);
+        return plateau + (y0 - plateau) * Math.exp(-k * x);
+      },
+      summary: (params) => ({
+        intercept: params[0],
+        slope: params[2],
+        equation: 'y = Plateau + (Y0 - Plateau) * exp(-K*x)',
+        parameters: { Y0: params[0], Plateau: params[1], K: params[2] },
+        primaryParameter: { label: 'K', value: params[2] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeGompertzModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'gompertz',
+      paramLabels: ['Lower', 'Upper', 'K', 'X0'],
+      initial: (list) => {
+        const xs = list.map(pt => pt.x);
+        const ys = list.map(pt => pt.y);
+        const lower = Math.min(...ys);
+        const upper = Math.max(...ys);
+        const k = 1 / Math.max(1e-6, Math.max(...xs) - Math.min(...xs));
+        return [lower, upper, k, jStatLib.mean(xs)];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, 1e-9, -Infinity], upper: [Infinity, Infinity, Infinity, Infinity] }),
+      predict: (params, x) => {
+        const lower = params[0];
+        const upper = params[1];
+        const k = clampPositive(params[2], 1e-9);
+        const x0 = params[3];
+        const span = upper - lower;
+        return lower + span * Math.exp(-Math.exp(-k * (x - x0)));
+      },
+      summary: (params) => ({
+        intercept: params[0],
+        slope: params[2],
+        equation: 'y = Lower + (Upper-Lower) * exp(-exp(-K*(x-X0)))',
+        parameters: { Lower: params[0], Upper: params[1], K: params[2], X0: params[3] },
+        primaryParameter: { label: 'K', value: params[2] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeBindingSaturationModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'bindingSaturation',
+      paramLabels: ['Bmax', 'Kd', 'NS'],
+      initial: (list) => {
+        const xs = list.map(pt => pt.x);
+        const ys = list.map(pt => pt.y);
+        const maxY = Math.max(...ys);
+        const medianX = xs.slice().sort((a,b)=>a-b)[Math.floor(xs.length / 2)] || 1;
+        return [maxY, Math.max(1e-6, medianX), 0];
+      },
+      bounds: () => ({ lower: [0, 1e-12, -Infinity], upper: [Infinity, Infinity, Infinity] }),
+      predict: (params, x) => {
+        const bmax = params[0];
+        const kd = clampPositive(params[1], 1e-12);
+        const ns = params[2];
+        return (bmax * x) / (kd + x) + (ns * x);
+      },
+      summary: (params) => ({
+        intercept: 0,
+        slope: params[2],
+        equation: 'y = (Bmax*x)/(Kd + x) + NS*x',
+        parameters: { Bmax: params[0], Kd: params[1], NS: params[2] },
+        primaryParameter: { label: 'Kd', value: params[1] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeBindingCompetitiveModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'bindingCompetitive',
+      paramLabels: ['Top', 'Bottom', 'IC50', 'HillSlope'],
+      initial: (list) => {
+        const ys = list.map(pt => pt.y);
+        const xs = list.map(pt => pt.x);
+        const midX = xs.slice().sort((a,b)=>a-b)[Math.floor(xs.length / 2)] || 1;
+        return [Math.max(...ys), Math.min(...ys), Math.max(1e-9, Math.abs(midX)), 1];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, 1e-12, 0.01], upper: [Infinity, Infinity, Infinity, 8] }),
+      predict: (params, x) => {
+        const top = params[0];
+        const bottom = params[1];
+        const ic50 = clampPositive(params[2], 1e-12);
+        const hill = clampPositive(params[3], 0.01);
+        const ratio = Math.pow(Math.max(0, x) / ic50, hill);
+        return bottom + ((top - bottom) / (1 + ratio));
+      },
+      summary: (params) => ({
+        intercept: params[1],
+        slope: -params[3],
+        equation: 'y = Bottom + (Top-Bottom)/(1 + (x/IC50)^HillSlope)',
+        parameters: { Top: params[0], Bottom: params[1], IC50: params[2], HillSlope: params[3] },
+        primaryParameter: { label: 'IC50', value: params[2] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeEnzymeKineticsSubstrateModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'enzymeKineticsSubstrate',
+      paramLabels: ['Vmax', 'Km', 'Baseline'],
+      initial: (list) => {
+        const ys = list.map(pt => pt.y);
+        const xs = list.map(pt => pt.x);
+        const sortedX = xs.slice().sort((a,b)=>a-b);
+        const midX = sortedX[Math.floor(sortedX.length / 2)] || 1;
+        return [Math.max(...ys), Math.max(1e-6, midX), Math.min(...ys) * 0.05];
+      },
+      bounds: () => ({ lower: [0, 1e-12, -Infinity], upper: [Infinity, Infinity, Infinity] }),
+      predict: (params, x) => {
+        const vmax = params[0];
+        const km = clampPositive(params[1], 1e-12);
+        const baseline = params[2];
+        return baseline + (vmax * Math.max(0, x)) / (km + Math.max(0, x));
+      },
+      summary: (params) => ({
+        intercept: params[2],
+        slope: params[0],
+        equation: 'v = Baseline + (Vmax*[S])/(Km + [S])',
+        parameters: { Vmax: params[0], Km: params[1], Baseline: params[2] },
+        primaryParameter: { label: 'Km', value: params[1] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeEnzymeKineticsInhibitionModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'enzymeKineticsInhibition',
+      paramLabels: ['Vmax', 'IC50', 'HillSlope', 'Baseline'],
+      initial: (list) => {
+        const ys = list.map(pt => pt.y);
+        const xs = list.map(pt => pt.x);
+        const midX = xs.slice().sort((a,b)=>a-b)[Math.floor(xs.length / 2)] || 1;
+        return [Math.max(...ys), Math.max(1e-9, Math.abs(midX)), 1, Math.min(...ys)];
+      },
+      bounds: () => ({ lower: [-Infinity, 1e-12, 0.01, -Infinity], upper: [Infinity, Infinity, 8, Infinity] }),
+      predict: (params, x) => {
+        const vmax = params[0];
+        const ic50 = clampPositive(params[1], 1e-12);
+        const hill = clampPositive(params[2], 0.01);
+        const baseline = params[3];
+        const ratio = Math.pow(Math.max(0, x) / ic50, hill);
+        return baseline + (vmax / (1 + ratio));
+      },
+      summary: (params) => ({
+        intercept: params[3],
+        slope: -params[2],
+        equation: 'v = Baseline + Vmax/(1 + ([I]/IC50)^HillSlope)',
+        parameters: { Vmax: params[0], IC50: params[1], HillSlope: params[2], Baseline: params[3] },
+        primaryParameter: { label: 'IC50', value: params[1] }
+      })
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeDoseResponse3PLModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'doseResponse3pl',
+      paramLabels: ['Top', 'LogIC50', 'HillSlope'],
+      initial: (list) => {
+        const xs = list.map(pt => pt.x);
+        const ys = list.map(pt => pt.y);
+        const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const near = list.reduce((best, pt) => {
+          const d = Math.abs(pt.y - midY);
+          if(!best || d < best.d){
+            return { d, x: pt.x };
+          }
+          return best;
+        }, null);
+        return [Math.max(...ys), near?.x ?? jStatLib.mean(xs), -1];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, -12], upper: [Infinity, Infinity, 12] }),
+      predict: (params, x) => {
+        const top = params[0];
+        const logIC50 = params[1];
+        const hill = params[2];
+        const denom = 1 + safePow10((logIC50 - x) * hill);
+        return top / denom;
+      },
+      summary: (params) => {
+        const ic50 = safePow10(params[1]);
+        return {
+          intercept: 0,
+          slope: params[2],
+          equation: 'y = Top / (1 + 10^((LogIC50 - x) * HillSlope))',
+          parameters: { Bottom: 0, Top: params[0], LogIC50: params[1], IC50: ic50, HillSlope: params[2] },
+          primaryParameter: { label: 'IC50', value: ic50 }
+        };
+      }
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
+  const computeDoseResponse5PLModel = ({ points, alpha, domain, method, options }) => {
+    const spec = {
+      mode: 'doseResponse5pl',
+      paramLabels: ['Bottom', 'Top', 'LogIC50', 'HillSlope', 'Asymmetry'],
+      initial: (list) => {
+        const xs = list.map(pt => pt.x);
+        const ys = list.map(pt => pt.y);
+        const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const near = list.reduce((best, pt) => {
+          const d = Math.abs(pt.y - midY);
+          if(!best || d < best.d){
+            return { d, x: pt.x };
+          }
+          return best;
+        }, null);
+        return [Math.min(...ys), Math.max(...ys), near?.x ?? jStatLib.mean(xs), -1, 1];
+      },
+      bounds: () => ({ lower: [-Infinity, -Infinity, -Infinity, -12, 0.1], upper: [Infinity, Infinity, Infinity, 12, 10] }),
+      predict: (params, x) => {
+        const bottom = params[0];
+        const top = params[1];
+        const logIC50 = params[2];
+        const hill = params[3];
+        const asym = clampPositive(params[4], 0.1);
+        const base = 1 + safePow10((logIC50 - x) * hill);
+        return bottom + (top - bottom) / Math.pow(base, asym);
+      },
+      summary: (params) => {
+        const ic50 = safePow10(params[2]);
+        return {
+          intercept: params[0],
+          slope: params[3],
+          equation: 'y = Bottom + (Top-Bottom) / (1 + 10^((LogIC50-x)*HillSlope))^Asymmetry',
+          parameters: {
+            Bottom: params[0],
+            Top: params[1],
+            LogIC50: params[2],
+            IC50: ic50,
+            HillSlope: params[3],
+            Asymmetry: params[4]
+          },
+          primaryParameter: { label: 'IC50', value: ic50 }
+        };
+      }
+    };
+    return buildNonlinearModel({ points, domain, alpha, method, options, spec });
+  };
+
   if(!regressionTools.autoSelectArima){
     regressionTools.autoSelectArima = function autoSelectArima(series, options){
       try{
@@ -2268,13 +3408,39 @@
     };
   }
 
+  if(!regressionTools.listModels){
+    regressionTools.listModels = function listRegressionModels(){
+      return MODEL_REGISTRY.map(item => ({ ...item }));
+    };
+  }
+
+  if(!regressionTools.getModelInfo){
+    regressionTools.getModelInfo = function getRegressionModelInfo(modelId){
+      const resolved = resolveModelId(modelId);
+      return MODEL_INDEX[resolved] ? { ...MODEL_INDEX[resolved] } : null;
+    };
+  }
+
   if(!regressionTools.fitRegression){
     regressionTools.fitRegression = function fitRegression(points, options = {}){
-      const cleanPoints = Array.isArray(points) ? points.filter(pt => pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) : [];
-      const mode = options.mode || 'linear';
-      const alpha = Number.isFinite(options.alpha) && options.alpha > 0 && options.alpha < 1 ? options.alpha : 0.05;
+      const allPoints = Array.isArray(points) ? points.filter(pt => pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) : [];
+      const requestedModel = options.modelId || options.mode || 'linear';
+      const mode = resolveModelId(requestedModel);
+      const modelInfo = MODEL_INDEX[mode] || null;
+      const fitSpec = normalizeFitSpec(options);
+      const alpha = Number.isFinite(fitSpec.alpha)
+        ? fitSpec.alpha
+        : (Number.isFinite(options.alpha) && options.alpha > 0 && options.alpha < 1 ? options.alpha : 0.05);
+      const method = typeof options.method === 'string' ? options.method.toLowerCase() : 'ols';
+      const cleanPoints = fitSpec.range
+        ? allPoints.filter(pt => {
+            const meetsMin = !Number.isFinite(fitSpec.range.minX) || pt.x >= fitSpec.range.minX;
+            const meetsMax = !Number.isFinite(fitSpec.range.maxX) || pt.x <= fitSpec.range.maxX;
+            return meetsMin && meetsMax;
+          })
+        : allPoints;
       const sampleSize = cleanPoints.length;
-      const domain = cleanPoints.reduce((acc, pt) => {
+      const domain = allPoints.reduce((acc, pt) => {
         if(!acc){
           return { minX: pt.x, maxX: pt.x };
         }
@@ -2283,7 +3449,7 @@
           maxX: Math.max(acc.maxX, pt.x)
         };
       }, null);
-      console.debug('Debug:', debugNs, 'fit input', { mode, sampleSize });
+      console.debug('Debug:', debugNs, 'fit input', { mode, sampleSize, method });
       if(sampleSize < 2 || !jStatLib){
         return {
           mode,
@@ -2291,7 +3457,8 @@
           metrics: { sampleSize },
           residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN },
           warnings: ['Insufficient data or jStat unavailable'],
-          domain
+          domain,
+          fitSpec: fitSpec.raw
         };
       }
       const xVals = cleanPoints.map(pt => pt.x);
@@ -2300,11 +3467,19 @@
       const sst = yVals.reduce((sum, val) => sum + Math.pow(val - yMean, 2), 0);
       const forecastOptions = options.forecast || {};
       let model;
-      if(mode === 'arima'){
+      if(modelInfo && modelInfo.implemented === false){
+        model = computeLinearModel({ points: cleanPoints, xVals, yVals, sst, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
+        if(model){
+          model.warnings = (model.warnings || []).concat([`Model "${modelInfo.label}" is not implemented yet; used linear regression fallback.`]);
+        }
+      }
+      if(!model && mode === 'arima'){
         model = computeArimaModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, forecast: forecastOptions });
-      }else if(mode === 'holtWinters'){
+      }else if(!model && mode === 'holtWinters'){
         model = computeHoltWintersModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, forecast: forecastOptions });
-      }else if(mode === 'logistic'){
+      }else if(!model && mode === 'linearThroughOrigin'){
+        model = computeLinearThroughOriginModel({ points: cleanPoints, xVals, yVals, sst, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
+      }else if(!model && mode === 'logistic'){
         const preferDoseResponse = options.preferDoseResponse === true;
         if(preferDoseResponse && !isLikelyBinaryResponse(cleanPoints)){
           model = computeDoseResponse4PLModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
@@ -2315,14 +3490,36 @@
         if(!model){
           model = computeLogisticModel({ points: cleanPoints, alpha, domain });
         }
-      }else if(mode === 'quadratic' || mode === 'cubic'){
+      }else if(!model && mode === 'doseResponse3pl'){
+        model = computeDoseResponse3PLModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'doseResponse4pl'){
+        model = computeDoseResponse4PLModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
+      }else if(!model && mode === 'doseResponse5pl'){
+        model = computeDoseResponse5PLModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && (mode === 'quadratic' || mode === 'cubic')){
         const degree = mode === 'quadratic' ? 2 : 3;
         model = computePolynomialModel({ points: cleanPoints, degree, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, xVals, yVals, sst });
-      }else if(mode === 'exponential'){
+      }else if(!model && mode === 'exponential'){
         model = computeExponentialModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
-      }else if(mode === 'power'){
+      }else if(!model && mode === 'onePhaseAssociation'){
+        model = computeOnePhaseAssociationModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'onePhaseDecay'){
+        model = computeOnePhaseDecayModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'power'){
         model = computePowerModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
-      }else if(mode === 'spline'){
+      }else if(!model && mode === 'gaussian'){
+        model = computeGaussianModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'gompertz'){
+        model = computeGompertzModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'bindingSaturation'){
+        model = computeBindingSaturationModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'bindingCompetitive'){
+        model = computeBindingCompetitiveModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'enzymeKineticsSubstrate'){
+        model = computeEnzymeKineticsSubstrateModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'enzymeKineticsInhibition'){
+        model = computeEnzymeKineticsInhibitionModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, method, options });
+      }else if(!model && mode === 'spline'){
         model = computeSplineModel({ points: cleanPoints, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
       }else{
         model = computeLinearModel({ points: cleanPoints, xVals, yVals, sst, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
@@ -2335,6 +3532,11 @@
       }
       model = model || { coefficients: [], metrics: { sampleSize }, residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN } };
       model.mode = model.mode || mode;
+      model.fitMethod = method;
+      model.fitSpec = fitSpec.raw;
+      if(fitSpec.range && (Number.isFinite(fitSpec.range.minX) || Number.isFinite(fitSpec.range.maxX))){
+        model.warnings = (model.warnings || []).concat(['Fit range filtering applied.']);
+      }
       if(!model.domain){
         model.domain = domain;
       }
@@ -2348,6 +3550,7 @@
       if(!model.predict && typeof computeSplineModel === 'function' && mode === 'spline'){
         console.debug('Debug:', debugNs, 'spline model missing predict');
       }
+      addRegressionStabilityWarnings(model);
       console.debug('Debug:', debugNs, 'fit result', {
         mode: model.mode,
         coefficients: model.coefficients,
@@ -2386,6 +3589,7 @@
         : null;
       return {
         mode: model.mode,
+        fitMethod: model.fitMethod || 'ols',
         coefficients: Array.isArray(model.coefficients) ? model.coefficients.map(ensureFiniteNumber) : [],
         metrics: {
           sampleSize: ensureFiniteNumber(metrics.sampleSize),
@@ -2459,6 +3663,14 @@
                 upper: ensureFiniteNumber(pt.upper ?? pt.ciHigh ?? pt.piHigh)
               }))
             : []
+        } : null,
+        fitSpec: model.fitSpec && typeof model.fitSpec === 'object' ? {
+          confidenceLevel: ensureFiniteNumber(model.fitSpec.confidenceLevel),
+          alpha: ensureFiniteNumber(model.fitSpec.alpha),
+          range: model.fitSpec.range && typeof model.fitSpec.range === 'object' ? {
+            minX: ensureFiniteNumber(model.fitSpec.range.minX),
+            maxX: ensureFiniteNumber(model.fitSpec.range.maxX)
+          } : null
         } : null
       };
     };
