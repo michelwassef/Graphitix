@@ -16,17 +16,106 @@
     const source = fromShared || fromGlobal || fallback;
     return source.slice();
   })();
+  const DEFAULT_SCIENTIFIC_TOKENS = Object.freeze({
+    axisColor: '#000000',
+    gridColor: '#dddddd',
+    borderColor: '#000000',
+    textColor: '#000000',
+    background: '#ffffff'
+  });
   const DEFAULT_BOX_CLASSIC_CATEGORICAL = Object.freeze([
     '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3'
   ]);
+  const DEFAULT_HIST_DISTRIBUTION_COLORS = Object.freeze([
+    '#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'
+  ]);
+  const DEFAULT_HEATMAP_DIVERGING = Object.freeze({
+    negative: '#313695',
+    zero: '#f7f7f7',
+    positive: '#a50026'
+  });
+  const DEFAULT_VENN_SCIENTIFIC = Object.freeze({
+    colorA: '#e74c3c',
+    colorB: '#2ecc71',
+    colorC: '#3498db',
+    borderColor: '#999999',
+    upset: Object.freeze({
+      barColor: '#2f2f2f',
+      setBarColor: '#2f2f2f',
+      dotColor: '#2f2f2f',
+      inactiveDotColor: '#d6d6d6',
+      gridColor: '#e5e7eb',
+      axisColor: '#000000'
+    })
+  });
+  const SCIENTIFIC_TYPE_DEFAULTS = Object.freeze({
+    box: Object.freeze({
+      fill: '#4472c4',
+      border: '#000000',
+      summaryColor: '#ff0000',
+      significanceColor: '#000000',
+      categorical: DEFAULT_BOX_CLASSIC_CATEGORICAL
+    }),
+    scatter: Object.freeze({
+      fill: '#377eb8',
+      border: '#000000',
+      overlayTrend: '#d00',
+      overlayConfidence: '#d62728',
+      overlayPrediction: '#d62728',
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    pca: Object.freeze({
+      fill: '#377eb8',
+      border: '#000000',
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    line: Object.freeze({
+      fill: '#377eb8',
+      border: '#377eb8',
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    roc: Object.freeze({
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    survival: Object.freeze({
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    pie: Object.freeze({
+      borderColor: '#ffffff',
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    hist: Object.freeze({
+      fill: '#377eb8',
+      border: '#000000',
+      distributionColors: DEFAULT_HIST_DISTRIBUTION_COLORS,
+      categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    }),
+    heatmap: Object.freeze({
+      diverging: DEFAULT_HEATMAP_DIVERGING,
+      dendrogramColor: '#3d3d3d'
+    }),
+    surface: Object.freeze({
+      surfaceRamp: 'viridis',
+      axisColor: '#3b3b3b',
+      textColor: '#000000',
+      backgroundColor: '#ffffff'
+    }),
+    venn: DEFAULT_VENN_SCIENTIFIC
+  });
   const SCIENTIFIC_TYPE_CATEGORICAL = Object.freeze({
-    box: DEFAULT_BOX_CLASSIC_CATEGORICAL,
-    scatter: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice()),
-    pca: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice()),
-    line: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice()),
-    roc: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice()),
-    survival: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice()),
-    pie: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
+    box: SCIENTIFIC_TYPE_DEFAULTS.box.categorical,
+    scatter: SCIENTIFIC_TYPE_DEFAULTS.scatter.categorical,
+    pca: SCIENTIFIC_TYPE_DEFAULTS.pca.categorical,
+    line: SCIENTIFIC_TYPE_DEFAULTS.line.categorical,
+    roc: SCIENTIFIC_TYPE_DEFAULTS.roc.categorical,
+    survival: SCIENTIFIC_TYPE_DEFAULTS.survival.categorical,
+    pie: SCIENTIFIC_TYPE_DEFAULTS.pie.categorical,
+    hist: SCIENTIFIC_TYPE_DEFAULTS.hist.categorical,
+    venn: Object.freeze([
+      DEFAULT_VENN_SCIENTIFIC.colorA,
+      DEFAULT_VENN_SCIENTIFIC.colorB,
+      DEFAULT_VENN_SCIENTIFIC.colorC
+    ])
   });
 
   const SCHEMES = Object.freeze({
@@ -35,8 +124,8 @@
       label: 'Scientific (Classic)',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL),
       sequential: Object.freeze(['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']),
-      diverging: Object.freeze({ negative: '#3b4cc0', zero: '#f7f7f7', positive: '#b40426' }),
-      tokens: Object.freeze({ axisColor: '#111111', gridColor: '#d6d6d6', borderColor: '#111111', textColor: '#111111', background: '#ffffff' }),
+      diverging: DEFAULT_HEATMAP_DIVERGING,
+      tokens: DEFAULT_SCIENTIFIC_TOKENS,
       densityPalette: 'viridis',
       surfaceRamp: 'viridis'
     }),
@@ -236,12 +325,20 @@
     return SCHEMES[key] || SCHEMES[DEFAULT_SCHEME_ID];
   }
 
+  function isScientificScheme(scheme){
+    return String(scheme?.id || '').toLowerCase() === 'scientific';
+  }
+
+  function getScientificDefaults(type){
+    return SCIENTIFIC_TYPE_DEFAULTS[type] || null;
+  }
+
   function resolveCategoricalPalette(type, scheme){
     const base = ensureArray(scheme?.categorical);
     if(!base.length){
       return [];
     }
-    if(String(scheme?.id || '').toLowerCase() !== 'scientific'){
+    if(!isScientificScheme(scheme)){
       return base;
     }
     const override = SCIENTIFIC_TYPE_CATEGORICAL[type];
@@ -399,6 +496,7 @@
 
   function applyHistogramDistributionPalette(cfg, scheme, categorical){
     const palette = ensureArray(categorical).length ? ensureArray(categorical) : ['#444444'];
+    const scientificMode = isScientificScheme(scheme);
     cfg.distributions = ensureObject(cfg.distributions);
     const existingOptions = ensureArray(cfg.distributions.options);
     const optionByKey = {};
@@ -433,11 +531,15 @@
     };
     cfg.overlayStyles.confidence = {
       ...confidenceBase,
-      color: pickSequentialColor(scheme, 2, palette[1] || confidenceBase.color)
+      color: scientificMode
+        ? (palette[1] || confidenceBase.color)
+        : pickSequentialColor(scheme, 2, palette[1] || confidenceBase.color)
     };
     cfg.overlayStyles.prediction = {
       ...predictionBase,
-      color: pickSequentialColor(scheme, 4, palette[2] || predictionBase.color)
+      color: scientificMode
+        ? (palette[2] || predictionBase.color)
+        : pickSequentialColor(scheme, 4, palette[2] || predictionBase.color)
     };
   }
 
@@ -687,21 +789,38 @@
     const cfg = next.config = next.config && typeof next.config === 'object' ? next.config : {};
     const categorical = resolveCategoricalPalette(type, scheme);
     const tokens = scheme.tokens || {};
+    const scientificDefaults = isScientificScheme(scheme) ? getScientificDefaults(type) : null;
 
     if(type === 'venn'){
       const style = next.style = next.style && typeof next.style === 'object' ? next.style : {};
-      style.colorA = categorical[0] || style.colorA;
-      style.colorB = categorical[1] || style.colorB;
-      style.colorC = categorical[2] || style.colorC;
-      if(tokens.borderColor){ style.borderColor = tokens.borderColor; }
+      if(scientificDefaults){
+        style.colorA = scientificDefaults.colorA || style.colorA;
+        style.colorB = scientificDefaults.colorB || style.colorB;
+        style.colorC = scientificDefaults.colorC || style.colorC;
+        style.borderColor = scientificDefaults.borderColor || style.borderColor;
+      }else{
+        style.colorA = categorical[0] || style.colorA;
+        style.colorB = categorical[1] || style.colorB;
+        style.colorC = categorical[2] || style.colorC;
+        if(tokens.borderColor){ style.borderColor = tokens.borderColor; }
+      }
       style.colorScheme = scheme.id;
       if(style.upset && typeof style.upset === 'object'){
-        style.upset.barColor = categorical[0] || style.upset.barColor;
-        style.upset.setBarColor = categorical[1] || style.upset.setBarColor;
-        style.upset.dotColor = categorical[2] || style.upset.dotColor;
-        style.upset.inactiveDotColor = '#8a8a8a';
-        if(tokens.gridColor){ style.upset.gridColor = tokens.gridColor; }
-        if(tokens.axisColor){ style.upset.axisColor = tokens.axisColor; }
+        if(scientificDefaults && scientificDefaults.upset){
+          style.upset.barColor = scientificDefaults.upset.barColor || style.upset.barColor;
+          style.upset.setBarColor = scientificDefaults.upset.setBarColor || style.upset.setBarColor;
+          style.upset.dotColor = scientificDefaults.upset.dotColor || style.upset.dotColor;
+          style.upset.inactiveDotColor = scientificDefaults.upset.inactiveDotColor || style.upset.inactiveDotColor;
+          style.upset.gridColor = scientificDefaults.upset.gridColor || style.upset.gridColor;
+          style.upset.axisColor = scientificDefaults.upset.axisColor || style.upset.axisColor;
+        }else{
+          style.upset.barColor = categorical[0] || style.upset.barColor;
+          style.upset.setBarColor = categorical[1] || style.upset.setBarColor;
+          style.upset.dotColor = categorical[2] || style.upset.dotColor;
+          style.upset.inactiveDotColor = '#8a8a8a';
+          if(tokens.gridColor){ style.upset.gridColor = tokens.gridColor; }
+          if(tokens.axisColor){ style.upset.axisColor = tokens.axisColor; }
+        }
       }
       return next;
     }
@@ -709,8 +828,8 @@
     cfg.colorScheme = scheme.id;
 
     if(type === 'scatter'){
-      cfg.fill = categorical[0] || cfg.fill;
-      cfg.border = tokens.borderColor || cfg.border;
+      cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
+      cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
       const scatterDataLabelKeys = collectUniqueColumnValues(next.data, 0, { startRow: 1 });
       const scatterConfiguredLabelKeys = Object.keys(ensureMap(cfg.labelColors));
       const scatterLabelKeys = uniqueStrings(
@@ -733,15 +852,19 @@
       cfg.overlayStyles = ensureObject(cfg.overlayStyles);
       cfg.overlayStyles.trend = {
         ...ensureObject(cfg.overlayStyles.trend),
-        color: categorical[0] || ensureObject(cfg.overlayStyles.trend).color
+        color: (scientificDefaults && scientificDefaults.overlayTrend)
+          || categorical[0]
+          || ensureObject(cfg.overlayStyles.trend).color
       };
       cfg.overlayStyles.confidence = {
         ...ensureObject(cfg.overlayStyles.confidence),
-        color: pickSequentialColor(scheme, 2, categorical[1] || ensureObject(cfg.overlayStyles.confidence).color)
+        color: (scientificDefaults && scientificDefaults.overlayConfidence)
+          || pickSequentialColor(scheme, 2, categorical[1] || ensureObject(cfg.overlayStyles.confidence).color)
       };
       cfg.overlayStyles.prediction = {
         ...ensureObject(cfg.overlayStyles.prediction),
-        color: pickSequentialColor(scheme, 4, categorical[2] || ensureObject(cfg.overlayStyles.prediction).color)
+        color: (scientificDefaults && scientificDefaults.overlayPrediction)
+          || pickSequentialColor(scheme, 4, categorical[2] || ensureObject(cfg.overlayStyles.prediction).color)
       };
       cfg.densityPalette = scheme.densityPalette || cfg.densityPalette;
       applyAxisTokens(cfg, scheme);
@@ -749,8 +872,8 @@
     }
 
     if(type === 'pca'){
-      cfg.fill = categorical[0] || cfg.fill;
-      cfg.border = tokens.borderColor || cfg.border;
+      cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
+      cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
       const pcaLabelKeys = uniqueStrings(
         Object.keys(ensureMap(cfg.labelColors)).concat(collectUniqueColumnValues(next.data, 0, { startRow: 1 }))
       );
@@ -780,8 +903,8 @@
     }
 
     if(type === 'line'){
-      cfg.fill = categorical[0] || cfg.fill;
-      cfg.border = tokens.borderColor || cfg.border;
+      cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
+      cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
       const names = inferLineSeriesNames(next.data);
       const lineKeys = uniqueStrings(Object.keys(ensureMap(cfg.labelColors)).concat(names));
       cfg.labelColors = buildColorMap(lineKeys, categorical);
@@ -804,12 +927,16 @@
     }
 
     if(type === 'box'){
-      const boxPalette = buildBoxPalette(scheme, categorical, cfg.fill);
-      const primaryFill = boxPalette[0] || categorical[0] || cfg.fill;
+      const boxScientificPalette = scientificDefaults ? ensureArray(scientificDefaults.categorical).slice() : [];
+      const boxPalette = boxScientificPalette.length
+        ? boxScientificPalette
+        : buildBoxPalette(scheme, categorical, cfg.fill);
+      const primaryFill = (scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill;
       const resolvedBoxPalette = boxPalette.length
         ? boxPalette
         : (categorical.length ? categorical : [primaryFill || '#666666']);
-      const unifiedBorder = deriveBorderColor(primaryFill, tokens.borderColor || cfg.border);
+      const unifiedBorder = (scientificDefaults && scientificDefaults.border)
+        || deriveBorderColor(primaryFill, tokens.borderColor || cfg.border);
       cfg.fill = primaryFill || cfg.fill;
       cfg.border = unifiedBorder || cfg.border;
       const currentLen = Math.max(
@@ -845,7 +972,10 @@
         strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
       });
       cfg.summaryGlobalStyle = patchStyleColorFields(cfg.summaryGlobalStyle, {
-        fill: resolvedBoxPalette[1] || resolvedBoxPalette[0] || null,
+        fill: (scientificDefaults && scientificDefaults.summaryColor)
+          || resolvedBoxPalette[1]
+          || resolvedBoxPalette[0]
+          || null,
         force: true,
         fillFields: ['color']
       });
@@ -854,21 +984,25 @@
         fillFields: ['color']
       });
       cfg.significance = ensureObject(cfg.significance);
-      cfg.significance.color = resolvedBoxPalette[3] || resolvedBoxPalette[0] || cfg.significance.color;
+      cfg.significance.color = (scientificDefaults && scientificDefaults.significanceColor)
+        || resolvedBoxPalette[3]
+        || resolvedBoxPalette[0]
+        || cfg.significance.color;
       applyAxisTokens(cfg, scheme);
       return next;
     }
 
     if(type === 'hist'){
-      cfg.fill = categorical[0] || cfg.fill;
-      cfg.border = tokens.borderColor || cfg.border;
-      applyHistogramDistributionPalette(cfg, scheme, categorical);
+      cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
+      cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
+      const histDistributionPalette = (scientificDefaults && scientificDefaults.distributionColors) || categorical;
+      applyHistogramDistributionPalette(cfg, scheme, histDistributionPalette);
       applyAxisTokens(cfg, scheme);
       return next;
     }
 
     if(type === 'pie'){
-      cfg.borderColor = tokens.borderColor || cfg.borderColor;
+      cfg.borderColor = (scientificDefaults && scientificDefaults.borderColor) || tokens.borderColor || cfg.borderColor;
       const keys = Object.keys(ensureMap(cfg.colors)).concat(collectUniqueColumnValues(next.data, 0, { startRow: 1 }));
       cfg.colors = buildColorMap(keys, categorical);
       applyAxisTokens(cfg, scheme);
@@ -884,11 +1018,14 @@
 
     if(type === 'heatmap'){
       cfg.colors = cfg.colors && typeof cfg.colors === 'object' ? cfg.colors : {};
-      cfg.colors.negative = scheme.diverging?.negative || cfg.colors.negative;
-      cfg.colors.zero = scheme.diverging?.zero || cfg.colors.zero;
-      cfg.colors.positive = scheme.diverging?.positive || cfg.colors.positive;
+      const heatmapDiverging = (scientificDefaults && scientificDefaults.diverging) || scheme.diverging || {};
+      cfg.colors.negative = heatmapDiverging.negative || cfg.colors.negative;
+      cfg.colors.zero = heatmapDiverging.zero || cfg.colors.zero;
+      cfg.colors.positive = heatmapDiverging.positive || cfg.colors.positive;
       cfg.dendrogram = ensureObject(cfg.dendrogram);
-      if(tokens.axisColor){
+      if(scientificDefaults && scientificDefaults.dendrogramColor){
+        cfg.dendrogram.color = scientificDefaults.dendrogramColor;
+      }else if(tokens.axisColor){
         cfg.dendrogram.color = tokens.axisColor;
       }
       return next;
@@ -896,18 +1033,36 @@
 
     if(type === 'surface'){
       cfg.settings = cfg.settings && typeof cfg.settings === 'object' ? cfg.settings : {};
-      cfg.settings.colorRamp = scheme.surfaceRamp || cfg.settings.colorRamp;
-      if(tokens.axisColor){
+      cfg.settings.colorRamp = (scientificDefaults && scientificDefaults.surfaceRamp) || scheme.surfaceRamp || cfg.settings.colorRamp;
+      if(scientificDefaults && scientificDefaults.axisColor){
+        cfg.settings.axisColor = scientificDefaults.axisColor;
+      }else if(tokens.axisColor){
         cfg.settings.axisColor = tokens.axisColor;
       }else if(tokens.borderColor){
         cfg.settings.axisColor = tokens.borderColor;
       }
-      if(tokens.textColor){ cfg.settings.textColor = tokens.textColor; }
-      if(tokens.background){ cfg.settings.backgroundColor = tokens.background; }
+      if(scientificDefaults && scientificDefaults.textColor){
+        cfg.settings.textColor = scientificDefaults.textColor;
+      }else if(tokens.textColor){
+        cfg.settings.textColor = tokens.textColor;
+      }
+      if(scientificDefaults && scientificDefaults.backgroundColor){
+        cfg.settings.backgroundColor = scientificDefaults.backgroundColor;
+      }else if(tokens.background){
+        cfg.settings.backgroundColor = tokens.background;
+      }
       cfg.settings.colorScheme = scheme.id;
       cfg.colorScheme = scheme.id;
-      if(tokens.textColor){ cfg.textColor = tokens.textColor; }
-      if(tokens.background){ cfg.backgroundColor = tokens.background; }
+      if(scientificDefaults && scientificDefaults.textColor){
+        cfg.textColor = scientificDefaults.textColor;
+      }else if(tokens.textColor){
+        cfg.textColor = tokens.textColor;
+      }
+      if(scientificDefaults && scientificDefaults.backgroundColor){
+        cfg.backgroundColor = scientificDefaults.backgroundColor;
+      }else if(tokens.background){
+        cfg.backgroundColor = tokens.background;
+      }
       if(cfg.gridStyle && typeof cfg.gridStyle === 'object' && tokens.gridColor){
         cfg.gridStyle.color = tokens.gridColor;
       }
@@ -1161,9 +1316,9 @@
     }
     Object.keys(TYPE_TO_PAGE).forEach(type => {
       renderControlForType(type, TYPE_TO_PAGE[type]);
-      if(!state.preferredByType[type]){
-        state.preferredByType[type] = readActiveSchemeForType(type) || DEFAULT_SCHEME_ID;
-      }
+      const initialScheme = getScheme(readActiveSchemeForType(type) || state.preferredByType[type] || DEFAULT_SCHEME_ID);
+      state.preferredByType[type] = initialScheme.id;
+      setDefaultForNewTabs(type, initialScheme);
     });
     startActiveMonitor();
     syncActiveTabVisuals('init');
