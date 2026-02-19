@@ -5591,66 +5591,181 @@
     return true;
   }
 
+  const BOX_TRANSFORM_OPTION_MAP = Object.freeze({
+    cpm: { spec: { type: 'cpm', orientation: 'column' }, title: 'CPM' },
+    log2p1: { spec: { type: 'log', base: 2, pseudoCount: 1 }, title: 'log2(x+1)' },
+    centerRowsMean: { spec: { type: 'centerRows', method: 'mean' }, title: 'Center rows (mean)' },
+    centerRowsMedian: { spec: { type: 'centerRows', method: 'median' }, title: 'Center rows (median)' },
+    centerColsMean: { spec: { type: 'centerColumns', method: 'mean' }, title: 'Center cols (mean)' },
+    centerColsMedian: { spec: { type: 'centerColumns', method: 'median' }, title: 'Center cols (median)' },
+    normalizeRows: { spec: { type: 'normalizeRows' }, title: 'Normalize rows (z)' },
+    normalizeCols: { spec: { type: 'normalizeColumns' }, title: 'Normalize cols (z)' }
+  });
+
+  function promptBoxCustomExpression(){
+    const expression = global.prompt
+      ? global.prompt(
+        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+        'log2(x+1)'
+      )
+      : '';
+    if(expression == null){
+      return null;
+    }
+    const normalized = String(expression || '').trim();
+    return normalized || null;
+  }
+
+  function resolveBoxToolbarTransformOption(optionKey, customExpression){
+    const key = String(optionKey || '').trim();
+    if(!key){
+      return null;
+    }
+    if(key === 'custom'){
+      const normalized = String(customExpression || '').trim();
+      if(!normalized){
+        return null;
+      }
+      return {
+        spec: { type: 'custom', expression: normalized },
+        title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+      };
+    }
+    const preset = BOX_TRANSFORM_OPTION_MAP[key];
+    if(!preset){
+      return null;
+    }
+    return {
+      spec: Object.assign({}, preset.spec),
+      title: preset.title
+    };
+  }
+
+  function applyBoxTransformPipelineToNewView(transformSpecs, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureBoxDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('hotWrapper') || null,
+      container: hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+    });
+    if(!manager || typeof manager.applyPipeline !== 'function'){
+      console.warn('box data transform pipeline skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    const specs = Array.isArray(transformSpecs) ? transformSpecs.filter(Boolean) : [];
+    if(!specs.length){
+      return false;
+    }
+    syncBoxActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyPipeline(specs, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform-pipeline',
+      transformOptions: Object.assign({}, BOX_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      boxDebug('Debug: box transform pipeline failed', {
+        message,
+        stepCount: specs.length
+      });
+      return false;
+    }
+    activateBoxDataToolbar('transform-pipeline-applied');
+    boxDebug('Debug: box transform pipeline created view', {
+      title: result?.view?.title || null,
+      stepCount: Array.isArray(result?.result?.steps) ? result.result.steps.length : specs.length
+    });
+    return true;
+  }
+
+  function applyBoxSelectedTransforms(){
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const selected = toolbarApi?.getSelectedTransforms?.('box') || [];
+    if(!Array.isArray(selected) || !selected.length){
+      return false;
+    }
+    const resolved = [];
+    for(let i = 0; i < selected.length; i += 1){
+      const optionKey = selected[i];
+      if(optionKey === 'custom'){
+        const customExpression = promptBoxCustomExpression();
+        if(!customExpression){
+          return false;
+        }
+        const customTransform = resolveBoxToolbarTransformOption('custom', customExpression);
+        if(customTransform){
+          resolved.push(customTransform);
+        }
+        continue;
+      }
+      const next = resolveBoxToolbarTransformOption(optionKey);
+      if(next){
+        resolved.push(next);
+      }
+    }
+    if(!resolved.length){
+      return false;
+    }
+    const ok = resolved.length === 1
+      ? applyBoxTransformToNewView(resolved[0].spec, {
+        title: resolved[0].title,
+        reason: 'toolbar-transform-multi-single'
+      })
+      : applyBoxTransformPipelineToNewView(
+        resolved.map(item => item.spec),
+        { reason: 'toolbar-transform-multi' }
+      );
+    if(ok){
+      toolbarApi?.clearSelectedTransforms?.('box');
+    }
+    return ok;
+  }
+
   function bindBoxDataToolbar(){
     if(boxDataToolbarBound || !global.document){
       return;
     }
     global.document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#boxTransformCpm, #boxTransformLog2p1, #boxTransformCenterRowsMean, #boxTransformCenterRowsMedian, #boxTransformCenterColsMean, #boxTransformCenterColsMedian, #boxTransformNormalizeRows, #boxTransformNormalizeCols, #boxTransformCustom'
+        '#boxTransformApplySelected, #boxTransformCpm, #boxTransformLog2p1, #boxTransformCenterRowsMean, #boxTransformCenterRowsMedian, #boxTransformCenterColsMean, #boxTransformCenterColsMedian, #boxTransformNormalizeRows, #boxTransformNormalizeCols, #boxTransformCustom'
       );
       if(!button){
         return;
       }
-      if(button.id === 'boxTransformCpm'){
-        applyBoxTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+      if(button.id === 'boxTransformApplySelected'){
+        applyBoxSelectedTransforms();
         return;
       }
-      if(button.id === 'boxTransformLog2p1'){
-        applyBoxTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(!transformSection){
         return;
       }
-      if(button.id === 'boxTransformCenterRowsMean'){
-        applyBoxTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+      if(transformSection?.dataset?.transformMultiMode === '1'){
         return;
       }
-      if(button.id === 'boxTransformCenterRowsMedian'){
-        applyBoxTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+      const optionKey = String(button.dataset?.transformOption || '').trim();
+      if(!optionKey){
         return;
       }
-      if(button.id === 'boxTransformCenterColsMean'){
-        applyBoxTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
-        return;
-      }
-      if(button.id === 'boxTransformCenterColsMedian'){
-        applyBoxTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
-        return;
-      }
-      if(button.id === 'boxTransformNormalizeRows'){
-        applyBoxTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
-        return;
-      }
-      if(button.id === 'boxTransformNormalizeCols'){
-        applyBoxTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
-        return;
-      }
-      if(button.id === 'boxTransformCustom'){
-        const expression = global.prompt
-          ? global.prompt(
-            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-            'log2(x+1)'
-          )
-          : '';
-        if(expression == null){
+      if(optionKey === 'custom'){
+        const customExpression = promptBoxCustomExpression();
+        if(!customExpression){
           return;
         }
-        const normalized = String(expression || '').trim();
-        if(!normalized){
-          return;
+        const customTransform = resolveBoxToolbarTransformOption(optionKey, customExpression);
+        if(customTransform){
+          applyBoxTransformToNewView(customTransform.spec, { title: customTransform.title });
         }
-        applyBoxTransformToNewView({ type: 'custom', expression: normalized }, {
-          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
-        });
+        return;
+      }
+      const resolved = resolveBoxToolbarTransformOption(optionKey);
+      if(resolved){
+        applyBoxTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
     const wrapper = global.document?.getElementById?.('hotWrapper');

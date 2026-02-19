@@ -336,66 +336,181 @@
     return true;
   }
 
+  const SURFACE_TRANSFORM_OPTION_MAP = Object.freeze({
+    cpm: { spec: { type: 'cpm', orientation: 'column' }, title: 'CPM' },
+    log2p1: { spec: { type: 'log', base: 2, pseudoCount: 1 }, title: 'log2(x+1)' },
+    centerRowsMean: { spec: { type: 'centerRows', method: 'mean' }, title: 'Center rows (mean)' },
+    centerRowsMedian: { spec: { type: 'centerRows', method: 'median' }, title: 'Center rows (median)' },
+    centerColsMean: { spec: { type: 'centerColumns', method: 'mean' }, title: 'Center cols (mean)' },
+    centerColsMedian: { spec: { type: 'centerColumns', method: 'median' }, title: 'Center cols (median)' },
+    normalizeRows: { spec: { type: 'normalizeRows' }, title: 'Normalize rows (z)' },
+    normalizeCols: { spec: { type: 'normalizeColumns' }, title: 'Normalize cols (z)' }
+  });
+
+  function promptSurfaceCustomExpression(){
+    const expression = global.prompt
+      ? global.prompt(
+        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+        'log2(x+1)'
+      )
+      : '';
+    if(expression == null){
+      return null;
+    }
+    const normalized = String(expression || '').trim();
+    return normalized || null;
+  }
+
+  function resolveSurfaceToolbarTransformOption(optionKey, customExpression){
+    const key = String(optionKey || '').trim();
+    if(!key){
+      return null;
+    }
+    if(key === 'custom'){
+      const normalized = String(customExpression || '').trim();
+      if(!normalized){
+        return null;
+      }
+      return {
+        spec: { type: 'custom', expression: normalized },
+        title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+      };
+    }
+    const preset = SURFACE_TRANSFORM_OPTION_MAP[key];
+    if(!preset){
+      return null;
+    }
+    return {
+      spec: Object.assign({}, preset.spec),
+      title: preset.title
+    };
+  }
+
+  function applySurfaceTransformPipelineToNewView(transformSpecs, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureSurfaceDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
+      container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+    });
+    if(!manager || typeof manager.applyPipeline !== 'function'){
+      console.warn('surface data transform pipeline skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    const specs = Array.isArray(transformSpecs) ? transformSpecs.filter(Boolean) : [];
+    if(!specs.length){
+      return false;
+    }
+    syncSurfaceActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyPipeline(specs, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform-pipeline',
+      transformOptions: Object.assign({}, SURFACE_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      debugLog('Debug: surface transform pipeline failed', {
+        message,
+        stepCount: specs.length
+      });
+      return false;
+    }
+    activateSurfaceDataToolbar('transform-pipeline-applied');
+    debugLog('Debug: surface transform pipeline created view', {
+      title: result?.view?.title || null,
+      stepCount: Array.isArray(result?.result?.steps) ? result.result.steps.length : specs.length
+    });
+    return true;
+  }
+
+  function applySurfaceSelectedTransforms(){
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const selected = toolbarApi?.getSelectedTransforms?.('surface') || [];
+    if(!Array.isArray(selected) || !selected.length){
+      return false;
+    }
+    const resolved = [];
+    for(let i = 0; i < selected.length; i += 1){
+      const optionKey = selected[i];
+      if(optionKey === 'custom'){
+        const customExpression = promptSurfaceCustomExpression();
+        if(!customExpression){
+          return false;
+        }
+        const customTransform = resolveSurfaceToolbarTransformOption('custom', customExpression);
+        if(customTransform){
+          resolved.push(customTransform);
+        }
+        continue;
+      }
+      const next = resolveSurfaceToolbarTransformOption(optionKey);
+      if(next){
+        resolved.push(next);
+      }
+    }
+    if(!resolved.length){
+      return false;
+    }
+    const ok = resolved.length === 1
+      ? applySurfaceTransformToNewView(resolved[0].spec, {
+        title: resolved[0].title,
+        reason: 'toolbar-transform-multi-single'
+      })
+      : applySurfaceTransformPipelineToNewView(
+        resolved.map(item => item.spec),
+        { reason: 'toolbar-transform-multi' }
+      );
+    if(ok){
+      toolbarApi?.clearSelectedTransforms?.('surface');
+    }
+    return ok;
+  }
+
   function bindSurfaceDataToolbar(){
     if(surfaceDataToolbarBound || !global.document){
       return;
     }
     global.document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#surfaceTransformCpm, #surfaceTransformLog2p1, #surfaceTransformCenterRowsMean, #surfaceTransformCenterRowsMedian, #surfaceTransformCenterColsMean, #surfaceTransformCenterColsMedian, #surfaceTransformNormalizeRows, #surfaceTransformNormalizeCols, #surfaceTransformCustom'
+        '#surfaceTransformApplySelected, #surfaceTransformCpm, #surfaceTransformLog2p1, #surfaceTransformCenterRowsMean, #surfaceTransformCenterRowsMedian, #surfaceTransformCenterColsMean, #surfaceTransformCenterColsMedian, #surfaceTransformNormalizeRows, #surfaceTransformNormalizeCols, #surfaceTransformCustom'
       );
       if(!button){
         return;
       }
-      if(button.id === 'surfaceTransformCpm'){
-        applySurfaceTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+      if(button.id === 'surfaceTransformApplySelected'){
+        applySurfaceSelectedTransforms();
         return;
       }
-      if(button.id === 'surfaceTransformLog2p1'){
-        applySurfaceTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(!transformSection){
         return;
       }
-      if(button.id === 'surfaceTransformCenterRowsMean'){
-        applySurfaceTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+      if(transformSection?.dataset?.transformMultiMode === '1'){
         return;
       }
-      if(button.id === 'surfaceTransformCenterRowsMedian'){
-        applySurfaceTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+      const optionKey = String(button.dataset?.transformOption || '').trim();
+      if(!optionKey){
         return;
       }
-      if(button.id === 'surfaceTransformCenterColsMean'){
-        applySurfaceTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
-        return;
-      }
-      if(button.id === 'surfaceTransformCenterColsMedian'){
-        applySurfaceTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
-        return;
-      }
-      if(button.id === 'surfaceTransformNormalizeRows'){
-        applySurfaceTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
-        return;
-      }
-      if(button.id === 'surfaceTransformNormalizeCols'){
-        applySurfaceTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
-        return;
-      }
-      if(button.id === 'surfaceTransformCustom'){
-        const expression = global.prompt
-          ? global.prompt(
-            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-            'log2(x+1)'
-          )
-          : '';
-        if(expression == null){
+      if(optionKey === 'custom'){
+        const customExpression = promptSurfaceCustomExpression();
+        if(!customExpression){
           return;
         }
-        const normalized = String(expression || '').trim();
-        if(!normalized){
-          return;
+        const customTransform = resolveSurfaceToolbarTransformOption(optionKey, customExpression);
+        if(customTransform){
+          applySurfaceTransformToNewView(customTransform.spec, { title: customTransform.title });
         }
-        applySurfaceTransformToNewView({ type: 'custom', expression: normalized }, {
-          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
-        });
+        return;
+      }
+      const resolved = resolveSurfaceToolbarTransformOption(optionKey);
+      if(resolved){
+        applySurfaceTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
     const wrapper = global.document?.getElementById?.('surfaceHotWrapper');

@@ -125,6 +125,47 @@ describe('Heatmap stats formatting', () => {
     expect(Number(transformed?.[1]?.[2])).toBeCloseTo(0.707106, 5);
   });
 
+  test('toolbar multiple mode applies selected transforms as one derived tab', () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    expect(hot).toBeTruthy();
+    hot.loadData([
+      ['Gene', 'ArrayA', 'ArrayB'],
+      ['Gene1', 1, 3],
+      ['Gene2', 2, 4]
+    ]);
+
+    const multiToggle = document.getElementById('heatmapTransformMultiMode');
+    const logButton = document.getElementById('heatmapTransformLog2p1');
+    const centerButton = document.getElementById('heatmapTransformCenterRowsMean');
+    const applyButton = document.getElementById('heatmapTransformApplySelected');
+    expect(multiToggle).toBeTruthy();
+    expect(logButton).toBeTruthy();
+    expect(centerButton).toBeTruthy();
+    expect(applyButton).toBeTruthy();
+    const beforeTabs = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
+
+    multiToggle.checked = true;
+    multiToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    logButton.click();
+    centerButton.click();
+    expect(applyButton.disabled).toBe(false);
+    expect(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length).toBe(beforeTabs);
+
+    applyButton.click();
+
+    const tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
+    expect(tabs.length).toBe(beforeTabs + 1);
+    const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
+    expect(activeTab).toBeTruthy();
+    expect((activeTab.textContent || '').toLowerCase()).toContain('log2');
+    expect((activeTab.textContent || '').toLowerCase()).toContain('center rows');
+
+    const transformed = hot.getData();
+    expect(Number(transformed?.[1]?.[1])).toBeCloseTo(-0.5, 6);
+    expect(Number(transformed?.[1]?.[2])).toBeCloseTo(0.5, 6);
+    expect(applyButton.disabled).toBe(true);
+  });
+
   test('closing materialized transform tab clears adjust/filter selections', () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();

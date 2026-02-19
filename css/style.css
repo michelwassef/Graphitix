@@ -2140,6 +2140,38 @@ select {
 .workspace-toolbar__button--text-only .workspace-toolbar__icon{
     display:none;
 }
+.workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__buttons{
+    flex-wrap:wrap;
+    align-items:center;
+    gap:6px;
+}
+.workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__checkbox--toolbar{
+    align-self:center;
+}
+.workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-option]{
+    position:relative;
+}
+.workspace-toolbar__transform-option-check{
+    display:none;
+    position:absolute;
+    top:3px;
+    left:4px;
+    width:13px;
+    height:13px;
+    margin:0;
+    pointer-events:none;
+    accent-color:#0b63d1;
+}
+.workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__transform-option-check{
+    display:block;
+}
+.workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__button[data-transform-option]{
+    padding-left:20px;
+}
+.workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__button[data-transform-option][data-transform-selected="1"]{
+    background:#dbe8fb;
+    border-color:#6c7bb1;
+}
 .workspace-toolbar__button[data-tooltip]::after{
     content:attr(data-tooltip);
     position:absolute;

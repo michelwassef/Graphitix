@@ -130,6 +130,18 @@
     return type || 'Derived';
   }
 
+  function defaultLabelForPipeline(specs){
+    const source = Array.isArray(specs) ? specs : [];
+    const labels = source
+      .map(spec => defaultLabelForTransform(spec))
+      .filter(label => typeof label === 'string' && label.trim().length > 0);
+    if(!labels.length){
+      return 'Pipeline';
+    }
+    const joined = labels.join(' + ');
+    return joined.length > 64 ? `${joined.slice(0, 61)}...` : joined;
+  }
+
   function createManager(options){
     const settings = options && typeof options === 'object' ? options : {};
     const componentKey = String(settings.componentKey || '').trim();
@@ -576,6 +588,70 @@
       };
     }
 
+    function applyPipeline(transformSpecs, options){
+      const sourceView = getView(options?.sourceViewId || activeViewId);
+      if(!sourceView){
+        return { ok: false, error: 'No source view selected.' };
+      }
+      const transformsApi = Shared.dataTransforms;
+      if(!transformsApi || typeof transformsApi.applyPipeline !== 'function'){
+        return { ok: false, error: 'Shared.dataTransforms.applyPipeline is unavailable.' };
+      }
+      const pipelineResult = transformsApi.applyPipeline(
+        sourceView.data,
+        Array.isArray(transformSpecs) ? transformSpecs : [],
+        options?.transformOptions || {}
+      );
+      if(!pipelineResult?.ok){
+        const failedStep = Array.isArray(pipelineResult?.steps) ? pipelineResult.steps.find(step => step && step.ok === false) : null;
+        return {
+          ok: false,
+          error: failedStep?.error || 'Pipeline transform failed.',
+          result: pipelineResult || null
+        };
+      }
+      const steps = Array.isArray(pipelineResult.steps) ? pipelineResult.steps : [];
+      const normalizedSpecs = steps.map(step => step?.spec).filter(Boolean);
+      const finalStep = steps.length ? steps[steps.length - 1] : null;
+      const title = normalizeTitle(options?.title, defaultLabelForPipeline(normalizedSpecs));
+      const summary = {
+        transform: 'pipeline',
+        steps: normalizedSpecs.map(spec => defaultLabelForTransform(spec)),
+        stepCount: normalizedSpecs.length,
+        rows: shapeOfMatrix(pipelineResult.data).rows,
+        cols: shapeOfMatrix(pipelineResult.data).cols,
+        changedCells: Number(finalStep?.summary?.changedCells) || 0,
+        numericCells: Number(finalStep?.summary?.numericCells) || 0,
+        skippedCells: Number(finalStep?.summary?.skippedCells) || 0,
+        warnings: steps.reduce((acc, step) => {
+          if(Array.isArray(step?.warnings)){
+            return acc.concat(step.warnings);
+          }
+          if(Array.isArray(step?.summary?.warnings)){
+            return acc.concat(step.summary.warnings);
+          }
+          return acc;
+        }, []).slice(0, 8)
+      };
+      const view = createDerivedView({
+        title,
+        data: pipelineResult.data,
+        sourceViewId: sourceView.id,
+        transformSpec: {
+          type: 'pipeline',
+          specs: normalizedSpecs
+        },
+        summary,
+        activate: options?.activate !== false,
+        reason: options?.reason || 'pipeline'
+      });
+      return {
+        ok: true,
+        view,
+        result: pipelineResult
+      };
+    }
+
     function serialize(options){
       const includeData = options?.includeData !== false;
       return {
@@ -681,6 +757,7 @@
     manager.createDerivedView = createDerivedView;
     manager.removeView = removeView;
     manager.applyTransform = applyTransform;
+    manager.applyPipeline = applyPipeline;
     manager.serialize = serialize;
     manager.deserialize = deserialize;
     manager.defaultLabelForTransform = defaultLabelForTransform;

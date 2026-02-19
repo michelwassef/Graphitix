@@ -464,66 +464,181 @@
     return true;
   }
 
+  const HIST_TRANSFORM_OPTION_MAP = Object.freeze({
+    cpm: { spec: { type: 'cpm', orientation: 'column' }, title: 'CPM' },
+    log2p1: { spec: { type: 'log', base: 2, pseudoCount: 1 }, title: 'log2(x+1)' },
+    centerRowsMean: { spec: { type: 'centerRows', method: 'mean' }, title: 'Center rows (mean)' },
+    centerRowsMedian: { spec: { type: 'centerRows', method: 'median' }, title: 'Center rows (median)' },
+    centerColsMean: { spec: { type: 'centerColumns', method: 'mean' }, title: 'Center cols (mean)' },
+    centerColsMedian: { spec: { type: 'centerColumns', method: 'median' }, title: 'Center cols (median)' },
+    normalizeRows: { spec: { type: 'normalizeRows' }, title: 'Normalize rows (z)' },
+    normalizeCols: { spec: { type: 'normalizeColumns' }, title: 'Normalize cols (z)' }
+  });
+
+  function promptHistCustomExpression(){
+    const expression = global.prompt
+      ? global.prompt(
+        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+        'log2(x+1)'
+      )
+      : '';
+    if(expression == null){
+      return null;
+    }
+    const normalized = String(expression || '').trim();
+    return normalized || null;
+  }
+
+  function resolveHistToolbarTransformOption(optionKey, customExpression){
+    const key = String(optionKey || '').trim();
+    if(!key){
+      return null;
+    }
+    if(key === 'custom'){
+      const normalized = String(customExpression || '').trim();
+      if(!normalized){
+        return null;
+      }
+      return {
+        spec: { type: 'custom', expression: normalized },
+        title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+      };
+    }
+    const preset = HIST_TRANSFORM_OPTION_MAP[key];
+    if(!preset){
+      return null;
+    }
+    return {
+      spec: Object.assign({}, preset.spec),
+      title: preset.title
+    };
+  }
+
+  function applyHistTransformPipelineToNewView(transformSpecs, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureHistDataViewsForHot(hot, {
+      wrapper: document.getElementById('histHotWrapper'),
+      container: hot.__histHostContainer || document.getElementById('histHot')
+    });
+    if(!manager || typeof manager.applyPipeline !== 'function'){
+      console.warn('hist data transform pipeline skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    const specs = Array.isArray(transformSpecs) ? transformSpecs.filter(Boolean) : [];
+    if(!specs.length){
+      return false;
+    }
+    syncHistActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyPipeline(specs, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform-pipeline',
+      transformOptions: Object.assign({}, HIST_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      console.debug('Debug: hist transform pipeline failed', {
+        message,
+        stepCount: specs.length
+      });
+      return false;
+    }
+    activateHistDataToolbar('transform-pipeline-applied');
+    console.debug('Debug: hist transform pipeline created view', {
+      title: result?.view?.title || null,
+      stepCount: Array.isArray(result?.result?.steps) ? result.result.steps.length : specs.length
+    });
+    return true;
+  }
+
+  function applyHistSelectedTransforms(){
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const selected = toolbarApi?.getSelectedTransforms?.('hist') || [];
+    if(!Array.isArray(selected) || !selected.length){
+      return false;
+    }
+    const resolved = [];
+    for(let i = 0; i < selected.length; i += 1){
+      const optionKey = selected[i];
+      if(optionKey === 'custom'){
+        const customExpression = promptHistCustomExpression();
+        if(!customExpression){
+          return false;
+        }
+        const customTransform = resolveHistToolbarTransformOption('custom', customExpression);
+        if(customTransform){
+          resolved.push(customTransform);
+        }
+        continue;
+      }
+      const next = resolveHistToolbarTransformOption(optionKey);
+      if(next){
+        resolved.push(next);
+      }
+    }
+    if(!resolved.length){
+      return false;
+    }
+    const ok = resolved.length === 1
+      ? applyHistTransformToNewView(resolved[0].spec, {
+        title: resolved[0].title,
+        reason: 'toolbar-transform-multi-single'
+      })
+      : applyHistTransformPipelineToNewView(
+        resolved.map(item => item.spec),
+        { reason: 'toolbar-transform-multi' }
+      );
+    if(ok){
+      toolbarApi?.clearSelectedTransforms?.('hist');
+    }
+    return ok;
+  }
+
   function bindHistDataToolbar(){
     if(histDataToolbarBound || !document){
       return;
     }
     document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#histTransformCpm, #histTransformLog2p1, #histTransformCenterRowsMean, #histTransformCenterRowsMedian, #histTransformCenterColsMean, #histTransformCenterColsMedian, #histTransformNormalizeRows, #histTransformNormalizeCols, #histTransformCustom'
+        '#histTransformApplySelected, #histTransformCpm, #histTransformLog2p1, #histTransformCenterRowsMean, #histTransformCenterRowsMedian, #histTransformCenterColsMean, #histTransformCenterColsMedian, #histTransformNormalizeRows, #histTransformNormalizeCols, #histTransformCustom'
       );
       if(!button){
         return;
       }
-      if(button.id === 'histTransformCpm'){
-        applyHistTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+      if(button.id === 'histTransformApplySelected'){
+        applyHistSelectedTransforms();
         return;
       }
-      if(button.id === 'histTransformLog2p1'){
-        applyHistTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(!transformSection){
         return;
       }
-      if(button.id === 'histTransformCenterRowsMean'){
-        applyHistTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+      if(transformSection?.dataset?.transformMultiMode === '1'){
         return;
       }
-      if(button.id === 'histTransformCenterRowsMedian'){
-        applyHistTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+      const optionKey = String(button.dataset?.transformOption || '').trim();
+      if(!optionKey){
         return;
       }
-      if(button.id === 'histTransformCenterColsMean'){
-        applyHistTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
-        return;
-      }
-      if(button.id === 'histTransformCenterColsMedian'){
-        applyHistTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
-        return;
-      }
-      if(button.id === 'histTransformNormalizeRows'){
-        applyHistTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
-        return;
-      }
-      if(button.id === 'histTransformNormalizeCols'){
-        applyHistTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
-        return;
-      }
-      if(button.id === 'histTransformCustom'){
-        const expression = global.prompt
-          ? global.prompt(
-            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-            'log2(x+1)'
-          )
-          : '';
-        if(expression == null){
+      if(optionKey === 'custom'){
+        const customExpression = promptHistCustomExpression();
+        if(!customExpression){
           return;
         }
-        const normalized = String(expression || '').trim();
-        if(!normalized){
-          return;
+        const customTransform = resolveHistToolbarTransformOption(optionKey, customExpression);
+        if(customTransform){
+          applyHistTransformToNewView(customTransform.spec, { title: customTransform.title });
         }
-        applyHistTransformToNewView({ type: 'custom', expression: normalized }, {
-          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
-        });
+        return;
+      }
+      const resolved = resolveHistToolbarTransformOption(optionKey);
+      if(resolved){
+        applyHistTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
     const wrapper = document.getElementById('histHotWrapper');

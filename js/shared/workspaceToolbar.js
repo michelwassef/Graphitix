@@ -163,8 +163,14 @@
   const MENU_WRAPPER_SELECTOR = '.workspace-toolbar__menu';
   const MENU_TRIGGER_SELECTOR = '.workspace-toolbar__button[data-menu-id]';
   const MENU_OPEN_CLASS = 'workspace-toolbar__menu--open';
+  const TRANSFORM_SECTION_SELECTOR = '.workspace-toolbar__section[data-transform-section="1"]';
+  const TRANSFORM_MODE_TOGGLE_SELECTOR = 'input[data-transform-multi-toggle="1"]';
+  const TRANSFORM_OPTION_SELECTOR = '.workspace-toolbar__button[data-transform-option]';
+  const TRANSFORM_APPLY_SELECTOR = '.workspace-toolbar__button[data-transform-apply="1"]';
+  const TRANSFORM_CLEAR_SELECTOR = '.workspace-toolbar__button[data-transform-clear="1"]';
   let undoSubscriptionCleanup = null;
   let menuHandlersBound = false;
+  let transformHandlersBound = false;
   const contextObservers = new WeakMap();
 
   function logDebug(message, payload){
@@ -230,6 +236,7 @@
     const tooltip = config.tooltip || (config.icon === 'import' ? IMPORT_TOOLTIP_TEXT : null);
     if(config.title || tooltip){ button.title = config.title || tooltip; }
     if(config.disabled){ button.disabled = true; }
+    if(config.hidden){ button.hidden = true; }
     if(config.dataset){
       Object.keys(config.dataset).forEach(key => {
         const value = config.dataset[key];
@@ -252,6 +259,18 @@
     label.className = 'workspace-toolbar__label';
     label.textContent = config.label || '';
     button.appendChild(label);
+
+    if(config.dataset && config.dataset.transformOption){
+      button.dataset.transformOption = String(config.dataset.transformOption);
+      button.dataset.transformSelected = '0';
+      const check = doc.createElement('input');
+      check.type = 'checkbox';
+      check.className = 'workspace-toolbar__transform-option-check';
+      check.tabIndex = -1;
+      check.setAttribute('aria-hidden', 'true');
+      check.disabled = true;
+      button.appendChild(check);
+    }
 
     return button;
   }
@@ -305,6 +324,39 @@
       wrapper.appendChild(list);
     }
     return wrapper;
+  }
+
+  function createCheckboxItem(config){
+    if(!config || !doc){ return null; }
+    const wrap = doc.createElement('label');
+    wrap.className = 'workspace-toolbar__checkbox workspace-toolbar__checkbox--toolbar';
+    if(Array.isArray(config.classes) && config.classes.length){
+      wrap.className += ' ' + config.classes.filter(Boolean).join(' ');
+    }
+    if(config.title){
+      wrap.title = config.title;
+    }
+
+    const input = doc.createElement('input');
+    input.type = 'checkbox';
+    if(config.id){ input.id = config.id; }
+    if(config.name){ input.name = config.name; }
+    if(config.checked){ input.checked = true; }
+    if(config.dataset){
+      Object.keys(config.dataset).forEach(key => {
+        const value = config.dataset[key];
+        if(value !== undefined && value !== null){
+          input.dataset[key] = String(value);
+        }
+      });
+    }
+    wrap.appendChild(input);
+
+    const label = doc.createElement('span');
+    label.className = 'workspace-toolbar__checkbox-label';
+    label.textContent = config.label || '';
+    wrap.appendChild(label);
+    return wrap;
   }
 
   function getMenuWrapper(trigger){
@@ -399,6 +451,13 @@
     doc.addEventListener('keydown', handleToolbarMenuKeydown, true);
     doc.addEventListener('focusin', handleToolbarMenuFocus);
     menuHandlersBound = true;
+  }
+
+  function ensureTransformHandlers(){
+    if(transformHandlersBound || !doc){ return; }
+    doc.addEventListener('click', handleTransformToolbarClick, true);
+    doc.addEventListener('change', handleTransformToolbarChange, true);
+    transformHandlersBound = true;
   }
 
   function createFormControl(control){
@@ -629,6 +688,96 @@
     }
   }
 
+  function getTransformSection(node){
+    if(!node || typeof node.closest !== 'function'){
+      return null;
+    }
+    return node.closest(TRANSFORM_SECTION_SELECTOR);
+  }
+
+  function setTransformButtonSelected(button, selected){
+    if(!button){ return; }
+    const next = !!selected;
+    button.dataset.transformSelected = next ? '1' : '0';
+    button.classList.toggle('workspace-toolbar__button--selected', next);
+    const check = button.querySelector('.workspace-toolbar__transform-option-check');
+    if(check && check.checked !== next){
+      check.checked = next;
+    }
+  }
+
+  function clearTransformSelections(section){
+    if(!section){ return; }
+    section.querySelectorAll(TRANSFORM_OPTION_SELECTOR).forEach(button => {
+      setTransformButtonSelected(button, false);
+    });
+  }
+
+  function updateTransformSectionState(section, options){
+    if(!section){ return; }
+    const opts = options || {};
+    const modeInput = section.querySelector(TRANSFORM_MODE_TOGGLE_SELECTOR);
+    const multiMode = !!modeInput?.checked;
+    section.dataset.transformMultiMode = multiMode ? '1' : '0';
+    if(!multiMode && opts.preserveSelection !== true){
+      clearTransformSelections(section);
+    }
+    const selectedCount = section.querySelectorAll(`${TRANSFORM_OPTION_SELECTOR}[data-transform-selected="1"]`).length;
+    section.querySelectorAll(TRANSFORM_APPLY_SELECTOR).forEach(button => {
+      button.hidden = !multiMode;
+      button.disabled = !multiMode || selectedCount === 0;
+    });
+    section.querySelectorAll(TRANSFORM_CLEAR_SELECTOR).forEach(button => {
+      button.hidden = !multiMode;
+      button.disabled = !multiMode || selectedCount === 0;
+    });
+  }
+
+  function syncTransformSections(root){
+    const scope = root || doc;
+    if(!scope || typeof scope.querySelectorAll !== 'function'){ return; }
+    scope.querySelectorAll(TRANSFORM_SECTION_SELECTOR).forEach(section => {
+      updateTransformSectionState(section);
+    });
+  }
+
+  function handleTransformToolbarChange(event){
+    const target = event?.target;
+    if(!target || typeof target.closest !== 'function'){ return; }
+    const modeToggle = target.closest(TRANSFORM_MODE_TOGGLE_SELECTOR);
+    if(!modeToggle){ return; }
+    const section = getTransformSection(modeToggle);
+    if(!section){ return; }
+    updateTransformSectionState(section);
+  }
+
+  function handleTransformToolbarClick(event){
+    const target = event?.target;
+    if(!target || typeof target.closest !== 'function'){ return; }
+    const clearButton = target.closest(TRANSFORM_CLEAR_SELECTOR);
+    if(clearButton){
+      const section = getTransformSection(clearButton);
+      if(!section){ return; }
+      clearTransformSelections(section);
+      updateTransformSectionState(section, { preserveSelection: true });
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    const optionButton = target.closest(TRANSFORM_OPTION_SELECTOR);
+    if(!optionButton){ return; }
+    const section = getTransformSection(optionButton);
+    if(!section || section.dataset.transformMultiMode !== '1'){
+      return;
+    }
+    const currentlySelected = optionButton.dataset.transformSelected === '1';
+    setTransformButtonSelected(optionButton, !currentlySelected);
+    updateTransformSectionState(section, { preserveSelection: true });
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
   function detachContextObserver(toolbar){
     if(!toolbar){ return; }
     const observer = contextObservers.get(toolbar);
@@ -682,6 +831,9 @@
     if(!doc){ return null; }
     const sectionEl = doc.createElement('div');
     sectionEl.className = 'workspace-toolbar__section';
+    if(section.transformSection){
+      sectionEl.dataset.transformSection = '1';
+    }
     sectionEl.setAttribute('role', 'group');
     if(section.ariaLabel){ sectionEl.setAttribute('aria-label', section.ariaLabel); }
     if(section.align === 'end'){
@@ -692,6 +844,11 @@
     buttonsWrap.className = 'workspace-toolbar__buttons';
     (section.buttons || []).forEach(buttonConfig => {
       if(!buttonConfig){ return; }
+      if(buttonConfig.type === 'checkbox'){
+        const control = createCheckboxItem(buttonConfig);
+        if(control){ buttonsWrap.appendChild(control); }
+        return;
+      }
       const isMenu = Array.isArray(buttonConfig.menuItems) && buttonConfig.menuItems.length > 0;
       const button = isMenu ? createMenuButton(buttonConfig) : createButton(buttonConfig);
       if(button){ buttonsWrap.appendChild(button); }
@@ -889,6 +1046,7 @@
       return;
     }
     ensureMenuHandlers();
+    ensureTransformHandlers();
     const toolbar = buildToolbar(config);
     if(!toolbar){ return; }
     if(placeholder){
@@ -903,6 +1061,7 @@
       }
     }
     attachContextObserver(toolbar);
+    syncTransformSections(toolbar);
     container.dataset.toolbarRendered = '1';
     logDebug('rendered toolbar', { key });
     ensureUndoSubscription();
@@ -946,6 +1105,41 @@
     setToolbarActiveSection(toolbar, sectionId, { manual: true, clearContext: true });
     return true;
   };
+  workspaceToolbar.isTransformMultiMode = function isTransformMultiMode(toolbarKey){
+    if(!doc){ return false; }
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return false; }
+    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const section = toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR);
+    const modeToggle = section?.querySelector?.(TRANSFORM_MODE_TOGGLE_SELECTOR);
+    return !!modeToggle?.checked;
+  };
+  workspaceToolbar.getSelectedTransforms = function getSelectedTransforms(toolbarKey){
+    if(!doc){ return []; }
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return []; }
+    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const section = toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR);
+    if(!section){
+      return [];
+    }
+    return Array.from(section.querySelectorAll(`${TRANSFORM_OPTION_SELECTOR}[data-transform-selected="1"]`))
+      .map(button => String(button?.dataset?.transformOption || '').trim())
+      .filter(Boolean);
+  };
+  workspaceToolbar.clearSelectedTransforms = function clearSelectedTransforms(toolbarKey){
+    if(!doc){ return false; }
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return false; }
+    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const section = toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR);
+    if(!section){
+      return false;
+    }
+    clearTransformSelections(section);
+    updateTransformSectionState(section, { preserveSelection: true });
+    return true;
+  };
 
   if(doc){
     const button = (id, label, icon, options) => Object.assign({ id, label, icon }, options || {});
@@ -981,42 +1175,71 @@
       type: 'buttons',
       caption: 'Data',
       ariaLabel: 'Input data transforms',
+      transformSection: true,
       buttons: [
+        {
+          type: 'checkbox',
+          id: `${key}TransformMultiMode`,
+          label: 'Multiple',
+          title: 'Enable multiple transform selection mode',
+          dataset: { transformMultiToggle: '1' }
+        },
+        button(`${key}TransformApplySelected`, 'Apply selected', null, {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Apply all selected transforms to create one data tab',
+          hidden: true,
+          dataset: { transformApply: '1' }
+        }),
+        button(`${key}TransformClearSelected`, 'Clear', null, {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Clear selected transforms',
+          hidden: true,
+          dataset: { transformClear: '1' }
+        }),
         button(`${key}TransformCpm`, 'CPM', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Create a CPM-normalized data tab'
+          title: 'Create a CPM-normalized data tab',
+          dataset: { transformOption: 'cpm' }
         }),
         button(`${key}TransformLog2p1`, 'Log2+1', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Create a log2(x+1) transformed data tab'
+          title: 'Create a log2(x+1) transformed data tab',
+          dataset: { transformOption: 'log2p1' }
         }),
         button(`${key}TransformCenterRowsMean`, 'Center rows (mean)', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Center rows by subtracting row mean'
+          title: 'Center rows by subtracting row mean',
+          dataset: { transformOption: 'centerRowsMean' }
         }),
         button(`${key}TransformCenterRowsMedian`, 'Center rows (median)', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Center rows by subtracting row median'
+          title: 'Center rows by subtracting row median',
+          dataset: { transformOption: 'centerRowsMedian' }
         }),
         button(`${key}TransformCenterColsMean`, 'Center cols (mean)', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Center columns by subtracting column mean'
+          title: 'Center columns by subtracting column mean',
+          dataset: { transformOption: 'centerColsMean' }
         }),
         button(`${key}TransformCenterColsMedian`, 'Center cols (median)', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Center columns by subtracting column median'
+          title: 'Center columns by subtracting column median',
+          dataset: { transformOption: 'centerColsMedian' }
         }),
         button(`${key}TransformNormalizeRows`, 'Normalize rows (z)', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Normalize rows to z-score'
+          title: 'Normalize rows to z-score',
+          dataset: { transformOption: 'normalizeRows' }
         }),
         button(`${key}TransformNormalizeCols`, 'Normalize cols (z)', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Normalize columns to z-score'
+          title: 'Normalize columns to z-score',
+          dataset: { transformOption: 'normalizeCols' }
         }),
         button(`${key}TransformCustom`, 'Custom', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
-          title: 'Create a transformed data tab from a custom expression'
+          title: 'Create a transformed data tab from a custom expression',
+          dataset: { transformOption: 'custom' }
         })
       ]
     });
