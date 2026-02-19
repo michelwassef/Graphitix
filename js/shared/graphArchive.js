@@ -11,6 +11,7 @@
   const GRAPH_ARCHIVE_WORKER_URL = 'js/workers/graphArchive.worker.js';
   const ADAPTIVE_COMPRESS_THRESHOLD_BYTES = 1024 * 1024;
   const ADAPTIVE_COMPRESS_LEVEL = 1;
+  const ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES = 1024 * 1024;
   const WORKER_TIMEOUT_MS = 120000;
   const SCATTER_DEFAULT_LABEL_COLORS = Object.freeze([
     '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
@@ -165,23 +166,31 @@
     };
   }
 
-  function resolveRawCsvZipOptions(csvText, compressionPolicy) {
-    if (!compressionPolicy?.enabled) {
-      return null;
-    }
-    const byteLength = estimateUtf8Bytes(csvText);
-    if (byteLength < compressionPolicy.thresholdBytes) {
-      return null;
+  function resolvePayloadStoragePolicy(options = {}) {
+    const mode = options.payloadMode || 'adaptive';
+    const thresholdBytes = Number.isFinite(options.payloadLiteThresholdBytes)
+      ? options.payloadLiteThresholdBytes
+      : ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES;
+    if (mode === 'full' || mode === 'lite') {
+      return {
+        mode,
+        thresholdBytes
+      };
     }
     return {
-      compression: 'DEFLATE',
-      compressionOptions: { level: compressionPolicy.level },
-      __debug: {
-        byteLength,
-        thresholdBytes: compressionPolicy.thresholdBytes,
-        level: compressionPolicy.level
-      }
+      mode: 'adaptive',
+      thresholdBytes
     };
+  }
+
+  function resolvePayloadModeFromByteLength(byteLength, policy) {
+    if (!policy || policy.mode === 'full') {
+      return 'full';
+    }
+    if (policy.mode === 'lite') {
+      return 'lite';
+    }
+    return byteLength >= policy.thresholdBytes ? 'lite' : 'full';
   }
 
   function escapeCsvCell(value) {
@@ -388,6 +397,10 @@
       if (key === 'data' || key === 'exclusions') {
         continue;
       }
+      if (key === 'dataViews') {
+        config[key] = sanitizeDataViewsForArchive(payload[key], false);
+        continue;
+      }
       config[key] = payload[key];
     }
     return config;
@@ -395,6 +408,60 @@
 
   function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function sanitizeDataViewsForArchive(dataViewsValue, includeData) {
+    if (!isPlainObject(dataViewsValue) || !Array.isArray(dataViewsValue.views)) {
+      return dataViewsValue;
+    }
+    if (includeData !== false) {
+      return dataViewsValue;
+    }
+    const sourceViews = dataViewsValue.views;
+    const nextViews = new Array(sourceViews.length);
+    let changed = false;
+    for (let i = 0; i < sourceViews.length; i += 1) {
+      const view = sourceViews[i];
+      if (!isPlainObject(view)) {
+        nextViews[i] = view;
+        continue;
+      }
+      if (!Object.prototype.hasOwnProperty.call(view, 'data')) {
+        nextViews[i] = view;
+        continue;
+      }
+      const nextView = { ...view };
+      delete nextView.data;
+      nextViews[i] = nextView;
+      changed = true;
+    }
+    if (!changed) {
+      return dataViewsValue;
+    }
+    return {
+      ...dataViewsValue,
+      views: nextViews
+    };
+  }
+
+  function buildLitePayload(rawPayload) {
+    if (!isPlainObject(rawPayload)) {
+      return rawPayload;
+    }
+    const lite = {};
+    const keys = Object.keys(rawPayload);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      if (key === 'data' || key === 'exclusions') {
+        continue;
+      }
+      if (key === 'dataViews') {
+        lite[key] = sanitizeDataViewsForArchive(rawPayload[key], false);
+        continue;
+      }
+      lite[key] = rawPayload[key];
+    }
+    return lite;
   }
 
   function compactScatterCategoricalMap(mapValue, defaults) {
@@ -513,7 +580,7 @@
       '- manifest.json: archive index (version, tabs, active tab).',
       '- tabs/<Tab Name>/raw/data.csv: raw tabular input.',
       '- tabs/<Tab Name>/graph-config.json: graph/stat settings.',
-      '- tabs/<Tab Name>/payload.json: full payload used for fast, lossless reload.',
+      '- tabs/<Tab Name>/payload.json: payload snapshot (may omit raw data in lite mode).',
       '- tabs/<Tab Name>/layout.json: panel/layout state.',
       '',
       `Archive format: ${manifest.format}`,
@@ -551,6 +618,128 @@
     return entry.async('string');
   }
 
+  function isMatrixLike(value) {
+    return Array.isArray(value);
+  }
+
+  function hydratePayloadDataViews(payload) {
+    if (!isPlainObject(payload) || !isPlainObject(payload.dataViews) || !Array.isArray(payload.dataViews.views)) {
+      return payload;
+    }
+    const rawData = isMatrixLike(payload.data) ? payload.data : [];
+    const sourceViews = payload.dataViews.views;
+    const nextViews = new Array(sourceViews.length);
+    let changed = false;
+    let hasRawView = false;
+
+    for (let i = 0; i < sourceViews.length; i += 1) {
+      const sourceView = sourceViews[i];
+      if (!isPlainObject(sourceView)) {
+        nextViews[i] = sourceView;
+        continue;
+      }
+      const nextView = { ...sourceView };
+      const id = String(nextView.id || '').trim().toLowerCase();
+      const kind = String(nextView.kind || '').trim().toLowerCase();
+      const isRaw = kind === 'raw' || (!hasRawView && (id === 'raw' || i === 0));
+      if (isRaw) {
+        hasRawView = true;
+        if (!Array.isArray(nextView.data) || nextView.data.length === 0) {
+          nextView.data = rawData;
+          changed = true;
+        }
+        if (!nextView.id) {
+          nextView.id = 'raw';
+          changed = true;
+        }
+      }
+      nextViews[i] = nextView;
+    }
+
+    if (!hasRawView) {
+      nextViews.unshift({
+        id: 'raw',
+        kind: 'raw',
+        title: 'Raw',
+        data: rawData,
+        sourceViewId: null,
+        transformSpec: null,
+        summary: null,
+        exclusions: null,
+        createdAt: Date.now()
+      });
+      changed = true;
+    }
+
+    const transformsApi = Shared?.dataTransforms;
+    if (transformsApi && typeof transformsApi.applyTransform === 'function') {
+      const maxPasses = nextViews.length;
+      for (let pass = 0; pass < maxPasses; pass += 1) {
+        let progressed = false;
+        const byId = new Map();
+        for (let i = 0; i < nextViews.length; i += 1) {
+          const view = nextViews[i];
+          if (!isPlainObject(view)) {
+            continue;
+          }
+          byId.set(String(view.id || '').trim(), view);
+        }
+        for (let i = 0; i < nextViews.length; i += 1) {
+          const view = nextViews[i];
+          if (!isPlainObject(view)) {
+            continue;
+          }
+          if (String(view.kind || '').toLowerCase() === 'raw') {
+            continue;
+          }
+          if (Array.isArray(view.data) && view.data.length) {
+            continue;
+          }
+          if (!view.transformSpec) {
+            continue;
+          }
+          const sourceViewId = String(view.sourceViewId || 'raw').trim() || 'raw';
+          const sourceView = byId.get(sourceViewId);
+          const sourceData = Array.isArray(sourceView?.data) ? sourceView.data : null;
+          if (!sourceData || !sourceData.length) {
+            continue;
+          }
+          try {
+            const result = transformsApi.applyTransform(sourceData, view.transformSpec, { componentKey: 'graph-archive' });
+            if (!result || result.ok === false || !Array.isArray(result.data)) {
+              continue;
+            }
+            view.data = result.data;
+            if (!view.summary && result.summary) {
+              view.summary = result.summary;
+            }
+            changed = true;
+            progressed = true;
+          } catch (err) {
+            debugLog('hydratePayloadDataViews.transformFailed', {
+              viewId: view.id || null,
+              error: err?.message || String(err)
+            });
+          }
+        }
+        if (!progressed) {
+          break;
+        }
+      }
+    }
+
+    if (!changed) {
+      return payload;
+    }
+    return {
+      ...payload,
+      dataViews: {
+        ...payload.dataViews,
+        views: nextViews
+      }
+    };
+  }
+
   function buildSingleTabLegacySession(payload, fileName) {
     const inferredType = typeof payload?.type === 'string' ? payload.type : null;
     const fallbackTitle = sanitizeSegment(String(fileName || '').replace(/\.[^/.]+$/, ''), DEFAULT_TAB_TITLE);
@@ -577,6 +766,7 @@
     const activeIndex = resolveActiveIndex(Number(options.activeIndex), tabs.length);
     const scope = normalizeScope(options.scope, tabs.length);
     const compressionPolicy = resolveAdaptiveCompressionPolicy(options);
+    const payloadPolicy = resolvePayloadStoragePolicy(options);
     const archiveName = ensureGraphExtension(options.fileName || '', 'workspace.graph');
     const JSZip = await ensureZipLibrary();
     const zip = new JSZip();
@@ -602,10 +792,15 @@
       const uniqueSegment = makeUniqueFolderName(safeSegment, seenFolders);
       const folderPath = `tabs/${uniqueSegment}`;
       const payload = optimizePayloadForArchive(tab?.payload || null);
+      const rawPayload = isPlainObject(payload) ? payload : null;
       const layout = tab?.layout || null;
-      const rawData = buildRawDataExport(payload && typeof payload === 'object' ? payload.data : null);
+      const rawData = buildRawDataExport(rawPayload ? rawPayload.data : null);
+      const rawCsvText = rawData.csvText || '';
+      const rawCsvByteLength = estimateUtf8Bytes(rawCsvText);
+      const payloadMode = resolvePayloadModeFromByteLength(rawCsvByteLength, payloadPolicy);
+      const payloadForArchive = payloadMode === 'lite' ? buildLitePayload(payload) : payload;
       const config = stripRawDataFromPayload(payload);
-      const exclusions = payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'exclusions')
+      const exclusions = rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'exclusions')
         ? payload.exclusions
         : undefined;
 
@@ -615,6 +810,7 @@
         type: typeof tab?.type === 'string' ? tab.type : (typeof payload?.type === 'string' ? payload.type : null),
         folder: folderPath,
         rawDataMode: rawData.mode,
+        payloadMode,
         files: {
           tab: `${folderPath}/tab.json`,
           payload: `${folderPath}/payload.json`,
@@ -629,14 +825,25 @@
         title: tabManifest.title,
         type: tabManifest.type,
         rawDataMode: tabManifest.rawDataMode,
+        payloadMode: tabManifest.payloadMode,
         files: tabManifest.files
       }));
-      zip.file(tabManifest.files.payload, JSON.stringify(payload));
-      const rawCsvOptions = resolveRawCsvZipOptions(rawData.csvText || '', compressionPolicy);
+      zip.file(tabManifest.files.payload, JSON.stringify(payloadForArchive));
+      const rawCsvOptions = compressionPolicy?.enabled && rawCsvByteLength >= compressionPolicy.thresholdBytes
+        ? {
+          compression: 'DEFLATE',
+          compressionOptions: { level: compressionPolicy.level },
+          __debug: {
+            byteLength: rawCsvByteLength,
+            thresholdBytes: compressionPolicy.thresholdBytes,
+            level: compressionPolicy.level
+          }
+        }
+        : null;
       if (rawCsvOptions) {
         compressedCsvCount += 1;
       }
-      zip.file(tabManifest.files.rawCsv, rawData.csvText || '', rawCsvOptions || undefined);
+      zip.file(tabManifest.files.rawCsv, rawCsvText, rawCsvOptions || undefined);
       zip.file(tabManifest.files.config, JSON.stringify(config));
       zip.file(tabManifest.files.layout, JSON.stringify(layout));
       if (typeof exclusions !== 'undefined') {
@@ -696,7 +903,11 @@
           compression: options.compression,
           compressionMode: options.compressionMode || 'adaptive',
           compressThresholdBytes: Number.isFinite(options.compressThresholdBytes) ? options.compressThresholdBytes : ADAPTIVE_COMPRESS_THRESHOLD_BYTES,
-          adaptiveCompressionLevel: Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : ADAPTIVE_COMPRESS_LEVEL
+          adaptiveCompressionLevel: Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : ADAPTIVE_COMPRESS_LEVEL,
+          payloadMode: options.payloadMode || 'adaptive',
+          payloadLiteThresholdBytes: Number.isFinite(options.payloadLiteThresholdBytes)
+            ? options.payloadLiteThresholdBytes
+            : ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES
         },
         timeoutMs,
         fallback: () => buildArchiveBlobInMainThread(options)
@@ -773,18 +984,37 @@
     for (let i = 0; i < manifest.tabs.length; i += 1) {
       const entry = manifest.tabs[i] || {};
       const files = entry.files || {};
+      const payloadMode = entry.payloadMode === 'lite' ? 'lite' : 'full';
       let payload = await readJsonFileFromZip(zip, files.payload);
+      if (!isPlainObject(payload)) {
+        payload = null;
+      }
+      const shouldHydrateData = payloadMode === 'lite'
+        || !payload
+        || !Object.prototype.hasOwnProperty.call(payload, 'data');
+      const shouldHydrateExclusions = payloadMode === 'lite'
+        || !payload
+        || !Object.prototype.hasOwnProperty.call(payload, 'exclusions');
       if (!payload) {
-        const config = await readJsonFileFromZip(zip, files.config);
+        payload = await readJsonFileFromZip(zip, files.config);
+        if (!isPlainObject(payload)) {
+          payload = {};
+        }
+      }
+      if (shouldHydrateData) {
         const csvText = await readTextFileFromZip(zip, files.rawCsv);
         const parsedRows = parseCsv(csvText || '');
         const data = restoreDataFromRows(parsedRows, entry.rawDataMode || 'matrix');
-        const exclusions = await readJsonFileFromZip(zip, files.exclusions);
-        payload = config || {};
         payload.data = data;
+      }
+      if (shouldHydrateExclusions) {
+        const exclusions = await readJsonFileFromZip(zip, files.exclusions);
         if (exclusions !== null && typeof exclusions !== 'undefined') {
           payload.exclusions = exclusions;
         }
+      }
+      if (payloadMode === 'lite' || shouldHydrateData) {
+        payload = hydratePayloadDataViews(payload);
       }
       const layout = await readJsonFileFromZip(zip, files.layout);
       sessionTabs.push({
@@ -826,6 +1056,8 @@
 
   graphArchive.constants = Object.freeze({
     format: ARCHIVE_FORMAT,
-    version: ARCHIVE_VERSION
+    version: ARCHIVE_VERSION,
+    adaptiveCompressThresholdBytes: ADAPTIVE_COMPRESS_THRESHOLD_BYTES,
+    adaptivePayloadLiteThresholdBytes: ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES
   });
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

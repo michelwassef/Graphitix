@@ -93,6 +93,22 @@
     }
   }
   const notesState = { text: '', open: false, control: null };
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      debugLog('Debug: pca component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      debugLog('Debug: pca component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -178,6 +194,11 @@
   const PCA_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const PCA_AUTO_DRAW_FEATURE_THRESHOLD = 5000;
   const PCA_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const PCA_DATA_VIEW_MAX = 12;
+  const PCA_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+    headerRows: 2,
+    startCol: 1
+  });
   const PCA_FAST_POINT_THRESHOLD = 20000;
   const PCA_LOADINGS_ROW_LIMIT = 100;
   const PCA_SVD_WORKER = {
@@ -566,6 +587,9 @@
   let syncPcaAutoDrawNoticeWidth = () => {};
   let schedulePcaNoticeWidth = () => {};
   let pcaHotInstance = null;
+  let pcaDataViewsManager = null;
+  let pcaDataToolbarBound = false;
+  let pcaDataToolbarLastActivation = 0;
   let pcaAxesLengthLockRatioPrevious = null;
   let pcaAspectSyncing = false;
   function createPcaTableInstance(container){
@@ -654,6 +678,7 @@
           lastKeyDownAt = Date.now();
         },
         afterSelectionEnd(r1, c1, r2, c2){
+          activatePcaDataToolbar('table-selection');
           const hot = pcaHot;
           if(!hot || typeof hot.getData !== 'function'){
             return;
@@ -714,12 +739,18 @@
           }
         },
         afterChange(changes,source){
+          if(Array.isArray(changes) && changes.length){
+            syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
+          }
           const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
           if(!debugEnabled){
             return;
           }
           const changeCount = Array.isArray(changes) ? changes.length : 0;
           debugLog('Debug: pca table afterChange',{ count: changeCount, source });
+        },
+        afterLoadData(){
+          syncPcaActiveDataViewFromHot(pcaHot, 'afterLoadData');
         },
         afterUndo(){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -734,6 +765,7 @@
       }
     });
     if(pcaHot){
+      pcaHot.__pcaHostContainer = container || null;
       ensurePcaEmptyTableDefaults(pcaHot, { source: 'pca-init' });
     }
     if(pcaHot && typeof pcaHot.loadData === 'function' && !pcaHot.__pcaPatched){
@@ -791,6 +823,15 @@
         pcaHotInstance = createPcaTableInstance(baseContainer);
         pcaState.hot = pcaHotInstance;
       }
+      if(pcaHotInstance){
+        pcaHotInstance.__pcaHostContainer = baseContainer || pcaHotInstance.__pcaHostContainer || null;
+        pcaHotInstance.__pcaTabId = tabId;
+        ensurePcaDataViewsForHot(pcaHotInstance, {
+          wrapper,
+          container: pcaHotInstance.__pcaHostContainer || baseContainer || null
+        });
+        syncPcaActiveDataViewFromHot(pcaHotInstance, 'ensure-active-tab');
+      }
       return pcaHotInstance;
     }
     const placeholder = wrapper.querySelector('.hot-pool-slot') || wrapper;
@@ -805,6 +846,15 @@
       pcaHotInstance = entry.instance;
       pcaState.hot = entry.instance;
     }
+    if(pcaHotInstance){
+      pcaHotInstance.__pcaHostContainer = entry?.container || baseContainer || pcaHotInstance.__pcaHostContainer || null;
+      pcaHotInstance.__pcaTabId = tabId;
+      ensurePcaDataViewsForHot(pcaHotInstance, {
+        wrapper,
+        container: pcaHotInstance.__pcaHostContainer || baseContainer || null
+      });
+      syncPcaActiveDataViewFromHot(pcaHotInstance, 'ensure-active-tab');
+    }
     return pcaHotInstance;
   }
   function resolveActiveTabId(){
@@ -815,6 +865,192 @@
       console.error('pca resolveActiveTabId error', err);
       return null;
     }
+  }
+
+  function activatePcaDataToolbar(reason){
+    const now = Date.now();
+    if(now - pcaDataToolbarLastActivation < 80){
+      return false;
+    }
+    pcaDataToolbarLastActivation = now;
+    const activated = !!Shared.workspaceToolbar?.activateSection?.('pca', 'Data');
+    if(activated){
+      debugLog('Debug: pca data toolbar activated', { reason: reason || 'unknown' });
+    }
+    return activated;
+  }
+
+  function ensurePcaDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__pcaDataViewsManager){
+      hotInstance.__pcaDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'pca',
+        maxViews: PCA_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData);
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          markPcaDataDirty('data-view-switch');
+          markPcaOverlayPending('data-view-switch');
+          scheduleDrawPca({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          activatePcaDataToolbar('data-tab-interaction');
+        }
+      });
+      debugLog('Debug: pca data views manager created', {
+        tabId: hotInstance.__pcaTabId || null
+      });
+    }
+    const manager = hotInstance.__pcaDataViewsManager;
+    const hostWrapper = options.wrapper || global.document?.getElementById?.('pcaHotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null;
+    if(hostWrapper && hostContainer){
+      manager.mount({
+        wrapper: hostWrapper,
+        tableContainer: hostContainer
+      });
+      manager.refresh?.();
+    }
+    pcaDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncPcaActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || pcaHotInstance;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__pcaDataViewsManager || pcaDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+  }
+
+  function applyPcaTransformToNewView(transformSpec, options = {}){
+    const hot = ensurePcaHotForActiveTab?.() || pcaHotInstance;
+    if(!hot){
+      return false;
+    }
+    const manager = ensurePcaDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
+      container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+    });
+    if(!manager || typeof manager.applyTransform !== 'function'){
+      console.warn('pca data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncPcaActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyTransform(transformSpec, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform',
+      transformOptions: Object.assign({}, PCA_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      debugLog('Debug: pca transform failed', {
+        message,
+        transform: transformSpec?.type || null
+      });
+      return false;
+    }
+    activatePcaDataToolbar('transform-applied');
+    debugLog('Debug: pca transform created view', {
+      title: result?.view?.title || null,
+      summary: result?.result?.summary || null
+    });
+    return true;
+  }
+
+  function bindPcaDataToolbar(){
+    if(pcaDataToolbarBound || !global.document){
+      return;
+    }
+    global.document.addEventListener('click', event => {
+      const button = event.target?.closest?.(
+        '#pcaTransformCpm, #pcaTransformLog2p1, #pcaTransformCenterRowsMean, #pcaTransformCenterRowsMedian, #pcaTransformCenterColsMean, #pcaTransformCenterColsMedian, #pcaTransformNormalizeRows, #pcaTransformNormalizeCols, #pcaTransformCustom'
+      );
+      if(!button){
+        return;
+      }
+      if(button.id === 'pcaTransformCpm'){
+        applyPcaTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+        return;
+      }
+      if(button.id === 'pcaTransformLog2p1'){
+        applyPcaTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+        return;
+      }
+      if(button.id === 'pcaTransformCenterRowsMean'){
+        applyPcaTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+        return;
+      }
+      if(button.id === 'pcaTransformCenterRowsMedian'){
+        applyPcaTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+        return;
+      }
+      if(button.id === 'pcaTransformCenterColsMean'){
+        applyPcaTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
+        return;
+      }
+      if(button.id === 'pcaTransformCenterColsMedian'){
+        applyPcaTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
+        return;
+      }
+      if(button.id === 'pcaTransformNormalizeRows'){
+        applyPcaTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
+        return;
+      }
+      if(button.id === 'pcaTransformNormalizeCols'){
+        applyPcaTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
+        return;
+      }
+      if(button.id === 'pcaTransformCustom'){
+        const expression = global.prompt
+          ? global.prompt(
+            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+            'log2(x+1)'
+          )
+          : '';
+        if(expression == null){
+          return;
+        }
+        const normalized = String(expression || '').trim();
+        if(!normalized){
+          return;
+        }
+        applyPcaTransformToNewView({ type: 'custom', expression: normalized }, {
+          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+        });
+      }
+    }, true);
+    const wrapper = global.document?.getElementById?.('pcaHotWrapper');
+    if(wrapper && !wrapper.__pcaDataToolbarFocusBound){
+      wrapper.addEventListener('mousedown', () => {
+        activatePcaDataToolbar('table-mousedown');
+      }, true);
+      wrapper.__pcaDataToolbarFocusBound = true;
+    }
+    pcaDataToolbarBound = true;
   }
 
   function ensurePcaLegendControlPlacement(){
@@ -3400,6 +3636,7 @@
       }
       ensurePcaHotForActiveTab();
       ensurePcaHotForActiveTab();
+      bindPcaDataToolbar();
       updateAutoDrawUi();
       evaluateAutoDrawThresholds();
       if(pcaRenderButtonEl){
@@ -8319,11 +8556,24 @@
       notesState.text = notesText;
       notesState.open = notesOpen;
       const axisSettings = ensureAxisSettings();
-      ensurePcaHotForActiveTab();
+      const activeHot = ensurePcaHotForActiveTab();
+      const activeManager = activeHot
+        ? ensurePcaDataViewsForHot(activeHot, {
+            wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
+            container: activeHot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+          })
+        : (pcaDataViewsManager || null);
+      if(activeHot){
+        syncPcaActiveDataViewFromHot(activeHot, 'payload');
+      }
+      const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+      const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       return {
         type:'pca',
-        data:pcaHotInstance?.getData?.() || [],
-        exclusions: pcaHotInstance?.exportExclusions?.() || Shared.hot.exportExclusions(pcaHotInstance),
+        data:activeHot?.getData?.() || [],
+        exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        dataViews: includeDataViews ? dataViewsPayload : undefined,
+        activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: {
           ...snapshotPcaConfig(axisSettings),
           notes: {
@@ -8510,13 +8760,37 @@
           scheduleBackup = scheduleDrawPca;
           scheduleDrawPca = () => {};
         }
-        ensurePcaHotForActiveTab();
-        const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
-        if(pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
-          pcaHotInstance.loadData(dataMatrix);
-          if(obj.exclusions){
-            pcaHotInstance.applyExclusions?.(obj.exclusions);
+        const hot = ensurePcaHotForActiveTab();
+        const rawDataMatrix = Array.isArray(obj.data) ? obj.data : [];
+        const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
+        const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
+        const dataManager = hot
+          ? ensurePcaDataViewsForHot(hot, {
+              wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
+              container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+            })
+          : null;
+        if(dataManager){
+          if(serializedViews){
+            dataManager.deserialize(serializedViews, {
+              fallbackData: rawDataMatrix,
+              activeViewId: requestedActiveViewId,
+              silent: true,
+              activate: false
+            });
+          }else{
+            dataManager.initialize(rawDataMatrix, { rawTitle: 'Raw' });
           }
+        }
+        const matrixData = dataManager?.getActiveView?.()?.data;
+        const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
+        const exclusionsToApply = obj.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+        if(pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
+          pcaHotInstance.loadData(dataToLoad);
+          if(exclusionsToApply){
+            pcaHotInstance.applyExclusions?.(exclusionsToApply);
+          }
+          syncPcaActiveDataViewFromHot(pcaHotInstance, 'payload-load');
         }
         const c=obj.config||{};
         applyPcaThemeConfig(c);
@@ -8853,7 +9127,14 @@
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
     pca.prepareForTab = function prepareForTab(){
-      ensurePcaHotForActiveTab();
+      const hot = ensurePcaHotForActiveTab();
+      if(hot){
+        ensurePcaDataViewsForHot(hot, {
+          wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
+          container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+        });
+        syncPcaActiveDataViewFromHot(hot, 'prepare-tab');
+      }
     };
 
     function detachChildren(node){

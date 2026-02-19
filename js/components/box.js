@@ -41,6 +41,22 @@
   }
   const notesState = { text: '', open: false, control: null };
   const formControls = Shared.formControls = Shared.formControls || {};
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      console.debug('Debug: box component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: box component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   box.__installed = true;
   box.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -91,6 +107,11 @@
 	  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
 	  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
 	  const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
+    const BOX_DATA_VIEW_MAX = 12;
+    const BOX_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+      headerRows: 1,
+      startCol: 0
+    });
 	  const BOX_STATS_WORKER = {
 	    url: 'js/workers/box.worker.js',
 	    minValues: 8000,
@@ -5429,6 +5450,9 @@
   }
   // Local state and element cache
 	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+  let boxDataViewsManager = null;
+  let boxDataToolbarBound = false;
+  let boxDataToolbarLastActivation = 0;
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -5450,6 +5474,195 @@
       emptyPayloadTemplate = cloneSimple(snapshot);
     }
   }
+
+  function activateBoxDataToolbar(reason){
+    const now = Date.now();
+    if(now - boxDataToolbarLastActivation < 80){
+      return false;
+    }
+    boxDataToolbarLastActivation = now;
+    const activated = !!Shared.workspaceToolbar?.activateSection?.('box', 'Data');
+    if(activated){
+      boxDebug('Debug: box data toolbar activated', { reason: reason || 'unknown' });
+    }
+    return activated;
+  }
+
+  function ensureBoxDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__boxDataViewsManager){
+      hotInstance.__boxDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'box',
+        maxViews: BOX_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData);
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          if(state.tableFormat === 'grouped'){
+            updateGroupedHeaders();
+          }
+          markBoxOverlayPending('data-view-switch');
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          activateBoxDataToolbar('data-tab-interaction');
+        }
+      });
+      boxDebug('Debug: box data views manager created', {
+        tabId: hotInstance.__boxTabId || null
+      });
+    }
+    const manager = hotInstance.__boxDataViewsManager;
+    const hostWrapper = options.wrapper || global.document?.getElementById?.('hotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null;
+    if(hostWrapper && hostContainer){
+      manager.mount({
+        wrapper: hostWrapper,
+        tableContainer: hostContainer
+      });
+      manager.refresh?.();
+    }
+    boxDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncBoxActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__boxDataViewsManager || boxDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+  }
+
+  function applyBoxTransformToNewView(transformSpec, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureBoxDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('hotWrapper') || null,
+      container: hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+    });
+    if(!manager || typeof manager.applyTransform !== 'function'){
+      console.warn('box data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncBoxActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyTransform(transformSpec, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform',
+      transformOptions: Object.assign({}, BOX_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      boxDebug('Debug: box transform failed', {
+        message,
+        transform: transformSpec?.type || null
+      });
+      return false;
+    }
+    activateBoxDataToolbar('transform-applied');
+    boxDebug('Debug: box transform created view', {
+      title: result?.view?.title || null,
+      summary: result?.result?.summary || null
+    });
+    return true;
+  }
+
+  function bindBoxDataToolbar(){
+    if(boxDataToolbarBound || !global.document){
+      return;
+    }
+    global.document.addEventListener('click', event => {
+      const button = event.target?.closest?.(
+        '#boxTransformCpm, #boxTransformLog2p1, #boxTransformCenterRowsMean, #boxTransformCenterRowsMedian, #boxTransformCenterColsMean, #boxTransformCenterColsMedian, #boxTransformNormalizeRows, #boxTransformNormalizeCols, #boxTransformCustom'
+      );
+      if(!button){
+        return;
+      }
+      if(button.id === 'boxTransformCpm'){
+        applyBoxTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+        return;
+      }
+      if(button.id === 'boxTransformLog2p1'){
+        applyBoxTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+        return;
+      }
+      if(button.id === 'boxTransformCenterRowsMean'){
+        applyBoxTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+        return;
+      }
+      if(button.id === 'boxTransformCenterRowsMedian'){
+        applyBoxTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+        return;
+      }
+      if(button.id === 'boxTransformCenterColsMean'){
+        applyBoxTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
+        return;
+      }
+      if(button.id === 'boxTransformCenterColsMedian'){
+        applyBoxTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
+        return;
+      }
+      if(button.id === 'boxTransformNormalizeRows'){
+        applyBoxTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
+        return;
+      }
+      if(button.id === 'boxTransformNormalizeCols'){
+        applyBoxTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
+        return;
+      }
+      if(button.id === 'boxTransformCustom'){
+        const expression = global.prompt
+          ? global.prompt(
+            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+            'log2(x+1)'
+          )
+          : '';
+        if(expression == null){
+          return;
+        }
+        const normalized = String(expression || '').trim();
+        if(!normalized){
+          return;
+        }
+        applyBoxTransformToNewView({ type: 'custom', expression: normalized }, {
+          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+        });
+      }
+    }, true);
+    const wrapper = global.document?.getElementById?.('hotWrapper');
+    if(wrapper && !wrapper.__boxDataToolbarFocusBound){
+      wrapper.addEventListener('mousedown', () => {
+        activateBoxDataToolbar('table-mousedown');
+      }, true);
+      wrapper.__boxDataToolbarFocusBound = true;
+    }
+    boxDataToolbarBound = true;
+  }
+
   const boxUndoManager = Shared.undoManager || null;
   function recordBoxChange(label, previous, next, apply){
     if(!boxUndoManager || typeof boxUndoManager.recordStateChange !== 'function'){
@@ -6964,39 +7177,56 @@
       }
     };
 
-    const createBoxTable = (container) => Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
-      debugLabel: 'box',
-      data,
-      disablePaste: true,
-      pinFirstRow: true,
-      hotOptions: {
-        manualColumnMove: true,
-        afterChange(changes, source){
-          if(!changes || source === 'loadData') return;
-          console.log('boxplot afterChange', { count: changes.length, source });
-          revalidateActiveBoxLogScale('data-edit');
-        },
-        afterCreateCol(){
-          state.selectedCols.clear();
-          console.debug('Debug: box afterCreateCol cleared selection');
-        },
-        afterRemoveCol(){
-          state.selectedCols.clear();
-          console.debug('Debug: box afterRemoveCol cleared selection');
-        },
-        afterUndo(){
-          console.log('boxplot undo');
-        },
-        afterRedo(){
-          console.log('boxplot redo');
-        },
-        afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
-          if(orderChanged){
-            console.log('boxplot afterColumnMove');
+    const createBoxTable = (container) => {
+      let instance = null;
+      instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
+        debugLabel: 'box',
+        data,
+        disablePaste: true,
+        pinFirstRow: true,
+        hotOptions: {
+          manualColumnMove: true,
+          afterChange(changes, source){
+            if(!changes || source === 'loadData') return;
+            console.log('boxplot afterChange', { count: changes.length, source });
+            revalidateActiveBoxLogScale('data-edit');
+            syncBoxActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterLoadData(){
+            syncBoxActiveDataViewFromHot(instance, 'afterLoadData');
+          },
+          afterSelectionEnd(){
+            activateBoxDataToolbar('table-selection');
+          },
+          afterCreateCol(){
+            state.selectedCols.clear();
+            console.debug('Debug: box afterCreateCol cleared selection');
+            syncBoxActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterRemoveCol(){
+            state.selectedCols.clear();
+            console.debug('Debug: box afterRemoveCol cleared selection');
+            syncBoxActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterUndo(){
+            console.log('boxplot undo');
+          },
+          afterRedo(){
+            console.log('boxplot redo');
+          },
+          afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
+            if(orderChanged){
+              console.log('boxplot afterColumnMove');
+              syncBoxActiveDataViewFromHot(instance, 'afterChange');
+            }
           }
         }
+      });
+      if(instance){
+        instance.__boxHostContainer = container || null;
       }
-    });
+      return instance;
+    };
     const ensureBoxHotForActiveTab = () => {
       const wrapper = global.document.getElementById('hotWrapper');
       const baseContainer = global.document.getElementById('hot');
@@ -7005,6 +7235,15 @@
           state.hot = createBoxTable(baseContainer);
         }
         els.hotContainer = baseContainer;
+        if(state.hot){
+          state.hot.__boxHostContainer = baseContainer;
+          state.hot.__boxTabId = Shared.hot.resolveActiveTabId?.() || 'box-default';
+          ensureBoxDataViewsForHot(state.hot, {
+            wrapper,
+            container: baseContainer
+          });
+          syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
+        }
         return state.hot;
       }
       const entry = Shared.hot.ensureTableForTab({
@@ -7017,6 +7256,15 @@
       if(entry?.instance){
         state.hot = entry.instance;
         els.hotContainer = entry.container || baseContainer;
+      }
+      if(state.hot){
+        state.hot.__boxHostContainer = entry?.container || baseContainer;
+        state.hot.__boxTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'box-default';
+        ensureBoxDataViewsForHot(state.hot, {
+          wrapper,
+          container: entry?.container || baseContainer
+        });
+        syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
       }
       const tableImport = Shared.tableImport;
       if(tableImport?.handlePaste && els.hotContainer && !els.hotContainer.__boxPasteBound){
@@ -7051,6 +7299,7 @@
     };
     state.hot = ensureBoxHotForActiveTab();
     state.ensureHotForActiveTab = ensureBoxHotForActiveTab;
+    bindBoxDataToolbar();
   
     const loadExampleBtn=global.$('#boxLoadExample'), importBtn=global.$('#boxImport'), fileInput=global.$('#boxFile');
     const exampleSingle=[
@@ -15850,6 +16099,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }
   // PART: SAVE_OPEN
   function getPayload(){
+    const activeHot = state.hot || state.ensureHotForActiveTab?.();
+    if(!activeHot){
+      return null;
+    }
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -15863,6 +16116,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       .map(idx => Number(idx))
       .filter(idx => Number.isInteger(idx));
     selectedColumns.sort((a,b)=>a-b);
+    const activeManager = ensureBoxDataViewsForHot(activeHot, {
+      wrapper: global.document?.getElementById?.('hotWrapper') || null,
+      container: activeHot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+    });
+    syncBoxActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     const axisSnapshot = ensureAxisSettings();
     const violinState = ensureViolinState();
     ensureWhiskerState();
@@ -15870,8 +16130,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const payload = {
       type:'box',
       version:4,
-      data: state.hot.getData(),
-      exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+      data: activeHot.getData(),
+      exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      dataViews: includeDataViews ? dataViewsPayload : undefined,
+      activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
         title:state.titleText,
         yLabel:state.yLabelText,
@@ -16116,9 +16378,40 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     try{
     const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
     console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
-    state.hot.loadData(obj.data||[]);
-    if(obj.exclusions){
-      state.hot.applyExclusions?.(obj.exclusions);
+    const hot = state.hot || state.ensureHotForActiveTab?.();
+    if(hot){
+      state.hot = hot;
+    }
+    const rawDataMatrix = Array.isArray(obj.data) ? obj.data : [];
+    const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
+    const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
+    const dataManager = state.hot
+      ? ensureBoxDataViewsForHot(state.hot, {
+          wrapper: global.document?.getElementById?.('hotWrapper') || null,
+          container: state.hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+        })
+      : null;
+    if(dataManager){
+      if(serializedViews){
+        dataManager.deserialize(serializedViews, {
+          fallbackData: rawDataMatrix,
+          activeViewId: requestedActiveViewId,
+          silent: true,
+          activate: false
+        });
+      }else{
+        dataManager.initialize(rawDataMatrix, { rawTitle: 'Raw' });
+      }
+    }
+    const matrixData = dataManager?.getActiveView?.()?.data;
+    const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
+    const exclusionsToApply = obj.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+    if(state.hot && typeof state.hot.loadData === 'function'){
+      state.hot.loadData(dataToLoad);
+      if(exclusionsToApply){
+        state.hot.applyExclusions?.(exclusionsToApply);
+      }
+      syncBoxActiveDataViewFromHot(state.hot, 'payload-load');
     }
     const c=obj.config||{};
     if(c.notes && typeof c.notes === 'object'){
@@ -16822,7 +17115,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
-      state.ensureHotForActiveTab();
+      const hot = state.ensureHotForActiveTab();
+      if(hot){
+        ensureBoxDataViewsForHot(hot, {
+          wrapper: global.document?.getElementById?.('hotWrapper') || null,
+          container: hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+        });
+        syncBoxActiveDataViewFromHot(hot, 'prepare-tab');
+      }
     }
   };
   box.getAdvisorRecommendation = function(answers,context){

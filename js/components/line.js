@@ -41,6 +41,22 @@
   }
   const notesState = { text: '', open: false, control: null };
   const formControls = Shared.formControls = Shared.formControls || {};
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      console.debug('Debug: line component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: line component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
     try{
@@ -174,6 +190,11 @@
   const LINE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_COL_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const LINE_DATA_VIEW_MAX = 12;
+  const LINE_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+    headerRows: 1,
+    startCol: 0
+  });
   const BROKEN_AXIS_GAP_SIZE_PX = 20;
   const BROKEN_AXIS_BREAK_WIDTH = 8;
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
@@ -191,6 +212,9 @@
   let scheduleLineDrawRaw = () => {};
   let lineAutoDrawManager = null;
   let lineHot = null;
+  let lineDataViewsManager = null;
+  let lineDataToolbarBound = false;
+  let lineDataToolbarLastActivation = 0;
   const lineViewState = {
     viewMode: '2d',
     requestedViewMode: null,
@@ -1988,6 +2012,209 @@
       // ignore toggle errors and log by default
     }
     console.debug(label, payload);
+  }
+
+  function activateLineDataToolbar(reason){
+    const now = Date.now();
+    if(now - lineDataToolbarLastActivation < 80){
+      return false;
+    }
+    lineDataToolbarLastActivation = now;
+    const activated = !!Shared.workspaceToolbar?.activateSection?.('line', 'Data');
+    if(activated){
+      lineDebug('Debug: line data toolbar activated', { reason: reason || 'unknown' });
+    }
+    return activated;
+  }
+
+  function ensureLineDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__lineDataViewsManager){
+      hotInstance.__lineDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'line',
+        maxViews: LINE_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData);
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+            scheduleLine3dDatasetSync('data-view-switch');
+          }
+          markLineOverlayPending('data-view-switch');
+          scheduleLineDraw({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          activateLineDataToolbar('data-tab-interaction');
+        }
+      });
+      lineDebug('Debug: line data views manager created', {
+        tabId: hotInstance.__lineTabId || null
+      });
+    }
+    const manager = hotInstance.__lineDataViewsManager;
+    const hostWrapper = options.wrapper || refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null;
+    if(hostWrapper && hostContainer){
+      manager.mount({
+        wrapper: hostWrapper,
+        tableContainer: hostContainer
+      });
+      manager.refresh?.();
+    }
+    lineDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncLineActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || lineHot || refs.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__lineDataViewsManager || lineDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+  }
+
+  function applyLineTransformToNewView(transformSpec, options = {}){
+    const hot = line.__ensureHotForActiveTab?.() || lineHot || refs.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureLineDataViewsForHot(hot, {
+      wrapper: refs.hotWrapper,
+      container: hot.__lineHostContainer || refs.hotContainer
+    });
+    if(!manager || typeof manager.applyTransform !== 'function'){
+      console.warn('line data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncLineActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyTransform(transformSpec, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform',
+      transformOptions: Object.assign({}, LINE_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      lineDebug('Debug: line transform failed', {
+        message,
+        transform: transformSpec?.type || null
+      });
+      return false;
+    }
+    activateLineDataToolbar('transform-applied');
+    lineDebug('Debug: line transform created view', {
+      title: result?.view?.title || null,
+      summary: result?.result?.summary || null
+    });
+    return true;
+  }
+
+  function bindLineDataToolbar(){
+    if(lineDataToolbarBound || !global.document){
+      return;
+    }
+    global.document.addEventListener('click', event => {
+      const button = event.target?.closest?.(
+        '#lineTransformCpm, #lineTransformLog2p1, #lineTransformCenterRowsMean, #lineTransformCenterRowsMedian, #lineTransformCenterColsMean, #lineTransformCenterColsMedian, #lineTransformNormalizeRows, #lineTransformNormalizeCols, #lineTransformCustom'
+      );
+      if(!button){
+        return;
+      }
+      if(button.id === 'lineTransformCpm'){
+        applyLineTransformToNewView({ type: 'cpm', orientation: 'column' }, {
+          title: 'CPM'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformLog2p1'){
+        applyLineTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, {
+          title: 'log2(x+1)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformCenterRowsMean'){
+        applyLineTransformToNewView({ type: 'centerRows', method: 'mean' }, {
+          title: 'Center rows (mean)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformCenterRowsMedian'){
+        applyLineTransformToNewView({ type: 'centerRows', method: 'median' }, {
+          title: 'Center rows (median)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformCenterColsMean'){
+        applyLineTransformToNewView({ type: 'centerColumns', method: 'mean' }, {
+          title: 'Center cols (mean)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformCenterColsMedian'){
+        applyLineTransformToNewView({ type: 'centerColumns', method: 'median' }, {
+          title: 'Center cols (median)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformNormalizeRows'){
+        applyLineTransformToNewView({ type: 'normalizeRows' }, {
+          title: 'Normalize rows (z)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformNormalizeCols'){
+        applyLineTransformToNewView({ type: 'normalizeColumns' }, {
+          title: 'Normalize cols (z)'
+        });
+        return;
+      }
+      if(button.id === 'lineTransformCustom'){
+        const expression = global.prompt
+          ? global.prompt(
+            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+            'log2(x+1)'
+          )
+          : '';
+        if(expression == null){
+          return;
+        }
+        const normalized = String(expression || '').trim();
+        if(!normalized){
+          return;
+        }
+        applyLineTransformToNewView({ type: 'custom', expression: normalized }, {
+          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+        });
+      }
+    }, true);
+    if(refs.hotWrapper && !refs.hotWrapper.__lineDataToolbarFocusBound){
+      refs.hotWrapper.addEventListener('mousedown', () => {
+        activateLineDataToolbar('table-mousedown');
+      }, true);
+      refs.hotWrapper.__lineDataToolbarFocusBound = true;
+    }
+    lineDataToolbarBound = true;
   }
 
   function ensureLineTooltipHost(tooltip, doc){
@@ -5182,8 +5409,9 @@
   }
 
   function getLineGraphPayload(){
-    if(!lineHot) return null;
-    if((!Array.isArray(lineLastRegressionSummaries) || lineLastRegressionSummaries.length === 0) && lineHot){
+    const activeHot = lineHot || (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null);
+    if(!activeHot) return null;
+    if((!Array.isArray(lineLastRegressionSummaries) || lineLastRegressionSummaries.length === 0) && activeHot){
       console.debug('Debug: line payload refreshing summaries',{ hasHot: !!lineHot, summaryCount: lineLastRegressionSummaries?.length || 0 });
       try{
         drawLine();
@@ -5203,10 +5431,19 @@
       : !!notesState.open;
     notesState.text = notesText;
     notesState.open = notesOpen;
+    const activeManager = ensureLineDataViewsForHot(activeHot, {
+      wrapper: refs.hotWrapper,
+      container: activeHot.__lineHostContainer || refs.hotContainer
+    });
+    syncLineActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     return {
       type:'line',
-      data:lineHot.getData(),
-      exclusions: lineHot?.exportExclusions?.() || Shared.hot.exportExclusions(lineHot),
+      data:activeHot.getData(),
+      exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      dataViews: includeDataViews ? dataViewsPayload : undefined,
+      activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config:{
         viewMode,
         title:lineTitleText,
@@ -5364,13 +5601,42 @@
       notesState.control.setOpen(notesState.open);
     }
     importFontStyles('line', c.fontStyles || null);
+    const hot = lineHot || (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null);
+    if(hot){
+      lineHot = hot;
+      refs.hot = hot;
+    }
     const storedViewMode = typeof c.viewMode === 'string' ? String(c.viewMode).toLowerCase() : null;
     const storedTableFormat = typeof c.tableFormat === 'string' ? String(c.tableFormat).toLowerCase() : null;
     const wants3d = storedViewMode === '3d' || storedTableFormat === '3d';
     const storedReplicates = wants3d
       ? LINE_MIN_REPLICATES
       : clampLineReplicateCount(c.replicates ?? lineReplicates);
-    const matrixData = Array.isArray(obj.data) ? obj.data : null;
+    const rawDataMatrix = Array.isArray(obj.data) ? obj.data : null;
+    const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
+    const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
+    const dataManager = lineHot
+      ? ensureLineDataViewsForHot(lineHot, {
+          wrapper: refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null,
+          container: lineHot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
+        })
+      : null;
+    if(dataManager){
+      if(serializedViews){
+        dataManager.deserialize(serializedViews, {
+          fallbackData: rawDataMatrix,
+          activeViewId: requestedActiveViewId,
+          silent: true,
+          activate: false
+        });
+      }else{
+        dataManager.initialize(rawDataMatrix, { rawTitle: 'Raw' });
+      }
+    }
+    const activeViewData = dataManager?.getActiveView?.()?.data;
+    const matrixData = Array.isArray(activeViewData) ? activeViewData : rawDataMatrix;
+    const activeViewExclusions = dataManager?.getActiveView?.()?.exclusions || null;
+    const exclusionsToApply = obj.exclusions || activeViewExclusions || null;
     const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
     const storedGroupShapes = Array.isArray(c.groupShapes) ? c.groupShapes.slice() : null;
     lineModeCache.twoD = null;
@@ -5420,8 +5686,8 @@
           refs.replicateMode.value = '3d';
         }
         lineHot.loadData(matrixForLoad);
-        if(obj.exclusions){
-          lineHot.applyExclusions?.(obj.exclusions);
+        if(exclusionsToApply){
+          lineHot.applyExclusions?.(exclusionsToApply);
         }
         if(storedGroupLabels){
           lineSeriesGroupLabels = storedGroupLabels.slice();
@@ -5508,8 +5774,8 @@
           groupShapes: storedGroupShapes || lineGroupShapes,
           resetGroupLabels: storedGroupLabels ? true : undefined
         });
-        if(obj.exclusions){
-          lineHot.applyExclusions?.(obj.exclusions);
+        if(exclusionsToApply){
+          lineHot.applyExclusions?.(exclusionsToApply);
         }
       }
     }else{
@@ -5530,10 +5796,13 @@
         lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
       }
     }
-    if(!lineHot && obj.exclusions){
+    if(lineHot){
+      syncLineActiveDataViewFromHot(lineHot, 'payload-load');
+    }
+    if(!lineHot && exclusionsToApply){
       console.debug('Debug: line exclusions deferred until hot ready');
-    }else if(lineHot && obj.exclusions && matrixData == null){
-      lineHot.applyExclusions?.(obj.exclusions);
+    }else if(lineHot && exclusionsToApply && matrixData == null){
+      lineHot.applyExclusions?.(exclusionsToApply);
     }
     lineTitleText=c.title||lineTitleText;
     lineXLabelText=c.xLabel||lineXLabelText;
@@ -9376,7 +9645,8 @@
     };
 
     const createLineTable = (container) => {
-      const instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
+      let instance = null;
+      instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
         debugLabel: 'line',
         data,
         disablePaste: true,
@@ -9392,18 +9662,31 @@
               revalidateActiveLineLogAxis('y','data-edit');
               syncLine3dAxisHeadersFromTable(changes, source);
             }
+            if(changes){
+              syncLineActiveDataViewFromHot(instance, 'afterChange');
+            }
+          },
+          afterLoadData(){
+            syncLineActiveDataViewFromHot(instance, 'afterLoadData');
+          },
+          afterSelectionEnd(){
+            activateLineDataToolbar('table-selection');
           },
           afterCreateRow(){
             console.debug('Debug: line row created');
+            syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterCreateCol(){
             console.debug('Debug: line col created');
+            syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveRow(){
             console.debug('Debug: line row removed');
+            syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
             console.debug('Debug: line col removed');
+            syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterUndo(){
             console.debug('Debug: line undo');
@@ -9413,6 +9696,10 @@
           }
         }
       });
+      if(instance){
+        instance.__lineHostContainer = container || null;
+        refs.hot = instance;
+      }
       if(instance && typeof instance.addHook === 'function'){
         instance.addHook('afterRender', () => {
           if(lineReplicates > 1){
@@ -9431,6 +9718,16 @@
           lineHot = createLineTable(baseContainer);
         }
         refs.hotContainer = baseContainer;
+        if(lineHot){
+          lineHot.__lineHostContainer = baseContainer;
+          lineHot.__lineTabId = Shared.hot.resolveActiveTabId?.() || 'line-default';
+          refs.hot = lineHot;
+          ensureLineDataViewsForHot(lineHot, {
+            wrapper,
+            container: baseContainer
+          });
+          syncLineActiveDataViewFromHot(lineHot, 'ensure-active-tab');
+        }
         return lineHot;
       }
       const entry = Shared.hot.ensureTableForTab({
@@ -9443,6 +9740,16 @@
       if(entry?.instance){
         lineHot = entry.instance;
         refs.hotContainer = entry.container || baseContainer;
+      }
+      if(lineHot){
+        lineHot.__lineHostContainer = entry?.container || baseContainer;
+        lineHot.__lineTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'line-default';
+        refs.hot = lineHot;
+        ensureLineDataViewsForHot(lineHot, {
+          wrapper,
+          container: entry?.container || baseContainer
+        });
+        syncLineActiveDataViewFromHot(lineHot, 'ensure-active-tab');
       }
       const tableImport = Shared.tableImport;
       if(tableImport?.handlePaste && refs.hotContainer && !refs.hotContainer.__linePasteBound){
@@ -9481,7 +9788,11 @@
       return lineHot;
     };
     lineHot = ensureLineHotForActiveTab();
+    if(lineHot){
+      refs.hot = lineHot;
+    }
     line.__ensureHotForActiveTab = ensureLineHotForActiveTab;
+    bindLineDataToolbar();
     if(typeof global.DEBUG_LINE === 'undefined') global.DEBUG_LINE = true;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
 
@@ -9979,7 +10290,14 @@
       return;
     }
     if(typeof line.__ensureHotForActiveTab === 'function'){
-      line.__ensureHotForActiveTab();
+      const hot = line.__ensureHotForActiveTab();
+      if(hot){
+        ensureLineDataViewsForHot(hot, {
+          wrapper: refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null,
+          container: hot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
+        });
+        syncLineActiveDataViewFromHot(hot, 'prepare-tab');
+      }
     }
   };
 

@@ -1664,7 +1664,7 @@
     styleField.className = 'axis-controls-panel__field additional-line-controls-panel__field additional-line-controls-panel__field--style axis-controls-panel__field--style';
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    styleLabel.textContent = 'Line';
+    styleLabel.textContent = 'Thickness';
     const styleControl = doc.createElement('div');
     styleControl.className = 'shared-border-style-control';
     styleChipEl = doc.createElement('button');
@@ -1693,9 +1693,9 @@
     styleControl.appendChild(styleChipEl);
     styleControl.appendChild(colorInput);
     styleField.appendChild(styleLabel);
-    styleField.appendChild(styleControl);
     // Keep thickness input in DOM for shared event wiring while using the style chip UI.
     styleField.appendChild(thicknessInput);
+    styleField.appendChild(styleControl);
     fieldsRowEl.appendChild(styleField);
 
     const notationField = doc.createElement('label');

@@ -1087,6 +1087,7 @@
             ]
           },
           history('box'),
+          dataTransformsSection('box'),
           dock('box'),
           buildMatchStylesSection()
         ]
@@ -1128,6 +1129,7 @@
             ]
           },
           history('pca'),
+          dataTransformsSection('pca'),
           dock('pca'),
           buildMatchStylesSection()
         ]
@@ -1148,6 +1150,7 @@
             ]
           },
           history('line'),
+          dataTransformsSection('line'),
           dock('line'),
           buildMatchStylesSection()
         ]
@@ -1188,6 +1191,7 @@
             ]
           },
           history('surface'),
+          dataTransformsSection('surface'),
           dock('surface'),
           buildMatchStylesSection()
         ]
@@ -1248,6 +1252,7 @@
             ]
           },
           history('hist'),
+          dataTransformsSection('hist'),
           dock('hist'),
           buildMatchStylesSection()
         ]

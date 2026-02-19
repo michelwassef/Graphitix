@@ -27,6 +27,22 @@
       console.debug('Debug: surface component notes helper require failed', { message: err?.message || String(err) });
     }
   }
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      console.debug('Debug: surface component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: surface component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scope)
@@ -88,6 +104,11 @@
   const SURFACE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const SURFACE_AUTO_DRAW_COL_THRESHOLD = 5000;
   const SURFACE_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const SURFACE_DATA_VIEW_MAX = 12;
+  const SURFACE_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+    headerRows: 1,
+    startCol: 0
+  });
   // Parse safety caps to avoid blocking the main thread on extremely large tables
   const SURFACE_MAX_PARSE_ROWS = 20000;
   const SURFACE_MAX_PARSE_POINTS = 100000;
@@ -143,6 +164,9 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+  let surfaceDataViewsManager = null;
+  let surfaceDataToolbarBound = false;
+  let surfaceDataToolbarLastActivation = 0;
 
   function getAxisStrokeWidthBase(){
     const numeric = Number(state.settings?.axisStroke);
@@ -196,6 +220,192 @@
 
   function setGridStyle(style, fallbackThickness){
     state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+  }
+
+  function activateSurfaceDataToolbar(reason){
+    const now = Date.now();
+    if(now - surfaceDataToolbarLastActivation < 80){
+      return false;
+    }
+    surfaceDataToolbarLastActivation = now;
+    const activated = !!Shared.workspaceToolbar?.activateSection?.('surface', 'Data');
+    if(activated){
+      debugLog('Debug: surface data toolbar activated', { reason: reason || 'unknown' });
+    }
+    return activated;
+  }
+
+  function ensureSurfaceDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__surfaceDataViewsManager){
+      hotInstance.__surfaceDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'surface',
+        maxViews: SURFACE_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData);
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          updateAxisOptions();
+          markSurfaceOverlayPending('data-view-switch');
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          activateSurfaceDataToolbar('data-tab-interaction');
+        }
+      });
+      debugLog('Debug: surface data views manager created', {
+        tabId: hotInstance.__surfaceTabId || null
+      });
+    }
+    const manager = hotInstance.__surfaceDataViewsManager;
+    const hostWrapper = options.wrapper || global.document?.getElementById?.('surfaceHotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null;
+    if(hostWrapper && hostContainer){
+      manager.mount({
+        wrapper: hostWrapper,
+        tableContainer: hostContainer
+      });
+      manager.refresh?.();
+    }
+    surfaceDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncSurfaceActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__surfaceDataViewsManager || surfaceDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+  }
+
+  function applySurfaceTransformToNewView(transformSpec, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureSurfaceDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
+      container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+    });
+    if(!manager || typeof manager.applyTransform !== 'function'){
+      console.warn('surface data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncSurfaceActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyTransform(transformSpec, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform',
+      transformOptions: Object.assign({}, SURFACE_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      debugLog('Debug: surface transform failed', {
+        message,
+        transform: transformSpec?.type || null
+      });
+      return false;
+    }
+    activateSurfaceDataToolbar('transform-applied');
+    debugLog('Debug: surface transform created view', {
+      title: result?.view?.title || null,
+      summary: result?.result?.summary || null
+    });
+    return true;
+  }
+
+  function bindSurfaceDataToolbar(){
+    if(surfaceDataToolbarBound || !global.document){
+      return;
+    }
+    global.document.addEventListener('click', event => {
+      const button = event.target?.closest?.(
+        '#surfaceTransformCpm, #surfaceTransformLog2p1, #surfaceTransformCenterRowsMean, #surfaceTransformCenterRowsMedian, #surfaceTransformCenterColsMean, #surfaceTransformCenterColsMedian, #surfaceTransformNormalizeRows, #surfaceTransformNormalizeCols, #surfaceTransformCustom'
+      );
+      if(!button){
+        return;
+      }
+      if(button.id === 'surfaceTransformCpm'){
+        applySurfaceTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+        return;
+      }
+      if(button.id === 'surfaceTransformLog2p1'){
+        applySurfaceTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformCenterRowsMean'){
+        applySurfaceTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformCenterRowsMedian'){
+        applySurfaceTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformCenterColsMean'){
+        applySurfaceTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformCenterColsMedian'){
+        applySurfaceTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformNormalizeRows'){
+        applySurfaceTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformNormalizeCols'){
+        applySurfaceTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
+        return;
+      }
+      if(button.id === 'surfaceTransformCustom'){
+        const expression = global.prompt
+          ? global.prompt(
+            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+            'log2(x+1)'
+          )
+          : '';
+        if(expression == null){
+          return;
+        }
+        const normalized = String(expression || '').trim();
+        if(!normalized){
+          return;
+        }
+        applySurfaceTransformToNewView({ type: 'custom', expression: normalized }, {
+          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+        });
+      }
+    }, true);
+    const wrapper = global.document?.getElementById?.('surfaceHotWrapper');
+    if(wrapper && !wrapper.__surfaceDataToolbarFocusBound){
+      wrapper.addEventListener('mousedown', () => {
+        activateSurfaceDataToolbar('table-mousedown');
+      }, true);
+      wrapper.__surfaceDataToolbarFocusBound = true;
+    }
+    surfaceDataToolbarBound = true;
   }
 
   function registerSurfaceGridControlTarget(target, options){
@@ -626,22 +836,45 @@
       afterChange: (changes, source) => {
         if(source === 'loadData'){ return; }
         updateAxisOptions();
+        if(Array.isArray(changes) && changes.length){
+          syncSurfaceActiveDataViewFromHot(state.hot, 'afterChange');
+        }
         state.scheduleDraw();
       },
       afterLoadData: () => {
         updateAxisOptions();
+        syncSurfaceActiveDataViewFromHot(state.hot, 'afterLoadData');
         state.scheduleDraw();
+      },
+      afterSelectionEnd: () => {
+        activateSurfaceDataToolbar('table-selection');
       }
     };
-    const createSurfaceTable = (container) => typeof hotNS.createStandardTable === 'function'
-      ? hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), overrides)
-      : null;
+    const createSurfaceTable = (container) => {
+      if(typeof hotNS.createStandardTable !== 'function'){
+        return null;
+      }
+      const instance = hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), overrides);
+      if(instance){
+        instance.__surfaceHostContainer = container || null;
+      }
+      return instance;
+    };
     const ensureSurfaceHotForActiveTab = () => {
       const wrapper = global.document && global.document.getElementById('surfaceHotWrapper');
       const baseContainer = global.document && global.document.getElementById('surfaceHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createSurfaceTable(baseContainer);
+        }
+        if(state.hot){
+          state.hot.__surfaceHostContainer = baseContainer;
+          state.hot.__surfaceTabId = Shared.hot.resolveActiveTabId?.() || 'surface-default';
+          ensureSurfaceDataViewsForHot(state.hot, {
+            wrapper,
+            container: baseContainer
+          });
+          syncSurfaceActiveDataViewFromHot(state.hot, 'ensure-active-tab');
         }
         return state.hot;
       }
@@ -655,10 +888,20 @@
       if(entry?.instance){
         state.hot = entry.instance;
       }
+      if(state.hot){
+        state.hot.__surfaceHostContainer = entry?.container || baseContainer;
+        state.hot.__surfaceTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'surface-default';
+        ensureSurfaceDataViewsForHot(state.hot, {
+          wrapper,
+          container: entry?.container || baseContainer
+        });
+        syncSurfaceActiveDataViewFromHot(state.hot, 'ensure-active-tab');
+      }
       return state.hot;
     };
     state.hot = ensureSurfaceHotForActiveTab();
     state.ensureHotForActiveTab = ensureSurfaceHotForActiveTab;
+    bindSurfaceDataToolbar();
     if(state.hot && typeof state.hot.addHook === 'function'){
       state.hot.addHook('afterCreateCol', updateAxisOptions);
       state._hotHooks.push({ name: 'afterCreateCol', fn: updateAxisOptions });
@@ -2067,7 +2310,14 @@
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
-      state.ensureHotForActiveTab();
+      const hot = state.ensureHotForActiveTab();
+      if(hot){
+        ensureSurfaceDataViewsForHot(hot, {
+          wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
+          container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+        });
+        syncSurfaceActiveDataViewFromHot(hot, 'prepare-tab');
+      }
     }
     cacheDom();
     const cacheSignature = tab?.renderCacheSignature ?? tab?.renderCache?.payloadSignature ?? null;
@@ -2112,12 +2362,40 @@
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
-    const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
-    if(state.hot && typeof state.hot.loadData === 'function'){
-      state.hot.loadData(dataMatrix);
-      if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
-        state.hot.applyExclusions(payload.exclusions);
+    const hot = state.hot || state.ensureHotForActiveTab?.();
+    if(hot){
+      state.hot = hot;
+    }
+    const rawDataMatrix = Array.isArray(payload.data) ? payload.data : [];
+    const serializedViews = (payload.dataViews && typeof payload.dataViews === 'object') ? payload.dataViews : null;
+    const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
+    const dataManager = state.hot
+      ? ensureSurfaceDataViewsForHot(state.hot, {
+          wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
+          container: state.hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+        })
+      : null;
+    if(dataManager){
+      if(serializedViews){
+        dataManager.deserialize(serializedViews, {
+          fallbackData: rawDataMatrix,
+          activeViewId: requestedActiveViewId,
+          silent: true,
+          activate: false
+        });
+      }else{
+        dataManager.initialize(rawDataMatrix, { rawTitle: 'Raw' });
       }
+    }
+    const matrixData = dataManager?.getActiveView?.()?.data;
+    const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
+    const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+    if(state.hot && typeof state.hot.loadData === 'function'){
+      state.hot.loadData(dataToLoad);
+      if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
+        state.hot.applyExclusions(exclusionsToApply);
+      }
+      syncSurfaceActiveDataViewFromHot(state.hot, 'payload-load');
     }
     const config = payload.config || {};
     if(config.notes && typeof config.notes === 'object'){
@@ -2210,7 +2488,8 @@
   }
 
   function getPayload(){
-    if(!state.hot || typeof state.hot.getData !== 'function'){
+    const activeHot = state.hot || state.ensureHotForActiveTab?.();
+    if(!activeHot || typeof activeHot.getData !== 'function'){
       return { type: 'surface', data: [] };
     }
     const noteControl = notesState.control || null;
@@ -2224,8 +2503,8 @@
     notesState.open = notesOpen;
     const payload = {
       type: 'surface',
-      data: state.hot.getData(),
-      exclusions: state.hot.exportExclusions ? state.hot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(state.hot) : undefined),
+      data: activeHot.getData(),
+      exclusions: activeHot.exportExclusions ? activeHot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(activeHot) : undefined),
       config: {
         axisMap: Object.assign({}, state.axisMap),
         colorScheme: state.settings?.colorScheme || 'scientific',
@@ -2262,6 +2541,17 @@
         }
       }
     };
+    const activeManager = ensureSurfaceDataViewsForHot(activeHot, {
+      wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
+      container: activeHot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+    });
+    syncSurfaceActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+    if(includeDataViews){
+      payload.dataViews = dataViewsPayload;
+      payload.activeDataViewId = dataViewsPayload?.activeViewId || null;
+    }
     debugLog('Debug: surface payload captured', { rows: payload.data.length });
     return payload;
   }

@@ -35,6 +35,12 @@ describe('graphArchive adaptive compression', () => {
     return (zipInstance?.files || []).find(entry => suffixPattern.test(entry.path)) || null;
   }
 
+  function parseManifest(zipInstance) {
+    const manifestEntry = findEntry(zipInstance, /^manifest\.json$/);
+    expect(manifestEntry).toBeTruthy();
+    return JSON.parse(manifestEntry.content);
+  }
+
   function buildScatterDefaults(labelCount) {
     const colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999'];
     const shapes = ['circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star'];
@@ -159,5 +165,89 @@ describe('graphArchive adaptive compression', () => {
     const payloadJson = JSON.parse(payloadEntry.content);
     expect(payloadJson.config.labelColors).toEqual({ 'L-123': '#000000' });
     expect(payloadJson.config.labelShapes).toEqual({ 'L-456': 'hexagon' });
+  });
+
+  test('stores payload in lite mode for datasets above 1MB threshold', async () => {
+    const { graphArchive, JSZipMock } = installGraphArchiveWithZipMock();
+    const largeCell = 'x'.repeat((1024 * 1024) + 128);
+    const payload = {
+      type: 'box',
+      data: [[largeCell]],
+      config: { title: 'Large' }
+    };
+
+    await graphArchive.buildArchiveBlob({
+      tabs: [{ title: 'Large tab', type: 'box', payload, layout: null }],
+      activeIndex: 0,
+      scope: 'tab',
+      useWorker: false,
+      compressionMode: 'adaptive'
+    });
+
+    const manifest = parseManifest(JSZipMock.instance);
+    expect(manifest.tabs[0].payloadMode).toBe('lite');
+    const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);
+    expect(payloadEntry).toBeTruthy();
+    const payloadJson = JSON.parse(payloadEntry.content);
+    expect(Object.prototype.hasOwnProperty.call(payloadJson, 'data')).toBe(false);
+  });
+
+  test('keeps payload in full mode for datasets below 1MB threshold', async () => {
+    const { graphArchive, JSZipMock } = installGraphArchiveWithZipMock();
+    const payload = {
+      type: 'box',
+      data: [['small']],
+      config: { title: 'Small' }
+    };
+
+    await graphArchive.buildArchiveBlob({
+      tabs: [{ title: 'Small tab', type: 'box', payload, layout: null }],
+      activeIndex: 0,
+      scope: 'tab',
+      useWorker: false,
+      compressionMode: 'adaptive'
+    });
+
+    const manifest = parseManifest(JSZipMock.instance);
+    expect(manifest.tabs[0].payloadMode).toBe('full');
+    const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);
+    expect(payloadEntry).toBeTruthy();
+    const payloadJson = JSON.parse(payloadEntry.content);
+    expect(Array.isArray(payloadJson.data)).toBe(true);
+  });
+
+  test('removes inline data from serialized dataViews when payload mode is lite', async () => {
+    const { graphArchive, JSZipMock } = installGraphArchiveWithZipMock();
+    const largeCell = 'x'.repeat((1024 * 1024) + 128);
+    const payload = {
+      type: 'scatter',
+      data: [[largeCell]],
+      dataViews: {
+        version: 1,
+        activeViewId: 'raw',
+        views: [
+          { id: 'raw', kind: 'raw', title: 'Raw', data: [[largeCell]] },
+          { id: 'view-2', kind: 'derived', title: 'Derived', sourceViewId: 'raw', transformSpec: { type: 'add', value: 1 }, data: [[largeCell]] }
+        ]
+      },
+      config: {}
+    };
+
+    await graphArchive.buildArchiveBlob({
+      tabs: [{ title: 'XY Plots', type: 'scatter', payload, layout: null }],
+      activeIndex: 0,
+      scope: 'tab',
+      useWorker: false,
+      compressionMode: 'adaptive'
+    });
+
+    const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);
+    const configEntry = findEntry(JSZipMock.instance, /\/graph-config\.json$/);
+    expect(payloadEntry).toBeTruthy();
+    expect(configEntry).toBeTruthy();
+    const payloadJson = JSON.parse(payloadEntry.content);
+    const configJson = JSON.parse(configEntry.content);
+    expect(payloadJson.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
+    expect(configJson.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
   });
 });

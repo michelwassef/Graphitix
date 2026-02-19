@@ -7,6 +7,7 @@
   const DEFAULT_TAB_TITLE = 'Workspace';
   const DEFAULT_THRESHOLD_BYTES = 1024 * 1024;
   const DEFAULT_LEVEL = 1;
+  const DEFAULT_PAYLOAD_LITE_THRESHOLD_BYTES = 1024 * 1024;
   const SCATTER_DEFAULT_LABEL_COLORS = Object.freeze([
     '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
     '#ffff33', '#a65628', '#f781bf', '#999999'
@@ -147,6 +148,10 @@
       if (key === 'data' || key === 'exclusions') {
         continue;
       }
+      if (key === 'dataViews') {
+        config[key] = sanitizeDataViewsForArchive(payload[key], false);
+        continue;
+      }
       config[key] = payload[key];
     }
     return config;
@@ -225,20 +230,85 @@
     return bytes;
   }
 
-  function resolveRawCsvZipOptions(csvText, options) {
-    if (options.compressionMode !== 'adaptive') {
-      return null;
-    }
-    const threshold = Number.isFinite(options.compressThresholdBytes) ? options.compressThresholdBytes : DEFAULT_THRESHOLD_BYTES;
-    const level = Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : DEFAULT_LEVEL;
-    const byteLength = estimateUtf8Bytes(csvText);
-    if (byteLength < threshold) {
-      return null;
+  function resolvePayloadStoragePolicy(options) {
+    const mode = options?.payloadMode || 'adaptive';
+    const thresholdBytes = Number.isFinite(options?.payloadLiteThresholdBytes)
+      ? options.payloadLiteThresholdBytes
+      : DEFAULT_PAYLOAD_LITE_THRESHOLD_BYTES;
+    if (mode === 'full' || mode === 'lite') {
+      return {
+        mode,
+        thresholdBytes
+      };
     }
     return {
-      compression: 'DEFLATE',
-      compressionOptions: { level }
+      mode: 'adaptive',
+      thresholdBytes
     };
+  }
+
+  function resolvePayloadModeFromByteLength(byteLength, policy) {
+    if (!policy || policy.mode === 'full') {
+      return 'full';
+    }
+    if (policy.mode === 'lite') {
+      return 'lite';
+    }
+    return byteLength >= policy.thresholdBytes ? 'lite' : 'full';
+  }
+
+  function sanitizeDataViewsForArchive(dataViewsValue, includeData) {
+    if (!isPlainObject(dataViewsValue) || !Array.isArray(dataViewsValue.views)) {
+      return dataViewsValue;
+    }
+    if (includeData !== false) {
+      return dataViewsValue;
+    }
+    const sourceViews = dataViewsValue.views;
+    const nextViews = new Array(sourceViews.length);
+    let changed = false;
+    for (let i = 0; i < sourceViews.length; i += 1) {
+      const view = sourceViews[i];
+      if (!isPlainObject(view)) {
+        nextViews[i] = view;
+        continue;
+      }
+      if (!Object.prototype.hasOwnProperty.call(view, 'data')) {
+        nextViews[i] = view;
+        continue;
+      }
+      const nextView = { ...view };
+      delete nextView.data;
+      nextViews[i] = nextView;
+      changed = true;
+    }
+    if (!changed) {
+      return dataViewsValue;
+    }
+    return {
+      ...dataViewsValue,
+      views: nextViews
+    };
+  }
+
+  function buildLitePayload(rawPayload) {
+    if (!isPlainObject(rawPayload)) {
+      return rawPayload;
+    }
+    const lite = {};
+    const keys = Object.keys(rawPayload);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      if (key === 'data' || key === 'exclusions') {
+        continue;
+      }
+      if (key === 'dataViews') {
+        lite[key] = sanitizeDataViewsForArchive(rawPayload[key], false);
+        continue;
+      }
+      lite[key] = rawPayload[key];
+    }
+    return lite;
   }
 
   function buildArchiveReadme(manifest) {
@@ -252,7 +322,7 @@
       '- manifest.json: archive index (version, tabs, active tab).',
       '- tabs/<Tab Name>/raw/data.csv: raw tabular input.',
       '- tabs/<Tab Name>/graph-config.json: graph/stat settings.',
-      '- tabs/<Tab Name>/payload.json: full payload used for fast, lossless reload.',
+      '- tabs/<Tab Name>/payload.json: payload snapshot (may omit raw data in lite mode).',
       '- tabs/<Tab Name>/layout.json: panel/layout state.',
       '',
       `Archive format: ${manifest.format}`,
@@ -270,6 +340,7 @@
     const activeIndex = resolveActiveIndex(Number(options.activeIndex), tabs.length);
     const scope = normalizeScope(options.scope, tabs.length);
     const archiveName = ensureGraphExtension(options.fileName || '', 'workspace.graph');
+    const payloadPolicy = resolvePayloadStoragePolicy(options);
     const JSZip = ensureZip();
     const zip = new JSZip();
     const seenFolders = new Set();
@@ -293,10 +364,15 @@
       const uniqueSegment = makeUniqueFolderName(safeSegment, seenFolders);
       const folderPath = `tabs/${uniqueSegment}`;
       const payloadData = optimizePayloadForArchive(tab.payload || null);
+      const rawPayload = isPlainObject(payloadData) ? payloadData : null;
       const layout = tab.layout || null;
-      const rawData = buildRawDataExport(payloadData && typeof payloadData === 'object' ? payloadData.data : null);
+      const rawData = buildRawDataExport(rawPayload ? rawPayload.data : null);
+      const csvText = rawData.csvText || '';
+      const rawCsvByteLength = estimateUtf8Bytes(csvText);
+      const payloadMode = resolvePayloadModeFromByteLength(rawCsvByteLength, payloadPolicy);
+      const payloadForArchive = payloadMode === 'lite' ? buildLitePayload(payloadData) : payloadData;
       const config = stripRawDataFromPayload(payloadData);
-      const exclusions = payloadData && typeof payloadData === 'object' && Object.prototype.hasOwnProperty.call(payloadData, 'exclusions')
+      const exclusions = rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'exclusions')
         ? payloadData.exclusions
         : undefined;
 
@@ -306,6 +382,7 @@
         type: typeof tab.type === 'string' ? tab.type : (typeof payloadData?.type === 'string' ? payloadData.type : null),
         folder: folderPath,
         rawDataMode: rawData.mode,
+        payloadMode,
         files: {
           tab: `${folderPath}/tab.json`,
           payload: `${folderPath}/payload.json`,
@@ -320,11 +397,19 @@
         title: tabManifest.title,
         type: tabManifest.type,
         rawDataMode: tabManifest.rawDataMode,
+        payloadMode: tabManifest.payloadMode,
         files: tabManifest.files
       }));
-      zip.file(tabManifest.files.payload, JSON.stringify(payloadData));
-      const csvText = rawData.csvText || '';
-      const rawCsvOptions = resolveRawCsvZipOptions(csvText, options);
+      zip.file(tabManifest.files.payload, JSON.stringify(payloadForArchive));
+      const rawCsvOptions = options.compressionMode === 'adaptive'
+        && rawCsvByteLength >= (Number.isFinite(options.compressThresholdBytes) ? options.compressThresholdBytes : DEFAULT_THRESHOLD_BYTES)
+        ? {
+          compression: 'DEFLATE',
+          compressionOptions: {
+            level: Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : DEFAULT_LEVEL
+          }
+        }
+        : null;
       if (rawCsvOptions) {
         compressedCsvCount += 1;
       }

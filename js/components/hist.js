@@ -8,6 +8,11 @@
   const HIST_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const HIST_AUTO_DRAW_COL_THRESHOLD = 5000;
   const HIST_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const HIST_DATA_VIEW_MAX = 12;
+  const HIST_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+    headerRows: 1,
+    startCol: 0
+  });
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -71,6 +76,22 @@
       require('../shared/notes.js');
     }catch(err){
       console.debug('Debug: hist component notes helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      console.debug('Debug: hist component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: hist component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
   hist.__installed = true; // signal to legacy code to skip
@@ -264,6 +285,9 @@
       yLabel: null
     }
   };
+  let histDataViewsManager = null;
+  let histDataToolbarBound = false;
+  let histDataToolbarLastActivation = 0;
   const histOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'hist',
     message: 'Rendering histogram...',
@@ -326,6 +350,192 @@
     }
     return reason => syncHistAutoDrawNoticeWidth(reason || 'immediate');
   })();
+
+  function activateHistDataToolbar(reason){
+    const now = Date.now();
+    if(now - histDataToolbarLastActivation < 80){
+      return false;
+    }
+    histDataToolbarLastActivation = now;
+    const activated = !!Shared.workspaceToolbar?.activateSection?.('hist', 'Data');
+    if(activated){
+      console.debug('Debug: hist data toolbar activated', { reason: reason || 'unknown' });
+    }
+    return activated;
+  }
+
+  function ensureHistDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__histDataViewsManager){
+      hotInstance.__histDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'hist',
+        maxViews: HIST_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData);
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          markHistOverlayPending('data-view-switch');
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          activateHistDataToolbar('data-tab-interaction');
+        }
+      });
+      console.debug('Debug: hist data views manager created', {
+        tabId: hotInstance.__histTabId || null
+      });
+    }
+    const manager = hotInstance.__histDataViewsManager;
+    const hostWrapper = options.wrapper || document.getElementById('histHotWrapper');
+    const hostContainer = options.container || hotInstance.__histHostContainer || document.getElementById('histHot');
+    if(hostWrapper && hostContainer){
+      manager.mount({
+        wrapper: hostWrapper,
+        tableContainer: hostContainer
+      });
+      manager.refresh?.();
+    }
+    histDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncHistActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__histDataViewsManager || histDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+  }
+
+  function applyHistTransformToNewView(transformSpec, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureHistDataViewsForHot(hot, {
+      wrapper: document.getElementById('histHotWrapper'),
+      container: hot.__histHostContainer || document.getElementById('histHot')
+    });
+    if(!manager || typeof manager.applyTransform !== 'function'){
+      console.warn('hist data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncHistActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyTransform(transformSpec, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform',
+      transformOptions: Object.assign({}, HIST_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      console.debug('Debug: hist transform failed', {
+        message,
+        transform: transformSpec?.type || null
+      });
+      return false;
+    }
+    activateHistDataToolbar('transform-applied');
+    console.debug('Debug: hist transform created view', {
+      title: result?.view?.title || null,
+      summary: result?.result?.summary || null
+    });
+    return true;
+  }
+
+  function bindHistDataToolbar(){
+    if(histDataToolbarBound || !document){
+      return;
+    }
+    document.addEventListener('click', event => {
+      const button = event.target?.closest?.(
+        '#histTransformCpm, #histTransformLog2p1, #histTransformCenterRowsMean, #histTransformCenterRowsMedian, #histTransformCenterColsMean, #histTransformCenterColsMedian, #histTransformNormalizeRows, #histTransformNormalizeCols, #histTransformCustom'
+      );
+      if(!button){
+        return;
+      }
+      if(button.id === 'histTransformCpm'){
+        applyHistTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+        return;
+      }
+      if(button.id === 'histTransformLog2p1'){
+        applyHistTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+        return;
+      }
+      if(button.id === 'histTransformCenterRowsMean'){
+        applyHistTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+        return;
+      }
+      if(button.id === 'histTransformCenterRowsMedian'){
+        applyHistTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+        return;
+      }
+      if(button.id === 'histTransformCenterColsMean'){
+        applyHistTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
+        return;
+      }
+      if(button.id === 'histTransformCenterColsMedian'){
+        applyHistTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
+        return;
+      }
+      if(button.id === 'histTransformNormalizeRows'){
+        applyHistTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
+        return;
+      }
+      if(button.id === 'histTransformNormalizeCols'){
+        applyHistTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
+        return;
+      }
+      if(button.id === 'histTransformCustom'){
+        const expression = global.prompt
+          ? global.prompt(
+            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+            'log2(x+1)'
+          )
+          : '';
+        if(expression == null){
+          return;
+        }
+        const normalized = String(expression || '').trim();
+        if(!normalized){
+          return;
+        }
+        applyHistTransformToNewView({ type: 'custom', expression: normalized }, {
+          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+        });
+      }
+    }, true);
+    const wrapper = document.getElementById('histHotWrapper');
+    if(wrapper && !wrapper.__histDataToolbarFocusBound){
+      wrapper.addEventListener('mousedown', () => {
+        activateHistDataToolbar('table-mousedown');
+      }, true);
+      wrapper.__histDataToolbarFocusBound = true;
+    }
+    histDataToolbarBound = true;
+  }
+
   const histUndoManager = Shared.undoManager || null;
   function recordHistChange(label, previous, next, apply){
     if(!histUndoManager || typeof histUndoManager.recordStateChange !== 'function'){
@@ -1193,34 +1403,57 @@
       }
     };
 
-    const createHistTable = (container) => Shared.hot.createStandardTable(container, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
-      debugLabel: 'hist',
-      data,
-      firstRowClassName: 'htCenter',
-      pinFirstRow: true,
-      scheduleOnLoadData: true,
-      hotOptions: {
-        stretchH: 'all',
-        minSpareRows: 10,
-        afterChange(changes, source){
-          if(changes){
-            console.log('hist afterChange', { count: changes.length, source });
+    const createHistTable = (container) => {
+      let instance = null;
+      instance = Shared.hot.createStandardTable(container, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
+        debugLabel: 'hist',
+        data,
+        firstRowClassName: 'htCenter',
+        pinFirstRow: true,
+        scheduleOnLoadData: true,
+        hotOptions: {
+          stretchH: 'all',
+          minSpareRows: 10,
+          afterChange(changes, source){
+            if(changes){
+              console.log('hist afterChange', { count: changes.length, source });
+              syncHistActiveDataViewFromHot(instance, 'afterChange');
+            }
+          },
+          afterLoadData(){
+            syncHistActiveDataViewFromHot(instance, 'afterLoadData');
+          },
+          afterSelectionEnd(){
+            activateHistDataToolbar('table-selection');
+          },
+          afterUndo(){
+            console.log('hist undo');
+          },
+          afterRedo(){
+            console.log('hist redo');
           }
-        },
-        afterUndo(){
-          console.log('hist undo');
-        },
-        afterRedo(){
-          console.log('hist redo');
         }
+      });
+      if(instance){
+        instance.__histHostContainer = container || null;
       }
-    });
+      return instance;
+    };
     const ensureHistHotForActiveTab = () => {
       const wrapper = document.getElementById('histHotWrapper');
       const baseContainer = document.getElementById('histHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createHistTable(baseContainer);
+        }
+        if(state.hot){
+          state.hot.__histHostContainer = baseContainer;
+          state.hot.__histTabId = Shared.hot.resolveActiveTabId?.() || 'hist-default';
+          ensureHistDataViewsForHot(state.hot, {
+            wrapper,
+            container: baseContainer
+          });
+          syncHistActiveDataViewFromHot(state.hot, 'ensure-active-tab');
         }
         return state.hot;
       }
@@ -1234,10 +1467,20 @@
       if(entry?.instance){
         state.hot = entry.instance;
       }
+      if(state.hot){
+        state.hot.__histHostContainer = entry?.container || baseContainer;
+        state.hot.__histTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'hist-default';
+        ensureHistDataViewsForHot(state.hot, {
+          wrapper,
+          container: entry?.container || baseContainer
+        });
+        syncHistActiveDataViewFromHot(state.hot, 'ensure-active-tab');
+      }
       return state.hot;
     };
     state.hot = ensureHistHotForActiveTab();
     state.ensureHotForActiveTab = ensureHistHotForActiveTab;
+    bindHistDataToolbar();
   }
 
   function initControls(){
@@ -1397,6 +1640,10 @@
 
     // File Save/Open
     function getPayload(){
+      const activeHot = state.hot || state.ensureHotForActiveTab?.();
+      if(!activeHot){
+        return null;
+      }
       const noteControl = state.notes?.control || null;
       const notesText = noteControl && typeof noteControl.getValue === 'function'
         ? noteControl.getValue()
@@ -1406,6 +1653,13 @@
         : !!state.notes?.open;
       state.notes.text = notesText;
       state.notes.open = notesOpen;
+      const activeManager = ensureHistDataViewsForHot(activeHot, {
+        wrapper: document.getElementById('histHotWrapper'),
+        container: activeHot.__histHostContainer || document.getElementById('histHot')
+      });
+      syncHistActiveDataViewFromHot(activeHot, 'payload');
+      const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+      const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const axisSettings = ensureAxisSettings();
       const c={
         title:state.titleText,
@@ -1450,8 +1704,10 @@
       };
     const payload = {
         type:'hist',
-        data: state.hot.getData(),
-        exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+        data: activeHot.getData(),
+        exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        dataViews: includeDataViews ? dataViewsPayload : undefined,
+        activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: c
       };
       console.debug('Debug: hist.getPayload captured state', {
@@ -1477,12 +1733,40 @@
         scheduleBackup = state.scheduleDraw;
         state.scheduleDraw = () => {};
       }
-      const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
-      if(state.hot && typeof state.hot.loadData === 'function'){
-        state.hot.loadData(dataMatrix);
-        if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
-          state.hot.applyExclusions(payload.exclusions);
+      const hot = state.hot || state.ensureHotForActiveTab?.();
+      if(hot){
+        state.hot = hot;
+      }
+      const rawDataMatrix = Array.isArray(payload.data) ? payload.data : [];
+      const serializedViews = (payload.dataViews && typeof payload.dataViews === 'object') ? payload.dataViews : null;
+      const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
+      const dataManager = state.hot
+        ? ensureHistDataViewsForHot(state.hot, {
+            wrapper: document.getElementById('histHotWrapper'),
+            container: state.hot.__histHostContainer || document.getElementById('histHot')
+          })
+        : null;
+      if(dataManager){
+        if(serializedViews){
+          dataManager.deserialize(serializedViews, {
+            fallbackData: rawDataMatrix,
+            activeViewId: requestedActiveViewId,
+            silent: true,
+            activate: false
+          });
+        }else{
+          dataManager.initialize(rawDataMatrix, { rawTitle: 'Raw' });
         }
+      }
+      const matrixData = dataManager?.getActiveView?.()?.data;
+      const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
+      const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+      if(state.hot && typeof state.hot.loadData === 'function'){
+        state.hot.loadData(dataToLoad);
+        if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
+          state.hot.applyExclusions(exclusionsToApply);
+        }
+        syncHistActiveDataViewFromHot(state.hot, 'payload-load');
       }
       const config = payload.config || {};
       importFontStyles('hist', config.fontStyles || null);
@@ -2830,7 +3114,14 @@
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
-      state.ensureHotForActiveTab();
+      const hot = state.ensureHotForActiveTab();
+      if(hot){
+        ensureHistDataViewsForHot(hot, {
+          wrapper: document.getElementById('histHotWrapper'),
+          container: hot.__histHostContainer || document.getElementById('histHot')
+        });
+        syncHistActiveDataViewFromHot(hot, 'prepare-tab');
+      }
     }
   };
 
