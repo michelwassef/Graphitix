@@ -8,6 +8,17 @@
   const ARCHIVE_VERSION = 2;
   const DEFAULT_TAB_TITLE = 'Workspace';
   const ZIP_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+  const GRAPH_ARCHIVE_WORKER_URL = 'js/workers/graphArchive.worker.js';
+  const ADAPTIVE_COMPRESS_THRESHOLD_BYTES = 1024 * 1024;
+  const ADAPTIVE_COMPRESS_LEVEL = 1;
+  const WORKER_TIMEOUT_MS = 120000;
+  const SCATTER_DEFAULT_LABEL_COLORS = Object.freeze([
+    '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
+    '#ffff33', '#a65628', '#f781bf', '#999999'
+  ]);
+  const SCATTER_DEFAULT_LABEL_SHAPES = Object.freeze([
+    'circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star'
+  ]);
   let zipLoaderPromise = null;
 
   function isDebugEnabled() {
@@ -105,6 +116,74 @@
     return zipLoaderPromise;
   }
 
+  function estimateUtf8Bytes(text) {
+    const source = String(text || '');
+    if (!source) {
+      return 0;
+    }
+    if (typeof global.TextEncoder === 'function') {
+      try {
+        return new global.TextEncoder().encode(source).byteLength;
+      } catch (err) {
+        debugLog('estimateUtf8Bytes.textEncoderFallback', { error: err?.message || String(err) });
+      }
+    }
+    let bytes = 0;
+    for (let i = 0; i < source.length; i += 1) {
+      const code = source.charCodeAt(i);
+      if (code < 0x80) {
+        bytes += 1;
+      } else if (code < 0x800) {
+        bytes += 2;
+      } else if (code >= 0xd800 && code <= 0xdbff) {
+        i += 1;
+        bytes += 4;
+      } else {
+        bytes += 3;
+      }
+    }
+    return bytes;
+  }
+
+  function resolveAdaptiveCompressionPolicy(options = {}) {
+    const mode = options.compressionMode || 'adaptive';
+    const thresholdBytes = Number.isFinite(options.compressThresholdBytes) ? options.compressThresholdBytes : ADAPTIVE_COMPRESS_THRESHOLD_BYTES;
+    const level = Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : ADAPTIVE_COMPRESS_LEVEL;
+    if (mode !== 'adaptive') {
+      return {
+        mode,
+        enabled: false,
+        thresholdBytes,
+        level
+      };
+    }
+    return {
+      mode,
+      enabled: true,
+      thresholdBytes,
+      level
+    };
+  }
+
+  function resolveRawCsvZipOptions(csvText, compressionPolicy) {
+    if (!compressionPolicy?.enabled) {
+      return null;
+    }
+    const byteLength = estimateUtf8Bytes(csvText);
+    if (byteLength < compressionPolicy.thresholdBytes) {
+      return null;
+    }
+    return {
+      compression: 'DEFLATE',
+      compressionOptions: { level: compressionPolicy.level },
+      __debug: {
+        byteLength,
+        thresholdBytes: compressionPolicy.thresholdBytes,
+        level: compressionPolicy.level
+      }
+    };
+  }
+
   function escapeCsvCell(value) {
     const text = value == null ? '' : String(value);
     if (text.includes('"') || text.includes(',') || text.includes('\n') || text.includes('\r')) {
@@ -117,10 +196,20 @@
     if (!Array.isArray(rows) || !rows.length) {
       return '';
     }
-    return rows.map(row => {
-      const cells = Array.isArray(row) ? row : [row];
-      return cells.map(escapeCsvCell).join(',');
-    }).join('\r\n');
+    const lines = new Array(rows.length);
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (Array.isArray(row)) {
+        const cells = new Array(row.length);
+        for (let j = 0; j < row.length; j += 1) {
+          cells[j] = escapeCsvCell(row[j]);
+        }
+        lines[i] = cells.join(',');
+      } else {
+        lines[i] = escapeCsvCell(row);
+      }
+    }
+    return lines.join('\r\n');
   }
 
   function parseCsv(text) {
@@ -211,29 +300,48 @@
     }
   }
 
-  function buildRawDataRows(data) {
+  function buildRawDataExport(data) {
     if (Array.isArray(data)) {
-      if (data.every(item => Array.isArray(item))) {
-        return { mode: 'matrix', rows: data.map(row => row.slice()) };
+      const isMatrix = data.length === 0 || data.every(item => Array.isArray(item));
+      if (isMatrix) {
+        return {
+          mode: 'matrix',
+          csvText: rowsToCsv(data)
+        };
       }
-      return { mode: 'vector', rows: data.map(item => [item]) };
+      const lines = new Array(data.length);
+      for (let i = 0; i < data.length; i += 1) {
+        lines[i] = escapeCsvCell(data[i]);
+      }
+      return {
+        mode: 'vector',
+        csvText: lines.join('\r\n')
+      };
     }
     if (data && typeof data === 'object') {
       const keys = Object.keys(data);
-      const rows = [['field', 'value']];
-      keys.forEach(key => {
+      const rows = new Array(keys.length + 1);
+      rows[0] = ['field', 'value'];
+      for (let i = 0; i < keys.length; i += 1) {
+        const key = keys[i];
         const raw = data[key];
         const value = (raw !== null && typeof raw === 'object')
           ? JSON.stringify(raw)
           : String(raw == null ? '' : raw);
-        rows.push([key, value]);
-      });
-      return { mode: 'object', rows };
+        rows[i + 1] = [key, value];
+      }
+      return {
+        mode: 'object',
+        csvText: rowsToCsv(rows)
+      };
     }
     if (data === undefined) {
-      return { mode: 'none', rows: [] };
+      return { mode: 'none', csvText: '' };
     }
-    return { mode: 'value', rows: [[String(data)]] };
+    return {
+      mode: 'value',
+      csvText: escapeCsvCell(String(data))
+    };
   }
 
   function restoreDataFromRows(rows, mode) {
@@ -283,6 +391,69 @@
       config[key] = payload[key];
     }
     return config;
+  }
+
+  function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function compactScatterCategoricalMap(mapValue, defaults) {
+    if (!isPlainObject(mapValue) || !Array.isArray(defaults) || !defaults.length) {
+      return mapValue;
+    }
+    const keys = Object.keys(mapValue);
+    if (!keys.length) {
+      return mapValue;
+    }
+    // Run compaction only on large dictionaries where archive bloat is material.
+    if (keys.length < 1000) {
+      return mapValue;
+    }
+    const compact = {};
+    let prunedCount = 0;
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      const value = mapValue[key];
+      const defaultValue = defaults[i % defaults.length];
+      if (value === defaultValue) {
+        prunedCount += 1;
+      } else {
+        compact[key] = value;
+      }
+    }
+    if (!prunedCount) {
+      return mapValue;
+    }
+    debugLog('scatterMap.compacted', {
+      total: keys.length,
+      pruned: prunedCount,
+      kept: keys.length - prunedCount
+    });
+    return compact;
+  }
+
+  function optimizePayloadForArchive(rawPayload) {
+    if (!isPlainObject(rawPayload)) {
+      return rawPayload;
+    }
+    if (rawPayload.type !== 'scatter' || !isPlainObject(rawPayload.config)) {
+      return rawPayload;
+    }
+    const config = rawPayload.config;
+    const nextLabelColors = compactScatterCategoricalMap(config.labelColors, SCATTER_DEFAULT_LABEL_COLORS);
+    const nextLabelShapes = compactScatterCategoricalMap(config.labelShapes, SCATTER_DEFAULT_LABEL_SHAPES);
+    const changed = nextLabelColors !== config.labelColors || nextLabelShapes !== config.labelShapes;
+    if (!changed) {
+      return rawPayload;
+    }
+    return {
+      ...rawPayload,
+      config: {
+        ...config,
+        labelColors: nextLabelColors,
+        labelShapes: nextLabelShapes
+      }
+    };
   }
 
   function decodeBufferToText(buffer) {
@@ -401,10 +572,11 @@
     return ensureGraphExtension(name, fallback);
   };
 
-  graphArchive.buildArchiveBlob = async function buildArchiveBlob(options = {}) {
+  async function buildArchiveBlobInMainThread(options = {}) {
     const tabs = Array.isArray(options.tabs) ? options.tabs : [];
     const activeIndex = resolveActiveIndex(Number(options.activeIndex), tabs.length);
     const scope = normalizeScope(options.scope, tabs.length);
+    const compressionPolicy = resolveAdaptiveCompressionPolicy(options);
     const archiveName = ensureGraphExtension(options.fileName || '', 'workspace.graph');
     const JSZip = await ensureZipLibrary();
     const zip = new JSZip();
@@ -419,15 +591,19 @@
       tabCount: tabs.length,
       tabs: []
     };
-    tabs.forEach((tab, index) => {
+    const startedAt = typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+      ? global.performance.now()
+      : Date.now();
+    let compressedCsvCount = 0;
+    for (let index = 0; index < tabs.length; index += 1) {
+      const tab = tabs[index];
       const tabTitle = String(tab?.title || `${DEFAULT_TAB_TITLE} ${index + 1}`).trim() || `${DEFAULT_TAB_TITLE} ${index + 1}`;
       const safeSegment = sanitizeSegment(tabTitle, `${DEFAULT_TAB_TITLE}-${index + 1}`);
       const uniqueSegment = makeUniqueFolderName(safeSegment, seenFolders);
       const folderPath = `tabs/${uniqueSegment}`;
-      const payload = tab?.payload || null;
+      const payload = optimizePayloadForArchive(tab?.payload || null);
       const layout = tab?.layout || null;
-      const rawData = buildRawDataRows(payload && typeof payload === 'object' ? payload.data : null);
-      const csvText = rowsToCsv(rawData.rows);
+      const rawData = buildRawDataExport(payload && typeof payload === 'object' ? payload.data : null);
       const config = stripRawDataFromPayload(payload);
       const exclusions = payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'exclusions')
         ? payload.exclusions
@@ -454,25 +630,31 @@
         type: tabManifest.type,
         rawDataMode: tabManifest.rawDataMode,
         files: tabManifest.files
-      }, null, 2));
+      }));
       zip.file(tabManifest.files.payload, JSON.stringify(payload));
-      zip.file(tabManifest.files.rawCsv, csvText);
-      zip.file(tabManifest.files.config, JSON.stringify(config, null, 2));
-      zip.file(tabManifest.files.layout, JSON.stringify(layout, null, 2));
+      const rawCsvOptions = resolveRawCsvZipOptions(rawData.csvText || '', compressionPolicy);
+      if (rawCsvOptions) {
+        compressedCsvCount += 1;
+      }
+      zip.file(tabManifest.files.rawCsv, rawData.csvText || '', rawCsvOptions || undefined);
+      zip.file(tabManifest.files.config, JSON.stringify(config));
+      zip.file(tabManifest.files.layout, JSON.stringify(layout));
       if (typeof exclusions !== 'undefined') {
-        zip.file(tabManifest.files.exclusions, JSON.stringify(exclusions, null, 2));
+        zip.file(tabManifest.files.exclusions, JSON.stringify(exclusions));
       }
       manifest.tabs.push(tabManifest);
-    });
+    }
 
-    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+    zip.file('manifest.json', JSON.stringify(manifest));
     zip.file('README.txt', buildArchiveReadme(manifest));
 
     debugLog('build.start', {
       scope,
       tabCount: tabs.length,
       activeIndex,
-      fileName: archiveName
+      fileName: archiveName,
+      compressionMode: compressionPolicy.mode,
+      thresholdBytes: compressionPolicy.thresholdBytes
     });
     const blob = await zip.generateAsync({
       type: 'blob',
@@ -482,9 +664,68 @@
     });
     debugLog('build.complete', {
       tabCount: tabs.length,
-      bytes: blob?.size || 0
+      bytes: blob?.size || 0,
+      compressedCsvCount,
+      elapsedMs: Math.round(((typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+        ? global.performance.now()
+        : Date.now()) - startedAt) * 10) / 10
     });
     return blob;
+  }
+
+  async function buildArchiveBlobWithWorker(options = {}) {
+    const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+    const SharedWorkers = Shared?.Workers;
+    if (!SharedWorkers || typeof SharedWorkers.runTask !== 'function') {
+      return buildArchiveBlobInMainThread(options);
+    }
+    const timeoutMs = Number.isFinite(options.workerTimeoutMs) ? options.workerTimeoutMs : WORKER_TIMEOUT_MS;
+    const startedAt = typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+      ? global.performance.now()
+      : Date.now();
+    try {
+      const result = await SharedWorkers.runTask({
+        name: 'graph-archive',
+        url: GRAPH_ARCHIVE_WORKER_URL,
+        action: 'build-archive',
+        payload: {
+          tabs,
+          activeIndex: Number(options.activeIndex),
+          scope: options.scope,
+          fileName: options.fileName,
+          compression: options.compression,
+          compressionMode: options.compressionMode || 'adaptive',
+          compressThresholdBytes: Number.isFinite(options.compressThresholdBytes) ? options.compressThresholdBytes : ADAPTIVE_COMPRESS_THRESHOLD_BYTES,
+          adaptiveCompressionLevel: Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : ADAPTIVE_COMPRESS_LEVEL
+        },
+        timeoutMs,
+        fallback: () => buildArchiveBlobInMainThread(options)
+      });
+      if (!result || !(result.buffer instanceof ArrayBuffer)) {
+        return buildArchiveBlobInMainThread(options);
+      }
+      const blob = new global.Blob([result.buffer], { type: 'application/zip' });
+      debugLog('build.worker.complete', {
+        tabCount: tabs.length,
+        bytes: blob.size,
+        compressedCsvCount: result.compressedCsvCount || 0,
+        elapsedMs: Math.round(((typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+          ? global.performance.now()
+          : Date.now()) - startedAt) * 10) / 10
+      });
+      return blob;
+    } catch (err) {
+      debugLog('build.worker.fallback', { error: err?.message || String(err) });
+      return buildArchiveBlobInMainThread(options);
+    }
+  }
+
+  graphArchive.buildArchiveBlob = async function buildArchiveBlob(options = {}) {
+    const wantsWorker = options.useWorker !== false;
+    if (wantsWorker) {
+      return buildArchiveBlobWithWorker(options);
+    }
+    return buildArchiveBlobInMainThread(options);
   };
 
   graphArchive.parseArchiveBuffer = async function parseArchiveBuffer(buffer, options = {}) {
@@ -577,6 +818,10 @@
     return graphArchive.parseArchiveBuffer(buffer, {
       fileName: options.fileName || file.name || ''
     });
+  };
+
+  graphArchive.preload = function preload() {
+    return ensureZipLibrary().then(() => true).catch(() => false);
   };
 
   graphArchive.constants = Object.freeze({

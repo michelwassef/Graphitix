@@ -139,6 +139,18 @@
           }
         }
       ]
+    },
+    transform: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'currentColor',
+            d: 'M3 5h12v2H3V5zm14 0h4v6h-4V5zM3 11h8v2H3v-2zm10 0h4v8h-4v-8zM3 17h14v2H3v-2zm16 0h2v4h-2v-4z'
+          }
+        }
+      ]
     }
   });
 
@@ -965,6 +977,49 @@
       hostId: `${scopeId}FontHost`,
       hint: DEFAULT_HINT
     });
+    const dataTransformsSection = (key) => ({
+      type: 'buttons',
+      caption: 'Data',
+      ariaLabel: 'Input data transforms',
+      buttons: [
+        button(`${key}TransformCpm`, 'CPM', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Create a CPM-normalized data tab'
+        }),
+        button(`${key}TransformLog2p1`, 'Log2+1', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Create a log2(x+1) transformed data tab'
+        }),
+        button(`${key}TransformCenterRowsMean`, 'Center rows (mean)', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Center rows by subtracting row mean'
+        }),
+        button(`${key}TransformCenterRowsMedian`, 'Center rows (median)', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Center rows by subtracting row median'
+        }),
+        button(`${key}TransformCenterColsMean`, 'Center cols (mean)', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Center columns by subtracting column mean'
+        }),
+        button(`${key}TransformCenterColsMedian`, 'Center cols (median)', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Center columns by subtracting column median'
+        }),
+        button(`${key}TransformNormalizeRows`, 'Normalize rows (z)', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Normalize rows to z-score'
+        }),
+        button(`${key}TransformNormalizeCols`, 'Normalize cols (z)', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Normalize columns to z-score'
+        }),
+        button(`${key}TransformCustom`, 'Custom', 'transform', {
+          classes: ['workspace-toolbar__button--text-only'],
+          title: 'Create a transformed data tab from a custom expression'
+        })
+      ]
+    });
 
     const openMenuItems = (key) => [
       {
@@ -1052,6 +1107,7 @@
             ]
           },
           history('scatter'),
+          dataTransformsSection('scatter'),
           dock('scatter'),
           buildMatchStylesSection()
         ]

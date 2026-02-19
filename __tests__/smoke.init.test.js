@@ -26,6 +26,8 @@ describe('App initialization', () => {
       require('../js/vendor.js');
       require('../js/shared/fileIO.js');
       require('../js/shared/debounce.js');
+      require('../js/shared/dataTransforms.js');
+      require('../js/shared/dataViews.js');
       require('../js/shared/undo.js');
       require('../js/shared/resizer.js');
       require('../js/shared/dom.js');

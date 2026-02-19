@@ -41,6 +41,22 @@
   }
   const notesState = { text: '', open: false, control: null };
   const formControls = Shared.formControls = Shared.formControls || {};
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      console.debug('Debug: scatter component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: scatter component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
     try {
@@ -103,6 +119,11 @@
   const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 8000;
   const SCATTER_AUTO_DRAW_COL_THRESHOLD = 200;
   const SCATTER_AUTO_DRAW_CELL_THRESHOLD = 160000;
+  const SCATTER_DATA_VIEW_MAX = 12;
+  const SCATTER_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+    headerRows: 1,
+    startCol: 1
+  });
 
   const SCATTER_DENSITY_MODE_DEFAULT = 'auto';
   const SCATTER_DENSITY_PALETTE_DEFAULT = 'viridis';
@@ -5333,6 +5354,9 @@
     };
   let scatterDrawToken=0;
   let scatterHot = null;
+  let scatterDataViewsManager = null;
+  let scatterDataToolbarBound = false;
+  let scatterDataToolbarLastActivation = 0;
   let scatterRenderRowEl = null;
   let scatterRenderButtonEl = null;
   let scatterAutoDrawNoticeEl = null;
@@ -5385,6 +5409,208 @@
         }
         return reason=>syncScatterAutoDrawNoticeWidth(reason||'immediate');
       })();
+
+      const activateScatterDataToolbar = (reason) => {
+        const now = Date.now();
+        if(now - scatterDataToolbarLastActivation < 80){
+          return false;
+        }
+        scatterDataToolbarLastActivation = now;
+        const activated = !!Shared.workspaceToolbar?.activateSection?.('scatter', 'Data');
+        if(activated){
+          scatterDebug('Debug: scatter data toolbar activated', { reason: reason || 'unknown' });
+        }
+        return activated;
+      };
+
+      const ensureScatterDataViewsForHot = (hotInstance, options = {}) => {
+        if(!hotInstance || typeof hotInstance.getData !== 'function'){
+          return null;
+        }
+        if(typeof Shared.dataViews?.createManager !== 'function'){
+          return null;
+        }
+        if(!hotInstance.__scatterDataViewsManager){
+          hotInstance.__scatterDataViewsManager = Shared.dataViews.createManager({
+            componentKey: 'scatter',
+            maxViews: SCATTER_DATA_VIEW_MAX,
+            initialData: hotInstance.getData() || [],
+            onActiveViewChanged(view){
+              if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+                return;
+              }
+              const nextData = Array.isArray(view.data) ? view.data : [];
+              hotInstance.loadData(nextData);
+              if(view.exclusions){
+                hotInstance.applyExclusions?.(view.exclusions);
+              }
+              ensureScatterHeaderTitles(hotInstance, { viewMode: scatterState.viewMode });
+              markScatterOverlayPending('data-view-switch');
+              scheduleDrawScatter({ reason: 'data-view-switch' });
+            },
+            onInteraction(){
+              activateScatterDataToolbar('data-tab-interaction');
+            }
+          });
+          scatterDebug('Debug: scatter data views manager created', {
+            tabId: hotInstance.__scatterTabId || null
+          });
+        }
+        const manager = hotInstance.__scatterDataViewsManager;
+        const hostWrapper = options.wrapper || scatterHotWrapper || document.getElementById('scatterHotWrapper');
+        const hostContainer = options.container || hotInstance.__scatterHostContainer || scatterHotContainer || document.getElementById('scatterHot');
+        if(hostWrapper && hostContainer){
+          manager.mount({
+            wrapper: hostWrapper,
+            tableContainer: hostContainer
+          });
+          manager.refresh?.();
+        }
+        scatterDataViewsManager = manager;
+        return manager;
+      };
+
+      const syncScatterActiveDataViewFromHot = (hotInstance, reason) => {
+        const hot = hotInstance || scatterHot || scatterRefs.hot;
+        if(!hot || typeof hot.getData !== 'function'){
+          return;
+        }
+        const manager = hot.__scatterDataViewsManager || scatterDataViewsManager;
+        if(!manager){
+          return;
+        }
+        manager.updateActiveData(hot.getData() || []);
+        manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+        if(reason === 'afterLoadData'){
+          manager.refresh?.();
+        }
+      };
+
+      const applyScatterTransformToNewView = (transformSpec, options = {}) => {
+        const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
+        if(!hot){
+          return false;
+        }
+        const manager = ensureScatterDataViewsForHot(hot, {
+          wrapper: scatterHotWrapper,
+          container: hot.__scatterHostContainer || scatterHotContainer
+        });
+        if(!manager || typeof manager.applyTransform !== 'function'){
+          console.warn('scatter data transform skipped: Shared.dataViews unavailable');
+          return false;
+        }
+        syncScatterActiveDataViewFromHot(hot, 'transform-before');
+        const result = manager.applyTransform(transformSpec, {
+          title: options.title,
+          reason: options.reason || 'toolbar-transform',
+          transformOptions: Object.assign({}, SCATTER_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+        });
+        if(!result?.ok){
+          const message = result?.error || 'Transformation failed.';
+          if(typeof global.alert === 'function'){
+            global.alert(`Unable to transform data: ${message}`);
+          }
+          scatterDebug('Debug: scatter transform failed', {
+            message,
+            transform: transformSpec?.type || null
+          });
+          return false;
+        }
+        activateScatterDataToolbar('transform-applied');
+        scatterDebug('Debug: scatter transform created view', {
+          title: result?.view?.title || null,
+          summary: result?.result?.summary || null
+        });
+        return true;
+      };
+
+      const bindScatterDataToolbar = () => {
+        if(scatterDataToolbarBound || !document){
+          return;
+        }
+        document.addEventListener('click', event => {
+          const button = event.target?.closest?.(
+            '#scatterTransformCpm, #scatterTransformLog2p1, #scatterTransformCenterRowsMean, #scatterTransformCenterRowsMedian, #scatterTransformCenterColsMean, #scatterTransformCenterColsMedian, #scatterTransformNormalizeRows, #scatterTransformNormalizeCols, #scatterTransformCustom'
+          );
+          if(!button){
+            return;
+          }
+          if(button.id === 'scatterTransformCpm'){
+            applyScatterTransformToNewView({ type: 'cpm', orientation: 'column' }, {
+              title: 'CPM'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformLog2p1'){
+            applyScatterTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, {
+              title: 'log2(x+1)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformCenterRowsMean'){
+            applyScatterTransformToNewView({ type: 'centerRows', method: 'mean' }, {
+              title: 'Center rows (mean)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformCenterRowsMedian'){
+            applyScatterTransformToNewView({ type: 'centerRows', method: 'median' }, {
+              title: 'Center rows (median)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformCenterColsMean'){
+            applyScatterTransformToNewView({ type: 'centerColumns', method: 'mean' }, {
+              title: 'Center cols (mean)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformCenterColsMedian'){
+            applyScatterTransformToNewView({ type: 'centerColumns', method: 'median' }, {
+              title: 'Center cols (median)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformNormalizeRows'){
+            applyScatterTransformToNewView({ type: 'normalizeRows' }, {
+              title: 'Normalize rows (z)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformNormalizeCols'){
+            applyScatterTransformToNewView({ type: 'normalizeColumns' }, {
+              title: 'Normalize cols (z)'
+            });
+            return;
+          }
+          if(button.id === 'scatterTransformCustom'){
+            const expression = global.prompt
+              ? global.prompt(
+                'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+                'log2(x+1)'
+              )
+              : '';
+            if(expression == null){
+              return;
+            }
+            const normalized = String(expression || '').trim();
+            if(!normalized){
+              return;
+            }
+            applyScatterTransformToNewView({ type: 'custom', expression: normalized }, {
+              title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+            });
+          }
+        }, true);
+        if(scatterHotWrapper && !scatterHotWrapper.__scatterDataToolbarFocusBound){
+          scatterHotWrapper.addEventListener('mousedown', () => {
+            activateScatterDataToolbar('table-mousedown');
+          }, true);
+          scatterHotWrapper.__scatterDataToolbarFocusBound = true;
+        }
+        scatterDataToolbarBound = true;
+      };
+
       if(scatterRenderButtonEl){
         scatterRenderButtonEl.addEventListener('click', () => {
           scatterDebug('Debug: scatter manual render button');
@@ -5523,16 +5749,21 @@
               console.log('scatter afterChange', {count:changes.length, source});
               revalidateActiveScatterLogAxis('x','data-edit');
               revalidateActiveScatterLogAxis('y','data-edit');
+              syncScatterActiveDataViewFromHot(hotInstance, 'afterChange');
               const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
               if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
                 markScatterThresholdSelectionPending('data-edit');
               }
             },
             afterLoadData(){
+              syncScatterActiveDataViewFromHot(hotInstance, 'afterLoadData');
               const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
               if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
                 markScatterThresholdSelectionPending('data-load');
               }
+            },
+            afterSelectionEnd(){
+              activateScatterDataToolbar('table-selection');
             },
             afterUndo(){
               console.log('scatter undo');
@@ -5543,6 +5774,7 @@
           }
         });
         if(hotInstance){
+          hotInstance.__scatterHostContainer = container || null;
           scatterRefs.hot = hotInstance;
         }
         if(hotInstance && !hotInstance.__scatterSelectionListenerBound){
@@ -5591,10 +5823,16 @@
           }
           const activeTabId = Shared.hot.resolveActiveTabId?.() || 'scatter-default';
           if(scatterHot){
+            scatterHot.__scatterHostContainer = baseContainer;
             scatterHot.__scatterTabId = activeTabId;
             scheduleScatterSelectionRestore(scatterHot, activeTabId);
             scatterRefs.hot = scatterHot;
             ensureScatterHeaderTitles(scatterHot, { viewMode: scatterState.viewMode });
+            ensureScatterDataViewsForHot(scatterHot, {
+              wrapper,
+              container: baseContainer
+            });
+            syncScatterActiveDataViewFromHot(scatterHot, 'ensure-active-tab');
           }
           return scatterHot;
         }
@@ -5609,12 +5847,20 @@
           scatterHot = entry.instance;
           scatterRefs.hot = scatterHot;
         }
+        if(scatterHot){
+          scatterHot.__scatterHostContainer = entry?.container || baseContainer;
+        }
         const activeTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'scatter-default';
         if(scatterHot){
           scatterHot.__scatterTabId = activeTabId;
           scheduleScatterSelectionRestore(scatterHot, activeTabId);
           scatterRefs.hot = scatterHot;
           ensureScatterHeaderTitles(scatterHot, { viewMode: scatterState.viewMode });
+          ensureScatterDataViewsForHot(scatterHot, {
+            wrapper,
+            container: entry?.container || baseContainer
+          });
+          syncScatterActiveDataViewFromHot(scatterHot, 'ensure-active-tab');
         }
         const tableImport = Shared.tableImport;
         if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
@@ -5647,6 +5893,7 @@
         scatterRefs.hot = scatterHot;
       }
       scatter.__ensureHotForActiveTab = ensureScatterHotForActiveTab;
+      bindScatterDataToolbar();
       if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = true;
       const scatterExamples={
         scatter:[
@@ -7922,6 +8169,38 @@
         }
         const safeIndex = Number.isInteger(index) ? index : 0;
         return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length];
+      }
+
+      function compactScatterLabelMapForPayload(mapValue, defaults, mapName){
+        if(!mapValue || typeof mapValue !== 'object' || Array.isArray(mapValue)){
+          return {};
+        }
+        const keys = Object.keys(mapValue);
+        if(!keys.length){
+          return {};
+        }
+        if(keys.length < 1000 || !Array.isArray(defaults) || !defaults.length){
+          return { ...mapValue };
+        }
+        const compact = {};
+        let pruned = 0;
+        for(let i = 0; i < keys.length; i += 1){
+          const key = keys[i];
+          const value = mapValue[key];
+          const defaultValue = defaults[i % defaults.length];
+          if(value === defaultValue){
+            pruned += 1;
+            continue;
+          }
+          compact[key] = value;
+        }
+        scatterDebug('Debug: scatter payload label map compacted', {
+          map: mapName || 'labels',
+          total: keys.length,
+          pruned,
+          kept: keys.length - pruned
+        });
+        return compact;
       }
 
       function ensureScatterLabelShapes(labels, meta){
@@ -12264,10 +12543,26 @@
       notesState.open = notesOpen;
       const axisSettings = ensureScatterAxisSettings();
       const fontStyles = exportFontStyles('scatter');
+      const activeHot = scatterHot || scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+      const activeManager = activeHot
+        ? ensureScatterDataViewsForHot(activeHot, {
+            wrapper: scatterHotWrapper,
+            container: activeHot.__scatterHostContainer || scatterHotContainer
+          })
+        : (scatterDataViewsManager || null);
+      if(activeHot){
+        syncScatterActiveDataViewFromHot(activeHot, 'payload');
+      }
+      const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+      const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+      const persistedLabelColors = compactScatterLabelMapForPayload(scatterLabelColors, DEFAULT_SCATTER_COLORS, 'labelColors');
+      const persistedLabelShapes = compactScatterLabelMapForPayload(scatterLabelShapes, SCATTER_SHAPE_DEFAULTS, 'labelShapes');
       return {
         type:'scatter',
-        data:scatterHot.getData(),
-        exclusions: scatterHot?.exportExclusions?.() || Shared.hot.exportExclusions(scatterHot),
+        data:activeHot?.getData?.() || [],
+        exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        dataViews: includeDataViews ? dataViewsPayload : undefined,
+        activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config:{
           title:scatterTitleText,
             xLabel:scatterState.xLabelText,
@@ -12283,8 +12578,8 @@
             border:scatterBorder.value,
             borderWidth:scatterBorderWidth.value,
             alpha:scatterAlpha.value,
-            labelColors:{ ...scatterLabelColors },
-            labelShapes:{ ...scatterLabelShapes },
+            labelColors: persistedLabelColors,
+            labelShapes: persistedLabelShapes,
             labelStyles:{ ...scatterLabelStyles },
             overlayStyles: sanitizeScatterOverlayStylesMap(scatterOverlayStyles),
             showGrid:scatterShowGrid.checked,
@@ -12455,12 +12750,35 @@
           scheduleDrawScatter = () => {};
         }
       const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
+      const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
+      const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
+      const manager = ensureScatterDataViewsForHot(scatterHot, {
+        wrapper: scatterHotWrapper,
+        container: scatterHot?.__scatterHostContainer || scatterHotContainer
+      });
+      if(manager){
+        if(serializedViews){
+          manager.deserialize(serializedViews, {
+            fallbackData: dataMatrix,
+            activeViewId: requestedActiveViewId,
+            silent: true,
+            activate: false
+          });
+        }else{
+          manager.initialize(dataMatrix, { rawTitle: 'Raw' });
+        }
+      }
+      const activeViewData = manager?.getActiveView?.()?.data;
+      const matrixToLoad = Array.isArray(activeViewData) ? activeViewData : dataMatrix;
       if(scatterHot && typeof scatterHot.loadData === 'function'){
-        scatterHot.loadData(dataMatrix);
+        scatterHot.loadData(matrixToLoad);
         if(obj.exclusions){
           scatterHot.applyExclusions?.(obj.exclusions);
+        }else if(manager?.getActiveView?.()?.exclusions){
+          scatterHot.applyExclusions?.(manager.getActiveView().exclusions);
         }
         ensureScatterHeaderTitles(scatterHot);
+        syncScatterActiveDataViewFromHot(scatterHot, 'payload-load');
       }
         const c=obj.config||{};
         applyScatterThemeConfig(c);

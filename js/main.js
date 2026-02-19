@@ -93,6 +93,25 @@
     domReady: !!bootstrap?.dom
   });
 
+  (function scheduleGraphArchivePreload() {
+    const preload = Shared?.graphArchive?.preload;
+    if (typeof preload !== 'function') {
+      return;
+    }
+    const runner = () => {
+      preload().then(ok => {
+        debug('Debug: graph archive preload complete', { ok });
+      }).catch(err => {
+        debug('Debug: graph archive preload failed', { error: err?.message || String(err) });
+      });
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => runner(), { timeout: 2000 });
+      return;
+    }
+    window.setTimeout(() => runner(), 500);
+  })();
+
   const MainComponents = Main.components || {};
   const MainSession = bootstrap.session;
   const MainPreviews = bootstrap.previews;

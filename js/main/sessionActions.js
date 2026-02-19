@@ -299,19 +299,27 @@
     }
 
     const fileName = resolveArchiveNameForScope(context, scope, options);
-    const blob = await graphArchive.buildArchiveBlob({
-      tabs: snapshot.tabs,
-      activeIndex: snapshot.activeIndex,
-      fileName,
-      scope,
-      compression: options.compression || 'STORE'
-    });
-    debug(context, 'saveWorkspaceArchiveWithScope.archiveBuilt', {
-      scope,
-      tabCount: snapshot.tabs.length,
-      bytes: blob?.size || 0,
-      fileName
-    });
+    let archiveBlobPromise = null;
+    const getArchiveBlob = async () => {
+      if (!archiveBlobPromise) {
+        archiveBlobPromise = graphArchive.buildArchiveBlob({
+          tabs: snapshot.tabs,
+          activeIndex: snapshot.activeIndex,
+          fileName,
+          scope,
+          compression: options.compression || 'STORE'
+        }).then(blob => {
+          debug(context, 'saveWorkspaceArchiveWithScope.archiveBuilt', {
+            scope,
+            tabCount: snapshot.tabs.length,
+            bytes: blob?.size || 0,
+            fileName
+          });
+          return blob;
+        });
+      }
+      return archiveBlobPromise;
+    };
 
     const canReuseHandle = !options.forcePicker
       && !!workspaceState.sessionFileHandle
@@ -322,7 +330,7 @@
     const result = await saveFn({
       context: 'workspace',
       fileHandle: canReuseHandle ? workspaceState.sessionFileHandle : null,
-      payload: blob,
+      getPayload: getArchiveBlob,
       fileName,
       downloadFileName: fileName,
       fileTypes: sessionFileTypes,

@@ -71,6 +71,21 @@
       && typeof value.size === 'number';
   }
 
+  function hasUserActivation(){
+    const activation = global.navigator && global.navigator.userActivation;
+    if(!activation || typeof activation.isActive !== 'boolean'){
+      return true;
+    }
+    return activation.isActive;
+  }
+
+  function isUserActivationError(err){
+    const name = String(err?.name || '');
+    const message = String(err?.message || '');
+    return name === 'SecurityError'
+      && /user activation is required/i.test(message);
+  }
+
   function isBinaryLike(value){
     if(isBlobLike(value)){
       return true;
@@ -237,11 +252,19 @@
         if(query === 'granted') return true;
       }
       if(typeof handle.requestPermission === 'function'){
+        if(!hasUserActivation()){
+          debug('verifyPermission.requestSkippedNoActivation', { write });
+          return false;
+        }
         const request = await handle.requestPermission(opts);
         debug('verifyPermission.request', { write, request });
         return request === 'granted';
       }
     }catch(err){
+      if(isUserActivationError(err)){
+        debug('verifyPermission.activationError', { write });
+        return false;
+      }
       console.error('fileIO.verifyPermission error', err);
     }
     return false;
@@ -261,19 +284,23 @@
       mimeType
     } = options || {};
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
-    const data = await resolvePayload(getPayload, payload);
-    const normalized = normalizeWritablePayload(data);
     debug('saveGraphFile.start', {
       context,
       hasHandle: !!fileHandle,
-      targetName,
-      payloadKind: normalized.kind,
-      payloadLength: normalized.length
+      targetName
     });
     if(fileHandle && typeof fileHandle.createWritable === 'function'){
       const permitted = await fileIO.verifyPermission(fileHandle, true);
       debug('saveGraphFile.permission', { context, permitted });
       if(permitted){
+        const data = await resolvePayload(getPayload, payload);
+        const normalized = normalizeWritablePayload(data);
+        debug('saveGraphFile.payloadReady', {
+          context,
+          payloadKind: normalized.kind,
+          payloadLength: normalized.length,
+          via: 'existingHandle'
+        });
         await writeToHandle(fileHandle, data, context);
         ensureSetter(setFileHandle, fileHandle);
         if(fileHandle.name) ensureSetter(setFileName, fileHandle.name);
@@ -285,16 +312,23 @@
       return fileIO.saveGraphFileAs({
         context,
         getPayload,
-        payload: data,
+        payload,
         setFileHandle,
         setFileName,
         fileName: targetName,
         downloadFileName: targetName,
         fileTypes,
-        mimeType,
-        skipPayloadBuild: true
+        mimeType
       });
     }
+    const data = await resolvePayload(getPayload, payload);
+    const normalized = normalizeWritablePayload(data);
+    debug('saveGraphFile.payloadReady', {
+      context,
+      payloadKind: normalized.kind,
+      payloadLength: normalized.length,
+      via: 'download'
+    });
     debug('saveGraphFile.downloadFallback', { context });
     if(isBinaryLike(data)){
       fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
@@ -314,34 +348,70 @@
       fileName,
       downloadFileName,
       fileTypes,
-      mimeType,
-      skipPayloadBuild
+      mimeType
     } = options || {};
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
-    const data = skipPayloadBuild ? payload : await resolvePayload(getPayload, payload);
-    const normalized = normalizeWritablePayload(data);
     debug('saveGraphFileAs.start', {
       context,
       targetName,
-      hasPicker: !!global.showSaveFilePicker,
-      payloadKind: normalized.kind,
-      payloadLength: normalized.length
+      hasPicker: !!global.showSaveFilePicker
     });
     if(global.showSaveFilePicker){
+      if(!hasUserActivation()){
+        debug('saveGraphFileAs.skipPickerNoActivation', { context, targetName });
+      }else{
       try{
         const handle = await global.showSaveFilePicker({
           types: resolveTypes(fileTypes),
           suggestedName: targetName
+        });
+        const data = await resolvePayload(getPayload, payload);
+        const normalized = normalizeWritablePayload(data);
+        debug('saveGraphFileAs.payloadReady', {
+          context,
+          payloadKind: normalized.kind,
+          payloadLength: normalized.length,
+          via: 'picker'
         });
         await writeToHandle(handle, data, context);
         ensureSetter(setFileHandle, handle);
         if(handle?.name) ensureSetter(setFileName, handle.name);
         return { status: 'saved', via: 'picker', fileHandle: handle, fileName: handle.name, payload: data };
       }catch(err){
+        if(err && err.name === 'AbortError'){
+          debug('saveGraphFileAs.cancelled', { context, targetName });
+          return { status: 'cancelled', via: 'picker', fileName: targetName };
+        }
+        if(isUserActivationError(err)){
+          debug('saveGraphFileAs.activationFallback', { context, targetName });
+          const data = await resolvePayload(getPayload, payload);
+          const normalized = normalizeWritablePayload(data);
+          debug('saveGraphFileAs.payloadReady', {
+            context,
+            payloadKind: normalized.kind,
+            payloadLength: normalized.length,
+            via: 'download-activation-fallback'
+          });
+          if(isBinaryLike(data)){
+            fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
+          }else{
+            fileIO.downloadJSON(data, targetName);
+          }
+          return { status: 'downloaded', via: 'download-activation-fallback', fileName: targetName, payload: data };
+        }
         console.error('fileIO.saveGraphFileAs error', { context, err });
         return { status: 'error', via: 'picker', error: err };
       }
+      }
     }
+    const data = await resolvePayload(getPayload, payload);
+    const normalized = normalizeWritablePayload(data);
+    debug('saveGraphFileAs.payloadReady', {
+      context,
+      payloadKind: normalized.kind,
+      payloadLength: normalized.length,
+      via: 'download'
+    });
     debug('saveGraphFileAs.downloadFallback', { context });
     if(isBinaryLike(data)){
       fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
