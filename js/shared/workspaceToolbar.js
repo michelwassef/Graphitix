@@ -1171,6 +1171,7 @@
             ]
           },
           history('heatmap'),
+          dataTransformsSection('heatmap'),
           dock('heatmap'),
           buildMatchStylesSection()
         ]

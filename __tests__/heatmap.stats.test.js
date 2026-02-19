@@ -88,6 +88,73 @@ describe('Heatmap stats formatting', () => {
     expect(statsContent.textContent).toContain('<script>alert(1)</script>');
   });
 
+  test('data transform controls create a derived data tab while keeping raw tab', () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    expect(hot).toBeTruthy();
+    const matrix = [
+      ['Gene', 'ArrayA', 'ArrayB'],
+      ['Gene1', 1, 3],
+      ['Gene2', 2, 4]
+    ];
+    hot.loadData(matrix);
+
+    const centerGenes = document.getElementById('heatmapCenterGenes');
+    const normalizeGenes = document.getElementById('heatmapNormalizeGenes');
+    expect(centerGenes).toBeTruthy();
+    expect(normalizeGenes).toBeTruthy();
+    centerGenes.checked = true;
+    centerGenes.dispatchEvent(new Event('change'));
+
+    let tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
+    expect(tabs.length).toBe(2);
+    expect(tabs[0]?.textContent?.trim()?.toLowerCase()).toContain('raw');
+    expect(tabs[1]?.textContent || '').toMatch(/center rows/i);
+
+    normalizeGenes.checked = true;
+    normalizeGenes.dispatchEvent(new Event('change'));
+
+    tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
+    expect(tabs.length).toBe(2);
+
+    const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
+    expect(activeTab).toBeTruthy();
+    expect(activeTab.textContent).toMatch(/normalize rows/i);
+
+    const transformed = hot.getData();
+    expect(Number(transformed?.[1]?.[1])).toBeCloseTo(-0.707106, 5);
+    expect(Number(transformed?.[1]?.[2])).toBeCloseTo(0.707106, 5);
+  });
+
+  test('closing materialized transform tab clears adjust/filter selections', () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    expect(hot).toBeTruthy();
+    hot.loadData([
+      ['Gene', 'ArrayA', 'ArrayB'],
+      ['Gene1', 1, 3],
+      ['Gene2', 2, 4]
+    ]);
+
+    const centerGenes = document.getElementById('heatmapCenterGenes');
+    const filterPresent = document.getElementById('heatmapFilterPresentEnable');
+    expect(centerGenes).toBeTruthy();
+    expect(filterPresent).toBeTruthy();
+
+    centerGenes.checked = true;
+    centerGenes.dispatchEvent(new Event('change'));
+    filterPresent.checked = true;
+    filterPresent.dispatchEvent(new Event('change'));
+
+    const activeClose = document.querySelector('#heatmapHotWrapper .data-view-tabs__item--active .data-view-tabs__close');
+    expect(activeClose).toBeTruthy();
+    activeClose.click();
+
+    expect(centerGenes.checked).toBe(false);
+    expect(filterPresent.checked).toBe(false);
+    const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
+    expect(activeTab).toBeTruthy();
+    expect((activeTab.textContent || '').toLowerCase()).toContain('raw');
+  });
+
   test('graph title stays above long vertical column labels', () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();

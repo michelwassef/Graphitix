@@ -15,6 +15,22 @@
       console.debug('Debug: heatmap component notes helper require failed', { message: err?.message || String(err) });
     }
   }
+  const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
+  if(typeof dataTransformsApi.applyTransform !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataTransforms.js');
+    }catch(err){
+      console.debug('Debug: heatmap component dataTransforms helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: heatmap component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -313,6 +329,11 @@
   const HEATMAP_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const HEATMAP_AUTO_DRAW_COL_THRESHOLD = 5000;
   const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const HEATMAP_DATA_VIEW_MAX = 12;
+  const HEATMAP_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
+    headerRows: 1,
+    startCol: 0
+  });
   const DEFAULT_DENDROGRAM_COLOR = '#3d3d3d';
   const DEFAULT_DENDROGRAM_THICKNESS = 1;
   const HEATMAP_CLUSTER_WORKER = {
@@ -325,6 +346,9 @@
   let heatmapRenderRowEl = null;
   let heatmapRenderButtonEl = null;
   let heatmapAutoDrawNoticeEl = null;
+  let heatmapDataToolbarBound = false;
+  let heatmapDataToolbarLastActivation = 0;
+  let heatmapDataViewsManager = null;
 
   const state = {
     hot: null,
@@ -349,6 +373,9 @@
     logPlusOne: false,
     isRendering: false,
     drawToken: 0,
+    suspendControlSchedule: false,
+    suspendDataViewMaterialization: false,
+    activeMaterializedViewId: null,
     dendrogramSettings: {
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
@@ -470,6 +497,230 @@
     }
     return reason => syncHeatmapAutoDrawNoticeWidth(reason || 'immediate');
   })();
+
+  function runWithHeatmapControlSuspension(callback){
+    const previousSchedule = !!state.suspendControlSchedule;
+    const previousMaterialization = !!state.suspendDataViewMaterialization;
+    state.suspendControlSchedule = true;
+    state.suspendDataViewMaterialization = true;
+    try{
+      return typeof callback === 'function' ? callback() : undefined;
+    }finally{
+      state.suspendControlSchedule = previousSchedule;
+      state.suspendDataViewMaterialization = previousMaterialization;
+    }
+  }
+
+  function activateHeatmapDataToolbar(reason){
+    const now = Date.now();
+    if(now - heatmapDataToolbarLastActivation < 80){
+      return false;
+    }
+    heatmapDataToolbarLastActivation = now;
+    const activated = !!Shared.workspaceToolbar?.activateSection?.('heatmap', 'Data');
+    if(activated){
+      debugLog('Debug: heatmap data toolbar activated', { reason: reason || 'unknown' });
+    }
+    return activated;
+  }
+
+  function ensureHeatmapDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__heatmapDataViewsManager){
+      hotInstance.__heatmapDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'heatmap',
+        maxViews: HEATMAP_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view, context){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const closedViewId = String(context?.previousViewId || '').trim();
+          const activeMaterializedId = String(state.activeMaterializedViewId || '').trim();
+          const closedActiveMaterialized = context?.reason === 'tab-close'
+            && !!closedViewId
+            && !!activeMaterializedId
+            && closedViewId === activeMaterializedId;
+          const closedToNonMaterialized = context?.reason === 'tab-close'
+            && !isHeatmapMaterializedDataView(view)
+            && hasHeatmapDataTransformSelection(collectSettings());
+          if(closedActiveMaterialized || closedToNonMaterialized){
+            clearHeatmapAdjustAndFilterControls();
+          }
+          if(isHeatmapMaterializedDataView(view)){
+            state.activeMaterializedViewId = view.id;
+          }else{
+            state.activeMaterializedViewId = null;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData);
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          markHeatmapOverlayPending('data-view-switch');
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          activateHeatmapDataToolbar('data-tab-interaction');
+        }
+      });
+      debugLog('Debug: heatmap data views manager created', {
+        tabId: hotInstance.__heatmapTabId || null
+      });
+    }
+    const manager = hotInstance.__heatmapDataViewsManager;
+    const hostWrapper = options.wrapper || global.document?.getElementById?.('heatmapHotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null;
+    if(hostWrapper && hostContainer){
+      manager.mount({
+        wrapper: hostWrapper,
+        tableContainer: hostContainer
+      });
+      manager.refresh?.();
+    }
+    const activeView = manager.getActiveView?.() || null;
+    state.activeMaterializedViewId = isHeatmapMaterializedDataView(activeView) ? activeView.id : null;
+    heatmapDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncHeatmapActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__heatmapDataViewsManager || heatmapDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+  }
+
+  function applyHeatmapToolbarTransformToNewView(transformSpec, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureHeatmapDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+    });
+    if(!manager || typeof manager.applyTransform !== 'function'){
+      console.warn('heatmap data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncHeatmapActiveDataViewFromHot(hot, 'transform-before');
+    const result = manager.applyTransform(transformSpec, {
+      title: options.title,
+      reason: options.reason || 'toolbar-transform',
+      transformOptions: Object.assign({}, HEATMAP_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+    });
+    if(!result?.ok){
+      const message = result?.error || 'Transformation failed.';
+      if(typeof global.alert === 'function'){
+        global.alert(`Unable to transform data: ${message}`);
+      }
+      debugLog('Debug: heatmap toolbar transform failed', {
+        message,
+        transform: transformSpec?.type || null
+      });
+      return false;
+    }
+    activateHeatmapDataToolbar('transform-applied');
+    debugLog('Debug: heatmap toolbar transform created view', {
+      title: result?.view?.title || null,
+      summary: result?.result?.summary || null
+    });
+    return true;
+  }
+
+  function bindHeatmapDataToolbar(){
+    if(heatmapDataToolbarBound || !global.document){
+      return;
+    }
+    global.document.addEventListener('click', event => {
+      const closeButton = event.target?.closest?.('#heatmapHotWrapper .data-view-tabs__close[data-view-id]');
+      if(closeButton){
+        clearHeatmapAdjustAndFilterControls();
+        state.activeMaterializedViewId = null;
+        activateHeatmapDataToolbar('data-tab-close');
+        return;
+      }
+      const button = event.target?.closest?.(
+        '#heatmapTransformCpm, #heatmapTransformLog2p1, #heatmapTransformCenterRowsMean, #heatmapTransformCenterRowsMedian, #heatmapTransformCenterColsMean, #heatmapTransformCenterColsMedian, #heatmapTransformNormalizeRows, #heatmapTransformNormalizeCols, #heatmapTransformCustom'
+      );
+      if(!button){
+        return;
+      }
+      if(button.id === 'heatmapTransformCpm'){
+        applyHeatmapToolbarTransformToNewView({ type: 'cpm', orientation: 'column' }, { title: 'CPM' });
+        return;
+      }
+      if(button.id === 'heatmapTransformLog2p1'){
+        applyHeatmapToolbarTransformToNewView({ type: 'log', base: 2, pseudoCount: 1 }, { title: 'log2(x+1)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformCenterRowsMean'){
+        applyHeatmapToolbarTransformToNewView({ type: 'centerRows', method: 'mean' }, { title: 'Center rows (mean)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformCenterRowsMedian'){
+        applyHeatmapToolbarTransformToNewView({ type: 'centerRows', method: 'median' }, { title: 'Center rows (median)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformCenterColsMean'){
+        applyHeatmapToolbarTransformToNewView({ type: 'centerColumns', method: 'mean' }, { title: 'Center cols (mean)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformCenterColsMedian'){
+        applyHeatmapToolbarTransformToNewView({ type: 'centerColumns', method: 'median' }, { title: 'Center cols (median)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformNormalizeRows'){
+        applyHeatmapToolbarTransformToNewView({ type: 'normalizeRows' }, { title: 'Normalize rows (z)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformNormalizeCols'){
+        applyHeatmapToolbarTransformToNewView({ type: 'normalizeColumns' }, { title: 'Normalize cols (z)' });
+        return;
+      }
+      if(button.id === 'heatmapTransformCustom'){
+        const expression = global.prompt
+          ? global.prompt(
+            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
+            'log2(x+1)'
+          )
+          : '';
+        if(expression == null){
+          return;
+        }
+        const normalized = String(expression || '').trim();
+        if(!normalized){
+          return;
+        }
+        applyHeatmapToolbarTransformToNewView({ type: 'custom', expression: normalized }, {
+          title: `Custom: ${normalized.slice(0, 24)}${normalized.length > 24 ? '...' : ''}`
+        });
+      }
+    }, true);
+    const wrapper = global.document.getElementById('heatmapHotWrapper');
+    if(wrapper && !wrapper.__heatmapDataToolbarFocusBound){
+      wrapper.addEventListener('mousedown', () => {
+        activateHeatmapDataToolbar('table-mousedown');
+      }, true);
+      wrapper.__heatmapDataToolbarFocusBound = true;
+    }
+    heatmapDataToolbarBound = true;
+  }
 
   function recordHeatmapChange(label, previous, next, apply){
     if(!heatmapUndoManager || typeof heatmapUndoManager.recordStateChange !== 'function'){
@@ -878,30 +1129,58 @@
     }
     const data = Shared.createEmptyData ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS) : [];
     console.debug('Debug: heatmap initHot using shared factory', { hasDataHelper: !!Shared.createEmptyData });
-    const createHeatmapTable = (container) => Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), {
-      debugLabel: 'heatmap',
-      data,
-      disablePaste: true,
-      pinFirstColumn: true,
-      rowSelection: null,
-      pinFirstRow: true,
-      scheduleOnLoadData: true,
-      hotOptions: {
-        stretchH: 'all',
-        minSpareRows: 5,
-        afterChange(changes, source){
-          if(changes && source !== 'loadData'){
-            console.log('heatmap afterChange', { count: changes.length, source });
+    const createHeatmapTable = (container) => {
+      let instance = null;
+      instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), {
+        debugLabel: 'heatmap',
+        data,
+        disablePaste: true,
+        pinFirstColumn: true,
+        rowSelection: null,
+        pinFirstRow: true,
+        scheduleOnLoadData: true,
+        hotOptions: {
+          stretchH: 'all',
+          minSpareRows: 5,
+          afterChange(changes, source){
+            if(changes && source !== 'loadData'){
+              console.log('heatmap afterChange', { count: changes.length, source });
+            }
+            if(changes){
+              syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
+            }
+          },
+          afterLoadData(){
+            syncHeatmapActiveDataViewFromHot(instance, 'afterLoadData');
+          },
+          afterSelectionEnd(){
+            activateHeatmapDataToolbar('table-selection');
+          },
+          afterCreateRow(){
+            syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterCreateCol(){
+            syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterRemoveRow(){
+            syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterRemoveCol(){
+            syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterUndo(){
+            console.log('heatmap undo');
+          },
+          afterRedo(){
+            console.log('heatmap redo');
           }
-        },
-        afterUndo(){
-          console.log('heatmap undo');
-        },
-        afterRedo(){
-          console.log('heatmap redo');
         }
+      });
+      if(instance){
+        instance.__heatmapHostContainer = container || null;
       }
-    });
+      return instance;
+    };
     const ensureHeatmapHotForActiveTab = () => {
       let wrapper = document.getElementById('heatmapHotWrapper');
       let baseContainer = document.getElementById('heatmapHot');
@@ -920,6 +1199,13 @@
           state.hot = createHeatmapTable(baseContainer);
         }
         if(state.hot){
+          state.hot.__heatmapHostContainer = baseContainer || null;
+          state.hot.__heatmapTabId = Shared.hot.resolveActiveTabId?.() || 'heatmap-default';
+          ensureHeatmapDataViewsForHot(state.hot, {
+            wrapper,
+            container: baseContainer
+          });
+          syncHeatmapActiveDataViewFromHot(state.hot, 'ensure-active-tab');
           global.__LAST_HEATMAP_HOT__ = state.hot;
         }
         return state.hot;
@@ -938,6 +1224,13 @@
         state.hot = createHeatmapTable(baseContainer);
       }
       if(state.hot){
+        state.hot.__heatmapHostContainer = entry?.container || baseContainer || null;
+        state.hot.__heatmapTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'heatmap-default';
+        ensureHeatmapDataViewsForHot(state.hot, {
+          wrapper,
+          container: entry?.container || baseContainer
+        });
+        syncHeatmapActiveDataViewFromHot(state.hot, 'ensure-active-tab');
         global.__LAST_HEATMAP_HOT__ = state.hot;
       }
       return state.hot;
@@ -1018,8 +1311,19 @@
     }
     chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value || 12), input: refs.fontSize, manual: true });
 
-    const schedule = () => state.scheduleDraw();
-    const scheduleViewOnly = reason => state.scheduleDraw({ viewOnly: true, reason });
+    const schedule = () => {
+      if(state.suspendControlSchedule){
+        return;
+      }
+      state.scheduleDraw();
+    };
+    const scheduleViewOnly = reason => {
+      if(state.suspendControlSchedule){
+        return;
+      }
+      state.scheduleDraw({ viewOnly: true, reason });
+    };
+    const materialize = reason => materializeHeatmapSelectionToDataView(reason);
 
     const updateViewControlState = () => {
       const view = refs.view?.value || 'corr-columns';
@@ -1085,12 +1389,20 @@
       enableEl.addEventListener('change', () => {
         toggle();
         console.debug('Debug: heatmap filter toggled', { id: enableEl.id, enabled: enableEl.checked });
+        if(materialize(`filter-toggle-${enableEl.id}`)){
+          return;
+        }
         schedule();
       });
       valueEls.forEach(el => {
         el?.addEventListener('input', () => {
           console.debug('Debug: heatmap filter value changed', { id: el.id, value: el.value });
           schedule();
+        });
+        el?.addEventListener('change', () => {
+          if(enableEl.checked){
+            materialize(`filter-value-${el.id}`);
+          }
         });
       });
       toggle();
@@ -1108,11 +1420,17 @@
       checkbox.addEventListener('change', () => {
         toggle();
         console.debug('Debug: heatmap center toggle', { id: checkbox.id, enabled: checkbox.checked });
+        if(materialize(`center-toggle-${checkbox.id}`)){
+          return;
+        }
         schedule();
       });
       radios.forEach(radio => {
         radio.addEventListener('change', () => {
           console.debug('Debug: heatmap center mode changed', { name: radioName, value: radio.value });
+          if(materialize(`center-mode-${radioName}`)){
+            return;
+          }
           schedule();
         });
       });
@@ -1189,9 +1507,21 @@
         state.logPlusOne = false;
       }
       console.debug('Debug: heatmap logTransform changed', { id: refs.logTransform.id, checked: refs.logTransform.checked, logPlusOne: state.logPlusOne });
+      if(materialize('log-transform')){
+        return;
+      }
       schedule();
     });
-    [refs.normalizeGenes, refs.normalizeArrays, refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
+    [refs.normalizeGenes, refs.normalizeArrays].forEach(el => {
+      el?.addEventListener('change', () => {
+        console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
+        if(materialize(`normalize-toggle-${el.id}`)){
+          return;
+        }
+        schedule();
+      });
+    });
+    [refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
       el?.addEventListener('change', () => {
         console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
@@ -1381,19 +1711,15 @@
     return Array.isArray(matrix) ? matrix.map(row => row.slice()) : [];
   }
 
-  function collectTableData(){
-    if(!state.hot || typeof state.hot.getData !== 'function'){
-      console.debug('Debug: heatmap collectTableData missing hot reference');
-      return null;
-    }
-    const data = state.hot.getData();
+  function parseHeatmapInputData(data, contextLabel){
+    const debugContext = contextLabel || 'collectTableData';
     if(!Array.isArray(data) || data.length < 2){
-      console.debug('Debug: heatmap collectTableData insufficient rows', { length: data?.length || 0 });
+      console.debug(`Debug: heatmap ${debugContext} insufficient rows`, { length: data?.length || 0 });
       return null;
     }
     const header = Array.isArray(data[0]) ? data[0] : [];
     if(header.length < 1){
-      console.debug('Debug: heatmap collectTableData insufficient columns', { columnCount: header.length });
+      console.debug(`Debug: heatmap ${debugContext} insufficient columns`, { columnCount: header.length });
       return null;
     }
     const bodyRows = data.slice(1).filter(row => Array.isArray(row));
@@ -1406,18 +1732,25 @@
       return !Number.isFinite(numeric);
     });
     const startColumnIndex = firstColumnHasNonNumericText ? 1 : 0;
-    console.debug('Debug: heatmap collectTableData header interpretation', {
+    console.debug(`Debug: heatmap ${debugContext} header interpretation`, {
       firstColumnHasNonNumericText,
       startColumnIndex,
       headerLength: header.length
     }); // Debug: record header parsing heuristics
     if(header.length - startColumnIndex < 1){
-      console.debug('Debug: heatmap collectTableData insufficient data columns', {
+      console.debug(`Debug: heatmap ${debugContext} insufficient data columns`, {
         headerLength: header.length,
         startColumnIndex
       });
       return null;
     }
+    const rowHeaderLabel = firstColumnHasNonNumericText
+      ? (
+        header[0] !== undefined && header[0] !== null && String(header[0]).trim() !== ''
+          ? String(header[0]).trim()
+          : 'Row'
+      )
+      : 'Row';
     const rawColumnLabels = header.slice(startColumnIndex);
     const columnLabels = [];
     const columnMeta = [];
@@ -1477,7 +1810,7 @@
         removedColumns += 1;
       }
     });
-    console.debug('Debug: heatmap collectTableData summary', {
+    console.debug(`Debug: heatmap ${debugContext} summary`, {
       rowsInSheet: data.length - 1,
       usableRows: filteredMatrix.length,
       rawColumns: columnLabels.length,
@@ -1494,9 +1827,23 @@
       matrix: filteredMatrix,
       rowMeta,
       columnMeta: filteredColumnMeta,
+      rowHeaderLabel,
+      firstColumnHasNonNumericText,
       skippedRows,
       removedEmptyColumns: removedColumns
     };
+  }
+
+  function collectTableData(){
+    if(!state.hot || typeof state.hot.getData !== 'function'){
+      console.debug('Debug: heatmap collectTableData missing hot reference');
+      return null;
+    }
+    return parseHeatmapInputData(state.hot.getData(), 'collectTableData');
+  }
+
+  function collectTableDataFromMatrix(matrix){
+    return parseHeatmapInputData(matrix, 'collectTableDataFromMatrix');
   }
 
   function computeMean(values){
@@ -2402,10 +2749,8 @@
     };
   }
 
-  function prepareProcessedData(settings){
-    const raw = collectTableData();
+  function prepareProcessedDataFromRaw(raw, settings){
     if(!raw){
-      console.debug('Debug: heatmap prepareProcessedData missing raw data');
       return { ok: false, reason: 'no-data' };
     }
     let matrix = cloneMatrix(raw.matrix);
@@ -2499,6 +2844,276 @@
         logApplied: !!settings.adjust?.logTransform
       }
     };
+  }
+
+  function prepareProcessedData(settings){
+    const raw = collectTableData();
+    if(!raw){
+      console.debug('Debug: heatmap prepareProcessedData missing raw data');
+      return { ok: false, reason: 'no-data' };
+    }
+    return prepareProcessedDataFromRaw(raw, settings);
+  }
+
+  function collectHeatmapDataTransformTokens(settings){
+    const tokens = [];
+    const adjust = settings?.adjust || {};
+    const filters = settings?.filters || {};
+    if(adjust.logTransform){
+      tokens.push(adjust.logPlusOne ? 'log2(x+1)' : 'log2(x)');
+    }
+    if(filters.presentEnabled){
+      const value = Number(filters.presentThreshold);
+      const threshold = Number.isFinite(value) ? value : '';
+      tokens.push(`Present >= ${threshold}%`);
+    }
+    if(filters.sdEnabled){
+      const value = Number(filters.sdThreshold);
+      const threshold = Number.isFinite(value) ? value : '';
+      tokens.push(`SD >= ${threshold}`);
+    }
+    if(filters.absEnabled){
+      const count = Number(filters.absCount);
+      const absValue = Number(filters.absValue);
+      const countText = Number.isFinite(count) ? count : '';
+      const valueText = Number.isFinite(absValue) ? absValue : '';
+      tokens.push(`Abs count >= ${countText} @ ${valueText}`);
+    }
+    if(filters.rangeEnabled){
+      const value = Number(filters.rangeThreshold);
+      const threshold = Number.isFinite(value) ? value : '';
+      tokens.push(`Range >= ${threshold}`);
+    }
+    if(adjust.centerRowsMode){
+      tokens.push(`Center rows (${adjust.centerRowsMode})`);
+    }
+    if(adjust.centerColumnsMode){
+      tokens.push(`Center cols (${adjust.centerColumnsMode})`);
+    }
+    if(adjust.normalizeRows){
+      tokens.push('Normalize rows (z)');
+    }
+    if(adjust.normalizeColumns){
+      tokens.push('Normalize cols (z)');
+    }
+    return tokens;
+  }
+
+  function hasHeatmapDataTransformSelection(settings){
+    return collectHeatmapDataTransformTokens(settings).length > 0;
+  }
+
+  function buildHeatmapDerivedViewTitle(settings){
+    const tokens = collectHeatmapDataTransformTokens(settings);
+    if(!tokens.length){
+      return 'Derived';
+    }
+    const joined = tokens.join(' + ');
+    return joined.length > 56 ? `${joined.slice(0, 53)}...` : joined;
+  }
+
+  function buildHeatmapDerivedViewSummary(settings, processed){
+    const tokens = collectHeatmapDataTransformTokens(settings);
+    const summaryLabel = tokens.join(' + ');
+    return {
+      transform: summaryLabel || 'heatmap-transform',
+      rows: Number(processed?.matrix?.length) || 0,
+      cols: Number(processed?.columnLabels?.length) || 0,
+      changedCells: Number(processed?.stats?.finiteCount) || 0,
+      numericCells: Number(processed?.stats?.finiteCount) || 0,
+      skippedCells: 0,
+      warnings: []
+    };
+  }
+
+  function buildHeatmapDerivedTableData(processed){
+    if(!processed || !processed.ok){
+      return null;
+    }
+    const rowHeader = processed.raw?.rowHeaderLabel || 'Row';
+    const header = [rowHeader].concat(Array.isArray(processed.columnLabels) ? processed.columnLabels.slice() : []);
+    const rows = Array.isArray(processed.matrix)
+      ? processed.matrix.map((row, rowIndex) => {
+        const sourceLabel = processed.rowLabels?.[rowIndex];
+        const label = sourceLabel == null || String(sourceLabel).trim() === ''
+          ? `Row ${rowIndex + 1}`
+          : String(sourceLabel);
+        const values = Array.isArray(row)
+          ? row.map(value => (Number.isFinite(value) ? value : ''))
+          : [];
+        return [label, ...values];
+      })
+      : [];
+    return [header, ...rows];
+  }
+
+  function isHeatmapMaterializedDataView(view){
+    return !!(view && view.kind === 'derived' && view.transformSpec?.type === 'heatmapMaterialized');
+  }
+
+  function stripHeatmapAdjustAndFilters(settings){
+    return {
+      ...settings,
+      filters: {
+        ...(settings?.filters || {}),
+        presentEnabled: false,
+        sdEnabled: false,
+        absEnabled: false,
+        rangeEnabled: false
+      },
+      adjust: {
+        ...(settings?.adjust || {}),
+        logTransform: false,
+        logPlusOne: false,
+        centerRowsMode: null,
+        normalizeRows: false,
+        centerColumnsMode: null,
+        normalizeColumns: false
+      }
+    };
+  }
+
+  function resolveHeatmapEffectiveSettings(settings){
+    const hot = state.hot || null;
+    const manager = hot?.__heatmapDataViewsManager || heatmapDataViewsManager || null;
+    const activeView = manager?.getActiveView?.() || null;
+    if(isHeatmapMaterializedDataView(activeView)){
+      return stripHeatmapAdjustAndFilters(settings);
+    }
+    return settings;
+  }
+
+  function clearHeatmapAdjustAndFilterControls(){
+    runWithHeatmapControlSuspension(() => {
+      state.logPlusOne = false;
+      const toggles = [
+        refs.logTransform,
+        refs.centerGenes,
+        refs.centerArrays,
+        refs.normalizeGenes,
+        refs.normalizeArrays,
+        refs.filterPresentEnable,
+        refs.filterSdEnable,
+        refs.filterAbsEnable,
+        refs.filterRangeEnable
+      ];
+      toggles.forEach(toggle => {
+        if(!toggle){
+          return;
+        }
+        if(toggle.checked){
+          toggle.checked = false;
+        }
+        toggle.dispatchEvent(new Event('change'));
+      });
+    });
+  }
+
+  function findHeatmapMaterializedViewForSource(manager, sourceViewId){
+    const views = manager?.getViews?.() || [];
+    const sourceId = String(sourceViewId || 'raw');
+    for(let i = 0; i < views.length; i += 1){
+      const view = views[i];
+      if(!isHeatmapMaterializedDataView(view)){
+        continue;
+      }
+      const viewSourceId = String(view.sourceViewId || 'raw');
+      if(viewSourceId === sourceId){
+        return view;
+      }
+    }
+    return null;
+  }
+
+  function materializeHeatmapSelectionToDataView(reason){
+    if(state.suspendDataViewMaterialization){
+      return false;
+    }
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      return false;
+    }
+    const manager = ensureHeatmapDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+    });
+    if(!manager || typeof manager.createDerivedView !== 'function'){
+      console.warn('heatmap data transform skipped: Shared.dataViews unavailable');
+      return false;
+    }
+    syncHeatmapActiveDataViewFromHot(hot, 'transform-before');
+    const activeView = manager.getActiveView?.() || null;
+    const defaultSourceViewId = manager.getActiveViewId?.() || 'raw';
+    const sourceViewId = isHeatmapMaterializedDataView(activeView)
+      ? (activeView.sourceViewId || 'raw')
+      : defaultSourceViewId;
+    const sourceView = manager.getView?.(sourceViewId) || manager.getView?.('raw') || null;
+    const sourceData = Array.isArray(sourceView?.data) ? sourceView.data : (hot.getData?.() || []);
+    const sourceRaw = collectTableDataFromMatrix(sourceData);
+    if(!sourceRaw){
+      if(typeof global.alert === 'function'){
+        global.alert('No valid numeric matrix was found to apply the selected heatmap transformations.');
+      }
+      return false;
+    }
+    const settings = collectSettings();
+    const existingMaterialized = isHeatmapMaterializedDataView(activeView)
+      ? activeView
+      : findHeatmapMaterializedViewForSource(manager, sourceViewId);
+    if(!hasHeatmapDataTransformSelection(settings)){
+      if(existingMaterialized){
+        const wasActive = existingMaterialized.id === manager.getActiveViewId?.();
+        manager.removeView(existingMaterialized.id, { reason: 'heatmap-transform-clear', silent: true });
+        if(wasActive){
+          manager.activateView(sourceViewId, { reason: 'heatmap-transform-clear' });
+        }
+        return true;
+      }
+      return false;
+    }
+    const processed = prepareProcessedDataFromRaw(sourceRaw, settings);
+    if(!processed?.ok){
+      if(processed?.reason === 'filtered-out' && typeof global.alert === 'function'){
+        global.alert('No rows passed the selected filters. Adjust filter thresholds and try again.');
+      }else if(processed?.reason === 'adjustment-empty' && typeof global.alert === 'function'){
+        global.alert('All columns were removed after adjustments. Please review normalization/centering settings.');
+      }
+      debugLog('Debug: heatmap data view materialization skipped', {
+        reason: reason || 'transform',
+        processedReason: processed?.reason || null
+      });
+      return false;
+    }
+    const derivedData = buildHeatmapDerivedTableData(processed);
+    if(!Array.isArray(derivedData) || !derivedData.length){
+      return false;
+    }
+    if(existingMaterialized){
+      manager.removeView(existingMaterialized.id, { reason: 'heatmap-transform-update', silent: true });
+    }
+    const createdView = manager.createDerivedView({
+      title: buildHeatmapDerivedViewTitle(settings),
+      data: derivedData,
+      sourceViewId,
+      transformSpec: {
+        type: 'heatmapMaterialized'
+      },
+      summary: buildHeatmapDerivedViewSummary(settings, processed),
+      exclusions: null,
+      activate: false,
+      reason: reason || 'heatmap-transform'
+    });
+    if(!createdView || !createdView.id){
+      return false;
+    }
+    manager.activateView(createdView.id, { reason: reason || 'heatmap-transform' });
+    debugLog('Debug: heatmap derived data view created', {
+      title: createdView.title || null,
+      rows: derivedData.length,
+      cols: derivedData[0]?.length || 0,
+      reason: reason || 'heatmap-transform'
+    });
+    return true;
   }
 
   function buildOrderedMatrix(matrix, rowOrder, columnOrder){
@@ -4375,7 +4990,7 @@
       }
       const drawToken = (state.drawToken || 0) + 1;
       state.drawToken = drawToken;
-      const settings = collectSettings();
+      const settings = resolveHeatmapEffectiveSettings(collectSettings());
       const viewMatches = (state.lastRenderModel?.type === 'values' && settings.view === 'values')
         || (state.lastRenderModel?.type === 'correlation' && settings.view.startsWith('corr'));
       if(drawOpts.viewOnly){
@@ -4478,117 +5093,120 @@
 
   function applyConfig(config){
     if(!config) return;
-    if(config.title !== undefined){
-      state.titleText = config.title != null ? String(config.title) : '';
-    }else if(state.titleText == null){
-      state.titleText = 'Heatmap';
-    }
-    // Restore label positions if saved
-    if(config.labelPositions){
-      state.labelPositions = {
-        title: config.labelPositions.title || null
-      };
-    }
-    // Restore dendrogram settings
-    if(config.dendrogram && typeof config.dendrogram === 'object'){
-      const settings = ensureDendrogramSettings();
-      if(typeof config.dendrogram.thickness === 'number' && config.dendrogram.thickness > 0){
-        settings.thickness = config.dendrogram.thickness;
-      }else{
-        settings.thickness = DEFAULT_DENDROGRAM_THICKNESS;
+    runWithHeatmapControlSuspension(() => {
+      if(config.title !== undefined){
+        state.titleText = config.title != null ? String(config.title) : '';
+      }else if(state.titleText == null){
+        state.titleText = 'Heatmap';
       }
-      if(typeof config.dendrogram.color === 'string' && config.dendrogram.color.trim()){
-        settings.color = config.dendrogram.color;
-      }else{
-        settings.color = DEFAULT_DENDROGRAM_COLOR;
+      // Restore label positions if saved
+      if(config.labelPositions){
+        state.labelPositions = {
+          title: config.labelPositions.title || null
+        };
       }
-      debugLog('Debug: heatmap dendrogram settings restored', { thickness: settings.thickness, color: settings.color });
-    }
-    if(refs.view){
-      refs.view.value = config.view || 'corr-columns';
-      refs.view.dispatchEvent(new Event('change'));
-    }
-    if(refs.method) refs.method.value = config.method || 'pearson';
-    if(refs.absValues) refs.absValues.checked = !!config.useAbsolute;
-    if(refs.maskLower) refs.maskLower.checked = !!config.maskLower;
-    if(refs.showValues) refs.showValues.checked = config.showValues !== false;
-    if(refs.decimals) refs.decimals.value = String(clampDecimals(config.decimals));
-    if(refs.colorNegative) refs.colorNegative.value = config.colors?.negative || '#313695';
-    if(refs.colorZero) refs.colorZero.value = config.colors?.zero || '#f7f7f7';
-    if(refs.colorPositive) refs.colorPositive.value = config.colors?.positive || '#a50026';
-    if(refs.cellSize){
-      refs.cellSize.value = String(config.cellSize || 60);
-      if(refs.cellSizeVal){ refs.cellSizeVal.textContent = refs.cellSize.value; }
-      refs.cellSize.dispatchEvent(new Event('input'));
-    }
-    if(refs.fontSize){
-      refs.fontSize.value = String(config.fontSize || 12);
-      refs.fontSize.dispatchEvent(new Event('input'));
-    }
-    importFontStyles('heatmap', config.fontStyles || null);
-    if(refs.filterPresentEnable){
-      refs.filterPresentEnable.checked = !!config.filters?.presentEnabled;
-      if(refs.filterPresentValue) refs.filterPresentValue.value = Number.isFinite(config.filters?.presentThreshold) ? config.filters.presentThreshold : 80;
-      refs.filterPresentEnable.dispatchEvent(new Event('change'));
-    }
-    if(refs.filterSdEnable){
-      refs.filterSdEnable.checked = !!config.filters?.sdEnabled;
-      if(refs.filterSdValue) refs.filterSdValue.value = Number.isFinite(config.filters?.sdThreshold) ? config.filters.sdThreshold : 0;
-      refs.filterSdEnable.dispatchEvent(new Event('change'));
-    }
-    if(refs.filterAbsEnable){
-      refs.filterAbsEnable.checked = !!config.filters?.absEnabled;
-      if(refs.filterAbsCount) refs.filterAbsCount.value = Number.isFinite(config.filters?.absCount) ? config.filters.absCount : 1;
-      if(refs.filterAbsValue) refs.filterAbsValue.value = Number.isFinite(config.filters?.absValue) ? config.filters.absValue : 0;
-      refs.filterAbsEnable.dispatchEvent(new Event('change'));
-    }
-    if(refs.filterRangeEnable){
-      refs.filterRangeEnable.checked = !!config.filters?.rangeEnabled;
-      if(refs.filterRangeValue) refs.filterRangeValue.value = Number.isFinite(config.filters?.rangeThreshold) ? config.filters.rangeThreshold : 0;
-      refs.filterRangeEnable.dispatchEvent(new Event('change'));
-    }
-    if(refs.logTransform) refs.logTransform.checked = !!config.adjust?.logTransform;
-    state.logPlusOne = !!config.adjust?.logPlusOne;
-    if(refs.centerGenes){
-      refs.centerGenes.checked = !!config.adjust?.centerRows;
-      const mode = config.adjust?.centerRows || 'mean';
-      const radio = global.document.querySelector(`input[name="heatmapCenterGenesMode"][value="${mode}"]`);
-      if(radio) radio.checked = true;
-      refs.centerGenes.dispatchEvent(new Event('change'));
-    }
-    if(refs.centerArrays){
-      refs.centerArrays.checked = !!config.adjust?.centerColumns;
-      const mode = config.adjust?.centerColumns || 'mean';
-      const radio = global.document.querySelector(`input[name="heatmapCenterArraysMode"][value="${mode}"]`);
-      if(radio) radio.checked = true;
-      refs.centerArrays.dispatchEvent(new Event('change'));
-    }
-    if(refs.normalizeGenes){
-      refs.normalizeGenes.checked = !!config.adjust?.normalizeRows;
-      refs.normalizeGenes.dispatchEvent(new Event('change'));
-    }
-    if(refs.normalizeArrays){
-      refs.normalizeArrays.checked = !!config.adjust?.normalizeColumns;
-      refs.normalizeArrays.dispatchEvent(new Event('change'));
-    }
-    if(refs.clusterGenes){
-      refs.clusterGenes.checked = !!config.clustering?.rows?.enabled;
-      if(refs.genesMetric) refs.genesMetric.value = config.clustering?.rows?.metric || 'pearson';
-      if(refs.showRowDendrogram) refs.showRowDendrogram.checked = !!config.clustering?.rows?.showDendrogram;
-      refs.clusterGenes.dispatchEvent(new Event('change'));
-    }
-    if(refs.clusterArrays){
-      refs.clusterArrays.checked = !!config.clustering?.columns?.enabled;
-      if(refs.arraysMetric) refs.arraysMetric.value = config.clustering?.columns?.metric || 'pearson';
-      if(refs.showColumnDendrogram) refs.showColumnDendrogram.checked = !!config.clustering?.columns?.showDendrogram;
-      refs.clusterArrays.dispatchEvent(new Event('change'));
-    }
-    if(refs.linkage){
-      refs.linkage.value = config.clustering?.linkage || 'average';
-      refs.linkage.dispatchEvent(new Event('change'));
-    }
+      // Restore dendrogram settings
+      if(config.dendrogram && typeof config.dendrogram === 'object'){
+        const settings = ensureDendrogramSettings();
+        if(typeof config.dendrogram.thickness === 'number' && config.dendrogram.thickness > 0){
+          settings.thickness = config.dendrogram.thickness;
+        }else{
+          settings.thickness = DEFAULT_DENDROGRAM_THICKNESS;
+        }
+        if(typeof config.dendrogram.color === 'string' && config.dendrogram.color.trim()){
+          settings.color = config.dendrogram.color;
+        }else{
+          settings.color = DEFAULT_DENDROGRAM_COLOR;
+        }
+        debugLog('Debug: heatmap dendrogram settings restored', { thickness: settings.thickness, color: settings.color });
+      }
+      if(refs.view){
+        refs.view.value = config.view || 'corr-columns';
+        refs.view.dispatchEvent(new Event('change'));
+      }
+      if(refs.method) refs.method.value = config.method || 'pearson';
+      if(refs.absValues) refs.absValues.checked = !!config.useAbsolute;
+      if(refs.maskLower) refs.maskLower.checked = !!config.maskLower;
+      if(refs.showValues) refs.showValues.checked = config.showValues !== false;
+      if(refs.decimals) refs.decimals.value = String(clampDecimals(config.decimals));
+      if(refs.colorNegative) refs.colorNegative.value = config.colors?.negative || '#313695';
+      if(refs.colorZero) refs.colorZero.value = config.colors?.zero || '#f7f7f7';
+      if(refs.colorPositive) refs.colorPositive.value = config.colors?.positive || '#a50026';
+      if(refs.cellSize){
+        refs.cellSize.value = String(config.cellSize || 60);
+        if(refs.cellSizeVal){ refs.cellSizeVal.textContent = refs.cellSize.value; }
+        refs.cellSize.dispatchEvent(new Event('input'));
+      }
+      if(refs.fontSize){
+        refs.fontSize.value = String(config.fontSize || 12);
+        refs.fontSize.dispatchEvent(new Event('input'));
+      }
+      importFontStyles('heatmap', config.fontStyles || null);
+      if(refs.filterPresentEnable){
+        refs.filterPresentEnable.checked = !!config.filters?.presentEnabled;
+        if(refs.filterPresentValue) refs.filterPresentValue.value = Number.isFinite(config.filters?.presentThreshold) ? config.filters.presentThreshold : 80;
+        refs.filterPresentEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.filterSdEnable){
+        refs.filterSdEnable.checked = !!config.filters?.sdEnabled;
+        if(refs.filterSdValue) refs.filterSdValue.value = Number.isFinite(config.filters?.sdThreshold) ? config.filters.sdThreshold : 0;
+        refs.filterSdEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.filterAbsEnable){
+        refs.filterAbsEnable.checked = !!config.filters?.absEnabled;
+        if(refs.filterAbsCount) refs.filterAbsCount.value = Number.isFinite(config.filters?.absCount) ? config.filters.absCount : 1;
+        if(refs.filterAbsValue) refs.filterAbsValue.value = Number.isFinite(config.filters?.absValue) ? config.filters.absValue : 0;
+        refs.filterAbsEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.filterRangeEnable){
+        refs.filterRangeEnable.checked = !!config.filters?.rangeEnabled;
+        if(refs.filterRangeValue) refs.filterRangeValue.value = Number.isFinite(config.filters?.rangeThreshold) ? config.filters.rangeThreshold : 0;
+        refs.filterRangeEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.logTransform) refs.logTransform.checked = !!config.adjust?.logTransform;
+      state.logPlusOne = !!config.adjust?.logPlusOne;
+      if(refs.centerGenes){
+        refs.centerGenes.checked = !!config.adjust?.centerRows;
+        const mode = config.adjust?.centerRows || 'mean';
+        const radio = global.document.querySelector(`input[name="heatmapCenterGenesMode"][value="${mode}"]`);
+        if(radio) radio.checked = true;
+        refs.centerGenes.dispatchEvent(new Event('change'));
+      }
+      if(refs.centerArrays){
+        refs.centerArrays.checked = !!config.adjust?.centerColumns;
+        const mode = config.adjust?.centerColumns || 'mean';
+        const radio = global.document.querySelector(`input[name="heatmapCenterArraysMode"][value="${mode}"]`);
+        if(radio) radio.checked = true;
+        refs.centerArrays.dispatchEvent(new Event('change'));
+      }
+      if(refs.normalizeGenes){
+        refs.normalizeGenes.checked = !!config.adjust?.normalizeRows;
+        refs.normalizeGenes.dispatchEvent(new Event('change'));
+      }
+      if(refs.normalizeArrays){
+        refs.normalizeArrays.checked = !!config.adjust?.normalizeColumns;
+        refs.normalizeArrays.dispatchEvent(new Event('change'));
+      }
+      if(refs.clusterGenes){
+        refs.clusterGenes.checked = !!config.clustering?.rows?.enabled;
+        if(refs.genesMetric) refs.genesMetric.value = config.clustering?.rows?.metric || 'pearson';
+        if(refs.showRowDendrogram) refs.showRowDendrogram.checked = !!config.clustering?.rows?.showDendrogram;
+        refs.clusterGenes.dispatchEvent(new Event('change'));
+      }
+      if(refs.clusterArrays){
+        refs.clusterArrays.checked = !!config.clustering?.columns?.enabled;
+        if(refs.arraysMetric) refs.arraysMetric.value = config.clustering?.columns?.metric || 'pearson';
+        if(refs.showColumnDendrogram) refs.showColumnDendrogram.checked = !!config.clustering?.columns?.showDendrogram;
+        refs.clusterArrays.dispatchEvent(new Event('change'));
+      }
+      if(refs.linkage){
+        refs.linkage.value = config.clustering?.linkage || 'average';
+        refs.linkage.dispatchEvent(new Event('change'));
+      }
+    });
   }
   function getPayload(){
+    const activeHot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -4598,10 +5216,19 @@
       : !!notesState.open;
     notesState.text = notesText;
     notesState.open = notesOpen;
+    const activeManager = ensureHeatmapDataViewsForHot(activeHot, {
+      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
+      container: activeHot?.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+    });
+    syncHeatmapActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     const payload = {
       type: 'heatmap',
-      data: state.hot ? state.hot.getData() : [],
-      exclusions: state.hot?.exportExclusions?.() || (state.hot ? Shared.hot.exportExclusions(state.hot) : Shared.hot.exportExclusions(null)),
+      data: activeHot ? activeHot.getData() : [],
+      exclusions: activeHot?.exportExclusions?.() || (activeHot ? Shared.hot.exportExclusions(activeHot) : Shared.hot.exportExclusions(null)),
+      dataViews: includeDataViews ? dataViewsPayload : undefined,
+      activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: getConfig()
     };
     payload.config = payload.config || {};
@@ -4610,7 +5237,7 @@
       open: notesOpen
     };
     console.debug('Debug: heatmap.getPayload captured state', {
-      hasHot: !!state.hot,
+      hasHot: !!activeHot,
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
       method: payload.config?.method
@@ -4708,7 +5335,37 @@
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
-    const matrix = Array.isArray(obj.data) ? obj.data : [];
+    const hot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
+    if(hot){
+      state.hot = hot;
+    }
+    const rawMatrix = Array.isArray(obj.data) ? obj.data : [];
+    const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
+    const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
+    const dataManager = hot
+      ? ensureHeatmapDataViewsForHot(hot, {
+          wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
+          container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+        })
+      : null;
+    if(dataManager){
+      if(serializedViews){
+        dataManager.deserialize(serializedViews, {
+          fallbackData: rawMatrix,
+          activeViewId: requestedActiveViewId,
+          silent: true,
+          activate: false
+        });
+      }else{
+        dataManager.initialize(rawMatrix, { rawTitle: 'Raw' });
+      }
+      const activeView = dataManager.getActiveView?.() || null;
+      state.activeMaterializedViewId = isHeatmapMaterializedDataView(activeView) ? activeView.id : null;
+    }
+    const activeViewData = dataManager?.getActiveView?.()?.data;
+    const matrix = Array.isArray(activeViewData) ? activeViewData : rawMatrix;
+    const activeViewExclusions = dataManager?.getActiveView?.()?.exclusions || null;
+    const exclusionsToApply = obj.exclusions || activeViewExclusions || null;
     const config = obj.config || {};
     if(config.notes && typeof config.notes === 'object'){
       notesState.text = config.notes.text == null ? '' : String(config.notes.text);
@@ -4726,11 +5383,14 @@
     }
     if(state.hot){
       state.hot.loadData(matrix);
-      if(obj.exclusions && state.hot.applyExclusions){
-        state.hot.applyExclusions(obj.exclusions);
+      if(exclusionsToApply && state.hot.applyExclusions){
+        state.hot.applyExclusions(exclusionsToApply);
       }
     }
     applyConfig(config);
+    if(state.hot){
+      syncHeatmapActiveDataViewFromHot(state.hot, 'payload-load');
+    }
     if(!skipDraw){
       state.lastStats = null;
       updateStats(null);
@@ -4881,6 +5541,7 @@
     }
     initHot();
     initControls();
+    bindHeatmapDataToolbar();
     initNotes();
     initFileButtons();
     const runHeatmapDrawCycle = () => {
@@ -4955,7 +5616,14 @@
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
-      state.ensureHotForActiveTab();
+      const hot = state.ensureHotForActiveTab();
+      if(hot){
+        ensureHeatmapDataViewsForHot(hot, {
+          wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
+          container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+        });
+        syncHeatmapActiveDataViewFromHot(hot, 'prepare-tab');
+      }
     }
   };
 
