@@ -5449,7 +5449,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -6749,7 +6749,8 @@
     }
     const rawCount=Number(count);
     const safeCount=Number.isFinite(rawCount) && rawCount>0 ? Math.round(rawCount) : 0;
-    if(state.statsPostHoc==='tukey'){
+    const oneSampleMode=state.statsMode==='oneSample';
+    if(!oneSampleMode && state.statsPostHoc==='tukey'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
       noteEl.textContent=`Post-hoc: Tukey HSD (${detail}, studentized range).`;
       noteEl.dataset.method='tukey';
@@ -6757,7 +6758,7 @@
       console.debug('Debug: box updateStatsCorrectionSummary tukey',{ count:safeCount });
       return;
     }
-    if(state.statsPostHoc==='gamesHowell'){
+    if(!oneSampleMode && state.statsPostHoc==='gamesHowell'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
       noteEl.textContent=`Post-hoc: Games–Howell (${detail}, Welch-adjusted).`;
       noteEl.dataset.method='gamesHowell';
@@ -6767,7 +6768,9 @@
     }
     const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
     const detail=safeCount>0?`${safeCount} test${safeCount===1?'':'s'}`:'awaiting data';
-    const labelPrefix=state.statsPostHoc==='dunn'?"Dunn's test correction":"Multiple-testing correction";
+    const labelPrefix=oneSampleMode
+      ? 'One-sample correction'
+      : (state.statsPostHoc==='dunn'?"Dunn's test correction":"Multiple-testing correction");
     noteEl.textContent=`${labelPrefix}: ${meta.label} (${detail}).`;
     noteEl.dataset.method=meta.key;
     noteEl.dataset.correctionLabel=meta.shortLabel || meta.label;
@@ -8063,6 +8066,13 @@
   function createUnavailableStatResult(base,message){
     return { available:false, message, ...base };
   }
+  function sanitizeOneSampleNullValue(value){
+    const numeric=Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric;
+    }
+    return 0;
+  }
   function tTest(a,b){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
@@ -8098,6 +8108,86 @@
     const t=md/(sd/Math.sqrt(n));
     const p=2*(1-cdf(Math.abs(t),n-1));
     return {t,df:n-1,p};
+  }
+  function tTestOneSample(values,nullValue){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t',{ helper:'tTestOneSample' });
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN, n:0, mean:NaN, sd:NaN },'Student-t distribution unavailable.');
+    }
+    const target=sanitizeOneSampleNullValue(nullValue);
+    const cleaned=(Array.isArray(values)?values:[])
+      .map(Number)
+      .filter(Number.isFinite);
+    const n=cleaned.length;
+    if(n<2){
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN, n, mean:NaN, sd:NaN },'One-sample t-test needs at least two values.');
+    }
+    const meanVal=mean(cleaned);
+    const variance=cleaned.reduce((acc,val)=>acc+Math.pow(val-meanVal,2),0)/(n-1);
+    const sd=Math.sqrt(Math.max(variance,0));
+    let t;
+    let p;
+    if(sd===0){
+      const delta=meanVal-target;
+      if(delta===0){
+        t=0;
+        p=1;
+      }else{
+        t=delta>0?Infinity:-Infinity;
+        p=0;
+      }
+    }else{
+      const se=sd/Math.sqrt(n);
+      t=(meanVal-target)/se;
+      p=2*(1-cdf(Math.abs(t),n-1));
+    }
+    return { t, df:n-1, p, n, mean:meanVal, sd };
+  }
+  function wilcoxonOneSample(values,nullValue){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
+      ? jStatLib.normal.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('normal',{ helper:'wilcoxonOneSample' });
+      return createUnavailableStatResult({ W:NaN, z:NaN, p:NaN, n:0, effectiveN:0, median:NaN },'Normal distribution unavailable.');
+    }
+    const target=sanitizeOneSampleNullValue(nullValue);
+    const cleaned=(Array.isArray(values)?values:[])
+      .map(Number)
+      .filter(Number.isFinite);
+    const diffs=cleaned.map(val=>val-target);
+    const n=diffs.length;
+    if(n<1){
+      return createUnavailableStatResult({ W:NaN, z:NaN, p:NaN, n, effectiveN:0, median:NaN },'One-sample Wilcoxon test needs at least one value.');
+    }
+    const nonZeroDiffs=diffs.filter(v=>v!==0);
+    const effectiveN=nonZeroDiffs.length;
+    const medianDiff=quantileFromUnsorted(diffs,0.5);
+    if(!effectiveN){
+      return { W:0, z:0, p:1, n, effectiveN:0, median:medianDiff };
+    }
+    const abs=nonZeroDiffs.map(Math.abs);
+    const ranks=rankArray(abs);
+    let Wpos=0;
+    let Wneg=0;
+    ranks.forEach((rk,idx)=>{
+      if(nonZeroDiffs[idx]>0){
+        Wpos+=rk;
+      }else{
+        Wneg+=rk;
+      }
+    });
+    const W=Math.min(Wpos,Wneg);
+    const mu=effectiveN*(effectiveN+1)/4;
+    const sigma=Math.sqrt(effectiveN*(effectiveN+1)*(2*effectiveN+1)/24);
+    const z=sigma===0?0:(W-mu)/sigma;
+    const p=2*(1-cdf(Math.abs(z),0,1));
+    return { W, z, p, n, effectiveN, median:medianDiff };
   }
   function rankArray(arr){ const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v); const ranks=new Array(arr.length); let i=0; while(i<sorted.length){ let j=i; while(j<sorted.length && sorted[j].v===sorted[i].v) j++; const avg=(i+j-1)/2+1; for(let k=i;k<j;k++) ranks[sorted[k].i]=avg; i=j; } return ranks; }
   function mannWhitney(a,b){
@@ -8202,6 +8292,154 @@
     const df=groups.length-1;
     const p=1-cdf(H,df);
     return {H,p};
+  }
+  function rankValuesWithTieInfo(values){
+    const sorted=values.map((v,i)=>({ v, i })).sort((a,b)=>a.v-b.v);
+    const ranks=new Array(values.length);
+    let tieTerm=0;
+    let start=0;
+    while(start<sorted.length){
+      let end=start+1;
+      while(end<sorted.length && sorted[end].v===sorted[start].v){
+        end++;
+      }
+      const tieCount=end-start;
+      const avg=(start+1+end)/2;
+      for(let idx=start; idx<end; idx++){
+        ranks[sorted[idx].i]=avg;
+      }
+      if(tieCount>1){
+        tieTerm+=Math.pow(tieCount,3)-tieCount;
+      }
+      start=end;
+    }
+    return { ranks, tieTerm };
+  }
+  function computeRepeatedMeasuresAnova(groups){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const k=cleaned.length;
+    if(k<3){
+      return { ok:false, message:'Repeated-measures ANOVA requires at least three groups.' };
+    }
+    const n=cleaned[0]?.length || 0;
+    if(n<2){
+      return { ok:false, message:'Repeated-measures ANOVA needs at least two paired rows.' };
+    }
+    if(cleaned.some(group=>group.length!==n)){
+      return { ok:false, message:'Repeated-measures ANOVA requires equal group sizes.' };
+    }
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf==='function'
+      ? jStatLib.centralF.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('central-F',{ helper:'computeRepeatedMeasuresAnova' });
+      return { ok:false, message:'F distribution unavailable.' };
+    }
+    const grandN=n*k;
+    let totalSum=0;
+    let ssTotal=0;
+    const conditionSums=new Array(k).fill(0);
+    const subjectSums=new Array(n).fill(0);
+    for(let j=0; j<k; j++){
+      for(let i=0; i<n; i++){
+        const value=cleaned[j][i];
+        totalSum+=value;
+        conditionSums[j]+=value;
+        subjectSums[i]+=value;
+      }
+    }
+    const grandMean=totalSum/grandN;
+    for(let j=0; j<k; j++){
+      for(let i=0; i<n; i++){
+        ssTotal+=Math.pow(cleaned[j][i]-grandMean,2);
+      }
+    }
+    const ssCondition=conditionSums.reduce((acc,sum)=>acc+n*Math.pow((sum/n)-grandMean,2),0);
+    const ssSubject=subjectSums.reduce((acc,sum)=>acc+k*Math.pow((sum/k)-grandMean,2),0);
+    let ssError=ssTotal-ssCondition-ssSubject;
+    if(ssError<0 && Math.abs(ssError)<1e-10){
+      ssError=0;
+    }
+    const df1=k-1;
+    const df2=(k-1)*(n-1);
+    if(df1<=0 || df2<=0){
+      return { ok:false, message:'Repeated-measures ANOVA degrees of freedom are invalid.' };
+    }
+    const msCondition=ssCondition/df1;
+    const msError=ssError/df2;
+    let F;
+    let p;
+    if(msError===0){
+      F=msCondition>0?Infinity:0;
+      p=msCondition>0?0:1;
+    }else{
+      F=msCondition/msError;
+      p=1-cdf(F,df1,df2);
+    }
+    return {
+      ok:true,
+      F,
+      p,
+      df1,
+      df2,
+      footnote:'Repeated-measures ANOVA assumes sphericity.'
+    };
+  }
+  function computeFriedmanTest(groups){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const k=cleaned.length;
+    if(k<3){
+      return { ok:false, message:'Friedman test requires at least three groups.' };
+    }
+    const n=cleaned[0]?.length || 0;
+    if(n<2){
+      return { ok:false, message:'Friedman test needs at least two paired rows.' };
+    }
+    if(cleaned.some(group=>group.length!==n)){
+      return { ok:false, message:'Friedman test requires equal group sizes.' };
+    }
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.chisquare && typeof jStatLib.chisquare.cdf==='function'
+      ? jStatLib.chisquare.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('chi-square',{ helper:'computeFriedmanTest' });
+      return { ok:false, message:'Chi-square distribution unavailable.' };
+    }
+    const rankSums=new Array(k).fill(0);
+    let tieTermSum=0;
+    for(let row=0; row<n; row++){
+      const rowValues=cleaned.map(group=>group[row]);
+      const rankInfo=rankValuesWithTieInfo(rowValues);
+      tieTermSum+=rankInfo.tieTerm;
+      for(let col=0; col<k; col++){
+        rankSums[col]+=rankInfo.ranks[col];
+      }
+    }
+    let Q=(12/(n*k*(k+1)))*rankSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1);
+    let tieCorrection=1;
+    if(tieTermSum>0){
+      const denom=n*k*(k*k-1);
+      if(denom>0){
+        tieCorrection=1-(tieTermSum/denom);
+      }
+      if(tieCorrection>0){
+        Q/=tieCorrection;
+      }
+    }
+    const df=k-1;
+    const p=1-cdf(Q,df);
+    return {
+      ok:true,
+      Q,
+      p,
+      df,
+      tieCorrection,
+      footnote:tieTermSum>0
+        ? `Friedman tie correction applied (factor ${tieCorrection.toFixed(4)}).`
+        : 'Friedman test on paired ranks.'
+    };
   }
   function computeWelchAnova(groups){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
@@ -10158,6 +10396,10 @@
     console.debug('Debug: box statsEffectNonParametric normalized',{ before:state.statsEffectNonParametric, after:normalizedNonParamEffect });
     state.statsEffectNonParametric=normalizedNonParamEffect;
   }
+  const oneSampleMode=state.statsMode==='oneSample';
+  if(oneSampleMode && state.statsPaired){
+    state.statsPaired=false;
+  }
   const varianceConcern=state.assumptionDiagnostics?.varianceConcern===true;
   const normalityFailures=Number.isFinite(state.assumptionDiagnostics?.normalityFailures)
     ? state.assumptionDiagnostics.normalityFailures
@@ -10165,7 +10407,7 @@
   let desiredVariant=state.statsParametricVariant;
   if(state.statsTest!=='parametric'){
     desiredVariant='nonparametric';
-  }else if(state.statsPaired){
+  }else if(oneSampleMode || state.statsPaired){
     desiredVariant='classic';
   }else{
     const comparisonCount=Array.isArray(traces)?traces.length:0;
@@ -10182,7 +10424,7 @@
   const postHocContext={
     mode: state.statsMode,
     test: state.statsTest,
-    paired: state.statsPaired,
+    paired: oneSampleMode ? false : state.statsPaired,
     groupCount: Array.isArray(traces)?traces.length:0,
     variant: state.statsParametricVariant,
     varianceConcern
@@ -10200,7 +10442,12 @@
       console.debug('Debug: box selectedCols pruned for trace count',{ before: beforeSize, after: filteredSelection.length, traces: traces.length });
     }
   }
-  if(state.selectedCols.size<2 && traces.length>=2){
+  if(oneSampleMode){
+    if(state.selectedCols.size<1 && traces.length>=1){
+      state.selectedCols.clear();
+      state.selectedCols.add(0);
+    }
+  }else if(state.selectedCols.size<2 && traces.length>=2){
     state.selectedCols.clear();
     state.selectedCols.add(0);
     state.selectedCols.add(1);
@@ -10210,11 +10457,13 @@
   }
 
   const advisorContext=buildAdvisorContext(traces);
-  renderStatsAdvisor(traces, controls, advisorContext);
-
   if(state.tableFormat==='grouped'){
+    renderStatsAdvisor(traces, controls, advisorContext);
     renderGroupedStatsControls(traces, controls, advisorContext?.prepared);
     return;
+  }
+  if(!oneSampleMode){
+    renderStatsAdvisor(traces, controls, advisorContext);
   }
 
   const optionWrap=document.createElement('div');
@@ -10281,12 +10530,18 @@
     persistTabState('stats-pairing-change');
     state.scheduleDraw();
   });
+  pairedSel.disabled=oneSampleMode;
+  if(oneSampleMode){
+    pairedSel.title='One-sample mode compares each selected group against a null value.';
+  }else{
+    pairedSel.removeAttribute('title');
+  }
   appendInline(pairedLabel, pairedSel);
 
   const modeLabel=document.createElement('label');
   modeLabel.textContent='Comparison:';
   const modeSel=document.createElement('select');
-  [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs']].forEach(([value,text])=>{
+  [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs'],['oneSample','One-sample vs value']].forEach(([value,text])=>{
     const option=document.createElement('option');
     option.value=value;
     option.textContent=text;
@@ -10295,6 +10550,10 @@
   });
   modeSel.addEventListener('change',()=>{
     state.statsMode=modeSel.value;
+    if(state.statsMode==='oneSample'){
+      state.statsPaired=false;
+      state.statsPostHoc='standard';
+    }
     console.log('boxplot statsMode changed', state.statsMode);
     if(state.selectedCols && state.selectedCols.size){
       const beforeSize = state.selectedCols.size;
@@ -10310,6 +10569,29 @@
     state.scheduleDraw();
   });
   appendInline(modeLabel, modeSel);
+
+  if(oneSampleMode){
+    const nullLabel=document.createElement('label');
+    nullLabel.textContent='Null value:';
+    const nullInput=document.createElement('input');
+    nullInput.type='number';
+    nullInput.step='any';
+    const safeNull=sanitizeOneSampleNullValue(state.statsOneSampleValue);
+    if(safeNull!==state.statsOneSampleValue){
+      state.statsOneSampleValue=safeNull;
+    }
+    nullInput.value=String(state.statsOneSampleValue);
+    nullInput.addEventListener('change',()=>{
+      const nextValue=sanitizeOneSampleNullValue(nullInput.value);
+      state.statsOneSampleValue=nextValue;
+      nullInput.value=String(nextValue);
+      console.debug('Debug: box one-sample null value changed',{ value: nextValue });
+      requestStatsContextRefresh('stats-null-value-change');
+      persistTabState('stats-null-value-change');
+      state.scheduleDraw();
+    });
+    appendInline(nullLabel, nullInput);
+  }
 
   const postHocLabel=document.createElement('label');
   postHocLabel.textContent='Post-hoc:';
@@ -10333,6 +10615,12 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
+  postHocSel.disabled=oneSampleMode;
+  if(oneSampleMode){
+    postHocSel.title='Post-hoc options are unavailable in one-sample mode.';
+  }else{
+    postHocSel.removeAttribute('title');
+  }
   appendInline(postHocLabel, postHocSel);
 
   const correctionLabel=document.createElement('label');
@@ -10354,8 +10642,10 @@
     persistTabState('stats-correction-change');
     state.scheduleDraw();
   });
-  correctionSel.disabled=state.statsPostHoc==='tukey' || state.statsPostHoc==='gamesHowell';
-  if(state.statsPostHoc==='tukey'){
+  correctionSel.disabled=!oneSampleMode && (state.statsPostHoc==='tukey' || state.statsPostHoc==='gamesHowell');
+  if(oneSampleMode){
+    correctionSel.removeAttribute('title');
+  }else if(state.statsPostHoc==='tukey'){
     correctionSel.title='Tukey HSD already adjusts for multiple comparisons.';
   }else if(state.statsPostHoc==='gamesHowell'){
     correctionSel.title='Games–Howell already incorporates unequal-variance adjustment.';
@@ -10408,7 +10698,9 @@
 
   const postHocHelp=document.getElementById('statsPostHocHelp');
   if(postHocHelp){
-    postHocHelp.textContent=getPostHocSummary(state.statsPostHoc,postHocContext);
+    postHocHelp.textContent=oneSampleMode
+      ? 'One-sample mode compares each selected group with the null value above.'
+      : getPostHocSummary(state.statsPostHoc,postHocContext);
   }
 
   if(state.statsMode==='reference'){
@@ -10473,7 +10765,10 @@
     controls.appendChild(checkbox);
     controls.appendChild(label);
   });
-  updateStatsCorrectionSummary(state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0);
+  const correctionCount=state.statsMode==='oneSample'
+    ? state.selectedCols.size
+    : (state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0);
+  updateStatsCorrectionSummary(correctionCount);
 }
 function renderGroupedStatsControls(traces, controls, precomputed){
   ensureGroupedStatsDefaults();
@@ -10877,6 +11172,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.statsMode,
       state.statsRef,
       state.statsPaired ? 'paired' : 'unpaired',
+      String(state.statsOneSampleValue),
       state.statsCorrection,
       state.statsEffectParametric,
       state.statsEffectNonParametric,
@@ -10992,6 +11288,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       statsTest: state.statsTest,
       statsMode: state.statsMode,
       statsPaired: state.statsPaired,
+      statsOneSampleNull: sanitizeOneSampleNullValue(state.statsOneSampleValue),
       statsRef: state.statsRef,
       statsCustomPairs: Array.isArray(state.statsCustomPairs) ? state.statsCustomPairs : [],
       statsCorrection: state.statsCorrection,
@@ -11718,10 +12015,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     resultsContainer.className='stats-results-main';
     statsDiv.appendChild(resultsContainer);
     const indices=[...state.selectedCols];
-    if(indices.length<2){
+    const minSelectionRequired=state.statsMode==='oneSample' ? 1 : 2;
+    if(indices.length<minSelectionRequired){
       state.assumptionDiagnostics=null;
       renderAssumptionSection(assumptionContainer,null);
-      setResultsMessage('Select at least two columns for statistical analysis.');
+      setResultsMessage(minSelectionRequired===1
+        ? 'Select at least one column for one-sample analysis.'
+        : 'Select at least two columns for statistical analysis.');
       return;
     }
     const groups=indices.map(i=>traces[i].rawY);
@@ -11870,6 +12170,137 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
     const effectFootnotes=buildEffectFootnotes(paramEffectMeta,nonParamEffectMeta);
     console.debug('Debug: box effect meta',{ parametric:paramEffectMeta?.value, nonParametric:nonParamEffectMeta?.value });
+    if(state.statsMode==='oneSample'){
+      const nullValue=sanitizeOneSampleNullValue(state.statsOneSampleValue);
+      if(nullValue!==state.statsOneSampleValue){
+        state.statsOneSampleValue=nullValue;
+      }
+      const tests=indices.map((traceIndex,groupIdx)=>{
+        const values=groups[groupIdx];
+        const label=labels[groupIdx];
+        if(param){
+          const result=tTestOneSample(values,nullValue);
+          return {
+            index:traceIndex,
+            label,
+            valid:result.available!==false,
+            message:result.message || '',
+            n:result.n,
+            mean:result.mean,
+            sd:result.sd,
+            delta:Number.isFinite(result.mean)?result.mean-nullValue:NaN,
+            statName:'t',
+            stat:result.t,
+            auxLabel:'df',
+            auxValue:result.df,
+            p:result.p
+          };
+        }
+        const result=wilcoxonOneSample(values,nullValue);
+        return {
+          index:traceIndex,
+          label,
+          valid:result.available!==false,
+          message:result.message || '',
+          n:result.n,
+          effectiveN:result.effectiveN,
+          median:result.median,
+          delta:Number.isFinite(result.median)?result.median:NaN,
+          statName:'W',
+          stat:result.W,
+          auxLabel:'z',
+          auxValue:result.z,
+          p:result.p
+        };
+      });
+      const validTests=tests.filter(test=>test.valid && Number.isFinite(test.p));
+      if(!validTests.length){
+        updateStatsCorrectionSummary(0);
+        setResultsMessage('No one-sample tests could be computed. Check that each selected column has enough numeric values.');
+        return;
+      }
+      const adjusted=applyPValueCorrection(validTests.map(test=>test.p),state.statsCorrection);
+      validTests.forEach((test,idx)=>{
+        test.adjP=Array.isArray(adjusted) && Number.isFinite(adjusted[idx]) ? adjusted[idx] : test.p;
+      });
+      const correctionMeta=resolveCorrectionMeta(state.statsCorrection,validTests.length);
+      updateStatsCorrectionSummary(validTests.length);
+      const skippedNotes=tests
+        .filter(test=>!test.valid)
+        .map(test=>`${test.label}: ${test.message || 'skipped'}`);
+      if(param){
+        renderTableModel({
+          caption:'One-sample t-tests',
+          columns:[
+            { key:'group', label:'Group', align:'left', index:0 },
+            { key:'n', label:'n', align:'right', index:1 },
+            { key:'mean', label:'Mean', align:'right', index:2 },
+            { key:'delta', label:'Mean - H0', align:'right', index:3 },
+            { key:'statistic', label:'t', align:'right', index:4 },
+            { key:'df', label:'df', align:'right', index:5 },
+            { key:'p', label:'P value', align:'right', index:6 },
+            { key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:7 },
+            { key:'note', label:'Note', align:'left', index:8 }
+          ],
+          rows:tests.map(test=>({
+            group:test.label,
+            n:Number.isFinite(test.n)?String(test.n):'-',
+            mean:Number.isFinite(test.mean)?formatStatNumber(test.mean):'-',
+            delta:Number.isFinite(test.delta)?formatStatNumber(test.delta):'-',
+            statistic:Number.isFinite(test.stat)?formatStatNumber(test.stat):'-',
+            df:Number.isFinite(test.auxValue)?formatStatNumber(test.auxValue,2):'-',
+            p:test.valid?formatP(test.p):'-',
+            padj:test.valid?formatP(test.adjP):'-',
+            note:test.valid?'':(test.message || 'Skipped')
+          })),
+          footnotes:[
+            `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...skippedNotes
+          ],
+          options:{
+            fileName:'box-one-sample-ttest',
+            contextLabel:'box-one-sample'
+          }
+        });
+      }else{
+        renderTableModel({
+          caption:'One-sample Wilcoxon signed-rank tests',
+          columns:[
+            { key:'group', label:'Group', align:'left', index:0 },
+            { key:'n', label:'n', align:'right', index:1 },
+            { key:'nEff', label:'n (non-zero)', align:'right', index:2 },
+            { key:'median', label:'Median - H0', align:'right', index:3 },
+            { key:'statistic', label:'W', align:'right', index:4 },
+            { key:'z', label:'z', align:'right', index:5 },
+            { key:'p', label:'P value', align:'right', index:6 },
+            { key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:7 },
+            { key:'note', label:'Note', align:'left', index:8 }
+          ],
+          rows:tests.map(test=>({
+            group:test.label,
+            n:Number.isFinite(test.n)?String(test.n):'-',
+            nEff:Number.isFinite(test.effectiveN)?String(test.effectiveN):'-',
+            median:Number.isFinite(test.delta)?formatStatNumber(test.delta):'-',
+            statistic:Number.isFinite(test.stat)?formatStatNumber(test.stat):'-',
+            z:Number.isFinite(test.auxValue)?formatStatNumber(test.auxValue):'-',
+            p:test.valid?formatP(test.p):'-',
+            padj:test.valid?formatP(test.adjP):'-',
+            note:test.valid?'':(test.message || 'Skipped')
+          })),
+          footnotes:[
+            `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...skippedNotes
+          ],
+          options:{
+            fileName:'box-one-sample-wilcoxon',
+            contextLabel:'box-one-sample'
+          }
+        });
+      }
+      return;
+    }
     if(state.statsPaired && groups.some(g=>g.length!==groups[0].length)){
       setResultsMessage('Paired tests require equal group sizes.'); return;
     }
@@ -11952,6 +12383,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }else{
         const kw=kruskalWallis(groups);
         overall={ method:'kruskal', H:kw.H, p:kw.p, df:groups.length-1 };
+      }
+    }else if(param){
+      const rm=computeRepeatedMeasuresAnova(groups);
+      if(rm.ok){
+        overall={ method:'rmAnova', F:rm.F, p:rm.p, df1:rm.df1, df2:rm.df2, footnote:rm.footnote };
+        if(rm.footnote){ overallFootnotes.push(rm.footnote); }
+      }else{
+        console.debug('Debug: box repeated-measures ANOVA unavailable',rm);
+      }
+    }else{
+      const friedman=computeFriedmanTest(groups);
+      if(friedman.ok){
+        overall={ method:'friedman', Q:friedman.Q, p:friedman.p, df:friedman.df, footnote:friedman.footnote };
+        if(friedman.footnote){ overallFootnotes.push(friedman.footnote); }
+      }else{
+        console.debug('Debug: box friedman unavailable',friedman);
       }
     }
     const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
@@ -12286,22 +12733,36 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(correctionMeta.footnote){ footnotes.push(correctionMeta.footnote); }
       methodFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       let appendForPairs=false;
-      if(!state.statsPaired && overall){
+      if(overall){
         const overallLabel=overall.method==='welch'
           ? 'Welch ANOVA'
           : overall.method==='anova'
             ? 'ANOVA'
-            : 'Kruskal-Wallis';
-        const overallStatName=overall.method==='kruskal'?'H':'F';
-        const statValue=overall.method==='kruskal'?overall.H:overall.F;
+            : overall.method==='rmAnova'
+              ? 'Repeated-measures ANOVA'
+              : overall.method==='friedman'
+                ? 'Friedman test'
+                : 'Kruskal-Wallis';
+        const overallStatName=overall.method==='kruskal'
+          ? 'H'
+          : overall.method==='friedman'
+            ? 'Q'
+            : 'F';
+        const statValue=overall.method==='kruskal'
+          ? overall.H
+          : overall.method==='friedman'
+            ? overall.Q
+            : overall.F;
         const overallRows=[
           { metric:'Overall test', value:overallLabel },
           { metric:overallStatName, value:Number.isFinite(statValue)?statValue.toFixed(4):'—' }
         ];
-        if(overall.method==='welch' || overall.method==='anova'){
+        if(overall.method==='welch' || overall.method==='anova' || overall.method==='rmAnova'){
           const dfLabel=overall.method==='welch'
             ? `df = ${overall.df1}, ${Number.isFinite(overall.df2)?overall.df2.toFixed(2):'∞'}`
-            : `${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}`;
+            : overall.method==='rmAnova'
+              ? `${overall.df1},${overall.df2}`
+              : `${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}`;
           overallRows.push({ metric:'df', value:dfLabel });
         }else if(overall?.df!=null){
           overallRows.push({ metric:'df', value:String(overall.df) });
@@ -16359,6 +16820,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           test: state.statsTest,
           paired: state.statsPaired,
           mode: state.statsMode,
+          oneSampleNullValue: sanitizeOneSampleNullValue(state.statsOneSampleValue),
           referenceIndex: state.statsRef,
           pairsText: state.statsPairsText,
           postHoc: state.statsPostHoc,
@@ -16387,6 +16849,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       colorMode: payload.config.colorMode,
       statsTest: payload.config.stats?.test,
       statsMode: payload.config.stats?.mode,
+      statsOneSampleNullValue: payload.config.stats?.oneSampleNullValue,
       statsPostHoc: payload.config.stats?.postHoc,
       statsCorrection: payload.config.stats?.correction,
       effectParametric: payload.config.stats?.effectParametric,
@@ -16824,8 +17287,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const statsConfig=c.stats||{};
     state.statsTest=statsConfig.test==='nonparametric'?'nonparametric':'parametric';
     state.statsPaired=!!statsConfig.paired;
-    const allowedModes=new Set(['all','reference','custom']);
+    const allowedModes=new Set(['all','reference','custom','oneSample']);
     state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
+    state.statsOneSampleValue=sanitizeOneSampleNullValue(statsConfig.oneSampleNullValue ?? state.statsOneSampleValue);
     state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
     state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
     state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
@@ -17270,9 +17734,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	  box.__testHooks = Object.assign({}, box.__testHooks, {
 	    tTest:(a,b)=>tTest(a,b),
 	    tTestPaired:(a,b)=>tTestPaired(a,b),
+	    tTestOneSample:(values,nullValue)=>tTestOneSample(values,nullValue),
 	    mannWhitney:(a,b)=>mannWhitney(a,b),
 	    wilcoxonSignedRank:(a,b)=>wilcoxonSignedRank(a,b),
+	    wilcoxonOneSample:(values,nullValue)=>wilcoxonOneSample(values,nullValue),
 	    anova:groups=>anova(groups),
+	    repeatedMeasuresAnova:groups=>computeRepeatedMeasuresAnova(groups),
+	    friedmanTest:groups=>computeFriedmanTest(groups),
 	    kruskalWallis:groups=>kruskalWallis(groups),
 	    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
 	    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),

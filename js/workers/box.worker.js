@@ -981,6 +981,14 @@
     return { available: false, message, ...base };
   }
 
+  function sanitizeOneSampleNullValue(value){
+    const numeric = Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric;
+    }
+    return 0;
+  }
+
   function warnDistributionUnavailable(distribution, context){
     logDebug('Debug: box worker distribution unavailable', { distribution, helper: context?.helper || null, hasJStat: !!global.jStat });
   }
@@ -1023,6 +1031,88 @@
     const t = md / (sd / Math.sqrt(n));
     const p = 2 * (1 - cdf(Math.abs(t), n - 1));
     return { t, df: n - 1, p };
+  }
+
+  function tTestOneSample(values, nullValue){
+    const jStatLib = global.jStat;
+    const cdf = jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf === 'function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t', { helper: 'tTestOneSample' });
+      return createUnavailableStatResult({ t: NaN, df: NaN, p: NaN, n: 0, mean: NaN, sd: NaN }, 'Student-t distribution unavailable.');
+    }
+    const target = sanitizeOneSampleNullValue(nullValue);
+    const cleaned = (Array.isArray(values) ? values : [])
+      .map(Number)
+      .filter(Number.isFinite);
+    const n = cleaned.length;
+    if(n < 2){
+      return createUnavailableStatResult({ t: NaN, df: NaN, p: NaN, n, mean: NaN, sd: NaN }, 'One-sample t-test needs at least two values.');
+    }
+    const meanVal = mean(cleaned);
+    const variance = cleaned.reduce((acc, val) => acc + Math.pow(val - meanVal, 2), 0) / (n - 1);
+    const sd = Math.sqrt(Math.max(variance, 0));
+    let t;
+    let p;
+    if(sd === 0){
+      const delta = meanVal - target;
+      if(delta === 0){
+        t = 0;
+        p = 1;
+      }else{
+        t = delta > 0 ? Infinity : -Infinity;
+        p = 0;
+      }
+    }else{
+      const se = sd / Math.sqrt(n);
+      t = (meanVal - target) / se;
+      p = 2 * (1 - cdf(Math.abs(t), n - 1));
+    }
+    return { t, df: n - 1, p, n, mean: meanVal, sd };
+  }
+
+  function wilcoxonOneSample(values, nullValue){
+    const jStatLib = global.jStat;
+    const cdf = jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf === 'function'
+      ? jStatLib.normal.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('normal', { helper: 'wilcoxonOneSample' });
+      return createUnavailableStatResult({ W: NaN, z: NaN, p: NaN, n: 0, effectiveN: 0, median: NaN }, 'Normal distribution unavailable.');
+    }
+    const target = sanitizeOneSampleNullValue(nullValue);
+    const cleaned = (Array.isArray(values) ? values : [])
+      .map(Number)
+      .filter(Number.isFinite);
+    const diffs = cleaned.map(val => val - target);
+    const n = diffs.length;
+    if(n < 1){
+      return createUnavailableStatResult({ W: NaN, z: NaN, p: NaN, n, effectiveN: 0, median: NaN }, 'One-sample Wilcoxon test needs at least one value.');
+    }
+    const nonZeroDiffs = diffs.filter(v => v !== 0);
+    const effectiveN = nonZeroDiffs.length;
+    const medianDiff = quantileFromUnsorted(diffs, 0.5);
+    if(!effectiveN){
+      return { W: 0, z: 0, p: 1, n, effectiveN: 0, median: medianDiff };
+    }
+    const abs = nonZeroDiffs.map(Math.abs);
+    const ranks = rankArray(abs);
+    let Wpos = 0;
+    let Wneg = 0;
+    ranks.forEach((rk, idx) => {
+      if(nonZeroDiffs[idx] > 0){
+        Wpos += rk;
+      }else{
+        Wneg += rk;
+      }
+    });
+    const W = Math.min(Wpos, Wneg);
+    const mu = effectiveN * (effectiveN + 1) / 4;
+    const sigma = Math.sqrt(effectiveN * (effectiveN + 1) * (2 * effectiveN + 1) / 24);
+    const z = sigma === 0 ? 0 : (W - mu) / sigma;
+    const p = 2 * (1 - cdf(Math.abs(z), 0, 1));
+    return { W, z, p, n, effectiveN, median: medianDiff };
   }
 
   function rankArray(arr){
@@ -1146,6 +1236,157 @@
     const df = groups.length - 1;
     const p = 1 - cdf(H, df);
     return { H, p };
+  }
+
+  function rankValuesWithTieInfo(values){
+    const sorted = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+    const ranks = new Array(values.length);
+    let tieTerm = 0;
+    let start = 0;
+    while(start < sorted.length){
+      let end = start + 1;
+      while(end < sorted.length && sorted[end].v === sorted[start].v){
+        end++;
+      }
+      const tieCount = end - start;
+      const avg = (start + 1 + end) / 2;
+      for(let idx = start; idx < end; idx++){
+        ranks[sorted[idx].i] = avg;
+      }
+      if(tieCount > 1){
+        tieTerm += Math.pow(tieCount, 3) - tieCount;
+      }
+      start = end;
+    }
+    return { ranks, tieTerm };
+  }
+
+  function computeRepeatedMeasuresAnova(groups){
+    const cleaned = (Array.isArray(groups) ? groups : []).map(group => (Array.isArray(group) ? group : []).filter(Number.isFinite));
+    const k = cleaned.length;
+    if(k < 3){
+      return { ok: false, message: 'Repeated-measures ANOVA requires at least three groups.' };
+    }
+    const n = cleaned[0]?.length || 0;
+    if(n < 2){
+      return { ok: false, message: 'Repeated-measures ANOVA needs at least two paired rows.' };
+    }
+    if(cleaned.some(group => group.length !== n)){
+      return { ok: false, message: 'Repeated-measures ANOVA requires equal group sizes.' };
+    }
+    const jStatLib = global.jStat;
+    const cdf = jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf === 'function'
+      ? jStatLib.centralF.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('central-F', { helper: 'computeRepeatedMeasuresAnova' });
+      return { ok: false, message: 'F distribution unavailable.' };
+    }
+    const grandN = n * k;
+    let totalSum = 0;
+    let ssTotal = 0;
+    const conditionSums = new Array(k).fill(0);
+    const subjectSums = new Array(n).fill(0);
+    for(let j = 0; j < k; j++){
+      for(let i = 0; i < n; i++){
+        const value = cleaned[j][i];
+        totalSum += value;
+        conditionSums[j] += value;
+        subjectSums[i] += value;
+      }
+    }
+    const grandMean = totalSum / grandN;
+    for(let j = 0; j < k; j++){
+      for(let i = 0; i < n; i++){
+        ssTotal += Math.pow(cleaned[j][i] - grandMean, 2);
+      }
+    }
+    const ssCondition = conditionSums.reduce((acc, sum) => acc + n * Math.pow((sum / n) - grandMean, 2), 0);
+    const ssSubject = subjectSums.reduce((acc, sum) => acc + k * Math.pow((sum / k) - grandMean, 2), 0);
+    let ssError = ssTotal - ssCondition - ssSubject;
+    if(ssError < 0 && Math.abs(ssError) < 1e-10){
+      ssError = 0;
+    }
+    const df1 = k - 1;
+    const df2 = (k - 1) * (n - 1);
+    if(df1 <= 0 || df2 <= 0){
+      return { ok: false, message: 'Repeated-measures ANOVA degrees of freedom are invalid.' };
+    }
+    const msCondition = ssCondition / df1;
+    const msError = ssError / df2;
+    let F;
+    let p;
+    if(msError === 0){
+      F = msCondition > 0 ? Infinity : 0;
+      p = msCondition > 0 ? 0 : 1;
+    }else{
+      F = msCondition / msError;
+      p = 1 - cdf(F, df1, df2);
+    }
+    return {
+      ok: true,
+      F,
+      p,
+      df1,
+      df2,
+      footnote: 'Repeated-measures ANOVA assumes sphericity.'
+    };
+  }
+
+  function computeFriedmanTest(groups){
+    const cleaned = (Array.isArray(groups) ? groups : []).map(group => (Array.isArray(group) ? group : []).filter(Number.isFinite));
+    const k = cleaned.length;
+    if(k < 3){
+      return { ok: false, message: 'Friedman test requires at least three groups.' };
+    }
+    const n = cleaned[0]?.length || 0;
+    if(n < 2){
+      return { ok: false, message: 'Friedman test needs at least two paired rows.' };
+    }
+    if(cleaned.some(group => group.length !== n)){
+      return { ok: false, message: 'Friedman test requires equal group sizes.' };
+    }
+    const jStatLib = global.jStat;
+    const cdf = jStatLib && jStatLib.chisquare && typeof jStatLib.chisquare.cdf === 'function'
+      ? jStatLib.chisquare.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('chi-square', { helper: 'computeFriedmanTest' });
+      return { ok: false, message: 'Chi-square distribution unavailable.' };
+    }
+    const rankSums = new Array(k).fill(0);
+    let tieTermSum = 0;
+    for(let row = 0; row < n; row++){
+      const rowValues = cleaned.map(group => group[row]);
+      const rankInfo = rankValuesWithTieInfo(rowValues);
+      tieTermSum += rankInfo.tieTerm;
+      for(let col = 0; col < k; col++){
+        rankSums[col] += rankInfo.ranks[col];
+      }
+    }
+    let Q = (12 / (n * k * (k + 1))) * rankSums.reduce((sum, val) => sum + val * val, 0) - 3 * n * (k + 1);
+    let tieCorrection = 1;
+    if(tieTermSum > 0){
+      const denom = n * k * (k * k - 1);
+      if(denom > 0){
+        tieCorrection = 1 - (tieTermSum / denom);
+      }
+      if(tieCorrection > 0){
+        Q /= tieCorrection;
+      }
+    }
+    const df = k - 1;
+    const p = 1 - cdf(Q, df);
+    return {
+      ok: true,
+      Q,
+      p,
+      df,
+      tieCorrection,
+      footnote: tieTermSum > 0
+        ? `Friedman tie correction applied (factor ${tieCorrection.toFixed(4)}).`
+        : 'Friedman test on paired ranks.'
+    };
   }
 
   function computeWelchAnova(groups){
@@ -2951,6 +3192,8 @@
 
   function computeSingleStatsModel(payload){
     const selection = Array.isArray(payload.selection) ? payload.selection : [];
+    const statsMode = payload.statsMode || 'all';
+    const oneSampleMode = statsMode === 'oneSample';
     const indices = [];
     const labels = [];
     const groups = [];
@@ -2981,8 +3224,11 @@
       overallRangeMax: null
     };
 
-    if(indices.length < 2){
-      model.message = 'Select at least two columns for statistical analysis.';
+    const minSelectionRequired = oneSampleMode ? 1 : 2;
+    if(indices.length < minSelectionRequired){
+      model.message = oneSampleMode
+        ? 'Select at least one column for one-sample analysis.'
+        : 'Select at least two columns for statistical analysis.';
       return model;
     }
 
@@ -2994,11 +3240,11 @@
     model.assumptionDiagnostics = assumptionDiagnostics;
 
     const statsTest = payload.statsTest === 'nonparametric' ? 'nonparametric' : 'parametric';
-    const statsPaired = !!payload.statsPaired;
+    const statsPaired = oneSampleMode ? false : !!payload.statsPaired;
     let variant = payload.statsParametricVariant;
     if(statsTest !== 'parametric'){
       variant = 'nonparametric';
-    }else if(statsPaired){
+    }else if(oneSampleMode || statsPaired){
       variant = 'classic';
     }else if(indices.length >= 3 && assumptionDiagnostics?.varianceConcern && (assumptionDiagnostics.normalityFailures || 0) === 0){
       variant = 'welch';
@@ -3027,7 +3273,124 @@
     const rangeHelpers = createRangeHelpers(indices, groups, payload.annotationMaxByTrace);
     model.overallRangeMax = rangeHelpers.overallRangeMax;
 
-    const statsMode = payload.statsMode || 'all';
+    if(oneSampleMode){
+      const nullValue = sanitizeOneSampleNullValue(payload.statsOneSampleNull ?? payload.statsOneSampleValue);
+      const tests = indices.map((traceIndex, groupIdx) => {
+        const values = groups[groupIdx];
+        const label = labels[groupIdx];
+        if(param){
+          const result = tTestOneSample(values, nullValue);
+          return {
+            index: traceIndex,
+            label,
+            valid: result.available !== false,
+            message: result.message || '',
+            n: result.n,
+            mean: result.mean,
+            sd: result.sd,
+            delta: Number.isFinite(result.mean) ? result.mean - nullValue : NaN,
+            stat: result.t,
+            df: result.df,
+            p: result.p
+          };
+        }
+        const result = wilcoxonOneSample(values, nullValue);
+        return {
+          index: traceIndex,
+          label,
+          valid: result.available !== false,
+          message: result.message || '',
+          n: result.n,
+          effectiveN: result.effectiveN,
+          median: result.median,
+          delta: Number.isFinite(result.median) ? result.median : NaN,
+          stat: result.W,
+          z: result.z,
+          p: result.p
+        };
+      });
+      const validTests = tests.filter(test => test.valid && Number.isFinite(test.p));
+      if(!validTests.length){
+        model.message = 'No one-sample tests could be computed. Check that each selected column has enough numeric values.';
+        return model;
+      }
+      const adjusted = applyPValueCorrection(validTests.map(test => test.p), payload.statsCorrection);
+      validTests.forEach((test, idx) => {
+        test.adjP = Array.isArray(adjusted) && Number.isFinite(adjusted[idx]) ? adjusted[idx] : test.p;
+      });
+      const correctionMeta = resolveCorrectionMeta(payload.statsCorrection, validTests.length);
+      const skippedNotes = tests
+        .filter(test => !test.valid)
+        .map(test => `${test.label}: ${test.message || 'skipped'}`);
+      if(param){
+        model.tables.push({
+          caption: 'One-sample t-tests',
+          columns: [
+            { key: 'group', label: 'Group', align: 'left', index: 0 },
+            { key: 'n', label: 'n', align: 'right', index: 1 },
+            { key: 'mean', label: 'Mean', align: 'right', index: 2 },
+            { key: 'delta', label: 'Mean - H0', align: 'right', index: 3 },
+            { key: 'statistic', label: 't', align: 'right', index: 4 },
+            { key: 'df', label: 'df', align: 'right', index: 5 },
+            { key: 'p', label: 'P value', align: 'right', index: 6 },
+            { key: 'padj', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
+            { key: 'note', label: 'Note', align: 'left', index: 8 }
+          ],
+          rows: tests.map(test => ({
+            group: test.label,
+            n: Number.isFinite(test.n) ? String(test.n) : '-',
+            mean: Number.isFinite(test.mean) ? formatStatNumber(test.mean) : '-',
+            delta: Number.isFinite(test.delta) ? formatStatNumber(test.delta) : '-',
+            statistic: Number.isFinite(test.stat) ? formatStatNumber(test.stat) : '-',
+            df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '-',
+            p: test.valid ? formatP(test.p) : '-',
+            padj: test.valid ? formatP(test.adjP) : '-',
+            note: test.valid ? '' : (test.message || 'Skipped')
+          })),
+          footnotes: [
+            `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...skippedNotes
+          ],
+          options: { fileName: 'box-one-sample-ttest', contextLabel: 'box-one-sample' }
+        });
+      }else{
+        model.tables.push({
+          caption: 'One-sample Wilcoxon signed-rank tests',
+          columns: [
+            { key: 'group', label: 'Group', align: 'left', index: 0 },
+            { key: 'n', label: 'n', align: 'right', index: 1 },
+            { key: 'nEff', label: 'n (non-zero)', align: 'right', index: 2 },
+            { key: 'median', label: 'Median - H0', align: 'right', index: 3 },
+            { key: 'statistic', label: 'W', align: 'right', index: 4 },
+            { key: 'z', label: 'z', align: 'right', index: 5 },
+            { key: 'p', label: 'P value', align: 'right', index: 6 },
+            { key: 'padj', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
+            { key: 'note', label: 'Note', align: 'left', index: 8 }
+          ],
+          rows: tests.map(test => ({
+            group: test.label,
+            n: Number.isFinite(test.n) ? String(test.n) : '-',
+            nEff: Number.isFinite(test.effectiveN) ? String(test.effectiveN) : '-',
+            median: Number.isFinite(test.delta) ? formatStatNumber(test.delta) : '-',
+            statistic: Number.isFinite(test.stat) ? formatStatNumber(test.stat) : '-',
+            z: Number.isFinite(test.z) ? formatStatNumber(test.z) : '-',
+            p: test.valid ? formatP(test.p) : '-',
+            padj: test.valid ? formatP(test.adjP) : '-',
+            note: test.valid ? '' : (test.message || 'Skipped')
+          })),
+          footnotes: [
+            `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...skippedNotes
+          ],
+          options: { fileName: 'box-one-sample-wilcoxon', contextLabel: 'box-one-sample' }
+        });
+      }
+      model.correctionCount = validTests.length;
+      model.postHoc = 'standard';
+      return model;
+    }
 
     if(statsMode === 'custom'){
       const customPairs = Array.isArray(payload.statsCustomPairs) ? payload.statsCustomPairs : [];
@@ -3187,6 +3550,22 @@
       }else{
         const kw = kruskalWallis(groups);
         overall = { method: 'kruskal', H: kw.H, p: kw.p, df: groups.length - 1 };
+      }
+    }else if(param){
+      const rm = computeRepeatedMeasuresAnova(groups);
+      if(rm.ok){
+        overall = { method: 'rmAnova', F: rm.F, p: rm.p, df1: rm.df1, df2: rm.df2, footnote: rm.footnote };
+        if(rm.footnote){
+          overallFootnotes.push(rm.footnote);
+        }
+      }
+    }else{
+      const friedman = computeFriedmanTest(groups);
+      if(friedman.ok){
+        overall = { method: 'friedman', Q: friedman.Q, p: friedman.p, df: friedman.df, footnote: friedman.footnote };
+        if(friedman.footnote){
+          overallFootnotes.push(friedman.footnote);
+        }
       }
     }
     model.overall = overall;
@@ -3515,22 +3894,36 @@
       }
       methodFootnotes.forEach(note => { if(note) footnotes.push(note); });
 
-      if(!statsPaired && overall){
+      if(overall){
         const overallLabel = overall.method === 'welch'
           ? 'Welch ANOVA'
           : overall.method === 'anova'
             ? 'ANOVA'
-            : 'Kruskal-Wallis';
-        const overallStatName = overall.method === 'kruskal' ? 'H' : 'F';
-        const statValue = overall.method === 'kruskal' ? overall.H : overall.F;
+            : overall.method === 'rmAnova'
+              ? 'Repeated-measures ANOVA'
+              : overall.method === 'friedman'
+                ? 'Friedman test'
+                : 'Kruskal-Wallis';
+        const overallStatName = overall.method === 'kruskal'
+          ? 'H'
+          : overall.method === 'friedman'
+            ? 'Q'
+            : 'F';
+        const statValue = overall.method === 'kruskal'
+          ? overall.H
+          : overall.method === 'friedman'
+            ? overall.Q
+            : overall.F;
         const overallRows = [
           { metric: 'Overall test', value: overallLabel },
           { metric: overallStatName, value: Number.isFinite(statValue) ? statValue.toFixed(4) : '-' }
         ];
-        if(overall.method === 'welch' || overall.method === 'anova'){
+        if(overall.method === 'welch' || overall.method === 'anova' || overall.method === 'rmAnova'){
           const dfLabel = overall.method === 'welch'
             ? `df = ${overall.df1}, ${Number.isFinite(overall.df2) ? overall.df2.toFixed(2) : 'Infinity'}`
-            : `${groups.length - 1},${groups.reduce((s, g) => s + g.length, 0) - groups.length}`;
+            : overall.method === 'rmAnova'
+              ? `${overall.df1},${overall.df2}`
+              : `${groups.length - 1},${groups.reduce((s, g) => s + g.length, 0) - groups.length}`;
           overallRows.push({ metric: 'df', value: dfLabel });
         }else if(overall?.df != null){
           overallRows.push({ metric: 'df', value: String(overall.df) });
