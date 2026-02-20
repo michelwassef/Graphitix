@@ -168,10 +168,16 @@
   const TRANSFORM_OPTION_SELECTOR = '.workspace-toolbar__button[data-transform-option]';
   const TRANSFORM_APPLY_SELECTOR = '.workspace-toolbar__button[data-transform-apply="1"]';
   const TRANSFORM_CLEAR_SELECTOR = '.workspace-toolbar__button[data-transform-clear="1"]';
+  const TRANSFORM_CUSTOM_TRIGGER_SELECTOR = `${TRANSFORM_OPTION_SELECTOR}[data-transform-option="custom"]`;
+  const TRANSFORM_CUSTOM_DROPDOWN_SELECTOR = '.workspace-toolbar__transform-custom-dropdown[data-transform-custom-dropdown="1"]';
+  const TRANSFORM_CUSTOM_INPUT_SELECTOR = 'input[data-transform-custom-input="1"]';
+  const TRANSFORM_CUSTOM_APPLY_SELECTOR = '.workspace-toolbar__button[data-transform-custom-apply="1"]';
+  const TRANSFORM_CUSTOM_CLOSE_SELECTOR = '.workspace-toolbar__button[data-transform-custom-close="1"]';
   let undoSubscriptionCleanup = null;
   let menuHandlersBound = false;
   let transformHandlersBound = false;
   const contextObservers = new WeakMap();
+  const transformCustomExpressionByKey = new Map();
 
   function logDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -457,6 +463,7 @@
     if(transformHandlersBound || !doc){ return; }
     doc.addEventListener('click', handleTransformToolbarClick, true);
     doc.addEventListener('change', handleTransformToolbarChange, true);
+    doc.addEventListener('keydown', handleTransformToolbarKeydown, true);
     transformHandlersBound = true;
   }
 
@@ -695,6 +702,106 @@
     return node.closest(TRANSFORM_SECTION_SELECTOR);
   }
 
+  function getTransformSectionToolbarKey(section){
+    if(!section || typeof section.closest !== 'function'){
+      return '';
+    }
+    const toolbar = section.closest('.workspace-toolbar');
+    return String(toolbar?.dataset?.toolbarKey || '').trim();
+  }
+
+  function findTransformSectionByToolbarKey(toolbarKey){
+    if(!doc){ return null; }
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return null; }
+    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    return toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR) || null;
+  }
+
+  function getTransformCustomDropdown(section){
+    return section?.querySelector?.(TRANSFORM_CUSTOM_DROPDOWN_SELECTOR) || null;
+  }
+
+  function getTransformCustomInput(section){
+    return section?.querySelector?.(TRANSFORM_CUSTOM_INPUT_SELECTOR) || null;
+  }
+
+  function alignTransformCustomDropdown(section){
+    const trigger = section?.querySelector?.(TRANSFORM_CUSTOM_TRIGGER_SELECTOR);
+    const dropdown = getTransformCustomDropdown(section);
+    if(!trigger || !dropdown){
+      return;
+    }
+    const left = Number(trigger.offsetLeft) || 0;
+    const top = (Number(trigger.offsetTop) || 0) + (Number(trigger.offsetHeight) || 0) + 6;
+    dropdown.style.left = `${left}px`;
+    dropdown.style.top = `${top}px`;
+    dropdown.style.right = 'auto';
+  }
+
+  function setTransformCustomDropdownOpen(section, expanded, options){
+    if(!section){ return; }
+    const dropdown = getTransformCustomDropdown(section);
+    if(!dropdown){ return; }
+    const next = !!expanded;
+    dropdown.hidden = !next;
+    dropdown.dataset.open = next ? '1' : '0';
+    const trigger = section.querySelector(TRANSFORM_CUSTOM_TRIGGER_SELECTOR);
+    if(trigger){
+      trigger.setAttribute('aria-expanded', next ? 'true' : 'false');
+    }
+    if(!next){
+      return;
+    }
+    const opts = options || {};
+    alignTransformCustomDropdown(section);
+    const input = getTransformCustomInput(section);
+    if(input && opts.focusInput){
+      const focusInput = () => {
+        try{
+          input.focus();
+          const length = input.value.length;
+          input.setSelectionRange?.(length, length);
+        }catch(err){
+          // no-op
+        }
+      };
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(focusInput);
+      }else{
+        global.setTimeout(focusInput, 0);
+      }
+    }
+  }
+
+  function closeAllTransformCustomDropdowns(exceptSection){
+    if(!doc){ return; }
+    doc.querySelectorAll(`${TRANSFORM_SECTION_SELECTOR} ${TRANSFORM_CUSTOM_DROPDOWN_SELECTOR}[data-open="1"]`).forEach(dropdown => {
+      const section = dropdown.closest(TRANSFORM_SECTION_SELECTOR);
+      if(section && section !== exceptSection){
+        setTransformCustomDropdownOpen(section, false);
+      }
+    });
+  }
+
+  function syncTransformCustomExpressionFromInput(section){
+    const key = getTransformSectionToolbarKey(section);
+    if(!key){ return; }
+    const input = getTransformCustomInput(section);
+    if(!input){ return; }
+    transformCustomExpressionByKey.set(key, String(input.value || '').trim());
+  }
+
+  function syncTransformCustomInputFromStore(section){
+    const key = getTransformSectionToolbarKey(section);
+    if(!key){ return; }
+    const input = getTransformCustomInput(section);
+    if(!input){ return; }
+    if(transformCustomExpressionByKey.has(key) && input.value !== transformCustomExpressionByKey.get(key)){
+      input.value = transformCustomExpressionByKey.get(key);
+    }
+  }
+
   function setTransformButtonSelected(button, selected){
     if(!button){ return; }
     const next = !!selected;
@@ -731,6 +838,10 @@
       button.hidden = !multiMode;
       button.disabled = !multiMode || selectedCount === 0;
     });
+    if(!multiMode){
+      setTransformCustomDropdownOpen(section, false);
+    }
+    syncTransformCustomInputFromStore(section);
   }
 
   function syncTransformSections(root){
@@ -744,6 +855,13 @@
   function handleTransformToolbarChange(event){
     const target = event?.target;
     if(!target || typeof target.closest !== 'function'){ return; }
+    const customInput = target.closest(TRANSFORM_CUSTOM_INPUT_SELECTOR);
+    if(customInput){
+      const section = getTransformSection(customInput);
+      if(!section){ return; }
+      syncTransformCustomExpressionFromInput(section);
+      return;
+    }
     const modeToggle = target.closest(TRANSFORM_MODE_TOGGLE_SELECTOR);
     if(!modeToggle){ return; }
     const section = getTransformSection(modeToggle);
@@ -754,28 +872,166 @@
   function handleTransformToolbarClick(event){
     const target = event?.target;
     if(!target || typeof target.closest !== 'function'){ return; }
+    const customClose = target.closest(TRANSFORM_CUSTOM_CLOSE_SELECTOR);
+    if(customClose){
+      const section = getTransformSection(customClose);
+      if(!section){ return; }
+      setTransformCustomDropdownOpen(section, false);
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    const customApply = target.closest(TRANSFORM_CUSTOM_APPLY_SELECTOR);
+    if(customApply){
+      const section = getTransformSection(customApply);
+      if(!section){ return; }
+      syncTransformCustomExpressionFromInput(section);
+      closeAllTransformCustomDropdowns(section);
+      setTransformCustomDropdownOpen(section, false);
+      return;
+    }
     const clearButton = target.closest(TRANSFORM_CLEAR_SELECTOR);
     if(clearButton){
       const section = getTransformSection(clearButton);
       if(!section){ return; }
       clearTransformSelections(section);
       updateTransformSectionState(section, { preserveSelection: true });
+      closeAllTransformCustomDropdowns();
       event.preventDefault();
       event.stopImmediatePropagation();
       return;
     }
 
     const optionButton = target.closest(TRANSFORM_OPTION_SELECTOR);
-    if(!optionButton){ return; }
-    const section = getTransformSection(optionButton);
-    if(!section || section.dataset.transformMultiMode !== '1'){
+    if(optionButton){
+      const section = getTransformSection(optionButton);
+      if(!section){
+        return;
+      }
+      const optionKey = String(optionButton.dataset.transformOption || '').trim();
+      if(optionKey === 'custom'){
+        if(section.dataset.transformMultiMode === '1'){
+          const currentlySelected = optionButton.dataset.transformSelected === '1';
+          setTransformButtonSelected(optionButton, !currentlySelected);
+          updateTransformSectionState(section, { preserveSelection: true });
+        }
+        closeAllTransformCustomDropdowns(section);
+        setTransformCustomDropdownOpen(section, true, { focusInput: true });
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if(section.dataset.transformMultiMode !== '1'){
+        closeAllTransformCustomDropdowns();
+        return;
+      }
+      const currentlySelected = optionButton.dataset.transformSelected === '1';
+      setTransformButtonSelected(optionButton, !currentlySelected);
+      updateTransformSectionState(section, { preserveSelection: true });
+      closeAllTransformCustomDropdowns();
+      event.preventDefault();
+      event.stopImmediatePropagation();
       return;
     }
-    const currentlySelected = optionButton.dataset.transformSelected === '1';
-    setTransformButtonSelected(optionButton, !currentlySelected);
-    updateTransformSectionState(section, { preserveSelection: true });
+    if(!target.closest(TRANSFORM_CUSTOM_DROPDOWN_SELECTOR)){
+      closeAllTransformCustomDropdowns();
+    }
+  }
+
+  function handleTransformToolbarKeydown(event){
+    const target = event?.target;
+    if(!target || typeof target.closest !== 'function'){
+      return;
+    }
+    if(event.key === 'Escape'){
+      const section = getTransformSection(target);
+      if(!section){
+        return;
+      }
+      const dropdown = getTransformCustomDropdown(section);
+      if(dropdown?.dataset?.open === '1'){
+        setTransformCustomDropdownOpen(section, false);
+        const trigger = section.querySelector(TRANSFORM_CUSTOM_TRIGGER_SELECTOR);
+        trigger?.focus?.();
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+      return;
+    }
+    if(event.key !== 'Enter'){
+      return;
+    }
+    const input = target.closest(TRANSFORM_CUSTOM_INPUT_SELECTOR);
+    if(!input){
+      return;
+    }
+    const section = getTransformSection(input);
+    if(!section){
+      return;
+    }
+    const applyButton = section.querySelector(TRANSFORM_CUSTOM_APPLY_SELECTOR);
+    if(!applyButton || applyButton.disabled){
+      return;
+    }
+    syncTransformCustomExpressionFromInput(section);
     event.preventDefault();
-    event.stopImmediatePropagation();
+    applyButton.click();
+  }
+
+  function createTransformCustomDropdown(section){
+    if(!doc || !section?.transformKey){
+      return null;
+    }
+    const transformKey = String(section.transformKey || '').trim();
+    if(!transformKey){
+      return null;
+    }
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__transform-custom-dropdown';
+    wrap.dataset.transformCustomDropdown = '1';
+    wrap.dataset.open = '0';
+    wrap.hidden = true;
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-label', 'Custom transformation');
+
+    const field = doc.createElement('label');
+    field.className = 'workspace-toolbar__transform-custom-field';
+    const fieldLabel = doc.createElement('span');
+    fieldLabel.className = 'workspace-toolbar__transform-custom-label';
+    fieldLabel.textContent = 'Formula (use x)';
+    field.appendChild(fieldLabel);
+    const input = doc.createElement('input');
+    input.type = 'text';
+    input.id = `${transformKey}TransformCustomExpr`;
+    input.className = 'workspace-toolbar__transform-custom-input';
+    input.placeholder = 'log2(x+1)';
+    input.dataset.transformCustomInput = '1';
+    field.appendChild(input);
+    wrap.appendChild(field);
+
+    const helper = doc.createElement('p');
+    helper.className = 'workspace-toolbar__transform-custom-helper';
+    helper.textContent = 'Examples: log2(x+1), x*1000, x/3.5';
+    wrap.appendChild(helper);
+
+    const actions = doc.createElement('div');
+    actions.className = 'workspace-toolbar__transform-custom-actions';
+    const applyButton = createButton({
+      id: `${transformKey}TransformCustomApply`,
+      label: 'Apply custom',
+      classes: ['workspace-toolbar__button--text-only'],
+      dataset: { transformCustomApply: '1' }
+    });
+    if(applyButton){ actions.appendChild(applyButton); }
+    const closeButton = createButton({
+      id: `${transformKey}TransformCustomClose`,
+      label: 'Close',
+      classes: ['workspace-toolbar__button--text-only'],
+      dataset: { transformCustomClose: '1' }
+    });
+    if(closeButton){ actions.appendChild(closeButton); }
+    wrap.appendChild(actions);
+    return wrap;
   }
 
   function detachContextObserver(toolbar){
@@ -833,6 +1089,7 @@
     sectionEl.className = 'workspace-toolbar__section';
     if(section.transformSection){
       sectionEl.dataset.transformSection = '1';
+      sectionEl.dataset.transformKey = String(section.transformKey || '').trim();
     }
     sectionEl.setAttribute('role', 'group');
     if(section.ariaLabel){ sectionEl.setAttribute('aria-label', section.ariaLabel); }
@@ -851,9 +1108,19 @@
       }
       const isMenu = Array.isArray(buttonConfig.menuItems) && buttonConfig.menuItems.length > 0;
       const button = isMenu ? createMenuButton(buttonConfig) : createButton(buttonConfig);
+      if(button && button?.dataset?.transformOption === 'custom'){
+        button.setAttribute('aria-haspopup', 'dialog');
+        button.setAttribute('aria-expanded', 'false');
+      }
       if(button){ buttonsWrap.appendChild(button); }
     });
     sectionEl.appendChild(buttonsWrap);
+    if(section.transformSection){
+      const customDropdown = createTransformCustomDropdown(section);
+      if(customDropdown){
+        sectionEl.appendChild(customDropdown);
+      }
+    }
 
     const caption = doc.createElement('div');
     caption.className = 'workspace-toolbar__caption';
@@ -1140,6 +1407,64 @@
     updateTransformSectionState(section, { preserveSelection: true });
     return true;
   };
+  workspaceToolbar.getCustomTransformExpression = function getCustomTransformExpression(toolbarKey){
+    const key = String(toolbarKey || '').trim();
+    if(!key){
+      return '';
+    }
+    const section = findTransformSectionByToolbarKey(key);
+    if(section){
+      syncTransformCustomExpressionFromInput(section);
+      const input = getTransformCustomInput(section);
+      if(input){
+        const normalized = String(input.value || '').trim();
+        transformCustomExpressionByKey.set(key, normalized);
+        return normalized;
+      }
+    }
+    const stored = transformCustomExpressionByKey.get(key);
+    return typeof stored === 'string' ? stored : '';
+  };
+  workspaceToolbar.setCustomTransformExpression = function setCustomTransformExpression(toolbarKey, expression){
+    const key = String(toolbarKey || '').trim();
+    if(!key){
+      return false;
+    }
+    const normalized = String(expression || '').trim();
+    transformCustomExpressionByKey.set(key, normalized);
+    const section = findTransformSectionByToolbarKey(key);
+    const input = getTransformCustomInput(section);
+    if(input){
+      input.value = normalized;
+    }
+    return true;
+  };
+  workspaceToolbar.openCustomTransformEditor = function openCustomTransformEditor(toolbarKey){
+    const key = String(toolbarKey || '').trim();
+    if(!key){
+      return false;
+    }
+    workspaceToolbar.activateSection(key, 'Data');
+    const section = findTransformSectionByToolbarKey(key);
+    if(!section){
+      return false;
+    }
+    closeAllTransformCustomDropdowns(section);
+    setTransformCustomDropdownOpen(section, true, { focusInput: true });
+    return true;
+  };
+  workspaceToolbar.closeCustomTransformEditor = function closeCustomTransformEditor(toolbarKey){
+    const key = String(toolbarKey || '').trim();
+    if(!key){
+      return false;
+    }
+    const section = findTransformSectionByToolbarKey(key);
+    if(!section){
+      return false;
+    }
+    setTransformCustomDropdownOpen(section, false);
+    return true;
+  };
 
   if(doc){
     const button = (id, label, icon, options) => Object.assign({ id, label, icon }, options || {});
@@ -1176,6 +1501,7 @@
       caption: 'Data',
       ariaLabel: 'Input data transforms',
       transformSection: true,
+      transformKey: key,
       buttons: [
         {
           type: 'checkbox',
@@ -1239,7 +1565,7 @@
         button(`${key}TransformCustom`, 'Custom', 'transform', {
           classes: ['workspace-toolbar__button--text-only'],
           title: 'Create a transformed data tab from a custom expression',
-          dataset: { transformOption: 'custom' }
+          dataset: { transformOption: 'custom', transformCustomTrigger: '1' }
         })
       ]
     });

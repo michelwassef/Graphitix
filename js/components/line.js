@@ -2142,17 +2142,16 @@
   });
 
   function promptLineCustomExpression(){
-    const expression = global.prompt
-      ? global.prompt(
-        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-        'log2(x+1)'
-      )
-      : '';
-    if(expression == null){
-      return null;
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const expression = String(toolbarApi?.getCustomTransformExpression?.('line') || '').trim();
+    if(expression){
+      return expression;
     }
-    const normalized = String(expression || '').trim();
-    return normalized || null;
+    toolbarApi?.openCustomTransformEditor?.('line');
+    if(typeof global.alert === 'function'){
+      global.alert('Enter a custom transformation formula using x, then click "Apply custom".');
+    }
+    return null;
   }
 
   function resolveLineToolbarTransformOption(optionKey, customExpression){
@@ -2271,16 +2270,37 @@
     }
     global.document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#lineTransformApplySelected, #lineTransformCpm, #lineTransformLog2p1, #lineTransformCenterRowsMean, #lineTransformCenterRowsMedian, #lineTransformCenterColsMean, #lineTransformCenterColsMedian, #lineTransformNormalizeRows, #lineTransformNormalizeCols, #lineTransformCustom'
+        '#lineTransformApplySelected, #lineTransformCustomApply, #lineTransformCpm, #lineTransformLog2p1, #lineTransformCenterRowsMean, #lineTransformCenterRowsMedian, #lineTransformCenterColsMean, #lineTransformCenterColsMedian, #lineTransformNormalizeRows, #lineTransformNormalizeCols, #lineTransformCustom'
       );
       if(!button){
         return;
       }
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
       if(button.id === 'lineTransformApplySelected'){
         applyLineSelectedTransforms();
         return;
       }
-      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(button.id === 'lineTransformCustomApply'){
+        const customExpression = promptLineCustomExpression();
+        if(!customExpression){
+          return;
+        }
+        const customTransform = resolveLineToolbarTransformOption('custom', customExpression);
+        if(!customTransform){
+          return;
+        }
+        if(transformSection?.dataset?.transformMultiMode === '1'){
+          const selected = Shared.workspaceToolbar?.getSelectedTransforms?.('line') || [];
+          if(Array.isArray(selected) && selected.includes('custom')){
+            applyLineSelectedTransforms();
+          }else{
+            applyLineTransformToNewView(customTransform.spec, { title: customTransform.title });
+          }
+          return;
+        }
+        applyLineTransformToNewView(customTransform.spec, { title: customTransform.title });
+        return;
+      }
       if(!transformSection){
         return;
       }

@@ -750,6 +750,140 @@ describe('UI events and example loaders', () => {
     }
   });
 
+  test('Scatter Plot: grouped replicates render error bars and persist grouped payload settings', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork(20);
+
+    const scatterComponent = window.Components?.scatter;
+    expect(scatterComponent).toBeTruthy();
+    const hot = scatterComponent?.__ensureHotForActiveTab?.();
+    expect(hot).toBeTruthy();
+
+    const formatSelect = document.getElementById('scatterTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+
+    const replicatesInput = document.getElementById('scatterReplicates');
+    expect(replicatesInput).toBeTruthy();
+    replicatesInput.value = '3';
+    replicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+
+    hot.loadData([
+      ['Labels', 'X title', 'Rep 1', 'Rep 2', 'Rep 3', 'Rep 1', 'Rep 2', 'Rep 3'],
+      ['A', 1, 10, 11, 12, 20, 21, 22],
+      ['B', 2, 13, '', 15, 24, 25, 26],
+      ['', '', '', '', '', '', '', '']
+    ]);
+    await flushAsyncWork(40);
+
+    const showErrorBars = document.getElementById('scatterShowErrorBars');
+    expect(showErrorBars).toBeTruthy();
+    showErrorBars.checked = true;
+    showErrorBars.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const errorBarWidth = document.getElementById('scatterErrorBarWidth');
+    expect(errorBarWidth).toBeTruthy();
+    errorBarWidth.value = '2';
+    errorBarWidth.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushAsyncWork(80);
+
+    const svg = document.querySelector('#scatterPlot svg');
+    expect(svg).toBeTruthy();
+    const pointLayer = svg.querySelector('[data-layer="points"]');
+    expect(pointLayer).toBeTruthy();
+    expect(pointLayer.querySelectorAll('*').length).toBeGreaterThanOrEqual(4);
+    const errorLayer = svg.querySelector('[data-layer="error-bars"]');
+    expect(errorLayer).toBeTruthy();
+    expect(errorLayer.querySelectorAll('line').length).toBeGreaterThan(0);
+    expect(String(hot.getColHeader(2) || '')).toMatch(/series|rep/i);
+
+    const payload = scatterComponent.getPayload?.();
+    expect(payload?.config?.tableFormat).toBe('grouped');
+    expect(payload?.config?.replicates).toBe(3);
+    expect(Array.isArray(payload?.config?.groupLabels)).toBe(true);
+    expect((payload?.config?.groupLabels || []).length).toBeGreaterThanOrEqual(2);
+    expect(payload?.config?.showErrorBars).toBe(true);
+    expect(String(payload?.config?.errorBarWidth)).toBe('2');
+
+    scatterComponent.loadFromPayload(payload);
+    await flushAsyncWork(40);
+
+    expect(document.getElementById('scatterTableFormat')?.value).toBe('grouped');
+    expect(document.getElementById('scatterReplicates')?.value).toBe('3');
+    expect(document.getElementById('scatterShowErrorBars')?.checked).toBe(true);
+  });
+
+  test('Scatter Plot: grouped X replicates support horizontal error bars and grouped example headers', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork(20);
+
+    const scatterComponent = window.Components?.scatter;
+    expect(scatterComponent).toBeTruthy();
+    const hot = scatterComponent?.__ensureHotForActiveTab?.();
+    expect(hot).toBeTruthy();
+
+    const formatSelect = document.getElementById('scatterTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+
+    const replicatesInput = document.getElementById('scatterReplicates');
+    expect(replicatesInput).toBeTruthy();
+    replicatesInput.value = '3';
+    replicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+
+    const xRepToggle = document.getElementById('scatterGroupedXReplicates');
+    expect(xRepToggle).toBeTruthy();
+    xRepToggle.checked = true;
+    xRepToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(40);
+
+    const loadExampleBtn = document.getElementById('scatterLoadExample');
+    expect(loadExampleBtn).toBeTruthy();
+    loadExampleBtn.click();
+    await flushAsyncWork(80);
+
+    const matrix = hot.getData?.() || [];
+    expect(String(matrix?.[0]?.[1] || '')).toMatch(/x rep 1/i);
+    expect(String(matrix?.[0]?.[4] || '')).toMatch(/rep 1/i);
+    expect(String(hot.getColHeader(2) || '')).toMatch(/x rep 2/i);
+    expect(String(hot.getColHeader(4) || '')).toMatch(/control|series/i);
+
+    const showErrorBars = document.getElementById('scatterShowErrorBars');
+    expect(showErrorBars).toBeTruthy();
+    showErrorBars.checked = true;
+    showErrorBars.dispatchEvent(new Event('change', { bubbles: true }));
+    const errorBarWidth = document.getElementById('scatterErrorBarWidth');
+    expect(errorBarWidth).toBeTruthy();
+    errorBarWidth.value = '2';
+    errorBarWidth.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushAsyncWork(80);
+
+    const svg = document.querySelector('#scatterPlot svg');
+    expect(svg).toBeTruthy();
+    const errorLayer = svg.querySelector('[data-layer="error-bars"]');
+    expect(errorLayer).toBeTruthy();
+    const lines = Array.from(errorLayer.querySelectorAll('line'));
+    expect(lines.length).toBeGreaterThan(0);
+    const hasVertical = lines.some(line => line.getAttribute('x1') === line.getAttribute('x2') && line.getAttribute('y1') !== line.getAttribute('y2'));
+    const hasHorizontal = lines.some(line => line.getAttribute('y1') === line.getAttribute('y2') && line.getAttribute('x1') !== line.getAttribute('x2'));
+    expect(hasVertical).toBe(true);
+    expect(hasHorizontal).toBe(true);
+
+    const payload = scatterComponent.getPayload?.();
+    expect(payload?.config?.tableFormat).toBe('grouped');
+    expect(payload?.config?.replicates).toBe(3);
+    expect(payload?.config?.xReplicates).toBe(true);
+    scatterComponent.loadFromPayload(payload);
+    await flushAsyncWork(40);
+    expect(document.getElementById('scatterGroupedXReplicates')?.checked).toBe(true);
+  }, 15000);
+
   test('Scatter Plot: Volcano example draws points', async () => {
     await activateWorkspace('scatter');
     await flushAsyncWork();

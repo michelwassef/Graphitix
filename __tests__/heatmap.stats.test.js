@@ -166,6 +166,42 @@ describe('Heatmap stats formatting', () => {
     expect(applyButton.disabled).toBe(true);
   });
 
+  test('custom transform opens dropdown editor in multiple mode', () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    expect(hot).toBeTruthy();
+    hot.loadData([
+      ['Gene', 'ArrayA', 'ArrayB'],
+      ['Gene1', 1, 3],
+      ['Gene2', 2, 4]
+    ]);
+
+    const multiToggle = document.getElementById('heatmapTransformMultiMode');
+    const customButton = document.getElementById('heatmapTransformCustom');
+    expect(multiToggle).toBeTruthy();
+    expect(customButton).toBeTruthy();
+    const beforeTabs = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
+
+    multiToggle.checked = true;
+    multiToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    customButton.click();
+
+    const transformSection = customButton.closest('.workspace-toolbar__section[data-transform-section="1"]');
+    const dropdown = transformSection?.querySelector('[data-transform-custom-dropdown="1"]');
+    const input = document.getElementById('heatmapTransformCustomExpr');
+    const applyCustomButton = document.getElementById('heatmapTransformCustomApply');
+    expect(dropdown).toBeTruthy();
+    expect(dropdown?.dataset?.open).toBe('1');
+    expect(input).toBeTruthy();
+    expect(applyCustomButton).toBeTruthy();
+
+    input.value = 'x+1';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    applyCustomButton.click();
+
+    const tabs = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab');
+    expect(tabs.length).toBeGreaterThan(beforeTabs);
+  });
+
   test('closing materialized transform tab clears adjust/filter selections', () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();

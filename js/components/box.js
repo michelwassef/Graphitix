@@ -5603,17 +5603,16 @@
   });
 
   function promptBoxCustomExpression(){
-    const expression = global.prompt
-      ? global.prompt(
-        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-        'log2(x+1)'
-      )
-      : '';
-    if(expression == null){
-      return null;
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const expression = String(toolbarApi?.getCustomTransformExpression?.('box') || '').trim();
+    if(expression){
+      return expression;
     }
-    const normalized = String(expression || '').trim();
-    return normalized || null;
+    toolbarApi?.openCustomTransformEditor?.('box');
+    if(typeof global.alert === 'function'){
+      global.alert('Enter a custom transformation formula using x, then click "Apply custom".');
+    }
+    return null;
   }
 
   function resolveBoxToolbarTransformOption(optionKey, customExpression){
@@ -5732,16 +5731,37 @@
     }
     global.document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#boxTransformApplySelected, #boxTransformCpm, #boxTransformLog2p1, #boxTransformCenterRowsMean, #boxTransformCenterRowsMedian, #boxTransformCenterColsMean, #boxTransformCenterColsMedian, #boxTransformNormalizeRows, #boxTransformNormalizeCols, #boxTransformCustom'
+        '#boxTransformApplySelected, #boxTransformCustomApply, #boxTransformCpm, #boxTransformLog2p1, #boxTransformCenterRowsMean, #boxTransformCenterRowsMedian, #boxTransformCenterColsMean, #boxTransformCenterColsMedian, #boxTransformNormalizeRows, #boxTransformNormalizeCols, #boxTransformCustom'
       );
       if(!button){
         return;
       }
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
       if(button.id === 'boxTransformApplySelected'){
         applyBoxSelectedTransforms();
         return;
       }
-      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(button.id === 'boxTransformCustomApply'){
+        const customExpression = promptBoxCustomExpression();
+        if(!customExpression){
+          return;
+        }
+        const customTransform = resolveBoxToolbarTransformOption('custom', customExpression);
+        if(!customTransform){
+          return;
+        }
+        if(transformSection?.dataset?.transformMultiMode === '1'){
+          const selected = Shared.workspaceToolbar?.getSelectedTransforms?.('box') || [];
+          if(Array.isArray(selected) && selected.includes('custom')){
+            applyBoxSelectedTransforms();
+          }else{
+            applyBoxTransformToNewView(customTransform.spec, { title: customTransform.title });
+          }
+          return;
+        }
+        applyBoxTransformToNewView(customTransform.spec, { title: customTransform.title });
+        return;
+      }
       if(!transformSection){
         return;
       }

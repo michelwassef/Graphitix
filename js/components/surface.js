@@ -348,17 +348,16 @@
   });
 
   function promptSurfaceCustomExpression(){
-    const expression = global.prompt
-      ? global.prompt(
-        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-        'log2(x+1)'
-      )
-      : '';
-    if(expression == null){
-      return null;
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const expression = String(toolbarApi?.getCustomTransformExpression?.('surface') || '').trim();
+    if(expression){
+      return expression;
     }
-    const normalized = String(expression || '').trim();
-    return normalized || null;
+    toolbarApi?.openCustomTransformEditor?.('surface');
+    if(typeof global.alert === 'function'){
+      global.alert('Enter a custom transformation formula using x, then click "Apply custom".');
+    }
+    return null;
   }
 
   function resolveSurfaceToolbarTransformOption(optionKey, customExpression){
@@ -477,16 +476,37 @@
     }
     global.document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#surfaceTransformApplySelected, #surfaceTransformCpm, #surfaceTransformLog2p1, #surfaceTransformCenterRowsMean, #surfaceTransformCenterRowsMedian, #surfaceTransformCenterColsMean, #surfaceTransformCenterColsMedian, #surfaceTransformNormalizeRows, #surfaceTransformNormalizeCols, #surfaceTransformCustom'
+        '#surfaceTransformApplySelected, #surfaceTransformCustomApply, #surfaceTransformCpm, #surfaceTransformLog2p1, #surfaceTransformCenterRowsMean, #surfaceTransformCenterRowsMedian, #surfaceTransformCenterColsMean, #surfaceTransformCenterColsMedian, #surfaceTransformNormalizeRows, #surfaceTransformNormalizeCols, #surfaceTransformCustom'
       );
       if(!button){
         return;
       }
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
       if(button.id === 'surfaceTransformApplySelected'){
         applySurfaceSelectedTransforms();
         return;
       }
-      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(button.id === 'surfaceTransformCustomApply'){
+        const customExpression = promptSurfaceCustomExpression();
+        if(!customExpression){
+          return;
+        }
+        const customTransform = resolveSurfaceToolbarTransformOption('custom', customExpression);
+        if(!customTransform){
+          return;
+        }
+        if(transformSection?.dataset?.transformMultiMode === '1'){
+          const selected = Shared.workspaceToolbar?.getSelectedTransforms?.('surface') || [];
+          if(Array.isArray(selected) && selected.includes('custom')){
+            applySurfaceSelectedTransforms();
+          }else{
+            applySurfaceTransformToNewView(customTransform.spec, { title: customTransform.title });
+          }
+          return;
+        }
+        applySurfaceTransformToNewView(customTransform.spec, { title: customTransform.title });
+        return;
+      }
       if(!transformSection){
         return;
       }

@@ -111,6 +111,14 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 5;
+  const SCATTER_SINGLE_FIXED_COLS = 5;
+  const SCATTER_GROUPED_BASE_COLS = 2; // label + x
+  const SCATTER_TABLE_FORMAT_SINGLE = 'single';
+  const SCATTER_TABLE_FORMAT_GROUPED = 'grouped';
+  const SCATTER_MIN_REPLICATES = 1;
+  const SCATTER_MAX_REPLICATES = 10;
+  const SCATTER_DEFAULT_GROUP_COUNT = 2;
+  const SCATTER_DEFAULT_GROUPED_REPLICATES = 3;
   const SCATTER_POINT_LABEL_COL = 4;
   const SCATTER_POINT_LABEL_COL_ALT = 0;
   const SCATTER_POINT_LABEL_MARK = '✓';
@@ -1388,6 +1396,20 @@
     if(typeof data.series === 'string' && data.series){
       appendRow(`Series: ${data.series}`);
     }
+    if(Array.isArray(data.replicates) && data.replicates.length){
+      const values = data.replicates.map(formatScatterTooltipNumber).join(', ');
+      appendRow(`Replicates (${data.replicates.length}): ${values}`);
+    }
+    if(Array.isArray(data.replicates) && data.replicates.length > 1 && Number.isFinite(data.stdev)){
+      appendRow(`Std Dev: ${formatScatterTooltipNumber(data.stdev)}`);
+    }
+    if(Array.isArray(data.xReplicates) && data.xReplicates.length){
+      const values = data.xReplicates.map(formatScatterTooltipNumber).join(', ');
+      appendRow(`X replicates (${data.xReplicates.length}): ${values}`);
+    }
+    if(Array.isArray(data.xReplicates) && data.xReplicates.length > 1 && Number.isFinite(data.xStdev)){
+      appendRow(`X Std Dev: ${formatScatterTooltipNumber(data.xStdev)}`);
+    }
     if(data.graphType && data.graphType !== 'scatter'){
       appendRow(`Graph: ${data.graphType.toUpperCase()}`);
       if(typeof data.isSignificant === 'boolean'){
@@ -1516,7 +1538,436 @@
     return normalized === 'label' || normalized === 'gene' || normalized === 'name';
   }
 
+  function clampScatterReplicateCount(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return SCATTER_MIN_REPLICATES;
+    }
+    return Math.max(
+      SCATTER_MIN_REPLICATES,
+      Math.min(SCATTER_MAX_REPLICATES, Math.round(numeric))
+    );
+  }
 
+  function normalizeScatterTableFormat(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === SCATTER_TABLE_FORMAT_GROUPED
+      ? SCATTER_TABLE_FORMAT_GROUPED
+      : SCATTER_TABLE_FORMAT_SINGLE;
+  }
+
+  function isScatterGroupedMode(options = {}){
+    const graphType = String(options.graphType || scatterCurrentGraphType || 'scatter').trim().toLowerCase();
+    const tableFormat = normalizeScatterTableFormat(options.tableFormat || scatterTableFormat);
+    return graphType === 'scatter' && tableFormat === SCATTER_TABLE_FORMAT_GROUPED;
+  }
+
+  function normalizeScatterGroupedXReplicates(value){
+    return value === true;
+  }
+
+  function isScatterGroupedXReplicatesEnabled(options = {}){
+    if(typeof options.xReplicatesEnabled === 'boolean'){
+      return options.xReplicatesEnabled;
+    }
+    if(typeof options.groupedXReplicates === 'boolean'){
+      return options.groupedXReplicates;
+    }
+    return !!scatterGroupedXReplicates;
+  }
+
+  function getScatterGroupedXReplicateCount(replicates, options = {}){
+    const safeReplicates = clampScatterReplicateCount(replicates ?? scatterReplicates);
+    return isScatterGroupedXReplicatesEnabled(options) ? safeReplicates : 1;
+  }
+
+  function getScatterGroupedBaseCols(replicates, options = {}){
+    const xReplicateCount = getScatterGroupedXReplicateCount(replicates, options);
+    return 1 + xReplicateCount;
+  }
+
+  function getScatterGroupedSeriesStartCol(seriesIndex, replicates, options = {}){
+    const safeSeriesIndex = Math.max(0, Number(seriesIndex) || 0);
+    const safeReplicates = clampScatterReplicateCount(replicates ?? scatterReplicates);
+    const baseCols = getScatterGroupedBaseCols(safeReplicates, options);
+    return baseCols + safeSeriesIndex * safeReplicates;
+  }
+
+  function sanitizeScatterGroupLabel(value, index){
+    const trimmed = value == null ? '' : String(value).trim();
+    return trimmed || `Series ${index + 1}`;
+  }
+
+  function inferScatterGroupBaseName(value, fallback){
+    const base = value == null ? '' : String(value).trim();
+    if(!base){
+      return fallback;
+    }
+    const stripped = base.replace(/\s+rep(?:licate)?\s*\d+$/i, '').trim();
+    return stripped || fallback;
+  }
+
+  function normalizeScatterGroupLabels(count, sourceLabels, baseNames){
+    const target = Math.max(0, Number(count) || 0);
+    const resolved = new Array(target).fill('');
+    for(let i = 0; i < target; i += 1){
+      const candidate = Array.isArray(sourceLabels) ? sourceLabels[i] : null;
+      const base = Array.isArray(baseNames) ? baseNames[i] : null;
+      resolved[i] = sanitizeScatterGroupLabel(candidate != null && String(candidate).trim() ? candidate : base, i);
+    }
+    return resolved;
+  }
+
+  function getScatterGroupedSeriesCount(colCount, replicates, options = {}){
+    const safeCols = Math.max(0, Number(colCount) || 0);
+    const safeReplicates = Math.max(SCATTER_MIN_REPLICATES, Number(replicates) || SCATTER_MIN_REPLICATES);
+    const baseCols = getScatterGroupedBaseCols(safeReplicates, options);
+    const yCols = Math.max(0, safeCols - baseCols);
+    return Math.max(1, Math.ceil(yCols / safeReplicates));
+  }
+
+  function padScatterRowToLength(row, length){
+    const target = Math.max(0, Number(length) || 0);
+    const src = Array.isArray(row) ? row.slice() : [];
+    if(src.length >= target){
+      return src;
+    }
+    while(src.length < target){
+      src.push('');
+    }
+    return src;
+  }
+
+  function computeScatterUsedSeriesColumns(matrix, options = {}){
+    const defaultStartCol = getScatterGroupedBaseCols(
+      clampScatterReplicateCount(options.replicates ?? scatterReplicates),
+      options
+    );
+    const startCol = Number.isInteger(options.startCol) ? options.startCol : defaultStartCol;
+    const maxCol = Number.isInteger(options.maxCol) ? options.maxCol : null;
+    if(!Array.isArray(matrix) || !matrix.length){
+      return 0;
+    }
+    const hasValue = value => value != null && String(value).trim() !== '';
+    let maxUsed = startCol - 1;
+    for(let r = 0; r < matrix.length; r += 1){
+      const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      const upper = Number.isInteger(maxCol) ? Math.min(row.length - 1, maxCol) : (row.length - 1);
+      for(let c = Math.max(0, startCol); c <= upper; c += 1){
+        if(hasValue(row[c]) && c > maxUsed){
+          maxUsed = c;
+        }
+      }
+    }
+    if(maxUsed < startCol){
+      return 0;
+    }
+    return (maxUsed - startCol) + 1;
+  }
+
+  function summarizeScatterReplicateValues(values){
+    const numeric = Array.isArray(values) ? values.filter(Number.isFinite) : [];
+    if(!numeric.length){
+      return { value: '', numericCount: 0 };
+    }
+    const mean = numeric.reduce((sum, value) => sum + value, 0) / numeric.length;
+    return { value: mean, numericCount: numeric.length };
+  }
+
+  function isScatterMatrixEmpty(matrix){
+    if(!Array.isArray(matrix) || !matrix.length){
+      return true;
+    }
+    for(let r = 1; r < matrix.length; r += 1){
+      const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      for(let c = 0; c < row.length; c += 1){
+        const value = row[c];
+        if(value != null && String(value).trim() !== ''){
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function buildScatterReplicateMatrix(matrix, sourceReplicates, targetReplicates, options = {}){
+    const sourceCount = clampScatterReplicateCount(sourceReplicates);
+    const targetCount = clampScatterReplicateCount(targetReplicates);
+    const sourceFormat = normalizeScatterTableFormat(options.sourceFormat);
+    const targetXReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+    const sourceXReplicatesEnabled = sourceFormat === SCATTER_TABLE_FORMAT_GROUPED
+      ? normalizeScatterGroupedXReplicates(options.sourceXReplicatesEnabled)
+      : false;
+    const sourceXReplicateCount = sourceFormat === SCATTER_TABLE_FORMAT_GROUPED
+      ? getScatterGroupedXReplicateCount(sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled })
+      : 1;
+    const targetXReplicateCount = getScatterGroupedXReplicateCount(targetCount, { xReplicatesEnabled: targetXReplicatesEnabled });
+    const sourceBaseCols = sourceFormat === SCATTER_TABLE_FORMAT_GROUPED
+      ? getScatterGroupedBaseCols(sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled })
+      : SCATTER_GROUPED_BASE_COLS;
+    const targetBaseCols = getScatterGroupedBaseCols(targetCount, { xReplicatesEnabled: targetXReplicatesEnabled });
+    const safeMatrix = Array.isArray(matrix)
+      ? matrix.map(row => (Array.isArray(row) ? row.slice() : []))
+      : [];
+    const minSeriesCount = Math.max(1, Number(options.minSeriesCount) || 1);
+    const desiredSeriesCount = Number.isInteger(options.seriesCount)
+      ? Math.max(1, options.seriesCount)
+      : (Array.isArray(options.groupLabels) && options.groupLabels.length ? options.groupLabels.length : null);
+    const usedSeriesCols = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
+      ? (computeScatterUsedSeriesColumns(safeMatrix, { startCol: 2, maxCol: 2 }) > 0 ? 1 : 0)
+      : computeScatterUsedSeriesColumns(safeMatrix, { startCol: sourceBaseCols });
+    const inferredSeriesCount = Math.max(minSeriesCount, Math.ceil(usedSeriesCols / Math.max(sourceCount, 1)));
+    const seriesCount = Math.max(1, desiredSeriesCount || inferredSeriesCount);
+    const targetCols = targetBaseCols + seriesCount * targetCount;
+    const totalRows = Math.max(safeMatrix.length, DEFAULT_ROWS);
+    const headerRow = padScatterRowToLength(safeMatrix[0] || [], Math.max(targetCols, SCATTER_SINGLE_FIXED_COLS));
+    const labelHeader = headerRow[0] != null && String(headerRow[0]).trim() ? headerRow[0] : 'Labels';
+    const sourceXHeader = headerRow[1] != null && String(headerRow[1]).trim() ? headerRow[1] : 'X title';
+    const xHeaderBase = inferScatterGroupBaseName(sourceXHeader, 'X title');
+    const baseNames = [];
+    for(let s = 0; s < seriesCount; s += 1){
+      const fallback = `Series ${s + 1}`;
+      const sourceIndex = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
+        ? (s === 0 ? 2 : -1)
+        : getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
+      const candidate = sourceIndex >= 0 && sourceIndex < headerRow.length ? headerRow[sourceIndex] : null;
+      baseNames.push(inferScatterGroupBaseName(candidate, fallback));
+    }
+    const nextGroupLabels = normalizeScatterGroupLabels(seriesCount, options.groupLabels || scatterSeriesGroupLabels, baseNames);
+    scatterSeriesGroupLabels = nextGroupLabels.slice();
+    const newHeader = new Array(targetCols).fill('');
+    newHeader[0] = labelHeader;
+    for(let rep = 0; rep < targetXReplicateCount; rep += 1){
+      const newXCol = 1 + rep;
+      const oldXCol = sourceFormat === SCATTER_TABLE_FORMAT_GROUPED
+        ? (1 + Math.min(rep, sourceXReplicateCount - 1))
+        : 1;
+      const oldLabel = oldXCol >= 0 && oldXCol < headerRow.length
+        ? headerRow[oldXCol]
+        : '';
+      const trimmed = oldLabel == null ? '' : String(oldLabel).trim();
+      const fallback = targetXReplicateCount > 1 ? `X rep ${rep + 1}` : xHeaderBase;
+      newHeader[newXCol] = trimmed || fallback;
+    }
+    for(let s = 0; s < seriesCount; s += 1){
+      const groupLabel = scatterSeriesGroupLabels[s] || `Series ${s + 1}`;
+      const groupLower = String(groupLabel).trim().toLowerCase();
+      for(let rep = 0; rep < targetCount; rep += 1){
+        const newIdx = getScatterGroupedSeriesStartCol(s, targetCount, { xReplicatesEnabled: targetXReplicatesEnabled }) + rep;
+        let label = '';
+        if(rep < sourceCount){
+          const oldIdx = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
+            ? (s === 0 ? 2 : -1)
+            : (getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled }) + rep);
+          if(oldIdx >= 0 && oldIdx < headerRow.length){
+            label = headerRow[oldIdx];
+          }
+        }
+        const labelTrimmed = typeof label === 'string' ? label.trim() : '';
+        if(targetCount > 1){
+          if(!labelTrimmed){
+            label = `Rep ${rep + 1}`;
+          }else{
+            const repMatch = /rep(?:licate)?\s*\d+$/i.test(labelTrimmed);
+            const lower = labelTrimmed.toLowerCase();
+            const baseMatch = lower === groupLower || (groupLower && lower.startsWith(groupLower) && repMatch);
+            label = baseMatch ? `Rep ${rep + 1}` : labelTrimmed;
+          }
+        }else{
+          label = labelTrimmed || groupLabel;
+        }
+        newHeader[newIdx] = label;
+      }
+    }
+    const newData = new Array(totalRows);
+    newData[0] = padScatterRowToLength(newHeader, targetCols);
+    for(let r = 1; r < totalRows; r += 1){
+      const srcRow = padScatterRowToLength(safeMatrix[r] || [], Math.max(targetCols, SCATTER_SINGLE_FIXED_COLS));
+      const newRow = new Array(targetCols).fill('');
+      newRow[0] = srcRow[0] ?? '';
+      const sourceXValues = [];
+      if(sourceFormat === SCATTER_TABLE_FORMAT_GROUPED){
+        for(let rep = 0; rep < sourceXReplicateCount; rep += 1){
+          sourceXValues.push(srcRow[1 + rep]);
+        }
+      }else{
+        sourceXValues.push(srcRow[1]);
+      }
+      const sourceNumericX = sourceXValues
+        .map(value => parseFloat(value))
+        .filter(Number.isFinite);
+      for(let rep = 0; rep < targetXReplicateCount; rep += 1){
+        const newXCol = 1 + rep;
+        let value = sourceXValues[Math.min(rep, sourceXValues.length - 1)];
+        if(targetXReplicateCount === 1 && sourceXReplicateCount > 1){
+          const summary = summarizeScatterReplicateValues(sourceNumericX);
+          value = summary.numericCount ? summary.value : sourceXValues[0];
+        }else if(targetXReplicateCount > 1 && sourceXReplicateCount <= 1){
+          value = sourceXValues[0];
+        }
+        newRow[newXCol] = value ?? '';
+      }
+      for(let s = 0; s < seriesCount; s += 1){
+        for(let rep = 0; rep < targetCount; rep += 1){
+          const newIdx = getScatterGroupedSeriesStartCol(s, targetCount, { xReplicatesEnabled: targetXReplicatesEnabled }) + rep;
+          let value = '';
+          if(rep < sourceCount){
+            const oldIdx = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
+              ? (s === 0 ? 2 : -1)
+              : (getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled }) + rep);
+            if(oldIdx >= 0 && oldIdx < srcRow.length){
+              value = srcRow[oldIdx];
+            }
+          }
+          newRow[newIdx] = value ?? '';
+        }
+      }
+      newData[r] = padScatterRowToLength(newRow, targetCols);
+    }
+    scatterDebug('Debug: scatter buildReplicateMatrix', {
+      sourceCount,
+      targetCount,
+      sourceFormat,
+      sourceXReplicateCount,
+      targetXReplicateCount,
+      targetXReplicatesEnabled,
+      seriesCount,
+      targetCols
+    });
+    return {
+      data: newData,
+      seriesCount,
+      targetCols,
+      groupLabels: scatterSeriesGroupLabels.slice()
+    };
+  }
+
+  function buildScatterSingleMatrixFromGrouped(matrix, sourceReplicates, options = {}){
+    const sourceCount = clampScatterReplicateCount(sourceReplicates);
+    const sourceXReplicatesEnabled = normalizeScatterGroupedXReplicates(
+      options.xReplicatesEnabled ?? options.sourceXReplicatesEnabled ?? scatterGroupedXReplicates
+    );
+    const sourceXReplicateCount = getScatterGroupedXReplicateCount(sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
+    const sourceBaseCols = getScatterGroupedBaseCols(sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
+    const safeMatrix = Array.isArray(matrix)
+      ? matrix.map(row => (Array.isArray(row) ? row.slice() : []))
+      : [];
+    const headerRow = Array.isArray(safeMatrix[0]) ? safeMatrix[0] : [];
+    const usedSeriesCols = computeScatterUsedSeriesColumns(safeMatrix, { startCol: sourceBaseCols, replicates: sourceCount, xReplicatesEnabled: sourceXReplicatesEnabled });
+    const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(sourceCount, 1)));
+    const baseNames = [];
+    for(let s = 0; s < seriesCount; s += 1){
+      const idx = getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
+      baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+    }
+    const groupLabels = normalizeScatterGroupLabels(
+      seriesCount,
+      options.groupLabels || scatterSeriesGroupLabels,
+      baseNames
+    );
+    const labelHeader = headerRow[0] != null && String(headerRow[0]).trim() ? headerRow[0] : 'Labels';
+    const xHeader = headerRow[1] != null && String(headerRow[1]).trim()
+      ? inferScatterGroupBaseName(headerRow[1], 'X title')
+      : 'X title';
+    const yHeader = groupLabels[0] || 'Y title';
+    const singleRows = [[labelHeader, xHeader, yHeader, 'Z title', '']];
+    for(let r = 1; r < safeMatrix.length; r += 1){
+      const row = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
+      const labelBase = row[0] == null ? '' : String(row[0]).trim();
+      const xReplicateValues = [];
+      const xRawValues = [];
+      for(let xCol = 1; xCol <= sourceXReplicateCount; xCol += 1){
+        const rawX = row[xCol];
+        if(rawX == null || rawX === ''){
+          continue;
+        }
+        xRawValues.push(rawX);
+        const numericX = parseFloat(rawX);
+        if(Number.isFinite(numericX)){
+          xReplicateValues.push(numericX);
+        }
+      }
+      const xSummary = summarizeScatterReplicateValues(xReplicateValues);
+      const xRaw = xSummary.numericCount ? xSummary.value : (xRawValues[0] ?? '');
+      for(let s = 0; s < seriesCount; s += 1){
+        const repValues = [];
+        for(let rep = 0; rep < sourceCount; rep += 1){
+          const colIndex = sourceBaseCols + s * sourceCount + rep;
+          if(colIndex >= row.length){
+            continue;
+          }
+          const numeric = parseFloat(row[colIndex]);
+          if(Number.isFinite(numeric)){
+            repValues.push(numeric);
+          }
+        }
+        if(!repValues.length){
+          continue;
+        }
+        const mean = repValues.reduce((sum, value) => sum + value, 0) / repValues.length;
+        const groupLabel = groupLabels[s] || `Series ${s + 1}`;
+        const pointLabel = labelBase
+          ? `${labelBase} (${groupLabel})`
+          : groupLabel;
+        singleRows.push([pointLabel, xRaw, mean, '', '']);
+      }
+    }
+    while(singleRows.length < DEFAULT_ROWS){
+      singleRows.push(['', '', '', '', '']);
+    }
+    scatterDebug('Debug: scatter buildSingleMatrixFromGrouped', {
+      sourceCount,
+      seriesCount,
+      rows: singleRows.length
+    });
+    return { data: singleRows };
+  }
+
+  function convertScatterLineImportToGroupedMatrix(matrix, options = {}){
+    const replicateCount = clampScatterReplicateCount(options.replicates ?? scatterReplicates);
+    const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+    const xReplicateCount = getScatterGroupedXReplicateCount(replicateCount, { xReplicatesEnabled });
+    const baseCols = getScatterGroupedBaseCols(replicateCount, { xReplicatesEnabled });
+    const safeMatrix = Array.isArray(matrix)
+      ? matrix.map(row => (Array.isArray(row) ? row.slice() : []))
+      : [];
+    const sourceHeader = Array.isArray(safeMatrix[0]) ? safeMatrix[0] : [];
+    const sourceCols = Math.max(1, sourceHeader.length);
+    const yCols = Math.max(1, sourceCols - 1);
+    const targetCols = Math.max(baseCols + yCols, SCATTER_SINGLE_FIXED_COLS);
+    const totalRows = Math.max(DEFAULT_ROWS, safeMatrix.length || 1);
+    const xHeader = sourceHeader[0] != null && String(sourceHeader[0]).trim()
+      ? String(sourceHeader[0]).trim()
+      : 'X title';
+    const converted = new Array(totalRows);
+    const header = new Array(targetCols).fill('');
+    header[0] = 'Labels';
+    for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
+      const xHeaderCol = 1 + xRep;
+      header[xHeaderCol] = xReplicateCount > 1 ? `X rep ${xRep + 1}` : xHeader;
+    }
+    if(sourceCols > 1){
+      for(let c = 1; c < sourceCols; c += 1){
+        header[baseCols + (c - 1)] = sourceHeader[c] != null ? sourceHeader[c] : '';
+      }
+    }else{
+      header[baseCols] = 'Rep 1';
+    }
+    converted[0] = header;
+    for(let r = 1; r < totalRows; r += 1){
+      const srcRow = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
+      const nextRow = new Array(targetCols).fill('');
+      nextRow[0] = '';
+      for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
+        nextRow[1 + xRep] = srcRow[0] ?? '';
+      }
+      for(let c = 1; c < sourceCols; c += 1){
+        nextRow[baseCols + (c - 1)] = srcRow[c] ?? '';
+      }
+      converted[r] = nextRow;
+    }
+    return converted;
+  }
 
   function ensureScatterHeaderTitles(hotInstance, options = {}){
     const hot = hotInstance;
@@ -1527,7 +1978,10 @@
     const headerRow = Array.isArray(data[0]) ? data[0] : [];
     const shouldFill = value => value == null || String(value).trim() === '';
     const changes = [];
-    const hasHeaderValues = [0, 1, 2, 3].some(idx => !shouldFill(headerRow[idx]));
+    const groupedMode = isScatterGroupedMode({ graphType: options.graphType });
+    const hasHeaderValues = groupedMode
+      ? [0, 1, 2].some(idx => !shouldFill(headerRow[idx]))
+      : [0, 1, 2, 3].some(idx => !shouldFill(headerRow[idx]));
     const hasData = data.some((row, rowIdx) => {
       if(rowIdx === 0 || !Array.isArray(row)){
         return false;
@@ -1535,9 +1989,45 @@
       return row.some(cell => !shouldFill(cell));
     });
     if(!hasHeaderValues && !hasData){
-      changes.push([0, 1, 'X title']);
-      changes.push([0, 2, 'Y title']);
-      changes.push([0, 3, 'Z title']);
+      changes.push([0, 0, 'Labels']);
+      if(groupedMode){
+        const replicates = clampScatterReplicateCount(scatterReplicates);
+        const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+        const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+        const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+        const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: baseCols, replicates, xReplicatesEnabled });
+        const inferredGroupCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
+        const seededGroupCount = Array.isArray(scatterSeriesGroupLabels) && scatterSeriesGroupLabels.length
+          ? scatterSeriesGroupLabels.length
+          : SCATTER_DEFAULT_GROUP_COUNT;
+        const groupCount = Math.max(
+          SCATTER_DEFAULT_GROUP_COUNT,
+          seededGroupCount,
+          inferredGroupCount
+        );
+        const labels = normalizeScatterGroupLabels(groupCount, scatterSeriesGroupLabels, null);
+        scatterSeriesGroupLabels = labels.slice();
+        const minCols = baseCols + groupCount * replicates;
+        for(let c = headerRow.length; c < minCols; c += 1){
+          changes.push([0, c, '']);
+        }
+        for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
+          const xCol = 1 + xRep;
+          const xFallback = xReplicateCount > 1 ? `X rep ${xRep + 1}` : 'X title';
+          changes.push([0, xCol, xFallback]);
+        }
+        for(let s = 0; s < groupCount; s += 1){
+          for(let rep = 0; rep < replicates; rep += 1){
+            const colIndex = baseCols + s * replicates + rep;
+            const fallback = replicates > 1 ? `Rep ${rep + 1}` : (labels[s] || `Series ${s + 1}`);
+            changes.push([0, colIndex, fallback]);
+          }
+        }
+      }else{
+        changes.push([0, 1, 'X title']);
+        changes.push([0, 2, 'Y title']);
+        changes.push([0, 3, 'Z title']);
+      }
     }
     if(!changes.length){
       return;
@@ -1548,15 +2038,59 @@
   function resolveScatterColumnLayout(data, colCountOverride){
     const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
     const colCount = Number.isInteger(colCountOverride) ? colCountOverride : headerRow.length;
-    const layout = {
+    if(isScatterGroupedMode()){
+      const replicates = clampScatterReplicateCount(scatterReplicates);
+      const xReplicatesEnabled = !!scatterGroupedXReplicates;
+      const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+      const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+      const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: baseCols, replicates, xReplicatesEnabled });
+      const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
+      const baseNames = [];
+      for(let s = 0; s < seriesCount; s += 1){
+        const idx = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
+        baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+      }
+      const labels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
+      scatterSeriesGroupLabels = labels.slice();
+      const groups = labels.map((label, index) => {
+        const startCol = getScatterGroupedSeriesStartCol(index, replicates, { xReplicatesEnabled });
+        return {
+          index,
+          label,
+          startCol,
+          endCol: startCol + replicates - 1
+        };
+      });
+      return {
+        grouped: true,
+        labelCol: 0,
+        xCol: 1,
+        xCols: Array.from({ length: xReplicateCount }, (_, idx) => 1 + idx),
+        yCol: baseCols,
+        yCols: groups.reduce((acc, group) => {
+          for(let col = group.startCol; col <= group.endCol; col += 1){
+            acc.push(col);
+          }
+          return acc;
+        }, []),
+        extraCol: -1,
+        replicates,
+        xReplicateCount,
+        xReplicatesEnabled,
+        baseCols,
+        seriesCount,
+        groups
+      };
+    }
+    return {
+      grouped: false,
       labelCol: 0,
       xCol: 1,
+      xCols: [1],
       yCol: 2,
+      yCols: [2],
       extraCol: 3
     };
-    // Since we now use row selection checkboxes exclusively for point labeling,
-    // we don't need to resolve the point label column anymore
-    return layout;
   }
 
   function getScatterHeaderValue(data, colIndex){
@@ -5188,6 +5722,12 @@
   let scatterLayoutWasHidden = true;
   let scatterLayoutDeferredSync = false;
   let scatterCurrentGraphType='scatter';
+  let scatterTableFormat = SCATTER_TABLE_FORMAT_SINGLE;
+  let scatterReplicates = SCATTER_MIN_REPLICATES;
+  let scatterGroupedXReplicates = false;
+  let scatterLastGroupedReplicateCount = SCATTER_DEFAULT_GROUPED_REPLICATES;
+  let scatterSeriesGroupLabels = [];
+  let scatterGroupedControlsCollapsed = true;
   let scatterLastGraphType='scatter';
   let scatterLastRegressionSummary=null;
   const scatterAdvisorState={
@@ -5242,6 +5782,7 @@
     ensureScatterGridStyle(getScatterAxisStrokeWidth());
     const $ = global.$;
     const document = global.document;
+    let scatterTableFormatSelect = null;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
       console.error('Table factory missing for scatter component');
       return;
@@ -5444,7 +5985,14 @@
               if(view.exclusions){
                 hotInstance.applyExclusions?.(view.exclusions);
               }
-              ensureScatterHeaderTitles(hotInstance, { viewMode: scatterState.viewMode });
+              ensureScatterHeaderTitles(hotInstance, {
+                graphType: scatterCurrentGraphType,
+                tableFormat: getScatterReplicateMode()
+              });
+              updateScatterNestedHeaders(hotInstance, {
+                graphType: scatterCurrentGraphType,
+                tableFormat: getScatterReplicateMode()
+              });
               markScatterOverlayPending('data-view-switch');
               scheduleDrawScatter({ reason: 'data-view-switch' });
             },
@@ -5536,17 +6084,16 @@
       });
 
       const promptScatterCustomExpression = () => {
-        const expression = global.prompt
-          ? global.prompt(
-            'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-            'log2(x+1)'
-          )
-          : '';
-        if(expression == null){
-          return null;
+        const toolbarApi = Shared.workspaceToolbar || null;
+        const expression = String(toolbarApi?.getCustomTransformExpression?.('scatter') || '').trim();
+        if(expression){
+          return expression;
         }
-        const normalized = String(expression || '').trim();
-        return normalized || null;
+        toolbarApi?.openCustomTransformEditor?.('scatter');
+        if(typeof global.alert === 'function'){
+          global.alert('Enter a custom transformation formula using x, then click "Apply custom".');
+        }
+        return null;
       };
 
       const resolveScatterToolbarTransformOption = (optionKey, customExpression) => {
@@ -5665,16 +6212,37 @@
         }
         document.addEventListener('click', event => {
           const button = event.target?.closest?.(
-            '#scatterTransformApplySelected, #scatterTransformCpm, #scatterTransformLog2p1, #scatterTransformCenterRowsMean, #scatterTransformCenterRowsMedian, #scatterTransformCenterColsMean, #scatterTransformCenterColsMedian, #scatterTransformNormalizeRows, #scatterTransformNormalizeCols, #scatterTransformCustom'
+            '#scatterTransformApplySelected, #scatterTransformCustomApply, #scatterTransformCpm, #scatterTransformLog2p1, #scatterTransformCenterRowsMean, #scatterTransformCenterRowsMedian, #scatterTransformCenterColsMean, #scatterTransformCenterColsMedian, #scatterTransformNormalizeRows, #scatterTransformNormalizeCols, #scatterTransformCustom'
           );
           if(!button){
             return;
           }
+          const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
           if(button.id === 'scatterTransformApplySelected'){
             applyScatterSelectedTransforms();
             return;
           }
-          const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+          if(button.id === 'scatterTransformCustomApply'){
+            const customExpression = promptScatterCustomExpression();
+            if(!customExpression){
+              return;
+            }
+            const customTransform = resolveScatterToolbarTransformOption('custom', customExpression);
+            if(!customTransform){
+              return;
+            }
+            if(transformSection?.dataset?.transformMultiMode === '1'){
+              const selected = Shared.workspaceToolbar?.getSelectedTransforms?.('scatter') || [];
+              if(Array.isArray(selected) && selected.includes('custom')){
+                applyScatterSelectedTransforms();
+              }else{
+                applyScatterTransformToNewView(customTransform.spec, { title: customTransform.title });
+              }
+              return;
+            }
+            applyScatterTransformToNewView(customTransform.spec, { title: customTransform.title });
+            return;
+          }
           if(!transformSection){
             return;
           }
@@ -5846,6 +6414,9 @@
             afterChange(changes,source){
               if(!changes||source==='loadData') return;
               console.log('scatter afterChange', {count:changes.length, source});
+              if(isGroupedScatterModeActive()){
+                updateScatterNestedHeaders(hotInstance);
+              }
               revalidateActiveScatterLogAxis('x','data-edit');
               revalidateActiveScatterLogAxis('y','data-edit');
               syncScatterActiveDataViewFromHot(hotInstance, 'afterChange');
@@ -5855,6 +6426,14 @@
               }
             },
             afterLoadData(){
+              ensureScatterHeaderTitles(hotInstance, {
+                graphType: scatterCurrentGraphType,
+                tableFormat: getScatterReplicateMode()
+              });
+              updateScatterNestedHeaders(hotInstance, {
+                graphType: scatterCurrentGraphType,
+                tableFormat: getScatterReplicateMode()
+              });
               syncScatterActiveDataViewFromHot(hotInstance, 'afterLoadData');
               const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
               if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
@@ -5926,7 +6505,14 @@
             scatterHot.__scatterTabId = activeTabId;
             scheduleScatterSelectionRestore(scatterHot, activeTabId);
             scatterRefs.hot = scatterHot;
-            ensureScatterHeaderTitles(scatterHot, { viewMode: scatterState.viewMode });
+            ensureScatterHeaderTitles(scatterHot, {
+              graphType: scatterCurrentGraphType,
+              tableFormat: getScatterReplicateMode()
+            });
+            updateScatterNestedHeaders(scatterHot, {
+              graphType: scatterCurrentGraphType,
+              tableFormat: getScatterReplicateMode()
+            });
             ensureScatterDataViewsForHot(scatterHot, {
               wrapper,
               container: baseContainer
@@ -5954,7 +6540,14 @@
           scatterHot.__scatterTabId = activeTabId;
           scheduleScatterSelectionRestore(scatterHot, activeTabId);
           scatterRefs.hot = scatterHot;
-          ensureScatterHeaderTitles(scatterHot, { viewMode: scatterState.viewMode });
+          ensureScatterHeaderTitles(scatterHot, {
+            graphType: scatterCurrentGraphType,
+            tableFormat: getScatterReplicateMode()
+          });
+          updateScatterNestedHeaders(scatterHot, {
+            graphType: scatterCurrentGraphType,
+            tableFormat: getScatterReplicateMode()
+          });
           ensureScatterDataViewsForHot(scatterHot, {
             wrapper,
             container: entry?.container || baseContainer
@@ -6028,6 +6621,22 @@
           ['Comet G',4.8,30,65,''],
           ['Comet H',7.1,26,80,'']
         ],
+        grouped:[
+          ['Labels','X title','Rep 1','Rep 2','Rep 3','Rep 1','Rep 2','Rep 3'],
+          ['Week 1',1,10.2,10.6,10.8,14.2,14.5,14.8],
+          ['Week 2',2,10.8,11.0,11.2,14.9,15.2,15.5],
+          ['Week 3',3,11.3,11.5,11.9,15.7,16.0,16.4],
+          ['Week 4',4,11.9,12.2,12.4,16.6,16.9,17.2],
+          ['Week 5',5,12.5,12.8,13.1,17.3,17.7,18.1]
+        ],
+        groupedXY:[
+          ['Labels','X rep 1','X rep 2','X rep 3','Rep 1','Rep 2','Rep 3','Rep 1','Rep 2','Rep 3'],
+          ['Week 1',0.95,1.02,1.05,10.2,10.6,10.8,14.2,14.5,14.8],
+          ['Week 2',1.93,2.00,2.08,10.8,11.0,11.2,14.9,15.2,15.5],
+          ['Week 3',2.92,3.01,3.07,11.3,11.5,11.9,15.7,16.0,16.4],
+          ['Week 4',3.91,4.03,4.09,11.9,12.2,12.4,16.6,16.9,17.2],
+          ['Week 5',4.88,5.00,5.11,12.5,12.8,13.1,17.3,17.7,18.1]
+        ],
         volcano:[
           ['Gene','log2FoldChange','pValue','',''],
           ['GeneA',1.6,0.0005,'',''],
@@ -6058,8 +6667,21 @@
           ? (rawViewMode || scatterState.requestedViewMode || scatterState.viewMode || '2d')
           : '2d';
         const normalizedMode = typeof viewMode === 'string' ? viewMode.toLowerCase() : '2d';
+        const groupedModeActive = type === 'scatter' && normalizedMode === '2d' && isGroupedScatterModeActive();
         let dataset;
-        if(type==='scatter' && normalizedMode==='3d'){
+        if(groupedModeActive){
+          const exampleReplicates = 3;
+          const exampleLabels = ['Control', 'Treatment'];
+          scatterReplicates = exampleReplicates;
+          if(scatterReplicatesInput){
+            scatterReplicatesInput.value = String(exampleReplicates);
+          }
+          scatterSeriesGroupLabels = exampleLabels.slice();
+          if(scatterGroupedXReplicatesInput){
+            scatterGroupedXReplicatesInput.checked = !!scatterGroupedXReplicates;
+          }
+          dataset = scatterGroupedXReplicates ? scatterExamples.groupedXY : scatterExamples.grouped;
+        }else if(type==='scatter' && normalizedMode==='3d'){
           dataset = scatterExamples.scatter3d;
         }else if(type==='scatter' && normalizedMode==='bubble'){
           dataset = scatterExamples.scatterBubble;
@@ -6068,6 +6690,19 @@
         }
         markScatterOverlayPending('example-data');
         scatterHot.loadData(dataset);
+        if(groupedModeActive){
+          ensureScatterHeaderTitles(scatterHot, {
+            graphType: 'scatter',
+            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            xReplicatesEnabled: scatterGroupedXReplicates
+          });
+          updateScatterNestedHeaders(scatterHot, {
+            graphType: 'scatter',
+            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            xReplicatesEnabled: scatterGroupedXReplicates
+          });
+          updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+        }
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
           scatterFill.value=DEFAULT_NON_SIG_COLOR;
         }
@@ -6109,6 +6744,67 @@
           }
         });
         Promise.resolve(importPromise).then(result => {
+          const prismMeta = result?.prismMeta;
+          if(prismMeta?.kind === 'line'){
+            const replicateCount = clampScatterReplicateCount(prismMeta.replicatesCount || SCATTER_MIN_REPLICATES);
+            const groupLabels = Array.isArray(prismMeta.groupLabels)
+              ? prismMeta.groupLabels.map((label, idx) => sanitizeScatterGroupLabel(label, idx))
+              : [];
+            const importedMatrix = scatterHot?.getData?.() || [];
+            scatterGroupedXReplicates = false;
+            const groupedMatrix = convertScatterLineImportToGroupedMatrix(importedMatrix, {
+              replicates: replicateCount,
+              xReplicatesEnabled: false
+            });
+            if(scatterHot && typeof scatterHot.loadData === 'function'){
+              scatterHot.loadData(groupedMatrix);
+              syncScatterActiveDataViewFromHot(scatterHot, 'import-prism-line');
+            }
+            if(scatterGraphTypeSelect){
+              scatterGraphTypeSelect.value = 'scatter';
+            }
+            scatterCurrentGraphType = 'scatter';
+            scatterTableFormat = SCATTER_TABLE_FORMAT_GROUPED;
+            if(scatterTableFormatSelect){
+              scatterTableFormatSelect.value = SCATTER_TABLE_FORMAT_GROUPED;
+            }
+            scatterReplicates = replicateCount;
+            if(scatterReplicates > SCATTER_MIN_REPLICATES){
+              scatterLastGroupedReplicateCount = Math.min(
+                SCATTER_MAX_REPLICATES,
+                Math.max(2, scatterReplicates)
+              );
+            }
+            if(groupLabels.length){
+              scatterSeriesGroupLabels = groupLabels.slice();
+            }
+            if(scatterReplicatesInput){
+              scatterReplicatesInput.value = String(scatterReplicates);
+            }
+            if(scatterGroupedXReplicatesInput){
+              scatterGroupedXReplicatesInput.checked = false;
+            }
+            ensureScatterHeaderTitles(scatterHot, {
+              graphType: 'scatter',
+              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+              xReplicatesEnabled: false
+            });
+            updateScatterNestedHeaders(scatterHot, {
+              graphType: 'scatter',
+              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+              xReplicatesEnabled: false
+            });
+            updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+            syncScatterGraphTypeUI();
+            scheduleDrawScatter({ force: true, reason: 'import-prism-grouped', skipThresholdEvaluation: true });
+            console.debug('Debug: scatter prism grouped import applied',{
+              replicateCount,
+              groupCount: groupLabels.length || Math.max(
+                1,
+                getScatterGroupedSeriesCount(groupedMatrix?.[0]?.length || 0, replicateCount, { xReplicatesEnabled: false })
+              )
+            });
+          }
           if(!result && forcedOverlay){
             resolveScatterOverlay('file-import-empty');
           }
@@ -6124,9 +6820,19 @@
       const scatterThresholdControls=$('#scatterThresholdControls');
         const scatterSignificantOptions=$('#scatterSignificantOptions');
         const scatterShowSignificantLabels=$('#scatterShowSignificantLabels');
+      scatterTableFormatSelect=$('#scatterTableFormat');
+      const scatterGroupedToggle=$('#scatterGroupedToggle');
+      const scatterGroupedControls=$('#scatterGroupedControls');
+      const scatterReplicatesInput=$('#scatterReplicates');
+      const scatterGroupedXReplicatesInput=$('#scatterGroupedXReplicates');
+      const scatterGroupedList=$('#scatterGroupedList');
+      const scatterGroupedAdd=$('#scatterGroupedAdd');
+      const scatterGroupedRemove=$('#scatterGroupedRemove');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterShowPlotStats=$('#scatterShowPlotStats'), scatterAlpha=$('#scatterAlpha');
+      const scatterShowErrorBars=$('#scatterShowErrorBars');
+      const scatterErrorBarWidth=$('#scatterErrorBarWidth');
       const scatterColorMode=$('#scatterColorMode');
       const scatterDensityPalette=$('#scatterDensityPalette');
       const scatterDensityPaletteRow=$('#scatterDensityPaletteRow');
@@ -6175,6 +6881,414 @@
       const scatterStatsButton=document.getElementById('scatterComputeStats');
       const scatterStatsStatus=document.getElementById('scatterStatsStatus');
       const scatterStatsPlaceholder='Statistics will appear after calculation.';
+
+      function getScatterReplicateMode(){
+        return normalizeScatterTableFormat(scatterTableFormatSelect?.value || scatterTableFormat);
+      }
+
+      function isGroupedScatterModeActive(){
+        return isScatterGroupedMode({
+          graphType: scatterCurrentGraphType,
+          tableFormat: getScatterReplicateMode()
+        });
+      }
+
+      function updateScatterGroupedToggleUI(mode){
+        if(!scatterGroupedToggle){
+          return;
+        }
+        const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
+        const expanded = groupedActive && !scatterGroupedControlsCollapsed;
+        if(!groupedActive){
+          scatterGroupedToggle.hidden = true;
+          scatterGroupedToggle.disabled = true;
+          scatterGroupedToggle.setAttribute('aria-expanded', 'false');
+          scatterGroupedToggle.textContent = 'Show group settings';
+          return;
+        }
+        scatterGroupedToggle.hidden = false;
+        scatterGroupedToggle.disabled = false;
+        scatterGroupedToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        scatterGroupedToggle.textContent = expanded ? 'Hide group settings' : 'Show group settings';
+      }
+
+      function updateScatterGroupedControlsVisibility(mode){
+        if(!scatterGroupedControls){
+          return;
+        }
+        const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
+        const expanded = groupedActive && !scatterGroupedControlsCollapsed;
+        scatterGroupedControls.style.display = expanded ? '' : 'none';
+        scatterGroupedControls.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+      }
+
+      function buildScatterAgColHeaders(hotInstance, options = {}){
+        const hot = hotInstance || scatterHot || scatterRefs.hot;
+        if(!hot){
+          return ['Labels', 'X values', 'Y values', 'Z values'];
+        }
+        const data = hot.getData ? (hot.getData() || []) : [];
+        const headerRow = Array.isArray(data[0]) ? data[0] : [];
+        const colCount = typeof hot.countCols === 'function'
+          ? hot.countCols()
+          : Math.max(headerRow.length, SCATTER_SINGLE_FIXED_COLS);
+        const groupedActive = options.forceGrouped === true
+          ? true
+          : isScatterGroupedMode({
+              graphType: options.graphType || scatterCurrentGraphType,
+              tableFormat: options.tableFormat || getScatterReplicateMode()
+            });
+        const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+        const headers = new Array(Math.max(colCount, SCATTER_SINGLE_FIXED_COLS)).fill('');
+        headers[0] = 'Labels';
+        if(!groupedActive){
+          headers[1] = 'X values';
+          headers[2] = 'Y values';
+          headers[3] = 'Z values';
+          return headers;
+        }
+        const replicates = clampScatterReplicateCount(scatterReplicates);
+        const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+        const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+        const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: baseCols, replicates, xReplicatesEnabled });
+        const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
+        const baseNames = [];
+        for(let s = 0; s < seriesCount; s += 1){
+          const idx = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
+          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+        }
+        scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
+        for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
+          const col = 1 + xRep;
+          const fallback = xReplicateCount > 1 ? `X rep ${xRep + 1}` : 'X values';
+          const label = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+          headers[col] = label || fallback;
+        }
+        for(let s = 0; s < seriesCount; s += 1){
+          const groupLabel = scatterSeriesGroupLabels[s] || `Series ${s + 1}`;
+          for(let rep = 0; rep < replicates; rep += 1){
+            const col = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled }) + rep;
+            const raw = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+            const fallback = replicates > 1 ? `${groupLabel} r${rep + 1}` : groupLabel;
+            headers[col] = raw ? `${groupLabel}: ${raw}` : fallback;
+          }
+        }
+        for(let col = baseCols + seriesCount * replicates; col < headers.length; col += 1){
+          headers[col] = `Column ${col + 1}`;
+        }
+        return headers;
+      }
+
+      function updateScatterNestedHeaders(hotInstance, options = {}){
+        const hot = hotInstance || scatterHot || scatterRefs.hot;
+        if(!hot || typeof hot.updateSettings !== 'function'){
+          return;
+        }
+        const groupedActive = options.forceGrouped === true
+          ? true
+          : isScatterGroupedMode({
+              graphType: options.graphType || scatterCurrentGraphType,
+              tableFormat: options.tableFormat || getScatterReplicateMode()
+            });
+        const replicates = clampScatterReplicateCount(scatterReplicates);
+        const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+        const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+        const shouldUseNestedHeaders = groupedActive && (replicates > 1 || xReplicateCount > 1);
+        if(!groupedActive){
+          hot.updateSettings({
+            nestedHeaders: false,
+            colHeaders: buildScatterAgColHeaders(hot, options)
+          });
+          return;
+        }
+        const data = hot.getData ? (hot.getData() || []) : [];
+        const headerRow = Array.isArray(data[0]) ? data[0] : [];
+        const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: getScatterGroupedBaseCols(replicates, { xReplicatesEnabled }), replicates, xReplicatesEnabled });
+        const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
+        const baseNames = [];
+        for(let s = 0; s < seriesCount; s += 1){
+          const idx = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
+          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+        }
+        scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
+        const labelHeader = headerRow[0] != null && String(headerRow[0]).trim()
+          ? String(headerRow[0]).trim()
+          : 'Labels';
+        const xHeader = headerRow[1] != null && String(headerRow[1]).trim()
+          ? inferScatterGroupBaseName(String(headerRow[1]).trim(), 'X values')
+          : 'X values';
+        const nested = [{ label: labelHeader, colspan: 1 }, { label: xHeader, colspan: xReplicateCount }];
+        scatterSeriesGroupLabels.forEach(label => {
+          nested.push({ label, colspan: replicates });
+        });
+        hot.updateSettings({
+          nestedHeaders: shouldUseNestedHeaders ? [nested] : false,
+          colHeaders: buildScatterAgColHeaders(hot, options)
+        });
+        scatterDebug('Debug: scatter nested headers updated', {
+          seriesCount,
+          replicates,
+          xReplicateCount,
+          labels: scatterSeriesGroupLabels.slice()
+        });
+      }
+
+      function renderScatterGroupedList(){
+        if(!scatterGroupedList){
+          return;
+        }
+        if(!isGroupedScatterModeActive()){
+          scatterGroupedList.innerHTML = '';
+          return;
+        }
+        const hot = scatterHot || scatterRefs.hot;
+        const matrix = hot?.getData?.() || [];
+        const headerRow = Array.isArray(matrix[0]) ? matrix[0] : [];
+        const baseCols = getScatterGroupedBaseCols(scatterReplicates, { xReplicatesEnabled: scatterGroupedXReplicates });
+        const usedSeriesCols = computeScatterUsedSeriesColumns(matrix, { startCol: baseCols, replicates: scatterReplicates, xReplicatesEnabled: scatterGroupedXReplicates });
+        const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(scatterReplicates, 1)));
+        const baseNames = [];
+        for(let s = 0; s < seriesCount; s += 1){
+          const idx = getScatterGroupedSeriesStartCol(s, scatterReplicates, { xReplicatesEnabled: scatterGroupedXReplicates });
+          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+        }
+        scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
+        scatterGroupedList.innerHTML = '';
+        scatterSeriesGroupLabels.forEach((label, idx) => {
+          const row = document.createElement('div');
+          row.className = 'grouped-row';
+          const labelEl = document.createElement('label');
+          labelEl.textContent = `Group ${idx + 1}`;
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = label;
+          input.setAttribute('data-group-index', String(idx));
+          input.addEventListener('change', e => {
+            const nextValue = sanitizeScatterGroupLabel(e.target.value, idx);
+            if(scatterSeriesGroupLabels[idx] === nextValue){
+              e.target.value = nextValue;
+              return;
+            }
+            scatterSeriesGroupLabels[idx] = nextValue;
+            e.target.value = nextValue;
+            updateScatterNestedHeaders();
+            persistTabState('scatter-group-label-change');
+            scheduleDrawScatter();
+          });
+          row.appendChild(labelEl);
+          row.appendChild(input);
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'grouped-remove';
+          removeBtn.textContent = '×';
+          removeBtn.title = 'Remove group';
+          removeBtn.addEventListener('click', () => {
+            removeScatterGroupedSeriesAt(idx);
+          });
+          row.appendChild(removeBtn);
+          scatterGroupedList.appendChild(row);
+        });
+        scatterDebug('Debug: scatter grouped list rendered', {
+          seriesCount,
+          replicates: scatterReplicates
+        });
+      }
+
+      function updateScatterReplicateModeControls(modeOverride){
+        const mode = normalizeScatterTableFormat(modeOverride || getScatterReplicateMode());
+        updateScatterGroupedToggleUI(mode);
+        updateScatterGroupedControlsVisibility(mode);
+        const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
+        if(scatterReplicatesInput){
+          scatterReplicatesInput.disabled = !groupedActive;
+          scatterReplicatesInput.value = String(clampScatterReplicateCount(scatterReplicates));
+        }
+        if(scatterGroupedXReplicatesInput){
+          scatterGroupedXReplicatesInput.disabled = !groupedActive || scatterReplicates <= SCATTER_MIN_REPLICATES;
+          scatterGroupedXReplicatesInput.checked = !!scatterGroupedXReplicates;
+        }
+        if(scatterGroupedAdd){
+          scatterGroupedAdd.disabled = !groupedActive;
+        }
+        if(scatterGroupedRemove){
+          scatterGroupedRemove.disabled = !groupedActive;
+        }
+        if(groupedActive){
+          renderScatterGroupedList();
+        }else if(scatterGroupedList){
+          scatterGroupedList.innerHTML = '';
+        }
+        syncScatterErrorBarControls(mode);
+      }
+
+      function syncScatterErrorBarControls(modeOverride){
+        const mode = normalizeScatterTableFormat(modeOverride || getScatterReplicateMode());
+        const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
+        const errorBarsAvailable = groupedActive && scatterReplicates > 1;
+        if(scatterShowErrorBars){
+          scatterShowErrorBars.disabled = !errorBarsAvailable;
+        }
+        if(scatterErrorBarWidth){
+          const enabled = errorBarsAvailable && !!scatterShowErrorBars?.checked;
+          scatterErrorBarWidth.disabled = !enabled;
+        }
+      }
+
+      function applyScatterReplicateChange(newCount, options = {}){
+        const targetReplicates = clampScatterReplicateCount(newCount);
+        const sourceReplicates = clampScatterReplicateCount(options.sourceReplicates ?? scatterReplicates);
+        const sourceFormat = normalizeScatterTableFormat(options.sourceFormat || getScatterReplicateMode());
+        const sourceXReplicatesEnabled = normalizeScatterGroupedXReplicates(options.sourceXReplicatesEnabled ?? scatterGroupedXReplicates);
+        const targetXReplicatesEnabled = normalizeScatterGroupedXReplicates(options.xReplicatesEnabled ?? scatterGroupedXReplicates);
+        const hot = scatterHot || scatterRefs.hot;
+        const matrix = Array.isArray(options.dataOverride)
+          ? options.dataOverride
+          : (hot?.getData?.() || []);
+        const structure = buildScatterReplicateMatrix(matrix, sourceReplicates, targetReplicates, {
+          sourceFormat,
+          sourceXReplicatesEnabled,
+          xReplicatesEnabled: targetXReplicatesEnabled,
+          minSeriesCount: options.minSeriesCount,
+          groupLabels: options.groupLabels
+        });
+        scatterGroupedXReplicates = targetXReplicatesEnabled;
+        scatterReplicates = targetReplicates;
+        if(scatterReplicates > SCATTER_MIN_REPLICATES){
+          scatterLastGroupedReplicateCount = Math.min(
+            SCATTER_MAX_REPLICATES,
+            Math.max(2, scatterReplicates)
+          );
+        }
+        if(scatterReplicatesInput){
+          scatterReplicatesInput.value = String(scatterReplicates);
+        }
+        if(hot && typeof hot.loadData === 'function'){
+          hot.loadData(structure.data);
+          updateScatterNestedHeaders(hot, { forceGrouped: true });
+          syncScatterActiveDataViewFromHot(hot, 'replicate-change');
+        }
+        updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+        if(!options.skipDraw){
+          scheduleDrawScatter();
+        }
+        scatterDebug('Debug: scatter replicate change applied', {
+          sourceReplicates,
+          targetReplicates,
+          sourceXReplicatesEnabled,
+          targetXReplicatesEnabled,
+          seriesCount: structure.seriesCount
+        });
+        return structure;
+      }
+
+      function removeScatterGroupedSeriesAt(index){
+        if(!isGroupedScatterModeActive()){
+          return;
+        }
+        const labels = Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [];
+        if(!labels.length){
+          return;
+        }
+        const safeIndex = Number.isInteger(index) ? index : labels.length - 1;
+        if(safeIndex < 0 || safeIndex >= labels.length || labels.length <= 1){
+          scatterDebug('Debug: scatter grouped remove skipped', { index: safeIndex, length: labels.length });
+          return;
+        }
+        labels.splice(safeIndex, 1);
+        scatterSeriesGroupLabels = labels;
+        applyScatterReplicateChange(scatterReplicates, {
+          sourceReplicates: scatterReplicates,
+          sourceFormat: SCATTER_TABLE_FORMAT_GROUPED,
+          groupLabels: labels
+        });
+      }
+
+      function addScatterGroupedSeries(){
+        if(!isGroupedScatterModeActive()){
+          return;
+        }
+        const labels = Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [];
+        const nextIndex = labels.length;
+        labels.push(`Series ${nextIndex + 1}`);
+        scatterSeriesGroupLabels = labels;
+        applyScatterReplicateChange(scatterReplicates, {
+          sourceReplicates: scatterReplicates,
+          sourceFormat: SCATTER_TABLE_FORMAT_GROUPED,
+          groupLabels: labels,
+          minSeriesCount: labels.length
+        });
+      }
+
+      function applyScatterTableFormatMode(requestedMode, options = {}){
+        const previousMode = normalizeScatterTableFormat(scatterTableFormat);
+        const previousXReplicatesEnabled = !!scatterGroupedXReplicates;
+        const graphType = String(options.graphType || scatterCurrentGraphType || 'scatter').toLowerCase();
+        let nextMode = normalizeScatterTableFormat(requestedMode);
+        if(graphType !== 'scatter'){
+          nextMode = SCATTER_TABLE_FORMAT_SINGLE;
+        }
+        scatterTableFormat = nextMode;
+        if(scatterTableFormatSelect && scatterTableFormatSelect.value !== nextMode){
+          scatterTableFormatSelect.value = nextMode;
+        }
+        const hot = scatterHot || scatterRefs.hot;
+        if(nextMode === SCATTER_TABLE_FORMAT_GROUPED){
+          scatterGroupedControlsCollapsed = options.keepCollapsed === true
+            ? !!scatterGroupedControlsCollapsed
+            : false;
+          const matrix = hot?.getData ? (hot.getData() || []) : [];
+          const shouldResetGroups = isScatterMatrixEmpty(matrix);
+          const targetReplicates = scatterReplicates > SCATTER_MIN_REPLICATES
+            ? scatterReplicates
+            : Math.max(2, clampScatterReplicateCount(scatterLastGroupedReplicateCount || SCATTER_DEFAULT_GROUPED_REPLICATES));
+          applyScatterReplicateChange(targetReplicates, {
+            sourceReplicates: previousMode === SCATTER_TABLE_FORMAT_GROUPED ? scatterReplicates : SCATTER_MIN_REPLICATES,
+            sourceFormat: previousMode,
+            sourceXReplicatesEnabled: previousMode === SCATTER_TABLE_FORMAT_GROUPED ? previousXReplicatesEnabled : false,
+            xReplicatesEnabled: options.xReplicatesEnabled ?? scatterGroupedXReplicates,
+            minSeriesCount: shouldResetGroups ? SCATTER_DEFAULT_GROUP_COUNT : undefined,
+            skipDraw: true
+          });
+          if(scatterColorMode && normalizeScatterColorMode(scatterColorMode.value) === 'density'){
+            scatterColorMode.value = 'solid';
+            scatterColorModeDesired = 'solid';
+          }
+          scatterState.supports3d = false;
+          scatterState.supportsBubble = false;
+          applyScatterViewMode('2d', { allow3d: false, allowBubble: false, skipSchedule: true, forceUpdate: true, persistRequest: true });
+        }else{
+          scatterGroupedControlsCollapsed = true;
+          if(previousMode === SCATTER_TABLE_FORMAT_GROUPED && hot){
+            const groupedMatrix = hot.getData ? (hot.getData() || []) : [];
+            const converted = buildScatterSingleMatrixFromGrouped(groupedMatrix, scatterReplicates, {
+              groupLabels: scatterSeriesGroupLabels,
+              xReplicatesEnabled: previousXReplicatesEnabled
+            });
+            scatterReplicates = SCATTER_MIN_REPLICATES;
+            if(scatterReplicatesInput){
+              scatterReplicatesInput.value = String(scatterReplicates);
+            }
+            hot.loadData(converted.data);
+            hot.updateSettings({ nestedHeaders: false });
+            ensureScatterHeaderTitles(hot, { graphType });
+            syncScatterActiveDataViewFromHot(hot, 'table-format-single');
+          }else if(hot){
+            hot.updateSettings({ nestedHeaders: false });
+          }
+        }
+        updateScatterReplicateModeControls(nextMode);
+        updateScatterNestedHeaders(hot, { graphType, tableFormat: nextMode });
+        syncScatterColorModeUI(scatterColorModeApplied);
+        if(!options.skipDraw){
+          scheduleDrawScatter();
+        }
+        scatterDebug('Debug: scatter table format applied', {
+          previousMode,
+          nextMode,
+          replicates: scatterReplicates,
+          graphType
+        });
+      }
 
       function persistTabState(reason){
         try{
@@ -6918,6 +8032,7 @@
 
       const scatterSelects=[
         scatterGraphTypeSelect,
+        scatterTableFormatSelect,
         scatterViewMode,
         scatterOriginMode,
         scatterStatType,
@@ -6931,18 +8046,23 @@
         if(!scatterViewMode){
           return;
         }
+        const groupedActive = isGroupedScatterModeActive();
+        const typeIsScatter = scatterCurrentGraphType === 'scatter';
         const option3d = scatterViewMode.querySelector('option[value="3d"]');
         if(option3d){
-          option3d.disabled = false;
+          option3d.disabled = groupedActive || !typeIsScatter;
         }
         const optionBubble = scatterViewMode.querySelector('option[value="bubble"]');
         if(optionBubble){
-          optionBubble.disabled = false;
+          optionBubble.disabled = groupedActive || !typeIsScatter;
         }
-        scatterViewMode.disabled = scatterCurrentGraphType !== 'scatter';
+        scatterViewMode.disabled = !typeIsScatter;
+        if(groupedActive && (scatterViewMode.value === '3d' || scatterViewMode.value === 'bubble')){
+          scatterViewMode.value = '2d';
+        }
       }
       function applyScatterViewMode(mode, options = {}){
-        const graphAllowsAdvanced = scatterCurrentGraphType === 'scatter';
+        const graphAllowsAdvanced = scatterCurrentGraphType === 'scatter' && !isGroupedScatterModeActive();
         const allow3d = options.allow3d !== false && graphAllowsAdvanced;
         const allowBubble = options.allowBubble !== false && graphAllowsAdvanced;
         const forceUpdate = options.forceUpdate === true;
@@ -7012,7 +8132,11 @@
           scheduleDrawScatter();
         }
         if(normalized === '3d'){
-          ensureScatterHeaderTitles(scatterRefs.hot || scatterHot, { viewMode: normalized });
+          ensureScatterHeaderTitles(scatterRefs.hot || scatterHot, {
+            graphType: scatterCurrentGraphType,
+            tableFormat: getScatterReplicateMode(),
+            viewMode: normalized
+          });
         }
         return normalized;
       }
@@ -7181,62 +8305,112 @@
           }
         }
         const analysis=scatterHot?.getAnalysisData?.()||Shared.hot.getAnalysisData(scatterHot);
-        const colIndex=axis==='x'?1:2;
         const rowCount=analysis?.rowCount||0;
         const colCount=analysis?.colCount||0;
-        if(!analysis||colIndex>=colCount){
+        const layout = resolveScatterColumnLayout(analysis?.data, colCount);
+        const groupedScatterActiveY = axis === 'y' && isScatterGroupedMode({
+          graphType: scatterCurrentGraphType,
+          tableFormat: getScatterReplicateMode()
+        }) && !!layout?.grouped;
+        const groupedScatterActiveX = axis === 'x' && isScatterGroupedMode({
+          graphType: scatterCurrentGraphType,
+          tableFormat: getScatterReplicateMode()
+        }) && !!layout?.grouped;
+        const candidateCols = axis === 'x'
+          ? (groupedScatterActiveX ? (layout?.xCols || [layout?.xCol]) : [layout?.xCol])
+          : (groupedScatterActiveY
+            ? (layout.groups || []).reduce((acc, group) => {
+                for(let col = group.startCol; col <= group.endCol; col += 1){
+                  acc.push(col);
+                }
+                return acc;
+              }, [])
+            : [layout?.yCol]);
+        const axisColumns = candidateCols
+          .filter(col => Number.isInteger(col) && col >= 0 && col < colCount)
+          .filter((col, idx, list) => list.indexOf(col) === idx);
+        if(!analysis||!axisColumns.length){
           if(scatterDebugEnabled()){
-            console.debug('Debug: scatter log axis validation skipped due to missing analysis',{ axis, hasAnalysis:!!analysis,colIndex,colCount });
+            console.debug('Debug: scatter log axis validation skipped due to missing analysis',{
+              axis,
+              hasAnalysis:!!analysis,
+              axisColumns,
+              colCount
+            });
           }
           return{allowed:true};
         }
-        if(analysis.isColumnExcluded?.(colIndex)){
+        const includedAxisColumns = axisColumns.filter(col => !analysis.isColumnExcluded?.(col));
+        if(!includedAxisColumns.length){
           if(scatterDebugEnabled()){
-            console.debug('Debug: scatter log axis validation skipped because column is excluded',{ axis, colIndex });
+            console.debug('Debug: scatter log axis validation blocked because all axis columns are excluded',{
+              axis,
+              axisColumns
+            });
           }
-          return{allowed:false,reason:'excluded',message:`Restore the ${axisLabel} axis column before enabling log scale.`};
+          const message = axis === 'y' && groupedScatterActiveY
+            ? `Restore at least one grouped ${axisLabel} axis column before enabling log scale.`
+            : axis === 'x' && groupedScatterActiveX
+              ? `Restore at least one grouped ${axisLabel} axis column before enabling log scale.`
+            : `Restore the ${axisLabel} axis column before enabling log scale.`;
+          return{allowed:false,reason:'excluded',message};
         }
         let hasZeros=false;
         let hasNegatives=false;
         let firstZeroRow=null;
         let firstNegativeRow=null;
         let firstNegativeValue=null;
+        let firstNegativeCol=null;
+        let firstZeroCol=null;
         for(let r=1;r<rowCount;r+=1){
           if(analysis.isRowExcluded?.(r)){
             continue;
           }
-          const raw=analysis.data?.[r]?.[colIndex];
-          if(raw===null||typeof raw==='undefined'||raw===''){
-            continue;
-          }
-          const value=parseFloat(raw);
-          if(Number.isFinite(value)){
-            if(value<0){
-              hasNegatives=true;
-              if(firstNegativeRow===null){
-                firstNegativeRow=r;
-                firstNegativeValue=value;
-              }
-            }else if(value===0){
-              hasZeros=true;
-              if(firstZeroRow===null){
-                firstZeroRow=r;
+          for(let colIdx = 0; colIdx < includedAxisColumns.length; colIdx += 1){
+            const colIndex = includedAxisColumns[colIdx];
+            const raw=analysis.data?.[r]?.[colIndex];
+            if(raw===null||typeof raw==='undefined'||raw===''){
+              continue;
+            }
+            const value=parseFloat(raw);
+            if(Number.isFinite(value)){
+              if(value<0){
+                hasNegatives=true;
+                if(firstNegativeRow===null){
+                  firstNegativeRow=r;
+                  firstNegativeCol=colIndex;
+                  firstNegativeValue=value;
+                }
+              }else if(value===0){
+                hasZeros=true;
+                if(firstZeroRow===null){
+                  firstZeroRow=r;
+                  firstZeroCol=colIndex;
+                }
               }
             }
           }
         }
         if(hasNegatives){
           const formatted=firstNegativeValue.toPrecision(4);
-          const message=`Cannot enable log scale on the ${axisLabel} axis because data includes ${formatted} at row ${firstNegativeRow+1}.`;
+          const groupedColumnDetail = ((axis === 'y' && groupedScatterActiveY) || (axis === 'x' && groupedScatterActiveX)) && Number.isInteger(firstNegativeCol)
+            ? ` (column ${firstNegativeCol + 1})`
+            : '';
+          const message=`Cannot enable log scale on the ${axisLabel} axis because data includes ${formatted} at row ${firstNegativeRow+1}${groupedColumnDetail}.`;
           if(scatterDebugEnabled()){
-            console.debug('Debug: scatter log axis blocked by negative data',{ axis, row:firstNegativeRow, value:firstNegativeValue });
+            console.debug('Debug: scatter log axis blocked by negative data',{
+              axis,
+              row:firstNegativeRow,
+              col:firstNegativeCol,
+              value:firstNegativeValue
+            });
           }
           return{allowed:false,reason:'data',value:firstNegativeValue,message,hasZeros,hasNegatives:true};
         }
         if(hasZeros){
           const message=`Data contains zero values on the ${axisLabel} axis. Would you like to use log(x+1) transform instead?`;
           if(scatterDebugEnabled()){
-            console.debug('Debug: scatter log axis has zeros',{ axis, row:firstZeroRow });
+            console.debug('Debug: scatter log axis has zeros',{ axis, row:firstZeroRow, col:firstZeroCol });
           }
           return{allowed:false,reason:'zeros',value:0,message,hasZeros:true,hasNegatives:false,canUsePlusOne:true};
         }
@@ -7300,6 +8474,21 @@
       function syncScatterGraphTypeUI(){
         const type=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=type;
+        const requestedTableFormat = normalizeScatterTableFormat(scatterTableFormatSelect?.value || scatterTableFormat);
+        const effectiveTableFormat = type === 'scatter' ? requestedTableFormat : SCATTER_TABLE_FORMAT_SINGLE;
+        if(scatterTableFormat !== effectiveTableFormat){
+          applyScatterTableFormatMode(effectiveTableFormat, { graphType: type, skipDraw: true, keepCollapsed: true });
+        }else{
+          scatterTableFormat = effectiveTableFormat;
+          if(scatterTableFormatSelect && scatterTableFormatSelect.value !== effectiveTableFormat){
+            scatterTableFormatSelect.value = effectiveTableFormat;
+          }
+          updateScatterReplicateModeControls(effectiveTableFormat);
+          updateScatterNestedHeaders(scatterHot || scatterRefs.hot, {
+            graphType: type,
+            tableFormat: effectiveTableFormat
+          });
+        }
         const showThresholds=type!=='scatter';
         if(showThresholds){
           clearScatterLogWarning();
@@ -7384,6 +8573,7 @@
           }
         }
         syncScatterColorModeUI(scatterColorModeApplied);
+        syncScatterErrorBarControls(effectiveTableFormat);
       }
 
       function buildScatterAdvisorContext(points, overrides){
@@ -7885,6 +9075,82 @@
           scheduleDrawScatter();
         });
       }
+      if(scatterTableFormatSelect){
+        scatterTableFormatSelect.value = normalizeScatterTableFormat(scatterTableFormatSelect.value || scatterTableFormat);
+        scatterTableFormat = scatterTableFormatSelect.value;
+        scatterTableFormatSelect.addEventListener('change', e => {
+          const requested = normalizeScatterTableFormat(e.target?.value || scatterTableFormat);
+          applyScatterTableFormatMode(requested);
+          persistTabState('scatter-table-format-change');
+        });
+      }
+      if(scatterReplicatesInput){
+        scatterReplicatesInput.value = String(clampScatterReplicateCount(scatterReplicatesInput.value || scatterReplicates));
+        scatterReplicates = clampScatterReplicateCount(scatterReplicatesInput.value || scatterReplicates);
+        if(scatterReplicates > SCATTER_MIN_REPLICATES){
+          scatterLastGroupedReplicateCount = Math.min(SCATTER_MAX_REPLICATES, Math.max(2, scatterReplicates));
+        }
+        scatterReplicatesInput.addEventListener('change', e => {
+          const resolved = clampScatterReplicateCount(e.target?.value);
+          if(!isGroupedScatterModeActive()){
+            scatterReplicatesInput.value = String(scatterReplicates);
+            return;
+          }
+          if(resolved !== scatterReplicates){
+            applyScatterReplicateChange(resolved);
+            persistTabState('scatter-replicates-change');
+          }else{
+            scatterReplicatesInput.value = String(scatterReplicates);
+            updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+          }
+        });
+      }
+      if(scatterGroupedXReplicatesInput){
+        scatterGroupedXReplicates = normalizeScatterGroupedXReplicates(scatterGroupedXReplicatesInput.checked);
+        scatterGroupedXReplicatesInput.addEventListener('change', e => {
+          const nextEnabled = normalizeScatterGroupedXReplicates(e.target?.checked);
+          if(!isGroupedScatterModeActive()){
+            scatterGroupedXReplicatesInput.checked = !!scatterGroupedXReplicates;
+            return;
+          }
+          if(nextEnabled === scatterGroupedXReplicates){
+            updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+            return;
+          }
+          applyScatterReplicateChange(scatterReplicates, {
+            sourceReplicates: scatterReplicates,
+            sourceFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            sourceXReplicatesEnabled: scatterGroupedXReplicates,
+            xReplicatesEnabled: nextEnabled
+          });
+          persistTabState('scatter-x-replicates-toggle');
+        });
+      }
+      if(scatterGroupedAdd){
+        scatterGroupedAdd.addEventListener('click', () => {
+          addScatterGroupedSeries();
+          persistTabState('scatter-group-add');
+        });
+      }
+      if(scatterGroupedRemove){
+        scatterGroupedRemove.addEventListener('click', () => {
+          const length = Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.length : 0;
+          const targetIndex = length > 0 ? length - 1 : -1;
+          if(targetIndex >= 0){
+            removeScatterGroupedSeriesAt(targetIndex);
+            persistTabState('scatter-group-remove');
+          }
+        });
+      }
+      if(scatterGroupedToggle){
+        scatterGroupedToggle.addEventListener('click', () => {
+          if(!isGroupedScatterModeActive()){
+            return;
+          }
+          scatterGroupedControlsCollapsed = !scatterGroupedControlsCollapsed;
+          updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+        });
+      }
       if(scatterLog2FCThreshold){
         scatterLog2FCThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter log2FC threshold input',{value:scatterLog2FCThreshold.value});
@@ -7946,6 +9212,19 @@
         console.log('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
         scheduleDrawScatter();
       });
+      if(scatterShowErrorBars){
+        scatterShowErrorBars.addEventListener('change', () => {
+          syncScatterErrorBarControls();
+          persistTabState('scatter-error-bars-toggle');
+          scheduleDrawScatter();
+        });
+      }
+      if(scatterErrorBarWidth){
+        scatterErrorBarWidth.addEventListener('input', () => {
+          syncScatterErrorBarControls();
+          scheduleDrawScatter();
+        });
+      }
       scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; console.log('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
       scatterFontSize.addEventListener('input',()=>{
         if(scatterFontSize.dataset){
@@ -8763,7 +10042,7 @@
           return visualRow;
         };
         const extractColumn = (colIndex)=>{
-          if(colIndex >= colCount){
+          if(!Number.isInteger(colIndex) || colIndex < 0 || colIndex >= colCount){
             return [];
           }
           const values = [];
@@ -8772,17 +10051,51 @@
           }
           return values;
         };
-        if(analysis.isColumnExcluded?.(1) || analysis.isColumnExcluded?.(2)){
-          console.warn('Scatter draw cancelled - axis column excluded',{ excludeX: analysis.isColumnExcluded?.(1), excludeY: analysis.isColumnExcluded?.(2) });
+        const layout = resolveScatterColumnLayout(analysis.data, colCount);
+        const groupedScatterActive = graphType === 'scatter' && !!layout.grouped;
+        const xAnalysisCols = groupedScatterActive
+          ? ((Array.isArray(layout.xCols) && layout.xCols.length) ? layout.xCols.slice() : [layout.xCol])
+          : [layout.xCol];
+        const yAnalysisCols = groupedScatterActive
+          ? layout.groups.reduce((acc, group) => {
+              for(let col = group.startCol; col <= group.endCol; col += 1){
+                if(col >= 0 && col < colCount){
+                  acc.push(col);
+                }
+              }
+              return acc;
+            }, [])
+          : [layout.yCol];
+        const includedXCols = xAnalysisCols.filter(col => !analysis.isColumnExcluded?.(col));
+        const includedYCols = yAnalysisCols.filter(col => !analysis.isColumnExcluded?.(col));
+        const xExcluded = !includedXCols.length;
+        const yExcluded = !includedYCols.length;
+        if(xExcluded || yExcluded){
+          console.warn('Scatter draw cancelled - axis column excluded',{
+            xCols: xAnalysisCols,
+            yCols: yAnalysisCols,
+            excludeX: !!xExcluded,
+            excludeY: !!yExcluded
+          });
           chartStyle.clearSvg(scatterSvg);
-          primeScatterStatsContext(null,{ placeholder:'Statistics unavailable until both axes are included.' });
+          const placeholder = groupedScatterActive
+            ? 'Statistics unavailable until X and at least one grouped Y column are included.'
+            : 'Statistics unavailable until both axes are included.';
+          primeScatterStatsContext(null,{ placeholder });
           return;
         }
-        const layout = resolveScatterColumnLayout(analysis.data, colCount);
         const labelCol = extractColumn(layout.labelCol);
         const xCol = extractColumn(layout.xCol);
         const yCol = extractColumn(layout.yCol);
         const extraCol = extractColumn(layout.extraCol);
+        const groupedXColumns = groupedScatterActive ? includedXCols.slice() : [];
+        const groupedYColumns = groupedScatterActive
+          ? layout.groups.map(group => ({
+              index: group.index,
+              label: group.label,
+              columns: includedYCols.filter(col => col >= group.startCol && col <= group.endCol)
+            })).filter(group => group.columns.length)
+          : [];
         const selectedRowSet = getScatterSelectedRowSet(scatterHot);
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
@@ -8795,8 +10108,13 @@
           extra:extraCol.length,
           layout
         });
-        const xLabelRaw=xCol[0];
-        const yLabelRaw=yCol[0];
+        const rawXLabelHeader = xCol[0];
+        const xLabelRaw = groupedScatterActive && layout.xReplicateCount > 1
+          ? inferScatterGroupBaseName(rawXLabelHeader, rawXLabelHeader || 'X')
+          : rawXLabelHeader;
+        const yLabelRaw = groupedScatterActive
+          ? (yCol[0] != null ? yCol[0] : '')
+          : yCol[0];
         const extraLabelRaw=extraCol[0];
         if(graphType==='volcano'){
           scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
@@ -8807,7 +10125,11 @@
           scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
         }else{
           scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
-          scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
+          const normalizedYLabel = yLabelRaw && String(yLabelRaw).trim();
+          const yLooksLikeReplicate = /^rep(?:licate)?\s*\d+$/i.test(normalizedYLabel || '');
+          scatterState.yLabelText = (!groupedScatterActive || !yLooksLikeReplicate)
+            ? (normalizedYLabel || 'Y')
+            : 'Y';
           const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
           scatterState.zLabelText = zHeader || 'Z';
         }
@@ -8830,7 +10152,7 @@
         let skippedRows=0;
         let significantCount=0;
         let maMissingPCount=0;
-        const hasZColumn = colCount > 3;
+        const hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
         const scatter3dCandidates = [];
         let scatter3dEligible = graphType === 'scatter' && hasZColumn;
         let scatter3dMissingZ = 0;
@@ -8855,53 +10177,165 @@
           const rawX=xCol[r];
           const rawY=yCol[r];
           if(graphType==='scatter'){
-            if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
-              skippedRows++;
-              recordRowSkip('scatter:missingValue');
-              continue;
-            }
-            const xv=parseFloat(rawX);
-            const yv=parseFloat(rawY);
-            const rawZ = hasZColumn ? extraCol[r] : undefined;
-            const hasZValue = hasZColumn && rawZ !== null && typeof rawZ !== 'undefined' && rawZ !== '';
-            const zv = hasZValue ? Number(rawZ) : NaN;
-            if(!Number.isNaN(xv) && Number.isFinite(xv) && !Number.isNaN(yv) && Number.isFinite(yv)){
-              const pointRecord = {x:xv,y:yv,label:lab,pointName:lab,rowIndex:physicalRow,isManualLabel};
-              if(hasZValue && Number.isFinite(zv)){
-                pointRecord.z = zv;
-                pointRecord.bubbleValue = zv;
-                scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, pointName: lab, rowIndex: physicalRow, isManualLabel, index: scatter3dCandidates.length });
-                if(zv<zMinRaw) zMinRaw=zv;
-                if(zv>zMaxRaw) zMaxRaw=zv;
-                if(zv<bubbleMinRaw) bubbleMinRaw = zv;
-                if(zv>bubbleMaxRaw) bubbleMaxRaw = zv;
-                bubbleValidCount += 1;
-              }else if(hasZValue){
-                scatter3dEligible = false;
-                scatter3dInvalidZ += 1;
-                recordRowSkip('scatter3d:nonNumericZ');
-                bubbleEligible = false;
-                bubbleInvalidCount += 1;
-              }else{
-                scatter3dEligible = false;
-                scatter3dMissingZ += 1;
-                if(hasZColumn){
-                  bubbleEligible = false;
-                  bubbleMissingCount += 1;
+            if(groupedScatterActive){
+              const xRepValues = [];
+              for(let xIdx = 0; xIdx < groupedXColumns.length; xIdx += 1){
+                const xColIndex = groupedXColumns[xIdx];
+                const rawXValue = analysis.data?.[r]?.[xColIndex];
+                if(rawXValue === null || typeof rawXValue === 'undefined' || rawXValue === ''){
+                  continue;
+                }
+                const numericX = parseFloat(rawXValue);
+                if(Number.isFinite(numericX)){
+                  xRepValues.push(numericX);
                 }
               }
-              if(!hasZValue && hasZColumn){
-                pointRecord.bubbleValue = NaN;
+              if(!xRepValues.length){
+                skippedRows++;
+                recordRowSkip('scatter-grouped:missingXReplicates');
+                continue;
               }
-              points.push(pointRecord);
-              if(labelSet && lab) labelSet.add(lab);
-              if(xv<xMinRaw) xMinRaw=xv;
-              if(xv>xMaxRaw) xMaxRaw=xv;
-              if(yv<yMinRaw) yMinRaw=yv;
-              if(yv>yMaxRaw) yMaxRaw=yv;
+              const xReplicateCount = xRepValues.length;
+              const xv = xRepValues.reduce((sum, value) => sum + value, 0) / xReplicateCount;
+              let xStdev = 0;
+              if(xReplicateCount > 1){
+                const xVariance = xRepValues.reduce((sum, value) => {
+                  const diff = value - xv;
+                  return sum + diff * diff;
+                }, 0) / (xReplicateCount - 1);
+                xStdev = Math.sqrt(Math.max(0, xVariance));
+              }
+              const hasXSpread = xReplicateCount > 1 && Number.isFinite(xStdev) && xStdev > 0;
+              const xLower = hasXSpread ? (xv - xStdev) : null;
+              const xUpper = hasXSpread ? (xv + xStdev) : null;
+              const xMinCandidate = hasXSpread && Number.isFinite(xLower) ? xLower : xv;
+              const xMaxCandidate = hasXSpread && Number.isFinite(xUpper) ? xUpper : xv;
+              let hasGroupedPoint = false;
+              for(let g = 0; g < groupedYColumns.length; g += 1){
+                const group = groupedYColumns[g];
+                const repValues = [];
+                for(let c = 0; c < group.columns.length; c += 1){
+                  const colIndex = group.columns[c];
+                  const rawRep = analysis.data?.[r]?.[colIndex];
+                  if(rawRep === null || typeof rawRep === 'undefined' || rawRep === ''){
+                    continue;
+                  }
+                  const numeric = parseFloat(rawRep);
+                  if(Number.isFinite(numeric)){
+                    repValues.push(numeric);
+                  }
+                }
+                if(!repValues.length){
+                  continue;
+                }
+                hasGroupedPoint = true;
+                const replicateCount = repValues.length;
+                const mean = repValues.reduce((sum, value) => sum + value, 0) / replicateCount;
+                let stdev = 0;
+                if(replicateCount > 1){
+                  const variance = repValues.reduce((sum, value) => {
+                    const diff = value - mean;
+                    return sum + diff * diff;
+                  }, 0) / (replicateCount - 1);
+                  stdev = Math.sqrt(Math.max(0, variance));
+                }
+                const hasSpread = replicateCount > 1 && Number.isFinite(stdev) && stdev > 0;
+                const lower = hasSpread ? (mean - stdev) : null;
+                const upper = hasSpread ? (mean + stdev) : null;
+                const yMinCandidate = hasSpread && Number.isFinite(lower) ? lower : mean;
+                const yMaxCandidate = hasSpread && Number.isFinite(upper) ? upper : mean;
+                const groupLabel = (group.label && String(group.label).trim()) || `Series ${group.index + 1}`;
+                const pointName = lab || groupLabel;
+                points.push({
+                  x: xv,
+                  y: mean,
+                  label: groupLabel,
+                  series: groupLabel,
+                  pointName,
+                  rowIndex: physicalRow,
+                  isManualLabel,
+                  replicates: repValues.slice(),
+                  replicateCount,
+                  stdev: hasSpread ? stdev : 0,
+                  lower,
+                  upper,
+                  xReplicates: xRepValues.slice(),
+                  xReplicateCount,
+                  xStdev: hasXSpread ? xStdev : 0,
+                  xLower,
+                  xUpper
+                });
+                if(labelSet){
+                  labelSet.add(groupLabel);
+                }
+                if(xMinCandidate<xMinRaw) xMinRaw=xMinCandidate;
+                if(xMaxCandidate>xMaxRaw) xMaxRaw=xMaxCandidate;
+                if(yMinCandidate<yMinRaw) yMinRaw=yMinCandidate;
+                if(yMaxCandidate>yMaxRaw) yMaxRaw=yMaxCandidate;
+              }
+              if(!hasGroupedPoint){
+                skippedRows++;
+                recordRowSkip('scatter-grouped:noReplicates');
+              }
             }else{
-              skippedRows++;
-              recordRowSkip('scatter:nonNumeric');
+              if(rawX === null || typeof rawX === 'undefined' || rawX === ''){
+                skippedRows++;
+                recordRowSkip('scatter:missingX');
+                continue;
+              }
+              const xv=parseFloat(rawX);
+              if(Number.isNaN(xv) || !Number.isFinite(xv)){
+                skippedRows++;
+                recordRowSkip('scatter:nonNumericX');
+                continue;
+              }
+              if(rawY === null || typeof rawY === 'undefined' || rawY === ''){
+                skippedRows++;
+                recordRowSkip('scatter:missingY');
+                continue;
+              }
+              const yv=parseFloat(rawY);
+              const rawZ = hasZColumn ? extraCol[r] : undefined;
+              const hasZValue = hasZColumn && rawZ !== null && typeof rawZ !== 'undefined' && rawZ !== '';
+              const zv = hasZValue ? Number(rawZ) : NaN;
+              if(!Number.isNaN(yv) && Number.isFinite(yv)){
+                const pointRecord = {x:xv,y:yv,label:lab,pointName:lab,rowIndex:physicalRow,isManualLabel};
+                if(hasZValue && Number.isFinite(zv)){
+                  pointRecord.z = zv;
+                  pointRecord.bubbleValue = zv;
+                  scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, pointName: lab, rowIndex: physicalRow, isManualLabel, index: scatter3dCandidates.length });
+                  if(zv<zMinRaw) zMinRaw=zv;
+                  if(zv>zMaxRaw) zMaxRaw=zv;
+                  if(zv<bubbleMinRaw) bubbleMinRaw = zv;
+                  if(zv>bubbleMaxRaw) bubbleMaxRaw = zv;
+                  bubbleValidCount += 1;
+                }else if(hasZValue){
+                  scatter3dEligible = false;
+                  scatter3dInvalidZ += 1;
+                  recordRowSkip('scatter3d:nonNumericZ');
+                  bubbleEligible = false;
+                  bubbleInvalidCount += 1;
+                }else{
+                  scatter3dEligible = false;
+                  scatter3dMissingZ += 1;
+                  if(hasZColumn){
+                    bubbleEligible = false;
+                    bubbleMissingCount += 1;
+                  }
+                }
+                if(!hasZValue && hasZColumn){
+                  pointRecord.bubbleValue = NaN;
+                }
+                points.push(pointRecord);
+                if(labelSet && lab) labelSet.add(lab);
+                if(xv<xMinRaw) xMinRaw=xv;
+                if(xv>xMaxRaw) xMaxRaw=xv;
+                if(yv<yMinRaw) yMinRaw=yv;
+                if(yv>yMaxRaw) yMaxRaw=yv;
+              }else{
+                skippedRows++;
+                recordRowSkip('scatter:nonNumericY');
+              }
             }
           }else if(graphType==='volcano'){
             if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
@@ -9066,6 +10500,15 @@
             if(Number.isFinite(p?.x)){
               p.x = p.x + 1;
             }
+            if(Number.isFinite(p?.xLower)){
+              p.xLower = p.xLower + 1;
+            }
+            if(Number.isFinite(p?.xUpper)){
+              p.xUpper = p.xUpper + 1;
+            }
+            if(Array.isArray(p?.xReplicates) && p.xReplicates.length){
+              p.xReplicates = p.xReplicates.map(value => Number.isFinite(value) ? value + 1 : value);
+            }
           }
           if(Number.isFinite(xMinRaw)) xMinRaw = xMinRaw + 1;
           if(Number.isFinite(xMaxRaw)) xMaxRaw = xMaxRaw + 1;
@@ -9076,6 +10519,15 @@
             const p = points[i];
             if(Number.isFinite(p?.y)){
               p.y = p.y + 1;
+            }
+            if(Number.isFinite(p?.lower)){
+              p.lower = p.lower + 1;
+            }
+            if(Number.isFinite(p?.upper)){
+              p.upper = p.upper + 1;
+            }
+            if(Array.isArray(p?.replicates) && p.replicates.length){
+              p.replicates = p.replicates.map(value => Number.isFinite(value) ? value + 1 : value);
             }
           }
           if(Number.isFinite(yMinRaw)) yMinRaw = yMinRaw + 1;
@@ -9898,7 +11350,12 @@
               x: entry.data.x,
               y: entry.data.y,
               z: entry.data.z,
-              graphType: 'scatter'
+              graphType: 'scatter',
+              series: entry.data.series || entry.data.label || '',
+              replicates: Array.isArray(entry.data.replicates) ? entry.data.replicates : undefined,
+              stdev: Number.isFinite(entry.data.stdev) ? entry.data.stdev : undefined,
+              xReplicates: Array.isArray(entry.data.xReplicates) ? entry.data.xReplicates : undefined,
+              xStdev: Number.isFinite(entry.data.xStdev) ? entry.data.xStdev : undefined
             });
             const approxRight = entry.projected?.x + markerRadius + (markerBorderWidth>0 ? markerBorderWidth : 0);
             if(Number.isFinite(approxRight)){
@@ -11101,12 +12558,23 @@
           return SIGNIFICANT_COLOR;
         };
         const frag=document.createDocumentFragment();
+        const errorBarFrag=document.createDocumentFragment();
         const manualLabelEntries = [];
         const shouldCollectManualLabels = useSelectionFallback || (thresholdLabelEnabled && (graphType === 'volcano' || graphType === 'ma'));
         let pointBounds = shouldCollectManualLabels ? [] : null;
         let pointIndex=0;
         const isBubbleView = scatterCurrentGraphType==='scatter' && scatterState.viewMode === 'bubble';
         const resolveBubbleRadius = isBubbleView ? createBubbleRadiusScaler(points, dotSizePx) : null;
+        const errorBarWidthRaw = Number(scatterErrorBarWidth?.value);
+        const errorBarWidthPx = chartStyle.scaleStrokeWidth(
+          Number.isFinite(errorBarWidthRaw) ? Math.max(0, errorBarWidthRaw) : 1,
+          styleScaleInfo,
+          { context: 'scatter-error-bar', min: 0 }
+        );
+        const showGroupedErrorBars = groupedScatterActive
+          && scatterCurrentGraphType === 'scatter'
+          && !!scatterShowErrorBars?.checked
+          && errorBarWidthPx > 0;
         for(const p of points){
           const geom = pointGeometry[pointIndex] || null;
           const xv = geom ? geom.xv : (logX ? Math.log10(p.x) : p.x);
@@ -11145,6 +12613,107 @@
           if(!marker){
             continue;
           }
+          if(showGroupedErrorBars){
+            const yReplicateCount = Number.isInteger(p?.replicateCount)
+              ? p.replicateCount
+              : (Array.isArray(p?.replicates) ? p.replicates.length : 0);
+            const xReplicateCount = Number.isInteger(p?.xReplicateCount)
+              ? p.xReplicateCount
+              : (Array.isArray(p?.xReplicates) ? p.xReplicates.length : 0);
+            const canShowVerticalError = yReplicateCount > 1
+              && Number.isFinite(p?.lower)
+              && Number.isFinite(p?.upper)
+              && p.upper >= p.lower;
+            const canShowHorizontalError = xReplicateCount > 1
+              && Number.isFinite(p?.xLower)
+              && Number.isFinite(p?.xUpper)
+              && p.xUpper >= p.xLower;
+            if(!canShowVerticalError && !canShowHorizontalError && yReplicateCount <= 1 && xReplicateCount <= 1){
+              debug('Debug: scatter error bar suppressed for single value',{
+                rowIndex: p?.rowIndex,
+                x: p?.x,
+                series: p?.series || p?.label || ''
+              });
+            }
+            const capHalf = Math.max(4, markerRadius * 1.2);
+            const opacity = 1 - (markerAlpha != null ? markerAlpha : alpha);
+            if(canShowVerticalError){
+              const lowerVal = logY ? (p.lower > 0 ? Math.log10(p.lower) : null) : p.lower;
+              const upperVal = logY ? (p.upper > 0 ? Math.log10(p.upper) : null) : p.upper;
+              if(lowerVal != null && upperVal != null && Number.isFinite(lowerVal) && Number.isFinite(upperVal)){
+                const lowerPx = y2px(lowerVal);
+                const upperPx = y2px(upperVal);
+                const vertical = document.createElementNS(NS,'line');
+                vertical.setAttribute('x1', String(cxVal));
+                vertical.setAttribute('y1', String(upperPx));
+                vertical.setAttribute('x2', String(cxVal));
+                vertical.setAttribute('y2', String(lowerPx));
+                vertical.setAttribute('stroke', color);
+                vertical.setAttribute('stroke-width', String(errorBarWidthPx));
+                vertical.setAttribute('stroke-linecap', 'square');
+                vertical.setAttribute('stroke-opacity', String(opacity));
+                errorBarFrag.appendChild(vertical);
+                const topCap = document.createElementNS(NS,'line');
+                topCap.setAttribute('x1', String(cxVal - capHalf));
+                topCap.setAttribute('y1', String(upperPx));
+                topCap.setAttribute('x2', String(cxVal + capHalf));
+                topCap.setAttribute('y2', String(upperPx));
+                topCap.setAttribute('stroke', color);
+                topCap.setAttribute('stroke-width', String(errorBarWidthPx));
+                topCap.setAttribute('stroke-linecap', 'square');
+                topCap.setAttribute('stroke-opacity', String(opacity));
+                errorBarFrag.appendChild(topCap);
+                const bottomCap = document.createElementNS(NS,'line');
+                bottomCap.setAttribute('x1', String(cxVal - capHalf));
+                bottomCap.setAttribute('y1', String(lowerPx));
+                bottomCap.setAttribute('x2', String(cxVal + capHalf));
+                bottomCap.setAttribute('y2', String(lowerPx));
+                bottomCap.setAttribute('stroke', color);
+                bottomCap.setAttribute('stroke-width', String(errorBarWidthPx));
+                bottomCap.setAttribute('stroke-linecap', 'square');
+                bottomCap.setAttribute('stroke-opacity', String(opacity));
+                errorBarFrag.appendChild(bottomCap);
+              }
+            }
+            if(canShowHorizontalError){
+              const leftVal = logX ? (p.xLower > 0 ? Math.log10(p.xLower) : null) : p.xLower;
+              const rightVal = logX ? (p.xUpper > 0 ? Math.log10(p.xUpper) : null) : p.xUpper;
+              if(leftVal != null && rightVal != null && Number.isFinite(leftVal) && Number.isFinite(rightVal)){
+                const leftPx = x2px(leftVal);
+                const rightPx = x2px(rightVal);
+                const horizontal = document.createElementNS(NS,'line');
+                horizontal.setAttribute('x1', String(leftPx));
+                horizontal.setAttribute('y1', String(cyVal));
+                horizontal.setAttribute('x2', String(rightPx));
+                horizontal.setAttribute('y2', String(cyVal));
+                horizontal.setAttribute('stroke', color);
+                horizontal.setAttribute('stroke-width', String(errorBarWidthPx));
+                horizontal.setAttribute('stroke-linecap', 'square');
+                horizontal.setAttribute('stroke-opacity', String(opacity));
+                errorBarFrag.appendChild(horizontal);
+                const leftCap = document.createElementNS(NS,'line');
+                leftCap.setAttribute('x1', String(leftPx));
+                leftCap.setAttribute('y1', String(cyVal - capHalf));
+                leftCap.setAttribute('x2', String(leftPx));
+                leftCap.setAttribute('y2', String(cyVal + capHalf));
+                leftCap.setAttribute('stroke', color);
+                leftCap.setAttribute('stroke-width', String(errorBarWidthPx));
+                leftCap.setAttribute('stroke-linecap', 'square');
+                leftCap.setAttribute('stroke-opacity', String(opacity));
+                errorBarFrag.appendChild(leftCap);
+                const rightCap = document.createElementNS(NS,'line');
+                rightCap.setAttribute('x1', String(rightPx));
+                rightCap.setAttribute('y1', String(cyVal - capHalf));
+                rightCap.setAttribute('x2', String(rightPx));
+                rightCap.setAttribute('y2', String(cyVal + capHalf));
+                rightCap.setAttribute('stroke', color);
+                rightCap.setAttribute('stroke-width', String(errorBarWidthPx));
+                rightCap.setAttribute('stroke-linecap', 'square');
+                rightCap.setAttribute('stroke-opacity', String(opacity));
+                errorBarFrag.appendChild(rightCap);
+              }
+            }
+          }
           if(pointBounds){
             pointBounds.push({ cx: cxVal, cy: cyVal, r: markerRadius });
           }
@@ -11169,7 +12738,12 @@
             logYValue: logY ? yv : undefined,
             graphType: scatterCurrentGraphType,
             isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined,
-            size: isBubbleView ? p.bubbleValue : undefined
+            size: isBubbleView ? p.bubbleValue : undefined,
+            series: p.series || p.label || '',
+            replicates: Array.isArray(p.replicates) ? p.replicates : undefined,
+            stdev: Number.isFinite(p.stdev) ? p.stdev : undefined,
+            xReplicates: Array.isArray(p.xReplicates) ? p.xReplicates : undefined,
+            xStdev: Number.isFinite(p.xStdev) ? p.xStdev : undefined
           });
           frag.appendChild(marker);
           pointIndex++;
@@ -11182,6 +12756,10 @@
             points: points.length,
             density: scatterColorModeApplied === 'density'
           });
+        }
+        if(showGroupedErrorBars && errorBarFrag.childNodes.length){
+          const errorLayer=add('g',{'data-export-layer':'scatter-error-bars','data-layer':'error-bars'});
+          errorLayer.appendChild(errorBarFrag);
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
         const pointAttachPerf = perfApi?.start('scatter.svg.attach', {
@@ -12705,6 +14283,12 @@
             showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
             showDiagnostics:scatterShowDiagnostics ? scatterShowDiagnostics.checked : false,
             graphType:scatterGraphTypeSelect?.value || 'scatter',
+            tableFormat: normalizeScatterTableFormat(scatterTableFormat),
+            replicates: clampScatterReplicateCount(scatterReplicates),
+            xReplicates: !!scatterGroupedXReplicates,
+            groupLabels: Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [],
+            showErrorBars: scatterShowErrorBars ? !!scatterShowErrorBars.checked : false,
+            errorBarWidth: scatterErrorBarWidth ? scatterErrorBarWidth.value : undefined,
             log2fcThreshold:scatterLog2FCThreshold?.value || '',
             negLogPThreshold:scatterNegLogPThreshold?.value || '',
             showSignificantLabels: scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : undefined,
@@ -12974,6 +14558,45 @@
         if(scatterGraphTypeSelect && c.graphType){
           scatterGraphTypeSelect.value=c.graphType;
         }
+        const storedGraphType = String(c.graphType || scatterGraphTypeSelect?.value || 'scatter').toLowerCase();
+        const storedTableFormat = normalizeScatterTableFormat(c.tableFormat || scatterTableFormat);
+        const storedReplicateCount = clampScatterReplicateCount(c.replicates ?? scatterReplicates);
+        const storedXReplicates = typeof c.xReplicates === 'boolean'
+          ? normalizeScatterGroupedXReplicates(c.xReplicates)
+          : !!scatterGroupedXReplicates;
+        const storedGroupLabels = Array.isArray(c.groupLabels)
+          ? c.groupLabels.map((label, idx) => sanitizeScatterGroupLabel(label, idx))
+          : [];
+        if(storedGroupLabels.length){
+          scatterSeriesGroupLabels = storedGroupLabels.slice();
+        }
+        scatterGroupedXReplicates = storedXReplicates;
+        if(scatterGroupedXReplicatesInput){
+          scatterGroupedXReplicatesInput.checked = storedXReplicates;
+        }
+        scatterReplicates = storedReplicateCount;
+        if(scatterReplicates > SCATTER_MIN_REPLICATES){
+          scatterLastGroupedReplicateCount = Math.min(
+            SCATTER_MAX_REPLICATES,
+            Math.max(2, scatterReplicates)
+          );
+        }
+        if(scatterReplicatesInput){
+          scatterReplicatesInput.value = String(scatterReplicates);
+        }
+        const desiredTableFormat = storedGraphType === 'scatter'
+          ? storedTableFormat
+          : SCATTER_TABLE_FORMAT_SINGLE;
+        scatterTableFormat = desiredTableFormat;
+        if(scatterTableFormatSelect){
+          scatterTableFormatSelect.value = desiredTableFormat;
+        }
+        if(scatterShowErrorBars && typeof c.showErrorBars === 'boolean'){
+          scatterShowErrorBars.checked = c.showErrorBars;
+        }
+        if(scatterErrorBarWidth && c.errorBarWidth !== undefined && c.errorBarWidth !== null){
+          scatterErrorBarWidth.value = String(c.errorBarWidth);
+        }
         if(scatterLog2FCThreshold && c.log2fcThreshold!==undefined){
           scatterLog2FCThreshold.value=c.log2fcThreshold;
         }
@@ -13094,6 +14717,7 @@
           console.debug('Debug: scatter restore stats failed', { err: err?.message || String(err) });
         }
         syncScatterGraphTypeUI();
+        syncScatterErrorBarControls(scatterTableFormat);
         if(!skipDraw){
           scheduleDrawScatter();
         }

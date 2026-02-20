@@ -993,17 +993,16 @@
   });
 
   function promptPcaCustomExpression(){
-    const expression = global.prompt
-      ? global.prompt(
-        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-        'log2(x+1)'
-      )
-      : '';
-    if(expression == null){
-      return null;
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const expression = String(toolbarApi?.getCustomTransformExpression?.('pca') || '').trim();
+    if(expression){
+      return expression;
     }
-    const normalized = String(expression || '').trim();
-    return normalized || null;
+    toolbarApi?.openCustomTransformEditor?.('pca');
+    if(typeof global.alert === 'function'){
+      global.alert('Enter a custom transformation formula using x, then click "Apply custom".');
+    }
+    return null;
   }
 
   function resolvePcaToolbarTransformOption(optionKey, customExpression){
@@ -1122,16 +1121,37 @@
     }
     global.document.addEventListener('click', event => {
       const button = event.target?.closest?.(
-        '#pcaTransformApplySelected, #pcaTransformCpm, #pcaTransformLog2p1, #pcaTransformCenterRowsMean, #pcaTransformCenterRowsMedian, #pcaTransformCenterColsMean, #pcaTransformCenterColsMedian, #pcaTransformNormalizeRows, #pcaTransformNormalizeCols, #pcaTransformCustom'
+        '#pcaTransformApplySelected, #pcaTransformCustomApply, #pcaTransformCpm, #pcaTransformLog2p1, #pcaTransformCenterRowsMean, #pcaTransformCenterRowsMedian, #pcaTransformCenterColsMean, #pcaTransformCenterColsMedian, #pcaTransformNormalizeRows, #pcaTransformNormalizeCols, #pcaTransformCustom'
       );
       if(!button){
         return;
       }
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
       if(button.id === 'pcaTransformApplySelected'){
         applyPcaSelectedTransforms();
         return;
       }
-      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(button.id === 'pcaTransformCustomApply'){
+        const customExpression = promptPcaCustomExpression();
+        if(!customExpression){
+          return;
+        }
+        const customTransform = resolvePcaToolbarTransformOption('custom', customExpression);
+        if(!customTransform){
+          return;
+        }
+        if(transformSection?.dataset?.transformMultiMode === '1'){
+          const selected = Shared.workspaceToolbar?.getSelectedTransforms?.('pca') || [];
+          if(Array.isArray(selected) && selected.includes('custom')){
+            applyPcaSelectedTransforms();
+          }else{
+            applyPcaTransformToNewView(customTransform.spec, { title: customTransform.title });
+          }
+          return;
+        }
+        applyPcaTransformToNewView(customTransform.spec, { title: customTransform.title });
+        return;
+      }
       if(!transformSection){
         return;
       }

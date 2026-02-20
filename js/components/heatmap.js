@@ -655,17 +655,16 @@
   });
 
   function promptHeatmapCustomExpression(){
-    const expression = global.prompt
-      ? global.prompt(
-        'Enter custom transformation using x (example: log2(x+1), x*1000, x/3.5):',
-        'log2(x+1)'
-      )
-      : '';
-    if(expression == null){
-      return null;
+    const toolbarApi = Shared.workspaceToolbar || null;
+    const expression = String(toolbarApi?.getCustomTransformExpression?.('heatmap') || '').trim();
+    if(expression){
+      return expression;
     }
-    const normalized = String(expression || '').trim();
-    return normalized || null;
+    toolbarApi?.openCustomTransformEditor?.('heatmap');
+    if(typeof global.alert === 'function'){
+      global.alert('Enter a custom transformation formula using x, then click "Apply custom".');
+    }
+    return null;
   }
 
   function resolveHeatmapToolbarTransformOption(optionKey, customExpression){
@@ -791,16 +790,37 @@
         return;
       }
       const button = event.target?.closest?.(
-        '#heatmapTransformApplySelected, #heatmapTransformCpm, #heatmapTransformLog2p1, #heatmapTransformCenterRowsMean, #heatmapTransformCenterRowsMedian, #heatmapTransformCenterColsMean, #heatmapTransformCenterColsMedian, #heatmapTransformNormalizeRows, #heatmapTransformNormalizeCols, #heatmapTransformCustom'
+        '#heatmapTransformApplySelected, #heatmapTransformCustomApply, #heatmapTransformCpm, #heatmapTransformLog2p1, #heatmapTransformCenterRowsMean, #heatmapTransformCenterRowsMedian, #heatmapTransformCenterColsMean, #heatmapTransformCenterColsMedian, #heatmapTransformNormalizeRows, #heatmapTransformNormalizeCols, #heatmapTransformCustom'
       );
       if(!button){
         return;
       }
+      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
       if(button.id === 'heatmapTransformApplySelected'){
         applyHeatmapToolbarSelectedTransforms();
         return;
       }
-      const transformSection = button.closest?.('.workspace-toolbar__section[data-transform-section="1"]');
+      if(button.id === 'heatmapTransformCustomApply'){
+        const customExpression = promptHeatmapCustomExpression();
+        if(!customExpression){
+          return;
+        }
+        const customTransform = resolveHeatmapToolbarTransformOption('custom', customExpression);
+        if(!customTransform){
+          return;
+        }
+        if(transformSection?.dataset?.transformMultiMode === '1'){
+          const selected = Shared.workspaceToolbar?.getSelectedTransforms?.('heatmap') || [];
+          if(Array.isArray(selected) && selected.includes('custom')){
+            applyHeatmapToolbarSelectedTransforms();
+          }else{
+            applyHeatmapToolbarTransformToNewView(customTransform.spec, { title: customTransform.title });
+          }
+          return;
+        }
+        applyHeatmapToolbarTransformToNewView(customTransform.spec, { title: customTransform.title });
+        return;
+      }
       if(!transformSection){
         return;
       }

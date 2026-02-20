@@ -576,6 +576,33 @@
     </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
+        <div class="table-format-controls">
+          <label for="scatterTableFormat" class="idx-inline-019">Table format</label>
+          <select id="scatterTableFormat">
+            <option value="single" selected>Single replicates</option>
+            <option value="grouped">Grouped replicates</option>
+          </select>
+          <button type="button" class="btn grouped-toggle" id="scatterGroupedToggle" aria-controls="scatterGroupedControls" aria-expanded="false" hidden>Show group settings</button>
+        </div>
+        <div id="scatterGroupedControls" class="grouped-controls idx-inline-001" aria-hidden="true">
+          <div class="grouped-config-row">
+            <label for="scatterReplicates" class="grouped-config-inline">
+              <span>Replicates per group</span>
+              <input type="number" id="scatterReplicates" min="1" max="10" step="1" value="1" />
+            </label>
+          </div>
+          <div class="grouped-config-row">
+            <label for="scatterGroupedXReplicates" class="grouped-config-inline">
+              <input type="checkbox" id="scatterGroupedXReplicates" />
+              <span>Replicate X values (enable horizontal error bars)</span>
+            </label>
+          </div>
+          <div id="scatterGroupedList" class="grouped-list"></div>
+          <div class="grouped-actions">
+            <button type="button" class="btn" id="scatterGroupedAdd">Add group</button>
+            <button type="button" class="btn" id="scatterGroupedRemove">Remove group</button>
+          </div>
+        </div>
         <div id="scatterHotWrapper" class="idx-inline-020">
           <div id="scatterHot" class="idx-inline-021"></div>
         </div>
@@ -654,6 +681,9 @@
                   </span>
                 </label>
               </div>
+              <div class="config-panel__line config-panel__line--checkboxes">
+                <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowErrorBars" checked /> <span>Show error bars (grouped mode)</span></label>
+              </div>
               <div class="config-panel__line config-panel__line--split">
                 <label class="config-panel__item config-panel__item--select-auto" id="scatterColorModeRow">
                   <span class="config-panel__label">Color mode</span>
@@ -684,6 +714,10 @@
                 <label class="config-panel__item config-panel__item--swatch">
                   <span class="config-panel__label">Color</span>
                   <input type="color" id="scatterBorder" value="#000000" />
+                </label>
+                <label class="config-panel__item config-panel__item--narrow">
+                  <span class="config-panel__label">Error bar thickness</span>
+                  <input type="number" id="scatterErrorBarWidth" value="1" min="0" max="10" />
                 </label>
               </div>
             </fieldset>
