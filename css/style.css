@@ -3030,7 +3030,20 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .assumption-badge[data-result="na"]{background:#e2e3e5;color:#383d41;border-color:rgba(56,61,65,0.18)}
 
 .assumption-sparkline{display:block}
-.stats-assumption__qq .assumption-sparkline{margin:0 auto}
+
+/* QQ plot: flip vertically so quantiles appear ascending (SVG y-axis grows downward). */
+.stats-assumption__qq .assumption-sparkline{
+    margin:0 auto;
+    transform:scaleY(-1);
+    transform-origin:center;
+    transform-box:fill-box;
+}
+
+/* DEBUG: enable by setting data-debug-qq="1" on <html> (or <body>). */
+:root[data-debug-qq="1"] .stats-assumption__qq .assumption-sparkline{
+    outline:1px dashed rgba(255,0,0,0.55);
+}
+
 .assumption-variance-row .assumption-sparkline{margin:0}
 
 .assumption-variance-row{margin-top:10px;padding-top:8px;border-top:1px solid #d7e0ef;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#1d2735}

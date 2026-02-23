@@ -8635,32 +8635,37 @@
     const maxSample=Number.isFinite(options?.maxSampleSize)
       ? Math.max(25,Math.floor(options.maxSampleSize))
       : ASSUMPTION_QQ_SAMPLE_LIMIT;
+
     const source=Array.isArray(values)?values:[];
-    const baseValues=source.length>maxSample
-      ? sampleArrayEvenly(source,maxSample)
-      : source.slice().filter(Number.isFinite);
-    if(baseValues.length<3){
+    const finite=source.filter(Number.isFinite);
+    if(finite.length<3){
       return [];
     }
-    const sorted=baseValues.slice().sort((a,b)=>a-b);
+
+    // Standard QQ-plot points: theoretical normal quantiles vs observed sample quantiles (raw scale).
+    const sorted=finite.slice().sort((a,b)=>a-b);
     const n=sorted.length;
-    const mean=sorted.reduce((sum,v)=>sum+v,0)/n;
-    const variance=sorted.reduce((sum,v)=>{ const diff=v-mean; return sum+diff*diff; },0)/(n-1||1);
-    const sd=Math.sqrt(variance)||0;
-    if(sd===0){
-      return [];
-    }
-    const sampleCount=Math.min(25,n);
+
+    // Use all points when possible; for very large n, downsample to maxSample evenly across the distribution.
+    const sampleCount=Math.min(n,maxSample);
     const points=[];
-    for(let j=0;j<sampleCount;j++){
-      const frac=(j+0.5)/sampleCount;
-      const index=Math.min(n-1,Math.max(0,Math.round(frac*n-0.5)));
-      const theoretical=normalQuantile((index+0.5)/n);
-      const observed=(sorted[index]-mean)/sd;
+    for(let i=0;i<sampleCount;i++){
+      // Evenly-spaced order statistics (quantile sampling) to keep the QQ shape faithful when downsampling.
+      const idx=Math.min(n-1,Math.max(0,Math.floor(((i+0.5)*n)/sampleCount - 0.5)));
+      const p=(idx+0.5)/n;
+      const theoretical=normalQuantile(p);
+      const observed=sorted[idx];
       points.push({ theoretical, observed });
     }
-    const sampled=source.length>maxSample;
-    console.debug('Debug: box QQ points computed',{ sampleCount: points.length, sourceSize: source.length, sampled });
+
+    const sampled=n>maxSample;
+    console.debug('Debug: box QQ points computed',{
+      sampleCount: points.length,
+      sourceSize: source.length,
+      finiteSize: finite.length,
+      n,
+      sampled
+    });
     return points;
   }
 
@@ -8671,11 +8676,11 @@
       && Number.isFinite(summary.sumCubes) && Number.isFinite(summary.sumFourth)
       ? summary
       : null;
-    let n=readySummary ? readySummary.count : 0;
-    let sum=readySummary ? readySummary.sum : 0;
-    let sumSquares=readySummary ? readySummary.sumSquares : 0;
-    let sumCubes=readySummary ? readySummary.sumCubes : 0;
-    let sumFourth=readySummary ? readySummary.sumFourth : 0;
+    let n=readySummary ? summary.count : 0;
+    let sum=readySummary ? summary.sum : 0;
+    let sumSquares=readySummary ? summary.sumSquares : 0;
+    let sumCubes=readySummary ? summary.sumCubes : 0;
+    let sumFourth=readySummary ? summary.sumFourth : 0;
     if(!readySummary){
       for(let idx=0;idx<series.length;idx++){
         const value=Number(series[idx]);
@@ -8690,10 +8695,13 @@
         sumFourth+=square*square;
       }
     }
-    if(n<8){
-      console.debug('Debug: box dagostino insufficient sample',{ n });
-      return { method:'dagostino', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, reason:'Sample size < 8' };
+
+    // For normality tests, we need at least 3 observations to compute skewness/kurtosis.
+    if(n<3){
+      console.debug('Debug: box normality insufficient sample',{ n });
+      return { method:'dagostino', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, reason:'Sample size < 3' };
     }
+
     const meanVal=sum/n;
     const m2=sumSquares-(sum*sum)/n;
     const meanSquared=meanVal*meanVal;
@@ -8701,36 +8709,410 @@
     const meanFourth=meanSquared*meanSquared;
     const m3=sumCubes-3*meanVal*sumSquares+2*n*meanCubed;
     const m4=sumFourth-4*meanVal*sumCubes+6*meanSquared*sumSquares-3*n*meanFourth;
+
     const s2=m2/(n-1||1);
     const s=Math.sqrt(Math.max(s2,0));
-    if(!Number.isFinite(s)||s===0){
-      console.debug('Debug: box dagostino zero variance',{ n });
+    if(!Number.isFinite(s) || s===0){
+      console.debug('Debug: box normality zero variance',{ n });
       return { method:'dagostino', sampleSize:n, statistic:0, pValue:1, passed:true, reason:'Zero variance' };
     }
+
     const s3=Math.pow(s,3);
     const s4=Math.pow(s,4);
+
+    // Unbiased skewness (g1) and excess kurtosis (g2).
     const g1=(n*m3)/((n-1)*(n-2)*s3);
     const g2=((n*(n+1)*m4)/((n-1)*(n-2)*(n-3)*s4))-(3*Math.pow(n-1,2))/((n-2)*(n-3));
-    const mu2=6*(n-2)/((n+1)*(n+3));
-    const gamma2=36*(n-7)*(n*n+2*n-5)/((n-2)*(n+5)*(n+7)*(n+9));
-    const w2=Math.sqrt(2*gamma2+4)-1;
-    const alpha=Math.sqrt(2/(w2-1));
-    const delta=1/Math.sqrt(Math.log(w2));
-    const z1=delta*Math.asinh(g1/(alpha*Math.sqrt(mu2)));
-    const mu1g2=-6/(n+1);
-    const mu2g2=24*n*(n-2)*(n-3)/(Math.pow(n+1,2)*(n+3)*(n+5));
-    const gamma1g2=(6*(n*n-5*n+2)/((n+7)*(n+9)))*Math.sqrt(6*(n+3)*(n+5)/(n*(n-2)*(n-3)));
-    const gamma2g2=36*(15*Math.pow(n,6)-36*Math.pow(n,5)-628*Math.pow(n,4)+982*Math.pow(n,3)+5777*Math.pow(n,2)-6402*n+900)/(n*(n-3)*(n-2)*(n+7)*(n+9)*(n+11)*(n+13));
-    const A=6+(8/gamma2g2)*(2/gamma2g2+gamma1g2*gamma1g2);
-    const term=(g2-mu1g2)/Math.sqrt(mu2g2)*Math.sqrt(2/(A-4));
-    const base=Math.pow((1-2/A)/(1+term),1/3);
-    const z2=Math.sqrt(9*A/2)*(1-2/(9*A)-base);
-    const statistic=z1*z1+z2*z2;
-    const pValue=Math.exp(-statistic/2);
-    const passed=Number.isFinite(pValue)?pValue>=ASSUMPTION_ALPHA:null;
-    console.debug('Debug: box dagostino metrics',{ n, g1, g2, z1, z2, statistic, pValue, passed });
-    return { method:'dagostino', sampleSize:n, statistic, pValue, passed, z1, z2, g1, g2 };
+
+    // Robust fallback: Jarque–Bera (Chi-square with df=2). Used when D'Agostino requires n>=8 or becomes numerically unstable.
+    const jbStatistic=(n/6)*(g1*g1 + 0.25*g2*g2);
+    const jbPValue=Number.isFinite(jbStatistic)
+      ? Math.max(0,Math.min(1,Math.exp(-jbStatistic/2)))
+      : NaN;
+
+    if(n<8){
+      const passed=Number.isFinite(jbPValue)?jbPValue>=ASSUMPTION_ALPHA:null;
+      console.debug('Debug: box normality fallback jarque-bera (n<8)',{ n, jbStatistic, jbPValue, passed });
+      return { method:'jarque-bera', sampleSize:n, statistic:jbStatistic, pValue:jbPValue, passed, g1, g2, reason:'Fallback: n < 8 for D’Agostino K^2' };
+    }
+
+    const signedCubeRoot = value => {
+      const v=Number(value);
+      if(!Number.isFinite(v)){
+        return NaN;
+      }
+      if(v===0){
+        return 0;
+      }
+      return Math.sign(v)*Math.pow(Math.abs(v),1/3);
+    };
+
+    try{
+      const mu2=6*(n-2)/((n+1)*(n+3));
+      const gamma2=36*(n-7)*(n*n+2*n-5)/((n-2)*(n+5)*(n+7)*(n+9));
+      const w2=Math.sqrt(2*gamma2+4)-1;
+      if(!Number.isFinite(w2) || w2<=1){
+        throw new Error('Invalid w2');
+      }
+      const alpha=Math.sqrt(2/(w2-1));
+      const delta=1/Math.sqrt(Math.log(w2));
+      const z1=delta*Math.asinh(g1/(alpha*Math.sqrt(mu2)));
+
+      const mu1g2=-6/(n+1);
+      const mu2g2=24*n*(n-2)*(n-3)/(Math.pow(n+1,2)*(n+3)*(n+5));
+      const gamma1g2=(6*(n*n-5*n+2)/((n+7)*(n+9)))*Math.sqrt(6*(n+3)*(n+5)/(n*(n-2)*(n-3)));
+      const gamma2g2=36*(15*Math.pow(n,6)-36*Math.pow(n,5)-628*Math.pow(n,4)+982*Math.pow(n,3)+5777*Math.pow(n,2)-6402*n+900)/(n*(n-3)*(n-2)*(n+7)*(n+9)*(n+11)*(n+13));
+      if(!Number.isFinite(gamma2g2) || gamma2g2===0){
+        throw new Error('Invalid gamma2g2');
+      }
+
+      const A=6+(8/gamma2g2)*(2/gamma2g2+gamma1g2*gamma1g2);
+      if(!Number.isFinite(A) || A<=4){
+        throw new Error('Invalid A');
+      }
+
+      const term=(g2-mu1g2)/Math.sqrt(mu2g2)*Math.sqrt(2/(A-4));
+      const denom=1+term;
+      if(!Number.isFinite(denom) || denom===0){
+        throw new Error('Invalid denom');
+      }
+      const ratio=(1-2/A)/denom;
+      const base=signedCubeRoot(ratio);
+      if(!Number.isFinite(base)){
+        throw new Error('Invalid cube root');
+      }
+
+      const z2=Math.sqrt(9*A/2)*(1-2/(9*A)-base);
+      const statistic=z1*z1+z2*z2;
+
+      // For df=2, Chi-square survival function is exp(-x/2).
+      const pValue=Number.isFinite(statistic)
+        ? Math.max(0,Math.min(1,Math.exp(-statistic/2)))
+        : NaN;
+
+      if(!Number.isFinite(pValue)){
+        throw new Error('Invalid pValue');
+      }
+
+      const passed=pValue>=ASSUMPTION_ALPHA;
+      console.debug('Debug: box dagostino metrics',{ n, g1, g2, z1, z2, statistic, pValue, passed });
+      return { method:'dagostino', sampleSize:n, statistic, pValue, passed, z1, z2, g1, g2 };
+    }catch(err){
+      const passed=Number.isFinite(jbPValue)?jbPValue>=ASSUMPTION_ALPHA:null;
+      console.debug('Debug: box dagostino failed; using jarque-bera fallback',{
+        n,
+        message: err?.message || String(err),
+        jbStatistic,
+        jbPValue,
+        passed
+      });
+      return { method:'jarque-bera', sampleSize:n, statistic:jbStatistic, pValue:jbPValue, passed, g1, g2, reason:'Fallback: D’Agostino numerical instability' };
+    }
   }
+
+  // PART: NORMALITY (STANDARD SCIENTIFIC METHOD)
+  // Shapiro–Wilk normality test (Algorithm AS R94 / AS 181 family; same core method as R's shapiro.test).
+  // Uncensored samples only (the app does not use censoring).
+  // Returns: { method:'shapiro-wilk', sampleSize:n, statistic:W, pValue, passed, ifault, reason? }
+  const SHAPIRO_A_CACHE = new Map();
+
+  function shapiroPoly(cc, x){
+    // Polynomial with cc[0] as constant term.
+    let p = x * cc[cc.length-1];
+    for(let j=cc.length-2;j>=1;j--){
+      p = (p + cc[j]) * x;
+    }
+    return cc[0] + p;
+  }
+
+  function shapiroSign(x, y){
+    // Fortran SIGN function: abs(x) with sign of y.
+    return y < 0 ? -Math.abs(x) : Math.abs(x);
+  }
+
+  function shapiroPpnd7(p){
+    // Algorithm AS 241: normal deviate (inverse normal CDF) approximation.
+    const zero=0.0, one=1.0, half=0.5;
+    const split1=0.425, split2=5.0, const1=0.180625, const2=1.6;
+
+    const a0=3.3871327179, a1=50.434271938, a2=159.29113202, a3=59.10937472;
+    const b1=17.895169469, b2=78.757757664, b3=67.1875636;
+
+    const c0=1.4234372777, c1=2.75681539, c2=1.3067284816, c3=0.17023821103;
+    const d1=0.7370016425, d2=0.12021132975;
+
+    const e0=6.657905115, e1=3.081226386, e2=0.42868294337, e3=0.017337203997;
+    const f1=0.24197894225, f2=0.012258202635;
+
+    const clipped = Math.min(Math.max(Number(p), Number.EPSILON), 1-Number.EPSILON);
+    const q = clipped - half;
+
+    if(Math.abs(q) <= split1){
+      const r = const1 - q*q;
+      return q * (((a3*r + a2)*r + a1)*r + a0) / ((((b3*r + b2)*r + b1)*r + one));
+    }
+
+    let r = q < zero ? clipped : (one - clipped);
+    if(r <= zero){
+      return zero;
+    }
+
+    r = Math.sqrt(-Math.log(r));
+    let normalDev;
+    if(r <= split2){
+      r = r - const2;
+      normalDev = (((c3*r + c2)*r + c1)*r + c0) / (((d2*r + d1)*r + one));
+    }else{
+      r = r - split2;
+      normalDev = (((e3*r + e2)*r + e1)*r + e0) / (((f2*r + f1)*r + one));
+    }
+
+    return q < zero ? -normalDev : normalDev;
+  }
+
+  function shapiroAlnorm(x, upper){
+    // Algorithm AS 66: normal distribution tail area.
+    const zero=0, one=1, half=0.5;
+    const con=1.28, ltone=7.0, utzero=18.66;
+    const p=0.398942280444, q=0.39990348504, r=0.398942280385;
+    const a1=5.75885480458, a2=2.62433121679, a3=5.92885724438;
+    const b1=-29.8213557807, b2=48.6959930692;
+    const c1=-3.8052e-8, c2=3.98064794e-4, c3=-0.151679116635, c4=4.8385912808, c5=0.742380924027, c6=3.99019417011;
+    const d1=1.00000615302, d2=1.98615381364, d3=5.29330324926, d4=-15.1508972451, d5=30.789933034;
+
+    let z=Number(x);
+    let up=!!upper;
+    if(!Number.isFinite(z)){
+      return NaN;
+    }
+    if(z < zero){
+      up = !up;
+      z = -z;
+    }
+
+    let alnorm;
+    if(z <= ltone || (up && z <= utzero)){
+      const y = half * z * z;
+      if(z > con){
+        alnorm = r * Math.exp(-y) / (z + c1 + d1 / (z + c2 + d2 / (z + c3 + d3 / (z + c4 + d4 / (z + c5 + d5 / (z + c6))))));
+      }else{
+        alnorm = half - z * (p - q * y / (y + a1 + b1 / (y + a2 + b2 / (y + a3))));
+      }
+    }else{
+      alnorm = zero;
+    }
+
+    if(!up){
+      alnorm = one - alnorm;
+    }
+    return alnorm;
+  }
+
+  function shapiroCoefficients(n){
+    const cached = SHAPIRO_A_CACHE.get(n);
+    if(cached){
+      return cached.slice();
+    }
+
+    const an = Number(n);
+    const nn2 = Math.floor(n/2);
+    const a = new Array(nn2).fill(0);
+
+    const zero=0.0, one=1.0, two=2.0;
+    const sqrth=0.70711;
+    const c1=[0.0,0.221157,-0.147981,-2.07119,4.434685,-2.706056];
+    const c2=[0.0,0.042981,-0.293762,-1.752461,5.682633,-3.582633];
+
+    if(n===3){
+      a[0]=sqrth;
+      SHAPIRO_A_CACHE.set(n, a.slice());
+      return a;
+    }
+
+    const an25 = an + 0.25;
+    let summ2 = zero;
+
+    for(let i=1;i<=nn2;i++){
+      a[i-1] = shapiroPpnd7((i - 0.375) / an25);
+      summ2 += a[i-1]*a[i-1];
+    }
+
+    summ2 *= two;
+    const ssumm2 = Math.sqrt(summ2);
+    const rsn = one / Math.sqrt(an);
+    const a1 = shapiroPoly(c1, rsn) - a[0] / ssumm2;
+
+    let i1;
+    let fac;
+    if(n > 5){
+      i1 = 3;
+      const a2 = -a[1] / ssumm2 + shapiroPoly(c2, rsn);
+      fac = Math.sqrt((summ2 - two*a[0]*a[0] - two*a[1]*a[1]) / (one - two*a1*a1 - two*a2*a2));
+      a[1] = a2;
+    }else{
+      i1 = 2;
+      fac = Math.sqrt((summ2 - two*a[0]*a[0]) / (one - two*a1*a1));
+    }
+
+    a[0] = a1;
+    for(let i=i1;i<=nn2;i++){
+      a[i-1] = a[i-1] / (-fac);
+    }
+
+    SHAPIRO_A_CACHE.set(n, a.slice());
+    return a;
+  }
+
+  function computeShapiroWilk(values){
+    const source = Array.isArray(values) ? values : [];
+    const x = source.filter(Number.isFinite).map(Number).sort((a,b)=>a-b);
+    const n = x.length;
+
+    if(n < 3){
+      console.debug('Debug: box shapiro-wilk insufficient sample',{ n });
+      return { method:'shapiro-wilk', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, reason:'Sample size < 3' };
+    }
+
+    const SMALL = 1e-19;
+    const range = x[n-1] - x[0];
+    if(!(range > SMALL)){
+      console.debug('Debug: box shapiro-wilk zero range',{ n, range });
+      return { method:'shapiro-wilk', sampleSize:n, statistic:1, pValue:1, passed:true, ifault:6, reason:'Zero range' };
+    }
+
+    // Coefficients for the test.
+    const a = shapiroCoefficients(n);
+    const nn2 = Math.floor(n/2);
+
+    // Compute W statistic (uncensored, n1 = n).
+    let xx = x[0] / range;
+    let sx = xx;
+    let sa = -a[0];
+    let j = n - 1;
+
+    for(let i=2;i<=n;i++){
+      const xi = x[i-1] / range;
+      if(xx - xi > SMALL){
+        console.debug('Debug: box shapiro-wilk unexpected sort order',{ n, i, prev: xx, current: xi });
+        return { method:'shapiro-wilk', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, ifault:7, reason:'Sort order check failed' };
+      }
+      sx += xi;
+      if(i !== j){
+        sa += shapiroSign(1, i - j) * a[Math.min(i,j)-1];
+      }
+      xx = xi;
+      j -= 1;
+    }
+
+    sa /= n;
+    sx /= n;
+
+    let ssa = 0.0;
+    let ssx = 0.0;
+    let sax = 0.0;
+    j = n;
+
+    for(let i=1;i<=n;i++, j--){
+      let asa;
+      if(i !== j){
+        asa = shapiroSign(1, i - j) * a[Math.min(i,j)-1] - sa;
+      }else{
+        asa = -sa;
+      }
+      const xsx = x[i-1] / range - sx;
+      ssa += asa * asa;
+      ssx += xsx * xsx;
+      sax += asa * xsx;
+    }
+
+    const ssassx = Math.sqrt(ssa * ssx);
+    let w1 = (ssassx - sax) * (ssassx + sax) / (ssa * ssx);
+    // Numerical guard.
+    if(!Number.isFinite(w1)){
+      console.debug('Debug: box shapiro-wilk invalid w1',{ n, w1, ssa, ssx, sax });
+      return { method:'shapiro-wilk', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, ifault:9, reason:'Invalid numeric state' };
+    }
+    w1 = Math.max(SMALL, Math.min(1, w1));
+    const W = Math.max(0, Math.min(1, 1 - w1));
+
+    // P-value.
+    let pValue;
+    let ifault = 0;
+
+    if(n === 3){
+      const pi6 = 1.909859;
+      const stqr = 1.047198;
+      pValue = pi6 * (Math.asin(Math.sqrt(W)) - stqr);
+      pValue = Math.max(0, Math.min(1, pValue));
+      const passed = pValue >= ASSUMPTION_ALPHA;
+      console.debug('Debug: box shapiro-wilk result (n=3)',{ n, W, pValue, passed });
+      return { method:'shapiro-wilk', sampleSize:n, statistic:W, pValue, passed, ifault };
+    }
+
+    // Transform (Royston) to normal equivalent deviate.
+    let y = Math.log(w1);
+    const an = Number(n);
+    const logn = Math.log(an);
+
+    let m = 0.0;
+    let s = 1.0;
+
+    // Polynomial coefficients (AS R94 / AS 181).
+    const g=[-2.273, 0.459];
+    const c3=[0.544, -0.39978, 0.025054, -0.0006714];
+    const c4=[1.3822, -0.77857, 0.062767, -0.0020322];
+    const c5=[-1.5861, -0.31082, -0.083751, 0.0038915];
+    const c6=[-0.4803, -0.082676, 0.0030302];
+
+    if(n <= 11){
+      const gamma = shapiroPoly(g, an);
+      if(y >= gamma){
+        pValue = SMALL;
+        ifault = 0;
+        const passed = pValue >= ASSUMPTION_ALPHA;
+        console.debug('Debug: box shapiro-wilk result (n<=11 gamma)',{ n, W, w1, y, gamma, pValue, passed });
+        return { method:'shapiro-wilk', sampleSize:n, statistic:W, pValue, passed, ifault };
+      }
+      y = -Math.log(gamma - y);
+      m = shapiroPoly(c3, an);
+      s = Math.exp(shapiroPoly(c4, an));
+    }else{
+      m = shapiroPoly(c5, logn);
+      s = Math.exp(shapiroPoly(c6, logn));
+      if(n > 5000){
+        ifault = 2; // matches typical "p-value may be inaccurate" warning
+      }
+    }
+
+    const z = (y - m) / s;
+    pValue = shapiroAlnorm(z, true);
+
+    // Clamp.
+    if(!Number.isFinite(pValue)){
+      console.debug('Debug: box shapiro-wilk invalid pValue',{ n, W, z, y, m, s, pValue });
+      return { method:'shapiro-wilk', sampleSize:n, statistic:W, pValue:NaN, passed:null, ifault:9, reason:'Invalid pValue' };
+    }
+
+    pValue = Math.max(0, Math.min(1, pValue));
+    const passed = pValue >= ASSUMPTION_ALPHA;
+
+    console.debug('Debug: box shapiro-wilk result',{
+      n,
+      W,
+      w1,
+      z,
+      y,
+      m,
+      s,
+      pValue,
+      passed,
+      ifault
+    });
+
+    return { method:'shapiro-wilk', sampleSize:n, statistic:W, pValue, passed, ifault };
+  }
+
+
 
   function computeVarianceDiagnostics(groups,labels,options){
     const summaries=[];
@@ -8817,7 +9199,7 @@
 
   function computeAssumptionDiagnostics(groups,labels,options){
     const diagnostics={
-      normalityMethod:'dagostino',
+      normalityMethod:'shapiro-wilk',
       varianceMethod:'brown-forsythe',
       alpha:ASSUMPTION_ALPHA,
       groups:[],
@@ -8832,9 +9214,9 @@
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
       const summaryRef=summaryList && summaryList[idx];
-      const dagostino=computeDagostino(group,summaryRef);
-      const sampleSize=Number.isFinite(dagostino?.sampleSize)
-        ? dagostino.sampleSize
+      const normality=computeShapiroWilk(group);
+      const sampleSize=Number.isFinite(normality?.sampleSize)
+        ? normality.sampleSize
         : Number.isFinite(summaryRef?.count)
           ? summaryRef.count
           : countFiniteValues(group);
@@ -8844,11 +9226,11 @@
       diagnostics.groups.push({
         label,
         size:sampleSize,
-        normality:dagostino,
+        normality,
         qqPoints
       });
-      if(dagostino && dagostino.passed===false){
-        const formatted=Number.isFinite(dagostino.pValue)?formatP(dagostino.pValue):'—';
+      if(normality && normality.passed===false){
+        const formatted=Number.isFinite(normality.pValue)?formatP(normality.pValue):'—';
         failReasons.push(`${label} failed normality (p = ${formatted})`);
         normalityFailures++;
       }
@@ -8887,43 +9269,139 @@
     svg.setAttribute('width',String(width));
     svg.setAttribute('height',String(height));
     svg.setAttribute('preserveAspectRatio','none');
+
+    // IMPORTANT: ensure the QQ sparkline is rendered in standard ascending orientation.
+    // Some installations may have CSS rules that flip .assumption-sparkline via transforms.
+    // We force-disable transforms on this SVG (with !important) so ordering remains correct.
+    try{
+      svg.style.setProperty('transform','none','important');
+      svg.style.setProperty('transform-origin','center','important');
+      svg.style.setProperty('transform-box','fill-box','important');
+    }catch(err){
+      console.debug('Debug: box QQ sparkline transform override failed',{ message: err?.message || String(err) });
+    }
+
     if(!points || !points.length){
       return svg;
     }
-    const values=points.reduce((acc,p)=>{
-      acc.push(p.theoretical);
-      acc.push(p.observed);
-      return acc;
-    },[]);
-    let min=Math.min(...values);
-    let max=Math.max(...values);
-    if(!Number.isFinite(min) || !Number.isFinite(max)){
+
+    // Standard QQ plot convention: points ordered by theoretical quantiles (ascending).
+    const sorted=points.slice()
+      .filter(p=>Number.isFinite(p?.theoretical) && Number.isFinite(p?.observed))
+      .sort((a,b)=>a.theoretical-b.theoretical);
+
+    if(sorted.length<2){
       return svg;
     }
-    if(min===max){
-      min-=1;
-      max+=1;
+
+    const xs=sorted.map(p=>p.theoretical);
+    const ys=sorted.map(p=>p.observed);
+
+    // Separate axis ranges (X theoretical, Y observed).
+    let minX=Math.min(...xs);
+    let maxX=Math.max(...xs);
+    let minY=Math.min(...ys);
+    let maxY=Math.max(...ys);
+
+    if(!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)){
+      return svg;
     }
-    const scale=v=>(v-min)/(max-min);
-    const xCoord=v=>padding+scale(v)*(width-padding*2);
-    const yCoord=v=>height-padding-scale(v)*(height-padding*2);
-    const identity=document.createElementNS(NS,'line');
-    identity.setAttribute('x1',String(xCoord(min)));
-    identity.setAttribute('y1',String(yCoord(min)));
-    identity.setAttribute('x2',String(xCoord(max)));
-    identity.setAttribute('y2',String(yCoord(max)));
-    identity.setAttribute('stroke','#cccccc');
-    identity.setAttribute('stroke-width','1');
-    svg.appendChild(identity);
-    const path=document.createElementNS(NS,'polyline');
-    const sorted=points.slice().sort((a,b)=>a.theoretical-b.theoretical);
-    path.setAttribute('fill','none');
-    path.setAttribute('stroke','#1d78c8');
-    path.setAttribute('stroke-width','1.5');
-    path.setAttribute('points',sorted.map(p=>`${xCoord(p.theoretical)},${yCoord(p.observed)}`).join(' '));
-    svg.appendChild(path);
+
+    if(minX===maxX){ minX-=1; maxX+=1; }
+    if(minY===maxY){ minY-=1; maxY+=1; }
+
+    const xScale=v=>(v-minX)/(maxX-minX);
+    const yScale=v=>(v-minY)/(maxY-minY);
+    const xCoord=v=>padding+xScale(v)*(width-padding*2);
+    // SVG y increases downward; invert so larger observed quantiles appear visually higher.
+    const yCoord=v=>height-padding-yScale(v)*(height-padding*2);
+
+    // Robust QQ reference line (R-style): line through Q1 and Q3.
+    const quantile=(arr,p)=>{
+      if(!arr || !arr.length){
+        return NaN;
+      }
+      const n=arr.length;
+      if(n===1){
+        return arr[0];
+      }
+      const pos=(n-1)*p;
+      const base=Math.floor(pos);
+      const rest=pos-base;
+      const a=arr[base];
+      const b=arr[Math.min(n-1,base+1)];
+      return a+(b-a)*rest;
+    };
+
+    const q1x=quantile(xs,0.25);
+    const q3x=quantile(xs,0.75);
+    const q1y=quantile(ys,0.25);
+    const q3y=quantile(ys,0.75);
+
+    let slope=NaN;
+    let intercept=NaN;
+
+    if(Number.isFinite(q1x) && Number.isFinite(q3x) && q3x!==q1x && Number.isFinite(q1y) && Number.isFinite(q3y)){
+      slope=(q3y-q1y)/(q3x-q1x);
+      intercept=q1y-slope*q1x;
+    }else{
+      // Fallback: least-squares line (rare; protects against degenerate samples).
+      const meanX=xs.reduce((s,v)=>s+v,0)/xs.length;
+      const meanY=ys.reduce((s,v)=>s+v,0)/ys.length;
+      const varX=xs.reduce((s,v)=>{ const d=v-meanX; return s+d*d; },0);
+      const covXY=xs.reduce((s,v,i)=>{ const dx=v-meanX; const dy=ys[i]-meanY; return s+dx*dy; },0);
+      if(varX!==0){
+        slope=covXY/varX;
+        intercept=meanY-slope*meanX;
+      }
+    }
+
+    const yTopForMax=yCoord(maxY);
+    const yTopForMin=yCoord(minY);
+    const visuallyHigherIsSmallerY=yTopForMax < yTopForMin;
+
+    console.debug('Debug: box QQ sparkline',{
+      pointCount: sorted.length,
+      xRange: [minX,maxX],
+      yRange: [minY,maxY],
+      slope,
+      intercept,
+      visuallyHigherIsSmallerY,
+      firstPoint: sorted[0],
+      lastPoint: sorted[sorted.length-1]
+    });
+
+    // Reference line (light grey).
+    if(Number.isFinite(slope) && Number.isFinite(intercept)){
+      const ref=document.createElementNS(NS,'line');
+      const y1=intercept+slope*minX;
+      const y2=intercept+slope*maxX;
+      ref.setAttribute('x1',String(xCoord(minX)));
+      ref.setAttribute('y1',String(yCoord(y1)));
+      ref.setAttribute('x2',String(xCoord(maxX)));
+      ref.setAttribute('y2',String(yCoord(y2)));
+      ref.setAttribute('stroke','#cccccc');
+      ref.setAttribute('stroke-width','1');
+      svg.appendChild(ref);
+    }
+
+    // Standard QQ plot: show the individual points (no connecting line).
+    // Cap the number of circles for performance in very large samples.
+    const maxDots=200;
+    const step=Math.max(1,Math.ceil(sorted.length/maxDots));
+    for(let i=0;i<sorted.length;i+=step){
+      const p=sorted[i];
+      const dot=document.createElementNS(NS,'circle');
+      dot.setAttribute('cx',String(xCoord(p.theoretical)));
+      dot.setAttribute('cy',String(yCoord(p.observed)));
+      dot.setAttribute('r','1.6');
+      dot.setAttribute('fill','#1d78c8');
+      svg.appendChild(dot);
+    }
+
     return svg;
   }
+
 
   function createResidualSparkline(values){
     const width=104;
@@ -12068,6 +12546,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       assumptionDiagnostics.appliedTest=state.statsTest;
       assumptionDiagnostics.appliedVariant=variant;
     }
+    const paramEffectMeta=resolveEffectOptionMeta('parametric',state.statsEffectParametric);
+    const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
+    const effectFootnotes=buildEffectFootnotes(paramEffectMeta,nonParamEffectMeta);
+    console.debug('Debug: box effect meta',{ parametric:paramEffectMeta?.value, nonParametric:nonParamEffectMeta?.value });
     // Custom pairs mode
     if(state.statsMode==='custom'){
       if(!state.statsCustomPairs.length){ setResultsMessage('Specify pairs for comparison.'); return; }
@@ -12166,10 +12648,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const param=state.statsTest==='parametric';
     const paramVariant=param?state.statsParametricVariant:'nonparametric';
     const pairTest=param?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
-    const paramEffectMeta=resolveEffectOptionMeta('parametric',state.statsEffectParametric);
-    const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
-    const effectFootnotes=buildEffectFootnotes(paramEffectMeta,nonParamEffectMeta);
-    console.debug('Debug: box effect meta',{ parametric:paramEffectMeta?.value, nonParametric:nonParamEffectMeta?.value });
     if(state.statsMode==='oneSample'){
       const nullValue=sanitizeOneSampleNullValue(state.statsOneSampleValue);
       if(nullValue!==state.statsOneSampleValue){
@@ -17755,5 +18233,4 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts)
 	  });
 })(window);
-
 
