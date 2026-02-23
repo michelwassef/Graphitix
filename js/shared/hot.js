@@ -1000,6 +1000,31 @@
       return handle;
     };
 
+    const parseVisualRowIndex = (value)=>{
+      if(Number.isInteger(value) && value >= 0){
+        return value;
+      }
+      if(typeof value !== 'string'){
+        return null;
+      }
+      const trimmed = value.trim();
+      if(!trimmed){
+        return null;
+      }
+      if(/^\d+$/.test(trimmed)){
+        const direct = Number(trimmed);
+        return Number.isInteger(direct) && direct >= 0 ? direct : null;
+      }
+      const pinnedMatch = trimmed.match(/(?:^|[^0-9])(\d+)$/);
+      if(pinnedMatch){
+        const parsed = Number(pinnedMatch[1]);
+        if(Number.isInteger(parsed) && parsed >= 0){
+          return parsed;
+        }
+      }
+      return null;
+    };
+
     const resolveCellCoordsFromNode = (node)=>{
       const target = node && node.nodeType === 1 ? node : null;
       if(!target || typeof target.closest !== 'function'){
@@ -1017,7 +1042,7 @@
       if(rowAttr == null || colAttr == null){
         return null;
       }
-      const row = Number(rowAttr);
+      const row = parseVisualRowIndex(rowAttr);
       const col = colIdToIndex(colAttr);
       if(!Number.isInteger(row) || row < 0){
         return null;
@@ -5441,7 +5466,7 @@
           return;
         }
         const rowAttr = cell.closest('.ag-row')?.getAttribute?.('row-index');
-        const row = Number(rowAttr);
+        const row = parseVisualRowIndex(rowAttr);
         if(!Number.isInteger(row) || row < 0){
           return;
         }
@@ -5594,7 +5619,7 @@
         }
         const rowNode = target.closest('.ag-row');
         const rowAttr = rowNode?.getAttribute?.('row-index');
-        const row = Number(rowAttr);
+        const row = parseVisualRowIndex(rowAttr);
         if(Number.isInteger(row) && row >= 0){
           return row;
         }
@@ -6074,7 +6099,19 @@
         if(event?.button !== 0){
           return;
         }
-        const coords = resolveCellCoords(event);
+        let coords = resolveCellCoords(event);
+        if(!coords){
+          const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+          const cell = target && typeof target.closest === 'function' ? target.closest('.ag-cell') : null;
+          const colId = cell?.getAttribute?.('col-id') || null;
+          if(cell && typeof colId === 'string' && colId.startsWith('c')){
+            const row = resolveRowIndexFromEvent(event);
+            const col = colIdToIndex(colId);
+            if(Number.isInteger(row) && row >= 0 && Number.isInteger(col) && col >= 0){
+              coords = { row, col };
+            }
+          }
+        }
         if(!coords){
           return;
         }

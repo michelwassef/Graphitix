@@ -256,6 +256,67 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 2, lastCol]);
   });
 
+  test('dragging pinned first-row cells replaces prior body selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFirstRowDragHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-first-row-drag',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    hot.selectCell(2, 1);
+
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+
+    const cell0 = document.createElement('div');
+    cell0.className = 'ag-cell';
+    cell0.setAttribute('col-id', 'c0');
+    pinnedRow.appendChild(cell0);
+
+    const cell2 = document.createElement('div');
+    cell2.className = 'ag-cell';
+    cell2.setAttribute('col-id', 'c2');
+    pinnedRow.appendChild(cell2);
+
+    container.appendChild(pinnedRow);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    cell0.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1
+    });
+    cell2.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 0, 2]);
+  });
+
   test('drag handle drag moves a column without affecting selection', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
