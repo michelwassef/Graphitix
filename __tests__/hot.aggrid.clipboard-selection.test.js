@@ -317,6 +317,246 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 0, 2]);
   });
 
+  test('pinned top rows use physical row index for selected-cell class rule', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedSelectedClassHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-selected-class',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const colDef = (capturedGridOptions?.columnDefs || []).find(def => def?.colId === 'c1');
+    expect(colDef).toBeTruthy();
+    const selectedRule = colDef?.cellClassRules?.['hot-selected-cell'];
+    expect(typeof selectedRule).toBe('function');
+
+    const applyRule = params => selectedRule(params);
+    hot.selectCell(0, 1, 0, 1);
+
+    expect(
+      applyRule({
+        node: { rowPinned: 'top', rowIndex: null },
+        data: { __rowIndex: 0 },
+        column: { getColId: () => 'c1' }
+      })
+    ).toBe(true);
+
+    expect(
+      applyRule({
+        node: { rowPinned: 'top', rowIndex: null },
+        data: { __rowIndex: 1 },
+        column: { getColId: () => 'c1' }
+      })
+    ).toBe(false);
+  });
+
+  test('fill handle appears for pinned header-row cells when ghost body row exists', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFillHandleHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-fill-handle',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+    const ghostRow = document.createElement('div');
+    ghostRow.className = 'ag-row';
+    ghostRow.setAttribute('row-index', '0');
+    const ghostCell = document.createElement('div');
+    ghostCell.className = 'ag-cell';
+    ghostCell.setAttribute('col-id', 'c0');
+    ghostCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 0,
+      width: 100,
+      height: 0
+    });
+    ghostRow.appendChild(ghostCell);
+    bodyViewport.appendChild(ghostRow);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const pinnedViewport = document.createElement('div');
+    pinnedViewport.className = 'ag-center-cols-viewport';
+    pinnedViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 30,
+      width: 500,
+      height: 30
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedCell = document.createElement('div');
+    pinnedCell.className = 'ag-cell';
+    pinnedCell.setAttribute('col-id', 'c0');
+    pinnedCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 28,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell);
+    pinnedViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(pinnedViewport);
+    container.appendChild(floatingTop);
+
+    hot.selectCell(0, 0, 0, 0);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+  });
+
+  test('fill handle prefers pinned header-row cell when ghost body row is still renderable', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFillHandlePreferPinnedHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-fill-handle-prefer-pinned',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 30,
+      right: 500,
+      bottom: 90,
+      width: 500,
+      height: 60
+    });
+    const ghostRow = document.createElement('div');
+    ghostRow.className = 'ag-row';
+    ghostRow.setAttribute('row-index', '0');
+    const ghostCell = document.createElement('div');
+    ghostCell.className = 'ag-cell';
+    ghostCell.setAttribute('col-id', 'c1');
+    ghostCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 120,
+      right: 200,
+      bottom: 148,
+      width: 100,
+      height: 28
+    });
+    ghostRow.appendChild(ghostCell);
+    bodyViewport.appendChild(ghostRow);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const pinnedViewport = document.createElement('div');
+    pinnedViewport.className = 'ag-center-cols-viewport';
+    pinnedViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 30,
+      width: 500,
+      height: 30
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    // Intentionally omit row-index to mirror AG Grid pinned-row variants.
+    const pinnedCell = document.createElement('div');
+    pinnedCell.className = 'ag-cell';
+    pinnedCell.setAttribute('col-id', 'c1');
+    pinnedCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 0,
+      right: 200,
+      bottom: 28,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell);
+    pinnedViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(pinnedViewport);
+    container.appendChild(floatingTop);
+
+    hot.selectCell(0, 1, 0, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+    expect(handle.style.left).toBe('200px');
+    expect(handle.style.top).toBe('28px');
+  });
+
   test('drag handle drag moves a column without affecting selection', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

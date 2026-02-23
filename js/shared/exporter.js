@@ -231,15 +231,16 @@
     if (!svgNode || !svgNode.querySelectorAll) {
       return 0;
     }
-    const candidates = svgNode.querySelectorAll('[data-significance-control="1"]');
+    const candidates = svgNode.querySelectorAll('[data-significance-hit-overlay="1"], [data-significance-control="1"]');
     let removed = 0;
     for (let i = 0; i < candidates.length; i += 1) {
       const node = candidates[i];
       if (!node || typeof node.tagName !== 'string') {
         continue;
       }
+      const isHitOverlay = node.getAttribute && node.getAttribute('data-significance-hit-overlay') === '1';
       const tag = node.tagName.toLowerCase();
-      if (tag !== 'rect') {
+      if (!isHitOverlay && tag !== 'rect') {
         continue;
       }
       if (typeof node.remove === 'function') {

@@ -1015,11 +1015,32 @@
         const direct = Number(trimmed);
         return Number.isInteger(direct) && direct >= 0 ? direct : null;
       }
-      const pinnedMatch = trimmed.match(/(?:^|[^0-9])(\d+)$/);
-      if(pinnedMatch){
-        const parsed = Number(pinnedMatch[1]);
+      const prefixedMatch = trimmed.match(/^[A-Za-z][A-Za-z0-9_-]*-(\d+)$/);
+      if(prefixedMatch){
+        const parsed = Number(prefixedMatch[1]);
         if(Number.isInteger(parsed) && parsed >= 0){
           return parsed;
+        }
+      }
+      const suffixedMatch = trimmed.match(/^[A-Za-z][A-Za-z0-9_-]*(\d+)$/);
+      if(suffixedMatch){
+        const parsed = Number(suffixedMatch[1]);
+        if(Number.isInteger(parsed) && parsed >= 0){
+          return parsed;
+        }
+      }
+      return null;
+    };
+
+    const resolveVisualRowIndex = (params)=>{
+      const direct = params?.node?.rowIndex ?? params?.rowIndex;
+      if(Number.isInteger(direct) && direct >= 0){
+        return direct;
+      }
+      if(params?.node?.rowPinned){
+        const physical = params?.data?.__rowIndex;
+        if(Number.isInteger(physical) && physical >= 0){
+          return physical;
         }
       }
       return null;
@@ -1058,11 +1079,158 @@
         return null;
       }
       const colId = `c${col}`;
-      const direct = container.querySelector(`.ag-cell[row-index="${row}"][col-id="${colId}"]`);
-      if(direct){
-        return direct;
+      const preferPinnedTopCell = !!(usePinnedRows && Number.isInteger(row) && row >= 0 && row < pinRowCount);
+      const isRenderableCell = (candidate)=>{
+        if(!candidate || typeof candidate.getBoundingClientRect !== 'function'){
+          return false;
+        }
+        try{
+          const rect = candidate.getBoundingClientRect();
+          return !!(rect && rect.width > 0 && rect.height > 0);
+        }catch(err){
+          return false;
+        }
+      };
+      const isPinnedGhostCell = (candidate)=>{
+        if(!candidate || typeof candidate.closest !== 'function'){
+          return false;
+        }
+        return !!candidate.closest('.ag-row.hot-pinned-ghost-row');
+      };
+      const isPinnedTopCell = (candidate)=>{
+        if(!candidate || typeof candidate.closest !== 'function'){
+          return false;
+        }
+        return !!candidate.closest('.ag-pinned-top, .ag-floating-top, .ag-pinned-top-viewport, .ag-floating-top-viewport');
+      };
+      const candidateMatchesRow = (candidate)=>{
+        if(!candidate){
+          return false;
+        }
+        const rowAttr = candidate.getAttribute?.('row-index') ?? candidate.closest?.('.ag-row')?.getAttribute?.('row-index');
+        const parsed = parseVisualRowIndex(rowAttr);
+        if(Number.isInteger(parsed)){
+          return parsed === row;
+        }
+        return false;
+      };
+      const chooseBestCell = (nodes)=>{
+        if(!nodes || !nodes.length){
+          return null;
+        }
+        let best = null;
+        let bestScore = Number.NEGATIVE_INFINITY;
+        for(let i = 0; i < nodes.length; i++){
+          const candidate = nodes[i];
+          if(!candidate){
+            continue;
+          }
+          const renderable = isRenderableCell(candidate);
+          const ghost = isPinnedGhostCell(candidate);
+          const pinnedTop = isPinnedTopCell(candidate);
+          const selected = !!candidate.classList?.contains?.('hot-selected-cell');
+          let score = renderable ? 100 : 0;
+          if(ghost){
+            score -= 80;
+          }else{
+            score += 20;
+          }
+          if(preferPinnedTopCell){
+            score += pinnedTop ? 40 : -10;
+          }else if(pinnedTop){
+            score -= 5;
+          }
+          if(selected){
+            score += 5;
+          }
+          if(score > bestScore){
+            best = candidate;
+            bestScore = score;
+          }
+        }
+        return best || nodes[0];
+      };
+      const resolvePinnedTopCellFallback = ()=>{
+        if(!preferPinnedTopCell || typeof container.querySelectorAll !== 'function'){
+          return null;
+        }
+        const fallbackScopes = [
+          '.ag-floating-top',
+          '.ag-pinned-top',
+          '.ag-floating-top-viewport',
+          '.ag-pinned-top-viewport'
+        ];
+        for(let i = 0; i < fallbackScopes.length; i++){
+          const scopeSelector = fallbackScopes[i];
+          const scopedCandidates = Array.from(container.querySelectorAll(`${scopeSelector} .ag-cell[col-id="${colId}"]`));
+          if(!scopedCandidates.length){
+            continue;
+          }
+          const rowMatched = scopedCandidates.filter(candidateMatchesRow);
+          const candidate = chooseBestCell(rowMatched.length ? rowMatched : scopedCandidates);
+          if(candidate){
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot fill handle pinned row fallback', {
+                debugLabel,
+                row,
+                col,
+                scopeSelector,
+                usedRowMatch: rowMatched.length > 0
+              });
+            }
+            return candidate;
+          }
+        }
+        const pinnedRows = Array.from(container.querySelectorAll('.ag-floating-top .ag-row, .ag-pinned-top .ag-row'));
+        if(!pinnedRows.length){
+          return null;
+        }
+        const targetRow = pinnedRows[Math.min(Math.max(0, row), pinnedRows.length - 1)];
+        if(!targetRow || typeof targetRow.querySelector !== 'function'){
+          return null;
+        }
+        const cell = targetRow.querySelector(`.ag-cell[col-id="${colId}"]`);
+        if(cell){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot fill handle pinned row fallback by order', {
+              debugLabel,
+              row,
+              col,
+              pinnedRowCount: pinnedRows.length
+            });
+          }
+          return cell;
+        }
+        return null;
+      };
+      const pinnedTopFallback = resolvePinnedTopCellFallback();
+      if(pinnedTopFallback){
+        return pinnedTopFallback;
       }
-      return container.querySelector(`.ag-row[row-index="${row}"] .ag-cell[col-id="${colId}"]`);
+      const selectors = [
+        `.ag-cell[row-index="t-${row}"][col-id="${colId}"]`,
+        `.ag-row[row-index="t-${row}"] .ag-cell[col-id="${colId}"]`,
+        `.ag-cell[row-index="${row}"][col-id="${colId}"]`,
+        `.ag-row[row-index="${row}"] .ag-cell[col-id="${colId}"]`
+      ];
+      for(let i = 0; i < selectors.length; i++){
+        const nodeList = container.querySelectorAll(selectors[i]);
+        const candidate = chooseBestCell(nodeList);
+        if(candidate){
+          return candidate;
+        }
+      }
+      const candidates = container.querySelectorAll(`.ag-cell[col-id="${colId}"]`);
+      const matched = [];
+      for(let i = 0; i < candidates.length; i++){
+        const candidate = candidates[i];
+        const rowAttr = candidate.getAttribute('row-index') ?? candidate.closest('.ag-row')?.getAttribute?.('row-index');
+        const parsed = parseVisualRowIndex(rowAttr);
+        if(parsed === row){
+          matched.push(candidate);
+        }
+      }
+      return chooseBestCell(matched);
     };
 
     const hideFillHandle = ()=>{
@@ -1126,7 +1294,8 @@
           right: cellRect.right,
           bottom: cellRect.bottom
         };
-        const edgeTolerance = 0.5;
+        const isPinnedSelectionRow = !!(usePinnedRows && Number.isInteger(selection.to.row) && selection.to.row >= 0 && selection.to.row < pinRowCount);
+        const edgeTolerance = isPinnedSelectionRow ? 2 : 0.5;
         const markerInsideViewport = markerRect.left >= (viewportRect.left - edgeTolerance)
           && markerRect.right <= (viewportRect.right + edgeTolerance)
           && markerRect.top >= (viewportRect.top - edgeTolerance)
@@ -2802,7 +2971,7 @@
           if(!normalizedSelectionRange){
             return false;
           }
-          const rowIndex = params?.node?.rowIndex ?? params?.rowIndex;
+          const rowIndex = resolveVisualRowIndex(params);
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
           if(!Number.isInteger(rowIndex)){
             return false;
@@ -2820,7 +2989,7 @@
           if(!normalizedCopyHighlightRange){
             return false;
           }
-          const rowIndex = params?.node?.rowIndex ?? params?.rowIndex;
+          const rowIndex = resolveVisualRowIndex(params);
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
           if(!Number.isInteger(rowIndex)){
             return false;
@@ -2838,7 +3007,7 @@
           if(!normalizedFillPreviewRange){
             return false;
           }
-          const rowIndex = params?.node?.rowIndex ?? params?.rowIndex;
+          const rowIndex = resolveVisualRowIndex(params);
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
           if(!Number.isInteger(rowIndex)){
             return false;
@@ -4836,7 +5005,7 @@
           }
           return;
         }
-        const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
+        const rowIndex = resolveVisualRowIndex(event) ?? 0;
         const colId = event?.column?.getColId?.() ?? event?.colId;
         const colIndex = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
         if(undoLockDepth === 0){
@@ -4856,7 +5025,7 @@
           }
           enterPressedDuringEdit = false;
           const api = instance.gridApi;
-          const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
+          const rowIndex = resolveVisualRowIndex(event) ?? 0;
           const colId = event?.column?.getColId?.() ?? event?.colId;
           const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
           const nextRow = Number.isInteger(rowIndex) ? (rowIndex + 1) : null;
@@ -4917,7 +5086,7 @@
         if(isDragSelecting){
           return;
         }
-        const row = params?.node?.rowIndex ?? 0;
+        const row = resolveVisualRowIndex(params) ?? 0;
         const colId = params?.column?.getColId?.();
         if(colId === '__rowHeader'){
           return;

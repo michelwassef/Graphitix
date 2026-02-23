@@ -11368,6 +11368,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    const showWhiskers = opts.showWhiskers !== false;
 		    const whiskerMode = opts.whiskerMode === 'adaptive' ? 'adaptive' : 'fixed';
 		    const controlConfig = opts.controlConfig;
+	    const canRegisterSignificanceControl = !!(controlConfig && Shared?.significanceControls?.registerSignificanceElement);
 		    const path=document.createElementNS(NS,'path');
 		    if(path.classList){
 		      path.classList.add('box-significance-annotation');
@@ -11425,7 +11426,32 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      path.setAttribute('stroke-width',strokeWidth);
 	    }
     path.setAttribute('fill','none');
+    path.setAttribute('pointer-events','visibleStroke');
     svg.appendChild(path);
+    let hitPath = null;
+    if(canRegisterSignificanceControl){
+      const hitStrokeWidth = Number.isFinite(strokeWidth) && strokeWidth > 0
+        ? Math.max(12, strokeWidth + 8)
+        : 12;
+      hitPath = document.createElementNS(NS,'path');
+      if(hitPath.classList){
+        hitPath.classList.add('box-significance-hit-overlay');
+      }else{
+        hitPath.setAttribute('class','box-significance-hit-overlay');
+      }
+      hitPath.setAttribute('d', bracketGeom.d);
+      hitPath.setAttribute('fill', 'none');
+      hitPath.setAttribute('stroke', 'transparent');
+      hitPath.setAttribute('stroke-width', String(hitStrokeWidth));
+      hitPath.setAttribute('pointer-events', 'stroke');
+      hitPath.setAttribute('vector-effect', 'non-scaling-stroke');
+      hitPath.setAttribute('data-significance-hit-overlay', '1');
+      hitPath.setAttribute('data-export-ignore', '1');
+      svg.appendChild(hitPath);
+      if(Shared?.isDebugEnabled?.()){
+        console.debug('Debug: box significance hit overlay created', { hitStrokeWidth, orientation });
+      }
+    }
     const txt=document.createElementNS(NS,'text');
     if(txt.classList){
       txt.classList.add('box-significance-annotation');
@@ -11452,8 +11478,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     txt.textContent=labelText;
     svg.appendChild(txt);
-    if(controlConfig && Shared?.significanceControls?.registerSignificanceElement){
-      Shared.significanceControls.registerSignificanceElement(path, controlConfig);
+    if(canRegisterSignificanceControl){
+      if(hitPath){
+        Shared.significanceControls.registerSignificanceElement(hitPath, { ...controlConfig, disableOverlay: true });
+      }else{
+        Shared.significanceControls.registerSignificanceElement(path, { ...controlConfig, disableOverlay: true });
+      }
       Shared.significanceControls.registerSignificanceElement(txt, controlConfig);
     }
     console.debug('Debug: box annotatePair scaling',{strokeWidth,fontSize:opts.fontSize,orientation,color,showWhiskers});
@@ -12447,6 +12477,45 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB)
 	      };
 	    };
+	    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
+	      const pairList = Array.isArray(pairsInput)
+	        ? pairsInput.filter(pr => pr && Number.isFinite(pr.ai) && Number.isFinite(pr.bi) && Number.isFinite(pr.rangeMax))
+	        : [];
+	      if(!pairList.length){
+	        return false;
+	      }
+	      const reason = options.reason || 'pairs';
+	      if(!significanceEnabled){
+	        console.debug('Debug: box significance annotation skipped for pairs',{
+	          reason,
+	          pairCount: pairList.length,
+	          significanceEnabled
+	        });
+	        return false;
+	      }
+	      pairList.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+	      const placed=[];
+	      pairList.forEach(pr=>{
+	        let level=0;
+	        while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)){ level++; }
+	        const baseCoord=valueToCoord(pr.rangeMax);
+	        const annotationCoord=orientation==='horizontal'
+	          ? baseCoord+baseOffset+level*levelGap
+	          : baseCoord-baseOffset-level*levelGap;
+	        const innerCoord=orientation==='horizontal'
+	          ? annotationCoord+annotationBracketSize
+	          : annotationCoord-annotationBracketSize;
+	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
+	        annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,annotationStyle);
+	        pr.level=level;
+	        pr.annotationCoord=annotationCoord;
+	        pr.innerCoord=innerCoord;
+	        placed.push(pr);
+	      });
+	      const maxLevel = Math.max(...pairList.map(pr=>pr.level));
+	      state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
+	      return true;
+	    };
 	    if(state.tableFormat==='grouped'){
 	      const prepared=prepareGroupedStatsData(traces, helpers || { axisLabels: state.lastAxisLabels });
 	      statsDiv.innerHTML='';
@@ -12620,28 +12689,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
       });
 	      if(pairs.length){
-	        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
-	        const placed=[];
-	        pairs.forEach(pr=>{
-	          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-	          const baseCoord=valueToCoord(pr.rangeMax);
-	          const annotationCoord=orientation==='horizontal'
-	            ? baseCoord+baseOffset+level*levelGap
-	            : baseCoord-baseOffset-level*levelGap;
-	          const innerCoord=orientation==='horizontal'
-	            ? annotationCoord+annotationBracketSize
-	            : annotationCoord-annotationBracketSize;
-	          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
-	          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,annotationStyle);
-	          pr.level=level;
-	          pr.annotationCoord=annotationCoord;
-	          pr.innerCoord=innerCoord;
-	          placed.push(pr);
-	        });
-	        if(significanceEnabled){
-	          const maxLevel = Math.max(...pairs.map(pr=>pr.level));
-	          state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
-	        }
+	        renderPairSignificanceAnnotations(pairs, { reason: 'custom' });
       }
       return;
     }
@@ -13295,27 +13343,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           contextLabel:'box-pairs'
         }
       },appendForPairs);
-	      if(significanceEnabled && pairs.length){
-	        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
-	        const placed=[];
-	        pairs.forEach(pr=>{
-	          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-	          const baseCoord=valueToCoord(pr.rangeMax);
-	          const annotationCoord=orientation==='horizontal'
-	            ? baseCoord+baseOffset+level*levelGap
-	            : baseCoord-baseOffset-level*levelGap;
-	          const innerCoord=orientation==='horizontal'
-	            ? annotationCoord+annotationBracketSize
-	            : annotationCoord-annotationBracketSize;
-	          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
-	          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,annotationStyle);
-	          pr.level=level;
-	          pr.annotationCoord=annotationCoord;
-	          pr.innerCoord=innerCoord;
-	          placed.push(pr);
-	        });
-        const maxLevel=Math.max(...pairs.map(pr=>pr.level));
-        state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
+	      if(pairs.length){
+	        renderPairSignificanceAnnotations(pairs, { reason: state.statsMode === 'reference' ? 'reference' : 'all' });
       }else{
         console.debug('Debug: box significance annotation skipped for pairs',{ pairCount: pairs.length, significanceEnabled });
       }
@@ -18233,4 +18262,3 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts)
 	  });
 })(window);
-

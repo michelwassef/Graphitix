@@ -625,7 +625,8 @@
     if(!element || !config){ return; }
     element.dataset.significanceControl = '1';
     element.style.cursor = 'pointer';
-    const overlayInfo = ensureSignificanceOverlay(element);
+    const disableOverlay = config.disableOverlay === true;
+    const overlayInfo = disableOverlay ? null : ensureSignificanceOverlay(element);
     const handler = evt => {
       evt.preventDefault();
       evt.stopPropagation();
