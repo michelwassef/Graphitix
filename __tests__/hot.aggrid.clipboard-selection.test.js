@@ -555,6 +555,108 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(handle.style.display).toBe('block');
     expect(handle.style.left).toBe('200px');
     expect(handle.style.top).toBe('28px');
+    expect(handle.style.zIndex).toBe('12');
+    expect(handle.dataset.pinnedSelection).toBe('1');
+  });
+
+  test('fill handle uses pinned-top viewport clipping for pinned first row without center viewport ancestor', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFillHandleViewportFallbackHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-fill-handle-viewport-fallback',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 240
+    });
+    const bodyCenterViewport = document.createElement('div');
+    bodyCenterViewport.className = 'ag-center-cols-viewport';
+    bodyCenterViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    const ghostRow = document.createElement('div');
+    ghostRow.className = 'ag-row';
+    ghostRow.setAttribute('row-index', '0');
+    const ghostCell = document.createElement('div');
+    ghostCell.className = 'ag-cell';
+    ghostCell.setAttribute('col-id', 'c1');
+    ghostCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 80,
+      right: 200,
+      bottom: 108,
+      width: 100,
+      height: 28
+    });
+    ghostRow.appendChild(ghostCell);
+    bodyCenterViewport.appendChild(ghostRow);
+    bodyViewport.appendChild(bodyCenterViewport);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    floatingTop.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 30,
+      width: 500,
+      height: 30
+    });
+    const floatingRow = document.createElement('div');
+    floatingRow.className = 'ag-row';
+    const floatingCell = document.createElement('div');
+    floatingCell.className = 'ag-cell';
+    floatingCell.setAttribute('col-id', 'c1');
+    floatingCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 0,
+      right: 200,
+      bottom: 28,
+      width: 100,
+      height: 28
+    });
+    floatingRow.appendChild(floatingCell);
+    floatingTop.appendChild(floatingRow);
+    container.appendChild(floatingTop);
+
+    hot.selectCell(0, 1, 0, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+    expect(handle.style.left).toBe('200px');
+    expect(handle.style.top).toBe('28px');
   });
 
   test('drag handle drag moves a column without affecting selection', async () => {
@@ -621,6 +723,75 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     expect(moveColumnsSpy).toHaveBeenCalled();
     expect(hot.getSelectedLast()).toEqual([0, 0, 0, 0]);
+  });
+
+  test('fill handle keeps base z-index for non-pinned selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFillHandleZIndexBodyHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-fill-handle-zindex-body',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 30,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 270
+    });
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell';
+    cell.setAttribute('col-id', 'c1');
+    cell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 58,
+      right: 200,
+      bottom: 86,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    bodyViewport.appendChild(row);
+    container.appendChild(bodyViewport);
+
+    hot.selectCell(1, 1, 1, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+    expect(handle.style.zIndex).toBe('2');
+    expect(handle.dataset.pinnedSelection).toBeUndefined();
   });
 
   test('drag handle drag moves a selected column group together', async () => {

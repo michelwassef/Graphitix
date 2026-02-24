@@ -1285,7 +1285,8 @@
       if(Number.isFinite(handle?.offsetHeight) && handle.offsetHeight > 0){
         handleHeight = handle.offsetHeight;
       }
-      const viewport = resolveFillHandleViewport(cell);
+      const isPinnedSelectionRow = !!(usePinnedRows && Number.isInteger(selection.to.row) && selection.to.row >= 0 && selection.to.row < pinRowCount);
+      const viewport = resolveFillHandleViewport(cell, { preferPinnedTop: isPinnedSelectionRow });
       if(viewport && typeof viewport.getBoundingClientRect === 'function'){
         const viewportRect = viewport.getBoundingClientRect();
         const markerRect = {
@@ -1294,7 +1295,6 @@
           right: cellRect.right,
           bottom: cellRect.bottom
         };
-        const isPinnedSelectionRow = !!(usePinnedRows && Number.isInteger(selection.to.row) && selection.to.row >= 0 && selection.to.row < pinRowCount);
         const edgeTolerance = isPinnedSelectionRow ? 2 : 0.5;
         const markerInsideViewport = markerRect.left >= (viewportRect.left - edgeTolerance)
           && markerRect.right <= (viewportRect.right + edgeTolerance)
@@ -1316,6 +1316,19 @@
           hideFillHandle();
           return;
         }
+      }
+      // Keep handle above pinned top rows only when the selection itself is pinned.
+      // For body selections we keep the lower z-index so the pinned row masks overlap naturally.
+      handle.style.zIndex = isPinnedSelectionRow ? '12' : '2';
+      if(handle.dataset){
+        if(isPinnedSelectionRow){
+          handle.dataset.pinnedSelection = '1';
+        }else{
+          delete handle.dataset.pinnedSelection;
+        }
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot fill handle layer', { debugLabel, pinnedSelection: isPinnedSelectionRow, zIndex: handle.style.zIndex });
       }
       handle.style.display = 'block';
       handle.style.left = `${cellRect.right - hostRect.left}px`;
@@ -3238,11 +3251,30 @@
       return container.querySelector('.ag-body-viewport');
     };
 
-    const resolveFillHandleViewport = (cell)=>{
+    const resolveFillHandleViewport = (cell, options = {})=>{
+      const preferPinnedTop = options?.preferPinnedTop === true;
+      const resolveScopedViewport = (scope)=>{
+        if(!scope || typeof scope.querySelector !== 'function'){
+          return null;
+        }
+        return scope.querySelector('.ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-center-cols-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-right-cols-viewport');
+      };
       if(cell && typeof cell.closest === 'function'){
+        const scopedFloatingViewport = cell.closest('.ag-floating-top-viewport, .ag-pinned-top-viewport');
+        if(scopedFloatingViewport){
+          return scopedFloatingViewport;
+        }
+        const scopedFloatingSection = cell.closest('.ag-floating-top, .ag-pinned-top');
+        if(scopedFloatingSection){
+          return resolveScopedViewport(scopedFloatingSection) || scopedFloatingSection;
+        }
         const scopedCenterViewport = cell.closest('.ag-center-cols-viewport');
         if(scopedCenterViewport){
           return scopedCenterViewport;
+        }
+        const scopedPinnedViewport = cell.closest('.ag-pinned-left-cols-viewport, .ag-pinned-right-cols-viewport');
+        if(scopedPinnedViewport){
+          return scopedPinnedViewport;
         }
         const scopedBodyViewport = cell.closest('.ag-body-viewport');
         if(scopedBodyViewport){
@@ -3252,7 +3284,19 @@
       if(!container || typeof container.querySelector !== 'function'){
         return null;
       }
+      if(preferPinnedTop){
+        const globalFloatingViewport = container.querySelector('.ag-floating-top-viewport, .ag-pinned-top-viewport')
+          || container.querySelector('.ag-floating-top .ag-center-cols-viewport, .ag-pinned-top .ag-center-cols-viewport')
+          || container.querySelector('.ag-floating-top .ag-pinned-left-cols-viewport, .ag-pinned-top .ag-pinned-left-cols-viewport')
+          || container.querySelector('.ag-floating-top .ag-pinned-right-cols-viewport, .ag-pinned-top .ag-pinned-right-cols-viewport')
+          || container.querySelector('.ag-floating-top, .ag-pinned-top');
+        if(globalFloatingViewport){
+          return globalFloatingViewport;
+        }
+      }
       return container.querySelector('.ag-center-cols-viewport')
+        || container.querySelector('.ag-pinned-left-cols-viewport')
+        || container.querySelector('.ag-pinned-right-cols-viewport')
         || resolveViewport();
     };
 
