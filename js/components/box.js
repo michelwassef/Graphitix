@@ -8127,6 +8127,124 @@
     const raw=Number(pair.p);
     return Number.isFinite(raw) ? raw : NaN;
   }
+  function assignPairAnnotationLevels(pairList){
+    const list = Array.isArray(pairList) ? pairList : [];
+    const placed = [];
+    list.forEach(pr => {
+      let level = 0;
+      while(placed.some(pl => pl.level === level && pl.bi > pr.ai && pl.ai < pr.bi)){
+        level += 1;
+      }
+      pr.level = level;
+      placed.push(pr);
+    });
+    return placed;
+  }
+  function buildPairAnnotationLayout(pairList, options = {}){
+    const list = Array.isArray(pairList) ? pairList : [];
+    const orientation = options.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const valueToCoord = typeof options.valueToCoord === 'function' ? options.valueToCoord : (v => Number(v));
+    const categoryCenter = typeof options.categoryCenter === 'function' ? options.categoryCenter : (idx => Number(idx));
+    const baseOffset = Number.isFinite(options.baseOffset) ? options.baseOffset : ANN_BASE_OFFSET;
+    const levelGap = Number.isFinite(options.levelGap) ? options.levelGap : ANN_LEVEL_GAP;
+    const bracketSize = Number.isFinite(options.bracketSize) ? options.bracketSize : 10;
+    const fontSize = Number.isFinite(options.fontSize) ? options.fontSize : 12;
+    const strokeWidth = Number.isFinite(options.strokeWidth) ? options.strokeWidth : 1;
+    if(!list.length){
+      return { sorted: [], geometryByPair: new Map(), maxLevel: 0 };
+    }
+    const sorted = list.slice().sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+    assignPairAnnotationLevels(sorted);
+    const levelBaseCoord = new Map();
+    sorted.forEach(pr => {
+      const baseCoord = Number(valueToCoord(pr.rangeMax));
+      if(!Number.isFinite(baseCoord)){
+        return;
+      }
+      const prev = levelBaseCoord.get(pr.level);
+      if(!Number.isFinite(prev)){
+        levelBaseCoord.set(pr.level, baseCoord);
+        return;
+      }
+      levelBaseCoord.set(pr.level, orientation === 'horizontal'
+        ? Math.max(prev, baseCoord)
+        : Math.min(prev, baseCoord));
+    });
+    const geometryByPair = new Map();
+    const levelGroups = new Map();
+    sorted.forEach(pr => {
+      const rawX1 = Number(categoryCenter(pr.ai));
+      const rawX2 = Number(categoryCenter(pr.bi));
+      const x1 = Number.isFinite(rawX1) && Number.isFinite(rawX2) ? Math.min(rawX1, rawX2) : rawX1;
+      const x2 = Number.isFinite(rawX1) && Number.isFinite(rawX2) ? Math.max(rawX1, rawX2) : rawX2;
+      const levelBase = levelBaseCoord.get(pr.level);
+      const fallbackBase = Number(valueToCoord(pr.rangeMax));
+      const baseCoord = Number.isFinite(levelBase) ? levelBase : fallbackBase;
+      const annotationCoord = orientation === 'horizontal'
+        ? baseCoord + baseOffset + pr.level * levelGap
+        : baseCoord - baseOffset - pr.level * levelGap;
+      const geom = {
+        x1,
+        x2,
+        annotationCoord,
+        innerCoord: orientation === 'horizontal'
+          ? annotationCoord + bracketSize
+          : annotationCoord - bracketSize
+      };
+      geometryByPair.set(pr, geom);
+      if(!levelGroups.has(pr.level)){
+        levelGroups.set(pr.level, []);
+      }
+      levelGroups.get(pr.level).push({ pair: pr, geom });
+    });
+    const minSpan = Math.max(4, strokeWidth * 2 + 1);
+    const endpointInset = Math.max(1, Math.min(4, fontSize * 0.16));
+    const minSiblingGap = Math.max(2, Math.min(8, fontSize * 0.28));
+    levelGroups.forEach(entries => {
+      entries.sort((a,b)=>a.geom.x1-b.geom.x1);
+      entries.forEach(entry => {
+        const geom = entry.geom;
+        const span = geom.x2 - geom.x1;
+        if(!Number.isFinite(span) || span <= minSpan + 1){
+          return;
+        }
+        const inset = Math.min(endpointInset, Math.max(0, (span - minSpan) / 2));
+        geom.x1 += inset;
+        geom.x2 -= inset;
+      });
+      for(let i = 0; i < entries.length - 1; i++){
+        const left = entries[i].geom;
+        const right = entries[i + 1].geom;
+        const currentGap = right.x1 - left.x2;
+        if(!Number.isFinite(currentGap) || currentGap >= minSiblingGap){
+          continue;
+        }
+        const needed = (minSiblingGap - currentGap) / 2;
+        const leftRoom = Math.max(0, (left.x2 - left.x1) - minSpan);
+        const rightRoom = Math.max(0, (right.x2 - right.x1) - minSpan);
+        const shift = Math.min(needed, leftRoom, rightRoom);
+        if(shift > 0){
+          left.x2 -= shift;
+          right.x1 += shift;
+        }
+      }
+    });
+    const maxLevel = Math.max(...sorted.map(pr => Number(pr.level)));
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box pair annotation layout', {
+        pairCount: sorted.length,
+        maxLevel: Number.isFinite(maxLevel) ? maxLevel : 0,
+        orientation,
+        minSiblingGap,
+        endpointInset
+      });
+    }
+    return {
+      sorted,
+      geometryByPair,
+      maxLevel: Number.isFinite(maxLevel) ? maxLevel : 0
+    };
+  }
   function formatP(value, options){
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     if(typeof formatter === 'function'){
@@ -12150,36 +12268,42 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const pairs = Array.isArray(model.pairs) ? model.pairs.slice() : [];
     if(pairs.length){
       if(significanceEnabled){
-        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+        const layout = buildPairAnnotationLayout(pairs, {
+          orientation,
+          valueToCoord,
+          categoryCenter,
+          baseOffset,
+          levelGap,
+          bracketSize: annotationBracketSize,
+          fontSize: annotationOpts.fontSize,
+          strokeWidth: annotationOpts.strokeWidth
+        });
         const placed = [];
-        pairs.forEach(pr => {
-          let level = 0;
-          while(placed.some(pl => !(pl.bi < pr.ai || pl.ai > pr.bi) && pl.level === level)){
-            level += 1;
-          }
-          const baseCoord = valueToCoord(pr.rangeMax);
-          const annotationCoord = orientation === 'horizontal'
-            ? baseCoord + baseOffset + level * levelGap
-            : baseCoord - baseOffset - level * levelGap;
-          const innerCoord = orientation === 'horizontal'
-            ? annotationCoord + annotationBracketSize
-            : annotationCoord - annotationBracketSize;
-          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
+        layout.sorted.forEach(pr => {
+          const geom = layout.geometryByPair.get(pr) || null;
+          const annotationCoord = Number.isFinite(geom?.annotationCoord)
+            ? geom.annotationCoord
+            : (orientation === 'horizontal'
+              ? Number(valueToCoord(pr.rangeMax)) + baseOffset + (Number(pr.level) || 0) * levelGap
+              : Number(valueToCoord(pr.rangeMax)) - baseOffset - (Number(pr.level) || 0) * levelGap);
+          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, placed);
           annotatePair(
             svg,
-            categoryCenter(pr.ai),
-            categoryCenter(pr.bi),
+            Number.isFinite(geom?.x1) ? geom.x1 : categoryCenter(pr.ai),
+            Number.isFinite(geom?.x2) ? geom.x2 : categoryCenter(pr.bi),
             annotationCoord,
             resolvePairwiseSignificanceP(pr),
             annotationStyle
           );
-          pr.level = level;
           pr.annotationCoord = annotationCoord;
-          pr.innerCoord = innerCoord;
+          pr.innerCoord = Number.isFinite(geom?.innerCoord)
+            ? geom.innerCoord
+            : (orientation === 'horizontal'
+              ? annotationCoord + annotationBracketSize
+              : annotationCoord - annotationBracketSize);
           placed.push(pr);
         });
-        const maxLevel = Math.max(...pairs.map(pr => pr.level));
-        state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
+        state.significanceMaxLevel = layout.maxLevel;
       }else{
         console.debug('Debug: box significance annotation skipped for pairs',{ pairCount: pairs.length, significanceEnabled });
       }
@@ -12588,34 +12712,42 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        });
 	        return false;
 	      }
-	      pairList.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+	      const layout = buildPairAnnotationLayout(pairList, {
+	        orientation,
+	        valueToCoord,
+	        categoryCenter,
+	        baseOffset,
+	        levelGap,
+	        bracketSize: annotationBracketSize,
+	        fontSize: annotationOpts.fontSize,
+	        strokeWidth: annotationOpts.strokeWidth
+	      });
 	      const placed=[];
-	      pairList.forEach(pr=>{
-	        let level=0;
-	        while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)){ level++; }
-	        const baseCoord=valueToCoord(pr.rangeMax);
-	        const annotationCoord=orientation==='horizontal'
-	          ? baseCoord+baseOffset+level*levelGap
-	          : baseCoord-baseOffset-level*levelGap;
-	        const innerCoord=orientation==='horizontal'
-	          ? annotationCoord+annotationBracketSize
-	          : annotationCoord-annotationBracketSize;
-	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
+	      layout.sorted.forEach(pr=>{
+	        const geom = layout.geometryByPair.get(pr) || null;
+	        const annotationCoord = Number.isFinite(geom?.annotationCoord)
+	          ? geom.annotationCoord
+	          : (orientation==='horizontal'
+	            ? Number(valueToCoord(pr.rangeMax))+baseOffset+(Number(pr.level)||0)*levelGap
+	            : Number(valueToCoord(pr.rangeMax))-baseOffset-(Number(pr.level)||0)*levelGap);
+	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, placed);
 	        annotatePair(
 	          svg,
-	          categoryCenter(pr.ai),
-	          categoryCenter(pr.bi),
+	          Number.isFinite(geom?.x1) ? geom.x1 : categoryCenter(pr.ai),
+	          Number.isFinite(geom?.x2) ? geom.x2 : categoryCenter(pr.bi),
 	          annotationCoord,
 	          resolvePairwiseSignificanceP(pr),
 	          annotationStyle
 	        );
-	        pr.level=level;
 	        pr.annotationCoord=annotationCoord;
-	        pr.innerCoord=innerCoord;
+	        pr.innerCoord=Number.isFinite(geom?.innerCoord)
+	          ? geom.innerCoord
+	          : (orientation==='horizontal'
+	            ? annotationCoord+annotationBracketSize
+	            : annotationCoord-annotationBracketSize);
 	        placed.push(pr);
 	      });
-	      const maxLevel = Math.max(...pairList.map(pr=>pr.level));
-	      state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
+	      state.significanceMaxLevel = layout.maxLevel;
 	      return true;
 	    };
 	    if(state.tableFormat==='grouped'){
