@@ -8113,6 +8113,20 @@
     }
     return p2stars(p);
   }
+  function resolvePairwiseSignificanceP(pair){
+    if(!pair || typeof pair !== 'object'){
+      return NaN;
+    }
+    const adjustedCandidates=[pair.adjP,pair.pAdj,pair.adjustedP,pair.p_adjusted];
+    for(let i=0;i<adjustedCandidates.length;i++){
+      const candidate=Number(adjustedCandidates[i]);
+      if(Number.isFinite(candidate)){
+        return candidate;
+      }
+    }
+    const raw=Number(pair.p);
+    return Number.isFinite(raw) ? raw : NaN;
+  }
   function formatP(value, options){
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     if(typeof formatter === 'function'){
@@ -12151,7 +12165,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             ? annotationCoord + annotationBracketSize
             : annotationCoord - annotationBracketSize;
           const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
-          annotatePair(svg, categoryCenter(pr.ai), categoryCenter(pr.bi), annotationCoord, pr.p, annotationStyle);
+          annotatePair(
+            svg,
+            categoryCenter(pr.ai),
+            categoryCenter(pr.bi),
+            annotationCoord,
+            resolvePairwiseSignificanceP(pr),
+            annotationStyle
+          );
           pr.level = level;
           pr.annotationCoord = annotationCoord;
           pr.innerCoord = innerCoord;
@@ -12580,7 +12601,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	          ? annotationCoord+annotationBracketSize
 	          : annotationCoord-annotationBracketSize;
 	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
-	        annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,annotationStyle);
+	        annotatePair(
+	          svg,
+	          categoryCenter(pr.ai),
+	          categoryCenter(pr.bi),
+	          annotationCoord,
+	          resolvePairwiseSignificanceP(pr),
+	          annotationStyle
+	        );
 	        pr.level=level;
 	        pr.annotationCoord=annotationCoord;
 	        pr.innerCoord=innerCoord;
@@ -12953,10 +12981,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      const baseCoord=valueToCoord(rangeMax);
 	      const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset;
 	      if(significanceEnabled){
-	        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,buildPairAnnotationStyle(indices[0], indices[1], 0, null));
+          const pairAnnotationP = Number.isFinite(adjValue) ? adjValue : res.p;
+	        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,pairAnnotationP,buildPairAnnotationStyle(indices[0], indices[1], 0, null));
 	        state.significanceMaxLevel = 0;
 	      }else{
-	        console.debug('Debug: box significance annotation skipped for pair',{ p: res.p, significanceEnabled });
+	        console.debug('Debug: box significance annotation skipped for pair',{ p: Number.isFinite(adjValue) ? adjValue : res.p, significanceEnabled });
 	      }
       return;
     }
