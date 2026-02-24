@@ -95,6 +95,8 @@
   const SEPARATED_GROUP_GAP_MULTIPLIER = 1.5;
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
+  const ANN_LABEL_GAP_MIN=7;
+  const ANN_LABEL_GAP_SCALE=0.65;
   const DEFAULT_CORRECTION='bonferroni';
   const ASSUMPTION_ALPHA=0.05;
   const DEFAULT_WHISKER_RULE='iqr15';
@@ -8150,6 +8152,7 @@
     const bracketSize = Number.isFinite(options.bracketSize) ? options.bracketSize : 10;
     const fontSize = Number.isFinite(options.fontSize) ? options.fontSize : 12;
     const strokeWidth = Number.isFinite(options.strokeWidth) ? options.strokeWidth : 1;
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, fontSize, orientation, strokeWidth);
     if(!list.length){
       return { sorted: [], geometryByPair: new Map(), maxLevel: 0 };
     }
@@ -8181,8 +8184,8 @@
       const fallbackBase = Number(valueToCoord(pr.rangeMax));
       const baseCoord = Number.isFinite(levelBase) ? levelBase : fallbackBase;
       const annotationCoord = orientation === 'horizontal'
-        ? baseCoord + baseOffset + pr.level * levelGap
-        : baseCoord - baseOffset - pr.level * levelGap;
+        ? baseCoord + baseOffset + pr.level * levelStep
+        : baseCoord - baseOffset - pr.level * levelStep;
       const geom = {
         x1,
         x2,
@@ -8235,6 +8238,8 @@
         pairCount: sorted.length,
         maxLevel: Number.isFinite(maxLevel) ? maxLevel : 0,
         orientation,
+        levelGap,
+        levelStep,
         minSiblingGap,
         endpointInset
       });
@@ -11560,6 +11565,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return { d, refOuter, innerCoord: innerY, outerCoordA, outerCoordB };
 		  }
 
+		  function resolveSignificanceLabelGapPx(fontSizeCandidate){
+		    const fontSize = Number.isFinite(fontSizeCandidate) && fontSizeCandidate > 0
+		      ? fontSizeCandidate
+		      : 12;
+		    return Math.max(ANN_LABEL_GAP_MIN, fontSize * ANN_LABEL_GAP_SCALE);
+		  }
+
+		  function resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate){
+		    const labelGap = resolveSignificanceLabelGapPx(fontSizeCandidate);
+		    const strokeWidth = Number.isFinite(strokeWidthCandidate) && strokeWidthCandidate > 0
+		      ? strokeWidthCandidate
+		      : 1;
+		    return Math.max(6, Math.min(20, labelGap * 0.8 + strokeWidth * 1.5));
+		  }
+
+		  function resolveSignificanceLevelStepPx(levelGapCandidate, fontSizeCandidate, orientation, strokeWidthCandidate){
+		    const baseGap = Number.isFinite(levelGapCandidate) ? levelGapCandidate : ANN_LEVEL_GAP;
+		    if(orientation !== 'vertical'){
+		      return baseGap;
+		    }
+		    return baseGap + resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate);
+		  }
+
 		  const significanceLabelBottomOffsetCache = new Map();
 		  let significanceLabelMeasureCanvas = null;
 
@@ -11749,7 +11777,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      let outerY=valueCoord;
 		      if(minY != null){
 		        const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
-	        const textYOffset = Number.isFinite(opts.fontSize) ? opts.fontSize * 0.2 : 12;
+	        const textYOffset = resolveSignificanceLabelGapPx(opts.fontSize);
 	        const minOuterY = minY + bracketSize + textYOffset + Math.max(2, fontSize * 0.1);
 		        if(Number.isFinite(minOuterY)){
 		          outerY = Math.max(outerY, minOuterY);
@@ -11825,7 +11853,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      txt.setAttribute('text-anchor','start');
 		      txt.setAttribute('dominant-baseline','middle');
 		    }else{
-		      const textYOffset=Number.isFinite(opts.fontSize)?opts.fontSize*0.2:12;
+		      const textYOffset=resolveSignificanceLabelGapPx(opts.fontSize);
 		      labelBottomTarget = labelOuterCoord-bracketSize-textYOffset;
 		      txt.setAttribute('x',(x1+x2)/2);
 		      txt.setAttribute('y',labelBottomTarget);
@@ -11889,14 +11917,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       txt.setAttribute('dominant-baseline','middle');
     }else{
       let y=baseCoord-baseOffset-level*levelGap;
+      const labelGap = resolveSignificanceLabelGapPx(fontSize);
       if(minY != null){
-        const minOverall = minY + 12 + Math.max(2, (Number.isFinite(fontSize) ? fontSize : 12) * 0.1);
+        const minOverall = minY + labelGap + Math.max(2, (Number.isFinite(fontSize) ? fontSize : 12) * 0.1);
         if(Number.isFinite(minOverall)){
           y = Math.max(y, minOverall);
         }
       }
       txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
-      labelBottomTarget = y-12;
+      labelBottomTarget = y-labelGap;
       txt.setAttribute('y',labelBottomTarget);
       txt.setAttribute('text-anchor','middle');
     }
@@ -12344,6 +12373,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       : (typeof helpers?.y2px === 'function' ? helpers.y2px : (val => val));
     const baseOffset = Number.isFinite(annotationOpts.baseOffset) ? annotationOpts.baseOffset : ANN_BASE_OFFSET;
     const levelGap = Number.isFinite(annotationOpts.levelGap) ? annotationOpts.levelGap : ANN_LEVEL_GAP;
+    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth);
+    const labelGapForPairs = resolveSignificanceLabelGapPx(annotationOpts.fontSize);
     const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
     const traces = Array.isArray(context?.traces) ? context.traces : [];
     const fallbackTraceMax = idx => {
@@ -12369,10 +12401,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
     const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
     const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
     const minClearance = Math.max(2, annotationStrokeWidth * 1.5);
-    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize, levelGap * 0.6));
-    const maxClearance = Math.max(minClearance, levelGap - Math.max(2, annotationStrokeWidth));
+    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize + labelGapForPairs, levelStep * 0.75));
+    const maxClearance = Math.max(minClearance, levelStep - Math.max(2, annotationStrokeWidth));
     const adaptiveWhiskerClearance = Math.min(rawClearance, maxClearance);
     const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
       if(!adaptiveWhiskersEnabled){ return null; }
@@ -12382,8 +12413,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(!Number.isFinite(baseCoord)){ return null; }
       const lvl = Number.isFinite(level) ? level : 0;
       return orientation === 'horizontal'
-        ? baseCoord + baseOffset + lvl * levelGap
-        : baseCoord - baseOffset - lvl * levelGap;
+        ? baseCoord + baseOffset + lvl * levelStep
+        : baseCoord - baseOffset - lvl * levelStep;
     };
     const resolveLowerInnerCoord = (traceIdx, level, placedPairs) => {
       if(!adaptiveWhiskersEnabled || !Array.isArray(placedPairs) || level <= 0){
@@ -12452,8 +12483,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const annotationCoord = Number.isFinite(geom?.annotationCoord)
             ? geom.annotationCoord
             : (orientation === 'horizontal'
-              ? Number(valueToCoord(pr.rangeMax)) + baseOffset + (Number(pr.level) || 0) * levelGap
-              : Number(valueToCoord(pr.rangeMax)) - baseOffset - (Number(pr.level) || 0) * levelGap);
+              ? Number(valueToCoord(pr.rangeMax)) + baseOffset + (Number(pr.level) || 0) * levelStep
+              : Number(valueToCoord(pr.rangeMax)) - baseOffset - (Number(pr.level) || 0) * levelStep);
           const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, placed);
           annotatePair(
             svg,
@@ -12767,7 +12798,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       : (typeof helpers?.y2px==='function'?helpers.y2px:(val=>val));
     const baseOffset=Number.isFinite(annotationOpts.baseOffset)?annotationOpts.baseOffset:ANN_BASE_OFFSET;
     const levelGap=Number.isFinite(annotationOpts.levelGap)?annotationOpts.levelGap:ANN_LEVEL_GAP;
-    console.debug('Debug: box annotation offsets',{baseOffset,levelGap,orientation});
+    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth);
+    const labelGapForPairs = resolveSignificanceLabelGapPx(annotationOpts.fontSize);
+    console.debug('Debug: box annotation offsets',{baseOffset,levelGap,levelStep,orientation});
     const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
     const fallbackTraceMax = idx => {
       const trace = traces?.[idx];
@@ -12801,10 +12835,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    };
 	    const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
 	    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-	    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
 	    const minClearance = Math.max(2, annotationStrokeWidth * 1.5);
-	    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize, levelGap * 0.6));
-	    const maxClearance = Math.max(minClearance, levelGap - Math.max(2, annotationStrokeWidth));
+	    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize + labelGapForPairs, levelStep * 0.75));
+	    const maxClearance = Math.max(minClearance, levelStep - Math.max(2, annotationStrokeWidth));
 	    const adaptiveWhiskerClearance = Math.min(rawClearance, maxClearance);
 	    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
 	      if(!adaptiveWhiskersEnabled){ return null; }
@@ -12814,8 +12847,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      if(!Number.isFinite(baseCoord)){ return null; }
 	      const lvl = Number.isFinite(level) ? level : 0;
 	      return orientation === 'horizontal'
-	        ? baseCoord + baseOffset + lvl * levelGap
-	        : baseCoord - baseOffset - lvl * levelGap;
+	        ? baseCoord + baseOffset + lvl * levelStep
+	        : baseCoord - baseOffset - lvl * levelStep;
 	    };
 	    const resolveLowerInnerCoord = (traceIdx, level, placedPairs) => {
 	      if(!adaptiveWhiskersEnabled || !Array.isArray(placedPairs) || level <= 0){
@@ -12896,8 +12929,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        const annotationCoord = Number.isFinite(geom?.annotationCoord)
 	          ? geom.annotationCoord
 	          : (orientation==='horizontal'
-	            ? Number(valueToCoord(pr.rangeMax))+baseOffset+(Number(pr.level)||0)*levelGap
-	            : Number(valueToCoord(pr.rangeMax))-baseOffset-(Number(pr.level)||0)*levelGap);
+	            ? Number(valueToCoord(pr.rangeMax))+baseOffset+(Number(pr.level)||0)*levelStep
+	            : Number(valueToCoord(pr.rangeMax))-baseOffset-(Number(pr.level)||0)*levelStep);
 	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, placed);
 	        annotatePair(
 	          svg,
@@ -14873,11 +14906,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
+      const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, fs, 'vertical', annotationStrokeWidth);
       const annotationLabelClearance = showSignificance && maxLevelEstimate >= 0
         ? (annotationBracketSize + (fs || 12))
         : 0;
       const topExtra = showSignificance && maxLevelEstimate >= 0
-        ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * annotationLevelGap + annotationLabelClearance)
+        ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * verticalLevelStep + annotationLabelClearance)
         : 0;
       const titleBand = showSignificance && maxLevelEstimate >= 0
         ? Math.max(30, (fs || 12) * 3.0)
@@ -16277,7 +16311,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const maxCategoryWidth = Math.max(...categoryWidths, 0);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const rightExtra = showSignificance && maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
+      const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, fs, 'horizontal', annotationStrokeWidth);
+      const rightExtra = showSignificance && maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * horizontalLevelStep) : 0;
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxCategoryWidth, yTitleWidth: 0, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top = Math.max(marginLocal.top, fs * 2);
       marginLocal.left = Math.max(marginLocal.left, maxCategoryWidth + tickLen + tickGap + fs * 0.5);
