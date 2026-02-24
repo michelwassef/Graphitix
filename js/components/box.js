@@ -11560,6 +11560,154 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return { d, refOuter, innerCoord: innerY, outerCoordA, outerCoordB };
 		  }
 
+		  const significanceLabelBottomOffsetCache = new Map();
+		  let significanceLabelMeasureCanvas = null;
+
+		  function measureSignificanceLabelBottomOffsetPx(textNode){
+		    if(!textNode){
+		      return NaN;
+		    }
+		    const labelText = typeof textNode.textContent === 'string' ? textNode.textContent : '';
+		    if(!labelText){
+		      return NaN;
+		    }
+		    const doc = textNode.ownerDocument || global.document;
+		    if(!doc || typeof doc.createElement !== 'function'){
+		      return NaN;
+		    }
+		    const view = doc.defaultView || global;
+		    const computed = view && typeof view.getComputedStyle === 'function'
+		      ? view.getComputedStyle(textNode)
+		      : null;
+		    const fontSizeRaw = (computed?.fontSize || textNode.getAttribute('font-size') || '').trim();
+		    const fontSize = Number.parseFloat(fontSizeRaw);
+		    if(!Number.isFinite(fontSize) || fontSize <= 0){
+		      return NaN;
+		    }
+		    const fontStyle = (computed?.fontStyle || textNode.getAttribute('font-style') || 'normal').trim() || 'normal';
+		    const fontWeight = String(computed?.fontWeight || textNode.getAttribute('font-weight') || '400').trim() || '400';
+		    const fontFamily = (computed?.fontFamily || textNode.getAttribute('font-family') || 'sans-serif').trim() || 'sans-serif';
+		    const cacheKey = `${fontStyle}|${fontWeight}|${fontSize}|${fontFamily}|${labelText}`;
+		    const cached = significanceLabelBottomOffsetCache.get(cacheKey);
+		    if(Number.isFinite(cached)){
+		      return cached;
+		    }
+		    if(!significanceLabelMeasureCanvas){
+		      significanceLabelMeasureCanvas = doc.createElement('canvas');
+		    }
+		    const canvas = significanceLabelMeasureCanvas;
+		    const ctx = canvas && typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+		    if(!ctx){
+		      return NaN;
+		    }
+		    const fontSpec = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+		    ctx.font = fontSpec;
+		    const measured = ctx.measureText(labelText);
+		    const widthEstimate = Number.isFinite(measured?.width)
+		      ? measured.width
+		      : (Math.max(1, labelText.length) * fontSize * 0.75);
+		    const padding = Math.max(4, Math.ceil(fontSize * 1.2));
+		    const width = Math.max(32, Math.ceil(widthEstimate + padding * 2 + 4));
+		    const height = Math.max(32, Math.ceil(fontSize * 4));
+		    if(canvas.width !== width){ canvas.width = width; }
+		    if(canvas.height !== height){ canvas.height = height; }
+		    ctx.clearRect(0, 0, width, height);
+		    ctx.font = fontSpec;
+		    ctx.textBaseline = 'alphabetic';
+		    ctx.textAlign = 'left';
+		    ctx.fillStyle = '#000';
+		    const baselineY = height - padding;
+		    ctx.fillText(labelText, padding, baselineY);
+		    let pixelData = null;
+		    try{
+		      pixelData = ctx.getImageData(0, 0, width, height)?.data || null;
+		    }catch(err){
+		      if(Shared?.isDebugEnabled?.()){
+		        console.debug('Debug: box significance label pixel scan failed', { error: err?.message || String(err) });
+		      }
+		      return NaN;
+		    }
+		    if(!pixelData){
+		      return NaN;
+		    }
+		    let bottomRow = -1;
+		    for(let row = height - 1; row >= 0; row--){
+		      const rowOffset = row * width * 4;
+		      for(let col = 0; col < width; col++){
+		        if(pixelData[rowOffset + col * 4 + 3] > 0){
+		          bottomRow = row;
+		          break;
+		        }
+		      }
+		      if(bottomRow >= 0){
+		        break;
+		      }
+		    }
+		    if(bottomRow < 0){
+		      return NaN;
+		    }
+		    const offset = bottomRow - baselineY;
+		    significanceLabelBottomOffsetCache.set(cacheKey, offset);
+		    return offset;
+		  }
+
+		  function alignSignificanceLabelBottom(textNode, bottomY){
+		    if(!textNode || !Number.isFinite(bottomY)){
+		      return false;
+		    }
+		    const currentY = Number(textNode.getAttribute('y'));
+		    if(!Number.isFinite(currentY)){
+		      return false;
+		    }
+		    let renderedBottom = NaN;
+		    let method = 'none';
+		    const pixelBottomOffset = measureSignificanceLabelBottomOffsetPx(textNode);
+		    if(Number.isFinite(pixelBottomOffset)){
+		      renderedBottom = currentY + pixelBottomOffset;
+		      method = 'pixel';
+		    }
+		    const rawLabel = typeof textNode.textContent === 'string' ? textNode.textContent.trim() : '';
+		    const isStarOnlyLabel = /^\*+$/.test(rawLabel);
+		    if(!Number.isFinite(renderedBottom) && isStarOnlyLabel){
+		      const doc = textNode.ownerDocument || global.document;
+		      const view = doc?.defaultView || global;
+		      const computed = view && typeof view.getComputedStyle === 'function'
+		        ? view.getComputedStyle(textNode)
+		        : null;
+		      const fontSizeRaw = (computed?.fontSize || textNode.getAttribute('font-size') || '').trim();
+		      const fontSize = Number.parseFloat(fontSizeRaw);
+		      if(Number.isFinite(fontSize) && fontSize > 0){
+		        renderedBottom = currentY - fontSize * 0.22;
+		        method = 'heuristic-star';
+		      }
+		    }
+		    if(!Number.isFinite(renderedBottom) && typeof textNode.getBBox === 'function'){
+		      try{
+		        const bbox = textNode.getBBox();
+		        if(bbox && Number.isFinite(bbox.y) && Number.isFinite(bbox.height)){
+		          renderedBottom = bbox.y + bbox.height;
+		          method = 'bbox';
+		        }
+		      }catch(err){
+		        if(Shared?.isDebugEnabled?.()){
+		          console.debug('Debug: box significance label bottom alignment bbox fallback failed', { error: err?.message || String(err) });
+		        }
+		      }
+		    }
+		    if(!Number.isFinite(renderedBottom)){
+		      return false;
+		    }
+		    const delta = bottomY - renderedBottom;
+		    if(Math.abs(delta) < 0.01){
+		      return false;
+		    }
+		    textNode.setAttribute('y', String(currentY + delta));
+		    if(Shared?.isDebugEnabled?.()){
+		      console.debug('Debug: box significance label bottom aligned', { bottomY, renderedBottom, delta, method, text: textNode.textContent });
+		    }
+		    return true;
+		  }
+
 		  function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
 		    const opts=styleOptions||{};
 		    const orientation=opts.orientation==='horizontal'?'horizontal':'vertical';
@@ -11664,7 +11812,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }else{
       txt.setAttribute('class','box-significance-annotation');
 	    }
+    txt.setAttribute('baseline-shift','baseline');
+    txt.removeAttribute('dy');
+    if(txt.style){
+      txt.style.verticalAlign = 'baseline';
+    }
 	    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
+		    let labelBottomTarget = NaN;
 		    if(orientation==='horizontal'){
 		      txt.setAttribute('x',labelOuterCoord+bracketSize*1.4);
 		      txt.setAttribute('y',(x1+x2)/2);
@@ -11672,8 +11826,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      txt.setAttribute('dominant-baseline','middle');
 		    }else{
 		      const textYOffset=Number.isFinite(opts.fontSize)?opts.fontSize*0.2:12;
+		      labelBottomTarget = labelOuterCoord-bracketSize-textYOffset;
 		      txt.setAttribute('x',(x1+x2)/2);
-		      txt.setAttribute('y',labelOuterCoord-bracketSize-textYOffset);
+		      txt.setAttribute('y',labelBottomTarget);
 		      txt.setAttribute('text-anchor','middle');
 		    }
     if(Number.isFinite(opts.fontSize)){
@@ -11684,6 +11839,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     txt.textContent=labelText;
     svg.appendChild(txt);
+	    if(orientation!=='horizontal'){
+	      alignSignificanceLabelBottom(txt, labelBottomTarget);
+	    }
     if(canRegisterSignificanceControl){
       if(hitPath){
         Shared.significanceControls.registerSignificanceElement(hitPath, { ...controlConfig, disableOverlay: true });
@@ -11715,7 +11873,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }else{
       txt.setAttribute('class','box-significance-annotation');
     }
+    txt.setAttribute('baseline-shift','baseline');
+    txt.removeAttribute('dy');
+    if(txt.style){
+      txt.style.verticalAlign = 'baseline';
+    }
     const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
+    let labelBottomTarget = NaN;
     if(orientation==='horizontal'){
       const x=baseCoord+baseOffset+level*levelGap+bracketSize*0.6;
       const y=(Math.min(...xCenters)+Math.max(...xCenters))/2;
@@ -11732,7 +11896,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
       }
       txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
-      txt.setAttribute('y',y-12);
+      labelBottomTarget = y-12;
+      txt.setAttribute('y',labelBottomTarget);
       txt.setAttribute('text-anchor','middle');
     }
     if(Number.isFinite(fontSize)){
@@ -11743,6 +11908,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     txt.textContent=labelText;
     svg.appendChild(txt);
+    if(orientation!=='horizontal'){
+      alignSignificanceLabelBottom(txt, labelBottomTarget);
+    }
     if(controlConfig && Shared?.significanceControls?.registerSignificanceElement){
       Shared.significanceControls.registerSignificanceElement(txt, controlConfig);
     }
