@@ -5586,8 +5586,19 @@
         ? win.requestAnimationFrame.bind(win)
         : (fn)=>win.setTimeout(fn, 16);
 
+      const resolveTargetElement = (target)=>{
+        if(target && target.nodeType === 1){
+          return target;
+        }
+        if(target && target.nodeType === 3){
+          const parent = target.parentElement || target.parentNode;
+          return parent && parent.nodeType === 1 ? parent : null;
+        }
+        return null;
+      };
+
       const isEditableTarget = (target)=>{
-        const node = target && target.nodeType === 1 ? target : null;
+        const node = resolveTargetElement(target);
         if(!node){
           return false;
         }
@@ -5599,7 +5610,36 @@
           return true;
         }
         if(typeof node.closest === 'function'){
-          return !!node.closest('input,textarea,select,[contenteditable=\"true\"]');
+          return !!node.closest('input,textarea,select,[contenteditable]:not([contenteditable=\"false\"]),[role=\"textbox\"],.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor,.ag-input-field-input');
+        }
+        return false;
+      };
+
+      const isInlineEditorActive = ()=>{
+        const api = instance?.gridApi;
+        if(api && typeof api.getEditingCells === 'function'){
+          try{
+            const editing = api.getEditingCells();
+            if(Array.isArray(editing) && editing.length){
+              return true;
+            }
+          }catch(err){
+            // ignore editor state probe errors
+          }
+        }
+        const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+        if(activeEl){
+          if(isEditableTarget(activeEl)){
+            return true;
+          }
+          if(typeof activeEl.closest === 'function' && activeEl.closest('.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor')){
+            return true;
+          }
+        }
+        if(container && typeof container.querySelector === 'function'){
+          if(container.querySelector('.ag-cell-inline-editing .ag-input-field-input,.ag-cell-inline-editing [contenteditable],.ag-cell-inline-editing input,.ag-cell-inline-editing textarea')){
+            return true;
+          }
         }
         return false;
       };
@@ -6796,7 +6836,13 @@
         if(!event || event.defaultPrevented){
           return;
         }
-        if(isEditableTarget(event.target)){
+        if(isEditableTarget(event.target) || isInlineEditorActive()){
+          if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: hot.handlePaste ignored (inline editing active)', {
+              debugLabel,
+              targetTag: resolveTargetElement(event.target)?.tagName || null
+            });
+          }
           return;
         }
         const targetNode = event?.target && event.target.nodeType === 1 ? event.target : null;

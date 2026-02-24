@@ -7406,7 +7406,58 @@
       }
       const tableImport = Shared.tableImport;
       if(tableImport?.handlePaste && els.hotContainer && !els.hotContainer.__boxPasteBound){
+        const isEditablePasteTarget = (target)=>{
+          const node = target && target.nodeType === 1
+            ? target
+            : (target && target.nodeType === 3 ? (target.parentElement || target.parentNode) : null);
+          if(!node || node.nodeType !== 1){
+            return false;
+          }
+          if(node.isContentEditable){
+            return true;
+          }
+          const tag = node.tagName;
+          if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'){
+            return true;
+          }
+          if(typeof node.closest === 'function'){
+            return !!node.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor,.ag-input-field-input');
+          }
+          return false;
+        };
+        const isInlineEditorActiveForPaste = ()=>{
+          const api = state.hot?.gridApi;
+          if(api && typeof api.getEditingCells === 'function'){
+            try{
+              const editing = api.getEditingCells();
+              if(Array.isArray(editing) && editing.length){
+                return true;
+              }
+            }catch(err){
+              // best effort probe only
+            }
+          }
+          const doc = els.hotContainer?.ownerDocument || global.document;
+          const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(activeEl){
+            if(isEditablePasteTarget(activeEl)){
+              return true;
+            }
+            if(typeof activeEl.closest === 'function' && activeEl.closest('.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor')){
+              return true;
+            }
+          }
+          return false;
+        };
         els.hotContainer.addEventListener('paste',async e=>{
+          if(isEditablePasteTarget(e?.target) || isInlineEditorActiveForPaste()){
+            if(Shared?.isDebugEnabled?.()){
+              console.debug('Debug: box paste ignored (inline editor active)', {
+                targetTag: e?.target?.nodeType === 1 ? e.target.tagName : null
+              });
+            }
+            return;
+          }
           console.time('boxplotPaste');
           let forcedOverlay = false;
           try{

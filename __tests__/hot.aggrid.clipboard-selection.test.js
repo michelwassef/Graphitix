@@ -108,6 +108,72 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 0)).toBe('X');
   });
 
+  test('paste from text node inside contenteditable editor is not intercepted by table paste handler', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteEditableTextNodeHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-editable-text-node',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    hot.setDataAtCell(0, 0, 'keep');
+    hot.selectCell(0, 0);
+
+    const editor = document.createElement('div');
+    editor.className = 'ag-cell-inline-editing';
+    editor.setAttribute('contenteditable', 'plaintext-only');
+    const textNode = document.createTextNode('x');
+    editor.appendChild(textNode);
+    container.appendChild(editor);
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    textNode.dispatchEvent(evt);
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(hot.getDataAtCell(0, 0)).toBe('keep');
+  });
+
+  test('paste is ignored when inline editor is active even if event targets container', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteInlineEditorActiveHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-inline-editor-active',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    hot.setDataAtCell(0, 0, 'keep');
+    hot.selectCell(0, 0);
+
+    const inlineEdit = document.createElement('div');
+    inlineEdit.className = 'ag-cell-inline-editing';
+    const input = document.createElement('input');
+    input.className = 'ag-input-field-input';
+    inlineEdit.appendChild(input);
+    container.appendChild(inlineEdit);
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    container.dispatchEvent(evt);
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(hot.getDataAtCell(0, 0)).toBe('keep');
+  });
+
   test('shift-click expands selection range using ag-row row-index', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
