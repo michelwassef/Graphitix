@@ -7368,7 +7368,13 @@
     const ensureBoxHotForActiveTab = () => {
       const wrapper = global.document.getElementById('hotWrapper');
       const baseContainer = global.document.getElementById('hot');
-      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+      if(!baseContainer){
+        if(Shared.isDebugEnabled?.()){
+          console.debug('Debug: box ensure table skipped (missing container)');
+        }
+        return state.hot || null;
+      }
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper){
         if(!state.hot){
           state.hot = createBoxTable(baseContainer);
         }
@@ -7384,16 +7390,27 @@
         }
         return state.hot;
       }
-      const entry = Shared.hot.ensureTableForTab({
-        type: 'box',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'box-default',
-        wrapper,
-        container: baseContainer,
-        createInstance: createBoxTable
-      });
+      let entry = null;
+      try{
+        entry = Shared.hot.ensureTableForTab({
+          type: 'box',
+          tabId: Shared.hot.resolveActiveTabId?.() || 'box-default',
+          wrapper,
+          container: baseContainer,
+          createInstance: createBoxTable
+        });
+      }catch(err){
+        console.error('box ensureTableForTab error', {
+          message: err?.message || String(err)
+        });
+        entry = null;
+      }
       if(entry?.instance){
         state.hot = entry.instance;
         els.hotContainer = entry.container || baseContainer;
+      }else if(!state.hot){
+        state.hot = createBoxTable(baseContainer);
+        els.hotContainer = baseContainer;
       }
       if(state.hot){
         state.hot.__boxHostContainer = entry?.container || baseContainer;
@@ -7508,6 +7525,12 @@
     const exampleGrouped=[['Wild type','Knock-out A','Knock-out B','Wild type','Knock-out A','Knock-out B'],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
     loadExampleBtn.addEventListener('click',()=>{
+      const hot = state.ensureHotForActiveTab?.() || state.hot;
+      if(!hot){
+        console.warn('boxplot example load skipped: table instance unavailable');
+        resolveBoxLoading('example-data');
+        return;
+      }
       const overlayReason = 'example-data';
       const overlayMessage = state.tableFormat === 'grouped'
         ? 'Loading grouped example data...'
@@ -7521,10 +7544,10 @@
         renderGroupedList();
         updateTableFormatUI();
         applyTableFormatToHot();
-        state.hot.loadData(exampleGrouped);
+        hot.loadData(exampleGrouped);
         console.log('boxplot grouped example loaded');
       }else{
-        state.hot.loadData(exampleSingle);
+        hot.loadData(exampleSingle);
         console.log('boxplot example loaded');
       }
       state.axisSettings = createDefaultAxisSettings();
@@ -13656,10 +13679,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const usesGroupedSpacing = isGroupedMode && layoutMode === 'interleaved';
     const groupedGroups = isGroupedMode ? state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }) : [];
     const groupedReplicates = isGroupedMode ? Math.max(1, state.grouped.replicatesPerGroup) : 1;
-    const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot){
+      if(Shared.isDebugEnabled?.()){
+        console.debug('Debug: box draw skipped (hot unavailable)', { token });
+      }
+      return;
+    }
+    const analysis = hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
     const dataMatrix = analysis.data || [];
-    nCols = analysis.colCount || state.hot.countCols();
-    nRows = analysis.rowCount || state.hot.countRows?.() || dataMatrix.length;
+    nCols = analysis.colCount || hot.countCols?.() || (dataMatrix[0]?.length || 0);
+    nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
     console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
     if(!isGroupedMode){
       const collectPerf = perfApi?.start('box.data.collect', {

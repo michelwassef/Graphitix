@@ -2808,6 +2808,7 @@
     const rowSelectionConfig = (Object.prototype.hasOwnProperty.call(overrides || {}, 'rowSelection'))
       ? overrides.rowSelection
       : { mode: 'multiRow', headerCheckbox: false };
+    const columnWidthOverrides = new Map();
 
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
       const isEmpty = (v)=>v === null || v === undefined || v === '';
@@ -2962,7 +2963,10 @@
         const colId = colDef.colId ?? null;
         const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
         if(isDataColumn){
-          colDef.width = fixedDataColWidth;
+          const widthOverride = columnWidthOverrides.get(colId);
+          colDef.width = Number.isFinite(widthOverride) && widthOverride > 0
+            ? widthOverride
+            : fixedDataColWidth;
           if(pinFirstDataColumn && colId === 'c0'){
             colDef.pinned = 'left';
             colDef.lockPinned = true;
@@ -3530,7 +3534,6 @@
     let pendingRebuildColumns = false;
     let pendingSyncRowData = false;
     let pendingSchedulePayload = null;
-
     const applyColumnDefs = (api, defs)=>{
       if(!api || !Array.isArray(defs)){
         return;
@@ -3548,13 +3551,29 @@
       }
     };
 
+    const resolveColumnStateApi = (api)=>{
+      const candidates = [
+        api?.columnApi,
+        instance?.columnApi,
+        api,
+        instance?.gridApi
+      ];
+      for(let i = 0; i < candidates.length; i++){
+        const candidate = candidates[i];
+        if(candidate && typeof candidate.getColumnState === 'function'){
+          return candidate;
+        }
+      }
+      return null;
+    };
+
     const captureColumnWidths = (api)=>{
-      const columnApi = api?.columnApi || instance?.columnApi || null;
-      if(!columnApi || typeof columnApi.getColumnState !== 'function'){
+      const columnStateApi = resolveColumnStateApi(api);
+      if(!columnStateApi){
         return null;
       }
       try{
-        const state = columnApi.getColumnState() || [];
+        const state = columnStateApi.getColumnState() || [];
         const widths = new Map();
         state.forEach(entry=>{
           if(entry?.colId && Number.isFinite(entry.width) && entry.width > 0){
@@ -3571,15 +3590,37 @@
       if(!api || !widths || !widths.size){
         return;
       }
-      const columnApi = api?.columnApi || instance?.columnApi || null;
-      if(!columnApi || typeof columnApi.applyColumnState !== 'function'){
+      const columnStateApi = resolveColumnStateApi(api);
+      if(!columnStateApi || typeof columnStateApi.applyColumnState !== 'function'){
         return;
       }
       try{
         const state = Array.from(widths.entries()).map(([colId, width])=>({ colId, width }));
-        columnApi.applyColumnState({ state, applyOrder: false });
+        columnStateApi.applyColumnState({ state, applyOrder: false });
       }catch(err){
         // best-effort only
+      }
+    };
+
+    const persistColumnWidthOverrides = (api, reason)=>{
+      const widths = captureColumnWidths(api);
+      if(!widths || !widths.size){
+        return;
+      }
+      widths.forEach((width, colId)=>{
+        if(typeof colId !== 'string' || !colId.startsWith('c')){
+          return;
+        }
+        if(Number.isFinite(width) && width > 0){
+          columnWidthOverrides.set(colId, width);
+        }
+      });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot persisted column width overrides', {
+          debugLabel,
+          reason,
+          count: columnWidthOverrides.size
+        });
       }
     };
 
@@ -3697,14 +3738,34 @@
  
 
 
+    const pruneColumnWidthOverrides = ()=>{
+      if(!columnWidthOverrides.size){
+        return;
+      }
+      const validIds = new Set(Array.from({ length: Math.max(0, colCount) }, (_, idx)=>`c${idx}`));
+      Array.from(columnWidthOverrides.keys()).forEach(colId=>{
+        if(!validIds.has(colId)){
+          columnWidthOverrides.delete(colId);
+        }
+      });
+    };
+
     const rebuildColumns = (api)=>{
-      columnDefs = buildColumnDefs();
       if(batchDepth > 0){
         pendingRebuildColumns = true;
         return;
       }
       updateVirtualizationState('rebuildColumns');
       const preservedWidths = captureColumnWidths(api);
+      if(preservedWidths?.size){
+        preservedWidths.forEach((width, colId)=>{
+          if(typeof colId === 'string' && colId.startsWith('c') && Number.isFinite(width) && width > 0){
+            columnWidthOverrides.set(colId, width);
+          }
+        });
+      }
+      pruneColumnWidthOverrides();
+      columnDefs = buildColumnDefs();
       applyColumnDefs(api, columnDefs);
       applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
       applyCapturedColumnWidths(api, preservedWidths);
@@ -5036,6 +5097,7 @@
           if(params?.finished === false){
             return;
           }
+          persistColumnWidthOverrides(params?.api || instance?.gridApi, 'column-resized');
         },
       onCellValueChanged(event){
         const valuesMatch = valuesMatchForChange(event?.oldValue, event?.newValue);

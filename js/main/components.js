@@ -98,6 +98,12 @@
         console.debug('Debug: ensureComponent resolved', { name, ready: !!component.ready }); // Debug: ensure completion
         return component;
       });
+    }).catch(err => {
+      console.error('ensureComponent error', {
+        name,
+        message: err?.message || String(err)
+      });
+      return resolveComponentFromGlobal(name) || null;
     });
   }
 

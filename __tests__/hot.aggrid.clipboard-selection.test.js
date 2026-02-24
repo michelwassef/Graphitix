@@ -216,6 +216,51 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 1, 1]);
   });
 
+  test('manual column resize persists after rebuildColumns-triggering update', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColumnResizePersistHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-column-resize-persist',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const widthStateApi = {
+      getColumnState: jest.fn(() => [
+        { colId: 'c0', width: 96 },
+        { colId: 'c1', width: 222 },
+        { colId: 'c2', width: 96 }
+      ]),
+      applyColumnState: jest.fn()
+    };
+    hot.columnApi = widthStateApi;
+    hot.gridApi.columnApi = widthStateApi;
+
+    expect(typeof capturedGridOptions?.onColumnResized).toBe('function');
+    capturedGridOptions.onColumnResized({ finished: true, api: hot.gridApi, columnApi: widthStateApi });
+
+    hot.updateSettings({ minCols: 4 });
+
+    const defs = capturedGridOptions?.columnDefs || [];
+    const flattenDefs = list => (Array.isArray(list) ? list.flatMap(def => {
+      if(def && Array.isArray(def.children)){
+        return flattenDefs(def.children);
+      }
+      return [def];
+    }) : []);
+    const leafDefs = flattenDefs(defs);
+    const col1 = leafDefs.find(def => def && def.colId === 'c1');
+    expect(col1).toBeTruthy();
+    expect(col1.width).toBe(222);
+  });
+
   test('dragging column headers selects a multi-column range', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
