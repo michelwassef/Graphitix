@@ -709,6 +709,46 @@ select {
     box-shadow: none !important;
     outline: none !important;
 }
+
+/* Keep inline editing background identical to normal single-click cell state.
+   Without this, broad focus overrides tint the editor surface. */
+.ag-theme-balham .ag-cell.ag-cell-inline-editing,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing.ag-cell-focus,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing.ag-cell-range-selected,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing::before,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing::after,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-edit-wrapper,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-editor,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-wrapper,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-value,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-input-field-input,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing input,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing textarea {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+}
+
+/* Override generic input[type=text] app styles inside AG inline editor. */
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-input-field-input,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing input[type="text"],
+.ag-theme-balham .ag-cell.ag-cell-inline-editing input,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing textarea {
+    border: none !important;
+    outline: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-input-field-input:focus,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing input:focus,
+.ag-theme-balham .ag-cell.ag-cell-inline-editing textarea:focus {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
 .ag-theme-balham .ag-cell.hot-cell-excluded {
     background-color: rgba(220, 53, 69, 0.08) !important;
     color: #6c757d !important;
