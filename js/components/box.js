@@ -17277,16 +17277,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
     console.debug('Debug: box annotation style forwarded', { annotationStyle: helpers.annotationStyle, significance: helpers.significance });
     primeStatsComputation(traces, svg, helpers);
-    if(!showSignificance){
-      const otherBoxes = Array.from(svg.children)
-        .filter(el => el !== titleText && el.getBBox)
-        .map(el => el.getBBox());
-      if(otherBoxes.length){
-        const topMost = Math.min(...otherBoxes.map(b => b.y));
-        const spacing = fs + 4;
-        const newY = Math.max(spacing, topMost - spacing);
-        titleText.setAttribute('y', newY);
-      }
+    const otherBoxes = Array.from(svg.children)
+      .filter(el => {
+        if(el === titleText || !el.getBBox){
+          return false;
+        }
+        const classList = el.classList;
+        if(classList && classList.contains('box-significance-hit-overlay')){
+          return false;
+        }
+        if(typeof el.getAttribute === 'function' && el.getAttribute('data-significance-hit-overlay') === '1'){
+          return false;
+        }
+        return true;
+      })
+      .map(el => el.getBBox());
+    if(otherBoxes.length){
+      const topMost = Math.min(...otherBoxes.map(b => b.y));
+      const spacing = fs + 4;
+      const newY = Math.max(spacing, topMost - spacing);
+      titleText.setAttribute('y', newY);
     }
     registerBoxGridControlTarget(svg, { fallbackThickness: axisStrokeBase });
     ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
