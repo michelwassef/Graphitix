@@ -11862,9 +11862,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(Number.isFinite(opts.fontSize)){
       txt.setAttribute('font-size',opts.fontSize);
     }
-    if(color){
-      txt.setAttribute('fill',color);
-    }
     txt.textContent=labelText;
     if(fontControls && typeof fontControls.markText === 'function'){
       fontControls.markText(txt, { scopeId: 'box', role: 'significance-label', key: 'significance-label' });
@@ -11951,9 +11948,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     if(Number.isFinite(fontSize)){
       txt.setAttribute('font-size',fontSize);
-    }
-    if(color){
-      txt.setAttribute('fill',color);
     }
     txt.textContent=labelText;
     if(fontControls && typeof fontControls.markText === 'function'){
