@@ -37,16 +37,14 @@ describe('data view tab export menu', () => {
     const saveButtons = wrapper.querySelectorAll('.data-view-tabs__save');
     expect(saveButtons.length).toBe(2);
     expect(wrapper.querySelectorAll('.data-view-tabs__close').length).toBe(1);
+    const exportLabel = wrapper.querySelector('.data-view-tabs__export-label');
+    expect(exportLabel?.textContent).toBe('Save as:');
   });
 
-  test('exports csv for selected view', async () => {
+  test('exports csv for selected view with save-as', async () => {
     const { wrapper } = createMountedManager();
-    const downloads = [];
-    window.Shared.exporter = {
-      downloadBlob(blob, fileName) {
-        downloads.push({ blob, fileName });
-      }
-    };
+    const saveGraphFileAs = jest.fn().mockResolvedValue({ status: 'saved', via: 'picker' });
+    window.Shared.fileIO = { saveGraphFileAs };
 
     const firstSave = wrapper.querySelector('.data-view-tabs__save[data-view-id="raw"]');
     firstSave.click();
@@ -54,20 +52,18 @@ describe('data view tab export menu', () => {
     csvItem.click();
     await Promise.resolve();
 
-    expect(downloads).toHaveLength(1);
-    expect(downloads[0].fileName).toBe('raw.csv');
-    expect(downloads[0].blob.type).toContain('text/csv');
-    expect(downloads[0].blob.size).toBeGreaterThan(0);
+    expect(saveGraphFileAs).toHaveBeenCalledTimes(1);
+    const call = saveGraphFileAs.mock.calls[0][0];
+    expect(call.fileName).toBe('Raw.csv');
+    expect(call.downloadFileName).toBe('Raw.csv');
+    expect(call.payload.type).toContain('text/csv');
+    expect(call.payload.size).toBeGreaterThan(0);
   });
 
-  test('exports xlsx for selected view', async () => {
+  test('exports xlsx for selected view with save-as', async () => {
     const { wrapper } = createMountedManager();
-    const downloads = [];
-    window.Shared.exporter = {
-      downloadBlob(blob, fileName) {
-        downloads.push({ blob, fileName });
-      }
-    };
+    const saveGraphFileAs = jest.fn().mockResolvedValue({ status: 'saved', via: 'picker' });
+    window.Shared.fileIO = { saveGraphFileAs };
     window.Shared.lazyXlsx = jest.fn().mockResolvedValue({
       utils: {
         book_new: () => ({ sheets: [] }),
@@ -87,7 +83,9 @@ describe('data view tab export menu', () => {
     await Promise.resolve();
 
     expect(window.Shared.lazyXlsx).toHaveBeenCalledTimes(1);
-    expect(downloads).toHaveLength(1);
-    expect(downloads[0].fileName).toBe('log2-x-1.xlsx');
+    expect(saveGraphFileAs).toHaveBeenCalledTimes(1);
+    const call = saveGraphFileAs.mock.calls[0][0];
+    expect(call.fileName).toBe('log2(x+1).xlsx');
+    expect(call.payload.type).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   });
 });

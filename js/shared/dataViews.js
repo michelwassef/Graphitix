@@ -53,11 +53,21 @@
     return `${text.slice(0, Math.max(4, limit - 3))}...`;
   }
 
-  function sanitizeFileStem(value, fallback){
-    const stem = String(value || '').trim().toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    return stem || fallback || 'data-view';
+  function sanitizeSuggestedFileName(value, fallback){
+    const base = String(value || '').trim() || String(fallback || '').trim() || 'data-view';
+    return base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() || 'data-view';
+  }
+
+  function normalizePickerMimeType(value, fallback){
+    const raw = String(value || '').trim();
+    if(!raw){
+      return fallback || 'application/octet-stream';
+    }
+    const primary = raw.split(';')[0].trim().toLowerCase();
+    if(primary && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(primary)){
+      return primary;
+    }
+    return fallback || 'application/octet-stream';
   }
 
   function valueToText(value){
@@ -442,6 +452,7 @@
       exportMenu.setAttribute('hidden', 'hidden');
       exportMenu.setAttribute('role', 'menu');
       exportMenu.innerHTML = ''
+        + '<div class="data-view-tabs__export-label" aria-hidden="true">Save as:</div>'
         + '<button type="button" class="data-view-tabs__export-item" data-format="csv" role="menuitem">CSV</button>'
         + '<button type="button" class="data-view-tabs__export-item" data-format="tsv" role="menuitem">TSV</button>'
         + '<button type="button" class="data-view-tabs__export-item" data-format="ods" role="menuitem">ODS</button>'
@@ -479,13 +490,33 @@
         exportMenu.style.top = `${Math.round(Math.max(0, top))}px`;
       };
 
-      const downloadBlob = (blob, fileName, contextLabel) => {
+      const saveBlobAs = async (blob, fileName, contextLabel, acceptMime, acceptExt) => {
+        const fileIO = Shared.fileIO;
+        const pickerMime = normalizePickerMimeType(acceptMime, blob?.type || 'application/octet-stream');
+        if(fileIO && typeof fileIO.saveGraphFileAs === 'function'){
+          await fileIO.saveGraphFileAs({
+            context: contextLabel,
+            payload: blob,
+            fileName,
+            downloadFileName: fileName,
+            mimeType: blob?.type || acceptMime || pickerMime,
+            fileTypes: [
+              {
+                description: `Data Files (${String(acceptExt || '').toUpperCase()})`,
+                accept: {
+                  [pickerMime]: [acceptExt || '']
+                }
+              }
+            ]
+          });
+          return;
+        }
         if(Shared.exporter && typeof Shared.exporter.downloadBlob === 'function'){
           Shared.exporter.downloadBlob(blob, fileName, contextLabel);
           return;
         }
-        if(Shared.fileIO && typeof Shared.fileIO.downloadBlob === 'function'){
-          Shared.fileIO.downloadBlob(blob, fileName, blob?.type || 'application/octet-stream');
+        if(fileIO && typeof fileIO.downloadBlob === 'function'){
+          fileIO.downloadBlob(blob, fileName, blob?.type || acceptMime || 'application/octet-stream');
         }
       };
 
@@ -495,14 +526,15 @@
           return;
         }
         const ext = String(format || '').toLowerCase();
-        const fileStem = sanitizeFileStem(view.title, view.kind === 'raw' ? 'raw' : 'derived');
+        const fileStem = sanitizeSuggestedFileName(view.title, view.kind === 'raw' ? 'raw' : 'derived');
+        const targetName = `${fileStem}.${ext}`;
         const rows = Array.isArray(view.data) ? view.data : [];
         if(ext === 'csv' || ext === 'tsv'){
           const delimiter = ext === 'tsv' ? '\t' : ',';
           const mime = ext === 'tsv' ? 'text/tab-separated-values;charset=utf-8' : 'text/csv;charset=utf-8';
           const text = buildDelimitedText(rows, delimiter);
           const blob = new Blob([text], { type: mime });
-          downloadBlob(blob, `${fileStem}.${ext}`, `data-view-${ext}`);
+          await saveBlobAs(blob, targetName, `data-view-${ext}`, mime, `.${ext}`);
           return;
         }
         if(ext !== 'xlsx' && ext !== 'ods'){
@@ -525,7 +557,7 @@
           ? 'application/vnd.oasis.opendocument.spreadsheet'
           : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         const blob = new Blob([output], { type: mime });
-        downloadBlob(blob, `${fileStem}.${ext}`, `data-view-${ext}`);
+        await saveBlobAs(blob, targetName, `data-view-${ext}`, mime, `.${ext}`);
       };
 
       const pointerDownHandler = event => {
