@@ -289,7 +289,8 @@
       scopeId: config?.scopeId || target?.dataset?.fontScope || null,
       key: config?.fontKey || target?.dataset?.fontKey || null,
       coexistWithComponent: true,
-      coexistComponentClass: 'font-toolbar-host--significance-dual'
+      coexistComponentClass: 'font-toolbar-host--significance-dual',
+      host: activeHost && activeHost.nodeType === 1 ? activeHost : null
     };
     fontControls.openForElement(target, options);
     logDebug('font controls opened',{ reason, scopeId: options.scopeId, key: options.key || null });
@@ -619,6 +620,13 @@
     panelEl.dataset.open = '0';
     if(activeHost){
       activeHost.classList.remove('font-toolbar-host--significance');
+      activeHost.classList.remove('font-toolbar-host--significance-dual');
+      activeHost.style.removeProperty('display');
+      activeHost.style.removeProperty('grid-auto-flow');
+      activeHost.style.removeProperty('grid-auto-columns');
+      activeHost.style.removeProperty('column-gap');
+      activeHost.style.removeProperty('align-items');
+      activeHost.style.removeProperty('justify-content');
       const fontPanel = activeHost.querySelector('.font-controls-panel');
       const axisPanel = activeHost.querySelector('.axis-controls-panel');
       const dendrogramPanel = activeHost.querySelector('.dendrogram-controls-panel');

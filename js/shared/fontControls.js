@@ -3341,6 +3341,12 @@
       const significanceOpen = !!(significancePanel && significancePanel.dataset?.open === '1');
       if(significanceOpen){
         activeHost.classList.remove('font-toolbar-host--significance-dual');
+        activeHost.style.removeProperty('display');
+        activeHost.style.removeProperty('grid-auto-flow');
+        activeHost.style.removeProperty('grid-auto-columns');
+        activeHost.style.removeProperty('column-gap');
+        activeHost.style.removeProperty('align-items');
+        activeHost.style.removeProperty('justify-content');
       }else{
         hideToolbarHost(activeHost);
         activeHost = null;
@@ -3410,7 +3416,8 @@
         try{ gridControls.close('font-open'); }catch(e){}
       }
     }catch(e){}
-    const host = resolveToolbarHost(currentScope);
+    const providedHost = options?.host && options.host.nodeType === 1 ? options.host : null;
+    const host = providedHost || resolveToolbarHost(currentScope);
     if(host){
       if(activeHost && activeHost !== host){
         hideToolbarHost(activeHost);
@@ -3446,6 +3453,14 @@
         host.classList.add('font-toolbar-host--significance');
         if(coexistComponentClass){
           host.classList.add(coexistComponentClass);
+          if(/-dual$/.test(coexistComponentClass)){
+            host.style.display = 'grid';
+            host.style.gridAutoFlow = 'column';
+            host.style.gridAutoColumns = 'max-content';
+            host.style.columnGap = '10px';
+            host.style.alignItems = 'flex-start';
+            host.style.justifyContent = 'flex-start';
+          }
         }
       }
     } else {
