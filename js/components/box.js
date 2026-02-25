@@ -105,6 +105,8 @@
 	  const DEFAULT_SIGNIFICANCE_THICKNESS = 1;
 	  const DEFAULT_SIGNIFICANCE_WHISKERS = true;
 	  const DEFAULT_SIGNIFICANCE_WHISKER_MODE = 'fixed'; // 'fixed' | 'adaptive'
+	  const DEFAULT_SIGNIFICANCE_P_SCIENTIFIC = false;
+	  const DEFAULT_SIGNIFICANCE_P_DECIMALS = 2;
 	  const ASSUMPTION_QQ_SAMPLE_LIMIT=4000;
 	  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
 	  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
@@ -5451,7 +5453,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -6947,6 +6949,19 @@
 	    return trimmed === 'adaptive' ? 'adaptive' : 'fixed';
 	  }
 
+	  function sanitizeSignificancePScientific(value){
+	    return value === true;
+	  }
+
+	  function sanitizeSignificancePDecimals(value){
+	    const numeric = Number(value);
+	    if(!Number.isFinite(numeric)){
+	      return DEFAULT_SIGNIFICANCE_P_DECIMALS;
+	    }
+	    const rounded = Math.round(numeric);
+	    return Math.max(0, Math.min(8, rounded));
+	  }
+
 	  function ensureSignificanceStyle(){
 	    const style = state.significanceStyle && typeof state.significanceStyle === 'object'
 	      ? state.significanceStyle
@@ -6956,6 +6971,8 @@
 	    style.color = typeof style.color === 'string' && style.color.trim() ? style.color.trim() : DEFAULT_SIGNIFICANCE_COLOR;
 	    style.showWhiskers = style.showWhiskers !== false;
 	    style.whiskerMode = normalizeSignificanceWhiskerMode(style.whiskerMode);
+	    style.pScientific = sanitizeSignificancePScientific(style.pScientific);
+	    style.pDecimals = sanitizeSignificancePDecimals(style.pDecimals);
 	    state.significanceStyle = style;
 	    return style;
 	  }
@@ -6976,6 +6993,14 @@
 	    return ensureSignificanceStyle().whiskerMode;
 	  }
 
+	  function getSignificancePScientific(){
+	    return ensureSignificanceStyle().pScientific;
+	  }
+
+	  function getSignificancePDecimals(){
+	    return ensureSignificanceStyle().pDecimals;
+	  }
+
 	  function syncSignificanceStyleToStatsContext(){
 	    const ctx = state.statsContext;
 	    if(!ctx || !ctx.helpers || !ctx.helpers.annotationStyle){
@@ -6989,6 +7014,8 @@
 	    annotationStyle.color = style.color;
 	    annotationStyle.showWhiskers = style.showWhiskers !== false;
 	    annotationStyle.whiskerMode = normalizeSignificanceWhiskerMode(style.whiskerMode);
+	    annotationStyle.pScientific = sanitizeSignificancePScientific(style.pScientific);
+	    annotationStyle.pDecimals = sanitizeSignificancePDecimals(style.pDecimals);
 	    annotationStyle.controlConfig = createSignificanceControlConfig(annotationStyle.orientation || 'vertical');
 	    return true;
 	  }
@@ -7061,6 +7088,30 @@
 	    refreshSignificanceAnnotations('whisker-mode');
 	  }
 
+	  function updateSignificancePScientific(enabled){
+	    const style = ensureSignificanceStyle();
+	    style.pScientific = sanitizeSignificancePScientific(enabled);
+	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+	      console.debug('Debug: box significance p scientific updated',{ pScientific: style.pScientific });
+	    }
+	    if(typeof state.scheduleDraw === 'function'){
+	      state.scheduleDraw();
+	    }
+	    refreshSignificanceAnnotations('p-scientific');
+	  }
+
+	  function updateSignificancePDecimals(value){
+	    const style = ensureSignificanceStyle();
+	    style.pDecimals = sanitizeSignificancePDecimals(value);
+	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+	      console.debug('Debug: box significance p decimals updated',{ pDecimals: style.pDecimals });
+	    }
+	    if(typeof state.scheduleDraw === 'function'){
+	      state.scheduleDraw();
+	    }
+	    refreshSignificanceAnnotations('p-decimals');
+	  }
+
 	  function createSignificanceControlConfig(orientation){
 	    // Use the shared 'box' toolbar scope so the FORMAT host exists
 	    const scopeId = 'box';
@@ -7072,10 +7123,14 @@
 	      getColor: () => getSignificanceColor(),
 	      getWhiskers: () => getSignificanceWhiskers(),
 	      getWhiskerMode: () => getSignificanceWhiskerMode(),
+	      getPScientific: () => getSignificancePScientific(),
+	      getPDecimals: () => getSignificancePDecimals(),
 	      onThicknessChange: value => updateSignificanceThickness(value),
 	      onColorChange: value => updateSignificanceColor(value),
 	      onWhiskersChange: value => updateSignificanceWhiskers(value),
-	      onWhiskerModeChange: value => updateSignificanceWhiskerMode(value)
+	      onWhiskerModeChange: value => updateSignificanceWhiskerMode(value),
+	      onPScientificChange: value => updateSignificancePScientific(value),
+	      onPDecimalsChange: value => updateSignificancePDecimals(value)
 	    };
 	  }
 
@@ -8105,13 +8160,33 @@
 
   // PART: STATS
   function p2stars(p){ return p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns'; }
-  function formatSignificanceLabel(p, mode){
+  function formatSignificancePLabel(p, options){
+    if(!Number.isFinite(p)){
+      return String(p);
+    }
+    const value = Math.max(0, Number(p));
+    const decimals = sanitizeSignificancePDecimals(options?.decimals);
+    const scientific = sanitizeSignificancePScientific(options?.scientific);
+    if(scientific){
+      return value.toExponential(decimals);
+    }
+    const threshold = Math.pow(10, -decimals);
+    if(value > 0 && value < threshold){
+      return `<${threshold.toFixed(decimals)}`;
+    }
+    return value.toFixed(decimals);
+  }
+  function formatSignificanceLabel(p, mode, options){
     if(!Number.isFinite(p)){
       return String(p);
     }
     const resolvedMode = mode === 'p' ? 'p' : 'stars';
     if(resolvedMode === 'p'){
-      return formatP(p, { compact: true });
+      const style = ensureSignificanceStyle();
+      return formatSignificancePLabel(p, {
+        scientific: options?.scientific ?? style.pScientific,
+        decimals: options?.decimals ?? style.pDecimals
+      });
     }
     return p2stars(p);
   }
@@ -9483,9 +9558,9 @@
 
     // IMPORTANT: ensure the QQ sparkline is rendered in standard ascending orientation.
     // Some installations may have CSS rules that flip .assumption-sparkline via transforms.
-    // We force-disable transforms on this SVG (with !important) so ordering remains correct.
+    // We apply scaleY(-1) to flip vertically so larger observed quantiles appear visually higher.
     try{
-      svg.style.setProperty('transform','none','important');
+      svg.style.setProperty('transform','scaleY(-1)','important');
       svg.style.setProperty('transform-origin','center','important');
       svg.style.setProperty('transform-box','fill-box','important');
     }catch(err){
@@ -9624,6 +9699,16 @@
     svg.setAttribute('width',String(width));
     svg.setAttribute('height',String(height));
     svg.setAttribute('preserveAspectRatio','none');
+
+    // Apply the same scaleY(-1) transform as QQ sparklines for visual consistency
+    try{
+      svg.style.setProperty('transform','scaleY(-1)','important');
+      svg.style.setProperty('transform-origin','center','important');
+      svg.style.setProperty('transform-box','fill-box','important');
+    }catch(err){
+      console.debug('Debug: box variance sparkline transform override failed',{ message: err?.message || String(err) });
+    }
+
     if(!values || !values.length){
       return svg;
     }
@@ -9649,18 +9734,22 @@
       return;
     }
     container.innerHTML='';
-    const section=document.createElement('div');
-    section.className='stats-assumption-section';
+    
+    const card=document.createElement('div');
+    card.className='stats-table-card';
+    
     const heading=document.createElement('div');
-    heading.className='stats-table-lead';
+    heading.className='stats-table-caption';
     heading.textContent='Assumption Checks';
-    section.appendChild(heading);
+    card.appendChild(heading);
+    
     if(!diagnostics){
       const message=document.createElement('div');
       message.className='assumption-message';
+      message.style.padding='16px 20px';
       message.textContent='Assumption metrics will appear once groups are selected.';
-      section.appendChild(message);
-      container.appendChild(section);
+      card.appendChild(message);
+      container.appendChild(card);
       return;
     }
     const table=document.createElement('table');
@@ -9720,10 +9809,12 @@
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    section.appendChild(table);
+    card.appendChild(table);
     if(diagnostics.variance){
       const varianceRow=document.createElement('div');
       varianceRow.className='assumption-variance-row';
+      varianceRow.style.borderTop='1px solid #d7e0ef';
+      varianceRow.style.padding='10px 20px';
       const label=document.createElement('span');
       label.textContent='Variance test:';
       label.className='assumption-variance-label';
@@ -9734,41 +9825,53 @@
       detail.textContent=` p = ${Number.isFinite(pValue)?formatP(pValue):'—'}`;
       detail.className='assumption-variance-detail';
       varianceRow.appendChild(detail);
-      if(Array.isArray(diagnostics.variance.sparkline) && diagnostics.variance.sparkline.length){
-        const spark=createResidualSparkline(diagnostics.variance.sparkline);
-        varianceRow.appendChild(spark);
-      }
-      section.appendChild(varianceRow);
+      card.appendChild(varianceRow);
     }
     if(Array.isArray(diagnostics.warnings) && diagnostics.warnings.length){
-      const warningList=document.createElement('div');
-      warningList.className='assumption-warning-list';
+      const warningSection=document.createElement('div');
+      warningSection.style.borderTop='1px solid #d7e0ef';
+      warningSection.style.padding='12px 20px';
       diagnostics.warnings.forEach(msg=>{
         const warn=document.createElement('div');
         warn.className='assumption-warning';
         warn.textContent=msg;
-        warningList.appendChild(warn);
+        warn.style.fontSize='12px';
+        warn.style.color='#6b7280';
+        warn.style.marginBottom='6px';
+        warningSection.appendChild(warn);
       });
-      section.appendChild(warningList);
+      card.appendChild(warningSection);
     }
     if(diagnostics.parametricOverrideActive){
       const override=document.createElement('div');
       override.className='assumption-info';
+      override.style.borderTop='1px solid #d7e0ef';
+      override.style.padding='12px 20px';
+      override.style.fontSize='12px';
+      override.style.color='#6b7280';
       override.textContent='Parametric results remain visible despite failed assumptions; consider alternative tests if violations persist.';
-      section.appendChild(override);
+      card.appendChild(override);
     }
     if(diagnostics.appliedVariant==='welch'){
       const info=document.createElement('div');
       info.className='assumption-info';
+      info.style.borderTop='1px solid #d7e0ef';
+      info.style.padding='12px 20px';
+      info.style.fontSize='12px';
+      info.style.color='#6b7280';
       info.textContent='Welch ANOVA with Games–Howell post-hoc applied to address unequal variances.';
-      section.appendChild(info);
+      card.appendChild(info);
     } else if(diagnostics.recommendWelch){
       const info=document.createElement('div');
       info.className='assumption-info';
+      info.style.borderTop='1px solid #d7e0ef';
+      info.style.padding='12px 20px';
+      info.style.fontSize='12px';
+      info.style.color='#6b7280';
       info.textContent='Welch ANOVA is available to handle unequal variances without switching to non-parametric tests.';
-      section.appendChild(info);
+      card.appendChild(info);
     }
-    container.appendChild(section);
+    container.appendChild(card);
   }
 
   function serializeAssumptions(diag){
@@ -11155,11 +11258,61 @@
     renderStatsAdvisor(traces, controls, advisorContext);
   }
 
-  const optionWrap=document.createElement('div');
-  // Arrange controls in compact rows: label + control side-by-side
+  // First, create the "Conditions to compare" section with checkboxes
+  const conditionsWrap = document.createElement('div');
+  conditionsWrap.className = 'stats-conditions-section';
+  const conditionsTitle = document.createElement('div');
+  conditionsTitle.className = 'stats-conditions-title';
+  conditionsTitle.textContent = 'Conditions to compare:';
+  conditionsWrap.appendChild(conditionsTitle);
+  const conditionsCheckboxWrap = document.createElement('div');
+  conditionsCheckboxWrap.className = 'stats-conditions-checkboxes';
+  traces.forEach((trace, index) => {
+    const id = `statCol${index}`;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = id;
+    checkbox.dataset.index = index;
+    checkbox.checked = state.selectedCols.has(index);
+    checkbox.addEventListener('change', () => {
+      if(checkbox.checked) state.selectedCols.add(index);
+      else state.selectedCols.delete(index);
+      console.log('boxplot column toggle', {index, checked: checkbox.checked});
+      requestStatsContextRefresh('stats-column-toggle');
+      persistTabState('stats-column-toggle');
+      state.scheduleDraw();
+    });
+    const label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.textContent = trace.name;
+    const labelWrap = document.createElement('div');
+    labelWrap.className = 'stats-conditions-item';
+    labelWrap.appendChild(checkbox);
+    labelWrap.appendChild(label);
+    conditionsCheckboxWrap.appendChild(labelWrap);
+  });
+  conditionsWrap.appendChild(conditionsCheckboxWrap);
+  controls.appendChild(conditionsWrap);
+
+  const optionWrap = document.createElement('div');
+  // Arrange controls in 2-column layout
   optionWrap.style.display = 'flex';
-  optionWrap.style.flexDirection = 'column';
-  optionWrap.style.gap = '8px';
+  optionWrap.style.flexDirection = 'row';
+  optionWrap.style.gap = '20px';
+  optionWrap.style.marginBottom = '12px';
+
+  // Create left and right column containers
+  const leftColumn = document.createElement('div');
+  leftColumn.style.display = 'flex';
+  leftColumn.style.flexDirection = 'column';
+  leftColumn.style.gap = '10px';
+  leftColumn.style.flex = '1';
+
+  const rightColumn = document.createElement('div');
+  rightColumn.style.display = 'flex';
+  rightColumn.style.flexDirection = 'column';
+  rightColumn.style.gap = '10px';
+  rightColumn.style.flex = '1';
 
   function persistTabState(reason){
     try{
@@ -11172,16 +11325,28 @@
     }
   }
 
-  function appendInline(labelEl, inputEl){
+  function appendInline(labelEl, inputEl, isRightColumn){
     const row = document.createElement('div');
     row.style.display = 'flex';
     row.style.gap = '8px';
     row.style.alignItems = 'center';
-    // keep labels compact and aligned
-    try{ labelEl.style.minWidth = '120px'; }catch(e){}
+    // Set uniform width for all labels
+    try{ labelEl.style.minWidth = '140px'; }catch(e){}
+    // Set uniform width for all input/select elements
+    try{ 
+      inputEl.style.width = '180px';
+      if(inputEl.tagName === 'SELECT'){
+        inputEl.style.width = '180px';
+      }
+    }catch(e){}
     row.appendChild(labelEl);
     row.appendChild(inputEl);
-    optionWrap.appendChild(row);
+    // Add to appropriate column
+    if(isRightColumn){
+      rightColumn.appendChild(row);
+    }else{
+      leftColumn.appendChild(row);
+    }
   }
   const testLabel=document.createElement('label');
   testLabel.textContent='Test:';
@@ -11200,7 +11365,7 @@
     persistTabState('stats-test-change');
     state.scheduleDraw();
   });
-  appendInline(testLabel, testSel);
+  appendInline(testLabel, testSel, false);
 
   const pairedLabel=document.createElement('label');
   pairedLabel.textContent='Pairing:';
@@ -11225,7 +11390,7 @@
   }else{
     pairedSel.removeAttribute('title');
   }
-  appendInline(pairedLabel, pairedSel);
+  appendInline(pairedLabel, pairedSel, false);
 
   const modeLabel=document.createElement('label');
   modeLabel.textContent='Comparison:';
@@ -11257,7 +11422,7 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  appendInline(modeLabel, modeSel);
+  appendInline(modeLabel, modeSel, false);
 
   if(oneSampleMode){
     const nullLabel=document.createElement('label');
@@ -11279,7 +11444,7 @@
       persistTabState('stats-null-value-change');
       state.scheduleDraw();
     });
-    appendInline(nullLabel, nullInput);
+    appendInline(nullLabel, nullInput, false);
   }
 
   const postHocLabel=document.createElement('label');
@@ -11310,7 +11475,7 @@
   }else{
     postHocSel.removeAttribute('title');
   }
-  appendInline(postHocLabel, postHocSel);
+  appendInline(postHocLabel, postHocSel, false);
 
   const correctionLabel=document.createElement('label');
   correctionLabel.textContent='Correction:';
@@ -11341,7 +11506,7 @@
   }else{
     correctionSel.removeAttribute('title');
   }
-  appendInline(correctionLabel, correctionSel);
+  appendInline(correctionLabel, correctionSel, true);
 
   const paramEffectLabel=document.createElement('label');
   paramEffectLabel.textContent='Param effect size:';
@@ -11362,7 +11527,7 @@
     persistTabState('stats-param-effect-change');
     state.scheduleDraw();
   });
-  appendInline(paramEffectLabel, paramEffectSel);
+  appendInline(paramEffectLabel, paramEffectSel, true);
 
   const nonParamEffectLabel=document.createElement('label');
   nonParamEffectLabel.textContent='Non-param effect size:';
@@ -11383,7 +11548,7 @@
     persistTabState('stats-nonparam-effect-change');
     state.scheduleDraw();
   });
-  appendInline(nonParamEffectLabel, nonParamEffectSel);
+  appendInline(nonParamEffectLabel, nonParamEffectSel, true);
 
   const postHocHelp=document.getElementById('statsPostHocHelp');
   if(postHocHelp){
@@ -11411,7 +11576,7 @@
       renderStatsControls(traces);
       state.scheduleDraw();
     });
-    appendInline(refLabel, refSel);
+    appendInline(refLabel, refSel, false);
   }else if(state.statsMode==='custom'){
     const pairLabel=document.createElement('label');
     pairLabel.textContent='Pairs:';
@@ -11427,33 +11592,14 @@
       persistTabState('stats-custom-pairs-change');
       state.scheduleDraw();
     });
-    appendInline(pairLabel, pairInput);
+    appendInline(pairLabel, pairInput, false);
     state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
   }
 
+  // Add columns to the optionWrap
+  optionWrap.appendChild(leftColumn);
+  optionWrap.appendChild(rightColumn);
   controls.appendChild(optionWrap);
-
-  traces.forEach((trace,index)=>{
-    const id=`statCol${index}`;
-    const checkbox=document.createElement('input');
-    checkbox.type='checkbox';
-    checkbox.id=id;
-    checkbox.dataset.index=index;
-    checkbox.checked=state.selectedCols.has(index);
-    checkbox.addEventListener('change',()=>{
-      if(checkbox.checked) state.selectedCols.add(index);
-      else state.selectedCols.delete(index);
-      console.log('boxplot column toggle',{index,checked:checkbox.checked});
-      requestStatsContextRefresh('stats-column-toggle');
-      persistTabState('stats-column-toggle');
-      state.scheduleDraw();
-    });
-    const label=document.createElement('label');
-    label.setAttribute('for',id);
-    label.textContent=trace.name;
-    controls.appendChild(checkbox);
-    controls.appendChild(label);
-  });
   const correctionCount=state.statsMode==='oneSample'
     ? state.selectedCols.size
     : (state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0);
@@ -11845,7 +11991,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(txt.style){
       txt.style.verticalAlign = 'baseline';
     }
-	    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
+	    const labelText = formatSignificanceLabel(p, state.significanceLabelMode, {
+	      scientific: opts.pScientific,
+	      decimals: opts.pDecimals
+	    });
 		    let labelBottomTarget = NaN;
 		    if(orientation==='horizontal'){
 		      txt.setAttribute('x',labelOuterCoord+bracketSize*1.4);
@@ -11923,7 +12072,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(txt.style){
       txt.style.verticalAlign = 'baseline';
     }
-    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
+    const labelText = formatSignificanceLabel(p, state.significanceLabelMode, {
+      scientific: opts.pScientific,
+      decimals: opts.pDecimals
+    });
     let labelBottomTarget = NaN;
     if(orientation==='horizontal'){
       const x=baseCoord+baseOffset+level*levelGap+bracketSize*0.6;
@@ -14716,6 +14868,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      color: annotationColor,
 	      showWhiskers: annotationShowWhiskers,
 	      whiskerMode: annotationWhiskerMode,
+	      pScientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
+	      pDecimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals),
 	      controlConfig: significanceControlConfig,
 	      baseOffset: annotationBaseOffset,
 	      levelGap: annotationLevelGap,
@@ -17740,7 +17894,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	          thickness: significanceStyle.thickness,
 	          color: significanceStyle.color,
 	          showWhiskers: significanceStyle.showWhiskers,
-	          whiskerMode: significanceStyle.whiskerMode
+	          whiskerMode: significanceStyle.whiskerMode,
+	          pScientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
+	          pDecimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals)
 	        },
         errorMode:els.boxErrorMode.value,
         colors:[...state.fillColors],
@@ -18106,11 +18262,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        : DEFAULT_SIGNIFICANCE_COLOR;
 	      significanceStyle.showWhiskers = significanceConfig.showWhiskers !== false;
 	      significanceStyle.whiskerMode = normalizeSignificanceWhiskerMode(significanceConfig.whiskerMode);
+	      significanceStyle.pScientific = sanitizeSignificancePScientific(significanceConfig.pScientific);
+	      significanceStyle.pDecimals = sanitizeSignificancePDecimals(significanceConfig.pDecimals);
 	    }else{
 	      significanceStyle.thickness = DEFAULT_SIGNIFICANCE_THICKNESS;
 	      significanceStyle.color = DEFAULT_SIGNIFICANCE_COLOR;
 	      significanceStyle.showWhiskers = DEFAULT_SIGNIFICANCE_WHISKERS;
 	      significanceStyle.whiskerMode = DEFAULT_SIGNIFICANCE_WHISKER_MODE;
+	      significanceStyle.pScientific = DEFAULT_SIGNIFICANCE_P_SCIENTIFIC;
+	      significanceStyle.pDecimals = DEFAULT_SIGNIFICANCE_P_DECIMALS;
 	    }
     state.significanceStyle = significanceStyle;
 	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -18118,7 +18278,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        thickness: significanceStyle.thickness,
 	        color: significanceStyle.color,
 	        showWhiskers: significanceStyle.showWhiskers,
-	        whiskerMode: significanceStyle.whiskerMode
+	        whiskerMode: significanceStyle.whiskerMode,
+	        pScientific: significanceStyle.pScientific,
+	        pDecimals: significanceStyle.pDecimals
 	      });
 	    }
     els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
@@ -18736,6 +18898,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
 	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
-	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts)
+	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
+	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options)
 	  });
 })(window);

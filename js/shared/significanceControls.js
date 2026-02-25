@@ -14,6 +14,9 @@
   let whiskerToggleInput = null;
   let whiskerModeField = null;
   let whiskerModeSelect = null;
+  let pScientificToggleInput = null;
+  let pDecimalsField = null;
+  let pDecimalsInput = null;
   let textStyleButton = null;
   let activeConfig = null;
   let activeHost = null;
@@ -87,6 +90,19 @@
     return trimmed === 'adaptive' ? 'adaptive' : 'fixed';
   }
 
+  function sanitizeScientificValue(value){
+    return value === true;
+  }
+
+  function sanitizeDecimalsValue(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 2;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(0, Math.min(8, rounded));
+  }
+
   function getUndoScope(config){
     if(!config){ return null; }
     if(typeof config.undoScope === 'string' && config.undoScope){
@@ -120,6 +136,31 @@
       whiskerModeSelect.value = sanitizeWhiskerMode(whiskerModeRaw);
     }else if(whiskerModeField){
       whiskerModeField.style.display = 'none';
+    }
+
+    const hasPScientificMode = !!(pScientificToggleInput && (config.getPScientific || config.onPScientificChange));
+    if(hasPScientificMode){
+      const pScientificRaw = config.getPScientific ? config.getPScientific() : false;
+      pScientificToggleInput.checked = sanitizeScientificValue(pScientificRaw);
+      pScientificToggleInput.disabled = false;
+      if(pScientificToggleInput.parentElement && pScientificToggleInput.parentElement.dataset){
+        pScientificToggleInput.parentElement.dataset.checked = pScientificToggleInput.checked ? '1' : '0';
+      }
+    }else if(pScientificToggleInput){
+      pScientificToggleInput.checked = false;
+      pScientificToggleInput.disabled = true;
+      if(pScientificToggleInput.parentElement && pScientificToggleInput.parentElement.dataset){
+        pScientificToggleInput.parentElement.dataset.checked = '0';
+      }
+    }
+
+    const hasPDecimals = !!(pDecimalsField && pDecimalsInput && (config.getPDecimals || config.onPDecimalsChange));
+    if(hasPDecimals){
+      pDecimalsField.style.display = '';
+      const pDecimalsRaw = config.getPDecimals ? config.getPDecimals() : 2;
+      pDecimalsInput.value = String(sanitizeDecimalsValue(pDecimalsRaw));
+    }else if(pDecimalsField){
+      pDecimalsField.style.display = 'none';
     }
   }
 
@@ -549,6 +590,46 @@
     whiskerModeField.style.display = 'none';
     row.appendChild(whiskerModeField);
 
+    const pScientificField = doc.createElement('label');
+    pScientificField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--toggle';
+    const pScientificLabel = doc.createElement('span');
+    pScientificLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
+    pScientificLabel.textContent = 'Scientific';
+    pScientificField.appendChild(pScientificLabel);
+    const pScientificRow = doc.createElement('div');
+    pScientificRow.className = 'significance-controls-panel__toggle-row';
+    const pScientificSwitch = doc.createElement('label');
+    pScientificSwitch.className = 'workspace-toolbar__checkbox workspace-toolbar__checkbox--toolbar significance-controls-panel__checkbox-chip';
+    pScientificSwitch.dataset.checked = '0';
+    pScientificToggleInput = doc.createElement('input');
+    pScientificToggleInput.type = 'checkbox';
+    pScientificToggleInput.className = 'significance-controls-panel__checkbox';
+    pScientificToggleInput.setAttribute('aria-label', 'Toggle scientific notation for significance p-values');
+    pScientificToggleInput.setAttribute('data-undo-ignore', '1');
+    pScientificSwitch.appendChild(pScientificToggleInput);
+    pScientificRow.appendChild(pScientificSwitch);
+    pScientificField.appendChild(pScientificRow);
+    row.appendChild(pScientificField);
+
+    pDecimalsField = doc.createElement('label');
+    pDecimalsField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric significance-controls-panel__field significance-controls-panel__field--numeric';
+    const pDecimalsLabel = doc.createElement('span');
+    pDecimalsLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
+    pDecimalsLabel.textContent = 'Decimals';
+    pDecimalsInput = doc.createElement('input');
+    pDecimalsInput.type = 'number';
+    pDecimalsInput.min = '0';
+    pDecimalsInput.max = '8';
+    pDecimalsInput.step = '1';
+    pDecimalsInput.placeholder = '2';
+    pDecimalsInput.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small significance-controls-panel__input significance-controls-panel__input--small significance-controls-panel__input--square';
+    pDecimalsInput.setAttribute('aria-label', 'Number of decimals for significance p-values');
+    pDecimalsInput.setAttribute('data-undo-ignore', '1');
+    pDecimalsField.appendChild(pDecimalsLabel);
+    pDecimalsField.appendChild(pDecimalsInput);
+    pDecimalsField.style.display = 'none';
+    row.appendChild(pDecimalsField);
+
     textStyleButton = null;
 
     thicknessInput.addEventListener('change', () => {
@@ -654,6 +735,60 @@
         value => {
           if(config.onWhiskerModeChange){
             config.onWhiskerModeChange(sanitizeWhiskerMode(value));
+          }
+        }
+      );
+    });
+
+    pScientificToggleInput.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
+      if(!activeConfig){ return; }
+      const config = activeConfig;
+      if(!config.getPScientific && !config.onPScientificChange){ return; }
+      const previousValue = sanitizeScientificValue(config.getPScientific ? config.getPScientific() : null);
+      const nextValue = sanitizeScientificValue(pScientificToggleInput.checked);
+      if(pScientificToggleInput.parentElement && pScientificToggleInput.parentElement.dataset){
+        pScientificToggleInput.parentElement.dataset.checked = nextValue ? '1' : '0';
+      }
+      logDebug('p scientific toggle change', { value: nextValue });
+      if(config.onPScientificChange){
+        config.onPScientificChange(nextValue);
+      }
+      syncPanelInputsFromConfig(config);
+      recordSignificanceStateChange(
+        config,
+        'p-scientific',
+        previousValue,
+        nextValue,
+        value => {
+          if(config.onPScientificChange){
+            config.onPScientificChange(sanitizeScientificValue(value));
+          }
+        }
+      );
+    });
+
+    pDecimalsInput.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
+      if(!activeConfig){ return; }
+      const config = activeConfig;
+      if(!config.getPDecimals && !config.onPDecimalsChange){ return; }
+      const previousValue = sanitizeDecimalsValue(config.getPDecimals ? config.getPDecimals() : null);
+      const nextValue = sanitizeDecimalsValue(pDecimalsInput.value);
+      pDecimalsInput.value = String(nextValue);
+      logDebug('p decimals change', { value: nextValue });
+      if(config.onPDecimalsChange){
+        config.onPDecimalsChange(nextValue);
+      }
+      syncPanelInputsFromConfig(config);
+      recordSignificanceStateChange(
+        config,
+        'p-decimals',
+        previousValue,
+        nextValue,
+        value => {
+          if(config.onPDecimalsChange){
+            config.onPDecimalsChange(sanitizeDecimalsValue(value));
           }
         }
       );
@@ -848,13 +983,17 @@
         getColor: config.getColor,
         getWhiskers: config.getWhiskers,
         getWhiskerMode: config.getWhiskerMode,
+        getPScientific: config.getPScientific,
+        getPDecimals: config.getPDecimals,
         getFontTarget: config.getFontTarget,
         fontTarget: config.fontTarget,
         fontKey: config.fontKey,
         onThicknessChange: config.onThicknessChange,
         onColorChange: config.onColorChange,
         onWhiskersChange: config.onWhiskersChange,
-        onWhiskerModeChange: config.onWhiskerModeChange
+        onWhiskerModeChange: config.onWhiskerModeChange,
+        onPScientificChange: config.onPScientificChange,
+        onPDecimalsChange: config.onPDecimalsChange
       });
     };
     if(!element.__significanceControlHandler){

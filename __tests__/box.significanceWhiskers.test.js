@@ -56,5 +56,15 @@ describe('Box significance whisker modes', () => {
     expect(geom.d).toBe('M100,10 L110,10 L110,20 L70,20');
     expect(geom.refOuter).toBe(100);
   });
-});
 
+  test('p-value labels use threshold text in normal mode', () => {
+    expect(hooks).toBeDefined();
+    expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: false, decimals: 2 })).toBe('<0.01');
+    expect(hooks.formatSignificanceLabel(0.0123, 'p', { scientific: false, decimals: 2 })).toBe('0.01');
+  });
+
+  test('p-value labels use scientific notation when enabled', () => {
+    expect(hooks).toBeDefined();
+    expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: true, decimals: 2 })).toBe('1.00e-4');
+  });
+});

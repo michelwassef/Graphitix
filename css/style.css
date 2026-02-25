@@ -3108,6 +3108,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .export-dropdown.is-open .export-trigger{background:#e0e0e0}
 .stats-table-card{border:1px solid #c8d2e3;border-radius:0;background:#fff;box-shadow:0 2px 6px rgba(17,24,39,0.08);padding:0;overflow:visible;margin-top:12px;position:relative}
 .stats-table-card:first-child{margin-top:0}
+.stats-assumption-container+.stats-results-main .stats-table-card:first-child{margin-top:12px}
 .stats-table-caption{font-size:15px;font-weight:600;color:#1d2735;padding:16px 20px 8px 20px}
 .stats-table{width:100%;border-collapse:collapse;color:#1d2735;font-size:13px}
 .stats-table thead tr{background:#eef3fa}
@@ -3194,6 +3195,13 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-advisor__actions button:not(.stats-advisor__reset):hover,.stats-advisor__actions button:not(.stats-advisor__reset):focus-visible{background:#1d4ed8}
 .stats-advisor__reset{background:transparent;border:1px solid #cbd5e1;color:#1e293b}
 .stats-advisor__reset:hover,.stats-advisor__reset:focus-visible{background:#f1f5f9}
+.stats-conditions-section{margin:0 0 12px;padding:12px 0;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px}
+.stats-conditions-title{font-weight:600;font-size:13px;color:#1d2735}
+.stats-conditions-checkboxes{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.stats-conditions-item{display:flex;align-items:center;gap:6px;cursor:pointer}
+.stats-conditions-item input{accent-color:#2563eb;cursor:pointer}
+.stats-conditions-item label{cursor:pointer;font-size:13px;color:#1e293b}
+.stats-conditions-section select{min-width:160px}
 #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
 .svgbox{background:#ffffff;border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);padding:40px 14px 14px;margin:0 0 8px;box-shadow:none;position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:var(--graph-default-width,640px);height:auto;max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto;aspect-ratio:var(--graph-aspect-ratio,1)}
 .venn-loading-host{position:relative}
@@ -4327,6 +4335,12 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     font-size:12px;
     line-height:20px;
     box-shadow:var(--ui-control-shadow);
+}
+
+/* Keep explicit square controls square even if global control radius changes. */
+.significance-controls-panel__input.significance-controls-panel__input--square,
+.additional-line-controls-panel__input.significance-controls-panel__input--square{
+    border-radius:0 !important;
 }
 
 .axis-controls-panel__input:focus,
