@@ -4,6 +4,10 @@ describe('data view tab export menu', () => {
     require('../js/vendor.js');
     require('../js/shared/dataViews.js');
     window.Shared.disableDebugLogging?.();
+    window.Main = window.Main || {};
+    window.Main.session = {
+      getActiveTab: () => ({ title: 'test' })
+    };
   });
 
   function createMountedManager() {
@@ -54,8 +58,8 @@ describe('data view tab export menu', () => {
 
     expect(saveGraphFileAs).toHaveBeenCalledTimes(1);
     const call = saveGraphFileAs.mock.calls[0][0];
-    expect(call.fileName).toBe('Raw.csv');
-    expect(call.downloadFileName).toBe('Raw.csv');
+    expect(call.fileName).toBe('test_Raw.csv');
+    expect(call.downloadFileName).toBe('test_Raw.csv');
     expect(call.payload.type).toContain('text/csv');
     expect(call.payload.size).toBeGreaterThan(0);
   });
@@ -85,7 +89,7 @@ describe('data view tab export menu', () => {
     expect(window.Shared.lazyXlsx).toHaveBeenCalledTimes(1);
     expect(saveGraphFileAs).toHaveBeenCalledTimes(1);
     const call = saveGraphFileAs.mock.calls[0][0];
-    expect(call.fileName).toBe('log2(x+1).xlsx');
+    expect(call.fileName).toBe('test_log2(x+1).xlsx');
     expect(call.payload.type).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   });
 });

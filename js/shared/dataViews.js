@@ -70,6 +70,16 @@
     return fallback || 'application/octet-stream';
   }
 
+  function getActiveWorkspaceTitle(){
+    try{
+      const tab = global.Main?.session?.getActiveTab?.();
+      const title = String(tab?.title || '').trim();
+      return title || '';
+    }catch(err){
+      return '';
+    }
+  }
+
   function valueToText(value){
     if(value == null){
       return '';
@@ -205,6 +215,9 @@
     const onInteraction = typeof settings.onInteraction === 'function'
       ? settings.onInteraction
       : null;
+    const resolveWorkspaceTitle = typeof settings.getFileTabTitle === 'function'
+      ? settings.getFileTabTitle
+      : getActiveWorkspaceTitle;
 
     let mounted = null;
     let views = [];
@@ -526,7 +539,10 @@
           return;
         }
         const ext = String(format || '').toLowerCase();
-        const fileStem = sanitizeSuggestedFileName(view.title, view.kind === 'raw' ? 'raw' : 'derived');
+        const workspaceTitle = String(resolveWorkspaceTitle?.() || '').trim();
+        const workspaceStem = sanitizeSuggestedFileName(workspaceTitle, '');
+        const viewStem = sanitizeSuggestedFileName(view.title, view.kind === 'raw' ? 'raw' : 'derived');
+        const fileStem = workspaceStem ? `${workspaceStem}_${viewStem}` : viewStem;
         const targetName = `${fileStem}.${ext}`;
         const rows = Array.isArray(view.data) ? view.data : [];
         if(ext === 'csv' || ext === 'tsv'){
