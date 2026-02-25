@@ -847,40 +847,39 @@
               <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
               <span id="scatterStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
-            <fieldset class="config-panel__fieldset" id="scatterFitSpecControls">
-              <legend>Fit specification <span id="scatterFitSpecBadge" class="fit-spec-badge">Pending</span></legend>
-              <div id="scatterFitSpecStatus" class="fit-spec-status" aria-live="polite"></div>
-              <div class="config-panel__line config-panel__line--split">
-                <label class="config-panel__item config-panel__item--wide">
-                  <span class="config-panel__label">Fit range min X</span>
-                  <input type="number" id="scatterFitRangeMinX" step="any" placeholder="Auto" />
-                </label>
-                <label class="config-panel__item config-panel__item--wide">
-                  <span class="config-panel__label">Fit range max X</span>
-                  <input type="number" id="scatterFitRangeMaxX" step="any" placeholder="Auto" />
-                </label>
+            <details class="fit-specification-foldable" id="scatterFitSpecControls">
+              <summary class="fit-specification-summary">
+                <span>Fit specification</span>
+                <span id="scatterFitSpecBadge" class="fit-spec-badge">Pending</span>
+              </summary>
+              <div class="fit-specification-body">
+                <div id="scatterFitSpecStatus" class="fit-spec-status" aria-live="polite"></div>
+                <div class="config-panel__line config-panel__line--split">
+                  <label class="config-panel__item config-panel__item--wide">
+                    <span class="config-panel__label">Fit range min X</span>
+                    <input type="number" id="scatterFitRangeMinX" step="any" placeholder="Auto" />
+                  </label>
+                  <label class="config-panel__item config-panel__item--wide">
+                    <span class="config-panel__label">Fit range max X</span>
+                    <input type="number" id="scatterFitRangeMaxX" step="any" placeholder="Auto" />
+                  </label>
+                  <label class="config-panel__item">
+                    <span class="config-panel__label">Confidence level (%)</span>
+                    <input type="number" id="scatterConfidenceLevel" min="50" max="99.9" step="0.1" value="95" />
+                  </label>
+                </div>
+                <div class="config-panel__line fit-textarea-line">
+                  <span class="config-panel__label">Initial values</span>
+                  <textarea id="scatterInitialValuesJson" rows="2" placeholder='{"0":1.0,"Slope":0.5}' class="fit-textarea"></textarea>
+                </div>
+                <div id="scatterInitialValuesJsonError" class="fit-spec-status fit-spec-status--inline" aria-live="polite"></div>
+                <div class="config-panel__line fit-textarea-line">
+                  <span class="config-panel__label">Parameter constraints</span>
+                  <textarea id="scatterParameterConstraintsJson" rows="2" placeholder='{"Slope":{"lower":0,"upper":10,"fixed":false}}' class="fit-textarea"></textarea>
+                </div>
+                <div id="scatterParameterConstraintsJsonError" class="fit-spec-status fit-spec-status--inline" aria-live="polite"></div>
               </div>
-              <div class="config-panel__line">
-                <label class="config-panel__item config-panel__item--wide">
-                  <span class="config-panel__label">Confidence level (%)</span>
-                  <input type="number" id="scatterConfidenceLevel" min="50" max="99.9" step="0.1" value="95" />
-                </label>
-              </div>
-              <div class="config-panel__line">
-                <label class="config-panel__item config-panel__item--wide">
-                  <span class="config-panel__label">Initial values (JSON)</span>
-                  <textarea id="scatterInitialValuesJson" rows="2" placeholder='{"0":1.0,"Slope":0.5}'></textarea>
-                </label>
-              </div>
-              <div id="scatterInitialValuesJsonError" class="fit-spec-status fit-spec-status--inline" aria-live="polite"></div>
-              <div class="config-panel__line">
-                <label class="config-panel__item config-panel__item--wide">
-                  <span class="config-panel__label">Parameter constraints (JSON)</span>
-                  <textarea id="scatterParameterConstraintsJson" rows="3" placeholder='{"Slope":{"lower":0,"upper":10,"fixed":false}}'></textarea>
-                </label>
-              </div>
-              <div id="scatterParameterConstraintsJsonError" class="fit-spec-status fit-spec-status--inline" aria-live="polite"></div>
-            </fieldset>
+            </details>
             <div id="scatterStatsResults" class="idx-inline-003"></div>
           </fieldset>
         </div>
