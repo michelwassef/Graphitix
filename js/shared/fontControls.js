@@ -258,6 +258,8 @@
   let sizeMenuPopup = null;
   let sizeMenuVisible = false;
   let sizeMenuCloseHandler = null;
+  let comboMenuViewportHandler = null;
+  let comboMenuViewportRaf = null;
   let formatButtonsRow = null;
   let comboMeasureEl = null;
   let widthSyncPending = false;
@@ -1390,9 +1392,26 @@
     if(panelEl && panelEl.dataset.open === '1'){ 
       const host = panelEl.parentElement && panelEl.parentElement.classList && panelEl.parentElement.classList.contains('font-toolbar-host') ? panelEl.parentElement : activeHost;
       if(host){
+        const hostClasses = Array.from(host.classList || []);
+        const hasDualLayout = hostClasses.some(cls => typeof cls === 'string' && /^font-toolbar-host--.+-dual$/.test(cls));
+        const dock = host.closest('.workspace-toolbar__dock');
+        if(hasDualLayout){
+          host.style.removeProperty('min-width');
+          host.style.removeProperty('max-width');
+          host.style.removeProperty('width');
+          if(dock){
+            dock.style.removeProperty('min-width');
+            dock.style.removeProperty('max-width');
+            dock.style.removeProperty('width');
+          }
+          logDebug('toolbar dock width skipped (dual host)', {
+            reason,
+            classes: hostClasses
+          });
+          return;
+        }
         const rect = panelEl.getBoundingClientRect();
         if(rect.width > 0){
-          const dock = host.closest('.workspace-toolbar__dock');
           const widthPx = `${Math.ceil(rect.width)}px`;
           host.style.minWidth = widthPx;
           host.style.maxWidth = widthPx;
@@ -1834,6 +1853,8 @@
     filterFontMenuOptions(fontInput?.value || '');
     highlightFontMenuSelection(fontInput?.value || '');
     attachFontMenuDismissWatcher();
+    refreshOpenComboMenuPlacement('font-open');
+    attachComboMenuViewportWatcher();
     const focusMode = meta?.focusOption || null;
     if(focusMode){
       if(focusMode === 'first'){
@@ -1875,6 +1896,10 @@
       fontInput.setAttribute('aria-expanded', 'false');
     }
     detachFontMenuDismissWatcher();
+    clearComboMenuFloating(fontMenuPopup);
+    if(!sizeMenuVisible){
+      detachComboMenuViewportWatcher();
+    }
     if(reason !== 'button-toggle'){ // keep input focus for toggle interactions
       highlightFontMenuSelection(fontInput?.value || '');
     }
@@ -1889,6 +1914,127 @@
     } else {
       openFontMenu(trigger || 'toggle', meta);
     }
+  }
+
+  function hostUsesDualToolbarLayout(){
+    if(!activeHost || !activeHost.classList){ return false; }
+    return Array.from(activeHost.classList).some(cls => typeof cls === 'string' && /^font-toolbar-host--.+-dual$/.test(cls));
+  }
+
+  function clearComboMenuFloating(popup){
+    if(!popup){ return; }
+    popup.classList.remove('font-controls-panel__combo-menu--floating');
+    if(popup.dataset && popup.dataset.fontControlsOverlay === '1'){
+      delete popup.dataset.fontControlsOverlay;
+    }
+    popup.style.removeProperty('position');
+    popup.style.removeProperty('left');
+    popup.style.removeProperty('top');
+    popup.style.removeProperty('right');
+    popup.style.removeProperty('bottom');
+    popup.style.removeProperty('width');
+    popup.style.removeProperty('min-width');
+    popup.style.removeProperty('max-width');
+    popup.style.removeProperty('max-height');
+    popup.style.removeProperty('z-index');
+  }
+
+  function applyComboMenuFloating(popup, anchor){
+    if(!popup || !anchor || typeof anchor.getBoundingClientRect !== 'function'){
+      clearComboMenuFloating(popup);
+      return;
+    }
+    if(!hostUsesDualToolbarLayout()){
+      clearComboMenuFloating(popup);
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    if(!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)){
+      clearComboMenuFloating(popup);
+      return;
+    }
+    const viewportWidth = Number.isFinite(global.innerWidth) ? global.innerWidth : 0;
+    const viewportHeight = Number.isFinite(global.innerHeight) ? global.innerHeight : 0;
+    const margin = 4;
+    const width = Math.max(80, Math.ceil(rect.width + 2));
+    let left = Math.round(rect.left - 1);
+    if(viewportWidth > 0){
+      left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+    }
+    let top = Math.round(rect.bottom - 1);
+    let maxHeight = 220;
+    if(viewportHeight > 0){
+      const below = viewportHeight - top - margin;
+      const above = rect.top - margin;
+      if(below < 120 && above > below){
+        maxHeight = Math.max(100, Math.min(220, Math.floor(above)));
+        top = Math.max(margin, Math.round(rect.top - maxHeight));
+      }else{
+        maxHeight = Math.max(100, Math.min(220, Math.floor(below)));
+      }
+    }
+    popup.classList.add('font-controls-panel__combo-menu--floating');
+    popup.dataset.fontControlsOverlay = '1';
+    popup.style.position = 'fixed';
+    popup.style.left = `${left}px`;
+    popup.style.top = `${top}px`;
+    popup.style.right = 'auto';
+    popup.style.bottom = 'auto';
+    popup.style.width = `${width}px`;
+    popup.style.minWidth = `${width}px`;
+    popup.style.maxWidth = `${width}px`;
+    popup.style.maxHeight = `${Math.max(100, maxHeight)}px`;
+    popup.style.zIndex = '12050';
+  }
+
+  function refreshOpenComboMenuPlacement(reason){
+    if(fontMenuVisible){
+      applyComboMenuFloating(fontMenuPopup, fontComboWrapper);
+    }else{
+      clearComboMenuFloating(fontMenuPopup);
+    }
+    if(sizeMenuVisible){
+      applyComboMenuFloating(sizeMenuPopup, sizeComboWrapper);
+    }else{
+      clearComboMenuFloating(sizeMenuPopup);
+    }
+    logDebug('combo menu placement refreshed', {
+      reason: reason || 'unknown',
+      dualHost: hostUsesDualToolbarLayout(),
+      fontOpen: fontMenuVisible,
+      sizeOpen: sizeMenuVisible
+    });
+  }
+
+  function detachComboMenuViewportWatcher(){
+    if(!comboMenuViewportHandler || !global.removeEventListener){ return; }
+    try{ global.removeEventListener('resize', comboMenuViewportHandler, true); }catch(e){}
+    try{ global.removeEventListener('scroll', comboMenuViewportHandler, true); }catch(e){}
+    comboMenuViewportHandler = null;
+    comboMenuViewportRaf = null;
+  }
+
+  function attachComboMenuViewportWatcher(){
+    if(comboMenuViewportHandler || !global.addEventListener){ return; }
+    const scheduleRefresh = () => {
+      if(comboMenuViewportRaf != null){ return; }
+      const run = () => {
+        comboMenuViewportRaf = null;
+        if(!fontMenuVisible && !sizeMenuVisible){
+          detachComboMenuViewportWatcher();
+          return;
+        }
+        refreshOpenComboMenuPlacement('viewport');
+      };
+      if(typeof global.requestAnimationFrame === 'function'){
+        comboMenuViewportRaf = global.requestAnimationFrame(run);
+      }else{
+        comboMenuViewportRaf = global.setTimeout(run, 16);
+      }
+    };
+    comboMenuViewportHandler = scheduleRefresh;
+    try{ global.addEventListener('resize', comboMenuViewportHandler, true); }catch(e){}
+    try{ global.addEventListener('scroll', comboMenuViewportHandler, true); }catch(e){}
   }
 
   function detachSizeMenuDismissWatcher(){
@@ -1971,6 +2117,8 @@
     }
     highlightSizeMenuSelection(sizeInput?.value || '');
     attachSizeMenuDismissWatcher();
+    refreshOpenComboMenuPlacement('size-open');
+    attachComboMenuViewportWatcher();
     const focusMode = meta?.focusOption || null;
     if(focusMode){
       const focusTask = () => {
@@ -2007,6 +2155,10 @@
       sizeInput.setAttribute('aria-expanded', 'false');
     }
     detachSizeMenuDismissWatcher();
+    clearComboMenuFloating(sizeMenuPopup);
+    if(!fontMenuVisible){
+      detachComboMenuViewportWatcher();
+    }
     if(reason !== 'button-toggle'){
       highlightSizeMenuSelection(sizeInput?.value || '');
     }
@@ -3307,6 +3459,12 @@
       if(!panelEl || panelEl.dataset.open !== '1'){ return; }
       const target = evt.target;
       if(panelEl.contains(target)){ return; }
+      if(activeHost && target && typeof activeHost.contains === 'function' && activeHost.contains(target)){
+        logDebug('panel click ignored (within shared host)', {
+          hostScope: activeHost.dataset?.fontToolbarScope || null
+        });
+        return;
+      }
       if(currentTarget && target === currentTarget){ return; }
       if(target?.closest?.('.inline-edit-overlay')){
         logDebug('panel click ignored (inline edit overlay)', {});
@@ -3347,6 +3505,15 @@
         activeHost.style.removeProperty('column-gap');
         activeHost.style.removeProperty('align-items');
         activeHost.style.removeProperty('justify-content');
+        activeHost.style.removeProperty('min-width');
+        activeHost.style.removeProperty('max-width');
+        activeHost.style.removeProperty('width');
+        const dock = activeHost.closest('.workspace-toolbar__dock');
+        if(dock){
+          dock.style.removeProperty('min-width');
+          dock.style.removeProperty('max-width');
+          dock.style.removeProperty('width');
+        }
       }else{
         hideToolbarHost(activeHost);
         activeHost = null;

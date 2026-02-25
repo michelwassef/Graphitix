@@ -179,6 +179,12 @@
     global.document.addEventListener('click', evt => {
       if(!panelEl || panelEl.dataset.open !== '1'){ return; }
       if(panelEl.contains(evt.target)){ return; }
+      if(activeHost && evt.target && typeof activeHost.contains === 'function' && activeHost.contains(evt.target)){
+        logDebug('outside click ignored (within shared host)', {
+          scopeId: activeHost.dataset?.fontToolbarScope || null
+        });
+        return;
+      }
       if(evt.target?.dataset?.significanceControl === '1'){ return; }
       if(evt.target?.closest && evt.target.closest('.shared-color-picker')){ return; }
       closePanel('outside');
