@@ -8,6 +8,9 @@
   let summaryValueEl = null;
   let thicknessInput = null;
   let colorInput = null;
+  let styleChipEl = null;
+  let styleChipPreviewEl = null;
+  let styleChipValueEl = null;
   let whiskerToggleInput = null;
   let whiskerModeField = null;
   let whiskerModeSelect = null;
@@ -106,6 +109,7 @@
     thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
     const colorValueRaw = config.getColor ? config.getColor() : null;
     colorInput.value = toColorInputValue(colorValueRaw);
+    syncStyleChipUi();
     const whiskerValueRaw = config.getWhiskers ? config.getWhiskers() : true;
     whiskerToggleInput.checked = sanitizeWhiskerValue(whiskerValueRaw);
 
@@ -117,6 +121,80 @@
     }else if(whiskerModeField){
       whiskerModeField.style.display = 'none';
     }
+  }
+
+  function formatThicknessChipValue(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return '0px';
+    }
+    const rounded = Math.round(numeric * 10) / 10;
+    return `${rounded}px`;
+  }
+
+  function syncStyleChipUi(){
+    if(!styleChipEl || !styleChipPreviewEl || !styleChipValueEl || !thicknessInput || !colorInput){
+      return;
+    }
+    const thicknessValue = sanitizeThicknessValue(thicknessInput.value);
+    styleChipPreviewEl.style.background = toColorInputValue(colorInput.value);
+    styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue == null ? 0 : thicknessValue);
+    styleChipEl.dataset.noBorder = thicknessValue == null || thicknessValue <= 0 ? '1' : '0';
+  }
+
+  function clearSignificanceStylePickerSection(overlayEl){
+    if(!overlayEl || !overlayEl.querySelectorAll){
+      return;
+    }
+    overlayEl.querySelectorAll('.shared-color-picker__section--significance-style').forEach(node => node.remove());
+  }
+
+  function attachSignificanceStylePickerThicknessSection(overlayEl){
+    if(!overlayEl){
+      return () => {};
+    }
+    clearSignificanceStylePickerSection(overlayEl);
+    const doc = overlayEl.ownerDocument || global.document;
+    if(!doc){
+      return () => {};
+    }
+    const section = doc.createElement('section');
+    section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--significance-style';
+    const title = doc.createElement('div');
+    title.className = 'shared-color-picker__section-title';
+    title.textContent = 'Line thickness';
+    section.appendChild(title);
+    const row = doc.createElement('div');
+    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
+    const field = doc.createElement('label');
+    field.className = 'shared-color-picker__scatter-style-field';
+    const input = doc.createElement('input');
+    input.className = 'shared-color-picker__scatter-style-input';
+    input.type = 'number';
+    input.min = thicknessInput?.min || '0.25';
+    input.max = thicknessInput?.max || '10';
+    input.step = thicknessInput?.step || '0.25';
+    input.value = thicknessInput?.value || '1';
+    input.setAttribute('aria-label', 'Line thickness');
+    input.addEventListener('input', () => {
+      if(!thicknessInput){ return; }
+      thicknessInput.value = input.value;
+      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    input.addEventListener('change', () => {
+      if(!thicknessInput){ return; }
+      thicknessInput.value = input.value;
+      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    field.appendChild(input);
+    row.appendChild(field);
+    section.appendChild(row);
+    overlayEl.insertBefore(section, overlayEl.firstChild || null);
+    return () => {
+      if(section.parentNode){
+        section.parentNode.removeChild(section);
+      }
+    };
   }
 
   function syncPanelInputsFromConfig(config){
@@ -315,29 +393,20 @@
 
     const panelTitle = doc.createElement('div');
     panelTitle.className = 'additional-line-controls-panel__title significance-controls-panel__title';
-    panelTitle.textContent = 'Significance';
+    panelTitle.textContent = 'Significance bars';
     panelEl.appendChild(panelTitle);
 
     const row = doc.createElement('div');
     row.className = 'additional-line-controls-panel__row significance-controls-panel__row';
     panelEl.appendChild(row);
 
-    const summary = doc.createElement('div');
-    summary.className = 'additional-line-controls-panel__summary significance-controls-panel__summary';
-    const summaryLabel = doc.createElement('span');
-    summaryLabel.className = 'additional-line-controls-panel__summary-label significance-controls-panel__summary-label';
-    summaryLabel.textContent = 'Significance';
-    summaryValueEl = doc.createElement('span');
-    summaryValueEl.className = 'additional-line-controls-panel__summary-value significance-controls-panel__summary-value';
-    summary.appendChild(summaryLabel);
-    summary.appendChild(summaryValueEl);
-    row.appendChild(summary);
+    summaryValueEl = null;
 
-    const thicknessField = doc.createElement('label');
-    thicknessField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric significance-controls-panel__field significance-controls-panel__field--numeric';
-    const thicknessLabel = doc.createElement('span');
-    thicknessLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
-    thicknessLabel.textContent = 'Thickness';
+    const styleField = doc.createElement('label');
+    styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style significance-controls-panel__field significance-controls-panel__field--style';
+    const styleLabel = doc.createElement('span');
+    styleLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
+    styleLabel.textContent = 'Border';
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
     thicknessInput.min = '0.25';
@@ -346,26 +415,96 @@
     thicknessInput.placeholder = '1';
     thicknessInput.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small significance-controls-panel__input significance-controls-panel__input--small';
     thicknessInput.setAttribute('data-undo-ignore','1');
-    thicknessField.appendChild(thicknessLabel);
-    thicknessField.appendChild(thicknessInput);
-    row.appendChild(thicknessField);
-
-    const colorField = doc.createElement('label');
-    colorField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--color';
-    const colorLabel = doc.createElement('span');
-    colorLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
-    colorLabel.textContent = 'Color';
+    thicknessInput.hidden = true;
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
-    colorInput.className = 'significance-controls-panel__color-input';
+    colorInput.className = 'shared-border-style-input significance-controls-panel__color-input';
     colorInput.setAttribute('data-undo-ignore','1');
-    colorField.appendChild(colorLabel);
-    colorField.appendChild(colorInput);
-    row.appendChild(colorField);
+    const styleControl = doc.createElement('div');
+    styleControl.className = 'shared-border-style-control';
+    styleChipEl = doc.createElement('button');
+    styleChipEl.type = 'button';
+    styleChipEl.className = 'shared-border-style-chip';
+    styleChipEl.title = 'Click to edit significance bar color. Wheel or Alt+drag to adjust thickness.';
+    styleChipPreviewEl = doc.createElement('span');
+    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
+    styleChipValueEl = doc.createElement('span');
+    styleChipValueEl.className = 'shared-border-style-chip-value';
+    styleChipEl.appendChild(styleChipPreviewEl);
+    styleChipEl.appendChild(styleChipValueEl);
+    styleControl.appendChild(styleChipEl);
+    styleControl.appendChild(colorInput);
+    styleField.appendChild(styleLabel);
+    // Keep hidden input in DOM for existing event/undo wiring.
+    styleField.appendChild(thicknessInput);
+    styleField.appendChild(styleControl);
+    row.appendChild(styleField);
 
-    if(typeof Shared.attachColorPickerNear === 'function'){
+    let stylePickerCleanup = null;
+    if(typeof Shared.openColorPicker === 'function'){
+      styleChipEl.addEventListener('click', evt => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const overlayEl = Shared.openColorPicker({
+          anchor: styleChipEl,
+          color: colorInput.value,
+          element: colorInput,
+          onInput(value){
+            colorInput.value = value;
+            colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+          },
+          onChange(value){
+            colorInput.value = value;
+            colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+          },
+          onClose(){
+            if(typeof stylePickerCleanup === 'function'){
+              stylePickerCleanup();
+              stylePickerCleanup = null;
+            }
+          }
+        });
+        stylePickerCleanup = attachSignificanceStylePickerThicknessSection(overlayEl);
+      });
+    }else if(typeof Shared.attachColorPickerNear === 'function'){
       Shared.attachColorPickerNear(colorInput);
+      styleChipEl.addEventListener('click', evt => {
+        evt.preventDefault();
+        colorInput.click();
+      });
     }
+    styleChipEl.addEventListener('wheel', evt => {
+      evt.preventDefault();
+      const current = sanitizeThicknessValue(thicknessInput.value) ?? 1;
+      const step = evt.deltaY < 0 ? 0.5 : -0.5;
+      thicknessInput.value = String(Math.max(0.25, current + step));
+      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }, { passive: false });
+    let styleDragState = null;
+    const onStyleMove = evt => {
+      if(!styleDragState){ return; }
+      const deltaX = evt.clientX - styleDragState.startX;
+      const steps = Math.round(deltaX / 8);
+      const next = Math.max(0.25, styleDragState.startValue + (steps * 0.5));
+      thicknessInput.value = String(next);
+      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const onStyleUp = () => {
+      if(!styleDragState){ return; }
+      styleDragState = null;
+      global.removeEventListener('mousemove', onStyleMove);
+      global.removeEventListener('mouseup', onStyleUp);
+    };
+    styleChipEl.addEventListener('mousedown', evt => {
+      if(!evt.altKey || evt.button !== 0){ return; }
+      evt.preventDefault();
+      styleDragState = {
+        startX: evt.clientX,
+        startValue: sanitizeThicknessValue(thicknessInput.value) ?? 1
+      };
+      global.addEventListener('mousemove', onStyleMove);
+      global.addEventListener('mouseup', onStyleUp);
+    });
 
     const whiskerField = doc.createElement('label');
     whiskerField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--toggle';
@@ -410,25 +549,7 @@
     whiskerModeField.style.display = 'none';
     row.appendChild(whiskerModeField);
 
-    const textField = doc.createElement('div');
-    textField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--text-style';
-    const textLabel = doc.createElement('span');
-    textLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
-    textLabel.textContent = 'Text';
-    textField.appendChild(textLabel);
-    textStyleButton = doc.createElement('button');
-    textStyleButton.type = 'button';
-    textStyleButton.className = 'workspace-toolbar__button workspace-toolbar__button--text-only significance-controls-panel__text-button';
-    textStyleButton.textContent = 'Text Style';
-    textStyleButton.setAttribute('aria-label', 'Open significance text style controls');
-    textStyleButton.addEventListener('click', evt => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      if(!activeConfig){ return; }
-      openFontControlsForConfig(activeConfig, 'text-style-button');
-    });
-    textField.appendChild(textStyleButton);
-    row.appendChild(textField);
+    textStyleButton = null;
 
     thicknessInput.addEventListener('change', () => {
       if(applyingFromUndo){ return; }
@@ -442,6 +563,7 @@
         config.onThicknessChange(requestedValue);
       }
       const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
+      syncStyleChipUi();
       syncPanelInputsFromConfig(config);
       recordSignificanceStateChange(
         config,
@@ -468,6 +590,7 @@
         config.onColorChange(requestedValue);
       }
       const nextValue = sanitizeColorState(config.getColor ? config.getColor() : null);
+      syncStyleChipUi();
       syncPanelInputsFromConfig(config);
       recordSignificanceStateChange(
         config,
@@ -481,6 +604,10 @@
         },
         (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
       );
+    });
+
+    colorInput.addEventListener('change', () => {
+      syncStyleChipUi();
     });
 
     whiskerToggleInput.addEventListener('change', () => {
@@ -533,6 +660,7 @@
     });
 
     ensureDocumentListener();
+    syncStyleChipUi();
     logDebug('panel created');
     return panelEl;
   }
