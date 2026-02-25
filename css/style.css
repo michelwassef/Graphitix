@@ -4188,19 +4188,21 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-toolbar-host.font-toolbar-host--visible>.significance-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host--significance{display:block}
 .significance-controls-panel{width:max-content}
-.significance-controls-panel__title{display:none}
-.significance-controls-panel__summary{display:none}
-.significance-controls-panel__row{gap:var(--workspace-toolbar-section-gap)}
-.significance-controls-panel__field{min-width:0;min-height:52px;align-items:center}
-.significance-controls-panel__field--toggle{min-width:72px;align-items:flex-start}
-.significance-controls-panel__field--text-style{min-width:112px;align-items:flex-start}
+.significance-controls-panel__title{display:block}
+.significance-controls-panel__summary{display:flex;min-width:92px;align-items:center;text-align:center}
+.significance-controls-panel__summary-label,
+.significance-controls-panel__summary-value{text-align:center}
+.significance-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content}
+.significance-controls-panel__field{min-width:0;min-height:52px;align-items:center;justify-content:flex-start;text-align:center}
+.significance-controls-panel__field--toggle{min-width:0;align-items:center}
+.significance-controls-panel__field--text-style{min-width:96px;align-items:center}
 .significance-controls-panel__field-label{font-size:11px;text-transform:none;letter-spacing:0.01em}
-.significance-controls-panel__input{max-width:96px}
+.significance-controls-panel__input{max-width:108px}
 .significance-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
-.significance-controls-panel__input--square{border-radius:6px}
+.significance-controls-panel__input--square{border-radius:0}
 .significance-controls-panel__color-input{height:24px;width:24px;padding:0;cursor:pointer;display:block;margin:0 auto}
 .significance-controls-panel__field--color .significance-controls-panel__color-input{align-self:center;margin-inline:auto}
-.significance-controls-panel__toggle-row{display:flex;align-items:center;gap:6px;width:auto}
+.significance-controls-panel__toggle-row{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:26px}
 .significance-controls-panel__checkbox{appearance:auto;width:16px;height:16px;cursor:pointer;transition:all .12s ease;margin:0;accent-color:#0b63d1}
 .significance-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed}
 .significance-controls-panel__text-button{min-width:96px;justify-content:center}
