@@ -118,6 +118,212 @@
     return diagnostics;
   };
 
+  const computeRunsTestFromResiduals = (residuals) => {
+    if(!Array.isArray(residuals) || residuals.length < 3){
+      return {
+        available: false,
+        runs: NaN,
+        expectedRuns: NaN,
+        variance: NaN,
+        z: NaN,
+        pValue: NaN,
+        nPositive: 0,
+        nNegative: 0,
+        message: 'Need at least three residuals for a runs test.'
+      };
+    }
+    const signs = residuals
+      .map(value => (value > 0 ? 1 : (value < 0 ? -1 : 0)))
+      .filter(value => value !== 0);
+    if(signs.length < 3){
+      return {
+        available: false,
+        runs: NaN,
+        expectedRuns: NaN,
+        variance: NaN,
+        z: NaN,
+        pValue: NaN,
+        nPositive: signs.filter(value => value > 0).length,
+        nNegative: signs.filter(value => value < 0).length,
+        message: 'Runs test needs at least three non-zero residual signs.'
+      };
+    }
+    const nPositive = signs.filter(value => value > 0).length;
+    const nNegative = signs.length - nPositive;
+    if(nPositive === 0 || nNegative === 0){
+      return {
+        available: false,
+        runs: 1,
+        expectedRuns: NaN,
+        variance: NaN,
+        z: NaN,
+        pValue: NaN,
+        nPositive,
+        nNegative,
+        message: 'Runs test requires both positive and negative residuals.'
+      };
+    }
+    let runs = 1;
+    for(let i = 1; i < signs.length; i += 1){
+      if(signs[i] !== signs[i - 1]){
+        runs += 1;
+      }
+    }
+    const n = nPositive + nNegative;
+    const expectedRuns = 1 + (2 * nPositive * nNegative / n);
+    const numerator = 2 * nPositive * nNegative * ((2 * nPositive * nNegative) - nPositive - nNegative);
+    const denominator = Math.pow(n, 2) * Math.max(n - 1, 1);
+    const variance = denominator > 0 ? numerator / denominator : NaN;
+    const z = Number.isFinite(variance) && variance > 0
+      ? (runs - expectedRuns) / Math.sqrt(variance)
+      : NaN;
+    const pValue = Number.isFinite(z) && jStatLib?.normal && typeof jStatLib.normal.cdf === 'function'
+      ? 2 * (1 - jStatLib.normal.cdf(Math.abs(z), 0, 1))
+      : NaN;
+    return {
+      available: Number.isFinite(z) && Number.isFinite(pValue),
+      runs,
+      expectedRuns,
+      variance,
+      z,
+      pValue,
+      nPositive,
+      nNegative,
+      message: null
+    };
+  };
+
+  const computeLackOfFitTest = ({ points, predictions, parameterCount }) => {
+    if(!Array.isArray(points) || !Array.isArray(predictions) || points.length !== predictions.length){
+      return {
+        available: false,
+        hasReplicates: false,
+        ssPureError: NaN,
+        ssLackOfFit: NaN,
+        dfPureError: NaN,
+        dfLackOfFit: NaN,
+        fStatistic: NaN,
+        pValue: NaN,
+        message: 'Points/predictions mismatch.'
+      };
+    }
+    const clean = [];
+    for(let i = 0; i < points.length; i += 1){
+      const pt = points[i] || {};
+      const x = Number(pt.x);
+      const y = Number(pt.y);
+      const pred = Number(predictions[i]);
+      if(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(pred)){
+        clean.push({ x, y, pred });
+      }
+    }
+    const n = clean.length;
+    if(n < 4){
+      return {
+        available: false,
+        hasReplicates: false,
+        ssPureError: NaN,
+        ssLackOfFit: NaN,
+        dfPureError: NaN,
+        dfLackOfFit: NaN,
+        fStatistic: NaN,
+        pValue: NaN,
+        message: 'Need at least four observations for lack-of-fit testing.'
+      };
+    }
+    const groups = new Map();
+    clean.forEach(row => {
+      const key = String(row.x);
+      let bucket = groups.get(key);
+      if(!bucket){
+        bucket = { x: row.x, ys: [] };
+        groups.set(key, bucket);
+      }
+      bucket.ys.push(row.y);
+    });
+    const grouped = Array.from(groups.values());
+    const uniqueXCount = grouped.length;
+    const hasReplicates = grouped.some(group => group.ys.length > 1);
+    if(!hasReplicates){
+      return {
+        available: false,
+        hasReplicates: false,
+        ssPureError: NaN,
+        ssLackOfFit: NaN,
+        dfPureError: 0,
+        dfLackOfFit: NaN,
+        fStatistic: NaN,
+        pValue: NaN,
+        message: 'Lack-of-fit requires replicated X values.'
+      };
+    }
+    const pCount = Number.isFinite(parameterCount) ? Math.max(1, Math.round(parameterCount)) : NaN;
+    const dfPureError = n - uniqueXCount;
+    const dfLackOfFit = Number.isFinite(pCount) ? uniqueXCount - pCount : NaN;
+    if(!(dfPureError > 0) || !(dfLackOfFit > 0)){
+      return {
+        available: false,
+        hasReplicates,
+        ssPureError: NaN,
+        ssLackOfFit: NaN,
+        dfPureError,
+        dfLackOfFit,
+        fStatistic: NaN,
+        pValue: NaN,
+        message: 'Insufficient degrees of freedom for lack-of-fit testing.'
+      };
+    }
+    let ssPureError = 0;
+    grouped.forEach(group => {
+      const meanY = group.ys.reduce((sum, value) => sum + value, 0) / group.ys.length;
+      group.ys.forEach(value => {
+        const delta = value - meanY;
+        ssPureError += delta * delta;
+      });
+    });
+    const sse = clean.reduce((sum, row) => {
+      const delta = row.y - row.pred;
+      return sum + (delta * delta);
+    }, 0);
+    let ssLackOfFit = sse - ssPureError;
+    if(ssLackOfFit < 0 && Math.abs(ssLackOfFit) < 1e-10){
+      ssLackOfFit = 0;
+    }
+    const msPure = ssPureError / dfPureError;
+    const msLack = ssLackOfFit / dfLackOfFit;
+    const fStatistic = msPure > 0 ? (msLack / msPure) : (msLack > 0 ? Infinity : 0);
+    const pValue = Number.isFinite(fStatistic) && jStatLib?.centralF && typeof jStatLib.centralF.cdf === 'function'
+      ? 1 - jStatLib.centralF.cdf(fStatistic, dfLackOfFit, dfPureError)
+      : NaN;
+    return {
+      available: Number.isFinite(fStatistic) && Number.isFinite(pValue),
+      hasReplicates,
+      ssPureError,
+      ssLackOfFit,
+      dfPureError,
+      dfLackOfFit,
+      fStatistic,
+      pValue,
+      message: null
+    };
+  };
+
+  const buildExtendedRegressionDiagnostics = ({ residuals, points, predictions, parameterCount }) => {
+    const base = computeResidualDiagnostics(residuals);
+    const runs = computeRunsTestFromResiduals(residuals);
+    const lackOfFit = computeLackOfFitTest({ points, predictions, parameterCount });
+    const diagnostics = {
+      ...base,
+      runsTest: runs,
+      lackOfFit
+    };
+    regressionDebug('extended diagnostics', {
+      hasRuns: !!runs?.available,
+      hasLackOfFit: !!lackOfFit?.available
+    });
+    return diagnostics;
+  };
+
   const clampPositiveInt = (value, { min = 1, max = 120, fallback = 1 } = {}) => {
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -316,6 +522,32 @@
     return stats;
   };
 
+  const buildCoefficientCovariance = ({ xtxInv, residuals, coefficientCount }) => {
+    if(!Array.isArray(xtxInv) || !Array.isArray(residuals)){
+      return null;
+    }
+    const paramCount = Number.isFinite(coefficientCount) ? Math.max(1, Math.round(coefficientCount)) : xtxInv.length;
+    const dof = residuals.length - paramCount;
+    if(!(dof > 0)){
+      return null;
+    }
+    const variance = residuals.reduce((sum, value) => sum + (value * value), 0) / dof;
+    if(!Number.isFinite(variance)){
+      return null;
+    }
+    const matrix = xtxInv.map((row, rowIndex) => (
+      Array.isArray(row)
+        ? row.map((entry, colIndex) => {
+            if(rowIndex >= paramCount || colIndex >= paramCount){
+              return NaN;
+            }
+            return Number.isFinite(entry) ? entry * variance : NaN;
+          })
+        : []
+    ));
+    return matrix;
+  };
+
   const buildIntervalSamples = ({
     xtxInv,
     coefficients,
@@ -474,7 +706,12 @@
     const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
     const sse = residuals.reduce((sum,val)=>sum+val*val,0);
     const r2 = sst === 0 ? 1 : 1 - (sse / sst);
-    const diagnostics = computeResidualDiagnostics(residuals);
+    const diagnostics = buildExtendedRegressionDiagnostics({
+      residuals,
+      points,
+      predictions,
+      parameterCount: resolvedCoefficients.length
+    });
     const coefficientStats = xtxInv
       ? buildCoefficientStats({
           coefficients: resolvedCoefficients,
@@ -485,6 +722,13 @@
           degreesOfFreedom: points.length - resolvedCoefficients.length
         })
       : [];
+    const coefficientCovariance = xtxInv
+      ? buildCoefficientCovariance({
+          xtxInv,
+          residuals,
+          coefficientCount: resolvedCoefficients.length
+        })
+      : null;
     const intervalInfo = xtxInv
       ? buildIntervalSamples({
           xtxInv,
@@ -524,6 +768,7 @@
       predictions,
       diagnostics,
       coefficientStats,
+      coefficientCovariance,
       intervals: intervalInfo.summary ? {
         alpha,
         tCritical: intervalInfo.tCritical,
@@ -558,7 +803,12 @@
       const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
       const sse = residuals.reduce((sum,val)=>sum+val*val,0);
       const r2 = sst === 0 ? 1 : 1 - (sse / sst);
-      const diagnostics = computeResidualDiagnostics(residuals);
+      const diagnostics = buildExtendedRegressionDiagnostics({
+        residuals,
+        points,
+        predictions,
+        parameterCount: coefficients.length
+      });
       const termLabels = coefficients.map((_, idx) => idx === 0 ? 'Intercept' : `x^${idx}`);
       const coefficientStats = buildCoefficientStats({
         coefficients,
@@ -567,6 +817,11 @@
         alpha,
         termLabels,
         degreesOfFreedom: points.length - coefficients.length
+      });
+      const coefficientCovariance = buildCoefficientCovariance({
+        xtxInv: solved.xtxInv,
+        residuals,
+        coefficientCount: coefficients.length
       });
       const intervalInfo = buildIntervalSamples({
         xtxInv: solved.xtxInv,
@@ -612,6 +867,7 @@
         predictions,
         diagnostics,
         coefficientStats,
+        coefficientCovariance,
         intervals: intervalInfo.summary ? {
           alpha,
           tCritical: intervalInfo.tCritical,
@@ -1129,6 +1385,7 @@
       predict: (x) => evaluateDoseResponse4PL(params, x),
       diagnostics: computeResidualDiagnostics(residuals),
       coefficientStats,
+      coefficientCovariance: covarianceInfo.covariance || null,
       intervals: intervals.summary ? {
         alpha,
         tCritical,
@@ -1218,7 +1475,12 @@
     const meanY = logisticPoints.reduce((sum, pt) => sum + pt.y, 0) / logisticPoints.length;
     const nullLoss = - (meanY * Math.log(Math.min(1 - eps, Math.max(eps, meanY))) + (1 - meanY) * Math.log(Math.min(1 - eps, Math.max(eps, 1 - meanY))));
     const pseudoR2 = Number.isFinite(nullLoss) && nullLoss > 0 ? 1 - (logLoss / nullLoss) : NaN;
-    const diagnostics = computeResidualDiagnostics(residuals);
+    const diagnostics = buildExtendedRegressionDiagnostics({
+      residuals,
+      points: logisticPoints,
+      predictions,
+      parameterCount: 2
+    });
     const design = logisticPoints.map(pt => [1, pt.x]);
     let xtwxInv;
     if(hasMatrixOps){
@@ -1235,6 +1497,7 @@
       console.debug('Debug:', debugNs, 'logistic matrix operations unavailable; skipping coefficient variance');
     }
     let coefficientStats = [];
+    let coefficientCovariance = null;
     if(xtwxInv){
       coefficientStats = buildCoefficientStats({
         coefficients: [beta0, beta1],
@@ -1243,6 +1506,11 @@
         alpha,
         termLabels: ['Intercept','Slope'],
         degreesOfFreedom: logisticPoints.length - 2
+      });
+      coefficientCovariance = buildCoefficientCovariance({
+        xtxInv: xtwxInv,
+        residuals,
+        coefficientCount: 2
       });
     }
     let intervalSummary = null;
@@ -1308,6 +1576,7 @@
       predict,
       diagnostics,
       coefficientStats,
+      coefficientCovariance,
       intervals: intervalSummary ? {
         alpha,
         zCritical,
@@ -1361,7 +1630,12 @@
     const sst = filteredY.reduce((sum, val) => sum + Math.pow(val - meanY, 2), 0);
     const sse = residualsOriginal.reduce((sum,val)=>sum+val*val,0);
     const r2 = sst === 0 ? 1 : 1 - (sse / sst);
-    const diagnostics = computeResidualDiagnostics(residualsOriginal);
+    const diagnostics = buildExtendedRegressionDiagnostics({
+      residuals: residualsOriginal,
+      points: filtered,
+      predictions,
+      parameterCount: solved.coefficients.length
+    });
     const coefficientStatsLog = buildCoefficientStats({
       coefficients: solved.coefficients,
       xtxInv: solved.xtxInv,
@@ -1369,6 +1643,11 @@
       alpha,
       termLabels: ['ln(a)','b'],
       degreesOfFreedom: filtered.length - solved.coefficients.length
+    });
+    const coefficientCovarianceLog = buildCoefficientCovariance({
+      xtxInv: solved.xtxInv,
+      residuals: residualsLog,
+      coefficientCount: solved.coefficients.length
     });
     const intervalInfo = buildIntervalSamples({
       xtxInv: solved.xtxInv,
@@ -1407,6 +1686,7 @@
       predict: predictExp,
       diagnostics,
       coefficientStats: coefficientStatsLog,
+      coefficientCovariance: coefficientCovarianceLog,
       intervals: intervalInfo.summary ? {
         alpha,
         tCritical: intervalInfo.tCritical,
@@ -1465,7 +1745,12 @@
     const sst = filteredY.reduce((sum, val) => sum + Math.pow(val - meanY, 2), 0);
     const sse = residualsOriginal.reduce((sum,val)=>sum+val*val,0);
     const r2 = sst === 0 ? 1 : 1 - (sse / sst);
-    const diagnostics = computeResidualDiagnostics(residualsOriginal);
+    const diagnostics = buildExtendedRegressionDiagnostics({
+      residuals: residualsOriginal,
+      points: filtered,
+      predictions,
+      parameterCount: solved.coefficients.length
+    });
     const coefficientStatsLog = buildCoefficientStats({
       coefficients: solved.coefficients,
       xtxInv: solved.xtxInv,
@@ -1473,6 +1758,11 @@
       alpha,
       termLabels: ['ln(a)','b'],
       degreesOfFreedom: filtered.length - solved.coefficients.length
+    });
+    const coefficientCovarianceLog = buildCoefficientCovariance({
+      xtxInv: solved.xtxInv,
+      residuals: residualsLog,
+      coefficientCount: solved.coefficients.length
     });
     const intervalInfo = buildIntervalSamples({
       xtxInv: solved.xtxInv,
@@ -1512,6 +1802,7 @@
       predict: predictPower,
       diagnostics,
       coefficientStats: coefficientStatsLog,
+      coefficientCovariance: coefficientCovarianceLog,
       intervals: intervalInfo.summary ? {
         alpha,
         tCritical: intervalInfo.tCritical,
@@ -2625,8 +2916,14 @@
     const sse = residuals.reduce((sum,val)=>sum + val * val, 0);
     const r2 = sst === 0 ? 1 : 1 - (sse / sst);
     const rmse = Math.sqrt(sse / Math.max(points.length, 1));
-    const diagnostics = computeResidualDiagnostics(residuals);
+    const diagnostics = buildExtendedRegressionDiagnostics({
+      residuals,
+      points,
+      predictions,
+      parameterCount: 1
+    });
     let coefficientStats = [];
+    let coefficientCovariance = null;
     if(hasMatrixOps){
       const design = points.map(pt => [pt.x]);
       const solved = solveLeastSquares(design, yVals.map(val => [val]));
@@ -2638,6 +2935,11 @@
           alpha,
           termLabels: ['Slope'],
           degreesOfFreedom: points.length - 1
+        });
+        coefficientCovariance = buildCoefficientCovariance({
+          xtxInv: solved.xtxInv,
+          residuals,
+          coefficientCount: 1
         });
       }
     }
@@ -2659,6 +2961,7 @@
       predict: x => slope * x,
       diagnostics,
       coefficientStats,
+      coefficientCovariance,
       intervals: null,
       summary: {
         intercept,
@@ -2964,6 +3267,17 @@
     return model;
   };
 
+  const resolveModelParameterCount = (model) => {
+    if(Array.isArray(model?.coefficients) && model.coefficients.length){
+      return model.coefficients.length;
+    }
+    const predictors = Number(model?.metrics?.predictors);
+    if(Number.isFinite(predictors)){
+      return Math.max(1, Math.round(predictors) + 1);
+    }
+    return null;
+  };
+
   const buildNonlinearModel = ({ points, domain, alpha, method, options, spec }) => {
     const yVals = points.map(pt => pt.y);
     const xVals = points.map(pt => pt.x);
@@ -3042,6 +3356,7 @@
       predict: x => spec.predict(fit.params, x),
       diagnostics: computeResidualDiagnostics(fit.residuals),
       coefficientStats: coefficientInfo.stats,
+      coefficientCovariance: coefficientInfo.covariance,
       intervals: intervalInfo ? {
         alpha,
         tCritical: coefficientInfo.tCritical,
@@ -3550,6 +3865,32 @@
       if(!model.predict && typeof computeSplineModel === 'function' && mode === 'spline'){
         console.debug('Debug:', debugNs, 'spline model missing predict');
       }
+      let diagnosticsPredictions = null;
+      if(typeof model.predict === 'function'){
+        diagnosticsPredictions = cleanPoints.map(pt => {
+          const prediction = Number(model.predict(pt.x));
+          return Number.isFinite(prediction) ? prediction : NaN;
+        });
+      }else if(Array.isArray(model.predictions) && model.predictions.length === cleanPoints.length){
+        diagnosticsPredictions = model.predictions.slice();
+      }
+      if(Array.isArray(diagnosticsPredictions)){
+        const residualValues = diagnosticsPredictions.map((prediction, idx) => cleanPoints[idx].y - prediction);
+        const parameterCount = resolveModelParameterCount(model);
+        model.diagnostics = buildExtendedRegressionDiagnostics({
+          residuals: residualValues,
+          points: cleanPoints,
+          predictions: diagnosticsPredictions,
+          parameterCount
+        });
+      }else if(!model.diagnostics){
+        model.diagnostics = buildExtendedRegressionDiagnostics({
+          residuals: [],
+          points: cleanPoints,
+          predictions: [],
+          parameterCount: resolveModelParameterCount(model)
+        });
+      }
       addRegressionStabilityWarnings(model);
       console.debug('Debug:', debugNs, 'fit result', {
         mode: model.mode,
@@ -3617,7 +3958,29 @@
           skewness: ensureFiniteNumber(model.diagnostics.skewness),
           kurtosis: ensureFiniteNumber(model.diagnostics.kurtosis),
           jarqueBera: ensureFiniteNumber(model.diagnostics.jarqueBera),
-          jarqueBeraP: ensureFiniteNumber(model.diagnostics.jarqueBeraP)
+          jarqueBeraP: ensureFiniteNumber(model.diagnostics.jarqueBeraP),
+          runsTest: model.diagnostics.runsTest ? {
+            available: !!model.diagnostics.runsTest.available,
+            runs: ensureFiniteNumber(model.diagnostics.runsTest.runs),
+            expectedRuns: ensureFiniteNumber(model.diagnostics.runsTest.expectedRuns),
+            variance: ensureFiniteNumber(model.diagnostics.runsTest.variance),
+            z: ensureFiniteNumber(model.diagnostics.runsTest.z),
+            pValue: ensureFiniteNumber(model.diagnostics.runsTest.pValue),
+            nPositive: ensureFiniteNumber(model.diagnostics.runsTest.nPositive),
+            nNegative: ensureFiniteNumber(model.diagnostics.runsTest.nNegative),
+            message: model.diagnostics.runsTest.message || null
+          } : null,
+          lackOfFit: model.diagnostics.lackOfFit ? {
+            available: !!model.diagnostics.lackOfFit.available,
+            hasReplicates: !!model.diagnostics.lackOfFit.hasReplicates,
+            ssPureError: ensureFiniteNumber(model.diagnostics.lackOfFit.ssPureError),
+            ssLackOfFit: ensureFiniteNumber(model.diagnostics.lackOfFit.ssLackOfFit),
+            dfPureError: ensureFiniteNumber(model.diagnostics.lackOfFit.dfPureError),
+            dfLackOfFit: ensureFiniteNumber(model.diagnostics.lackOfFit.dfLackOfFit),
+            fStatistic: ensureFiniteNumber(model.diagnostics.lackOfFit.fStatistic),
+            pValue: ensureFiniteNumber(model.diagnostics.lackOfFit.pValue),
+            message: model.diagnostics.lackOfFit.message || null
+          } : null
         } : null,
         coefficientStats: Array.isArray(model.coefficientStats)
           ? model.coefficientStats.map(stat => ({
@@ -3630,6 +3993,11 @@
             ciHigh: ensureFiniteNumber(stat.ciHigh)
           }))
           : [],
+        coefficientCovariance: Array.isArray(model.coefficientCovariance)
+          ? model.coefficientCovariance.map(row => (
+            Array.isArray(row) ? row.map(ensureFiniteNumber) : []
+          ))
+          : null,
         intervals: model.intervals ? {
           alpha: ensureFiniteNumber(model.intervals.alpha),
           tCritical: ensureFiniteNumber(model.intervals.tCritical ?? model.intervals.zCritical),

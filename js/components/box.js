@@ -4605,9 +4605,25 @@
       tooltip:"Non-parametric Dunn's post-hoc test using rank sums (unpaired, ≥3 groups).",
       applies:context=>context && context.mode!=='custom' && context.test==='nonparametric' && !context.paired && context.groupCount>=3,
       summary:context=>`Dunn's rank-based post-hoc across ${context?.groupCount || 0} groups.`
+    },
+    dunnett:{
+      value:'dunnett',
+      label:"Dunnett's test",
+      shortLabel:'Dunnett',
+      tooltip:"Parametric multiple comparison versus a control/reference group (equal variances).",
+      applies:context=>context && context.mode==='reference' && context.test==='parametric' && !context.paired && context.groupCount>=3 && context.variant!=='welch',
+      summary:context=>`Dunnett-style control comparisons across ${Math.max(0,(context?.groupCount||0)-1)} group${(context?.groupCount||0)===2?'':'s'}.`
+    },
+    dunnettT3:{
+      value:'dunnettT3',
+      label:"Dunnett's T3",
+      shortLabel:'Dunnett T3',
+      tooltip:"Welch-type multiple comparison versus a control/reference group (unequal variances).",
+      applies:context=>context && context.mode==='reference' && context.test==='parametric' && !context.paired && context.groupCount>=3,
+      summary:context=>`Dunnett T3-style control comparisons across ${Math.max(0,(context?.groupCount||0)-1)} group${(context?.groupCount||0)===2?'':'s'}.`
     }
   };
-  const POST_HOC_ORDER=['standard','tukey','gamesHowell','dunn'];
+  const POST_HOC_ORDER=['standard','tukey','gamesHowell','dunn','dunnett','dunnettT3'];
   function listPostHocOptions(){
     return POST_HOC_ORDER.map(key=>({
       value:key,
@@ -4630,6 +4646,18 @@
     const requested=(typeof method==='string'?method:'').toLowerCase();
     if(requested && isPostHocSupported(requested,ctx)){
       return requested;
+    }
+    if(ctx.mode==='reference' && ctx.variant==='welch' && isPostHocSupported('dunnettT3',ctx)){
+      if(requested && requested!=='dunnettT3'){
+        console.debug('Debug: box postHoc reference fallback',{ requested, fallback:'dunnettT3', context:ctx });
+      }
+      return 'dunnettT3';
+    }
+    if(ctx.mode==='reference' && isPostHocSupported('dunnett',ctx)){
+      if(requested && requested!=='dunnett'){
+        console.debug('Debug: box postHoc reference fallback',{ requested, fallback:'dunnett', context:ctx });
+      }
+      return 'dunnett';
     }
     if(ctx.variant==='welch' && isPostHocSupported('gamesHowell',ctx)){
       if(requested && requested!=='gamesHowell'){
@@ -5100,6 +5128,7 @@
       return { ok:false, message:base.reason || 'Unable to compute Tukey HSD.' };
     }
     const pairs=[];
+    const tCritical=resolveTCritical(base.dfWithin,0.05);
     for(let i=0;i<base.groupCount;i++){
       for(let j=i+1;j<base.groupCount;j++){
         const ni=base.counts[i];
@@ -5113,6 +5142,7 @@
         const q=Math.abs(diff)/se;
         const cdf=studentizedRangeCDF(q,base.groupCount,base.dfWithin);
         const pAdj=Math.max(0,Math.min(1,1-cdf));
+        const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
         pairs.push({
           i,
           j,
@@ -5124,6 +5154,8 @@
           mse:base.mse,
           ni,
           nj,
+          ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
+          ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN,
           labelA:labels?.[i],
           labelB:labels?.[j]
         });
@@ -5173,6 +5205,8 @@
         const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
         const cdf=studentizedRangeCDF(q,k,df);
         const p=Math.max(0,Math.min(1,1-cdf));
+        const tCritical=resolveTCritical(df,0.05);
+        const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
         pairs.push({
           i,
           j,
@@ -5186,6 +5220,8 @@
           nj,
           varI,
           varJ,
+          ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
+          ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN,
           labelA:labels?.[i],
           labelB:labels?.[j]
         });
@@ -5199,6 +5235,105 @@
       counts,
       variances,
       footnote:'Games–Howell adjusted via studentized range (Welch df per pair)'
+    };
+  }
+  function computeDunnettComparisons(groups,labels,referenceIndex,options={}){
+    const unequalVariances=options?.unequalVariances===true;
+    const alpha=Number.isFinite(options?.alpha)?Math.min(0.5,Math.max(1e-6,options.alpha)):0.05;
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const counts=cleaned.map(group=>group.length);
+    const k=cleaned.length;
+    if(k<3){
+      return { ok:false, message:"Dunnett's test requires at least three groups (including the reference)." };
+    }
+    const refIdx=Number.isInteger(referenceIndex)?referenceIndex:0;
+    if(refIdx<0 || refIdx>=k){
+      return { ok:false, message:'Select a valid reference group for Dunnett comparisons.' };
+    }
+    if(counts.some(n=>n<2)){
+      return { ok:false, message:"Dunnett's test requires at least two values in each group." };
+    }
+    const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
+    const variances=cleaned.map((group,idx)=>{
+      const mu=means[idx];
+      const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-mu,2),0);
+      const denom=Math.max(group.length-1,1);
+      const variance=sumSq/denom;
+      return variance>0?variance:Number.EPSILON;
+    });
+    let pooledMse=NaN;
+    let pooledDf=NaN;
+    if(!unequalVariances){
+      const anovaParts=computeAnovaComponents(cleaned);
+      if(!anovaParts.ok){
+        return { ok:false, message:anovaParts.reason || "Unable to compute Dunnett's pooled variance." };
+      }
+      pooledMse=anovaParts.mse;
+      pooledDf=anovaParts.dfWithin;
+    }
+    const comparisonCount=Math.max(1,k-1);
+    const sidakAlpha=1-Math.pow(Math.max(1e-9,1-alpha),1/comparisonCount);
+    const pairs=[];
+    for(let i=0;i<k;i++){
+      if(i===refIdx){ continue; }
+      const ni=counts[i];
+      const nr=counts[refIdx];
+      let se=NaN;
+      let df=NaN;
+      if(unequalVariances){
+        const vi=variances[i];
+        const vr=variances[refIdx];
+        const se2=(vi/ni)+(vr/nr);
+        se=Math.sqrt(se2>0?se2:Number.EPSILON);
+        const denom=(Math.pow(vi/ni,2)/(ni-1))+(Math.pow(vr/nr,2)/(nr-1));
+        df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
+      }else{
+        se=Math.sqrt(pooledMse*((1/ni)+(1/nr)));
+        df=pooledDf;
+      }
+      if(!Number.isFinite(se) || se<=0){
+        continue;
+      }
+      const diff=means[i]-means[refIdx];
+      const tVal=diff/se;
+      const cdf=global.jStat?.studentt && typeof global.jStat.studentt.cdf==='function'
+        ? global.jStat.studentt.cdf
+        : null;
+      if(!cdf){
+        return { ok:false, message:'Student t distribution unavailable for Dunnett comparisons.' };
+      }
+      const rawP=2*(1-cdf(Math.abs(tVal),df));
+      const pAdj=1-Math.pow(Math.max(0,1-rawP),comparisonCount);
+      const tCritical=resolveTCritical(df,sidakAlpha);
+      const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
+      pairs.push({
+        i:refIdx,
+        j:i,
+        diff,
+        se,
+        t:tVal,
+        p:rawP,
+        pAdj:Math.max(0,Math.min(1,pAdj)),
+        df,
+        ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
+        ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN,
+        labelA:labels?.[refIdx],
+        labelB:labels?.[i]
+      });
+    }
+    if(!pairs.length){
+      return { ok:false, message:"Unable to compute Dunnett comparisons for the selected groups." };
+    }
+    return {
+      ok:true,
+      pairs,
+      referenceIndex:refIdx,
+      means,
+      counts,
+      variances,
+      footnote:unequalVariances
+        ? "Dunnett T3 approximated with Welch t-tests and Sidak family-wise adjustment versus reference."
+        : "Dunnett approximated with pooled-variance t-tests and Sidak family-wise adjustment versus reference."
     };
   }
   function computeDunnComparisons(groups,labels){
@@ -6783,6 +6918,22 @@
       noteEl.dataset.method='gamesHowell';
       noteEl.dataset.correctionLabel='Games–Howell';
       console.debug('Debug: box updateStatsCorrectionSummary gamesHowell',{ count:safeCount });
+      return;
+    }
+    if(!oneSampleMode && state.statsPostHoc==='dunnett'){
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      noteEl.textContent=`Post-hoc: Dunnett (${detail}, versus reference).`;
+      noteEl.dataset.method='dunnett';
+      noteEl.dataset.correctionLabel='Dunnett';
+      console.debug('Debug: box updateStatsCorrectionSummary dunnett',{ count:safeCount });
+      return;
+    }
+    if(!oneSampleMode && state.statsPostHoc==='dunnettT3'){
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      noteEl.textContent=`Post-hoc: Dunnett T3 (${detail}, Welch-style versus reference).`;
+      noteEl.dataset.method='dunnettT3';
+      noteEl.dataset.correctionLabel='Dunnett T3';
+      console.debug('Debug: box updateStatsCorrectionSummary dunnettT3',{ count:safeCount });
       return;
     }
     const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
@@ -8374,6 +8525,21 @@
     }
     return 0;
   }
+  function resolveTCritical(df,alpha=0.05){
+    const jStatLib=global.jStat;
+    const inv=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.inv==='function'
+      ? jStatLib.studentt.inv
+      : null;
+    if(!inv || !Number.isFinite(df) || df<=0){
+      return NaN;
+    }
+    try{
+      return inv(1-(alpha/2),df);
+    }catch(err){
+      console.debug('Debug: box resolveTCritical failed',{ df, alpha, message: err?.message });
+      return NaN;
+    }
+  }
   function tTest(a,b){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
@@ -8391,7 +8557,16 @@
     const t=(ma-mb)/se;
     const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1));
     const p=2*(1-cdf(Math.abs(t),df));
-    return {t,df,p};
+    const diff=ma-mb;
+    const tCritical=resolveTCritical(df,0.05);
+    const ciHalf=Number.isFinite(tCritical)&&Number.isFinite(se)?tCritical*se:NaN;
+    return {
+      t,df,p,se,diff,
+      meanA:ma,
+      meanB:mb,
+      ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
+      ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN
+    };
   }
   function tTestPaired(a,b){
     const jStatLib=global.jStat;
@@ -8408,7 +8583,15 @@
     const sd=Math.sqrt(diffs.reduce((s,v)=>s+Math.pow(v-md,2),0)/(n-1||1));
     const t=md/(sd/Math.sqrt(n));
     const p=2*(1-cdf(Math.abs(t),n-1));
-    return {t,df:n-1,p};
+    const se=sd/Math.sqrt(n);
+    const tCritical=resolveTCritical(n-1,0.05);
+    const ciHalf=Number.isFinite(tCritical)&&Number.isFinite(se)?tCritical*se:NaN;
+    return {
+      t,df:n-1,p,se,diff:md,
+      meanDiff:md,
+      ciLow:Number.isFinite(ciHalf)?md-ciHalf:NaN,
+      ciHigh:Number.isFinite(ciHalf)?md+ciHalf:NaN
+    };
   }
   function tTestOneSample(values,nullValue){
     const jStatLib=global.jStat;
@@ -8678,13 +8861,91 @@
       F=msCondition/msError;
       p=1-cdf(F,df1,df2);
     }
+    let ggEpsilon=NaN;
+    let hfEpsilon=NaN;
+    let ggP=NaN;
+    let hfP=NaN;
+    if(n>1 && k>2){
+      const covariance=Array.from({ length:k }, ()=>new Array(k).fill(0));
+      for(let row=0;row<k;row++){
+        for(let col=0;col<k;col++){
+          let sum=0;
+          for(let subject=0;subject<n;subject++){
+            sum+=(cleaned[row][subject]-conditionSums[row]/n)*(cleaned[col][subject]-conditionSums[col]/n);
+          }
+          covariance[row][col]=sum/Math.max(n-1,1);
+        }
+      }
+      const centering=Array.from({ length:k }, (_,row)=>
+        Array.from({ length:k }, (_,col)=> (row===col?1:0)-(1/k))
+      );
+      const centered=Array.from({ length:k }, ()=>new Array(k).fill(0));
+      for(let row=0;row<k;row++){
+        for(let col=0;col<k;col++){
+          let sum=0;
+          for(let m=0;m<k;m++){
+            sum+=centering[row][m]*covariance[m][col];
+          }
+          centered[row][col]=sum;
+        }
+      }
+      let trace=0;
+      let traceSq=0;
+      for(let row=0;row<k;row++){
+        trace+=centered[row][row];
+      }
+      for(let row=0;row<k;row++){
+        for(let col=0;col<k;col++){
+          traceSq+=centered[row][col]*centered[col][row];
+        }
+      }
+      if(traceSq>0){
+        ggEpsilon=Math.min(1,Math.max(1/(k-1),(trace*trace)/((k-1)*traceSq)));
+      }
+      if(Number.isFinite(ggEpsilon)){
+        const numerator=n*(k-1)*ggEpsilon-2;
+        const denominator=(k-1)*(n-1-(k-1)*ggEpsilon);
+        if(denominator!==0){
+          hfEpsilon=Math.min(1,Math.max(ggEpsilon,numerator/denominator));
+        }else{
+          hfEpsilon=ggEpsilon;
+        }
+      }
+      if(Number.isFinite(ggEpsilon) && ggEpsilon>0){
+        const ggDf1=ggEpsilon*df1;
+        const ggDf2=ggEpsilon*df2;
+        if(ggDf1>0 && ggDf2>0){
+          ggP=1-cdf(F,ggDf1,ggDf2);
+        }
+      }
+      if(Number.isFinite(hfEpsilon) && hfEpsilon>0){
+        const hfDf1=hfEpsilon*df1;
+        const hfDf2=hfEpsilon*df2;
+        if(hfDf1>0 && hfDf2>0){
+          hfP=1-cdf(F,hfDf1,hfDf2);
+        }
+      }
+    }
+    const correctionNotes=[];
+    if(Number.isFinite(ggEpsilon)){
+      correctionNotes.push(`Greenhouse–Geisser ε = ${ggEpsilon.toFixed(3)}${Number.isFinite(ggP)?`, p(GG) = ${formatP(ggP)}`:''}.`);
+    }
+    if(Number.isFinite(hfEpsilon)){
+      correctionNotes.push(`Huynh–Feldt ε = ${hfEpsilon.toFixed(3)}${Number.isFinite(hfP)?`, p(HF) = ${formatP(hfP)}`:''}.`);
+    }
     return {
       ok:true,
       F,
       p,
       df1,
       df2,
-      footnote:'Repeated-measures ANOVA assumes sphericity.'
+      ggEpsilon,
+      hfEpsilon,
+      ggP,
+      hfP,
+      footnote:correctionNotes.length
+        ? `Repeated-measures ANOVA assumes sphericity. ${correctionNotes.join(' ')}`
+        : 'Repeated-measures ANOVA assumes sphericity.'
     };
   }
   function computeFriedmanTest(groups){
@@ -11511,13 +11772,22 @@
     persistTabState('stats-correction-change');
     state.scheduleDraw();
   });
-  correctionSel.disabled=!oneSampleMode && (state.statsPostHoc==='tukey' || state.statsPostHoc==='gamesHowell');
+  correctionSel.disabled=!oneSampleMode && (
+    state.statsPostHoc==='tukey'
+    || state.statsPostHoc==='gamesHowell'
+    || state.statsPostHoc==='dunnett'
+    || state.statsPostHoc==='dunnettT3'
+  );
   if(oneSampleMode){
     correctionSel.removeAttribute('title');
   }else if(state.statsPostHoc==='tukey'){
     correctionSel.title='Tukey HSD already adjusts for multiple comparisons.';
   }else if(state.statsPostHoc==='gamesHowell'){
     correctionSel.title='Games–Howell already incorporates unequal-variance adjustment.';
+  }else if(state.statsPostHoc==='dunnett'){
+    correctionSel.title='Dunnett already controls family-wise error versus the reference group.';
+  }else if(state.statsPostHoc==='dunnettT3'){
+    correctionSel.title='Dunnett T3 already controls family-wise error versus the reference group.';
   }else{
     correctionSel.removeAttribute('title');
   }
@@ -13471,6 +13741,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         { metric:'Test', value:param?(state.statsPaired?'Paired t-test':'t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U') },
         { metric:statName, value:res[statName].toFixed(4) }
       ];
+      const diffValue=Number.isFinite(res.diff)?res.diff:(mean(groups[0])-mean(groups[1]));
+      if(Number.isFinite(diffValue)){
+        summaryRows.push({ metric:'Difference (A-B)', value:formatStatNumber(diffValue) });
+      }
+      if(Number.isFinite(res.ciLow) && Number.isFinite(res.ciHigh)){
+        summaryRows.push({ metric:'Difference (95% CI)', value:`${formatStatNumber(res.ciLow)} to ${formatStatNumber(res.ciHigh)}` });
+      }
       if(res.df!==undefined){ summaryRows.push({ metric:'df', value:res.df.toFixed(4) }); }
       summaryRows.push({ metric:'P value', value:formatP(res.p) });
       const correctionMeta=resolveCorrectionMeta(state.statsCorrection,1);
@@ -13538,7 +13815,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }else if(param){
       const rm=computeRepeatedMeasuresAnova(groups);
       if(rm.ok){
-        overall={ method:'rmAnova', F:rm.F, p:rm.p, df1:rm.df1, df2:rm.df2, footnote:rm.footnote };
+        overall={ method:'rmAnova', F:rm.F, p:rm.p, df1:rm.df1, df2:rm.df2, ggEpsilon:rm.ggEpsilon, hfEpsilon:rm.hfEpsilon, ggP:rm.ggP, hfP:rm.hfP, footnote:rm.footnote };
         if(rm.footnote){ overallFootnotes.push(rm.footnote); }
       }else{
         console.debug('Debug: box repeated-measures ANOVA unavailable',rm);
@@ -13595,6 +13872,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:pr.q,
             statName:'q',
             df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
             labelA:labels[pr.i],
             labelB:labels[pr.j],
             effects:effectMetrics,
@@ -13630,6 +13910,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:pr.q,
             statName:'q',
             df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
             labelA:labels[pr.i],
             labelB:labels[pr.j],
             effects:effectMetrics,
@@ -13664,6 +13947,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:pr.z,
             statName:'z',
             df:null,
+            diff:pr.diff,
             labelA:labels[pr.i],
             labelB:labels[pr.j],
             effects:effectMetrics,
@@ -13698,6 +13982,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               ai:aIdx,
               bi:bIdx,
               p:r.p,
+              diff:Number.isFinite(r.diff)?r.diff:(mean(aValues)-mean(bValues)),
+              ciLow:r.ciLow,
+              ciHigh:r.ciHigh,
               rangeMax,
               stat:statVal,
               statName,
@@ -13747,6 +14034,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:pr.q,
             statName:'q',
             df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
             labelA:labels[pr.i],
             labelB:labels[pr.j],
             effects:effectMetrics,
@@ -13783,6 +14073,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:pr.q,
             statName:'q',
             df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
             labelA:labels[pr.i],
             labelB:labels[pr.j],
             effects:effectMetrics,
@@ -13818,6 +14111,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:pr.z,
             statName:'z',
             df:null,
+            diff:pr.diff,
             labelA:labels[pr.i],
             labelB:labels[pr.j],
             effects:effectMetrics,
@@ -13831,6 +14125,46 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
+        updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='dunnett' || postHocMode==='dunnettT3'){
+        const dunnett=computeDunnettComparisons(groups,labels,refIdx,{ unequalVariances:postHocMode==='dunnettT3', alpha:0.05 });
+        if(!dunnett.ok){
+          setResultsMessage(dunnett.message || "Unable to compute Dunnett comparisons.");
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        if(dunnett.footnote){
+          methodFootnotes.push(dunnett.footnote);
+        }
+        pairs=dunnett.pairs.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          const rangeMax = getRenderedRangeMax(ai, bi);
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.pAdj,
+            stat:pr.t,
+            statName:'t',
+            df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:postHocMode
+          };
+        });
         updateStatsCorrectionSummary(pairs.length);
       }else{
         indices.forEach((idx,i)=>{
@@ -13850,6 +14184,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             ai:state.statsRef,
             bi:idx,
             p:r.p,
+            diff:Number.isFinite(r.diff)?r.diff:(mean(refData)-mean(compareValues)),
+            ciLow:r.ciLow,
+            ciHigh:r.ciHigh,
             rangeMax,
             labelA:labels[refIdx],
             labelB:labels[i],
@@ -13875,6 +14212,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         correctionMeta={ key:'tukey', label:'Tukey HSD', shortLabel:'Tukey HSD', footnote:null };
       }else if(postHocMode==='gamesHowell'){
         correctionMeta={ key:'gamesHowell', label:'Games–Howell', shortLabel:'Games–Howell', footnote:null };
+      }else if(postHocMode==='dunnett'){
+        correctionMeta={ key:'dunnett', label:'Dunnett', shortLabel:'Dunnett', footnote:null };
+      }else if(postHocMode==='dunnettT3'){
+        correctionMeta={ key:'dunnettT3', label:'Dunnett T3', shortLabel:'Dunnett T3', footnote:null };
       }else{
         correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
       }
@@ -13919,6 +14260,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           overallRows.push({ metric:'df', value:String(overall.df) });
         }
         overallRows.push({ metric:'P value', value:formatP(overall.p) });
+        if(overall.method==='rmAnova'){
+          if(Number.isFinite(overall.ggEpsilon)){
+            overallRows.push({ metric:'GG epsilon', value:overall.ggEpsilon.toFixed(4) });
+          }
+          if(Number.isFinite(overall.ggP)){
+            overallRows.push({ metric:'P value (GG)', value:formatP(overall.ggP) });
+          }
+          if(Number.isFinite(overall.hfEpsilon)){
+            overallRows.push({ metric:'HF epsilon', value:overall.hfEpsilon.toFixed(4) });
+          }
+          if(Number.isFinite(overall.hfP)){
+            overallRows.push({ metric:'P value (HF)', value:formatP(overall.hfP) });
+          }
+        }
         renderTableModel({
           caption:'Overall test summary',
           columns:[
@@ -13938,6 +14293,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         comparison:`${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
         df:Number.isFinite(pr.df)?pr.df.toFixed(2):(pr.df===Infinity?'∞':'—'),
+        difference:Number.isFinite(pr.diff)?formatStatNumber(pr.diff):'—',
+        ci:(Number.isFinite(pr.ciLow)&&Number.isFinite(pr.ciHigh))
+          ? `${formatStatNumber(pr.ciLow)} to ${formatStatNumber(pr.ciHigh)}`
+          : '—',
         padj:formatP(pr.adjP),
         effectParametric:pr.effectParametric,
         effectNonParametric:pr.effectNonParametric
@@ -13950,6 +14309,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ? 'P (Tukey HSD)'
         : postHocMode==='gamesHowell'
           ? 'P (Games–Howell)'
+          : postHocMode==='dunnett'
+            ? 'P (Dunnett)'
+            : postHocMode==='dunnettT3'
+              ? 'P (Dunnett T3)'
           : `P (adj, ${correctionMeta.shortLabel})`;
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
@@ -13957,9 +14320,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:pLabel,align:'right',index:3},
-          {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:4,tooltip:paramEffectMeta.tooltip},
-          {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:5,tooltip:nonParamEffectMeta.tooltip}
+          {key:'difference',label:'Difference',align:'right',index:3},
+          {key:'ci',label:'95% CI',align:'right',index:4},
+          {key:'padj',label:pLabel,align:'right',index:5},
+          {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:6,tooltip:paramEffectMeta.tooltip},
+          {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:7,tooltip:nonParamEffectMeta.tooltip}
         ],
         rows:pairRows,
         footnotes,

@@ -99,6 +99,9 @@
         ciHigh: stat.ciHigh
       }))
       : [];
+    const coefficientCovariance = Array.isArray(model.coefficientCovariance)
+      ? model.coefficientCovariance.map(row => (Array.isArray(row) ? row.slice() : []))
+      : null;
     const forecastPoints = Array.isArray(model.forecast?.points)
       ? model.forecast.points.map(point => ({
         x: point?.x,
@@ -124,6 +127,7 @@
       residuals: model.residuals ? { ...model.residuals } : null,
       diagnostics: model.diagnostics ? { ...model.diagnostics } : null,
       coefficientStats,
+      coefficientCovariance,
       intervals: serializeIntervals(model.intervals),
       summary,
       domain: model.domain ? { ...model.domain } : null,
@@ -131,6 +135,31 @@
       forecast,
       fitSpec: model.fitSpec && typeof model.fitSpec === 'object' ? { ...model.fitSpec } : null
     };
+  }
+
+  function computeCorrelationConfidenceInterval(r, n, alpha){
+    const rNum = Number(r);
+    const count = Number(n);
+    if(!Number.isFinite(rNum) || !Number.isFinite(count) || count <= 3){
+      return null;
+    }
+    const clamped = Math.max(-0.999999999999, Math.min(0.999999999999, rNum));
+    const z = 0.5 * Math.log((1 + clamped) / (1 - clamped));
+    const se = 1 / Math.sqrt(count - 3);
+    if(!Number.isFinite(se) || se <= 0){
+      return null;
+    }
+    const jStat = ensureJStat();
+    const zCritical = jStat.normal && typeof jStat.normal.inv === 'function'
+      ? jStat.normal.inv(1 - ((alpha || 0.05) / 2), 0, 1)
+      : 1.959963984540054;
+    const loZ = z - (zCritical * se);
+    const hiZ = z + (zCritical * se);
+    const toR = value => {
+      const e2 = Math.exp(2 * value);
+      return (e2 - 1) / (e2 + 1);
+    };
+    return { low: toR(loZ), high: toR(hiZ), method: 'fisher-z' };
   }
 
   function computeScatterStats(payload){
@@ -162,6 +191,7 @@
     const p = jStat.studentt && typeof jStat.studentt.cdf === 'function' && Number.isFinite(t)
       ? 2 * (1 - jStat.studentt.cdf(Math.abs(t), n - 2))
       : NaN;
+    const pMethod = method === 'spearman' ? 't approximation' : 'Student t approximation';
     const xMean = jStat.mean(x);
     const yMean = jStat.mean(y);
     let num = 0;
@@ -225,6 +255,9 @@
       method: label,
       r,
       p,
+      pMethod,
+      correlationCI: computeCorrelationConfidenceInterval(r, n, 0.05),
+      correlationCiApproximate: method === 'spearman',
       r2,
       m: resolvedSlope,
       b: resolvedIntercept,

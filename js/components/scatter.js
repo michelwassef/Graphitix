@@ -5874,6 +5874,231 @@
       }
       return value.toFixed(digits);
     };
+    const computeScatterCorrelationConfidenceInterval = (r, n, alpha = 0.05) => {
+      const rNum = Number(r);
+      const count = Number(n);
+      if(!Number.isFinite(rNum) || !Number.isFinite(count) || count <= 3){
+        return null;
+      }
+      const clamped = Math.max(-0.999999999999, Math.min(0.999999999999, rNum));
+      const z = 0.5 * Math.log((1 + clamped) / (1 - clamped));
+      const se = 1 / Math.sqrt(count - 3);
+      if(!Number.isFinite(se) || se <= 0){
+        return null;
+      }
+      const normal = global.jStat?.normal;
+      const zCritical = (normal && typeof normal.inv === 'function')
+        ? normal.inv(1 - (alpha / 2), 0, 1)
+        : 1.959963984540054;
+      const loZ = z - (zCritical * se);
+      const hiZ = z + (zCritical * se);
+      const toR = value => {
+        const e2 = Math.exp(2 * value);
+        return (e2 - 1) / (e2 + 1);
+      };
+      return { low: toR(loZ), high: toR(hiZ), method: 'fisher-z' };
+    };
+    const hasScatterDuplicateValues = values => {
+      const seen = new Set();
+      for(let i = 0; i < values.length; i += 1){
+        const key = String(values[i]);
+        if(seen.has(key)){
+          return true;
+        }
+        seen.add(key);
+      }
+      return false;
+    };
+    const computeScatterSpearmanExactP = (rho, n) => {
+      const size = Number(n);
+      const observed = Math.abs(Number(rho));
+      if(!Number.isFinite(size) || !Number.isFinite(observed) || size < 3 || size > 9){
+        return null;
+      }
+      const permutation = Array.from({ length: size }, (_, idx) => idx + 1);
+      const denom = size * (Math.pow(size, 2) - 1);
+      let total = 0;
+      let extreme = 0;
+      const tolerance = 1e-12;
+      const permute = index => {
+        if(index >= size){
+          let d2 = 0;
+          for(let i = 0; i < size; i += 1){
+            const d = (i + 1) - permutation[i];
+            d2 += d * d;
+          }
+          const rhoPerm = 1 - ((6 * d2) / denom);
+          total += 1;
+          if(Math.abs(rhoPerm) >= observed - tolerance){
+            extreme += 1;
+          }
+          return;
+        }
+        for(let i = index; i < size; i += 1){
+          const tmp = permutation[index];
+          permutation[index] = permutation[i];
+          permutation[i] = tmp;
+          permute(index + 1);
+          permutation[i] = permutation[index];
+          permutation[index] = tmp;
+        }
+      };
+      permute(0);
+      return total ? (extreme / total) : null;
+    };
+    const computeScatterCorrelationStats = (method, x, y) => {
+      const n = x.length;
+      const pearson = jStatLib.corrcoeff(x, y);
+      if(method === 'pearson'){
+        const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
+        const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+        const p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+        return {
+          methodLabel: 'Pearson',
+          r: pearson,
+          p,
+          pMethod: 'Student t approximation',
+          ci: computeScatterCorrelationConfidenceInterval(pearson, n, 0.05),
+          ciApproximate: false
+        };
+      }
+      const spearman = jStatLib.spearmancoeff(x, y);
+      const hasTies = hasScatterDuplicateValues(x) || hasScatterDuplicateValues(y);
+      let p = NaN;
+      let pMethod = 't approximation';
+      if(!hasTies && n <= 9){
+        const exact = computeScatterSpearmanExactP(spearman, n);
+        if(Number.isFinite(exact)){
+          p = exact;
+          pMethod = 'exact permutation';
+        }
+      }
+      if(!Number.isFinite(p)){
+        const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, spearman));
+        const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+        p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+      }
+      return {
+        methodLabel: 'Spearman',
+        r: spearman,
+        p,
+        pMethod,
+        ci: computeScatterCorrelationConfidenceInterval(spearman, n, 0.05),
+        ciApproximate: true
+      };
+    };
+    const computeScatterDerivedRegressionStats = regressionModel => {
+      const mode = String(regressionModel?.mode || '').toLowerCase();
+      if(mode !== 'linear' && mode !== 'linearthroughorigin'){
+        return null;
+      }
+      const coefficientStats = Array.isArray(regressionModel?.coefficientStats) ? regressionModel.coefficientStats : [];
+      const interceptStat = coefficientStats.find(stat => String(stat?.term || '').toLowerCase() === 'intercept') || null;
+      const slopeStat = coefficientStats.find(stat => String(stat?.term || '').toLowerCase() === 'slope') || null;
+      const intercept = Number.isFinite(interceptStat?.estimate)
+        ? interceptStat.estimate
+        : Number(regressionModel?.summary?.intercept);
+      const slope = Number.isFinite(slopeStat?.estimate)
+        ? slopeStat.estimate
+        : Number(regressionModel?.summary?.slope);
+      if(!Number.isFinite(slope) || slope === 0){
+        return null;
+      }
+      const reciprocalSlope = 1 / slope;
+      let reciprocalSlopeCi = null;
+      if(Number.isFinite(slopeStat?.ciLow) && Number.isFinite(slopeStat?.ciHigh) && slopeStat.ciLow !== 0 && slopeStat.ciHigh !== 0){
+        const lo = 1 / slopeStat.ciLow;
+        const hi = 1 / slopeStat.ciHigh;
+        reciprocalSlopeCi = { low: Math.min(lo, hi), high: Math.max(lo, hi) };
+      }
+      let xIntercept = null;
+      let xInterceptCi = null;
+      if(Number.isFinite(intercept)){
+        xIntercept = -intercept / slope;
+        const covariance = Array.isArray(regressionModel?.coefficientCovariance) ? regressionModel.coefficientCovariance : null;
+        const tCritical = Number(regressionModel?.intervals?.tCritical);
+        if(covariance && Number.isFinite(tCritical) && covariance.length >= 2){
+          const varIntercept = Number(covariance?.[0]?.[0]);
+          const varSlope = Number(covariance?.[1]?.[1]);
+          const covInterceptSlope = Number(covariance?.[0]?.[1]);
+          if(Number.isFinite(varIntercept) && Number.isFinite(varSlope) && Number.isFinite(covInterceptSlope)){
+            const variance = (varIntercept / (slope * slope))
+              + ((intercept * intercept * varSlope) / Math.pow(slope, 4))
+              - ((2 * intercept * covInterceptSlope) / Math.pow(slope, 3));
+            if(Number.isFinite(variance) && variance >= 0){
+              const se = Math.sqrt(variance);
+              xInterceptCi = {
+                low: xIntercept - (tCritical * se),
+                high: xIntercept + (tCritical * se)
+              };
+            }
+          }
+        }
+      }
+      return {
+        xIntercept,
+        xInterceptCi,
+        reciprocalSlope,
+        reciprocalSlopeCi
+      };
+    };
+    const upsertScatterResidualsDataView = (context, regressionModel, options = {}) => {
+      const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
+      if(!hot || typeof hot.getData !== 'function'){
+        return false;
+      }
+      const manager = ensureScatterDataViewsForHot(hot, {
+        wrapper: scatterHotWrapper,
+        container: hot.__scatterHostContainer || scatterHotContainer
+      });
+      if(!manager || typeof manager.createDerivedView !== 'function'){
+        return false;
+      }
+      const points = Array.isArray(context?.points) ? context.points : [];
+      if(!points.length || typeof regressionModel?.predict !== 'function'){
+        return false;
+      }
+      const rows = [['X', 'Residual', 'Label', 'Predicted', 'Observed']];
+      points.forEach((point, index) => {
+        const x = Number(point?.x);
+        const y = Number(point?.y);
+        if(!Number.isFinite(x) || !Number.isFinite(y)){
+          return;
+        }
+        const predicted = Number(regressionModel.predict(x));
+        if(!Number.isFinite(predicted)){
+          return;
+        }
+        const residual = y - predicted;
+        const label = point?.label != null && String(point.label).trim() !== ''
+          ? String(point.label)
+          : `Point ${index + 1}`;
+        rows.push([x, residual, label, predicted, y]);
+      });
+      if(rows.length <= 1){
+        return false;
+      }
+      const staleResidualViews = (manager.getViews?.() || [])
+        .filter(view => view && view.kind !== 'raw' && String(view?.summary?.transform || '').toLowerCase() === 'residuals');
+      staleResidualViews.forEach(view => manager.removeView?.(view.id, { silent: true, reason: 'replace-residuals' }));
+      manager.createDerivedView({
+        title: options.title || 'Residuals',
+        data: rows,
+        sourceViewId: manager.getActiveViewId?.() || null,
+        transformSpec: { type: 'residuals' },
+        summary: {
+          transform: 'residuals',
+          rows: rows.length - 1,
+          cols: rows[0].length,
+          generatedAt: Date.now()
+        },
+        activate: options.activate === true,
+        reason: options.reason || 'scatter-residuals'
+      });
+      manager.refresh?.();
+      scatterDebug('Debug: scatter residuals data view updated', { rows: rows.length - 1, cols: rows[0].length });
+      return true;
+    };
     console.debug('Debug: scatter component DOM helpers resolved', {
       hasSharedEditable: typeof Shared.makeEditable === 'function',
       hasSharedResize: typeof Shared.autoResizeSvg === 'function',
@@ -7820,9 +8045,19 @@
         scatterLastRegressionSummary = typeof regressionTools.createSummary==='function'
           ? regressionTools.createSummary(regressionModel)
           : null;
+        const sampleSize = regressionModel?.metrics?.sampleSize ?? context?.points?.length;
+        const correlationCi = stats?.correlationCI || computeScatterCorrelationConfidenceInterval(stats?.r, sampleSize, 0.05);
+        const pMethod = stats?.pMethod || (stats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
         const rows=[
           { metric:'r', value:formatMetricValue(stats?.r) },
           { metric:'P value', value:formatP(stats?.p) },
+          { metric:'P calculation', value:pMethod },
+          {
+            metric:stats?.correlationCiApproximate ? 'Correlation (95% CI, approx)' : 'Correlation (95% CI)',
+            value:(correlationCi && Number.isFinite(correlationCi.low) && Number.isFinite(correlationCi.high))
+              ? `${formatMetricValue(correlationCi.low)} to ${formatMetricValue(correlationCi.high)}`
+              : 'n/a'
+          },
           { metric:'Fit method', value:fitMethodValue.toUpperCase() }
         ];
         if(fitSpecValue?.range){
@@ -7833,7 +8068,6 @@
         if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
           rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
         }
-        const sampleSize = regressionModel?.metrics?.sampleSize ?? context?.points?.length;
         if(Number.isFinite(sampleSize)){
           rows.push({ metric:'N', value:String(Math.max(0, Math.round(sampleSize))) });
         }
@@ -7921,6 +8155,41 @@
           if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
             rows.push({ metric:'Jarque-Bera p', value:formatP(regressionModel.diagnostics.jarqueBeraP) });
           }
+          const runs = regressionModel.diagnostics.runsTest || null;
+          if(Number.isFinite(runs?.z)){
+            rows.push({ metric:'Runs test z', value:formatMetricValue(runs.z,3) });
+          }
+          if(Number.isFinite(runs?.pValue)){
+            rows.push({ metric:'Runs test p', value:formatP(runs.pValue) });
+          }
+          const lackOfFit = regressionModel.diagnostics.lackOfFit || null;
+          if(Number.isFinite(lackOfFit?.fStatistic)){
+            rows.push({ metric:'Lack-of-fit F', value:formatMetricValue(lackOfFit.fStatistic,3) });
+          }
+          if(Number.isFinite(lackOfFit?.pValue)){
+            rows.push({ metric:'Lack-of-fit p', value:formatP(lackOfFit.pValue) });
+          }
+        }
+        const derived = stats?.derived || computeScatterDerivedRegressionStats(regressionModel);
+        if(derived){
+          if(Number.isFinite(derived.xIntercept)){
+            rows.push({ metric:'X-intercept', value:formatMetricValue(derived.xIntercept) });
+          }
+          if(Number.isFinite(derived.xInterceptCi?.low) && Number.isFinite(derived.xInterceptCi?.high)){
+            rows.push({
+              metric:'X-intercept (95% CI)',
+              value:`${formatMetricValue(derived.xInterceptCi.low)} to ${formatMetricValue(derived.xInterceptCi.high)}`
+            });
+          }
+          if(Number.isFinite(derived.reciprocalSlope)){
+            rows.push({ metric:'1/Slope', value:formatMetricValue(derived.reciprocalSlope) });
+          }
+          if(Number.isFinite(derived.reciprocalSlopeCi?.low) && Number.isFinite(derived.reciprocalSlopeCi?.high)){
+            rows.push({
+              metric:'1/Slope (95% CI)',
+              value:`${formatMetricValue(derived.reciprocalSlopeCi.low)} to ${formatMetricValue(derived.reciprocalSlopeCi.high)}`
+            });
+          }
         }
         if(regressionModel?.warnings?.length){
           rows.push({ metric:'Warnings', value:regressionModel.warnings.join('; ') });
@@ -7965,6 +8234,17 @@
             },
             append:true
           });
+        }
+        if(regressionModel && settings?.createResidualView !== false){
+          try{
+            upsertScatterResidualsDataView(context, regressionModel, {
+              title: 'Residuals',
+              activate: false,
+              reason: 'scatter-stats-residuals'
+            });
+          }catch(err){
+            console.error('scatter residual data view update failed', err);
+          }
         }
         scatterDebug('Debug: scatter manual stats computed',{ stats, regressionSummary: scatterLastRegressionSummary });
       }
@@ -14099,12 +14379,11 @@
         if(n<3){
           return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN, regression:null};
         }
-        const pearson=jStat.corrcoeff(x,y);
-        let r,label;
-        if(method==='pearson'){r=pearson; label='Pearson';}
-        else {r=jStat.spearmancoeff(x,y); label='Spearman';}
-        const t=r*Math.sqrt((n-2)/(1-r*r));
-        const p=2*(1-jStat.studentt.cdf(Math.abs(t),n-2));
+        const pearson = jStat.corrcoeff(x,y);
+        const correlation = computeScatterCorrelationStats(method, x, y);
+        const r = correlation.r;
+        const p = correlation.p;
+        const label = correlation.methodLabel;
         const xMean=jStat.mean(x);
         const yMean=jStat.mean(y);
         const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
@@ -14141,7 +14420,20 @@
         const resolvedIntercept = Number.isFinite(regressionIntercept) ? regressionIntercept : linearIntercept;
         const regressionR2 = regression?.metrics?.r2;
         const r2 = Number.isFinite(regressionR2) ? regressionR2 : pearson*pearson;
-        const stats={method:label, r, p, r2, m:resolvedSlope, b:resolvedIntercept, regression};
+        const derived = computeScatterDerivedRegressionStats(regression);
+        const stats={
+          method:label,
+          r,
+          p,
+          pMethod: correlation.pMethod,
+          correlationCI: correlation.ci,
+          correlationCiApproximate: !!correlation.ciApproximate,
+          r2,
+          m:resolvedSlope,
+          b:resolvedIntercept,
+          regression,
+          derived
+        };
         console.log('computeScatterStats result',{method:label,r,r2,p,m:resolvedSlope,b:resolvedIntercept,mode:regressionMode});
         return stats;
       }

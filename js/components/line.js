@@ -5145,17 +5145,286 @@
     console.debug('Debug: ensureLineLabelColors sync complete',{count:Object.keys(lineLabelColors).length});
   }
 
+  function upsertLineResidualsDataView(series, options = {}){
+    const hot = line.__ensureHotForActiveTab?.() || lineHot || refs.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return false;
+    }
+    const manager = ensureLineDataViewsForHot(hot, {
+      wrapper: refs.hotWrapper,
+      container: hot.__lineHostContainer || refs.hotContainer
+    });
+    if(!manager || typeof manager.createDerivedView !== 'function'){
+      return false;
+    }
+    const source = hot.getData() || [];
+    if(!Array.isArray(source) || source.length < 2){
+      return false;
+    }
+    const matrix = source.map(row => (Array.isArray(row) ? row.slice() : []));
+    const header = Array.isArray(matrix[0]) ? matrix[0] : [];
+    const replicates = Math.max(LINE_MIN_REPLICATES, Number(lineReplicates) || LINE_MIN_REPLICATES);
+    const seriesByName = new Map((Array.isArray(series) ? series : []).map(entry => [entry?.name, entry]));
+    for(let s = 0; s < Math.max(0, Math.floor((header.length - 1) / replicates)); s += 1){
+      const colStart = 1 + (s * replicates);
+      const label = String(header[colStart] != null ? header[colStart] : `Series ${s + 1}`).trim() || `Series ${s + 1}`;
+      const seriesEntry = seriesByName.get(label) || null;
+      const model = seriesEntry?.regression || null;
+      if(typeof model?.predict !== 'function' || !Array.isArray(seriesEntry?.points)){
+        continue;
+      }
+      for(let rowOffset = 0; rowOffset < seriesEntry.points.length; rowOffset += 1){
+        const point = seriesEntry.points[rowOffset];
+        if(!point || !Number.isFinite(point.x)){
+          continue;
+        }
+        const prediction = Number(model.predict(point.x));
+        if(!Number.isFinite(prediction)){
+          continue;
+        }
+        const matrixRowIndex = rowOffset + 1;
+        const matrixRow = Array.isArray(matrix[matrixRowIndex]) ? matrix[matrixRowIndex] : null;
+        if(!matrixRow){
+          continue;
+        }
+        const replicateValues = Array.isArray(point.replicates) && point.replicates.length
+          ? point.replicates
+          : [point.y];
+        for(let rep = 0; rep < replicates; rep += 1){
+          const colIndex = colStart + rep;
+          if(colIndex >= matrixRow.length){
+            continue;
+          }
+          const sourceValue = Number(replicateValues[rep]);
+          if(Number.isFinite(sourceValue)){
+            matrixRow[colIndex] = sourceValue - prediction;
+          }else if(rep === 0 && Number.isFinite(point.y)){
+            matrixRow[colIndex] = point.y - prediction;
+          }else{
+            matrixRow[colIndex] = '';
+          }
+        }
+      }
+      for(let rep = 0; rep < replicates; rep += 1){
+        const colIndex = colStart + rep;
+        if(colIndex < header.length){
+          const suffix = replicates > 1 ? ` (residual r${rep + 1})` : ' (residual)';
+          header[colIndex] = `${label}${suffix}`;
+        }
+      }
+    }
+    const staleResidualViews = (manager.getViews?.() || [])
+      .filter(view => view && view.kind !== 'raw' && String(view?.summary?.transform || '').toLowerCase() === 'residuals');
+    staleResidualViews.forEach(view => manager.removeView?.(view.id, { silent: true, reason: 'replace-residuals' }));
+    manager.createDerivedView({
+      title: options.title || 'Residuals',
+      data: matrix,
+      sourceViewId: manager.getActiveViewId?.() || null,
+      transformSpec: { type: 'residuals' },
+      summary: {
+        transform: 'residuals',
+        rows: Math.max(0, matrix.length - 1),
+        cols: header.length,
+        seriesCount: Array.isArray(series) ? series.length : 0,
+        generatedAt: Date.now()
+      },
+      activate: options.activate === true,
+      reason: options.reason || 'line-residuals'
+    });
+    manager.refresh?.();
+    lineDebug('Debug: line residuals data view updated', {
+      rows: Math.max(0, matrix.length - 1),
+      cols: header.length
+    });
+    return true;
+  }
+
+  function computeLineCorrelationConfidenceInterval(r, n, alpha){
+    const rNum = Number(r);
+    const count = Number(n);
+    if(!Number.isFinite(rNum) || !Number.isFinite(count) || count <= 3){
+      return null;
+    }
+    const clamped = Math.max(-0.999999999999, Math.min(0.999999999999, rNum));
+    const z = 0.5 * Math.log((1 + clamped) / (1 - clamped));
+    const se = 1 / Math.sqrt(count - 3);
+    if(!Number.isFinite(se) || se <= 0){
+      return null;
+    }
+    const normal = global.jStat?.normal;
+    const zCritical = (normal && typeof normal.inv === 'function')
+      ? normal.inv(1 - ((alpha || 0.05) / 2), 0, 1)
+      : 1.959963984540054;
+    const loZ = z - (zCritical * se);
+    const hiZ = z + (zCritical * se);
+    const toR = value => {
+      const e2 = Math.exp(2 * value);
+      return (e2 - 1) / (e2 + 1);
+    };
+    return { low: toR(loZ), high: toR(hiZ), method: 'fisher-z' };
+  }
+
+  function hasLineDuplicateValues(values){
+    const seen = new Set();
+    for(let i = 0; i < values.length; i += 1){
+      const key = String(values[i]);
+      if(seen.has(key)){
+        return true;
+      }
+      seen.add(key);
+    }
+    return false;
+  }
+
+  function computeLineSpearmanExactP(rho, n){
+    const size = Number(n);
+    const observed = Math.abs(Number(rho));
+    if(!Number.isFinite(size) || !Number.isFinite(observed) || size < 3 || size > 9){
+      return null;
+    }
+    const ranks = Array.from({ length: size }, (_, idx) => idx + 1);
+    let total = 0;
+    let extreme = 0;
+    const denom = size * (Math.pow(size, 2) - 1);
+    const tolerance = 1e-12;
+    const backtrack = index => {
+      if(index >= size){
+        let d2 = 0;
+        for(let i = 0; i < size; i += 1){
+          const d = (i + 1) - ranks[i];
+          d2 += d * d;
+        }
+        const permRho = 1 - ((6 * d2) / denom);
+        total += 1;
+        if(Math.abs(permRho) >= observed - tolerance){
+          extreme += 1;
+        }
+        return;
+      }
+      for(let i = index; i < size; i += 1){
+        const tmp = ranks[index];
+        ranks[index] = ranks[i];
+        ranks[i] = tmp;
+        backtrack(index + 1);
+        ranks[i] = ranks[index];
+        ranks[index] = tmp;
+      }
+    };
+    backtrack(0);
+    if(!total){
+      return null;
+    }
+    return extreme / total;
+  }
+
+  function computeLineCorrelationStats(method, x, y, jStatLib){
+    const n = x.length;
+    const pearson = jStatLib.corrcoeff(x, y);
+    const alpha = 0.05;
+    if(method === 'pearson'){
+      const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
+      const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+      const p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+      return {
+        label: 'Pearson',
+        r: pearson,
+        p,
+        pMethod: 'Student t approximation',
+        ci: computeLineCorrelationConfidenceInterval(pearson, n, alpha),
+        ciApproximate: false
+      };
+    }
+    const spearman = jStatLib.spearmancoeff(x, y);
+    const hasTies = hasLineDuplicateValues(x) || hasLineDuplicateValues(y);
+    let p = NaN;
+    let pMethod = 't approximation';
+    if(!hasTies && n <= 9){
+      const exact = computeLineSpearmanExactP(spearman, n);
+      if(Number.isFinite(exact)){
+        p = exact;
+        pMethod = 'exact permutation';
+      }
+    }
+    if(!Number.isFinite(p)){
+      const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, spearman));
+      const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+      p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+    }
+    return {
+      label: 'Spearman',
+      r: spearman,
+      p,
+      pMethod,
+      ci: computeLineCorrelationConfidenceInterval(spearman, n, alpha),
+      ciApproximate: true
+    };
+  }
+
+  function computeLineDerivedRegressionStats(regressionModel){
+    const mode = String(regressionModel?.mode || '').toLowerCase();
+    if(mode !== 'linear' && mode !== 'linearthroughorigin'){
+      return null;
+    }
+    const coefficientStats = Array.isArray(regressionModel?.coefficientStats) ? regressionModel.coefficientStats : [];
+    const interceptStat = coefficientStats.find(stat => String(stat?.term || '').toLowerCase() === 'intercept') || null;
+    const slopeStat = coefficientStats.find(stat => String(stat?.term || '').toLowerCase() === 'slope') || null;
+    const intercept = Number.isFinite(interceptStat?.estimate)
+      ? interceptStat.estimate
+      : Number(regressionModel?.summary?.intercept);
+    const slope = Number.isFinite(slopeStat?.estimate)
+      ? slopeStat.estimate
+      : Number(regressionModel?.summary?.slope);
+    if(!Number.isFinite(slope) || slope === 0){
+      return null;
+    }
+    const reciprocalSlope = 1 / slope;
+    let reciprocalSlopeCi = null;
+    if(Number.isFinite(slopeStat?.ciLow) && Number.isFinite(slopeStat?.ciHigh) && slopeStat.ciLow !== 0 && slopeStat.ciHigh !== 0){
+      const lo = 1 / slopeStat.ciLow;
+      const hi = 1 / slopeStat.ciHigh;
+      reciprocalSlopeCi = { low: Math.min(lo, hi), high: Math.max(lo, hi) };
+    }
+    let xIntercept = null;
+    let xInterceptCi = null;
+    if(Number.isFinite(intercept)){
+      xIntercept = -intercept / slope;
+      const covariance = Array.isArray(regressionModel?.coefficientCovariance) ? regressionModel.coefficientCovariance : null;
+      const tCritical = Number(regressionModel?.intervals?.tCritical);
+      if(covariance && Number.isFinite(tCritical) && covariance.length >= 2){
+        const varIntercept = Number(covariance?.[0]?.[0]);
+        const varSlope = Number(covariance?.[1]?.[1]);
+        const covInterceptSlope = Number(covariance?.[0]?.[1]);
+        if(Number.isFinite(varIntercept) && Number.isFinite(varSlope) && Number.isFinite(covInterceptSlope)){
+          const variance = (varIntercept / (slope * slope))
+            + ((intercept * intercept * varSlope) / Math.pow(slope, 4))
+            - ((2 * intercept * covInterceptSlope) / Math.pow(slope, 3));
+          if(Number.isFinite(variance) && variance >= 0){
+            const se = Math.sqrt(variance);
+            xInterceptCi = {
+              low: xIntercept - (tCritical * se),
+              high: xIntercept + (tCritical * se)
+            };
+          }
+        }
+      }
+    }
+    return {
+      xIntercept,
+      xInterceptCi,
+      reciprocalSlope,
+      reciprocalSlopeCi
+    };
+  }
+
   function computeLineStats(points,method,jStatLib,regressionMode,options = {}){
     const x=points.map(p=>p.x);
     const y=points.map(p=>p.y);
     const n=points.length;
     if(n<3) return null;
-    const pearson=jStatLib.corrcoeff(x,y);
-    let r,label;
-    if(method==='pearson'){r=pearson; label='Pearson';}
-    else {r=jStatLib.spearmancoeff(x,y); label='Spearman';}
-    const t=r*Math.sqrt((n-2)/(1-r*r));
-    const p=2*(1-jStatLib.studentt.cdf(Math.abs(t),n-2));
+    const correlation = computeLineCorrelationStats(method, x, y, jStatLib);
+    const r = correlation.r;
+    const p = correlation.p;
+    const label = correlation.label;
     const alpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
     let regressionModel=options.precomputedRegression || null;
     if(!regressionModel && typeof regressionTools.fitRegression==='function'){
@@ -5181,8 +5450,20 @@
         slopeLabel = summaryForRegression.primaryParameter.label;
       }
     }
-    console.debug('Debug: computeLineStats',{method:label,r,p,slope,regressionMode,slopeLabel}); // Debug: stats computation
-    return {method:label,r,p,slope,slopeLabel,regression:regressionModel};
+    const derived = computeLineDerivedRegressionStats(regressionModel);
+    console.debug('Debug: computeLineStats',{method:label,r,p,slope,regressionMode,slopeLabel,pMethod: correlation.pMethod}); // Debug: stats computation
+    return {
+      method:label,
+      r,
+      p,
+      pMethod: correlation.pMethod,
+      correlationCI: correlation.ci,
+      correlationCiApproximate: !!correlation.ciApproximate,
+      slope,
+      slopeLabel,
+      regression:regressionModel,
+      derived
+    };
   }
 
   function captureLineRegressionSummaries(seriesList, options = {}){
@@ -5262,6 +5543,7 @@
         const cached = regressionCache.get(s.name);
         const stats=computeLineStats(pts,method,jStatLib,regressionMode,{ alpha: regressionAlpha, precomputedRegression: cached, forecast: options.forecast });
         if(stats){
+          s.regression = stats.regression || null;
           methodLabel=stats.method;
           const summary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(stats.regression) : null;
           lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary });
@@ -5270,7 +5552,19 @@
           const rmseValue = summary?.metrics?.rmse ?? stats.regression?.metrics?.rmse;
           const maeValue = summary?.metrics?.mae ?? stats.regression?.metrics?.mae;
           const logLossValue = summary?.metrics?.logLoss ?? stats.regression?.metrics?.logLoss;
+          const predictorCount = Number(summary?.metrics?.predictors ?? stats.regression?.metrics?.predictors);
           const sampleSizeValue = summary?.metrics?.sampleSize ?? stats.regression?.metrics?.sampleSize ?? pts.length;
+          const modelF = Number.isFinite(r2Value) && Number.isFinite(sampleSizeValue) && Number.isFinite(predictorCount)
+            && sampleSizeValue > (predictorCount + 1) && predictorCount > 0 && r2Value < 1
+            ? (r2Value / predictorCount) / ((1 - r2Value) / (sampleSizeValue - predictorCount - 1))
+            : NaN;
+          const modelFP = Number.isFinite(modelF) && Number.isFinite(predictorCount) && Number.isFinite(sampleSizeValue)
+            && global.jStat?.centralF && typeof global.jStat.centralF.cdf === 'function'
+            ? 1 - global.jStat.centralF.cdf(modelF, predictorCount, sampleSizeValue - predictorCount - 1)
+            : NaN;
+          const corrCi = stats.correlationCI && Number.isFinite(stats.correlationCI.low) && Number.isFinite(stats.correlationCI.high)
+            ? `${formatMetricValue(stats.correlationCI.low)} to ${formatMetricValue(stats.correlationCI.high)}`
+            : 'n/a';
           if(!parameterLabelResolved && typeof stats.slopeLabel === 'string' && stats.slopeLabel){
             parameterColumnLabel = stats.slopeLabel;
             parameterLabelResolved = true;
@@ -5279,13 +5573,17 @@
             series:s.name,
             n:formatMetricValue(sampleSizeValue,0),
             r:formatMetricValue(stats.r),
+            rCi:corrCi,
             p:formatP(stats.p),
+            pMethod:stats.pMethod || '—',
             slope:formatMetricValue(stats.slope),
             r2:formatMetricValue(r2Value),
             adjR2:formatMetricValue(adjR2Value),
             rmse:formatMetricValue(rmseValue),
             mae:formatMetricValue(maeValue),
-            logLoss:formatMetricValue(logLossValue,6)
+            logLoss:formatMetricValue(logLossValue,6),
+            modelF:formatMetricValue(modelF),
+            modelFP:formatP(modelFP)
           });
           if(stats.regression?.summary?.parameters && typeof stats.regression.summary.parameters === 'object'){
             Object.entries(stats.regression.summary.parameters).forEach(([label, value]) => {
@@ -5314,13 +5612,49 @@
             });
           }
           if(showDiagnostics && stats.regression?.diagnostics){
+            const runs = stats.regression.diagnostics.runsTest || null;
+            const lackOfFit = stats.regression.diagnostics.lackOfFit || null;
             diagnosticRows.push({
               series: s.name,
               skewness: formatMetricValue(stats.regression.diagnostics.skewness,3),
               kurtosis: formatMetricValue(stats.regression.diagnostics.kurtosis,3),
               jb: formatMetricValue(stats.regression.diagnostics.jarqueBera,3),
-              jbP: formatP(stats.regression.diagnostics.jarqueBeraP)
+              jbP: formatP(stats.regression.diagnostics.jarqueBeraP),
+              runsZ: formatMetricValue(runs?.z,3),
+              runsP: formatP(runs?.pValue),
+              lofF: formatMetricValue(lackOfFit?.fStatistic,3),
+              lofP: formatP(lackOfFit?.pValue)
             });
+          }
+          if(stats.derived){
+            if(Number.isFinite(stats.derived.xIntercept)){
+              parameterRows.push({
+                series: s.name,
+                parameter: 'X-intercept',
+                value: formatMetricValue(stats.derived.xIntercept)
+              });
+            }
+            if(Number.isFinite(stats.derived.xInterceptCi?.low) && Number.isFinite(stats.derived.xInterceptCi?.high)){
+              parameterRows.push({
+                series: s.name,
+                parameter: 'X-intercept (95% CI)',
+                value: `${formatMetricValue(stats.derived.xInterceptCi.low)} to ${formatMetricValue(stats.derived.xInterceptCi.high)}`
+              });
+            }
+            if(Number.isFinite(stats.derived.reciprocalSlope)){
+              parameterRows.push({
+                series: s.name,
+                parameter: '1/Slope',
+                value: formatMetricValue(stats.derived.reciprocalSlope)
+              });
+            }
+            if(Number.isFinite(stats.derived.reciprocalSlopeCi?.low) && Number.isFinite(stats.derived.reciprocalSlopeCi?.high)){
+              parameterRows.push({
+                series: s.name,
+                parameter: '1/Slope (95% CI)',
+                value: `${formatMetricValue(stats.derived.reciprocalSlopeCi.low)} to ${formatMetricValue(stats.derived.reciprocalSlopeCi.high)}`
+              });
+            }
           }
           if(Array.isArray(stats.regression?.coefficientStats)){
             stats.regression.coefficientStats.forEach(stat => {
@@ -5358,9 +5692,21 @@
           }
         }
       }else{
+        s.regression = null;
         lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary: null });
       }
     });
+    if(tableRows.length && options.createResidualView !== false){
+      try{
+        upsertLineResidualsDataView(series, {
+          title: 'Residuals',
+          activate: false,
+          reason: 'line-stats-residuals'
+        });
+      }catch(err){
+        console.error('line residual data view update failed', err);
+      }
+    }
     if(tableRows.length){
       refs.statsResults.innerHTML='';
       if(methodLabel){
@@ -5376,10 +5722,14 @@
             {key:'series',label:'Series',align:'left'},
             {key:'n',label:'N',align:'right'},
             {key:'r',label:'r',align:'right'},
+            {key:'rCi',label:'r (95% CI)',align:'right'},
             {key:'p',label:'p',align:'right'},
+            {key:'pMethod',label:'p method',align:'left'},
             {key:'slope',label:parameterColumnLabel,align:'right'},
             {key:'r2',label:'R²',align:'right'},
             {key:'adjR2',label:'Adjusted R²',align:'right'},
+            {key:'modelF',label:'Model F',align:'right'},
+            {key:'modelFP',label:'Model p',align:'right'},
             {key:'rmse',label:'RMSE',align:'right'},
             {key:'mae',label:'MAE',align:'right'},
             {key:'logLoss',label:'Log loss',align:'right'}
@@ -5416,7 +5766,11 @@
               { key:'skewness', label:'Skewness', align:'right' },
               { key:'kurtosis', label:'Kurtosis', align:'right' },
               { key:'jb', label:'JB', align:'right' },
-              { key:'jbP', label:'JB p', align:'right' }
+              { key:'jbP', label:'JB p', align:'right' },
+              { key:'runsZ', label:'Runs z', align:'right' },
+              { key:'runsP', label:'Runs p', align:'right' },
+              { key:'lofF', label:'Lack-of-fit F', align:'right' },
+              { key:'lofP', label:'Lack-of-fit p', align:'right' }
             ],
             rows: diagnosticRows,
             caption: 'Residual diagnostics',
@@ -5492,8 +5846,8 @@
         }
       }else{
         const table=document.createElement('table');
-        table.innerHTML=`<tr><th>Series</th><th>N</th><th>r</th><th>p</th><th>${parameterColumnLabel}</th><th>R²</th><th>Adjusted R²</th><th>RMSE</th><th>MAE</th><th>Log loss</th></tr>`+
-          tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.n}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.adjR2}</td><td>${row.rmse}</td><td>${row.mae}</td><td>${row.logLoss}</td></tr>`).join('');
+        table.innerHTML=`<tr><th>Series</th><th>N</th><th>r</th><th>r (95% CI)</th><th>p</th><th>p method</th><th>${parameterColumnLabel}</th><th>R²</th><th>Adjusted R²</th><th>Model F</th><th>Model p</th><th>RMSE</th><th>MAE</th><th>Log loss</th></tr>`+
+          tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.n}</td><td>${row.r}</td><td>${row.rCi}</td><td>${row.p}</td><td>${row.pMethod}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.adjR2}</td><td>${row.modelF}</td><td>${row.modelFP}</td><td>${row.rmse}</td><td>${row.mae}</td><td>${row.logLoss}</td></tr>`).join('');
         refs.statsResults.appendChild(table);
         console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
         if(showIntervals && intervalRows.length){
@@ -5504,8 +5858,8 @@
         }
         if(showDiagnostics && diagnosticRows.length){
           const diagTable=document.createElement('table');
-          diagTable.innerHTML='<tr><th>Series</th><th>Skewness</th><th>Kurtosis</th><th>JB</th><th>JB p</th></tr>'+
-            diagnosticRows.map(row=>`<tr><td>${row.series}</td><td>${row.skewness}</td><td>${row.kurtosis}</td><td>${row.jb}</td><td>${row.jbP}</td></tr>`).join('');
+          diagTable.innerHTML='<tr><th>Series</th><th>Skewness</th><th>Kurtosis</th><th>JB</th><th>JB p</th><th>Runs z</th><th>Runs p</th><th>Lack-of-fit F</th><th>Lack-of-fit p</th></tr>'+
+            diagnosticRows.map(row=>`<tr><td>${row.series}</td><td>${row.skewness}</td><td>${row.kurtosis}</td><td>${row.jb}</td><td>${row.jbP}</td><td>${row.runsZ}</td><td>${row.runsP}</td><td>${row.lofF}</td><td>${row.lofP}</td></tr>`).join('');
           refs.statsResults.appendChild(diagTable);
         }
         if(parameterRows.length){
