@@ -11,6 +11,7 @@
   let whiskerToggleInput = null;
   let whiskerModeField = null;
   let whiskerModeSelect = null;
+  let textStyleButton = null;
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
@@ -262,32 +263,73 @@
     }
   }
 
+  function resolveFontTarget(config){
+    if(!config){ return null; }
+    if(typeof config.getFontTarget === 'function'){
+      const target = config.getFontTarget();
+      if(target){ return target; }
+    }
+    if(config.fontTarget && config.fontTarget.nodeType === 1){
+      return config.fontTarget;
+    }
+    return null;
+  }
+
+  function openFontControlsForConfig(config, reason){
+    const fontControls = Shared?.fontControls;
+    if(!fontControls || typeof fontControls.openForElement !== 'function'){
+      return;
+    }
+    const target = resolveFontTarget(config);
+    if(!target){
+      logDebug('font target unavailable',{ reason, scopeId: config?.scopeId || null });
+      return;
+    }
+    const options = {
+      scopeId: config?.scopeId || target?.dataset?.fontScope || null,
+      key: config?.fontKey || target?.dataset?.fontKey || null,
+      coexistWithComponent: true,
+      coexistComponentClass: 'font-toolbar-host--significance-dual'
+    };
+    fontControls.openForElement(target, options);
+    logDebug('font controls opened',{ reason, scopeId: options.scopeId, key: options.key || null });
+  }
+
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
     panelEl = doc.createElement('div');
-    panelEl.className = 'significance-controls-panel';
+    panelEl.className = 'significance-controls-panel additional-line-controls-panel';
     panelEl.setAttribute('role', 'toolbar');
     panelEl.setAttribute('aria-label', 'Significance bar controls');
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
 
+    const panelTitle = doc.createElement('div');
+    panelTitle.className = 'additional-line-controls-panel__title significance-controls-panel__title';
+    panelTitle.textContent = 'Significance';
+    panelEl.appendChild(panelTitle);
+
+    const row = doc.createElement('div');
+    row.className = 'additional-line-controls-panel__row significance-controls-panel__row';
+    panelEl.appendChild(row);
+
     const summary = doc.createElement('div');
-    summary.className = 'significance-controls-panel__summary';
+    summary.className = 'additional-line-controls-panel__summary significance-controls-panel__summary';
     const summaryLabel = doc.createElement('span');
-    summaryLabel.className = 'significance-controls-panel__summary-label';
+    summaryLabel.className = 'additional-line-controls-panel__summary-label significance-controls-panel__summary-label';
     summaryLabel.textContent = 'Significance';
     summaryValueEl = doc.createElement('span');
-    summaryValueEl.className = 'significance-controls-panel__summary-value';
+    summaryValueEl.className = 'additional-line-controls-panel__summary-value significance-controls-panel__summary-value';
     summary.appendChild(summaryLabel);
     summary.appendChild(summaryValueEl);
-    panelEl.appendChild(summary);
+    row.appendChild(summary);
 
     const thicknessField = doc.createElement('label');
-    thicknessField.className = 'significance-controls-panel__field significance-controls-panel__field--numeric';
+    thicknessField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric significance-controls-panel__field significance-controls-panel__field--numeric';
     const thicknessLabel = doc.createElement('span');
-    thicknessLabel.className = 'significance-controls-panel__field-label';
+    thicknessLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
     thicknessLabel.textContent = 'Thickness';
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
@@ -295,16 +337,16 @@
     thicknessInput.max = '10';
     thicknessInput.step = '0.25';
     thicknessInput.placeholder = '1';
-    thicknessInput.className = 'significance-controls-panel__input significance-controls-panel__input--small';
+    thicknessInput.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small significance-controls-panel__input significance-controls-panel__input--small';
     thicknessInput.setAttribute('data-undo-ignore','1');
     thicknessField.appendChild(thicknessLabel);
     thicknessField.appendChild(thicknessInput);
-    panelEl.appendChild(thicknessField);
+    row.appendChild(thicknessField);
 
     const colorField = doc.createElement('label');
-    colorField.className = 'significance-controls-panel__field significance-controls-panel__field--color';
+    colorField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--color';
     const colorLabel = doc.createElement('span');
-    colorLabel.className = 'significance-controls-panel__field-label';
+    colorLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
     colorLabel.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
@@ -312,39 +354,40 @@
     colorInput.setAttribute('data-undo-ignore','1');
     colorField.appendChild(colorLabel);
     colorField.appendChild(colorInput);
-    panelEl.appendChild(colorField);
+    row.appendChild(colorField);
 
     if(typeof Shared.attachColorPickerNear === 'function'){
       Shared.attachColorPickerNear(colorInput);
     }
 
     const whiskerField = doc.createElement('label');
-    whiskerField.className = 'significance-controls-panel__field significance-controls-panel__field--toggle';
+    whiskerField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--toggle';
     const whiskerLabel = doc.createElement('span');
-    whiskerLabel.className = 'significance-controls-panel__field-label';
+    whiskerLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
     whiskerLabel.textContent = 'Whiskers';
     whiskerField.appendChild(whiskerLabel);
     const toggleRow = doc.createElement('div');
     toggleRow.className = 'significance-controls-panel__toggle-row';
     const whiskerSwitch = doc.createElement('label');
-    whiskerSwitch.className = 'config-panel__checkbox';
+    whiskerSwitch.className = 'workspace-toolbar__checkbox workspace-toolbar__checkbox--toolbar significance-controls-panel__checkbox-chip';
     whiskerSwitch.dataset.checked = '0';
     whiskerToggleInput = doc.createElement('input');
     whiskerToggleInput.type = 'checkbox';
+    whiskerToggleInput.className = 'significance-controls-panel__checkbox';
     whiskerToggleInput.setAttribute('aria-label', 'Toggle significance whiskers');
     whiskerToggleInput.setAttribute('data-undo-ignore','1');
     whiskerSwitch.appendChild(whiskerToggleInput);
     toggleRow.appendChild(whiskerSwitch);
     whiskerField.appendChild(toggleRow);
-    panelEl.appendChild(whiskerField);
+    row.appendChild(whiskerField);
 
     whiskerModeField = doc.createElement('label');
-    whiskerModeField.className = 'significance-controls-panel__field significance-controls-panel__field--numeric';
+    whiskerModeField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric significance-controls-panel__field significance-controls-panel__field--numeric';
     const whiskerModeLabel = doc.createElement('span');
-    whiskerModeLabel.className = 'significance-controls-panel__field-label';
+    whiskerModeLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
     whiskerModeLabel.textContent = 'Whisker Style';
     whiskerModeSelect = doc.createElement('select');
-    whiskerModeSelect.className = 'significance-controls-panel__input significance-controls-panel__input--square';
+    whiskerModeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select significance-controls-panel__input significance-controls-panel__input--square';
     whiskerModeSelect.setAttribute('aria-label', 'Significance whisker style');
     whiskerModeSelect.setAttribute('data-undo-ignore','1');
     const optionFixed = doc.createElement('option');
@@ -358,7 +401,27 @@
     whiskerModeField.appendChild(whiskerModeLabel);
     whiskerModeField.appendChild(whiskerModeSelect);
     whiskerModeField.style.display = 'none';
-    panelEl.appendChild(whiskerModeField);
+    row.appendChild(whiskerModeField);
+
+    const textField = doc.createElement('div');
+    textField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--text-style';
+    const textLabel = doc.createElement('span');
+    textLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
+    textLabel.textContent = 'Text';
+    textField.appendChild(textLabel);
+    textStyleButton = doc.createElement('button');
+    textStyleButton.type = 'button';
+    textStyleButton.className = 'workspace-toolbar__button workspace-toolbar__button--text-only significance-controls-panel__text-button';
+    textStyleButton.textContent = 'Text Style';
+    textStyleButton.setAttribute('aria-label', 'Open significance text style controls');
+    textStyleButton.addEventListener('click', evt => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      if(!activeConfig){ return; }
+      openFontControlsForConfig(activeConfig, 'text-style-button');
+    });
+    textField.appendChild(textStyleButton);
+    row.appendChild(textField);
 
     thicknessInput.addEventListener('change', () => {
       if(applyingFromUndo){ return; }
@@ -618,6 +681,10 @@
     panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
+    if(textStyleButton){
+      textStyleButton.disabled = !resolveFontTarget(config);
+    }
+    openFontControlsForConfig(config, 'significance-open');
     logDebug('panel opened',{ orientation: config.orientation, scopeId: config.scopeId });
   }
 
@@ -639,6 +706,9 @@
         getColor: config.getColor,
         getWhiskers: config.getWhiskers,
         getWhiskerMode: config.getWhiskerMode,
+        getFontTarget: config.getFontTarget,
+        fontTarget: config.fontTarget,
+        fontKey: config.fontKey,
         onThicknessChange: config.onThicknessChange,
         onColorChange: config.onColorChange,
         onWhiskersChange: config.onWhiskersChange,
