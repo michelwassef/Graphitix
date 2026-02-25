@@ -27,6 +27,13 @@ describe('Shared.stats.adjustPValues', () => {
     expect(result[2]).toBeCloseTo(0.04, 5);
   });
 
+  it('applies Holm-Šidák correction', () => {
+    const result = adjust([0.01, 0.04, 0.02], { method: 'holm-sidak' });
+    expect(result[0]).toBeCloseTo(0.029701, 5);
+    expect(result[1]).toBeCloseTo(0.04, 5);
+    expect(result[2]).toBeCloseTo(0.0396, 5);
+  });
+
   it('applies Šidák correction', () => {
     const result = adjust([0.01, 0.04, 0.02], { method: 'sidak' });
     expect(result[0]).toBeCloseTo(0.029701, 5);
@@ -71,6 +78,7 @@ describe('Shared.stats.adjustPValues', () => {
     const options = listCorrections();
     const methodSet = new Set(options.map(opt => opt.value));
     expect(methodSet.has('holm')).toBe(true);
+    expect(methodSet.has('holm-sidak')).toBe(true);
     expect(methodSet.has('bh')).toBe(true);
   });
 });

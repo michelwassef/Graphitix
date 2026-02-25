@@ -3290,6 +3290,20 @@
     });
     return adjusted;
   }
+  function fallbackAdjustHolmSidak(values){
+    const m=values.length;
+    const ordered=values.map((v,index)=>({ p:fallbackSanitizeP(v), index }));
+    ordered.sort((a,b)=>a.p-b.p);
+    const adjusted=new Array(m).fill(1);
+    let running=0;
+    ordered.forEach((entry,idx)=>{
+      const rank=m-idx;
+      const raw=fallbackClampUnit(1-Math.pow(1-entry.p,rank));
+      running=Math.max(running,raw);
+      adjusted[entry.index]=fallbackClampUnit(running);
+    });
+    return adjusted;
+  }
   function fallbackAdjustHochberg(values){
     const m=values.length;
     const ordered=values.map((v,index)=>({ p:fallbackSanitizeP(v), index }));
@@ -3339,6 +3353,7 @@
     none:{ label:'None (unadjusted)', shortLabel:'None', footnote:count=>`P-values are unadjusted${count>0?` (${count} comparison${count===1?'':'s'})`:''}.`, adjust:fallbackAdjustNone },
     bonferroni:{ label:'Bonferroni', shortLabel:'Bonferroni', footnote:count=>`Bonferroni-adjusted P values across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustBonferroni },
     holm:{ label:'Holm', shortLabel:'Holm', footnote:count=>`Holm correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustHolm },
+    'holm-sidak':{ label:'Holm-Šidák', shortLabel:'Holm-Šidák', footnote:count=>`Holm-Šidák correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustHolmSidak },
     sidak:{ label:'Šidák', shortLabel:'Šidák', footnote:count=>`Šidák correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustSidak },
     hochberg:{ label:'Hochberg', shortLabel:'Hochberg', footnote:count=>`Hochberg correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustHochberg },
     bh:{ label:'Benjamini–Hochberg (FDR)', shortLabel:'BH', footnote:count=>`Benjamini–Hochberg FDR correction across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustBH },

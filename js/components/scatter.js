@@ -5829,7 +5829,9 @@
         console.debug('Debug: scatter renderStatsCard shared',{ caption:model.caption || null, rows:model.rows?.length || 0 });
         return;
       }
-      target.innerHTML='';
+      if(!model?.append){
+        target.innerHTML='';
+      }
       if(model.caption){
         const lead=document.createElement('div');
         lead.className='stats-table-lead';
@@ -7831,6 +7833,10 @@
         if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
           rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
         }
+        const sampleSize = regressionModel?.metrics?.sampleSize ?? context?.points?.length;
+        if(Number.isFinite(sampleSize)){
+          rows.push({ metric:'N', value:String(Math.max(0, Math.round(sampleSize))) });
+        }
         if(regressionModel?.metrics){
           rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
           if(Number.isFinite(regressionModel.metrics.adjR2)){
@@ -7931,6 +7937,35 @@
             contextLabel:'scatter-correlation'
           }
         });
+        if(Array.isArray(regressionModel?.coefficientStats) && regressionModel.coefficientStats.length){
+          const coefficientRows = regressionModel.coefficientStats.map(stat=>({
+            term: stat?.term ?? '—',
+            estimate: formatMetricValue(stat?.estimate),
+            se: formatMetricValue(stat?.standardError),
+            t: formatMetricValue(stat?.tStatistic, 3),
+            p: formatP(stat?.pValue),
+            ciLow: formatMetricValue(stat?.ciLow),
+            ciHigh: formatMetricValue(stat?.ciHigh)
+          }));
+          renderStatsCard(scatterStatsResults,{
+            caption:'Coefficient diagnostics',
+            columns:[
+              { key:'term', label:'Term', align:'left' },
+              { key:'estimate', label:'Estimate', align:'right' },
+              { key:'se', label:'Std Error', align:'right' },
+              { key:'t', label:'t-stat', align:'right' },
+              { key:'p', label:'p-value', align:'right' },
+              { key:'ciLow', label:'CI Low', align:'right' },
+              { key:'ciHigh', label:'CI High', align:'right' }
+            ],
+            rows:coefficientRows,
+            options:{
+              fileName:'scatter-coefficients',
+              contextLabel:'scatter-coefficients'
+            },
+            append:true
+          });
+        }
         scatterDebug('Debug: scatter manual stats computed',{ stats, regressionSummary: scatterLastRegressionSummary });
       }
 

@@ -113,6 +113,21 @@
     return adjusted;
   }
 
+  function fallbackAdjustHolmSidak(values){
+    const m = values.length;
+    const ordered = values.map((v, index) => ({ p: fallbackSanitizeP(v), index }));
+    ordered.sort((a, b) => a.p - b.p);
+    const adjusted = new Array(m).fill(1);
+    let running = 0;
+    ordered.forEach((entry, idx) => {
+      const rank = m - idx;
+      const raw = fallbackClampUnit(1 - Math.pow(1 - entry.p, rank));
+      running = Math.max(running, raw);
+      adjusted[entry.index] = fallbackClampUnit(running);
+    });
+    return adjusted;
+  }
+
   function fallbackAdjustHochberg(values){
     const m = values.length;
     const ordered = values.map((v, index) => ({ p: fallbackSanitizeP(v), index }));
@@ -182,6 +197,12 @@
       shortLabel: 'Holm',
       footnote: count => `Holm correction applied across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustHolm
+    },
+    'holm-sidak': {
+      label: 'Holm-Sidak',
+      shortLabel: 'Holm-Sidak',
+      footnote: count => `Holm-Sidak correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      adjust: fallbackAdjustHolmSidak
     },
     sidak: {
       label: 'Sidak',

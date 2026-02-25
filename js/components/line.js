@@ -5266,18 +5266,26 @@
           const summary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(stats.regression) : null;
           lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary });
           const r2Value = summary?.metrics?.r2 ?? stats.regression?.metrics?.r2;
+          const adjR2Value = summary?.metrics?.adjR2 ?? stats.regression?.metrics?.adjR2;
           const rmseValue = summary?.metrics?.rmse ?? stats.regression?.metrics?.rmse;
+          const maeValue = summary?.metrics?.mae ?? stats.regression?.metrics?.mae;
+          const logLossValue = summary?.metrics?.logLoss ?? stats.regression?.metrics?.logLoss;
+          const sampleSizeValue = summary?.metrics?.sampleSize ?? stats.regression?.metrics?.sampleSize ?? pts.length;
           if(!parameterLabelResolved && typeof stats.slopeLabel === 'string' && stats.slopeLabel){
             parameterColumnLabel = stats.slopeLabel;
             parameterLabelResolved = true;
           }
           tableRows.push({
             series:s.name,
+            n:formatMetricValue(sampleSizeValue,0),
             r:formatMetricValue(stats.r),
             p:formatP(stats.p),
             slope:formatMetricValue(stats.slope),
             r2:formatMetricValue(r2Value),
-            rmse:formatMetricValue(rmseValue)
+            adjR2:formatMetricValue(adjR2Value),
+            rmse:formatMetricValue(rmseValue),
+            mae:formatMetricValue(maeValue),
+            logLoss:formatMetricValue(logLossValue,6)
           });
           if(stats.regression?.summary?.parameters && typeof stats.regression.summary.parameters === 'object'){
             Object.entries(stats.regression.summary.parameters).forEach(([label, value]) => {
@@ -5314,7 +5322,7 @@
               jbP: formatP(stats.regression.diagnostics.jarqueBeraP)
             });
           }
-          if((showIntervals || showDiagnostics) && Array.isArray(stats.regression?.coefficientStats)){
+          if(Array.isArray(stats.regression?.coefficientStats)){
             stats.regression.coefficientStats.forEach(stat => {
               if(!stat) return;
               coefficientRows.push({
@@ -5366,11 +5374,15 @@
           target: refs.statsResults,
           columns:[
             {key:'series',label:'Series',align:'left'},
+            {key:'n',label:'N',align:'right'},
             {key:'r',label:'r',align:'right'},
             {key:'p',label:'p',align:'right'},
             {key:'slope',label:parameterColumnLabel,align:'right'},
             {key:'r2',label:'R²',align:'right'},
-            {key:'rmse',label:'RMSE',align:'right'}
+            {key:'adjR2',label:'Adjusted R²',align:'right'},
+            {key:'rmse',label:'RMSE',align:'right'},
+            {key:'mae',label:'MAE',align:'right'},
+            {key:'logLoss',label:'Log loss',align:'right'}
           ],
           rows:tableRows,
           caption: methodLabel ? `${methodLabel} correlation summary (${regressionMode} regression)` : 'Correlation summary',
@@ -5459,7 +5471,7 @@
             append:true
           });
         }
-        if((showIntervals || showDiagnostics) && coefficientRows.length){
+        if(coefficientRows.length){
           Shared.statsTable.render({
             target: refs.statsResults,
             columns:[
@@ -5480,8 +5492,8 @@
         }
       }else{
         const table=document.createElement('table');
-        table.innerHTML=`<tr><th>Series</th><th>r</th><th>p</th><th>${parameterColumnLabel}</th><th>R²</th><th>RMSE</th></tr>`+
-          tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.rmse}</td></tr>`).join('');
+        table.innerHTML=`<tr><th>Series</th><th>N</th><th>r</th><th>p</th><th>${parameterColumnLabel}</th><th>R²</th><th>Adjusted R²</th><th>RMSE</th><th>MAE</th><th>Log loss</th></tr>`+
+          tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.n}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.adjR2}</td><td>${row.rmse}</td><td>${row.mae}</td><td>${row.logLoss}</td></tr>`).join('');
         refs.statsResults.appendChild(table);
         console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
         if(showIntervals && intervalRows.length){
@@ -5514,7 +5526,7 @@
             forecastRows.map(row=>`<tr><td>${row.series}</td><td>${row.horizon || 'n/a'}</td><td>${row.mae || 'n/a'}</td><td>${row.rmse || 'n/a'}</td><td>${row.mape || 'n/a'}</td><td>${row.smape || 'n/a'}</td><td>${row.aic || 'n/a'}</td><td>${row.bic || 'n/a'}</td></tr>`).join('');
           refs.statsResults.appendChild(forecastTable);
         }
-        if((showIntervals || showDiagnostics) && coefficientRows.length){
+        if(coefficientRows.length){
           const coeffTable=document.createElement('table');
           coeffTable.innerHTML='<tr><th>Series</th><th>Term</th><th>Estimate</th><th>Std Error</th><th>t-stat</th><th>p-value</th><th>CI Low</th><th>CI High</th></tr>'+
             coefficientRows.map(row=>`<tr><td>${row.series}</td><td>${row.term}</td><td>${row.estimate}</td><td>${row.se}</td><td>${row.t}</td><td>${row.p}</td><td>${row.ciLow}</td><td>${row.ciHigh}</td></tr>`).join('');

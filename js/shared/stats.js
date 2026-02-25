@@ -25,6 +25,13 @@
       footnote: count => `Holm correction applied across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: ['holm-bonferroni', 'holm_bonferroni']
     },
+    'holm-sidak': {
+      label: 'Holm-Šidák',
+      shortLabel: 'Holm-Šidák',
+      description: 'Holm-Šidák step-down adjustment for family-wise error control.',
+      footnote: count => `Holm-Šidák correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      aliases: ['holm-sidak', 'holm sidak', 'holmsidak', 'holm_sidak']
+    },
     sidak: {
       label: 'Šidák',
       shortLabel: 'Šidák',
@@ -264,6 +271,21 @@
     return adjusted;
   }
 
+  function adjustHolmSidak(values){
+    const m = values.length;
+    const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
+    ordered.sort((a, b) => a.p - b.p);
+    const adjusted = new Array(m).fill(1);
+    let running = 0;
+    ordered.forEach((entry, idx) => {
+      const rank = m - idx;
+      const raw = clampUnit(1 - Math.pow(1 - entry.p, rank));
+      running = Math.max(running, raw);
+      adjusted[entry.index] = clampUnit(running);
+    });
+    return adjusted;
+  }
+
   function adjustHochberg(values){
     const m = values.length;
     const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
@@ -324,6 +346,7 @@
     none: adjustNone,
     bonferroni: adjustBonferroni,
     holm: adjustHolm,
+    'holm-sidak': adjustHolmSidak,
     sidak: adjustSidak,
     hochberg: adjustHochberg,
     bh: adjustBenjaminiHochberg,
