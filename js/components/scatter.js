@@ -7602,6 +7602,32 @@
         return summary;
       }
 
+      function collectScatterStatPairs(points){
+        const safePoints = Array.isArray(points) ? points : [];
+        const pairedPoints = [];
+        const xValues = [];
+        const yValues = [];
+        for(let idx = 0; idx < safePoints.length; idx += 1){
+          const point = safePoints[idx];
+          const x = Number(point?.x);
+          const y = Number(point?.y);
+          if(!Number.isFinite(x) || !Number.isFinite(y)){
+            continue;
+          }
+          pairedPoints.push({ ...point, x, y });
+          xValues.push(x);
+          yValues.push(y);
+        }
+        return {
+          points: pairedPoints,
+          x: xValues,
+          y: yValues,
+          count: pairedPoints.length,
+          totalRows: safePoints.length,
+          droppedRows: Math.max(0, safePoints.length - pairedPoints.length)
+        };
+      }
+
       function formatScatterSignatureNumber(value){
         return Number.isFinite(value)?value.toFixed(4):'NaN';
       }
@@ -8045,7 +8071,14 @@
         scatterLastRegressionSummary = typeof regressionTools.createSummary==='function'
           ? regressionTools.createSummary(regressionModel)
           : null;
-        const sampleSize = regressionModel?.metrics?.sampleSize ?? context?.points?.length;
+        const tablePointCount = Number(context?.pointSummary?.count);
+        const pairedPointCount = Number(stats?.pointCount);
+        const regressionSampleCount = Number(regressionModel?.metrics?.sampleSize);
+        const sampleSize = Number.isFinite(tablePointCount) && tablePointCount > 0
+          ? tablePointCount
+          : (Number.isFinite(pairedPointCount) && pairedPointCount > 0
+            ? pairedPointCount
+            : (Number.isFinite(regressionSampleCount) && regressionSampleCount > 0 ? regressionSampleCount : Number(context?.points?.length) || 0));
         const correlationCi = stats?.correlationCI || computeScatterCorrelationConfidenceInterval(stats?.r, sampleSize, 0.05);
         const pMethod = stats?.pMethod || (stats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
         const rows=[
@@ -14373,11 +14406,19 @@
         const fitMethod = options.fitMethod || 'ols';
         const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
         const domainOption = options.domain || null;
-        const x=points.map(p=>p.x);
-        const y=points.map(p=>p.y);
-        const n=points.length;
+        const paired = collectScatterStatPairs(points);
+        const n = paired.count;
+        const x = paired.x;
+        const y = paired.y;
+        if((typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) && paired.droppedRows > 0){
+          console.debug('Debug: scatter stats dropped invalid rows', {
+            totalRows: paired.totalRows,
+            droppedRows: paired.droppedRows,
+            retainedRows: paired.count
+          });
+        }
         if(n<3){
-          return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN, regression:null};
+          return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN, regression:null, pointCount:n};
         }
         const pearson = jStat.corrcoeff(x,y);
         const correlation = computeScatterCorrelationStats(method, x, y);
@@ -14393,7 +14434,7 @@
         let regression=null;
         if(typeof regressionTools.fitRegression==='function'){
           try{
-            regression=regressionTools.fitRegression(points,{
+            regression=regressionTools.fitRegression(paired.points,{
               mode: regressionMode,
               method: fitMethod,
               fitSpec,
@@ -14431,6 +14472,7 @@
           r2,
           m:resolvedSlope,
           b:resolvedIntercept,
+          pointCount:n,
           regression,
           derived
         };
