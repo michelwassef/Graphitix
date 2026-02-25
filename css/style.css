@@ -4187,12 +4187,22 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 /* Significance controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.significance-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host--significance{display:block}
-.significance-controls-panel{width:max-content}
+.significance-controls-panel{
+    width:max-content;
+    --workspace-toolbar-section-gap: 14px;
+}
 .significance-controls-panel__title{display:block}
 .significance-controls-panel__summary{display:flex;min-width:92px;align-items:center;text-align:center}
 .significance-controls-panel__summary-label,
 .significance-controls-panel__summary-value{text-align:center}
-.significance-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content}
+.significance-controls-panel__row{
+    display:grid;
+    grid-auto-flow:column;
+    grid-auto-columns:max-content;
+    align-items:start;
+    gap:var(--workspace-toolbar-section-gap);
+    width:max-content;
+}
 .significance-controls-panel__field{min-width:0;min-height:52px;align-items:center;justify-content:flex-start;text-align:center}
 .significance-controls-panel__field--toggle{min-width:0;align-items:center}
 .significance-controls-panel__field--text-style{min-width:96px;align-items:center}
