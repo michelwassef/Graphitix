@@ -53,6 +53,46 @@
     return `${text.slice(0, Math.max(4, limit - 3))}...`;
   }
 
+  function sanitizeFileStem(value, fallback){
+    const stem = String(value || '').trim().toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return stem || fallback || 'data-view';
+  }
+
+  function valueToText(value){
+    if(value == null){
+      return '';
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value) ? String(value) : '';
+    }
+    if(typeof value === 'boolean'){
+      return value ? 'true' : 'false';
+    }
+    return String(value);
+  }
+
+  function buildDelimitedText(data, delimiter){
+    const rows = Array.isArray(data) ? data : [];
+    const delim = delimiter === '\t' ? '\t' : ',';
+    const out = new Array(rows.length);
+    for(let rowIndex = 0; rowIndex < rows.length; rowIndex += 1){
+      const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [rows[rowIndex]];
+      const cells = new Array(row.length);
+      for(let colIndex = 0; colIndex < row.length; colIndex += 1){
+        const text = valueToText(row[colIndex]);
+        if(text.indexOf('"') >= 0 || text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0 || text.indexOf(delim) >= 0){
+          cells[colIndex] = `"${text.replace(/"/g, '""')}"`;
+        }else{
+          cells[colIndex] = text;
+        }
+      }
+      out[rowIndex] = cells.join(delim);
+    }
+    return out.join('\n');
+  }
+
   function normalizeTitle(value, fallback){
     const text = String(value || '').trim();
     return text || fallback;
@@ -311,6 +351,15 @@
         }
         item.appendChild(tab);
 
+        const save = doc.createElement('button');
+        save.type = 'button';
+        save.className = 'data-view-tabs__save';
+        save.dataset.viewId = view.id;
+        save.setAttribute('aria-label', `Save ${view.title}`);
+        save.setAttribute('title', `Save ${view.title}`);
+        save.textContent = '\u{1F4BE}';
+        item.appendChild(save);
+
         if(view.kind !== 'raw'){
           const close = doc.createElement('button');
           close.type = 'button';
@@ -388,7 +437,149 @@
       tabs.setAttribute('aria-label', 'Input data views');
       tabs.dataset.componentKey = componentKey || '';
 
+      const exportMenu = doc.createElement('div');
+      exportMenu.className = 'data-view-tabs__export-menu';
+      exportMenu.setAttribute('hidden', 'hidden');
+      exportMenu.setAttribute('role', 'menu');
+      exportMenu.innerHTML = ''
+        + '<button type="button" class="data-view-tabs__export-item" data-format="csv" role="menuitem">CSV</button>'
+        + '<button type="button" class="data-view-tabs__export-item" data-format="tsv" role="menuitem">TSV</button>'
+        + '<button type="button" class="data-view-tabs__export-item" data-format="ods" role="menuitem">ODS</button>'
+        + '<button type="button" class="data-view-tabs__export-item" data-format="xlsx" role="menuitem">XLSX</button>';
+
+      let exportMenuViewId = null;
+
+      const hideExportMenu = () => {
+        if(exportMenu.hasAttribute('hidden')){
+          return;
+        }
+        exportMenu.setAttribute('hidden', 'hidden');
+        exportMenuViewId = null;
+      };
+
+      const showExportMenu = (button, viewId) => {
+        if(!button || !viewId){
+          return;
+        }
+        exportMenuViewId = String(viewId);
+        exportMenu.removeAttribute('hidden');
+        const buttonRect = button.getBoundingClientRect();
+        const hostRect = wrapper.getBoundingClientRect();
+        let left = buttonRect.left - hostRect.left;
+        let top = buttonRect.bottom - hostRect.top + 4;
+        const maxLeft = Math.max(0, wrapper.clientWidth - exportMenu.offsetWidth - 6);
+        if(left > maxLeft){
+          left = maxLeft;
+        }
+        const maxTop = Math.max(0, wrapper.clientHeight - exportMenu.offsetHeight - 6);
+        if(top > maxTop){
+          top = Math.max(0, buttonRect.top - hostRect.top - exportMenu.offsetHeight - 4);
+        }
+        exportMenu.style.left = `${Math.round(Math.max(0, left))}px`;
+        exportMenu.style.top = `${Math.round(Math.max(0, top))}px`;
+      };
+
+      const downloadBlob = (blob, fileName, contextLabel) => {
+        if(Shared.exporter && typeof Shared.exporter.downloadBlob === 'function'){
+          Shared.exporter.downloadBlob(blob, fileName, contextLabel);
+          return;
+        }
+        if(Shared.fileIO && typeof Shared.fileIO.downloadBlob === 'function'){
+          Shared.fileIO.downloadBlob(blob, fileName, blob?.type || 'application/octet-stream');
+        }
+      };
+
+      const exportViewData = async (viewId, format) => {
+        const view = getView(viewId);
+        if(!view){
+          return;
+        }
+        const ext = String(format || '').toLowerCase();
+        const fileStem = sanitizeFileStem(view.title, view.kind === 'raw' ? 'raw' : 'derived');
+        const rows = Array.isArray(view.data) ? view.data : [];
+        if(ext === 'csv' || ext === 'tsv'){
+          const delimiter = ext === 'tsv' ? '\t' : ',';
+          const mime = ext === 'tsv' ? 'text/tab-separated-values;charset=utf-8' : 'text/csv;charset=utf-8';
+          const text = buildDelimitedText(rows, delimiter);
+          const blob = new Blob([text], { type: mime });
+          downloadBlob(blob, `${fileStem}.${ext}`, `data-view-${ext}`);
+          return;
+        }
+        if(ext !== 'xlsx' && ext !== 'ods'){
+          return;
+        }
+        const xlsxLoader = Shared.lazyXlsx;
+        if(typeof xlsxLoader !== 'function'){
+          return;
+        }
+        const XLSX = await xlsxLoader();
+        if(!XLSX?.utils || typeof XLSX.write !== 'function'){
+          return;
+        }
+        const workbook = XLSX.utils.book_new();
+        const sheetName = String(view.title || 'Data').slice(0, 31) || 'Data';
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        const output = XLSX.write(workbook, { bookType: ext, type: 'array' });
+        const mime = ext === 'ods'
+          ? 'application/vnd.oasis.opendocument.spreadsheet'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        const blob = new Blob([output], { type: mime });
+        downloadBlob(blob, `${fileStem}.${ext}`, `data-view-${ext}`);
+      };
+
+      const pointerDownHandler = event => {
+        if(exportMenu.hasAttribute('hidden')){
+          return;
+        }
+        if(exportMenu.contains(event.target)){
+          return;
+        }
+        if(tabs.contains(event.target) && event.target.closest('.data-view-tabs__save')){
+          return;
+        }
+        hideExportMenu();
+      };
+
+      const keydownHandler = event => {
+        if(event.key === 'Escape'){
+          hideExportMenu();
+        }
+      };
+
       const clickHandler = event => {
+        const exportItem = event.target?.closest?.('.data-view-tabs__export-item[data-format]');
+        if(exportItem){
+          const format = exportItem.dataset.format || '';
+          const targetViewId = exportMenuViewId;
+          hideExportMenu();
+          if(targetViewId){
+            exportViewData(targetViewId, format).catch(err => {
+              if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+                console.debug('Debug: dataViews export failed', {
+                  viewId: targetViewId,
+                  format,
+                  message: err?.message || String(err)
+                });
+              }
+            });
+          }
+          return;
+        }
+        const saveButton = event.target?.closest?.('.data-view-tabs__save[data-view-id]');
+        if(saveButton){
+          event.preventDefault();
+          event.stopPropagation();
+          const viewId = saveButton.dataset.viewId || '';
+          if(viewId){
+            if(exportMenuViewId === viewId && !exportMenu.hasAttribute('hidden')){
+              hideExportMenu();
+            }else{
+              showExportMenu(saveButton, viewId);
+            }
+          }
+          return;
+        }
         const closeButton = event.target?.closest?.('.data-view-tabs__close[data-view-id]');
         if(closeButton){
           event.preventDefault();
@@ -415,10 +606,14 @@
       };
 
       tabs.addEventListener('click', clickHandler);
+      exportMenu.addEventListener('click', clickHandler);
+      doc.addEventListener('pointerdown', pointerDownHandler);
+      doc.addEventListener('keydown', keydownHandler);
       if(tableContainer.parentNode !== wrapper){
         wrapper.appendChild(tableContainer);
       }
       wrapper.insertBefore(tabs, tableContainer);
+      wrapper.appendChild(exportMenu);
       wrapper.classList.add('data-view-host');
       tableContainer.classList.add('data-view-host__table');
       wrapper.__dataViewsOwner = manager;
@@ -426,7 +621,10 @@
         wrapper,
         tableContainer,
         tabs,
-        clickHandler
+        exportMenu,
+        clickHandler,
+        pointerDownHandler,
+        keydownHandler
       };
       renderTabs();
       return true;
@@ -436,12 +634,25 @@
       if(!mounted){
         return;
       }
-      const { wrapper, tableContainer, tabs, clickHandler } = mounted;
+      const { wrapper, tableContainer, tabs, exportMenu, clickHandler, pointerDownHandler, keydownHandler } = mounted;
       if(tabs && clickHandler){
         tabs.removeEventListener('click', clickHandler);
       }
+      if(exportMenu && clickHandler){
+        exportMenu.removeEventListener('click', clickHandler);
+      }
+      const doc = wrapper?.ownerDocument || global.document;
+      if(doc && pointerDownHandler){
+        doc.removeEventListener('pointerdown', pointerDownHandler);
+      }
+      if(doc && keydownHandler){
+        doc.removeEventListener('keydown', keydownHandler);
+      }
       if(tabs && tabs.parentNode){
         tabs.parentNode.removeChild(tabs);
+      }
+      if(exportMenu && exportMenu.parentNode){
+        exportMenu.parentNode.removeChild(exportMenu);
       }
       wrapper?.classList?.remove('data-view-host');
       tableContainer?.classList?.remove('data-view-host__table');

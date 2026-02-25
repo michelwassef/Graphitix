@@ -2814,6 +2814,7 @@ select {
     display:flex;
     flex-direction:column;
     overflow:hidden !important;
+    position:relative;
 }
 
 .data-view-tabs{
@@ -2845,7 +2846,7 @@ select {
     font-size:11px;
     line-height:1.2;
     font-weight:500;
-    padding:3px 18px 4px 8px;
+    padding:3px 30px 4px 8px;
     border-radius:0 !important;
     border-top-left-radius:5px !important;
     border-top-right-radius:5px !important;
@@ -2886,6 +2887,66 @@ select {
     right:4px;
     top:50%;
     transform:translateY(-52%);
+}
+
+.data-view-tabs__save{
+    appearance:none;
+    border:none;
+    background:transparent;
+    color:#64748b;
+    font-size:11px;
+    line-height:1;
+    padding:0;
+    width:12px;
+    height:12px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:0;
+    cursor:pointer;
+    position:absolute;
+    right:18px;
+    top:50%;
+    transform:translateY(-52%);
+}
+
+.data-view-tabs__save:hover,
+.data-view-tabs__save:focus-visible{
+    background:#e2e8f3;
+    color:#0f172a;
+}
+
+.data-view-tabs__export-menu{
+    position:absolute;
+    z-index:30;
+    min-width:96px;
+    background:#ffffff;
+    border:1px solid #cbd5e1;
+    box-shadow:0 8px 18px rgba(15,23,42,0.16);
+    padding:4px;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+}
+
+.data-view-tabs__export-menu[hidden]{
+    display:none;
+}
+
+.data-view-tabs__export-item{
+    appearance:none;
+    border:none;
+    background:transparent;
+    color:#0f172a;
+    font-size:11px;
+    text-align:left;
+    padding:4px 6px;
+    cursor:pointer;
+}
+
+.data-view-tabs__export-item:hover,
+.data-view-tabs__export-item:focus-visible{
+    background:#e2e8f3;
 }
 
 .data-view-tabs__close:hover{
