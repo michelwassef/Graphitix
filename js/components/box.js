@@ -11866,17 +11866,37 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       txt.setAttribute('fill',color);
     }
     txt.textContent=labelText;
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(txt, { scopeId: 'box', role: 'significance-label', key: 'significance-label' });
+    }
     svg.appendChild(txt);
 	    if(orientation!=='horizontal'){
 	      alignSignificanceLabelBottom(txt, labelBottomTarget);
 	    }
     if(canRegisterSignificanceControl){
       if(hitPath){
-        Shared.significanceControls.registerSignificanceElement(hitPath, { ...controlConfig, disableOverlay: true });
+        Shared.significanceControls.registerSignificanceElement(hitPath, {
+          ...controlConfig,
+          disableOverlay: true,
+          getFontTarget: () => txt,
+          fontTarget: txt,
+          fontKey: 'significance-label'
+        });
       }else{
-        Shared.significanceControls.registerSignificanceElement(path, { ...controlConfig, disableOverlay: true });
+        Shared.significanceControls.registerSignificanceElement(path, {
+          ...controlConfig,
+          disableOverlay: true,
+          getFontTarget: () => txt,
+          fontTarget: txt,
+          fontKey: 'significance-label'
+        });
       }
-      Shared.significanceControls.registerSignificanceElement(txt, controlConfig);
+      Shared.significanceControls.registerSignificanceElement(txt, {
+        ...controlConfig,
+        getFontTarget: () => txt,
+        fontTarget: txt,
+        fontKey: 'significance-label'
+      });
     }
     console.debug('Debug: box annotatePair scaling',{strokeWidth,fontSize:opts.fontSize,orientation,color,showWhiskers});
   }
@@ -11936,12 +11956,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       txt.setAttribute('fill',color);
     }
     txt.textContent=labelText;
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(txt, { scopeId: 'box', role: 'significance-label', key: 'significance-label' });
+    }
     svg.appendChild(txt);
     if(orientation!=='horizontal'){
       alignSignificanceLabelBottom(txt, labelBottomTarget);
     }
     if(controlConfig && Shared?.significanceControls?.registerSignificanceElement){
-      Shared.significanceControls.registerSignificanceElement(txt, controlConfig);
+      Shared.significanceControls.registerSignificanceElement(txt, {
+        ...controlConfig,
+        getFontTarget: () => txt,
+        fontTarget: txt,
+        fontKey: 'significance-label'
+      });
     }
     console.debug('Debug: box annotateOverall scaling',{baseOffset,levelGap,fontSize,orientation,color});
   }

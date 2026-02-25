@@ -3695,11 +3695,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
 .font-toolbar-host--box-dual.font-toolbar-host--visible,
 .font-toolbar-host--scatter-dual.font-toolbar-host--visible,
-.font-toolbar-host--grid-dual.font-toolbar-host--visible{display:grid}
+.font-toolbar-host--grid-dual.font-toolbar-host--visible,
+.font-toolbar-host--significance-dual.font-toolbar-host--visible{display:grid}
 .font-toolbar-host--line-dual,
 .font-toolbar-host--box-dual,
 .font-toolbar-host--scatter-dual,
-.font-toolbar-host--grid-dual{
+.font-toolbar-host--grid-dual,
+.font-toolbar-host--significance-dual{
   grid-auto-flow:column;
   grid-auto-columns:max-content;
   column-gap:10px;
@@ -3747,6 +3749,10 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 }
 .font-toolbar-host--scatter-dual .additional-line-controls-panel{
   order:2;
+}
+.font-toolbar-host--significance-dual>.font-controls-panel:not(:first-child){
+  padding-left:10px;
+  border-left:1px solid #cbd5e1;
 }
 .axis-controls-panel{display:flex;align-items:flex-start;padding:0 8px;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:56px}
@@ -4181,103 +4187,23 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 /* Significance controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.significance-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host--significance{display:block}
-.significance-controls-panel{display:grid;grid-auto-flow:column;grid-auto-columns:max-content !important;align-items:start;gap:40px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start;justify-items:center}
-.significance-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
-.significance-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
-.significance-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-
-/* Hide the descriptive summary value (e.g. "Vertical Bars") when the
-     significance toolbar is shown — keeps the panel compact. */
-.font-toolbar-host--significance .significance-controls-panel__summary-value{
-    display:none !important;
-}
-
-/* Allow the summary column to collapse when the value is hidden */
-.font-toolbar-host--significance .significance-controls-panel__summary{
-    min-width:0 !important;
-    display:none !important;
-}
-
-/* Hide the SIGNIFICANCE header text for a compact toolbar */
-.font-toolbar-host--significance .significance-controls-panel__summary-label{
-    display:none !important;
-}
-
-/* Make the significance toolbar more compact and align select text left */
-.font-toolbar-host--significance .significance-controls-panel{
-    gap:20px !important;
-    align-items:flex-start !important;
-}
-
-/* Left-align the whisker style select visible text and option items */
-.font-toolbar-host--significance select.significance-controls-panel__input{
-    text-align: left !important;
-    padding-left:6px !important;
-}
-.font-toolbar-host--significance select.significance-controls-panel__input option{
-    text-align: left;
-}
-
-/* Pull the whisker-mode numeric field left, placing it close to the toggle */
-.font-toolbar-host--significance .significance-controls-panel__field--toggle + .significance-controls-panel__field--numeric{
-    margin-left: -6px !important;
-    align-self: center !important;
-}
-
-/* Slightly tighten spacing inside the toggle row so checkbox and label sit compactly */
-.font-toolbar-host--significance .significance-controls-panel__toggle-row{
-    gap:4px !important;
-}
-.significance-controls-panel__field{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:56px;flex:0 0 auto;text-align:center}
-.significance-controls-panel > *{box-sizing:border-box}
-.significance-controls-panel__field{width:auto}
-
-/* Keep labels on a single line but allow inputs/selects to size naturally */
-.significance-controls-panel__field-label{white-space:nowrap}
-
-/* Let selects and inputs size to their intrinsic content (but respect max-width) */
-.significance-controls-panel select.significance-controls-panel__input,
-.significance-controls-panel input.significance-controls-panel__input{
-    display:inline-block;
-    width:auto !important;
-    min-width:0 !important;
-    max-width:96px !important;
-    box-sizing:border-box;
-}
-.significance-controls-panel__field--numeric{width:auto;min-width:56px}
-.significance-controls-panel__field--color{min-width:40px;width:auto;align-items:center;text-align:center}
-.significance-controls-panel__field--toggle{min-width:56px;align-items:center;gap:4px}
-.significance-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;display:block}
-.significance-controls-panel__input{min-width:0;width:auto;max-width:96px;text-align:center}
-.significance-controls-panel__input--small{width:36px;min-width:36px}
-.significance-controls-panel__input--square{border-radius:0}
-
-/* Enforce narrower thickness input and shared checkbox styling when panel is attached to the font toolbar host */
-.font-toolbar-host--significance .significance-controls-panel__input--small{
-    width:36px !important;
-    min-width:36px !important;
-    max-width:36px !important;
-}
-
-/* Extra-specific rule to ensure number input (with spinner) stays constrained */
-.font-toolbar-host--significance input.significance-controls-panel__input.significance-controls-panel__input--small{
-    width:60px !important;
-    min-width:60px !important;
-    max-width:60px !important;
-    box-sizing:border-box !important;
-    padding-left:6px !important;
-    padding-right:6px !important;
-}
-
-.font-toolbar-host--significance .significance-controls-panel__input--square{
-    border-radius:0 !important;
-}
+.significance-controls-panel{width:max-content}
+.significance-controls-panel__title{display:none}
+.significance-controls-panel__summary{display:none}
+.significance-controls-panel__row{gap:var(--workspace-toolbar-section-gap)}
+.significance-controls-panel__field{min-width:0;min-height:52px;align-items:center}
+.significance-controls-panel__field--toggle{min-width:72px;align-items:flex-start}
+.significance-controls-panel__field--text-style{min-width:112px;align-items:flex-start}
+.significance-controls-panel__field-label{font-size:11px;text-transform:none;letter-spacing:0.01em}
+.significance-controls-panel__input{max-width:96px}
+.significance-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
+.significance-controls-panel__input--square{border-radius:6px}
 .significance-controls-panel__color-input{height:24px;width:24px;padding:0;cursor:pointer;display:block;margin:0 auto}
-.significance-controls-panel__field--color .significance-controls-panel__field-label{display:block;width:100%;text-align:center}
-.significance-controls-panel__field--color .significance-controls-panel__color-input{align-self:center;margin-left:0;margin-right:0;margin-inline:auto}
+.significance-controls-panel__field--color .significance-controls-panel__color-input{align-self:center;margin-inline:auto}
 .significance-controls-panel__toggle-row{display:flex;align-items:center;gap:6px;width:auto}
 .significance-controls-panel__checkbox{appearance:auto;width:16px;height:16px;cursor:pointer;transition:all .12s ease;margin:0;accent-color:#0b63d1}
 .significance-controls-panel__checkbox:disabled{opacity:.5;cursor:not-allowed}
+.significance-controls-panel__text-button{min-width:96px;justify-content:center}
 
 /* Additional line controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.additional-line-controls-panel{position:static;margin:0;max-width:100%}

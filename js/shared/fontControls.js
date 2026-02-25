@@ -3337,8 +3337,14 @@
     panelEl.hidden = true;
     exitFloatingMode({ trigger: reason || 'close' });
     if(activeHost && panelEl.parentElement === activeHost){
-      hideToolbarHost(activeHost);
-      activeHost = null;
+      const significancePanel = activeHost.querySelector('.significance-controls-panel');
+      const significanceOpen = !!(significancePanel && significancePanel.dataset?.open === '1');
+      if(significanceOpen){
+        activeHost.classList.remove('font-toolbar-host--significance-dual');
+      }else{
+        hideToolbarHost(activeHost);
+        activeHost = null;
+      }
     }
     if(colorInput){
       colorInput.__fontControlsAvoidRect = null;
@@ -3362,6 +3368,8 @@
   function openPanelForTarget(target, options){
     if(!target){ return; }
     ensurePanel();
+    const coexistWithComponent = options?.coexistWithComponent === true;
+    const coexistComponentClass = typeof options?.coexistComponentClass === 'string' ? options.coexistComponentClass.trim() : '';
     // Ensure axis controls are closed when opening the font (FORMAT) panel.
     // Prevent mixed UI (axis + font + per-component hosts) by closing axisControls.
     currentTarget = target;
@@ -3386,7 +3394,9 @@
     }
     if(!panelEl){ return; }
     // ensure any per-component toolbar hosts are hidden before opening the font panel
-    try{ hideComponentHosts(); }catch(e){}
+    if(!coexistWithComponent){
+      try{ hideComponentHosts(); }catch(e){}
+    }
     // also close axis/grid controls so the font panel is the only active FORMAT UI
     try{
       const axisControls = Shared?.axisControls || (global && global.Shared && global.Shared.axisControls);
@@ -3408,7 +3418,10 @@
       // remove any per-component toolbar form nodes from this host so the
       // font panel does not share the same host DOM with component controls.
       try{
-        host.querySelectorAll('.workspace-toolbar__panel--symbol, .additional-line-controls-panel, .grid-controls-panel').forEach(node => {
+        const removableSelector = coexistWithComponent
+          ? '.workspace-toolbar__panel--symbol, .additional-line-controls-panel:not(.significance-controls-panel), .grid-controls-panel'
+          : '.workspace-toolbar__panel--symbol, .additional-line-controls-panel, .grid-controls-panel';
+        host.querySelectorAll(removableSelector).forEach(node => {
           if(node === panelEl){ return; }
           try{ node.remove(); }catch(e){}
         });
@@ -3429,6 +3442,12 @@
       }
       activeHost = host;
       showToolbarHost(host);
+      if(coexistWithComponent){
+        host.classList.add('font-toolbar-host--significance');
+        if(coexistComponentClass){
+          host.classList.add(coexistComponentClass);
+        }
+      }
     } else {
       if(activeHost){
         hideToolbarHost(activeHost);
