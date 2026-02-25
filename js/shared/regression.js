@@ -69,6 +69,16 @@
     return invResult;
   };
 
+  const hasFiniteVector = (vector) => (
+    Array.isArray(vector) && vector.length > 0 && vector.every(value => Number.isFinite(value))
+  );
+
+  const hasFiniteMatrix = (matrix) => (
+    Array.isArray(matrix)
+    && matrix.length > 0
+    && matrix.every(row => Array.isArray(row) && row.length > 0 && row.every(value => Number.isFinite(value)))
+  );
+
   const summarizeResiduals = (residuals) => {
     if(!Array.isArray(residuals) || residuals.length === 0){
       return { mean: NaN, sd: NaN, min: NaN, max: NaN };
@@ -657,6 +667,13 @@
     if(!xtxInv){
       return { coefficients: null, xtxInv: null };
     }
+    if(!hasFiniteMatrix(xtxInv)){
+      regressionDebug('least squares rejected non-finite inverse matrix', {
+        rows: Array.isArray(design) ? design.length : 0,
+        cols: Array.isArray(design?.[0]) ? design[0].length : 0
+      });
+      return { coefficients: null, xtxInv: null };
+    }
     const xty = safeMultiply(designT, yVector);
     if(!xty){
       return { coefficients: null, xtxInv: null };
@@ -665,7 +682,14 @@
     if(!betaMatrix){
       return { coefficients: null, xtxInv: null };
     }
-    const coefficients = betaMatrix.map(row => row[0]);
+    const coefficients = betaMatrix.map(row => row?.[0]);
+    if(!hasFiniteVector(coefficients)){
+      regressionDebug('least squares rejected non-finite coefficients', {
+        rows: Array.isArray(design) ? design.length : 0,
+        cols: Array.isArray(design?.[0]) ? design[0].length : 0
+      });
+      return { coefficients: null, xtxInv: null };
+    }
     return { coefficients, xtxInv };
   };
 
@@ -699,6 +723,12 @@
     }else{
       const fallback = fallbackSlopeIntercept();
       resolvedCoefficients = [fallback.interceptVal, fallback.slopeVal];
+    }
+    if(!hasFiniteVector(resolvedCoefficients)){
+      const fallback = fallbackSlopeIntercept();
+      resolvedCoefficients = [fallback.interceptVal, fallback.slopeVal];
+      xtxInv = null;
+      regressionDebug('linear regression fallback applied after non-finite coefficients');
     }
     const slope = resolvedCoefficients[1];
     const intercept = resolvedCoefficients[0];
@@ -3747,13 +3777,18 @@
         ? fitSpec.alpha
         : (Number.isFinite(options.alpha) && options.alpha > 0 && options.alpha < 1 ? options.alpha : 0.05);
       const method = typeof options.method === 'string' ? options.method.toLowerCase() : 'ols';
-      const cleanPoints = fitSpec.range
+      const hasRangeFilter = !!(fitSpec.range
+        && (Number.isFinite(fitSpec.range.minX) || Number.isFinite(fitSpec.range.maxX)));
+      const filteredPoints = hasRangeFilter
         ? allPoints.filter(pt => {
             const meetsMin = !Number.isFinite(fitSpec.range.minX) || pt.x >= fitSpec.range.minX;
             const meetsMax = !Number.isFinite(fitSpec.range.maxX) || pt.x <= fitSpec.range.maxX;
             return meetsMin && meetsMax;
           })
         : allPoints;
+      const filteredSampleSize = filteredPoints.length;
+      const rangeFallbackToAllPoints = hasRangeFilter && allPoints.length >= 2 && filteredSampleSize < 2;
+      const cleanPoints = rangeFallbackToAllPoints ? allPoints : filteredPoints;
       const sampleSize = cleanPoints.length;
       const domain = allPoints.reduce((acc, pt) => {
         if(!acc){
@@ -3765,13 +3800,34 @@
         };
       }, null);
       console.debug('Debug:', debugNs, 'fit input', { mode, sampleSize, method });
+      if(rangeFallbackToAllPoints){
+        regressionDebug('fit range fallback to full dataset', {
+          mode,
+          totalSampleSize: allPoints.length,
+          retainedAfterRange: filteredSampleSize
+        });
+      }
       if(sampleSize < 2 || !jStatLib){
+        const warnings = [];
+        if(sampleSize < 2){
+          warnings.push('Insufficient data for regression fitting.');
+        }
+        if(!jStatLib){
+          warnings.push('jStat unavailable.');
+        }
+        if(hasRangeFilter){
+          if(rangeFallbackToAllPoints){
+            warnings.push(`Fit range excluded too many points (${filteredSampleSize} retained of ${allPoints.length}); using full dataset.`);
+          }else{
+            warnings.push(`Fit range filtering applied (${filteredSampleSize} retained of ${allPoints.length}).`);
+          }
+        }
         return {
           mode,
           coefficients: [],
           metrics: { sampleSize },
           residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN },
-          warnings: ['Insufficient data or jStat unavailable'],
+          warnings: warnings.length ? warnings : ['Insufficient data or jStat unavailable'],
           domain,
           fitSpec: fitSpec.raw
         };
@@ -3849,8 +3905,16 @@
       model.mode = model.mode || mode;
       model.fitMethod = method;
       model.fitSpec = fitSpec.raw;
-      if(fitSpec.range && (Number.isFinite(fitSpec.range.minX) || Number.isFinite(fitSpec.range.maxX))){
-        model.warnings = (model.warnings || []).concat(['Fit range filtering applied.']);
+      if(hasRangeFilter){
+        if(rangeFallbackToAllPoints){
+          model.warnings = (model.warnings || []).concat([
+            `Fit range excluded too many points (${filteredSampleSize} retained of ${allPoints.length}); using full dataset.`
+          ]);
+        }else if(filteredSampleSize < allPoints.length){
+          model.warnings = (model.warnings || []).concat([
+            `Fit range filtering applied (${filteredSampleSize} retained of ${allPoints.length}).`
+          ]);
+        }
       }
       if(!model.domain){
         model.domain = domain;

@@ -8225,7 +8225,13 @@
           }
         }
         if(regressionModel?.warnings?.length){
-          rows.push({ metric:'Warnings', value:regressionModel.warnings.join('; ') });
+          const warnings = regressionModel.warnings.filter(msg => typeof msg === 'string' && msg.trim());
+          const visibleWarnings = warnings.filter(msg => !/^Fit range excluded too many points \(\d+ retained of \d+\); using full dataset\.?$/i.test(msg));
+          if(visibleWarnings.length){
+            rows.push({ metric:'Warnings', value:visibleWarnings.join('; ') });
+          }else if(warnings.length && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: scatter warnings row suppressed (fit-range fallback only)', { warnings });
+          }
         }
         renderStatsCard(scatterStatsResults,{
           caption:`${stats?.method || 'Correlation'} correlation (${regressionModeValue} regression)` ,

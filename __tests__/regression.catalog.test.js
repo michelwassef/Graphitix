@@ -175,6 +175,56 @@ describe('Regression model catalog and nonlinear fits', () => {
     expect(model.warnings.join(' ')).toMatch(/fixed/i);
     expect(Number.isFinite(model.summary?.parameters?.Sigma)).toBe(true);
   });
+
+  test('linear regression falls back when matrix inverse yields non-finite values', () => {
+    const originalInv = global.jStat.inv;
+    const originalPinv = global.jStat.pinv;
+    global.jStat.inv = () => [[NaN, NaN], [NaN, NaN]];
+    global.jStat.pinv = () => [[NaN, NaN], [NaN, NaN]];
+    try{
+      const points = [
+        { x: 1, y: 2 },
+        { x: 2, y: 4 },
+        { x: 3, y: 6 },
+        { x: 4, y: 8 }
+      ];
+      const model = regressionTools.fitRegression(points, {
+        modelId: 'linear',
+        method: 'ols'
+      });
+      expect(model).toBeTruthy();
+      expect(Number.isFinite(model.summary?.intercept)).toBe(true);
+      expect(Number.isFinite(model.summary?.slope)).toBe(true);
+      expect(model.summary.intercept).toBeCloseTo(0, 8);
+      expect(model.summary.slope).toBeCloseTo(2, 8);
+    }finally{
+      global.jStat.inv = originalInv;
+      global.jStat.pinv = originalPinv;
+    }
+  });
+
+  test('fit range fallback keeps finite linear metrics when range excludes all points', () => {
+    const points = [
+      { x: 1, y: 2 },
+      { x: 2, y: 4 },
+      { x: 3, y: 6 },
+      { x: 4, y: 8 }
+    ];
+    const model = regressionTools.fitRegression(points, {
+      modelId: 'linear',
+      method: 'ols',
+      fitSpec: {
+        range: { minX: 100, maxX: 200 }
+      }
+    });
+    expect(model).toBeTruthy();
+    expect(Number.isFinite(model.metrics?.sampleSize)).toBe(true);
+    expect(model.metrics.sampleSize).toBe(4);
+    expect(Number.isFinite(model.summary?.slope)).toBe(true);
+    expect(model.summary.slope).toBeCloseTo(2, 8);
+    expect(Array.isArray(model.warnings)).toBe(true);
+    expect(model.warnings.join(' ')).toMatch(/using full dataset/i);
+  });
 });
 const fs = require('fs');
 const path = require('path');
