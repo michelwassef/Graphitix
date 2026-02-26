@@ -13723,10 +13723,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(els.boxSignificanceLabelMode){
         els.boxSignificanceLabelMode.disabled = true;
       }
-      if(state.showSignificanceBars && !state.pendingAutoShowSignificance){
-        state.showSignificanceBars = false;
-        els.boxShowSignificance.checked = false;
-      }else if(state.pendingAutoShowSignificance){
+      if(state.showSignificanceBars || state.pendingAutoShowSignificance){
         els.boxShowSignificance.checked = true;
       }
     }else{
@@ -14341,6 +14338,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       setStatsStatus('Statistics unavailable until data is loaded.');
       return;
     }
+    const previousSignificanceMaxLevel = Number.isFinite(state.significanceMaxLevel)
+      ? Number(state.significanceMaxLevel)
+      : null;
     state.statsComputationPending = true;
     updateStatsButtonState({ disabled: true, label: 'Calculating…' });
     setStatsStatus('Calculating statistics…');
@@ -14397,6 +14397,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       reconcileStatsContextSignature(context.traces);
       setStatsStatus('Statistics up to date.');
       updateSignificanceControlState({ statsReady: true });
+      const nextSignificanceMaxLevel = Number.isFinite(state.significanceMaxLevel)
+        ? Number(state.significanceMaxLevel)
+        : null;
+      const shouldReflowForSignificance = !!state.showSignificanceBars
+        && nextSignificanceMaxLevel !== previousSignificanceMaxLevel;
+      if(shouldReflowForSignificance){
+        state.scheduleDraw();
+      }
     };
 
     const runLocalCompute = () => {
