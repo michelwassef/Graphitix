@@ -104,7 +104,7 @@
 	  const DEFAULT_SIGNIFICANCE_COLOR = '#000000';
 	  const DEFAULT_SIGNIFICANCE_THICKNESS = 1;
 	  const DEFAULT_SIGNIFICANCE_WHISKERS = true;
-	  const DEFAULT_SIGNIFICANCE_WHISKER_MODE = 'fixed'; // 'fixed' | 'adaptive'
+	  const DEFAULT_SIGNIFICANCE_WHISKER_MODE = 'adaptive'; // 'fixed' | 'adaptive'
 	  const DEFAULT_SIGNIFICANCE_P_SCIENTIFIC = false;
 	  const DEFAULT_SIGNIFICANCE_P_DECIMALS = 2;
 	  const ASSUMPTION_QQ_SAMPLE_LIMIT=4000;
@@ -6366,7 +6366,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -12446,15 +12446,10 @@
       console.debug('Debug: box selectedCols pruned for trace count',{ before: beforeSize, after: filteredSelection.length, traces: traces.length });
     }
   }
-  if(oneSampleMode){
-    if(state.selectedCols.size<1 && traces.length>=1){
-      state.selectedCols.clear();
-      state.selectedCols.add(0);
-    }
-  }else if(state.selectedCols.size<2 && traces.length>=2){
-    state.selectedCols.clear();
-    state.selectedCols.add(0);
-    state.selectedCols.add(1);
+  if(state.selectedCols.size < 1 && traces.length){
+    traces.forEach((_, index) => {
+      state.selectedCols.add(index);
+    });
   }
   if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
     state.selectedCols.add(state.statsRef);
@@ -13728,9 +13723,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(els.boxSignificanceLabelMode){
         els.boxSignificanceLabelMode.disabled = true;
       }
-      if(state.showSignificanceBars){
+      if(state.showSignificanceBars && !state.pendingAutoShowSignificance){
         state.showSignificanceBars = false;
         els.boxShowSignificance.checked = false;
+      }else if(state.pendingAutoShowSignificance){
+        els.boxShowSignificance.checked = true;
       }
     }else{
       els.boxShowSignificance.title = '';
@@ -14027,7 +14024,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(!svg){
       return;
     }
-    const significanceEnabled = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
+    const significanceEnabled = !!state.showSignificanceBars || !!helpers?.significance?.enabled;
     state.statsLastSignificanceEnabled = !!significanceEnabled;
     state.significanceMaxLevel = null;
     const annotationOpts = helpers?.annotationStyle || {};
@@ -14303,12 +14300,44 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     return true;
   }
 
-  function handleStatsComputeClick(){
+  function handleStatsComputeClick(evt){
     if(state.statsComputationPending){
+      return;
+    }
+    const userInitiated = !!(evt && evt.isTrusted);
+    if(userInitiated && !state.showSignificanceBars){
+      state.pendingAutoShowSignificance = true;
+      let toggledViaControl = false;
+      if(els.boxShowSignificance){
+        els.boxShowSignificance.checked = true;
+        try{
+          els.boxShowSignificance.dispatchEvent(new Event('change'));
+          toggledViaControl = true;
+        }catch(err){
+          toggledViaControl = false;
+        }
+      }
+      if(!toggledViaControl){
+        state.showSignificanceBars = true;
+        requestStatsContextRefresh('significance-toggle-auto');
+        state.scheduleDraw();
+      }
+      setStatsStatus('Updating chart for significance bars…');
+      const rerun = () => {
+        if(!state.statsComputationPending){
+          handleStatsComputeClick();
+        }
+      };
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(rerun);
+      }else{
+        setTimeout(rerun, 0);
+      }
       return;
     }
     const context = state.statsContext;
     if(!context || !Array.isArray(context.traces) || !context.traces.length){
+      state.pendingAutoShowSignificance = false;
       setStatsStatus('Statistics unavailable until data is loaded.');
       return;
     }
@@ -14351,9 +14380,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }catch(e){
         console.debug('Debug: persistActiveTabState after stats compute failed', { err: e?.message || String(e) });
       }
+      if(statsOutcome === 'error'){
+        state.pendingAutoShowSignificance = false;
+      }
     };
 
     const applyStatsSuccess = () => {
+      if(state.pendingAutoShowSignificance){
+        state.showSignificanceBars = true;
+        if(els.boxShowSignificance){
+          els.boxShowSignificance.checked = true;
+        }
+      }
+      state.pendingAutoShowSignificance = false;
       state.statsLastRunVersion = context.version;
       reconcileStatsContextSignature(context.traces);
       setStatsStatus('Statistics up to date.');
@@ -14549,7 +14588,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         resultsContainer.appendChild(msg);
       }
     };
-    const significanceEnabled = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
+    const significanceEnabled = !!state.showSignificanceBars || !!helpers?.significance?.enabled;
     state.statsLastSignificanceEnabled = !!significanceEnabled;
     state.significanceMaxLevel = null;
     const annotationOpts=helpers?.annotationStyle||{};
