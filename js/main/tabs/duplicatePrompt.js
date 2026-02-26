@@ -8,6 +8,7 @@
     const dom = options.dom;
     const workspaceState = options.workspaceState;
     const session = options.session;
+    const domControls = options.domControls || null;
     const workspaces = options.workspaces || {};
     const renderTabs = typeof options.renderTabs === 'function' ? options.renderTabs : () => {};
     const showWorkspaceForTab = typeof options.showWorkspaceForTab === 'function' ? options.showWorkspaceForTab : () => {};
@@ -36,7 +37,25 @@
 
     function getEmptyWorkspacePayload(type) {
       const config = workspaces?.[type];
-      if (!config || typeof config.createEmptyPayload !== 'function') {
+      if (!config) {
+        return null;
+      }
+      const cloneFn = session?.fastClonePayload || session?.clonePayload;
+      if (domControls && typeof domControls.ensureDefaultPayload === 'function') {
+        try {
+          const defaults = domControls.ensureDefaultPayload(session, type, config);
+          if (defaults) {
+            const clonedDefaults = (typeof cloneFn === 'function')
+              ? cloneFn.call(session, defaults)
+              : JSON.parse(JSON.stringify(defaults));
+            console.debug('Debug: duplicate prompt using workspace defaults', { type, hasPayload: !!clonedDefaults });
+            return clonedDefaults;
+          }
+        } catch (err) {
+          console.error('duplicate prompt workspace default resolution error', { type, err });
+        }
+      }
+      if (typeof config.createEmptyPayload !== 'function') {
         return null;
       }
       try {

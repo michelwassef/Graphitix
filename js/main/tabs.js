@@ -230,6 +230,7 @@
       dom,
       workspaceState,
       session,
+      domControls,
       workspaces,
       renderTabs: () => renderTabs(),
       showWorkspaceForTab: (tab, options) => showWorkspaceForTab(tab, options),
