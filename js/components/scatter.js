@@ -261,6 +261,7 @@
     statsContextVersion: 0,
     statsLastRunVersion: 0,
     statsComputationPending: false,
+    statsCacheBySignature: new Map(),
     skipNextDraw: false,
     skipNextDrawReason: null,
     drawInProgress: false,
@@ -601,7 +602,7 @@
 
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   const regressionDebugNamespace = 'scatter-regression';
-  const jStatLib = global.jStat;
+  const getScatterJStat = () => global.jStat || global.window?.jStat || null;
 
   const ensureFiniteNumber = typeof regressionTools.ensureFiniteNumber === 'function'
     ? regressionTools.ensureFiniteNumber
@@ -6092,11 +6093,33 @@
     };
     const computeScatterCorrelationStats = (method, x, y) => {
       const n = x.length;
-      const pearson = jStatLib.corrcoeff(x, y);
+      const statsApi = getScatterJStat();
+      let pearson = NaN;
+      if(statsApi && typeof statsApi.corrcoeff === 'function'){
+        pearson = Number(statsApi.corrcoeff(x, y));
+      }else{
+        const meanX = x.reduce((sum, value) => sum + value, 0) / Math.max(1, n);
+        const meanY = y.reduce((sum, value) => sum + value, 0) / Math.max(1, n);
+        let num = 0;
+        let denX = 0;
+        let denY = 0;
+        for(let i = 0; i < n; i += 1){
+          const dx = x[i] - meanX;
+          const dy = y[i] - meanY;
+          num += dx * dy;
+          denX += dx * dx;
+          denY += dy * dy;
+        }
+        const denom = Math.sqrt(Math.max(0, denX * denY));
+        pearson = denom > 0 ? (num / denom) : NaN;
+      }
+      const studentTCdf = (statsApi && statsApi.studentt && typeof statsApi.studentt.cdf === 'function')
+        ? statsApi.studentt.cdf.bind(statsApi.studentt)
+        : null;
       if(method === 'pearson'){
         const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
         const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-        const p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+        const p = studentTCdf ? (2 * (1 - studentTCdf(Math.abs(t), n - 2))) : NaN;
         return {
           methodLabel: 'Pearson',
           r: pearson,
@@ -6106,7 +6129,9 @@
           ciApproximate: false
         };
       }
-      const spearman = jStatLib.spearmancoeff(x, y);
+      const spearman = (statsApi && typeof statsApi.spearmancoeff === 'function')
+        ? Number(statsApi.spearmancoeff(x, y))
+        : pearson;
       const hasTies = hasScatterDuplicateValues(x) || hasScatterDuplicateValues(y);
       let p = NaN;
       let pMethod = 't approximation';
@@ -6120,7 +6145,7 @@
       if(!Number.isFinite(p)){
         const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, spearman));
         const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-        p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+        p = studentTCdf ? (2 * (1 - studentTCdf(Math.abs(t), n - 2))) : NaN;
       }
       return {
         methodLabel: 'Spearman',
@@ -6229,16 +6254,51 @@
       }
       return NaN;
     };
-    const upsertScatterResidualsDataView = (context, regressionModel, options = {}) => {
+    const resolveScatterResidualDataViewManager = () => {
       const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
       if(!hot || typeof hot.getData !== 'function'){
-        return false;
+        return null;
       }
       const manager = ensureScatterDataViewsForHot(hot, {
         wrapper: scatterHotWrapper,
         container: hot.__scatterHostContainer || scatterHotContainer
       });
       if(!manager || typeof manager.createDerivedView !== 'function'){
+        return null;
+      }
+      return manager;
+    };
+    const removeScatterResidualDataViews = (manager) => {
+      const staleResidualViews = (manager.getViews?.() || [])
+        .filter(view => view && view.kind !== 'raw' && String(view?.summary?.transform || '').toLowerCase() === 'residuals');
+      staleResidualViews.forEach(view => manager.removeView?.(view.id, { silent: true, reason: 'replace-residuals' }));
+    };
+    const createScatterResidualDataView = (manager, rows, options = {}) => {
+      if(!manager || !Array.isArray(rows) || rows.length <= 1){
+        return false;
+      }
+      removeScatterResidualDataViews(manager);
+      manager.createDerivedView({
+        title: options.title || 'Residuals',
+        data: rows,
+        sourceViewId: manager.getActiveViewId?.() || null,
+        transformSpec: { type: 'residuals' },
+        summary: {
+          transform: 'residuals',
+          rows: rows.length - 1,
+          cols: rows[0].length,
+          generatedAt: Date.now()
+        },
+        activate: options.activate === true,
+        reason: options.reason || 'scatter-residuals'
+      });
+      manager.refresh?.();
+      scatterDebug('Debug: scatter residuals data view updated', { rows: rows.length - 1, cols: rows[0].length });
+      return true;
+    };
+    const upsertScatterResidualsDataView = (context, regressionModel, options = {}) => {
+      const manager = resolveScatterResidualDataViewManager();
+      if(!manager){
         return false;
       }
       const points = Array.isArray(context?.points) ? context.points : [];
@@ -6262,29 +6322,58 @@
           : `Point ${index + 1}`;
         rows.push([label, x, residual]);
       });
-      if(rows.length <= 1){
+      return createScatterResidualDataView(manager, rows, options);
+    };
+    const upsertScatterGroupedResidualsDataView = (context, groupedSeriesStats, options = {}) => {
+      const manager = resolveScatterResidualDataViewManager();
+      if(!manager){
         return false;
       }
-      const staleResidualViews = (manager.getViews?.() || [])
-        .filter(view => view && view.kind !== 'raw' && String(view?.summary?.transform || '').toLowerCase() === 'residuals');
-      staleResidualViews.forEach(view => manager.removeView?.(view.id, { silent: true, reason: 'replace-residuals' }));
-      manager.createDerivedView({
-        title: options.title || 'Residuals',
-        data: rows,
-        sourceViewId: manager.getActiveViewId?.() || null,
-        transformSpec: { type: 'residuals' },
-        summary: {
-          transform: 'residuals',
-          rows: rows.length - 1,
-          cols: rows[0].length,
-          generatedAt: Date.now()
-        },
-        activate: options.activate === true,
-        reason: options.reason || 'scatter-residuals'
+      const points = Array.isArray(context?.points) ? context.points : [];
+      const seriesStats = Array.isArray(groupedSeriesStats) ? groupedSeriesStats : [];
+      if(!points.length || !seriesStats.length){
+        return false;
+      }
+      const modelsByLabel = new Map();
+      seriesStats.forEach((entry, index) => {
+        const label = (entry?.label != null && String(entry.label).trim() !== '')
+          ? String(entry.label).trim()
+          : `Series ${index + 1}`;
+        const regressionModel = entry?.stats?.regression;
+        if(regressionModel){
+          modelsByLabel.set(label, regressionModel);
+        }
       });
-      manager.refresh?.();
-      scatterDebug('Debug: scatter residuals data view updated', { rows: rows.length - 1, cols: rows[0].length });
-      return true;
+      if(!modelsByLabel.size){
+        return false;
+      }
+      const rows = [['Label', 'X', 'Residual', 'Group']];
+      points.forEach((point, index) => {
+        const x = Number(point?.x);
+        const y = Number(point?.y);
+        if(!Number.isFinite(x) || !Number.isFinite(y)){
+          return;
+        }
+        const groupLabel = (point?.series != null && String(point.series).trim() !== '')
+          ? String(point.series).trim()
+          : ((point?.label != null && String(point.label).trim() !== '')
+            ? String(point.label).trim()
+            : '');
+        const model = modelsByLabel.get(groupLabel);
+        if(!model){
+          return;
+        }
+        const predicted = predictScatterRegressionValue(model, x);
+        if(!Number.isFinite(predicted)){
+          return;
+        }
+        const residual = y - predicted;
+        const label = point?.pointName != null && String(point.pointName).trim() !== ''
+          ? String(point.pointName).trim()
+          : `Point ${index + 1}`;
+        rows.push([label, x, residual, groupLabel || `Series ${index + 1}`]);
+      });
+      return createScatterResidualDataView(manager, rows, options);
     };
     console.debug('Debug: scatter component DOM helpers resolved', {
       hasSharedEditable: typeof Shared.makeEditable === 'function',
@@ -8018,6 +8107,69 @@
         validateScatterFitSpecControls();
       }
 
+      const SCATTER_STATS_CACHE_LIMIT = 24;
+
+      function readScatterStatsCache(signature){
+        if(!signature || !(scatterState.statsCacheBySignature instanceof Map)){
+          return null;
+        }
+        const cached = scatterState.statsCacheBySignature.get(signature);
+        if(!cached || !cached.stats){
+          return null;
+        }
+        return cached;
+      }
+
+      function writeScatterStatsCache(signature, stats, controlSignature){
+        if(!signature || !stats){
+          return;
+        }
+        if(!(scatterState.statsCacheBySignature instanceof Map)){
+          scatterState.statsCacheBySignature = new Map();
+        }
+        const cacheMap = scatterState.statsCacheBySignature;
+        if(cacheMap.has(signature)){
+          cacheMap.delete(signature);
+        }
+        cacheMap.set(signature, {
+          stats,
+          controlSignature: controlSignature || null,
+          savedAt: Date.now()
+        });
+        while(cacheMap.size > SCATTER_STATS_CACHE_LIMIT){
+          const oldestKey = cacheMap.keys().next().value;
+          if(oldestKey == null){
+            break;
+          }
+          cacheMap.delete(oldestKey);
+        }
+      }
+
+      function buildScatterGroupedSignatureSeed(seriesList){
+        const series = Array.isArray(seriesList) ? seriesList : [];
+        if(!series.length){
+          return '';
+        }
+        const parts = series
+          .map((entry, index) => {
+            const label = (entry?.label != null && String(entry.label).trim() !== '')
+              ? String(entry.label).trim()
+              : `Series ${index + 1}`;
+            const summary = summarizeScatterPoints(entry?.points);
+            return [
+              label,
+              summary.count,
+              formatScatterSignatureNumber(summary.sumX),
+              formatScatterSignatureNumber(summary.sumY),
+              formatScatterSignatureNumber(summary.sumXX),
+              formatScatterSignatureNumber(summary.sumYY),
+              formatScatterSignatureNumber(summary.sumXY)
+            ].join('|');
+          })
+          .sort();
+        return `grouped:${parts.join('||')}`;
+      }
+
       function buildScatterStatsSignature(context){
         if(!context){
           return 'empty';
@@ -8059,7 +8211,10 @@
           : 'domain:none';
         const controlKey=getScatterStatsControlSignature();
         const graphKey=context.graphType || 'scatter';
-        return [graphKey,pointsKey,thresholdKey,significanceKey,domainKey,controlKey].join('::');
+        const groupedKey=Array.isArray(context.groupedSeries) && context.groupedSeries.length
+          ? buildScatterGroupedSignatureSeed(context.groupedSeries)
+          : 'grouped:none';
+        return [graphKey,pointsKey,groupedKey,thresholdKey,significanceKey,domainKey,controlKey].join('::');
       }
 
       function shouldUseScatterStatsWorker(points, regressionMode){
@@ -8141,6 +8296,7 @@
         }
         const signature=buildScatterStatsSignature(context);
         const changed=signature!==scatterState.statsContextSignature;
+        const hasPrecomputed = context.graphType==='scatter' && !!context.precomputedStats;
         if(changed){
           scatterState.statsContextVersion=(scatterState.statsContextVersion||0)+1;
           scatterState.statsLastRunVersion=0;
@@ -8149,13 +8305,20 @@
         }
         scatterState.statsContextSignature=signature;
         scatterState.statsContext={ ...context, version: scatterState.statsContextVersion };
-        if(!changed && context.graphType==='scatter' && !context.precomputedStats){
+        if(hasPrecomputed){
+          scatterState.statsLastRunVersion = scatterState.statsContextVersion;
+        }else if(!changed && context.graphType==='scatter' && !context.precomputedStats){
           scatterState.statsLastRunVersion=0;
         }
         if(changed){
-          clearScatterStatsOutputs(options.placeholder || scatterStatsPlaceholder);
-          setScatterStatsStatus('Statistics ready to calculate.');
-          updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
+          if(hasPrecomputed){
+            setScatterStatsStatus('Statistics up to date.');
+            updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
+          }else{
+            clearScatterStatsOutputs(options.placeholder || scatterStatsPlaceholder);
+            setScatterStatsStatus('Statistics ready to calculate.');
+            updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
+          }
         }else if(scatterState.statsLastRunVersion===scatterState.statsContextVersion){
           setScatterStatsStatus('Statistics up to date.');
           updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
@@ -8281,6 +8444,10 @@
         context.precomputedStats = stats || null;
         context.precomputedSignature = controlSignature || null;
         scatterState.statsContext = context;
+        const signature = buildScatterStatsSignature(context);
+        if(signature && stats){
+          writeScatterStatsCache(signature, stats, controlSignature);
+        }
       }
 
       function hasScatterRegressionReportData(model){
@@ -8408,6 +8575,9 @@
 
       function ensureScatterRegressionForStats(context, stats, settings){
         const normalized = (stats && typeof stats === 'object') ? stats : {};
+        if(Array.isArray(normalized?.groupedSeriesStats) && normalized.groupedSeriesStats.length){
+          return normalized;
+        }
         const regressionModeValue = settings?.regressionModeValue || 'linear';
         const fitMethodValue = settings?.fitMethodValue || 'ols';
         const fitSpec = settings?.fitSpec && typeof settings.fitSpec === 'object'
@@ -8491,6 +8661,95 @@
         const controlSignature = settings?.controlSignature || null;
         stats = ensureScatterRegressionForStats(context, stats, settings);
         cacheScatterStats(context, stats, controlSignature);
+        const groupedSeriesStats = Array.isArray(stats?.groupedSeriesStats)
+          ? stats.groupedSeriesStats
+          : [];
+        if(groupedSeriesStats.length){
+          const summaryRows = groupedSeriesStats.map((entry, index) => {
+            const groupStats = entry?.stats || {};
+            const regression = groupStats?.regression || null;
+            const regressionSummary = regression?.summary || {};
+            const rowPointCount = Number.isFinite(groupStats?.pointCount)
+              ? groupStats.pointCount
+              : (Array.isArray(entry?.points) ? entry.points.length : NaN);
+            const label = (entry?.label != null && String(entry.label).trim() !== '')
+              ? String(entry.label).trim()
+              : `Series ${index + 1}`;
+            const slopeValue = Number.isFinite(regressionSummary?.slope)
+              ? regressionSummary.slope
+              : groupStats?.m;
+            const r2Value = Number.isFinite(regression?.metrics?.r2)
+              ? regression.metrics.r2
+              : groupStats?.r2;
+            const rmseValue = Number.isFinite(regression?.metrics?.rmse)
+              ? regression.metrics.rmse
+              : NaN;
+            return {
+              group: label,
+              n: Number.isFinite(rowPointCount) ? String(Math.max(0, Math.round(rowPointCount))) : '0',
+              r: formatMetricValue(groupStats?.r),
+              p: formatP(groupStats?.p),
+              slope: formatMetricValue(slopeValue),
+              r2: formatMetricValue(r2Value),
+              rmse: formatMetricValue(rmseValue)
+            };
+          });
+          const representativeMethod = groupedSeriesStats
+            .map(entry => entry?.stats?.method)
+            .find(method => typeof method === 'string' && method.trim())
+            || stats?.method
+            || 'Correlation';
+          renderStatsCard(scatterStatsResults,{
+            caption:`${representativeMethod} correlation by group (${regressionModeValue} regression)` ,
+            columns:[
+              { key:'group', label:'Group', align:'left' },
+              { key:'n', label:'N', align:'right' },
+              { key:'r', label:'r', align:'right' },
+              { key:'p', label:'p', align:'right' },
+              { key:'slope', label:'Slope', align:'right' },
+              { key:'r2', label:'R²', align:'right' },
+              { key:'rmse', label:'RMSE', align:'right' }
+            ],
+            rows:summaryRows,
+            options:{
+              fileName:'scatter-grouped-correlation',
+              contextLabel:'scatter-grouped-correlation'
+            }
+          });
+          scatterLastRegressionSummary = {
+            grouped: true,
+            series: groupedSeriesStats.map((entry, index) => {
+              const label = (entry?.label != null && String(entry.label).trim() !== '')
+                ? String(entry.label).trim()
+                : `Series ${index + 1}`;
+              const regression = entry?.stats?.regression || null;
+              return {
+                label,
+                summary: regression?.summary || null
+              };
+            })
+          };
+          if(settings?.createResidualView !== false){
+            try{
+              upsertScatterGroupedResidualsDataView(context, groupedSeriesStats, {
+                title: 'Residuals',
+                activate: false,
+                reason: 'scatter-grouped-residuals'
+              });
+            }catch(err){
+              console.error('scatter grouped residual data view update failed', err);
+            }
+          }
+          scatterDebug('Debug: scatter grouped stats computed', {
+            groupCount: groupedSeriesStats.length,
+            method: representativeMethod,
+            showCI,
+            showPI,
+            showDiagnostics,
+            showLineMaster
+          });
+          return;
+        }
         const regressionModel = stats?.regression || null;
         const fitMethodValue = regressionModel?.fitMethod || settings?.fitMethodValue || 'ols';
         const fitSpecValue = regressionModel?.fitSpec && typeof regressionModel.fitSpec === 'object'
@@ -8762,6 +9021,47 @@
           const showDiagnostics=!!scatterShowDiagnostics?.checked;
           const controlSignature=getScatterStatsControlSignature();
           const settings = { regressionModeValue, fitMethodValue, fitSpec, showLineMaster, showCI, showPI, showDiagnostics, controlSignature };
+          const groupedSeries = Array.isArray(context.groupedSeries) ? context.groupedSeries : [];
+          const groupedRegressionMode = groupedSeries.length > 1;
+          if(groupedRegressionMode){
+            let groupedStats = context.precomputedStats;
+            const canReuseGroupedStats = !!groupedStats
+              && context.precomputedSignature === controlSignature
+              && Array.isArray(groupedStats?.groupedSeriesStats);
+            if(!canReuseGroupedStats){
+              const groupedSeriesStats = groupedSeries.map((series, index) => {
+                const label = (series?.label != null && String(series.label).trim() !== '')
+                  ? String(series.label).trim()
+                  : `Series ${index + 1}`;
+                const seriesPoints = Array.isArray(series?.points) ? series.points : [];
+                const computed = computeScatterStats(seriesPoints, method, {
+                  regressionMode: regressionModeValue,
+                  fitMethod: fitMethodValue,
+                  fitSpec,
+                  domain: context.domain || null
+                });
+                return {
+                  label,
+                  points: seriesPoints,
+                  stats: computed
+                };
+              });
+              const methodLabel = groupedSeriesStats
+                .map(entry => entry?.stats?.method)
+                .find(value => typeof value === 'string' && value.trim())
+                || method;
+              groupedStats = {
+                method: methodLabel,
+                groupedSeriesStats,
+                grouped: true,
+                pointCount: context.points.length,
+                regression: null
+              };
+            }
+            applyScatterStatsResults(context, groupedStats, settings);
+            finishStatsPerf({ outcome: canReuseGroupedStats ? 'sync-grouped-cached' : 'sync-grouped', pointCount: context.points.length, groupCount: groupedSeries.length });
+            return Promise.resolve(true);
+          }
           let stats=context.precomputedStats;
           if(!stats || context.precomputedSignature!==controlSignature){
             const useWorker = shouldUseScatterStatsWorker(context.points, regressionModeValue);
@@ -14395,50 +14695,127 @@
           });
         }
         if(scatterCurrentGraphType==='scatter'){
-          const statsPoints=points.map(p=>({ label:p.label, x:p.x, y:p.y }));
+          const statsPoints=points.map(p=>({
+            label:p.label,
+            series:p.series || p.label || '',
+            pointName:p.pointName || p.label || '',
+            x:p.x,
+            y:p.y
+          }));
+          const groupedStatsSeries = groupedScatterActive
+            ? Array.from(statsPoints.reduce((acc, point) => {
+                const rawLabel = point?.series != null && String(point.series).trim() !== ''
+                  ? String(point.series).trim()
+                  : (point?.label != null && String(point.label).trim() !== ''
+                    ? String(point.label).trim()
+                    : '');
+                if(!rawLabel){
+                  return acc;
+                }
+                if(!acc.has(rawLabel)){
+                  acc.set(rawLabel, []);
+                }
+                acc.get(rawLabel).push(point);
+                return acc;
+              }, new Map()).entries())
+              .map(([label, groupPoints]) => ({ label, points: groupPoints.slice() }))
+            : [];
           const statsPointSummary=summarizeScatterPoints(statsPoints);
+          const groupedSignatureSeed = groupedStatsSeries.length
+            ? buildScatterGroupedSignatureSeed(groupedStatsSeries)
+            : '';
           const statsPayloadBase={
             graphType:'scatter',
             points:statsPoints,
             pointSummary:statsPointSummary,
             domain:{ minX:xMin, maxX:xMax },
+            groupedSeries: groupedStatsSeries,
             thresholds:null,
             significance:null,
             precomputedStats:null,
-            precomputedSignature:null
+            precomputedSignature:null,
+            signatureSeed: groupedSignatureSeed || null
           };
           const nextStatsSignature=buildScatterStatsSignature(statsPayloadBase);
           const cachedContext=scatterState.statsContext;
-          const canReuseStats=scatterHasComputedStats()
+          const canReuseActiveContext=scatterHasComputedStats()
             && typeof scatterState.statsContextSignature==='string'
             && scatterState.statsContextSignature===nextStatsSignature
             && !!cachedContext?.precomputedStats;
+          const signatureCache=readScatterStatsCache(nextStatsSignature);
           let visualStats=null;
-          if(canReuseStats){
+          if(canReuseActiveContext){
             visualStats=cachedContext.precomputedStats;
             statsPayloadBase.precomputedStats=cachedContext.precomputedStats;
             statsPayloadBase.precomputedSignature=cachedContext.precomputedSignature || getScatterStatsControlSignature();
+          }else if(signatureCache?.stats){
+            visualStats=signatureCache.stats;
+            statsPayloadBase.precomputedStats=signatureCache.stats;
+            statsPayloadBase.precomputedSignature=signatureCache.controlSignature || getScatterStatsControlSignature();
+            scatterDebug('Debug: scatter stats restored from signature cache', {
+              signature: nextStatsSignature,
+              groupedSeries: Array.isArray(visualStats?.groupedSeriesStats) ? visualStats.groupedSeriesStats.length : 0
+            });
           }
           if(visualStats?.regression){
             scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function'
               ? regressionTools.createSummary(visualStats.regression)
               : null;
+          }else if(Array.isArray(visualStats?.groupedSeriesStats) && visualStats.groupedSeriesStats.length){
+            scatterLastRegressionSummary = {
+              grouped: true,
+              series: visualStats.groupedSeriesStats.map((entry, idx) => ({
+                label: entry?.label || `Series ${idx + 1}`,
+                summary: entry?.stats?.regression?.summary || null
+              }))
+            };
           }else{
             scatterLastRegressionSummary = null;
           }
-          const shouldRenderTrend = showLine && visualStats;
+          const groupedVisualSeriesStats = Array.isArray(visualStats?.groupedSeriesStats)
+            ? visualStats.groupedSeriesStats
+            : [];
+          const regressionVisualEntries = groupedVisualSeriesStats.length
+            ? groupedVisualSeriesStats.map((entry, idx) => {
+                const label = (entry?.label != null && String(entry.label).trim() !== '')
+                  ? String(entry.label).trim()
+                  : `Series ${idx + 1}`;
+                const fallbackColor = DEFAULT_SCATTER_COLORS[idx % Math.max(1, DEFAULT_SCATTER_COLORS.length)] || '#d00';
+                return {
+                  label,
+                  color: scatterLabelColors[label] || fallbackColor,
+                  stats: entry?.stats || null,
+                  regressionModel: entry?.stats?.regression || null
+                };
+              })
+            : (visualStats?.regression
+              ? [{
+                  label: '',
+                  color: getScatterOverlayStyle('trend')?.color || '#d00',
+                  stats: visualStats,
+                  regressionModel: visualStats.regression
+                }]
+              : []);
+          const shouldRenderTrend = showLine && regressionVisualEntries.length > 0;
           const shouldRenderStatsOverlay = showLineStats && visualStats;
           if(shouldRenderTrend){
-            const regressionModel = visualStats.regression;
-            if(regressionModel){
+            const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
+            const drawCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
+            const drawPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
+            regressionVisualEntries.forEach((entry, entryIndex) => {
+              const regressionModel = entry?.regressionModel || null;
+              if(!regressionModel){
+                debug('Debug: scatter regression trend omitted',{ showLine, label: entry?.label || null, hasModel: false });
+                return;
+              }
               const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
               const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
-              const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
-              const drawCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
-              const drawPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
               const intervalLayer = ((drawCI || drawPI) && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
               if(intervalLayer){
                 intervalLayer.setAttribute('data-layer','interval-bands');
+                if(entry?.label){
+                  intervalLayer.setAttribute('data-series', entry.label);
+                }
                 svg.appendChild(intervalLayer);
                 const buildIntervalPath = (lowerKey, upperKey) => {
                   const upperPoints=[];
@@ -14482,14 +14859,15 @@
                 const predictionPath = drawPI ? buildIntervalPath('piLow','piHigh') : null;
                 const confidenceStyle = getScatterOverlayStyle('confidence');
                 const predictionStyle = getScatterOverlayStyle('prediction');
+                const bandColor = entry?.color || confidenceStyle?.color || predictionStyle?.color || '#d62728';
                 if(confidencePath){
                   const confEl=document.createElementNS(NS,'path');
                   confEl.setAttribute('d',confidencePath);
-                  confEl.setAttribute('fill',confidenceStyle?.color || '#d62728');
+                  confEl.setAttribute('fill',bandColor);
                   confEl.setAttribute('fill-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
                   const confidenceThickness = Number(confidenceStyle?.thickness);
                   if(Number.isFinite(confidenceThickness) && confidenceThickness > 0){
-                    confEl.setAttribute('stroke',confidenceStyle?.color || '#d62728');
+                    confEl.setAttribute('stroke',bandColor);
                     confEl.setAttribute('stroke-width',String(confidenceThickness));
                     confEl.setAttribute('stroke-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
                     const confidenceDash = scatterOverlayPatternToDasharray(confidenceStyle?.pattern, confidenceThickness);
@@ -14509,11 +14887,11 @@
                 if(predictionPath){
                   const predEl=document.createElementNS(NS,'path');
                   predEl.setAttribute('d',predictionPath);
-                  predEl.setAttribute('fill',predictionStyle?.color || '#d62728');
+                  predEl.setAttribute('fill',bandColor);
                   predEl.setAttribute('fill-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
                   const predictionThickness = Number(predictionStyle?.thickness);
                   if(Number.isFinite(predictionThickness) && predictionThickness > 0){
-                    predEl.setAttribute('stroke',predictionStyle?.color || '#d62728');
+                    predEl.setAttribute('stroke',bandColor);
                     predEl.setAttribute('stroke-width',String(predictionThickness));
                     predEl.setAttribute('stroke-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
                     const predictionDash = scatterOverlayPatternToDasharray(predictionStyle?.pattern, predictionThickness);
@@ -14533,17 +14911,20 @@
                 debug('Debug: scatter interval shading rendered', {
                   sampleCount: intervalSamples.length,
                   hasConfidence: !!confidencePath,
-                  hasPrediction: !!predictionPath
+                  hasPrediction: !!predictionPath,
+                  label: entry?.label || null
                 });
               }
               const sampleCount = regressionModel.mode === 'linear' ? 60 : 160;
-              const precomputedSamples = Array.isArray(visualStats?.curveSamples)
-                ? visualStats.curveSamples
+              const precomputedSamples = Array.isArray(entry?.stats?.curveSamples)
+                ? entry.stats.curveSamples
                 : (Array.isArray(regressionModel?.curveSamples) ? regressionModel.curveSamples : null);
+              const domainMinX = Number.isFinite(regressionModel?.domain?.minX) ? regressionModel.domain.minX : xMin;
+              const domainMaxX = Number.isFinite(regressionModel?.domain?.maxX) ? regressionModel.domain.maxX : xMax;
               const samples = (precomputedSamples && precomputedSamples.length)
                 ? precomputedSamples.slice().sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0))
                 : (typeof regressionTools.sampleCurve === 'function'
-                  ? regressionTools.sampleCurve(regressionModel,{ minX: xMin, maxX: xMax, sampleCount })
+                  ? regressionTools.sampleCurve(regressionModel,{ minX: domainMinX, maxX: domainMaxX, sampleCount })
                   : []);
               const pathCommands = [];
               samples.forEach((sample) => {
@@ -14565,7 +14946,7 @@
                 const path=add('path',{
                   d:pathCommands.join(' '),
                   fill:'none',
-                  stroke: trendStyle?.color || '#d00',
+                  stroke: entry?.color || trendStyle?.color || '#d00',
                   'stroke-width': strokeWidth,
                   'stroke-opacity': String(Math.min(1, Math.max(0, trendOpacity)))
                 });
@@ -14577,33 +14958,49 @@
                 }
                 path.setAttribute('vector-effect','non-scaling-stroke');
                 path.dataset.scatterOverlay='trend';
+                if(entry?.label){
+                  path.setAttribute('data-series', entry.label);
+                }
                 registerScatterOverlayControlElement(path, 'trend');
-                debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
+                debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, label: entry?.label || null, entryIndex, commandCount: pathCommands.length, strokeWidth });
               }else{
-                debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
+                debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, label: entry?.label || null, pathCommands: pathCommands.length });
               }
-            }else{
-              debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
-            }
+            });
           }else{
             if(showLine && !visualStats){
               debug('Debug: scatter regression trend omitted',{ showLine, reason:'stats-not-computed' });
             }
           }
           if(shouldRenderStatsOverlay){
-            const regressionModel = visualStats.regression;
             const infoLines=[];
-            if(regressionModel?.summary?.equation){
-              infoLines.push(regressionModel.summary.equation);
-            }else if(Number.isFinite(visualStats.m) && Number.isFinite(visualStats.b)){
-              const eq=`y=${visualStats.m.toFixed(2)}x${visualStats.b>=0?'+':'-'}${Math.abs(visualStats.b).toFixed(2)}`;
-              infoLines.push(eq);
+            if(regressionVisualEntries.length){
+              regressionVisualEntries.forEach((entry, idx) => {
+                const entryStats = entry?.stats || {};
+                const regressionModel = entry?.regressionModel || null;
+                const prefix = entry?.label ? `${entry.label}: ` : '';
+                if(regressionModel?.summary?.equation){
+                  infoLines.push(`${prefix}${regressionModel.summary.equation}`);
+                }else if(Number.isFinite(entryStats?.m) && Number.isFinite(entryStats?.b)){
+                  const eq=`y=${entryStats.m.toFixed(2)}x${entryStats.b>=0?'+':'-'}${Math.abs(entryStats.b).toFixed(2)}`;
+                  infoLines.push(`${prefix}${eq}`);
+                }
+                infoLines.push(`${prefix}r=${formatMetricValue(entryStats?.r,2)} R²=${formatMetricValue(entryStats?.r2,2)} p=${formatP(entryStats?.p)}`);
+                if(idx < regressionVisualEntries.length - 1){
+                  infoLines.push(' ');
+                }
+              });
+            }else if(visualStats?.regression?.summary?.equation){
+              infoLines.push(visualStats.regression.summary.equation);
+              infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
             }
-            infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
             const statsFontSize = Math.max(Math.round(fs * 0.65), 7);
             const statsPos = scatterLabelPositions?.stats || null;
             const defaultInfoX=margin.left+plotW-4;
-            const slopeCandidate=Number.isFinite(visualStats.m)?visualStats.m:0;
+            const primarySlope = Number.isFinite(regressionVisualEntries?.[0]?.stats?.m)
+              ? regressionVisualEntries[0].stats.m
+              : (Number.isFinite(visualStats?.m) ? visualStats.m : 0);
+            const slopeCandidate=Number.isFinite(primarySlope)?primarySlope:0;
             const defaultInfoY=slopeCandidate>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
             const infoX=Number.isFinite(statsPos?.x)?statsPos.x:defaultInfoX;
             const infoY=Number.isFinite(statsPos?.y)?statsPos.y:defaultInfoY;
@@ -14864,13 +15261,22 @@
         if(n<3){
           return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN, regression:null, pointCount:n};
         }
-        const pearson = jStat.corrcoeff(x,y);
         const correlation = computeScatterCorrelationStats(method, x, y);
+        const statsApi = getScatterJStat();
+        const pearson = Number.isFinite(correlation?.r)
+          ? Number(correlation.r)
+          : ((statsApi && typeof statsApi.corrcoeff === 'function')
+            ? Number(statsApi.corrcoeff(x,y))
+            : NaN);
         const r = correlation.r;
         const p = correlation.p;
         const label = correlation.methodLabel;
-        const xMean=jStat.mean(x);
-        const yMean=jStat.mean(y);
+        const xMean=(statsApi && typeof statsApi.mean === 'function')
+          ? Number(statsApi.mean(x))
+          : (x.reduce((sum, value) => sum + value, 0) / Math.max(1, x.length));
+        const yMean=(statsApi && typeof statsApi.mean === 'function')
+          ? Number(statsApi.mean(y))
+          : (y.reduce((sum, value) => sum + value, 0) / Math.max(1, y.length));
         const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
         const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
         const linearSlope=den!==0?num/den:NaN;

@@ -141,13 +141,49 @@ const originalDebug = console.debug;
 const originalLog = console.log;
 
 function ensureJStatStub(){
-  const existing = global.jStat;
+  const previousGlobal = global.jStat;
+  const previousWindow = (typeof window !== 'undefined') ? window.jStat : undefined;
+  const existing = previousGlobal || previousWindow;
   if(existing){
     console.debug('Debug: test jStat stub reuse',{ hasExisting: true });
-    return ()=>{ global.jStat = existing; };
+    global.jStat = existing;
+    if(typeof window !== 'undefined'){
+      window.jStat = existing;
+    }
+    return ()=>{
+      if(typeof previousGlobal === 'undefined'){
+        delete global.jStat;
+      }else{
+        global.jStat = previousGlobal;
+      }
+      if(typeof window !== 'undefined'){
+        if(typeof previousWindow === 'undefined'){
+          delete window.jStat;
+        }else{
+          window.jStat = previousWindow;
+        }
+      }
+    };
   }
-  global.jStat = createJStatTestStub();
-  return ()=>{ delete global.jStat; };
+  const stub = createJStatTestStub();
+  global.jStat = stub;
+  if(typeof window !== 'undefined'){
+    window.jStat = stub;
+  }
+  return ()=>{
+    if(typeof previousGlobal === 'undefined'){
+      delete global.jStat;
+    }else{
+      global.jStat = previousGlobal;
+    }
+    if(typeof window !== 'undefined'){
+      if(typeof previousWindow === 'undefined'){
+        delete window.jStat;
+      }else{
+        window.jStat = previousWindow;
+      }
+    }
+  };
 }
 
 async function activateWorkspace(type){
