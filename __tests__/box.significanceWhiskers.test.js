@@ -246,4 +246,62 @@ describe('Box significance whisker modes', () => {
     expect(sharedLeft).toBeCloseTo(sharedRight, 6);
     expect(sharedLeft).toBeCloseTo(110, 6);
   });
+
+  test('significance label font size resolves from font-controls style (label key first)', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveSignificanceLabelFontSizePx).toBe('function');
+    const originalFontControls = window.Shared.fontControls;
+    try{
+      window.Shared.fontControls = {
+        exportScopeStyles: () => ({
+          'significance-label': { fontSize: '22px' },
+          __graph__: { fontSize: '10px' }
+        })
+      };
+      expect(hooks.resolveSignificanceLabelFontSizePx(12)).toBeCloseTo(22, 6);
+    }finally{
+      window.Shared.fontControls = originalFontControls;
+    }
+  });
+
+  test('significance label font size falls back to graph scope and supports pt units', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveSignificanceLabelFontSizePx).toBe('function');
+    const originalFontControls = window.Shared.fontControls;
+    try{
+      window.Shared.fontControls = {
+        exportScopeStyles: () => ({
+          __graph__: { fontSize: '18pt' }
+        })
+      };
+      expect(hooks.resolveSignificanceLabelFontSizePx(12)).toBeCloseTo(24, 6);
+    }finally{
+      window.Shared.fontControls = originalFontControls;
+    }
+  });
+
+  test('font style event filter only reacts to box significance-label or graph-scope styles', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.isSignificanceLabelFontStyleEvent).toBe('function');
+    expect(hooks.isSignificanceLabelFontStyleEvent({
+      scopeId: 'box',
+      key: 'significance-label',
+      storeKey: 'box::significance-label'
+    })).toBe(true);
+    expect(hooks.isSignificanceLabelFontStyleEvent({
+      scopeId: 'box',
+      key: '__graph__',
+      storeKey: 'box::__graph__'
+    })).toBe(true);
+    expect(hooks.isSignificanceLabelFontStyleEvent({
+      scopeId: 'box',
+      key: 'graphTitle',
+      storeKey: 'box::graphTitle'
+    })).toBe(false);
+    expect(hooks.isSignificanceLabelFontStyleEvent({
+      scopeId: 'heatmap',
+      key: 'significance-label',
+      storeKey: 'heatmap::significance-label'
+    })).toBe(false);
+  });
 });

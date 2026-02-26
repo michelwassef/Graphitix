@@ -6370,6 +6370,8 @@
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
+  let boxSignificanceFontEventBound = false;
+  let boxSignificanceFontRefreshDebounced = null;
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -7942,28 +7944,160 @@
 	    return ensureSignificanceStyle().pScientific;
 	  }
 
-	  function getSignificancePDecimals(){
-	    return ensureSignificanceStyle().pDecimals;
-	  }
+  function getSignificancePDecimals(){
+    return ensureSignificanceStyle().pDecimals;
+  }
 
-	  function syncSignificanceStyleToStatsContext(){
-	    const ctx = state.statsContext;
-	    if(!ctx || !ctx.helpers || !ctx.helpers.annotationStyle){
-	      return false;
-	    }
+  function parseSignificanceFontSizePx(value){
+    if(value === null || value === undefined || value === ''){
+      return NaN;
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value) && value > 0 ? value : NaN;
+    }
+    const raw = String(value).trim();
+    if(!raw){
+      return NaN;
+    }
+    const match = raw.match(/^(-?\d*\.?\d+)\s*(px|pt)?$/i);
+    if(!match){
+      return NaN;
+    }
+    const numeric = Number(match[1]);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return NaN;
+    }
+    const unit = (match[2] || 'px').toLowerCase();
+    if(unit === 'pt'){
+      if(chartStyle && typeof chartStyle.ptToPx === 'function'){
+        const px = Number(chartStyle.ptToPx(numeric));
+        return Number.isFinite(px) && px > 0 ? px : NaN;
+      }
+      return numeric * (96 / 72);
+    }
+    return numeric;
+  }
+
+  function resolveSignificanceLabelFontSizePx(fallbackPx){
+    const fallback = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
+    const fontControlsApi = Shared && Shared.fontControls;
+    if(!fontControlsApi || typeof fontControlsApi.exportScopeStyles !== 'function'){
+      return fallback;
+    }
+    let styles = null;
+    try{
+      styles = fontControlsApi.exportScopeStyles('box');
+    }catch(err){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box resolve significance label font size failed', { error: err?.message || String(err) });
+      }
+      return fallback;
+    }
+    if(!styles || typeof styles !== 'object'){
+      return fallback;
+    }
+    const labelStyle = styles['significance-label'] && typeof styles['significance-label'] === 'object'
+      ? styles['significance-label']
+      : null;
+    const graphStyle = styles.__graph__ && typeof styles.__graph__ === 'object'
+      ? styles.__graph__
+      : null;
+    const labelPx = parseSignificanceFontSizePx(labelStyle?.fontSize);
+    if(Number.isFinite(labelPx) && labelPx > 0){
+      return labelPx;
+    }
+    const graphPx = parseSignificanceFontSizePx(graphStyle?.fontSize);
+    if(Number.isFinite(graphPx) && graphPx > 0){
+      return graphPx;
+    }
+    return fallback;
+  }
+
+  function isSignificanceLabelFontStyleEvent(detail){
+    const scopeId = typeof detail?.scopeId === 'string' ? detail.scopeId.trim() : '';
+    const key = typeof detail?.key === 'string' ? detail.key.trim() : '';
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey.trim() : '';
+    if(scopeId && scopeId !== 'box'){
+      return false;
+    }
+    const isBoxStore = storeKey.startsWith('box::');
+    if(scopeId !== 'box' && !isBoxStore){
+      return false;
+    }
+    let token = key;
+    if(!token && isBoxStore){
+      token = storeKey.slice('box::'.length);
+    }
+    return token === 'significance-label' || token === '__graph__';
+  }
+
+  function scheduleSignificanceLabelFontRefresh(reason){
+    const scheduleReason = reason || 'significance-label-font-style';
+    const run = () => {
+      if(!state.showSignificanceBars){
+        return;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw({ viewOnly: true, reason: scheduleReason });
+        return;
+      }
+      requestStatsContextRefresh(scheduleReason);
+      refreshSignificanceAnnotations(scheduleReason);
+    };
+    if(typeof Shared.debounceFrame === 'function'){
+      if(!boxSignificanceFontRefreshDebounced){
+        boxSignificanceFontRefreshDebounced = Shared.debounceFrame(run);
+      }
+      boxSignificanceFontRefreshDebounced();
+      return;
+    }
+    if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(run);
+    }else{
+      (global.setTimeout || setTimeout)(run, 16);
+    }
+  }
+
+  function ensureSignificanceLabelFontEventListener(){
+    if(boxSignificanceFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isSignificanceLabelFontStyleEvent(detail)){
+        return;
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box significance label font style event', {
+          scopeId: detail.scopeId || null,
+          key: detail.key || null,
+          storeKey: detail.storeKey || null
+        });
+      }
+      scheduleSignificanceLabelFontRefresh('significance-label-font-style');
+    });
+    boxSignificanceFontEventBound = true;
+  }
+
+  function syncSignificanceStyleToStatsContext(){
+    const ctx = state.statsContext;
+    if(!ctx || !ctx.helpers || !ctx.helpers.annotationStyle){
+      return false;
+    }
     const style = ensureSignificanceStyle();
     const annotationStyle = ctx.helpers.annotationStyle;
     const scaleInfo = annotationStyle.styleScaleInfo;
 	    const scaledStroke = chartStyle.scaleStrokeWidth(style.thickness, scaleInfo, { context: 'box-annotation', min: 0.5 });
 	    annotationStyle.strokeWidth = scaledStroke;
 	    annotationStyle.color = style.color;
-	    annotationStyle.showWhiskers = style.showWhiskers !== false;
-	    annotationStyle.whiskerMode = normalizeSignificanceWhiskerMode(style.whiskerMode);
-	    annotationStyle.pScientific = sanitizeSignificancePScientific(style.pScientific);
-	    annotationStyle.pDecimals = sanitizeSignificancePDecimals(style.pDecimals);
-	    annotationStyle.controlConfig = createSignificanceControlConfig(annotationStyle.orientation || 'vertical');
-	    return true;
-	  }
+    annotationStyle.showWhiskers = style.showWhiskers !== false;
+    annotationStyle.whiskerMode = normalizeSignificanceWhiskerMode(style.whiskerMode);
+    annotationStyle.pScientific = sanitizeSignificancePScientific(style.pScientific);
+    annotationStyle.pDecimals = sanitizeSignificancePDecimals(style.pDecimals);
+    annotationStyle.fontSize = resolveSignificanceLabelFontSizePx(annotationStyle.fontSize);
+    annotationStyle.controlConfig = createSignificanceControlConfig(annotationStyle.orientation || 'vertical');
+    return true;
+  }
 
   function refreshSignificanceAnnotations(reason){
     const hasContext = state.statsContext && Array.isArray(state.statsContext.traces) && state.statsContext.traces.length > 0;
@@ -16697,6 +16831,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const annotationOrientation = isFlipped ? 'horizontal' : 'vertical';
     const significanceControlConfig = createSignificanceControlConfig(annotationOrientation);
+    const annotationLabelFontSize = resolveSignificanceLabelFontSizePx(fs);
     const annotationDataObstaclePadding = Math.max(
       0,
       pointRadius,
@@ -16705,7 +16840,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     );
 	    const annotationStyle = {
 	      styleScaleInfo,
-	      fontSize: fs,
+	      fontSize: annotationLabelFontSize,
 	      strokeWidth: annotationStrokeWidth,
 	      color: annotationColor,
 	      showWhiskers: annotationShowWhiskers,
@@ -16926,9 +17061,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, fs, 'vertical', annotationStrokeWidth);
+      const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth);
       const annotationLabelClearance = showSignificance && maxLevelEstimate >= 0
-        ? (annotationBracketSize + (fs || 12))
+        ? (annotationBracketSize + (annotationLabelFontSize || 12))
         : 0;
       const topExtra = showSignificance && maxLevelEstimate >= 0
         ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * verticalLevelStep + annotationLabelClearance)
@@ -18360,7 +18495,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const maxCategoryWidth = Math.max(...categoryWidths, 0);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, fs, 'horizontal', annotationStrokeWidth);
+      const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'horizontal', annotationStrokeWidth);
       const rightExtra = showSignificance && maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * horizontalLevelStep) : 0;
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxCategoryWidth, yTitleWidth: 0, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top = Math.max(marginLocal.top, fs * 2);
@@ -20640,6 +20775,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
+    ensureSignificanceLabelFontEventListener();
     initNotes();
     const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
     const scheduleBoxDrawInstrumented = (opts) => {
@@ -20802,6 +20938,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
 	    clampAdaptiveWhiskerToExistingObstacles:(layer,xCoord,innerCoord,desiredOuter,options)=>clampAdaptiveWhiskerToExistingObstacles(layer,xCoord,innerCoord,desiredOuter,options),
 	    resolveSvgAxisUnitsPerPixel:(svgLike,axis)=>resolveSvgAxisUnitsPerPixel(svgLike,axis),
-	    resolveAdaptiveWhiskerGapUnits:(svgLike,orientation,gapUnits,gapPx,fallbackPx)=>resolveAdaptiveWhiskerGapUnits(svgLike,orientation,gapUnits,gapPx,fallbackPx)
+	    resolveAdaptiveWhiskerGapUnits:(svgLike,orientation,gapUnits,gapPx,fallbackPx)=>resolveAdaptiveWhiskerGapUnits(svgLike,orientation,gapUnits,gapPx,fallbackPx),
+      resolveSignificanceLabelFontSizePx:(fallbackPx)=>resolveSignificanceLabelFontSizePx(fallbackPx),
+      isSignificanceLabelFontStyleEvent:(detail)=>isSignificanceLabelFontStyleEvent(detail)
 	  });
 })(window);
