@@ -13891,7 +13891,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
     const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
     const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-    const adaptiveWhiskerClearance = Math.max(2, Math.min(6, annotationStrokeWidth * 1.8));
+    const adaptiveWhiskerGap = Math.max(
+      5,
+      Math.min(10, (Number.isFinite(annotationOpts.fontSize) ? annotationOpts.fontSize : 12) * 0.45)
+    );
     const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
       if(!adaptiveWhiskersEnabled){ return null; }
       const renderedMaxValue = getRenderedMaxValue(traceIdx);
@@ -13956,8 +13959,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         return outerCoord;
       }
       return orientation === 'horizontal'
-        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerClearance)
-        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
+        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerGap)
+        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerGap);
     };
     const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
       if(!adaptiveWhiskersEnabled){
@@ -13971,7 +13974,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ...helpers.annotationStyle,
         outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
         outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
-        whiskerObstacleGap: adaptiveWhiskerClearance
+        whiskerObstacleGap: adaptiveWhiskerGap
       };
     };
 
@@ -13988,11 +13991,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           fontSize: annotationOpts.fontSize,
           strokeWidth: annotationOpts.strokeWidth
         });
+        const renderPairs = layout.sorted.slice().sort((a,b) =>
+          (Number(a?.level) || 0) - (Number(b?.level) || 0)
+          || (Number(a?.ai) || 0) - (Number(b?.ai) || 0)
+          || (Number(a?.bi) || 0) - (Number(b?.bi) || 0)
+        );
         const lowerSource = {
-          pairs: layout.sorted,
+          pairs: renderPairs,
           geometryByPair: layout.geometryByPair
         };
-        layout.sorted.forEach(pr => {
+        renderPairs.forEach(pr => {
           const geom = layout.geometryByPair.get(pr) || null;
           const annotationCoord = Number.isFinite(geom?.annotationCoord)
             ? geom.annotationCoord
@@ -14348,7 +14356,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    };
 	    const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
 	    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-	    const adaptiveWhiskerClearance = Math.max(2, Math.min(6, annotationStrokeWidth * 1.8));
+	    const adaptiveWhiskerGap = Math.max(
+	      5,
+	      Math.min(10, (Number.isFinite(annotationOpts.fontSize) ? annotationOpts.fontSize : 12) * 0.45)
+	    );
 	    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
 	      if(!adaptiveWhiskersEnabled){ return null; }
 	      const renderedMaxValue = getRenderedMaxValue(traceIdx);
@@ -14413,8 +14424,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        return outerCoord;
 	      }
 	      return orientation === 'horizontal'
-	        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerClearance)
-	        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
+	        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerGap)
+	        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerGap);
 	    };
 	    const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
 	      if(!adaptiveWhiskersEnabled){
@@ -14428,7 +14439,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        ...helpers.annotationStyle,
 	        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
 	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
-	        whiskerObstacleGap: adaptiveWhiskerClearance
+	        whiskerObstacleGap: adaptiveWhiskerGap
 	      };
 	    };
 	    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
@@ -14457,11 +14468,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        fontSize: annotationOpts.fontSize,
 	        strokeWidth: annotationOpts.strokeWidth
 	      });
+	      const renderPairs = layout.sorted.slice().sort((a,b) =>
+	        (Number(a?.level) || 0) - (Number(b?.level) || 0)
+	        || (Number(a?.ai) || 0) - (Number(b?.ai) || 0)
+	        || (Number(a?.bi) || 0) - (Number(b?.bi) || 0)
+	      );
 	      const lowerSource = {
-	        pairs: layout.sorted,
+	        pairs: renderPairs,
 	        geometryByPair: layout.geometryByPair
 	      };
-	      layout.sorted.forEach(pr=>{
+	      renderPairs.forEach(pr=>{
 	        const geom = layout.geometryByPair.get(pr) || null;
 	        const annotationCoord = Number.isFinite(geom?.annotationCoord)
 	          ? geom.annotationCoord
