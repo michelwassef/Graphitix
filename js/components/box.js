@@ -828,18 +828,54 @@
     const parentGroup = el.closest
       ? (el.closest('g[data-export-layer="box-points"]') || el.closest('g[data-trace]'))
       : null;
-    const traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
-    const traceIndexNumeric = Number(traceIndex);
+    let traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
+    const formatTraceLabel = traceValue => {
+      const numeric = Number(traceValue);
+      if(Number.isFinite(numeric)){ return `Trace ${numeric + 1}`; }
+      const normalized = String(traceValue == null ? '' : traceValue).trim();
+      return normalized ? `Trace ${normalized}` : 'Trace';
+    };
+    const knownTraceIndices = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(traceIndex);
+      Object.keys(state.pointStyles || {}).forEach(addKey);
+      const plotRoot = doc.getElementById('boxPlot');
+      if(plotRoot && plotRoot.querySelectorAll){
+        plotRoot.querySelectorAll('g[data-export-layer="box-points"][data-trace], g[data-trace]').forEach(group => addKey(group.getAttribute('data-trace')));
+      }
+      return Array.from(keys);
+    };
+    const orderedTraceIndices = () => {
+      const keys = knownTraceIndices();
+      if(!traceIndex){
+        return keys;
+      }
+      return [traceIndex].concat(keys.filter(key => key !== traceIndex));
+    };
     const traceScopeLabel = (() => {
       const fromData = data && typeof data.seriesName === 'string' ? data.seriesName.trim() : '';
       if(fromData){ return fromData; }
-      if(Number.isFinite(traceIndexNumeric)){ return `Trace ${traceIndexNumeric + 1}`; }
-      if(traceIndex != null && String(traceIndex).trim()){ return `Trace ${traceIndex}`; }
-      return 'Trace';
+      return formatTraceLabel(traceIndex);
     })();
-    const resolveTargetPoints = () => parentGroup
-      ? Array.from(parentGroup.querySelectorAll('circle,rect,path'))
-      : [el];
+    const resolveTargetPoints = () => {
+      const plotRoot = doc.getElementById('boxPlot');
+      if(plotRoot && traceIndex != null){
+        const scoped = Array.from(plotRoot.querySelectorAll(`g[data-export-layer="box-points"][data-trace="${traceIndex}"] circle, g[data-export-layer="box-points"][data-trace="${traceIndex}"] rect, g[data-export-layer="box-points"][data-trace="${traceIndex}"] path`));
+        if(scoped.length){
+          return scoped;
+        }
+      }
+      if(parentGroup){
+        return Array.from(parentGroup.querySelectorAll('circle,rect,path'));
+      }
+      return [el];
+    };
     const scopeName = `boxPointScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
@@ -852,13 +888,36 @@
     const optGlobal = doc.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = 'Global';
-    const optTrace = doc.createElement('option');
-    optTrace.value = 'trace';
-    optTrace.textContent = traceScopeLabel;
-    optTrace.disabled = traceIndex == null;
     scopeSelect.appendChild(optGlobal);
-    scopeSelect.appendChild(optTrace);
+    const scopeTraceIndices = orderedTraceIndices();
+    if(scopeTraceIndices.length){
+      scopeTraceIndices.forEach(name => {
+        const optTrace = doc.createElement('option');
+        optTrace.value = 'trace';
+        optTrace.textContent = formatTraceLabel(name);
+        optTrace.dataset.scopeDataset = name;
+        scopeSelect.appendChild(optTrace);
+      });
+    }else{
+      const optTrace = doc.createElement('option');
+      optTrace.value = 'trace';
+      optTrace.textContent = traceScopeLabel;
+      optTrace.disabled = traceIndex == null;
+      if(traceIndex != null){
+        optTrace.dataset.scopeDataset = String(traceIndex);
+      }
+      scopeSelect.appendChild(optTrace);
+    }
     scopeSelect.value = traceIndex != null ? 'trace' : 'global';
+    scopeSelect.addEventListener('change', () => {
+      if(scopeSelect.value === 'trace'){
+        const selected = scopeSelect.selectedOptions && scopeSelect.selectedOptions.length ? scopeSelect.selectedOptions[0] : null;
+        const scopedTrace = String(selected?.dataset?.scopeDataset || '').trim();
+        if(scopedTrace){
+          traceIndex = scopedTrace;
+        }
+      }
+    });
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
@@ -903,11 +962,41 @@
         formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls box-point-controls',
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'trace', label: traceScopeLabel, datasetLabel: traceScopeLabel, disabled: traceIndex == null }
-          ],
-          value: traceIndex != null ? 'trace' : 'global'
+          options: (() => {
+            const options = [{ value: 'global', label: 'Global', disabled: false }];
+            const keys = orderedTraceIndices();
+            if(keys.length){
+              keys.forEach(name => {
+                options.push({
+                  value: 'trace',
+                  label: formatTraceLabel(name),
+                  datasetLabel: formatTraceLabel(name),
+                  scopeDataset: name,
+                  scopeKind: 'trace',
+                  disabled: false
+                });
+              });
+            }else{
+              options.push({
+                value: 'trace',
+                label: traceScopeLabel,
+                datasetLabel: traceScopeLabel,
+                scopeDataset: traceIndex || '',
+                scopeKind: 'trace',
+                disabled: traceIndex == null
+              });
+            }
+            return options;
+          })(),
+          value: traceIndex != null ? 'trace' : 'global',
+          onChange(nextScope, ctx){
+            if(nextScope === 'trace'){
+              const scopedTrace = String(ctx?.scopeDataset || '').trim();
+              if(scopedTrace){
+                traceIndex = scopedTrace;
+              }
+            }
+          }
         },
         fillShape: {
           label: 'Fill/Shape',
@@ -1627,13 +1716,37 @@
       return;
     }
     const parentGroup = target.closest && target.closest('g[data-trace]') ? target.closest('g[data-trace]') : null;
-    const traceIndex = opts.traceIndex != null
+    let traceIndex = opts.traceIndex != null
       ? String(opts.traceIndex)
       : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null);
     const summaryTraceIndex = Number(traceIndex);
     const summaryScopeLabel = Number.isFinite(summaryTraceIndex)
       ? `Trace ${summaryTraceIndex + 1}`
       : (traceIndex != null && String(traceIndex).trim() ? `Trace ${traceIndex}` : 'Trace');
+    const knownSummaryTraceIndices = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(traceIndex);
+      Object.keys(state.summaryStyles || {}).forEach(addKey);
+      const doc = global.document;
+      const plot = doc ? doc.getElementById('boxPlot') : null;
+      if(plot && plot.querySelectorAll){
+        plot.querySelectorAll('g[data-trace]').forEach(group => addKey(group.getAttribute('data-trace')));
+      }
+      return Array.from(keys);
+    };
+    const orderedSummaryTraceIndices = () => {
+      const keys = knownSummaryTraceIndices();
+      if(!traceIndex){
+        return keys;
+      }
+      return [traceIndex].concat(keys.filter(key => key !== traceIndex));
+    };
     const sourceLine = (target && String(target.tagName || '').toLowerCase() === 'line')
       ? target
       : (target.querySelector ? (target.querySelector('line[data-summary-line="1"]') || target) : target);
@@ -1716,11 +1829,43 @@
       },
       scope: {
         label: 'Scope',
-        options: [
-          { value: 'global', label: 'Global', disabled: false },
-          { value: 'trace', label: summaryScopeLabel, datasetLabel: summaryScopeLabel, disabled: traceIndex == null }
-        ],
-        value: traceIndex != null ? 'trace' : 'global'
+        options: (() => {
+          const options = [{ value: 'global', label: 'Global', disabled: false }];
+          const keys = orderedSummaryTraceIndices();
+          if(keys.length){
+            keys.forEach(name => {
+              const numeric = Number(name);
+              const label = Number.isFinite(numeric) ? `Trace ${numeric + 1}` : `Trace ${name}`;
+              options.push({
+                value: 'trace',
+                label,
+                datasetLabel: label,
+                scopeDataset: name,
+                scopeKind: 'trace',
+                disabled: false
+              });
+            });
+          }else{
+            options.push({
+              value: 'trace',
+              label: summaryScopeLabel,
+              datasetLabel: summaryScopeLabel,
+              scopeDataset: traceIndex || '',
+              scopeKind: 'trace',
+              disabled: traceIndex == null
+            });
+          }
+          return options;
+        })(),
+        value: traceIndex != null ? 'trace' : 'global',
+        onChange(nextScope, ctx){
+          if(nextScope === 'trace'){
+            const scopedTrace = String(ctx?.scopeDataset || '').trim();
+            if(scopedTrace){
+              traceIndex = scopedTrace;
+            }
+          }
+        }
       },
       getSummary: ctx => {
         const scopeValue = resolveScope(ctx);
@@ -1812,13 +1957,37 @@
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const traceAttrValue = target.getAttribute('data-trace');
-      const selectedTraceIndex = traceAttrValue != null && traceAttrValue !== '' && traceAttrValue !== 'null'
+      let selectedTraceIndex = traceAttrValue != null && traceAttrValue !== '' && traceAttrValue !== 'null'
         ? Number(traceAttrValue)
         : null;
       const colorIndexAttrValue = target.getAttribute('data-color-index');
-      const selectedColorIndex = colorIndexAttrValue != null && colorIndexAttrValue !== ''
+      let selectedColorIndex = colorIndexAttrValue != null && colorIndexAttrValue !== ''
         ? Number(colorIndexAttrValue)
         : (selectedTraceIndex != null ? selectedTraceIndex : null);
+      const knownTraceIndices = () => {
+        const keys = new Set();
+        const addKey = value => {
+          const normalized = String(value == null ? '' : value).trim();
+          if(normalized){
+            keys.add(normalized);
+          }
+        };
+        addKey(selectedTraceIndex);
+        Object.keys(state.traceShapeStyles || {}).forEach(addKey);
+        const plotRoot = doc.getElementById('boxPlot');
+        if(plotRoot && plotRoot.querySelectorAll){
+          plotRoot.querySelectorAll('[data-box-shape="body"][data-trace]').forEach(node => addKey(node.getAttribute('data-trace')));
+        }
+        return Array.from(keys);
+      };
+      const orderedTraceIndices = () => {
+        const keys = knownTraceIndices();
+        const selectedKey = selectedTraceIndex != null ? String(selectedTraceIndex) : '';
+        if(!selectedKey){
+          return keys;
+        }
+        return [selectedKey].concat(keys.filter(key => key !== selectedKey));
+      };
       const shapeScopeLabel = Number.isFinite(selectedTraceIndex)
         ? `Trace ${selectedTraceIndex + 1}`
         : 'Trace';
@@ -1861,11 +2030,44 @@
         formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls box-shape-controls',
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'trace', label: shapeScopeLabel, datasetLabel: shapeScopeLabel, disabled: selectedTraceIndex == null }
-          ],
-          value: selectedTraceIndex != null ? 'trace' : 'global'
+          options: (() => {
+            const options = [{ value: 'global', label: 'Global', disabled: false }];
+            const keys = orderedTraceIndices();
+            if(keys.length){
+              keys.forEach(name => {
+                const numeric = Number(name);
+                const label = Number.isFinite(numeric) ? `Trace ${numeric + 1}` : `Trace ${name}`;
+                options.push({
+                  value: 'trace',
+                  label,
+                  datasetLabel: label,
+                  scopeDataset: name,
+                  scopeKind: 'trace',
+                  disabled: false
+                });
+              });
+            }else{
+              options.push({
+                value: 'trace',
+                label: shapeScopeLabel,
+                datasetLabel: shapeScopeLabel,
+                scopeDataset: Number.isFinite(selectedTraceIndex) ? String(selectedTraceIndex) : '',
+                scopeKind: 'trace',
+                disabled: selectedTraceIndex == null
+              });
+            }
+            return options;
+          })(),
+          value: selectedTraceIndex != null ? 'trace' : 'global',
+          onChange(nextScope, ctx){
+            if(nextScope === 'trace'){
+              const scopedTrace = Number(String(ctx?.scopeDataset || '').trim());
+              if(Number.isFinite(scopedTrace)){
+                selectedTraceIndex = scopedTrace;
+                selectedColorIndex = scopedTrace;
+              }
+            }
+          }
         },
         fillShape: {
           label: 'Fill',
@@ -2027,11 +2229,34 @@
     };
 
     const traceAttr = target.getAttribute('data-trace');
-    const traceIndex = traceAttr != null && traceAttr !== '' && traceAttr !== 'null' ? Number(traceAttr) : null;
+    let traceIndex = traceAttr != null && traceAttr !== '' && traceAttr !== 'null' ? Number(traceAttr) : null;
     const shapeScopeLabel = Number.isFinite(traceIndex) ? `Trace ${traceIndex + 1}` : 'Trace';
     const colorIndexAttr = target.getAttribute('data-color-index');
-    const colorIndex = colorIndexAttr != null && colorIndexAttr !== '' ? Number(colorIndexAttr) : (traceIndex != null ? traceIndex : null);
+    let colorIndex = colorIndexAttr != null && colorIndexAttr !== '' ? Number(colorIndexAttr) : (traceIndex != null ? traceIndex : null);
     const plotRoot = doc.getElementById('boxPlot');
+    const knownTraceIndices = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(traceIndex);
+      Object.keys(state.traceShapeStyles || {}).forEach(addKey);
+      if(plotRoot && plotRoot.querySelectorAll){
+        plotRoot.querySelectorAll('[data-box-shape="body"][data-trace]').forEach(node => addKey(node.getAttribute('data-trace')));
+      }
+      return Array.from(keys);
+    };
+    const orderedTraceIndices = () => {
+      const keys = knownTraceIndices();
+      const selectedKey = Number.isFinite(traceIndex) ? String(traceIndex) : '';
+      if(!selectedKey){
+        return keys;
+      }
+      return [selectedKey].concat(keys.filter(key => key !== selectedKey));
+    };
     const resolveTargets = () => {
       if(traceIndex == null){
         return plotRoot ? Array.from(plotRoot.querySelectorAll('[data-box-shape=\"body\"]')) : [target];
@@ -2050,13 +2275,38 @@
     const optGlobal = doc.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = 'Global';
-    const optTrace = doc.createElement('option');
-    optTrace.value = 'trace';
-    optTrace.textContent = shapeScopeLabel;
-    optTrace.disabled = traceIndex == null;
     scopeSelect.appendChild(optGlobal);
-    scopeSelect.appendChild(optTrace);
+    const scopeTraceIndices = orderedTraceIndices();
+    if(scopeTraceIndices.length){
+      scopeTraceIndices.forEach(name => {
+        const optTrace = doc.createElement('option');
+        optTrace.value = 'trace';
+        const numeric = Number(name);
+        optTrace.textContent = Number.isFinite(numeric) ? `Trace ${numeric + 1}` : `Trace ${name}`;
+        optTrace.dataset.scopeDataset = name;
+        scopeSelect.appendChild(optTrace);
+      });
+    }else{
+      const optTrace = doc.createElement('option');
+      optTrace.value = 'trace';
+      optTrace.textContent = shapeScopeLabel;
+      optTrace.disabled = traceIndex == null;
+      if(Number.isFinite(traceIndex)){
+        optTrace.dataset.scopeDataset = String(traceIndex);
+      }
+      scopeSelect.appendChild(optTrace);
+    }
     scopeSelect.value = traceIndex != null ? 'trace' : 'global';
+    scopeSelect.addEventListener('change', () => {
+      if(scopeSelect.value === 'trace'){
+        const selected = scopeSelect.selectedOptions && scopeSelect.selectedOptions.length ? scopeSelect.selectedOptions[0] : null;
+        const scopedTrace = Number(String(selected?.dataset?.scopeDataset || '').trim());
+        if(Number.isFinite(scopedTrace)){
+          traceIndex = scopedTrace;
+          colorIndex = scopedTrace;
+        }
+      }
+    });
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
@@ -4916,6 +5166,106 @@
         hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
       });
     };
+  const BOX_VIEWPORT_EXCLUDE_SELECTOR = '[data-box-viewport-exclude="1"]';
+  function resolveBoxBaseViewportSize(svg){
+    const attrWidth = Number(svg?.getAttribute?.('data-box-base-width'));
+    const attrHeight = Number(svg?.getAttribute?.('data-box-base-height'));
+    const rawWidth = Number.isFinite(attrWidth) && attrWidth > 0
+      ? attrWidth
+      : Number(svg?.getAttribute?.('width'));
+    const rawHeight = Number.isFinite(attrHeight) && attrHeight > 0
+      ? attrHeight
+      : Number(svg?.getAttribute?.('height'));
+    const width = Number.isFinite(rawWidth) && rawWidth > 0
+      ? rawWidth
+      : Math.max(1, Number(svg?.clientWidth) || 1);
+    const height = Number.isFinite(rawHeight) && rawHeight > 0
+      ? rawHeight
+      : Math.max(1, Number(svg?.clientHeight) || 1);
+    return { width, height };
+  }
+  function ensureBoxViewport(svg, options = {}){
+    if(!svg){
+      return;
+    }
+    const excludeSelector = typeof options.excludeSelector === 'string' && options.excludeSelector.trim()
+      ? options.excludeSelector.trim()
+      : BOX_VIEWPORT_EXCLUDE_SELECTOR;
+    const excludedNodes = excludeSelector
+      ? Array.from(svg.querySelectorAll(excludeSelector))
+      : [];
+    const padding = Number.isFinite(Number(options.padding))
+      ? Math.max(0, Number(options.padding))
+      : 16;
+    const debugLabel = typeof options.debugLabel === 'string' && options.debugLabel.trim()
+      ? options.debugLabel.trim()
+      : 'box-graph';
+    const baseViewport = resolveBoxBaseViewportSize(svg);
+    const restore = [];
+    excludedNodes.forEach(node => {
+      if(!node || !node.style){
+        return;
+      }
+      restore.push({
+        node,
+        hadInlineDisplay: node.style.display
+      });
+      node.style.display = 'none';
+    });
+    let bbox = null;
+    try{
+      if(typeof svg.getBBox === 'function'){
+        bbox = svg.getBBox();
+      }
+    }finally{
+      restore.forEach(entry => {
+        if(!entry || !entry.node || !entry.node.style){
+          return;
+        }
+        if(entry.hadInlineDisplay){
+          entry.node.style.display = entry.hadInlineDisplay;
+        }else{
+          entry.node.style.removeProperty('display');
+        }
+      });
+    }
+    if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
+      bbox = { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height };
+    }
+    // Lock horizontal viewport extents to preserve datapoint x-spacing regardless of significance geometry.
+    const minX = 0;
+    const viewW = Math.max(1, baseViewport.width);
+    const minY = Math.min(0, bbox.y - padding);
+    const viewH = Math.max(
+      1,
+      baseViewport.height,
+      bbox.y + bbox.height + padding - minY
+    );
+    svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    if(svg.style){
+      svg.style.overflow = 'visible';
+    }
+    const parent = svg.parentElement;
+    if(parent && parent.style){
+      parent.style.overflow = 'visible';
+    }
+    const box = svg.closest?.('.svgbox');
+    if(box && box.style){
+      box.style.overflow = 'visible';
+    }
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box viewport locked', {
+        debugLabel,
+        excludedCount: restore.length,
+        selector: excludeSelector,
+        baseWidth: baseViewport.width,
+        baseHeight: baseViewport.height,
+        viewBox: { minX, minY, viewW, viewH }
+      });
+    }
+  }
   console.debug('Debug: box component DOM helpers resolved', {
     hasSharedEditable: typeof Shared.makeEditable === 'function',
     hasSharedResize: typeof Shared.graphViewport?.ensure === 'function' || typeof Shared.autoResizeSvg === 'function',
@@ -8809,6 +9159,14 @@
     const fontSize = Number.isFinite(options.fontSize) ? options.fontSize : 12;
     const strokeWidth = Number.isFinite(options.strokeWidth) ? options.strokeWidth : 1;
     const levelStep = resolveSignificanceLevelStepPx(levelGap, fontSize, orientation, strokeWidth);
+    const adjustBracketEndpoints = options.adjustBracketEndpoints === true;
+    const separateConvergingEndpoints = options.separateConvergingEndpoints !== false;
+    const endpointSeparationStep = Number.isFinite(options.endpointSeparationStep)
+      ? Math.max(0, Number(options.endpointSeparationStep))
+      : Math.max(1.6, Math.min(6, strokeWidth * 2 + fontSize * 0.08));
+    const endpointSeparationMax = Number.isFinite(options.endpointSeparationMax)
+      ? Math.max(0, Number(options.endpointSeparationMax))
+      : Math.max(endpointSeparationStep * 2.4, Math.min(16, fontSize * 0.95));
     if(!list.length){
       return { sorted: [], geometryByPair: new Map(), maxLevel: 0 };
     }
@@ -8857,43 +9215,168 @@
       levelGroups.get(pr.level).push({ pair: pr, geom });
     });
     const minSpan = Math.max(4, strokeWidth * 2 + 1);
-    const endpointInset = Math.max(1, Math.min(4, fontSize * 0.16));
-    const minSiblingGap = Math.max(2, Math.min(8, fontSize * 0.28));
-    levelGroups.forEach(entries => {
-      entries.sort((a,b)=>a.geom.x1-b.geom.x1);
-      entries.forEach(entry => {
-        const geom = entry.geom;
-        const span = geom.x2 - geom.x1;
-        if(!Number.isFinite(span) || span <= minSpan + 1){
+    const endpointInset = adjustBracketEndpoints ? Math.max(1, Math.min(4, fontSize * 0.16)) : 0;
+    const minSiblingGap = adjustBracketEndpoints ? Math.max(2, Math.min(8, fontSize * 0.28)) : 0;
+    if(adjustBracketEndpoints){
+      levelGroups.forEach(entries => {
+        entries.sort((a,b)=>a.geom.x1-b.geom.x1);
+        entries.forEach(entry => {
+          const geom = entry.geom;
+          const span = geom.x2 - geom.x1;
+          if(!Number.isFinite(span) || span <= minSpan + 1){
+            return;
+          }
+          const inset = Math.min(endpointInset, Math.max(0, (span - minSpan) / 2));
+          geom.x1 += inset;
+          geom.x2 -= inset;
+        });
+        for(let i = 0; i < entries.length - 1; i++){
+          const left = entries[i].geom;
+          const right = entries[i + 1].geom;
+          const currentGap = right.x1 - left.x2;
+          if(!Number.isFinite(currentGap) || currentGap >= minSiblingGap){
+            continue;
+          }
+          const needed = (minSiblingGap - currentGap) / 2;
+          const leftRoom = Math.max(0, (left.x2 - left.x1) - minSpan);
+          const rightRoom = Math.max(0, (right.x2 - right.x1) - minSpan);
+          const shift = Math.min(needed, leftRoom, rightRoom);
+          if(shift > 0){
+            left.x2 -= shift;
+            right.x1 += shift;
+          }
+        }
+      });
+    }
+    if(separateConvergingEndpoints && orientation === 'vertical'){
+      // Keep convergence spacing local to annotation endpoints only; trace/category centers remain unchanged.
+      const endpointGroups = new Map();
+      const addEndpoint = (traceIndex, geom, edge, level) => {
+        if(!Number.isFinite(traceIndex) || !geom || !Number.isFinite(geom[edge])){
           return;
         }
-        const inset = Math.min(endpointInset, Math.max(0, (span - minSpan) / 2));
-        geom.x1 += inset;
-        geom.x2 -= inset;
+        if(!endpointGroups.has(traceIndex)){
+          endpointGroups.set(traceIndex, []);
+        }
+        endpointGroups.get(traceIndex).push({
+          traceIndex,
+          geom,
+          edge,
+          level: Number.isFinite(level) ? level : 0,
+          annotationCoord: Number.isFinite(geom.annotationCoord) ? geom.annotationCoord : 0,
+          appliedOffset: 0
+        });
+      };
+      sorted.forEach(pr => {
+        const geom = geometryByPair.get(pr);
+        if(!geom){
+          return;
+        }
+        addEndpoint(Number(pr.ai), geom, 'x1', Number(pr.level));
+        addEndpoint(Number(pr.bi), geom, 'x2', Number(pr.level));
       });
-      for(let i = 0; i < entries.length - 1; i++){
-        const left = entries[i].geom;
-        const right = entries[i + 1].geom;
-        const currentGap = right.x1 - left.x2;
-        if(!Number.isFinite(currentGap) || currentGap >= minSiblingGap){
-          continue;
+      const endpointSort = (a, b) =>
+        (a.level - b.level)
+        || (a.annotationCoord - b.annotationCoord)
+        || (a.edge === 'x1' ? -1 : 1);
+      const clampEndpointOffset = (entry, offset) => {
+        let next = Number(offset);
+        if(!Number.isFinite(next)){
+          return 0;
         }
-        const needed = (minSiblingGap - currentGap) / 2;
-        const leftRoom = Math.max(0, (left.x2 - left.x1) - minSpan);
-        const rightRoom = Math.max(0, (right.x2 - right.x1) - minSpan);
-        const shift = Math.min(needed, leftRoom, rightRoom);
-        if(shift > 0){
-          left.x2 -= shift;
-          right.x1 += shift;
+        if(next > endpointSeparationMax){
+          next = endpointSeparationMax;
+        }else if(next < -endpointSeparationMax){
+          next = -endpointSeparationMax;
         }
-      }
-    });
+        const span = Number(entry.geom.x2) - Number(entry.geom.x1);
+        const room = Number.isFinite(span) ? Math.max(0, span - minSpan) : 0;
+        if(entry.edge === 'x1'){
+          return Math.max(0, Math.min(next, room));
+        }
+        return Math.min(0, Math.max(next, -room));
+      };
+      endpointGroups.forEach(entries => {
+        if(!Array.isArray(entries) || entries.length <= 1){
+          return;
+        }
+        const rightEntries = [];
+        const leftEntries = [];
+        entries.forEach(entry => {
+          if(entry.edge === 'x1'){
+            rightEntries.push(entry);
+          }else{
+            leftEntries.push(entry);
+          }
+        });
+        rightEntries.sort(endpointSort);
+        leftEntries.sort(endpointSort);
+        const hasBothSides = rightEntries.length > 0 && leftEntries.length > 0;
+        if(!hasBothSides){
+          // Keep same-side endpoints perfectly aligned when no true convergence occurs.
+          entries.forEach(entry => {
+            entry.appliedOffset = 0;
+          });
+        }else{
+          const centerGap = Math.min(endpointSeparationStep, endpointSeparationMax);
+          const halfCenterGap = centerGap / 2;
+          const resolveSideRoom = list => {
+            if(!Array.isArray(list) || !list.length){
+              return 0;
+            }
+            let room = Infinity;
+            for(let i = 0; i < list.length; i++){
+              const entry = list[i];
+              const span = Number(entry.geom.x2) - Number(entry.geom.x1);
+              const localRoom = Number.isFinite(span) ? Math.max(0, span - minSpan) : 0;
+              if(localRoom < room){
+                room = localRoom;
+              }
+            }
+            return Number.isFinite(room) ? Math.max(0, room) : 0;
+          };
+          const rightMagnitude = Math.min(halfCenterGap, resolveSideRoom(rightEntries), endpointSeparationMax);
+          const leftMagnitude = Math.min(halfCenterGap, resolveSideRoom(leftEntries), endpointSeparationMax);
+          rightEntries.forEach(entry => {
+            entry.appliedOffset = clampEndpointOffset(entry, rightMagnitude);
+          });
+          leftEntries.forEach(entry => {
+            entry.appliedOffset = clampEndpointOffset(entry, -leftMagnitude);
+          });
+        }
+        entries.forEach(entry => {
+          entry.geom[entry.edge] += entry.appliedOffset;
+        });
+      });
+      sorted.forEach(pr => {
+        const geom = geometryByPair.get(pr);
+        if(!geom || !Number.isFinite(geom.x1) || !Number.isFinite(geom.x2)){
+          return;
+        }
+        if(geom.x2 < geom.x1){
+          const tmp = geom.x1;
+          geom.x1 = geom.x2;
+          geom.x2 = tmp;
+        }
+        const span = geom.x2 - geom.x1;
+        if(span >= minSpan){
+          return;
+        }
+        const mid = (geom.x1 + geom.x2) / 2;
+        geom.x1 = mid - minSpan / 2;
+        geom.x2 = mid + minSpan / 2;
+      });
+    }
     const maxLevel = Math.max(...sorted.map(pr => Number(pr.level)));
     if(Shared.isDebugEnabled?.()){
       console.debug('Debug: box pair annotation layout', {
         pairCount: sorted.length,
         maxLevel: Number.isFinite(maxLevel) ? maxLevel : 0,
         orientation,
+        adjustBracketEndpoints,
+        separateConvergingEndpoints,
+        endpointSeparationStep,
+        endpointSeparationMax,
         levelGap,
         levelStep,
         minSiblingGap,
@@ -12585,6 +13068,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		  function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
 		    const opts=styleOptions||{};
 		    const orientation=opts.orientation==='horizontal'?'horizontal':'vertical';
+		    const targetLayer = opts.targetLayer && typeof opts.targetLayer.appendChild === 'function'
+		      ? opts.targetLayer
+		      : svg;
 		    const strokeWidth=typeof opts.strokeWidth==='number'
 		      ? opts.strokeWidth
 		      : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
@@ -12603,6 +13089,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    }else{
 	      path.setAttribute('class','box-significance-annotation');
 	    }
+	    path.setAttribute('data-box-viewport-exclude', '1');
 		    let bracketGeom = null;
 		    let labelOuterCoord = valueCoord;
 		    if(orientation==='horizontal'){
@@ -12655,7 +13142,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    }
     path.setAttribute('fill','none');
     path.setAttribute('pointer-events','visibleStroke');
-    svg.appendChild(path);
+    targetLayer.appendChild(path);
     let hitPath = null;
     if(canRegisterSignificanceControl){
       const hitStrokeWidth = Number.isFinite(strokeWidth) && strokeWidth > 0
@@ -12674,8 +13161,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       hitPath.setAttribute('pointer-events', 'stroke');
       hitPath.setAttribute('vector-effect', 'non-scaling-stroke');
       hitPath.setAttribute('data-significance-hit-overlay', '1');
+      hitPath.setAttribute('data-box-viewport-exclude', '1');
       hitPath.setAttribute('data-export-ignore', '1');
-      svg.appendChild(hitPath);
+      targetLayer.appendChild(hitPath);
       if(Shared?.isDebugEnabled?.()){
         console.debug('Debug: box significance hit overlay created', { hitStrokeWidth, orientation });
       }
@@ -12688,6 +13176,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    }
     txt.setAttribute('baseline-shift','baseline');
     txt.removeAttribute('dy');
+    txt.setAttribute('data-box-viewport-exclude', '1');
     if(txt.style){
       txt.style.verticalAlign = 'baseline';
     }
@@ -12715,7 +13204,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(fontControls && typeof fontControls.markText === 'function'){
       fontControls.markText(txt, { scopeId: 'box', role: 'significance-label', key: 'significance-label' });
     }
-    svg.appendChild(txt);
+    targetLayer.appendChild(txt);
 	    if(orientation!=='horizontal'){
 	      alignSignificanceLabelBottom(txt, labelBottomTarget);
 	    }
@@ -12749,6 +13238,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function annotateOverall(svg,xCenters,valueToCoord,maxVal,p,level=0,styleOptions){
     const opts=styleOptions||{};
     const orientation=opts.orientation==='horizontal'?'horizontal':'vertical';
+    const targetLayer = opts.targetLayer && typeof opts.targetLayer.appendChild === 'function'
+      ? opts.targetLayer
+      : svg;
     const baseOffset=Number.isFinite(opts.baseOffset)?opts.baseOffset:ANN_BASE_OFFSET;
     const levelGap=Number.isFinite(opts.levelGap)?opts.levelGap:ANN_LEVEL_GAP;
     const fontSize=opts.fontSize;
@@ -12769,6 +13261,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     txt.setAttribute('baseline-shift','baseline');
     txt.removeAttribute('dy');
+    txt.setAttribute('data-box-viewport-exclude', '1');
     if(txt.style){
       txt.style.verticalAlign = 'baseline';
     }
@@ -12805,7 +13298,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(fontControls && typeof fontControls.markText === 'function'){
       fontControls.markText(txt, { scopeId: 'box', role: 'significance-label', key: 'significance-label' });
     }
-    svg.appendChild(txt);
+    targetLayer.appendChild(txt);
     if(orientation!=='horizontal'){
       alignSignificanceLabelBottom(txt, labelBottomTarget);
     }
@@ -15284,6 +15777,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const gridLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const dataLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const axisLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+    const significanceLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     if(gridLayer){
       gridLayer.dataset.layer = 'box-grid';
       svg.appendChild(gridLayer);
@@ -15295,6 +15789,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(axisLayer){
       axisLayer.dataset.layer = 'box-axis';
       svg.appendChild(axisLayer);
+    }
+    if(significanceLayer){
+      significanceLayer.dataset.layer = 'box-significance';
+      significanceLayer.setAttribute('data-box-significance-layer', '1');
+      significanceLayer.setAttribute('data-box-viewport-exclude', '1');
+      svg.appendChild(significanceLayer);
     }
     if(fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'box' });
@@ -15669,7 +16169,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      baseOffset: annotationBaseOffset,
 	      levelGap: annotationLevelGap,
 	      bracketSize: annotationBracketSize,
-	      orientation: annotationOrientation
+	      orientation: annotationOrientation,
+	      targetLayer: significanceLayer || svg
 	    };
     const selectionCount = state.selectedCols.size || 0;
     let maxLevelEstimate = 0;
@@ -15901,7 +16402,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
       const yIntervalSetting = getAxisTickInterval('y');
-      let yTickTarget = chartStyle.estimateTickCount(plotHLocal, { axis: 'y', fallback: 6 });
+      const resolveYTickTargetHeight = () => {
+        // Keep y tick targeting independent from significance top reservation so x spacing stays stable.
+        if(!(showSignificance && Number.isFinite(topExtra) && topExtra > 0)){
+          return plotHLocal;
+        }
+        return Math.max(20, plotHLocal + topExtra);
+      };
+      let yTickTarget = chartStyle.estimateTickCount(resolveYTickTargetHeight(), { axis: 'y', fallback: 6 });
       let yScale = buildAxisScale({
         dataMin: ymin,
         dataMax: ymax,
@@ -15951,8 +16459,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(manualYScale){
           break;
         }
-        const refinedTickTarget = chartStyle.estimateTickCount(plotHLocal, { axis: 'y', fallback: yTickTarget });
-        console.debug('Debug: box tick target evaluation',{ pass, plotH: plotHLocal, yTickTarget, refinedTickTarget });
+        const tickTargetHeight = resolveYTickTargetHeight();
+        const refinedTickTarget = chartStyle.estimateTickCount(tickTargetHeight, { axis: 'y', fallback: yTickTarget });
+        console.debug('Debug: box tick target evaluation',{ pass, plotH: plotHLocal, tickTargetHeight, yTickTarget, refinedTickTarget });
         if(refinedTickTarget === yTickTarget){
           break;
         }
@@ -18495,7 +19004,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
     const orientationResult = isFlipped ? await renderHorizontal() : await renderVertical();
     if(!orientationResult){
-      ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
+      ensureBoxViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       state.layout?.syncPanels?.({ skipSchedule: true });
       syncBoxAutoDrawNoticeWidth('draw');
       return;
@@ -18630,6 +19139,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(el === titleText || !el.getBBox){
           return false;
         }
+        if(typeof el.getAttribute === 'function' && el.getAttribute('data-box-viewport-exclude') === '1'){
+          return false;
+        }
         const classList = el.classList;
         if(classList && classList.contains('box-significance-hit-overlay')){
           return false;
@@ -18647,7 +19159,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       titleText.setAttribute('y', newY);
     }
     registerBoxGridControlTarget(svg, { fallbackThickness: axisStrokeBase });
-    ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
+    ensureBoxViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncBoxAutoDrawNoticeWidth('draw');
     traceCount = traces.length;
@@ -19737,6 +20249,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
 	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
+	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options)
 	  });
