@@ -1133,7 +1133,56 @@
   // Format toolbar for overlay (pdf/cdf) paths
   function showHistOverlayFormatControls(target){
     if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
-      const distKey = target.getAttribute('data-dist') || null;
+      let distKey = target.getAttribute('data-dist') || null;
+      const knownDistKeys = () => {
+        const keys = new Set();
+        const addKey = value => {
+          const normalized = String(value == null ? '' : value).trim();
+          if(normalized){
+            keys.add(normalized);
+          }
+        };
+        addKey(distKey);
+        (state.distributionOptions || []).forEach(option => addKey(option?.key));
+        const root = state.svgBox || global.document;
+        if(root && root.querySelectorAll){
+          root.querySelectorAll('.hist-overlay[data-dist]').forEach(node => addKey(node.getAttribute('data-dist')));
+        }
+        return Array.from(keys);
+      };
+      const orderedDistKeys = () => {
+        const keys = knownDistKeys();
+        if(!distKey){
+          return keys;
+        }
+        return [distKey].concat(keys.filter(key => key !== distKey));
+      };
+      const scopeOptions = (() => {
+        const options = [{ value: 'global', label: 'Global', disabled: false }];
+        const keys = orderedDistKeys();
+        if(keys.length){
+          keys.forEach(name => {
+            options.push({
+              value: 'series',
+              label: name,
+              datasetLabel: name,
+              scopeDataset: name,
+              scopeKind: 'series',
+              disabled: false
+            });
+          });
+        }else{
+          options.push({
+            value: 'series',
+            label: distKey || 'Series',
+            datasetLabel: distKey || 'Series',
+            scopeDataset: distKey || '',
+            scopeKind: 'series',
+            disabled: !distKey
+          });
+        }
+        return options;
+      })();
       const resolveTargets = scopeValue => {
         const root = state.svgBox || global.document;
         if(!root || !root.querySelectorAll){
@@ -1163,11 +1212,16 @@
         },
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'series', label: distKey || 'Series', datasetLabel: distKey || 'Series', disabled: !distKey }
-          ],
-          value: distKey ? 'series' : 'global'
+          options: scopeOptions,
+          value: distKey ? 'series' : 'global',
+          onChange(nextScope, ctx){
+            if(nextScope === 'series'){
+              const scopedDistKey = String(ctx?.scopeDataset || '').trim();
+              if(scopedDistKey){
+                distKey = scopedDistKey;
+              }
+            }
+          }
         },
         getSummary: ctx => (ctx?.scope === 'series' && distKey) ? distKey : 'Global',
         getColor: ctx => {
@@ -1309,15 +1363,62 @@
       return lbl;
     };
 
-    const distKey = target.getAttribute('data-dist') || null;
+    let distKey = target.getAttribute('data-dist') || null;
+    const knownDistKeys = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(distKey);
+      (state.distributionOptions || []).forEach(option => addKey(option?.key));
+      const root = state.svgBox || doc;
+      if(root && root.querySelectorAll){
+        root.querySelectorAll('.hist-overlay[data-dist]').forEach(node => addKey(node.getAttribute('data-dist')));
+      }
+      return Array.from(keys);
+    };
+    const orderedDistKeys = () => {
+      const keys = knownDistKeys();
+      if(!distKey){
+        return keys;
+      }
+      return [distKey].concat(keys.filter(key => key !== distKey));
+    };
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
     const scopeLabel = doc.createElement('span'); scopeLabel.className = 'workspace-toolbar__input-label'; scopeLabel.textContent = 'Scope';
     const scopeSelect = doc.createElement('select'); scopeSelect.className = 'workspace-toolbar__select';
-    const optGlobal = doc.createElement('option'); optGlobal.value = 'global'; optGlobal.textContent = 'Global';
-    const optSeries = doc.createElement('option'); optSeries.value = 'series'; optSeries.textContent = distKey || 'Series'; optSeries.disabled = !distKey;
-    scopeSelect.appendChild(optGlobal); scopeSelect.appendChild(optSeries);
+    const optGlobal = doc.createElement('option'); optGlobal.value = 'global'; optGlobal.textContent = 'Global'; scopeSelect.appendChild(optGlobal);
+    const scopeDistKeys = orderedDistKeys();
+    if(scopeDistKeys.length){
+      scopeDistKeys.forEach(name => {
+        const optSeries = doc.createElement('option');
+        optSeries.value = 'series';
+        optSeries.textContent = name;
+        optSeries.dataset.scopeDataset = name;
+        scopeSelect.appendChild(optSeries);
+      });
+    }else{
+      const optSeries = doc.createElement('option');
+      optSeries.value = 'series';
+      optSeries.textContent = distKey || 'Series';
+      optSeries.disabled = !distKey;
+      if(distKey){ optSeries.dataset.scopeDataset = distKey; }
+      scopeSelect.appendChild(optSeries);
+    }
     scopeSelect.value = distKey ? 'series' : 'global';
+    scopeSelect.addEventListener('change', () => {
+      if(scopeSelect.value === 'series'){
+        const selected = scopeSelect.selectedOptions && scopeSelect.selectedOptions.length ? scopeSelect.selectedOptions[0] : null;
+        const scopedDistKey = String(selected?.dataset?.scopeDataset || '').trim();
+        if(scopedDistKey){
+          distKey = scopedDistKey;
+        }
+      }
+    });
     scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
 

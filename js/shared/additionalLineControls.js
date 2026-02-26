@@ -138,10 +138,45 @@
     return null;
   }
 
-  function getContext(scopeOverride){
-    const scope = scopeOverride == null ? activeScope : scopeOverride;
+  function decodeScopedValue(value){
+    if(Shared && typeof Shared.decodeScopeValue === 'function'){
+      return Shared.decodeScopeValue(value);
+    }
+    const raw = String(value == null ? '' : value).trim();
+    if(!raw){
+      return { raw: '', kind: '', dataset: '' };
+    }
+    const tokenIndex = raw.indexOf('::');
+    if(tokenIndex <= 0){
+      return { raw, kind: raw, dataset: '' };
+    }
+    const kind = String(raw.slice(0, tokenIndex) || '').trim();
+    const encodedDataset = raw.slice(tokenIndex + 2);
+    let dataset = encodedDataset;
+    try{
+      dataset = decodeURIComponent(encodedDataset);
+    }catch(err){}
     return {
-      scope: scope || null,
+      raw,
+      kind: kind || raw,
+      dataset: String(dataset == null ? '' : dataset).trim()
+    };
+  }
+
+  function getContext(scopeOverride){
+    const rawScope = scopeOverride == null ? activeScope : scopeOverride;
+    const parsedScope = decodeScopedValue(rawScope);
+    const selectedOption = scopeSelect && scopeSelect.selectedOptions && scopeSelect.selectedOptions.length
+      ? scopeSelect.selectedOptions[0]
+      : null;
+    const optionDataset = String(selectedOption?.dataset?.scopeDataset || '').trim();
+    const optionKind = String(selectedOption?.dataset?.scopeKind || '').trim();
+    const scopeKind = String(parsedScope.kind || optionKind || rawScope || '').trim();
+    const scopeDataset = String(parsedScope.dataset || optionDataset || '').trim();
+    return {
+      scope: scopeKind || null,
+      scopeValue: parsedScope.raw || (rawScope == null ? null : String(rawScope)),
+      scopeDataset: scopeDataset || null,
       target: activeConfig?.target || null
     };
   }
@@ -967,6 +1002,12 @@
         opt.value = option.value;
         opt.textContent = option.label || option.value;
         opt.disabled = !!option.disabled;
+        if(option.scopeDataset != null){
+          opt.dataset.scopeDataset = String(option.scopeDataset);
+        }
+        if(option.scopeKind != null){
+          opt.dataset.scopeKind = String(option.scopeKind);
+        }
         scopeSelect.appendChild(opt);
       });
       if(scopeSelect.options.length){
@@ -1023,11 +1064,25 @@
     if(!requested){
       return;
     }
-    const hasOption = Array.from(scopeSelect.options || []).some(opt => opt.value === requested && !opt.disabled);
+    const requestedDataset = String(opts.scopeDataset || '').trim();
+    const allOptions = Array.from(scopeSelect.options || []);
+    const datasetMatch = requestedDataset
+      ? allOptions.find(opt => (
+          opt.value === requested
+          && !opt.disabled
+          && String(opt?.dataset?.scopeDataset || '').trim() === requestedDataset
+        ))
+      : null;
+    const hasOption = !!datasetMatch || allOptions.some(opt => opt.value === requested && !opt.disabled);
     if(!hasOption){
       return;
     }
-    if(scopeSelect.value !== requested){
+    if(datasetMatch){
+      const matchIndex = allOptions.findIndex(opt => opt === datasetMatch);
+      if(matchIndex >= 0 && scopeSelect.selectedIndex !== matchIndex){
+        scopeSelect.selectedIndex = matchIndex;
+      }
+    }else if(scopeSelect.value !== requested){
       scopeSelect.value = requested;
     }
     activeScope = scopeSelect.value || null;

@@ -1954,6 +1954,57 @@
       || null;
   }
 
+  function getCurrentVennLabelMap(){
+    const inputs = state.ui?.inputs || {};
+    const labelA = String(inputs.labelA?.value || 'A').trim() || 'A';
+    const labelB = String(inputs.labelB?.value || 'B').trim() || 'B';
+    const labelC = String(inputs.labelC?.value || 'C').trim() || 'C';
+    return { A: labelA, B: labelB, C: labelC };
+  }
+
+  function resolveVennTraceDisplayLabel(traceId){
+    const key = String(traceId == null ? '' : traceId).trim();
+    if(!key){
+      return 'Trace';
+    }
+    const labelMap = getCurrentVennLabelMap();
+    return labelMap[key] || key;
+  }
+
+  function resolveUpSetTraceDisplayLabel(kind, traceId){
+    const key = String(traceId == null ? '' : traceId).trim();
+    if(!key){
+      return 'Trace';
+    }
+    const intersections = Array.isArray(state.analysis?.lastUpSetIntersections)
+      ? state.analysis.lastUpSetIntersections
+      : [];
+    const intersection = intersections.find(entry => String(entry?.code || '').trim() === key);
+    if(intersection && String(intersection.label || '').trim()){
+      return String(intersection.label).trim();
+    }
+    if(kind === 'setBars'){
+      const sets = Array.isArray(state.analysis?.lastUpSetSets)
+        ? state.analysis.lastUpSetSets
+        : [];
+      const setMatch = sets.find(entry => String(entry?.key || '').trim() === key);
+      if(setMatch && String(setMatch.label || '').trim()){
+        return String(setMatch.label).trim();
+      }
+    }
+    const labelMap = getCurrentVennLabelMap();
+    if(labelMap[key]){
+      return labelMap[key];
+    }
+    if(/^[A-Z]{2,}$/.test(key)){
+      const mapped = key.split('').map(token => labelMap[token] || token);
+      if(mapped.length){
+        return mapped.join(' & ');
+      }
+    }
+    return key;
+  }
+
   function showVennTraceSymbolToolbar(target, options = {}){
     if(!target || !symbolToolbar || typeof symbolToolbar.show !== 'function'){
       return;
@@ -1962,7 +2013,54 @@
     if(!doc){ return; }
     const anchor = resolveVennSymbolToolbarAnchor(doc);
     if(!anchor){ return; }
-    const traceId = options.traceId || null;
+    let traceId = options.traceId || null;
+    const knownTraceIds = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(traceId);
+      doc.querySelectorAll('[data-venn-trace-id]').forEach(node => addKey(node.getAttribute('data-venn-trace-id')));
+      return Array.from(keys);
+    };
+    const orderedTraceIds = () => {
+      const keys = knownTraceIds();
+      if(!traceId){
+        return keys;
+      }
+      return [traceId].concat(keys.filter(key => key !== traceId));
+    };
+    const scopeOptions = (() => {
+      const optionsList = [{ value: 'global', label: 'Global', disabled: false }];
+      const keys = orderedTraceIds();
+      if(keys.length){
+        keys.forEach(name => {
+          const displayLabel = resolveVennTraceDisplayLabel(name);
+          optionsList.push({
+            value: 'trace',
+            label: displayLabel,
+            datasetLabel: displayLabel,
+            scopeDataset: name,
+            scopeKind: 'trace',
+            disabled: false
+          });
+        });
+      }else{
+        const fallbackLabel = resolveVennTraceDisplayLabel(traceId || 'Trace');
+        optionsList.push({
+          value: 'trace',
+          label: fallbackLabel,
+          datasetLabel: fallbackLabel,
+          scopeDataset: traceId || '',
+          scopeKind: 'trace',
+          disabled: !traceId
+        });
+      }
+      return optionsList;
+    })();
     const fallback = options.fallback && typeof options.fallback === 'object'
       ? options.fallback
       : resolveVennTraceBaseStyle(traceId);
@@ -1982,11 +2080,16 @@
       formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls venn-upset-trace-controls',
       scope: {
         label: 'Scope',
-        options: [
-          { value: 'global', label: 'Global', disabled: false },
-          { value: 'trace', label: traceId || 'Trace', datasetLabel: traceId || 'Trace', disabled: !traceId }
-        ],
-        value: traceId ? 'trace' : 'global'
+        options: scopeOptions,
+        value: traceId ? 'trace' : 'global',
+        onChange(nextScope, ctx){
+          if(nextScope === 'trace'){
+            const scopedTraceId = String(ctx?.scopeDataset || '').trim();
+            if(scopedTraceId){
+              traceId = scopedTraceId;
+            }
+          }
+        }
       },
       fillShape: {
         label: 'Fill',
@@ -2033,7 +2136,62 @@
     const anchor = resolveVennSymbolToolbarAnchor(doc);
     if(!anchor){ return; }
     const kind = options.kind;
-    const traceId = options.traceId || null;
+    let traceId = options.traceId || null;
+    const knownTraceIds = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(traceId);
+      const scopedSelector = kind
+        ? `[data-upset-trace-kind="${kind}"][data-upset-trace-id]`
+        : '[data-upset-trace-id]';
+      const scopedNodes = Array.from(doc.querySelectorAll(scopedSelector));
+      if(scopedNodes.length){
+        scopedNodes.forEach(node => addKey(node.getAttribute('data-upset-trace-id')));
+      }else{
+        doc.querySelectorAll('[data-upset-trace-id]').forEach(node => addKey(node.getAttribute('data-upset-trace-id')));
+      }
+      return Array.from(keys);
+    };
+    const orderedTraceIds = () => {
+      const keys = knownTraceIds();
+      if(!traceId){
+        return keys;
+      }
+      return [traceId].concat(keys.filter(key => key !== traceId));
+    };
+    const scopeOptions = (() => {
+      const optionsList = [{ value: 'global', label: 'Global', disabled: false }];
+      const keys = orderedTraceIds();
+      if(keys.length){
+        keys.forEach(name => {
+          const displayLabel = resolveUpSetTraceDisplayLabel(kind, name);
+          optionsList.push({
+            value: 'trace',
+            label: displayLabel,
+            datasetLabel: displayLabel,
+            scopeDataset: name,
+            scopeKind: 'trace',
+            disabled: false
+          });
+        });
+      }else{
+        const fallbackLabel = resolveUpSetTraceDisplayLabel(kind, traceId || 'Trace');
+        optionsList.push({
+          value: 'trace',
+          label: fallbackLabel,
+          datasetLabel: fallbackLabel,
+          scopeDataset: traceId || '',
+          scopeKind: 'trace',
+          disabled: !traceId
+        });
+      }
+      return optionsList;
+    })();
     const fallback = options.fallback && typeof options.fallback === 'object' ? options.fallback : {};
     debugLog('upset trace toolbar open requested', { kind, traceId });
     const getStyle = ctx => getUpSetTraceStyle(kind, ctx?.scope === 'trace' ? traceId : null, fallback);
@@ -2046,11 +2204,16 @@
       formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls venn-upset-trace-controls',
       scope: {
         label: 'Scope',
-        options: [
-          { value: 'global', label: 'Global', disabled: false },
-          { value: 'trace', label: traceId || 'Trace', datasetLabel: traceId || 'Trace', disabled: !traceId }
-        ],
-        value: traceId ? 'trace' : 'global'
+        options: scopeOptions,
+        value: traceId ? 'trace' : 'global',
+        onChange(nextScope, ctx){
+          if(nextScope === 'trace'){
+            const scopedTraceId = String(ctx?.scopeDataset || '').trim();
+            if(scopedTraceId){
+              traceId = scopedTraceId;
+            }
+          }
+        }
       },
       fillShape: {
         label: 'Fill',
@@ -2389,6 +2552,12 @@
     const select = state.ui.regionSelect;
     const entries = Array.isArray(intersections) ? intersections : [];
     const setLabelByKey = new Map((sets || []).map(set => [set.key, set.label]));
+    state.analysis.lastUpSetSets = Array.isArray(sets)
+      ? sets.map(set => ({
+          key: String(set?.key || '').trim(),
+          label: String(set?.label || '').trim()
+        })).filter(set => !!set.key)
+      : [];
     const normalized = entries.map((entry, idx) => {
       const code = String(entry?.code || '');
       const label = entry?.label

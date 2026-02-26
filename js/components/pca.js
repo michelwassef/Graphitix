@@ -5250,8 +5250,55 @@
           return;
         }
         const pointData = targetNode.__pcaPointData || {};
-        const labelKey = pointData.label ? String(pointData.label).trim() : '';
-        const hasLabelScope = !!labelKey;
+        let labelKey = pointData.label ? String(pointData.label).trim() : '';
+        let hasLabelScope = !!labelKey;
+        const knownLabelKeys = () => {
+          const keys = new Set();
+          const addKey = value => {
+            const normalized = String(value == null ? '' : value).trim();
+            if(normalized){
+              keys.add(normalized);
+            }
+          };
+          addKey(labelKey);
+          Object.keys(pcaLabelColors || {}).forEach(addKey);
+          Object.keys(pcaLabelShapes || {}).forEach(addKey);
+          Object.keys(pcaLabelPointStyles || {}).forEach(addKey);
+          return Array.from(keys);
+        };
+        const orderedLabelKeys = () => {
+          const keys = knownLabelKeys();
+          if(!labelKey){
+            return keys;
+          }
+          return [labelKey].concat(keys.filter(name => name !== labelKey));
+        };
+        const labelScopeOptions = (() => {
+          const options = [{ value: 'global', label: 'Global', disabled: false }];
+          const keys = orderedLabelKeys();
+          if(keys.length){
+            keys.forEach(name => {
+              options.push({
+                value: 'label',
+                label: name,
+                datasetLabel: name,
+                scopeDataset: name,
+                scopeKind: 'label',
+                disabled: false
+              });
+            });
+          }else{
+            options.push({
+              value: 'label',
+              label: labelKey || 'Label',
+              datasetLabel: labelKey || 'Label',
+              scopeDataset: labelKey || '',
+              scopeKind: 'label',
+              disabled: !hasLabelScope
+            });
+          }
+          return options;
+        })();
         const ensureLabelPointStyle = () => {
           if(!hasLabelScope){ return null; }
           const existing = pcaLabelPointStyles[labelKey];
@@ -5281,11 +5328,17 @@
           formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls pca-point-controls',
           scope: {
             label: 'Scope',
-            options: [
-              { value: 'global', label: 'Global', disabled: false },
-              { value: 'label', label: labelKey || 'Label', datasetLabel: labelKey || 'Label', disabled: !hasLabelScope }
-            ],
-            value: hasLabelScope ? 'label' : 'global'
+            options: labelScopeOptions,
+            value: hasLabelScope ? 'label' : 'global',
+            onChange(nextScope, ctx){
+              if(nextScope === 'label'){
+                const scopedLabelKey = String(ctx?.scopeDataset || '').trim();
+                if(scopedLabelKey){
+                  labelKey = scopedLabelKey;
+                  hasLabelScope = true;
+                }
+              }
+            }
           },
           fillShape: {
             label: 'Fill/Shape',

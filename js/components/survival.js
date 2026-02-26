@@ -65,7 +65,60 @@
 
   function showSurvivalStrokeFormatControls(target){
     if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
-      const seriesKey = target.getAttribute('data-group') || null;
+      let seriesKey = target.getAttribute('data-group') || null;
+      const knownSeriesKeys = () => {
+        const keys = new Set();
+        const addKey = value => {
+          const normalized = String(value == null ? '' : value).trim();
+          if(normalized){
+            keys.add(normalized);
+          }
+        };
+        addKey(seriesKey);
+        Object.keys(state.labelColors || {}).forEach(addKey);
+        Object.keys(state.labelStrokeWidth || {}).forEach(addKey);
+        Object.keys(state.labelOpacity || {}).forEach(addKey);
+        Object.keys(state.labelLinePattern || {}).forEach(addKey);
+        const doc = global.document;
+        const svg = doc ? doc.getElementById('survivalSvg') : null;
+        if(svg && svg.querySelectorAll){
+          svg.querySelectorAll('path[data-group]').forEach(node => addKey(node.getAttribute('data-group')));
+        }
+        return Array.from(keys);
+      };
+      const orderedSeriesKeys = () => {
+        const keys = knownSeriesKeys();
+        if(!seriesKey){
+          return keys;
+        }
+        return [seriesKey].concat(keys.filter(key => key !== seriesKey));
+      };
+      const scopeOptions = (() => {
+        const options = [{ value: 'global', label: 'Global', disabled: false }];
+        const keys = orderedSeriesKeys();
+        if(keys.length){
+          keys.forEach(name => {
+            options.push({
+              value: 'series',
+              label: name,
+              datasetLabel: name,
+              scopeDataset: name,
+              scopeKind: 'series',
+              disabled: false
+            });
+          });
+        }else{
+          options.push({
+            value: 'series',
+            label: seriesKey || 'Series',
+            datasetLabel: seriesKey || 'Series',
+            scopeDataset: seriesKey || '',
+            scopeKind: 'series',
+            disabled: !seriesKey
+          });
+        }
+        return options;
+      })();
       const resolveTargets = scopeValue => {
         const doc = global.document;
         const svg = doc ? doc.getElementById('survivalSvg') : null;
@@ -94,11 +147,16 @@
         },
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'series', label: seriesKey || 'Series', datasetLabel: seriesKey || 'Series', disabled: !seriesKey }
-          ],
-          value: seriesKey ? 'series' : 'global'
+          options: scopeOptions,
+          value: seriesKey ? 'series' : 'global',
+          onChange(nextScope, ctx){
+            if(nextScope === 'series'){
+              const scopedSeriesKey = String(ctx?.scopeDataset || '').trim();
+              if(scopedSeriesKey){
+                seriesKey = scopedSeriesKey;
+              }
+            }
+          }
         },
         getSummary: ctx => (ctx?.scope === 'series' && seriesKey) ? seriesKey : 'Global',
         getColor: ctx => {
@@ -234,13 +292,64 @@
     const wrap = doc.createElement('div'); wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single survival-stroke-controls';
     const makeInput = (labelText, inputEl) => { const lbl = doc.createElement('label'); lbl.className='workspace-toolbar__input workspace-toolbar__input--compact'; const span = doc.createElement('span'); span.className='workspace-toolbar__input-label'; span.textContent = labelText; lbl.appendChild(span); lbl.appendChild(inputEl); return lbl; };
 
-    const seriesKey = target.getAttribute('data-group') || null;
+    let seriesKey = target.getAttribute('data-group') || null;
+    const knownSeriesKeys = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(seriesKey);
+      Object.keys(state.labelColors || {}).forEach(addKey);
+      Object.keys(state.labelStrokeWidth || {}).forEach(addKey);
+      Object.keys(state.labelOpacity || {}).forEach(addKey);
+      Object.keys(state.labelLinePattern || {}).forEach(addKey);
+      const svg = doc.getElementById('survivalSvg');
+      if(svg && svg.querySelectorAll){
+        svg.querySelectorAll('path[data-group]').forEach(node => addKey(node.getAttribute('data-group')));
+      }
+      return Array.from(keys);
+    };
+    const orderedSeriesKeys = () => {
+      const keys = knownSeriesKeys();
+      if(!seriesKey){
+        return keys;
+      }
+      return [seriesKey].concat(keys.filter(key => key !== seriesKey));
+    };
     const scopeField = doc.createElement('label'); scopeField.className='workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
     const scopeLabel = doc.createElement('span'); scopeLabel.className='workspace-toolbar__input-label'; scopeLabel.textContent='Scope';
     const scopeSelect = doc.createElement('select'); scopeSelect.className='workspace-toolbar__select';
-    const optGlobal = doc.createElement('option'); optGlobal.value='global'; optGlobal.textContent='Global';
-    const optSeries = doc.createElement('option'); optSeries.value='series'; optSeries.textContent=seriesKey || 'Series'; optSeries.disabled = !seriesKey;
-    scopeSelect.appendChild(optGlobal); scopeSelect.appendChild(optSeries); scopeSelect.value = seriesKey ? 'series' : 'global';
+    const optGlobal = doc.createElement('option'); optGlobal.value='global'; optGlobal.textContent='Global'; scopeSelect.appendChild(optGlobal);
+    const scopeSeriesKeys = orderedSeriesKeys();
+    if(scopeSeriesKeys.length){
+      scopeSeriesKeys.forEach(name => {
+        const optSeries = doc.createElement('option');
+        optSeries.value='series';
+        optSeries.textContent=name;
+        optSeries.dataset.scopeDataset = name;
+        scopeSelect.appendChild(optSeries);
+      });
+    }else{
+      const optSeries = doc.createElement('option');
+      optSeries.value='series';
+      optSeries.textContent=seriesKey || 'Series';
+      optSeries.disabled = !seriesKey;
+      if(seriesKey){ optSeries.dataset.scopeDataset = seriesKey; }
+      scopeSelect.appendChild(optSeries);
+    }
+    scopeSelect.value = seriesKey ? 'series' : 'global';
+    scopeSelect.addEventListener('change', () => {
+      if(scopeSelect.value === 'series'){
+        const selected = scopeSelect.selectedOptions && scopeSelect.selectedOptions.length ? scopeSelect.selectedOptions[0] : null;
+        const scopedSeriesKey = String(selected?.dataset?.scopeDataset || '').trim();
+        if(scopedSeriesKey){
+          seriesKey = scopedSeriesKey;
+        }
+      }
+    });
     scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect); wrap.appendChild(scopeField);
 
     const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || '#377eb8'; }catch(e){}

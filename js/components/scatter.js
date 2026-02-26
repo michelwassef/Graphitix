@@ -4228,7 +4228,7 @@
       const scatterDotSizeInput = doc.getElementById('scatterDotSize');
       const scatterAlphaInput = doc.getElementById('scatterAlpha');
       const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
-      const scatterLabelKey = target?.__scatterPointData?.label || null;
+      let scatterLabelKey = target?.__scatterPointData?.label || null;
       const resolveAlpha = value => {
         const clamped = clampScatterAlpha(value);
         return clamped != null ? clamped : null;
@@ -4271,6 +4271,57 @@
         });
         scheduleDrawScatter();
       };
+      const knownScatterLabelKeys = () => {
+        const keys = new Set();
+        const addKey = value => {
+          const normalized = String(value == null ? '' : value).trim();
+          if(normalized){
+            keys.add(normalized);
+          }
+        };
+        addKey(scatterLabelKey);
+        Object.keys(scatterLabelColors || {}).forEach(addKey);
+        Object.keys(scatterLabelShapes || {}).forEach(addKey);
+        Object.keys(scatterLabelStyles || {}).forEach(addKey);
+        const scatterSvg = doc.getElementById('scatterPlot');
+        if(scatterSvg && scatterSvg.querySelectorAll){
+          scatterSvg.querySelectorAll('[data-label]').forEach(node => addKey(node.getAttribute('data-label')));
+        }
+        return Array.from(keys);
+      };
+      const orderedScatterLabelKeys = () => {
+        const keys = knownScatterLabelKeys();
+        if(!scatterLabelKey){
+          return keys;
+        }
+        return [scatterLabelKey].concat(keys.filter(key => key !== scatterLabelKey));
+      };
+      const scatterScopeOptions = (() => {
+        const options = [{ value: 'global', label: 'Global', disabled: false }];
+        const labelKeys = orderedScatterLabelKeys();
+        if(labelKeys.length){
+          labelKeys.forEach(labelName => {
+            options.push({
+              value: 'label',
+              label: labelName,
+              datasetLabel: labelName,
+              scopeDataset: labelName,
+              scopeKind: 'label',
+              disabled: false
+            });
+          });
+        }else{
+          options.push({
+            value: 'label',
+            label: scatterLabelKey || 'Label',
+            datasetLabel: scatterLabelKey || 'Label',
+            scopeDataset: scatterLabelKey || '',
+            scopeKind: 'label',
+            disabled: !scatterLabelKey
+          });
+        }
+        return options;
+      })();
       const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
         target,
@@ -4279,11 +4330,16 @@
         formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls scatter-point-controls',
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'label', label: scatterLabelKey || 'Label', datasetLabel: scatterLabelKey || 'Label', disabled: !scatterLabelKey }
-          ],
-          value: scatterLabelKey ? 'label' : 'global'
+          options: scatterScopeOptions,
+          value: scatterLabelKey ? 'label' : 'global',
+          onChange(nextScope, ctx){
+            if(nextScope === 'label'){
+              const scopedLabelKey = String(ctx?.scopeDataset || '').trim();
+              if(scopedLabelKey){
+                scatterLabelKey = scopedLabelKey;
+              }
+            }
+          }
         },
         fillShape: {
           label: 'Fill/Shape',
@@ -4533,13 +4589,38 @@
     const scatterDotSizeInput = doc.getElementById('scatterDotSize');
     const scatterAlphaInput = doc.getElementById('scatterAlpha');
     const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
-    const scatterLabelKey = target?.__scatterPointData?.label || null;
-    const labelStyle = scatterLabelKey ? scatterLabelStyles[scatterLabelKey] || {} : null;
+    let scatterLabelKey = target?.__scatterPointData?.label || null;
+    const knownScatterLabelKeys = () => {
+      const keys = new Set();
+      const addKey = value => {
+        const normalized = String(value == null ? '' : value).trim();
+        if(normalized){
+          keys.add(normalized);
+        }
+      };
+      addKey(scatterLabelKey);
+      Object.keys(scatterLabelColors || {}).forEach(addKey);
+      Object.keys(scatterLabelShapes || {}).forEach(addKey);
+      Object.keys(scatterLabelStyles || {}).forEach(addKey);
+      const scatterSvg = doc.getElementById('scatterPlot');
+      if(scatterSvg && scatterSvg.querySelectorAll){
+        scatterSvg.querySelectorAll('[data-label]').forEach(node => addKey(node.getAttribute('data-label')));
+      }
+      return Array.from(keys);
+    };
+    const orderedScatterLabelKeys = () => {
+      const keys = knownScatterLabelKeys();
+      if(!scatterLabelKey){
+        return keys;
+      }
+      return [scatterLabelKey].concat(keys.filter(key => key !== scatterLabelKey));
+    };
+    const getLabelStyle = () => scatterLabelKey ? (scatterLabelStyles[scatterLabelKey] || null) : null;
     const resolveAlpha = value => {
       const clamped = clampScatterAlpha(value);
       return clamped != null ? clamped : null;
     };
-    const labelAlpha = resolveAlpha(labelStyle?.alpha);
+    const labelAlpha = resolveAlpha(getLabelStyle()?.alpha);
     const scopeName = `scatterScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
@@ -4552,13 +4633,34 @@
     const optGlobal = doc.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = 'Global';
-    const optLabel = doc.createElement('option');
-    optLabel.value = 'label';
-    optLabel.textContent = scatterLabelKey || 'Label';
-    optLabel.disabled = !scatterLabelKey;
     scopeSelect.appendChild(optGlobal);
-    scopeSelect.appendChild(optLabel);
+    const labelScopeKeys = orderedScatterLabelKeys();
+    if(labelScopeKeys.length){
+      labelScopeKeys.forEach(name => {
+        const optLabel = doc.createElement('option');
+        optLabel.value = 'label';
+        optLabel.textContent = name;
+        optLabel.dataset.scopeDataset = name;
+        scopeSelect.appendChild(optLabel);
+      });
+    }else{
+      const optLabel = doc.createElement('option');
+      optLabel.value = 'label';
+      optLabel.textContent = scatterLabelKey || 'Label';
+      optLabel.disabled = !scatterLabelKey;
+      if(scatterLabelKey){ optLabel.dataset.scopeDataset = scatterLabelKey; }
+      scopeSelect.appendChild(optLabel);
+    }
     scopeSelect.value = scatterLabelKey ? 'label' : 'global';
+    scopeSelect.addEventListener('change', () => {
+      if(scopeSelect.value === 'label'){
+        const selected = scopeSelect.selectedOptions && scopeSelect.selectedOptions.length ? scopeSelect.selectedOptions[0] : null;
+        const scopedLabelKey = String(selected?.dataset?.scopeDataset || '').trim();
+        if(scopedLabelKey){
+          scatterLabelKey = scopedLabelKey;
+        }
+      }
+    });
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
@@ -4613,7 +4715,7 @@
       return Math.max(min, numeric);
     };
     const resolveCurrentBorderWidth = () => {
-      const fromLabel = labelStyle?.borderWidth;
+      const fromLabel = getLabelStyle()?.borderWidth;
       if(Number.isFinite(Number(fromLabel))){
         return clampNumeric(fromLabel, { min: 0, fallback: 0 });
       }
@@ -4627,7 +4729,7 @@
       return 0;
     };
     const resolveCurrentSize = () => {
-      const fromLabel = labelStyle?.size;
+      const fromLabel = getLabelStyle()?.size;
       if(Number.isFinite(Number(fromLabel))){
         return clampNumeric(fromLabel, { min: 0, fallback: 0 });
       }
@@ -4892,7 +4994,7 @@
     borderInput.type = 'color';
     const resolvedBorder =
       (targetStroke && targetStroke !== 'none' ? targetStroke : null)
-      || (labelStyle?.borderColor || null)
+      || (getLabelStyle()?.borderColor || null)
       || (scatterBorderInput?.value || null)
       || '#000000';
     currentBorderColor = resolvedBorder;

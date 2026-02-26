@@ -2565,28 +2565,50 @@
       const strokeWidthInput = doc.getElementById('lineBorderWidth');
       const alphaInput = doc.getElementById('lineAlpha');
       const alphaVal = doc.getElementById('lineAlphaVal');
-      const seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
+      let seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
       const resolveAlpha = value => {
         const n = Number(value);
         return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : null;
+      };
+      const decodeScopeValue = value => {
+        if(Shared && typeof Shared.decodeScopeValue === 'function'){
+          return Shared.decodeScopeValue(value);
+        }
+        const raw = String(value == null ? '' : value).trim();
+        if(!raw){
+          return { raw: '', kind: '', dataset: '' };
+        }
+        const tokenIndex = raw.indexOf('::');
+        if(tokenIndex <= 0){
+          return { raw, kind: raw, dataset: '' };
+        }
+        const kind = String(raw.slice(0, tokenIndex) || '').trim();
+        const encodedDataset = raw.slice(tokenIndex + 2);
+        let dataset = encodedDataset;
+        try{
+          dataset = decodeURIComponent(encodedDataset);
+        }catch(err){}
+        return { raw, kind: kind || raw, dataset: String(dataset == null ? '' : dataset).trim() };
       };
       const applyAndDispatch = (inputEl, value, type = 'input') => {
         if(!inputEl){ return; }
         inputEl.value = value;
         inputEl.dispatchEvent(new Event(type, { bubbles: true }));
       };
-      const ensureSeriesStyle = () => {
-        if(!seriesKey){ return null; }
-        const prev = lineSeriesStyles[seriesKey];
+      const ensureSeriesStyle = key => {
+        const resolvedKey = String(key == null ? '' : key).trim();
+        if(!resolvedKey){ return null; }
+        const prev = lineSeriesStyles[resolvedKey];
         if(prev && typeof prev === 'object'){
           return prev;
         }
-        lineSeriesStyles[seriesKey] = {};
-        return lineSeriesStyles[seriesKey];
+        lineSeriesStyles[resolvedKey] = {};
+        return lineSeriesStyles[resolvedKey];
       };
-      const applySeriesPatch = patch => {
-        if(!seriesKey){ return; }
-        const style = ensureSeriesStyle();
+      const applySeriesPatch = (patch, keyOverride) => {
+        const resolvedKey = String(keyOverride == null ? seriesKey : keyOverride).trim();
+        if(!resolvedKey){ return; }
+        const style = ensureSeriesStyle(resolvedKey);
         Object.assign(style, patch);
         scheduleLineDraw();
       };
@@ -2601,6 +2623,32 @@
         if(seriesKey){ keys.add(seriesKey); }
         return Array.from(keys);
       };
+      const orderedSeriesKeys = () => {
+        const keys = knownSeriesKeys().filter(name => {
+          const normalized = name == null ? '' : String(name).trim();
+          return !!normalized;
+        });
+        if(!seriesKey){
+          return keys;
+        }
+        return [seriesKey].concat(keys.filter(name => name !== seriesKey));
+      };
+      const resolveScopedSeriesKey = ctx => {
+        const kind = String(ctx?.scope || '').trim().toLowerCase();
+        if(kind !== 'series'){
+          return '';
+        }
+        const datasetFromContext = String(ctx?.scopeDataset || '').trim();
+        if(datasetFromContext){
+          return datasetFromContext;
+        }
+        const parsed = decodeScopeValue(ctx?.scopeValue || ctx?.scope);
+        const datasetFromScope = String(parsed.dataset || '').trim();
+        if(datasetFromScope){
+          return datasetFromScope;
+        }
+        return String(seriesKey || '').trim();
+      };
       const applyGlobalPatch = (key, value) => {
         const keys = knownSeriesKeys();
         keys.forEach(k => {
@@ -2608,17 +2656,19 @@
         });
         scheduleLineDraw();
       };
-      const resolveSeriesStyle = () => (seriesKey ? (lineSeriesStyles[seriesKey] || {}) : {});
-      const getMarkerFill = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
-          return style?.markerFill || style?.fill || lineLabelColors[seriesKey] || fillInput?.value || '#377eb8';
+      const resolveSeriesStyle = scopedSeriesKey => (scopedSeriesKey ? (lineSeriesStyles[scopedSeriesKey] || {}) : {});
+      const getMarkerFill = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
+          return style?.markerFill || style?.fill || lineLabelColors[scopedSeriesKey] || fillInput?.value || '#377eb8';
         }
         return fillInput?.value || '#377eb8';
       };
-      const getMarkerBorderColor = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
+      const getMarkerBorderColor = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
           return style?.markerStroke || style?.stroke || style?.borderColor || '#000000';
         }
         if(typeof style?.markerStroke === 'string' && style.markerStroke){ return style.markerStroke; }
@@ -2626,9 +2676,10 @@
         if(typeof style?.borderColor === 'string' && style.borderColor){ return style.borderColor; }
         return '#000000';
       };
-      const getMarkerBorderWidth = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
+      const getMarkerBorderWidth = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
           if(Number.isFinite(Number(style?.markerStrokeWidth))){ return Number(style.markerStrokeWidth); }
           if(Number.isFinite(Number(style?.strokeWidth))){ return Number(style.strokeWidth); }
         }
@@ -2636,9 +2687,10 @@
         if(Number.isFinite(Number(style?.strokeWidth))){ return Number(style.strokeWidth); }
         return 0;
       };
-      const getMarkerAlpha = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
+      const getMarkerAlpha = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
           if(resolveAlpha(style?.markerAlpha) != null){ return resolveAlpha(style.markerAlpha); }
           if(resolveAlpha(style?.alpha) != null){ return resolveAlpha(style.alpha); }
         }
@@ -2646,16 +2698,18 @@
         if(resolveAlpha(style?.alpha) != null){ return resolveAlpha(style.alpha); }
         return resolveAlpha(alphaInput?.value) || 0;
       };
-      const getPathColor = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
-          return style?.lineStroke || lineLabelColors[seriesKey] || strokeInput?.value || '#000000';
+      const getPathColor = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
+          return style?.lineStroke || lineLabelColors[scopedSeriesKey] || strokeInput?.value || '#000000';
         }
         return strokeInput?.value || '#000000';
       };
-      const getPathWidth = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
+      const getPathWidth = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
           if(Number.isFinite(Number(style?.lineStrokeWidth))){ return Number(style.lineStrokeWidth); }
           if(Number.isFinite(Number(style?.strokeWidth))){ return Number(style.strokeWidth); }
         }
@@ -2664,15 +2718,42 @@
         }
         return Number(target.getAttribute('stroke-width')) || 0;
       };
-      const getPathAlpha = scope => {
-        const style = resolveSeriesStyle();
-        if(scope === 'series' && seriesKey){
+      const getPathAlpha = ctx => {
+        const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+        const style = resolveSeriesStyle(scopedSeriesKey);
+        if(scopedSeriesKey){
           if(resolveAlpha(style?.lineAlpha) != null){ return resolveAlpha(style.lineAlpha); }
           if(resolveAlpha(style?.alpha) != null){ return resolveAlpha(style.alpha); }
         }
         return resolveAlpha(alphaInput?.value) || 0;
       };
       const seriesScopeLabel = (typeof seriesKey === 'string' && seriesKey.trim()) ? seriesKey : 'Series';
+      const seriesScopeOptions = (() => {
+        const options = [{ value: 'global', label: 'Global', disabled: false }];
+        const keys = orderedSeriesKeys();
+        if(keys.length){
+          keys.forEach(name => {
+            options.push({
+              value: 'series',
+              label: name,
+              datasetLabel: name,
+              scopeDataset: name,
+              scopeKind: 'series',
+              disabled: false
+            });
+          });
+        }else{
+          options.push({
+            value: 'series',
+            label: seriesScopeLabel,
+            datasetLabel: seriesScopeLabel,
+            scopeDataset: seriesScopeLabel,
+            scopeKind: 'series',
+            disabled: !seriesKey
+          });
+        }
+        return options;
+      })();
       const sanitizeShape = (shape, index = 0) => sanitizeLineGroupShape(shape, index);
       const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
@@ -2682,21 +2763,27 @@
         formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls line-point-controls',
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'series', label: seriesScopeLabel, datasetLabel: seriesScopeLabel, disabled: !seriesKey }
-          ],
-          value: seriesKey ? 'series' : 'global'
+          options: seriesScopeOptions,
+          value: seriesKey ? 'series' : 'global',
+          onChange(nextScope, ctx){
+            if(nextScope === 'series'){
+              const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+              if(scopedSeriesKey){
+                seriesKey = scopedSeriesKey;
+              }
+            }
+          }
         },
         fillShape: {
           label: 'Fill/Shape',
           shapeOptions: LINE_GROUP_SHAPE_OPTIONS?.length ? LINE_GROUP_SHAPE_OPTIONS : [{ value: 'circle', label: 'Circle' }],
           getColor(ctx){
-            return getMarkerFill(ctx.scope);
+            return getMarkerFill(ctx);
           },
           getShape(ctx){
-            if(ctx.scope === 'series' && seriesKey){
-              const idx = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.findIndex(name => name === seriesKey) : -1;
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              const idx = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.findIndex(name => name === scopedSeriesKey) : -1;
               const safe = idx >= 0 ? idx : 0;
               return sanitizeShape(getLineGroupShape(safe), safe);
             }
@@ -2709,8 +2796,9 @@
             return unique.size === 1 ? unique.values().next().value : sanitizeShape(shapes[0], 0);
           },
           onColorInput(nextColor, ctx){
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ markerFill: nextColor, fill: nextColor });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ markerFill: nextColor, fill: nextColor }, scopedSeriesKey);
             }else{
               if(fillInput){ applyAndDispatch(fillInput, nextColor); }
               applyGlobalPatch('markerFill', nextColor);
@@ -2718,8 +2806,9 @@
             }
           },
           onColorChange(nextColor, ctx){
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ markerFill: nextColor, fill: nextColor });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ markerFill: nextColor, fill: nextColor }, scopedSeriesKey);
             }else{
               if(fillInput){ applyAndDispatch(fillInput, nextColor); }
               applyGlobalPatch('markerFill', nextColor);
@@ -2728,8 +2817,9 @@
           },
           onShapeChange(nextShape, ctx){
             if(!LINE_GROUP_SHAPE_OPTIONS?.length){ return; }
-            if(ctx.scope === 'series' && seriesKey){
-              const idx = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.findIndex(name => name === seriesKey) : -1;
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              const idx = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.findIndex(name => name === scopedSeriesKey) : -1;
               const safe = idx >= 0 ? idx : 0;
               const shapes = ensureLineGroupShapeCapacity(Math.max((lineSeriesGroupLabels || []).length, safe + 1));
               shapes[safe] = sanitizeShape(nextShape, safe);
@@ -2758,29 +2848,32 @@
         border: {
           label: 'Border',
           getColor(ctx){
-            return getMarkerBorderColor(ctx.scope);
+            return getMarkerBorderColor(ctx);
           },
           onColorInput(nextColor, ctx){
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ markerStroke: nextColor });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ markerStroke: nextColor }, scopedSeriesKey);
             }else{
               applyGlobalPatch('markerStroke', nextColor);
             }
           },
           onColorChange(nextColor, ctx){
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ markerStroke: nextColor });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ markerStroke: nextColor }, scopedSeriesKey);
             }else{
               applyGlobalPatch('markerStroke', nextColor);
             }
           },
           getWidth(ctx){
-            return getMarkerBorderWidth(ctx.scope);
+            return getMarkerBorderWidth(ctx);
           },
           onWidthChange(nextValue, ctx){
             const next = Math.max(0, Number(nextValue) || 0);
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ markerStrokeWidth: next });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ markerStrokeWidth: next }, scopedSeriesKey);
             }else{
               applyGlobalPatch('markerStrokeWidth', next);
             }
@@ -2788,8 +2881,9 @@
         },
         size: {
           get(ctx){
-            const style = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
-            if(ctx.scope === 'series' && seriesKey && Number.isFinite(Number(style?.dotSize))){
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            const style = scopedSeriesKey ? lineSeriesStyles[scopedSeriesKey] || {} : null;
+            if(scopedSeriesKey && Number.isFinite(Number(style?.dotSize))){
               return Number(style.dotSize);
             }
             if(Number.isFinite(Number(dotSizeInput?.value))){
@@ -2799,8 +2893,9 @@
           },
           onChange(nextValue, ctx){
             const next = Math.max(0, Number(nextValue) || 0);
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ dotSize: next });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ dotSize: next }, scopedSeriesKey);
             }else{
               if(dotSizeInput){ applyAndDispatch(dotSizeInput, String(next)); }
               applyGlobalPatch('dotSize', next);
@@ -2810,12 +2905,13 @@
         transparency: {
           label: 'Transparency',
           get(ctx){
-            return getMarkerAlpha(ctx.scope);
+            return getMarkerAlpha(ctx);
           },
           onChange(nextValue, ctx){
             const normalized = Math.min(1, Math.max(0, Number(nextValue) || 0));
-            if(ctx.scope === 'series' && seriesKey){
-              applySeriesPatch({ markerAlpha: normalized });
+            const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+            if(scopedSeriesKey){
+              applySeriesPatch({ markerAlpha: normalized }, scopedSeriesKey);
             }else{
               applyGlobalPatch('markerAlpha', normalized);
             }
@@ -2825,16 +2921,52 @@
       const toolbarHost = symbolToolbarState?.host || null;
       const markerScopeSelect = symbolToolbarState?.scopeSelect || null;
       if(toolbarHost){
+        const selectedScopeDataset = selectEl => {
+          const selected = selectEl && selectEl.selectedOptions && selectEl.selectedOptions.length
+            ? selectEl.selectedOptions[0]
+            : null;
+          return String(selected?.dataset?.scopeDataset || '').trim();
+        };
+        const selectScopeOption = (selectEl, scopeValue, scopeDataset) => {
+          if(!selectEl){ return false; }
+          const requestedValue = String(scopeValue == null ? '' : scopeValue).trim();
+          const requestedDataset = String(scopeDataset == null ? '' : scopeDataset).trim();
+          const options = Array.from(selectEl.options || []);
+          let matchIndex = -1;
+          if(requestedDataset){
+            matchIndex = options.findIndex(opt => (
+              !opt.disabled
+              && opt.value === requestedValue
+              && String(opt?.dataset?.scopeDataset || '').trim() === requestedDataset
+            ));
+          }
+          if(matchIndex < 0){
+            matchIndex = options.findIndex(opt => !opt.disabled && opt.value === requestedValue);
+          }
+          if(matchIndex < 0){
+            return false;
+          }
+          if(selectEl.selectedIndex !== matchIndex){
+            selectEl.selectedIndex = matchIndex;
+            return true;
+          }
+          return false;
+        };
         const normalizeScope = value => (value === 'series' && seriesKey) ? 'series' : 'global';
         let lineScopeValue = normalizeScope(markerScopeSelect?.value || (seriesKey ? 'series' : 'global'));
-        const resolveScope = ctx => normalizeScope(ctx?.scope || lineScopeValue || markerScopeSelect?.value || 'global');
         const setLineScope = (value, options) => {
           const opts = options || {};
           const normalized = normalizeScope(value);
+          if(normalized === 'series'){
+            const scopedSeriesKey = String(opts.scopeDataset || '').trim();
+            if(scopedSeriesKey){
+              seriesKey = scopedSeriesKey;
+            }
+          }
           lineScopeValue = normalized;
-          if(markerScopeSelect && markerScopeSelect.value !== normalized){
-            markerScopeSelect.value = normalized;
-            if(opts.dispatchMarkerChange !== false){
+          if(markerScopeSelect){
+            const didSelect = selectScopeOption(markerScopeSelect, normalized, seriesKey);
+            if(didSelect && opts.dispatchMarkerChange !== false){
               markerScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
             }
           }
@@ -2844,7 +2976,10 @@
           try{
             lineScopeValue = normalizeScope(markerScopeSelect?.value || lineScopeValue);
             if(additionalLineControls && typeof additionalLineControls.setScope === 'function'){
-              additionalLineControls.setScope(lineScopeValue, { triggerChange: false });
+              additionalLineControls.setScope(lineScopeValue, {
+                triggerChange: false,
+                scopeDataset: seriesKey
+              });
             }
             if(additionalLineControls && typeof additionalLineControls.refresh === 'function'){
               additionalLineControls.refresh();
@@ -2867,13 +3002,10 @@
             hostDisplay: 'grid',
             scope: {
               label: 'Scope',
-              options: [
-                { value: 'global', label: 'Global', disabled: false },
-                { value: 'series', label: seriesScopeLabel, datasetLabel: seriesScopeLabel, disabled: !seriesKey }
-              ],
+              options: seriesScopeOptions,
               value: lineScopeValue,
-              onChange(nextScope){
-                setLineScope(nextScope);
+              onChange(nextScope, ctx){
+                setLineScope(nextScope, { scopeDataset: ctx?.scopeDataset });
               }
             },
             controls: {
@@ -2888,22 +3020,22 @@
               thicknessMax: 24
             },
             getSummary: () => '',
-            getColor: ctx => getPathColor(resolveScope(ctx)),
-            getThickness: ctx => getPathWidth(resolveScope(ctx)),
-            getTransparency: ctx => Math.round(Math.min(1, Math.max(0, Number(getPathAlpha(resolveScope(ctx))) || 0)) * 100),
+            getColor: ctx => getPathColor(ctx),
+            getThickness: ctx => getPathWidth(ctx),
+            getTransparency: ctx => Math.round(Math.min(1, Math.max(0, Number(getPathAlpha(ctx)) || 0)) * 100),
             onColorInput: (nextColor, ctx) => {
-              const scope = resolveScope(ctx);
-              if(scope === 'series' && seriesKey){
-                applySeriesPatch({ lineStroke: nextColor });
+              const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+              if(scopedSeriesKey){
+                applySeriesPatch({ lineStroke: nextColor }, scopedSeriesKey);
               }else{
                 if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
                 applyGlobalPatch('lineStroke', nextColor);
               }
             },
             onColorChange: (nextColor, ctx) => {
-              const scope = resolveScope(ctx);
-              if(scope === 'series' && seriesKey){
-                applySeriesPatch({ lineStroke: nextColor });
+              const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+              if(scopedSeriesKey){
+                applySeriesPatch({ lineStroke: nextColor }, scopedSeriesKey);
               }else{
                 if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
                 applyGlobalPatch('lineStroke', nextColor);
@@ -2911,9 +3043,9 @@
             },
             onThicknessChange: (nextValue, ctx) => {
               const next = Math.max(0, Number(nextValue) || 0);
-              const scope = resolveScope(ctx);
-              if(scope === 'series' && seriesKey){
-                applySeriesPatch({ lineStrokeWidth: next });
+              const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+              if(scopedSeriesKey){
+                applySeriesPatch({ lineStrokeWidth: next }, scopedSeriesKey);
               }else{
                 if(strokeWidthInput){ applyAndDispatch(strokeWidthInput, String(next)); }
                 applyGlobalPatch('lineStrokeWidth', next);
@@ -2922,9 +3054,9 @@
             onTransparencyChange: (nextValue, ctx) => {
               const bounded = Math.min(100, Math.max(0, Number(nextValue) || 0));
               const normalized = bounded / 100;
-              const scope = resolveScope(ctx);
-              if(scope === 'series' && seriesKey){
-                applySeriesPatch({ lineAlpha: normalized });
+              const scopedSeriesKey = resolveScopedSeriesKey(ctx);
+              if(scopedSeriesKey){
+                applySeriesPatch({ lineAlpha: normalized }, scopedSeriesKey);
               }else{
                 if(alphaInput){ applyAndDispatch(alphaInput, String(normalized)); }
                 if(alphaVal){ alphaVal.textContent = String(normalized); }
@@ -2940,7 +3072,10 @@
         }
         if(markerScopeSelect){
           markerScopeSelect.addEventListener('change', () => {
-            setLineScope(markerScopeSelect.value, { dispatchMarkerChange: false });
+            setLineScope(markerScopeSelect.value, {
+              dispatchMarkerChange: false,
+              scopeDataset: selectedScopeDataset(markerScopeSelect)
+            });
             syncPathToolbar();
           });
         }

@@ -24,6 +24,46 @@
     return [{ value: 'circle', label: 'Circle' }];
   }
 
+  function encodeScopeValueInternal(kind, dataset){
+    const scopeKind = String(kind == null ? '' : kind).trim();
+    if(!scopeKind){ return ''; }
+    const datasetValue = dataset == null ? '' : String(dataset).trim();
+    if(!datasetValue){
+      return scopeKind;
+    }
+    return `${scopeKind}::${encodeURIComponent(datasetValue)}`;
+  }
+
+  function decodeScopeValueInternal(value){
+    const raw = String(value == null ? '' : value).trim();
+    if(!raw){
+      return { raw: '', kind: '', dataset: '' };
+    }
+    const tokenIndex = raw.indexOf('::');
+    if(tokenIndex <= 0){
+      return { raw, kind: raw, dataset: '' };
+    }
+    const kind = String(raw.slice(0, tokenIndex) || '').trim();
+    const encodedDataset = raw.slice(tokenIndex + 2);
+    let dataset = encodedDataset;
+    try{
+      dataset = decodeURIComponent(encodedDataset);
+    }catch(err){}
+    const normalizedDataset = String(dataset == null ? '' : dataset).trim();
+    return {
+      raw,
+      kind: kind || raw,
+      dataset: normalizedDataset
+    };
+  }
+
+  Shared.encodeScopeValue = function encodeScopeValue(kind, dataset){
+    return encodeScopeValueInternal(kind, dataset);
+  };
+  Shared.decodeScopeValue = function decodeScopeValue(value){
+    return decodeScopeValueInternal(value);
+  };
+
   function readFirstNonEmpty(values){
     if(!Array.isArray(values)){ return ''; }
     for(let i = 0; i < values.length; i += 1){
@@ -286,6 +326,12 @@
       opt.value = option.value;
       opt.textContent = option.label || option.value;
       opt.disabled = !!option.disabled;
+      if(option.scopeDataset != null){
+        opt.dataset.scopeDataset = String(option.scopeDataset);
+      }
+      if(option.scopeKind != null){
+        opt.dataset.scopeKind = String(option.scopeKind);
+      }
       scopeSelect.appendChild(opt);
     });
     if(scopeSelect.options.length){
@@ -297,10 +343,23 @@
     }
     wrap.appendChild(makeInput(scopeCfg.label || 'Scope', scopeSelect, 'additional-line-controls-panel__field--scope'));
 
-    const getContext = () => ({
-      scope: scopeSelect.value,
-      target: cfg.target || null
-    });
+    const getContext = () => {
+      const rawScopeValue = String(scopeSelect.value == null ? '' : scopeSelect.value).trim();
+      const parsedScope = Shared.decodeScopeValue(rawScopeValue);
+      const selectedOption = scopeSelect.selectedOptions && scopeSelect.selectedOptions.length
+        ? scopeSelect.selectedOptions[0]
+        : null;
+      const optionDataset = String(selectedOption?.dataset?.scopeDataset || '').trim();
+      const optionKind = String(selectedOption?.dataset?.scopeKind || '').trim();
+      const scopeKind = String(parsedScope.kind || optionKind || rawScopeValue || '').trim();
+      const scopeDataset = String(parsedScope.dataset || optionDataset || '').trim();
+      return {
+        scope: scopeKind || null,
+        scopeValue: parsedScope.raw || rawScopeValue || null,
+        scopeDataset: scopeDataset || null,
+        target: cfg.target || null
+      };
+    };
 
     const fillCfg = cfg.fillShape || {};
     const borderCfg = cfg.border || {};
@@ -664,7 +723,7 @@
 
     scopeSelect.addEventListener('change', () => {
       if(typeof scopeCfg.onChange === 'function'){
-        scopeCfg.onChange(scopeSelect.value);
+        scopeCfg.onChange(scopeSelect.value, getContext());
       }
       if(sizeEnabled){
         currentSize = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(getContext()) : currentSize, 0, currentSize);
