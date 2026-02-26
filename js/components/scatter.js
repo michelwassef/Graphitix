@@ -420,7 +420,20 @@
     return defaults;
   }
   let scatterOverlayStyles = cloneScatterOverlayStyleDefaults();
-  let scatterOverlayToolbarScope = 'trend';
+  let scatterOverlayToolbarScope = 'global';
+  function getScatterOverlayScopeKeys(scopeKey){
+    const normalized = normalizeScatterOverlayToolbarScope(scopeKey);
+    if(normalized === 'global'){
+      return ['trend', 'confidence', 'prediction'];
+    }
+    const safeKey = sanitizeScatterOverlayKey(normalized);
+    return safeKey ? [safeKey] : ['trend'];
+  }
+  function getScatterOverlayPreviewStyle(scopeKey){
+    const keys = getScatterOverlayScopeKeys(scopeKey);
+    const firstKey = keys.length ? keys[0] : 'trend';
+    return getScatterOverlayStyle(firstKey);
+  }
   const scatterRowSelectionsByTab = new Map();
   const scatterThresholdSelectionsByTab = new Map();
   let scatterSelectionSyncInProgress = false;
@@ -479,10 +492,22 @@
     scatterOverlayStyles[safeKey] = merged;
   }
   function normalizeScatterOverlayToolbarScope(value){
-    return sanitizeScatterOverlayKey(value) || 'trend';
+    const normalized = String(value == null ? '' : value).trim().toLowerCase();
+    if(normalized === 'global'){
+      return 'global';
+    }
+    return sanitizeScatterOverlayKey(normalized) || 'global';
   }
   function getScatterOverlayToolbarLabels(scopeKey){
     const safeScope = normalizeScatterOverlayToolbarScope(scopeKey);
+    if(safeScope === 'global'){
+      return {
+        colorLabel: 'Color',
+        thicknessLabel: 'Thickness',
+        patternLabel: 'Line pattern',
+        transparencyLabel: 'Transparency'
+      };
+    }
     if(safeScope === 'trend'){
       return {
         colorLabel: 'Line',
@@ -500,6 +525,9 @@
   }
   function getScatterOverlaySummary(scopeKey){
     const safeScope = normalizeScatterOverlayToolbarScope(scopeKey);
+    if(safeScope === 'global'){
+      return 'Global';
+    }
     if(safeScope === 'confidence'){
       return 'Confidence interval';
     }
@@ -4089,12 +4117,24 @@
       clearScatterSymbolPanel(host);
       resetScatterDualHostLayout(host);
     }
+    const clickedScopeRaw = opts.target?.dataset?.scatterOverlay;
+    const hasClickedScope = typeof clickedScopeRaw === 'string' && clickedScopeRaw.trim() !== '';
+    const requestedScope = hasClickedScope
+      ? normalizeScatterOverlayToolbarScope(clickedScopeRaw)
+      : normalizeScatterOverlayToolbarScope(opts.scope || scatterOverlayToolbarScope);
+    scatterOverlayToolbarScope = requestedScope;
     const resolveScope = ctx => normalizeScatterOverlayToolbarScope(ctx?.scope || scatterOverlayToolbarScope);
+    const applyOverlayPatch = (scopeValue, patch) => {
+      const keys = getScatterOverlayScopeKeys(scopeValue);
+      keys.forEach(key => {
+        updateScatterOverlayStyle(key, patch);
+      });
+    };
     const applyOverlayControlLabels = config => {
       if(!config || typeof config !== 'object'){
         return;
       }
-      const labels = getScatterOverlayToolbarLabels(scatterOverlayToolbarScope);
+      const labels = getScatterOverlayToolbarLabels(config?.scope?.value || scatterOverlayToolbarScope);
       config.panelTitle = 'Overlay';
       config.controls = Object.assign({}, config.controls || {}, {
         colorLabel: labels.colorLabel,
@@ -4131,42 +4171,44 @@
       scope: {
         label: 'Scope',
         options: [
+          { value: 'global', label: 'Global', disabled: false },
           { value: 'trend', label: 'Trend line', disabled: false },
           { value: 'confidence', label: 'Confidence interval', disabled: false },
           { value: 'prediction', label: 'Prediction interval', disabled: false }
         ],
-        value: normalizeScatterOverlayToolbarScope(scatterOverlayToolbarScope),
+        value: requestedScope,
         onChange(nextScope){
           scatterOverlayToolbarScope = normalizeScatterOverlayToolbarScope(nextScope);
+          overlayConfig.scope.value = scatterOverlayToolbarScope;
           applyOverlayControlLabels(overlayConfig);
         }
       },
       getSummary: ctx => getScatterOverlaySummary(resolveScope(ctx)),
-      getColor: ctx => getScatterOverlayStyle(resolveScope(ctx))?.color,
-      getThickness: ctx => getScatterOverlayStyle(resolveScope(ctx))?.thickness,
-      getPattern: ctx => getScatterOverlayStyle(resolveScope(ctx))?.pattern || 'solid',
-      getTransparency: ctx => getScatterOverlayStyle(resolveScope(ctx))?.transparency,
+      getColor: ctx => getScatterOverlayPreviewStyle(resolveScope(ctx))?.color,
+      getThickness: ctx => getScatterOverlayPreviewStyle(resolveScope(ctx))?.thickness,
+      getPattern: ctx => getScatterOverlayPreviewStyle(resolveScope(ctx))?.pattern || 'solid',
+      getTransparency: ctx => getScatterOverlayPreviewStyle(resolveScope(ctx))?.transparency,
       onColorInput: (value, ctx) => {
-        updateScatterOverlayStyle(resolveScope(ctx), { color: value });
+        applyOverlayPatch(resolveScope(ctx), { color: value });
         scheduleDrawScatter();
       },
       onColorChange: (value, ctx) => {
-        updateScatterOverlayStyle(resolveScope(ctx), { color: value });
+        applyOverlayPatch(resolveScope(ctx), { color: value });
         scheduleDrawScatter();
       },
       onThicknessChange: (value, ctx) => {
         const numeric = Number(value);
-        updateScatterOverlayStyle(resolveScope(ctx), { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
+        applyOverlayPatch(resolveScope(ctx), { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
         scheduleDrawScatter();
       },
       onPatternChange: (value, ctx) => {
-        updateScatterOverlayStyle(resolveScope(ctx), { pattern: value });
+        applyOverlayPatch(resolveScope(ctx), { pattern: value });
         scheduleDrawScatter();
       },
       onTransparencyChange: (value, ctx) => {
         const numeric = Number(value);
         const bounded = Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
-        updateScatterOverlayStyle(resolveScope(ctx), { transparency: bounded });
+        applyOverlayPatch(resolveScope(ctx), { transparency: bounded });
         scheduleDrawScatter();
       }
     };
@@ -4238,8 +4280,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'label', label: 'Label', disabled: !scatterLabelKey },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'label', label: scatterLabelKey || 'Label', datasetLabel: scatterLabelKey || 'Label', disabled: !scatterLabelKey }
           ],
           value: scatterLabelKey ? 'label' : 'global'
         },
@@ -4507,15 +4549,15 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    const optLabel = doc.createElement('option');
-    optLabel.value = 'label';
-    optLabel.textContent = 'Label';
-    optLabel.disabled = !scatterLabelKey;
     const optGlobal = doc.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = 'Global';
-    scopeSelect.appendChild(optLabel);
+    const optLabel = doc.createElement('option');
+    optLabel.value = 'label';
+    optLabel.textContent = scatterLabelKey || 'Label';
+    optLabel.disabled = !scatterLabelKey;
     scopeSelect.appendChild(optGlobal);
+    scopeSelect.appendChild(optLabel);
     scopeSelect.value = scatterLabelKey ? 'label' : 'global';
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);

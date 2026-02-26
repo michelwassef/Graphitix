@@ -829,6 +829,14 @@
       ? (el.closest('g[data-export-layer="box-points"]') || el.closest('g[data-trace]'))
       : null;
     const traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
+    const traceIndexNumeric = Number(traceIndex);
+    const traceScopeLabel = (() => {
+      const fromData = data && typeof data.seriesName === 'string' ? data.seriesName.trim() : '';
+      if(fromData){ return fromData; }
+      if(Number.isFinite(traceIndexNumeric)){ return `Trace ${traceIndexNumeric + 1}`; }
+      if(traceIndex != null && String(traceIndex).trim()){ return `Trace ${traceIndex}`; }
+      return 'Trace';
+    })();
     const resolveTargetPoints = () => parentGroup
       ? Array.from(parentGroup.querySelectorAll('circle,rect,path'))
       : [el];
@@ -841,15 +849,15 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    const optTrace = doc.createElement('option');
-    optTrace.value = 'trace';
-    optTrace.textContent = 'Trace';
-    optTrace.disabled = traceIndex == null;
     const optGlobal = doc.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = 'Global';
-    scopeSelect.appendChild(optTrace);
+    const optTrace = doc.createElement('option');
+    optTrace.value = 'trace';
+    optTrace.textContent = traceScopeLabel;
+    optTrace.disabled = traceIndex == null;
     scopeSelect.appendChild(optGlobal);
+    scopeSelect.appendChild(optTrace);
     scopeSelect.value = traceIndex != null ? 'trace' : 'global';
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
@@ -896,8 +904,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'trace', label: 'Trace', disabled: traceIndex == null },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'trace', label: traceScopeLabel, datasetLabel: traceScopeLabel, disabled: traceIndex == null }
           ],
           value: traceIndex != null ? 'trace' : 'global'
         },
@@ -1622,6 +1630,10 @@
     const traceIndex = opts.traceIndex != null
       ? String(opts.traceIndex)
       : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null);
+    const summaryTraceIndex = Number(traceIndex);
+    const summaryScopeLabel = Number.isFinite(summaryTraceIndex)
+      ? `Trace ${summaryTraceIndex + 1}`
+      : (traceIndex != null && String(traceIndex).trim() ? `Trace ${traceIndex}` : 'Trace');
     const sourceLine = (target && String(target.tagName || '').toLowerCase() === 'line')
       ? target
       : (target.querySelector ? (target.querySelector('line[data-summary-line="1"]') || target) : target);
@@ -1705,8 +1717,8 @@
       scope: {
         label: 'Scope',
         options: [
-          { value: 'trace', label: 'Trace', disabled: traceIndex == null },
-          { value: 'global', label: 'Global', disabled: false }
+          { value: 'global', label: 'Global', disabled: false },
+          { value: 'trace', label: summaryScopeLabel, datasetLabel: summaryScopeLabel, disabled: traceIndex == null }
         ],
         value: traceIndex != null ? 'trace' : 'global'
       },
@@ -1807,6 +1819,9 @@
       const selectedColorIndex = colorIndexAttrValue != null && colorIndexAttrValue !== ''
         ? Number(colorIndexAttrValue)
         : (selectedTraceIndex != null ? selectedTraceIndex : null);
+      const shapeScopeLabel = Number.isFinite(selectedTraceIndex)
+        ? `Trace ${selectedTraceIndex + 1}`
+        : 'Trace';
       const plotRootNode = doc.getElementById('boxPlot');
       const resolveBodyTargets = scopeValue => {
         if(scopeValue === 'global'){
@@ -1847,8 +1862,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'trace', label: 'Trace', disabled: selectedTraceIndex == null },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'trace', label: shapeScopeLabel, datasetLabel: shapeScopeLabel, disabled: selectedTraceIndex == null }
           ],
           value: selectedTraceIndex != null ? 'trace' : 'global'
         },
@@ -2013,6 +2028,7 @@
 
     const traceAttr = target.getAttribute('data-trace');
     const traceIndex = traceAttr != null && traceAttr !== '' && traceAttr !== 'null' ? Number(traceAttr) : null;
+    const shapeScopeLabel = Number.isFinite(traceIndex) ? `Trace ${traceIndex + 1}` : 'Trace';
     const colorIndexAttr = target.getAttribute('data-color-index');
     const colorIndex = colorIndexAttr != null && colorIndexAttr !== '' ? Number(colorIndexAttr) : (traceIndex != null ? traceIndex : null);
     const plotRoot = doc.getElementById('boxPlot');
@@ -2031,15 +2047,15 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    const optTrace = doc.createElement('option');
-    optTrace.value = 'trace';
-    optTrace.textContent = 'Trace';
-    optTrace.disabled = traceIndex == null;
     const optGlobal = doc.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = 'Global';
-    scopeSelect.appendChild(optTrace);
+    const optTrace = doc.createElement('option');
+    optTrace.value = 'trace';
+    optTrace.textContent = shapeScopeLabel;
+    optTrace.disabled = traceIndex == null;
     scopeSelect.appendChild(optGlobal);
+    scopeSelect.appendChild(optTrace);
     scopeSelect.value = traceIndex != null ? 'trace' : 'global';
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
@@ -3463,6 +3479,112 @@
     return factor;
   }
 
+  function expandSwarmHalfWidthForSmallSamples(config){
+    const sampleSize = Number(config?.sampleSize) || 0;
+    const currentHalfWidth = Number(config?.currentHalfWidth);
+    const overlapCount = Number(config?.overlapCount);
+    const collisionDistance = Number(config?.collisionDistance);
+    const axisBoundary = Number(config?.axisBoundary);
+    const pointRadius = Number(config?.pointRadius);
+    if(!Number.isFinite(currentHalfWidth) || currentHalfWidth <= 0){
+      return currentHalfWidth;
+    }
+    if(!Number.isFinite(sampleSize) || sampleSize <= 0 || sampleSize >= 20){
+      return currentHalfWidth;
+    }
+    if(!Number.isFinite(overlapCount) || overlapCount <= 1){
+      return currentHalfWidth;
+    }
+    if(!Number.isFinite(collisionDistance) || collisionDistance <= 0){
+      return currentHalfWidth;
+    }
+    const requiredHalfWidth = ((overlapCount - 1) * collisionDistance) / 2;
+    if(!Number.isFinite(requiredHalfWidth) || requiredHalfWidth <= currentHalfWidth){
+      return currentHalfWidth;
+    }
+    const normalized = Math.max(0, Math.min(1, (20 - sampleSize) / 19));
+    const growthFactor = 1 + normalized * 1.2;
+    const maxByFactor = currentHalfWidth * growthFactor;
+    const maxExtra = Math.max(4, Math.min(16, (Number.isFinite(pointRadius) ? pointRadius : 0) * 3.2));
+    const maxByExtra = currentHalfWidth + maxExtra;
+    let maxAllowed = Math.min(maxByFactor, maxByExtra);
+    if(Number.isFinite(axisBoundary) && axisBoundary > 0){
+      maxAllowed = Math.min(maxAllowed, axisBoundary);
+    }
+    if(!Number.isFinite(maxAllowed) || maxAllowed <= currentHalfWidth){
+      return currentHalfWidth;
+    }
+    return Math.max(currentHalfWidth, Math.min(requiredHalfWidth, maxAllowed));
+  }
+
+  function computeStripSmallSampleHalfWidth(config){
+    const sampleSize = Number(config?.sampleSize) || 0;
+    const localBand = Number(config?.localBand);
+    const pointRadius = Number(config?.pointRadius);
+    const overlapCount = Number(config?.overlapCount);
+    const debugEnabled = !!config?.debugEnabled;
+    if(!Number.isFinite(sampleSize) || sampleSize <= 1 || sampleSize >= 20){
+      return null;
+    }
+    if(!Number.isFinite(localBand) || localBand <= 0){
+      return null;
+    }
+    if(!Number.isFinite(overlapCount) || overlapCount <= 1){
+      return null;
+    }
+    const radiusFloor = Number.isFinite(pointRadius) && pointRadius > 0 ? pointRadius : 0;
+    const preferredGapFactor = 2.1;
+    const preferredGap = Math.max(0.5, radiusFloor * preferredGapFactor);
+    const requiredHalfWidth = ((overlapCount - 1) * preferredGap) / 2;
+    const safetyMargin = Math.max(0.6, radiusFloor * 0.07);
+    const requestedHalfWidth = requiredHalfWidth + safetyMargin;
+    const minHalfWidth = Math.max(radiusFloor * 1.05, 0);
+    const maxHalfWidth = localBand * 0.42;
+    const resolved = Math.max(minHalfWidth, Math.min(maxHalfWidth, requestedHalfWidth));
+    if(!Number.isFinite(resolved) || resolved <= 0){
+      return null;
+    }
+    if(debugEnabled){
+      console.debug('Debug: box strip small-sample half-width',{
+        sampleSize,
+        overlapCount,
+        localBand,
+        pointRadius: radiusFloor,
+        preferredGap,
+        requiredHalfWidth,
+        requestedHalfWidth,
+        resolvedHalfWidth: resolved
+      });
+    }
+    return resolved;
+  }
+
+  function estimateSwarmOverlapCount(coordsInput, distance){
+    const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
+    if(!coords || !coords.length || !Number.isFinite(distance) || distance <= 0){
+      return 0;
+    }
+    const sorted = new Array(coords.length);
+    for(let i = 0; i < coords.length; i++){
+      const value = Number(coords[i]);
+      sorted[i] = Number.isFinite(value) ? value : 0;
+    }
+    sorted.sort((a, b) => a - b);
+    let maxCount = 0;
+    let start = 0;
+    for(let i = 0; i < sorted.length; i++){
+      const coord = sorted[i];
+      while(start < i && coord - sorted[start] > distance){
+        start += 1;
+      }
+      const count = i - start + 1;
+      if(count > maxCount){
+        maxCount = count;
+      }
+    }
+    return maxCount;
+  }
+
   function computeSwarmOffsets(points, options){
     const isArrayLike = value => Array.isArray(value) || ArrayBuffer.isView(value);
     const coordsSource = points ? points.coords : null;
@@ -3484,6 +3606,19 @@
     const widthScaleMode = options?.widthScaleMode || 'none';
     const maxHalfWidthOverride = Number(options?.maxHalfWidth);
     const allowRadiusAdjustment = options?.allowRadiusAdjustment !== false;
+    const skipBucketCentering = options?.skipBucketCentering === true;
+    const enforceNonOverlap = options?.enforceNonOverlap === true;
+    const enforceDepth = Math.max(0, Math.floor(Number(options?.__enforceDepth) || 0));
+    const enforceLowHalfWidthRaw = Number(options?.__enforceLowHalfWidth);
+    const enforceHighHalfWidthRaw = Number(options?.__enforceHighHalfWidth);
+    const enforceLowHalfWidth = Number.isFinite(enforceLowHalfWidthRaw) ? enforceLowHalfWidthRaw : null;
+    const enforceHighHalfWidth = Number.isFinite(enforceHighHalfWidthRaw) ? enforceHighHalfWidthRaw : null;
+    const enforceBaseRadiusRaw = Number(options?.__enforceBaseRadius);
+    const enforceBaseRadius = Number.isFinite(enforceBaseRadiusRaw) && enforceBaseRadiusRaw > 0
+      ? enforceBaseRadiusRaw
+      : basePointRadius;
+    const ENFORCE_MAX_DEPTH = 10;
+    const ENFORCE_WIDTH_TOLERANCE = 0.25;
     const radiusCountExponent = Number(options?.radiusCountExponent);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const spreadFactor = computeSampleSpreadFactor(sampleSize, debugEnabled);
@@ -3585,6 +3720,28 @@
     let sortedIndices = buildSortedIndices(seedBase);
     let collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
     let maxCount = getMaxOverlapCount(sortedIndices, collisionDistance);
+    if(!(Number.isFinite(maxHalfWidthOverride) && maxHalfWidthOverride > 0)){
+      const expandedHalfWidth = expandSwarmHalfWidthForSmallSamples({
+        sampleSize,
+        currentHalfWidth: globalMaxHalfWidth,
+        overlapCount: maxCount,
+        collisionDistance,
+        axisBoundary,
+        pointRadius: pointRadiusValue
+      });
+      if(Number.isFinite(expandedHalfWidth) && expandedHalfWidth > globalMaxHalfWidth){
+        if(debugEnabled){
+          console.debug('Debug: computeSwarmOffsets small-sample width boost',{
+            sampleSize,
+            overlapCount: maxCount,
+            previousHalfWidth: globalMaxHalfWidth,
+            expandedHalfWidth,
+            widthScaleMode
+          });
+        }
+        globalMaxHalfWidth = expandedHalfWidth;
+      }
+    }
     if(debugEnabled && maxCount > 1){
       console.debug('Debug: computeSwarmOffsets overlap scan',{
         orientation,
@@ -3777,6 +3934,7 @@
     const intervals = [];
     const freeIntervals = [];
     const candidates = [];
+    let placementFailed = false;
     for(let idx = 0; idx < sortedIndices.length; idx++){
       const index = sortedIndices[idx];
       const coord = coords[index];
@@ -3845,7 +4003,7 @@
             addCandidate(-maxHalfWidthValue + u * (maxHalfWidthValue * 2));
           }
           if(!candidates.length){
-            return 0;
+            return enforceNonOverlap ? null : 0;
           }
           let bestFree = -Infinity;
           let bestOverlap = -Infinity;
@@ -3874,7 +4032,10 @@
               chosenLocal = cand;
             }
           }
-          return chosenLocal == null ? 0 : chosenLocal;
+          if(chosenLocal == null){
+            return enforceNonOverlap ? null : 0;
+          }
+          return chosenLocal;
         }
         intervals.length = 0;
         let intervalCount = 0;
@@ -3978,6 +4139,9 @@
         }
         let allowOverlap = false;
         if(!freeIntervals.length){
+          if(enforceNonOverlap){
+            return null;
+          }
           allowOverlap = true;
           const full = freeIntervalPool[0] || (freeIntervalPool[0] = { start: 0, end: 0 });
           full.start = -maxHalfWidthValue;
@@ -4032,6 +4196,12 @@
             }
             target -= length;
           }
+        }
+        for(let k = 0; k < freeIntervals.length; k++){
+          const interval = freeIntervals[k];
+          addCandidate((interval.start + interval.end) / 2);
+          addCandidate(interval.start);
+          addCandidate(interval.end);
         }
         if(allowOverlap){
           addCandidate(-maxHalfWidthValue);
@@ -4117,6 +4287,10 @@
         maxHalfWidth = globalMaxHalfWidth;
       }
       if(chosen == null){
+        if(enforceNonOverlap){
+          placementFailed = true;
+          break;
+        }
         chosen = Math.max(-maxHalfWidth, Math.min(maxHalfWidth, 0));
       }
       offsetsByIndex[index] = chosen;
@@ -4128,12 +4302,88 @@
         maxUsed = abs;
       }
     }
+    if(placementFailed && enforceNonOverlap){
+      const maxAllowedHalfWidth = axisBoundary > 0
+        ? axisBoundary
+        : Math.max(globalMaxHalfWidth, basePointRadius * 1.05 + collisionDistance * Math.max(2, maxCount));
+      const canWiden = Number.isFinite(maxAllowedHalfWidth) && (maxAllowedHalfWidth - globalMaxHalfWidth) > ENFORCE_WIDTH_TOLERANCE;
+      if(enforceDepth < ENFORCE_MAX_DEPTH && canWiden){
+        let nextHalfWidth;
+        if(Number.isFinite(enforceHighHalfWidth) && enforceHighHalfWidth > globalMaxHalfWidth + ENFORCE_WIDTH_TOLERANCE){
+          nextHalfWidth = (globalMaxHalfWidth + enforceHighHalfWidth) / 2;
+        }else{
+          nextHalfWidth = Math.max(globalMaxHalfWidth + 0.8, globalMaxHalfWidth * 1.3);
+        }
+        nextHalfWidth = Math.min(maxAllowedHalfWidth, nextHalfWidth);
+        if(Number.isFinite(nextHalfWidth) && nextHalfWidth > globalMaxHalfWidth + 0.001){
+          if(debugEnabled){
+            console.debug('Debug: computeSwarmOffsets enforce expand',{
+              orientation,
+              sampleSize,
+              depth: enforceDepth,
+              previousHalfWidth: globalMaxHalfWidth,
+              nextHalfWidth,
+              maxAllowedHalfWidth
+            });
+          }
+          return computeSwarmOffsets(points, Object.assign({}, options, {
+            maxHalfWidth: nextHalfWidth,
+            enforceNonOverlap: true,
+            __enforceDepth: enforceDepth + 1,
+            __enforceLowHalfWidth: globalMaxHalfWidth,
+            __enforceHighHalfWidth: Number.isFinite(enforceHighHalfWidth) ? enforceHighHalfWidth : null
+          }));
+        }
+      }
+      if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
+        const minEnforcedRadius = Math.max(0.15, enforceBaseRadius * 0.35);
+        if(pointRadiusValue > minEnforcedRadius + 0.02){
+          const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.92);
+          if(nextRadius < pointRadiusValue - 0.0001){
+            if(debugEnabled){
+              console.debug('Debug: computeSwarmOffsets enforce radius shrink',{
+                orientation,
+                sampleSize,
+                depth: enforceDepth,
+                previousRadius: pointRadiusValue,
+                nextRadius,
+                minEnforcedRadius
+              });
+            }
+            return computeSwarmOffsets(points, Object.assign({}, options, {
+              pointRadius: nextRadius,
+              maxHalfWidth: globalMaxHalfWidth,
+              enforceNonOverlap: true,
+              __enforceDepth: enforceDepth + 1,
+              __enforceLowHalfWidth: enforceLowHalfWidth,
+              __enforceHighHalfWidth: enforceHighHalfWidth,
+              __enforceBaseRadius: enforceBaseRadius
+            }));
+          }
+        }
+      }
+      if(debugEnabled){
+        console.debug('Debug: computeSwarmOffsets enforce fallback',{
+          orientation,
+          sampleSize,
+          depth: enforceDepth,
+          halfWidth: globalMaxHalfWidth
+        });
+      }
+      return computeSwarmOffsets(points, Object.assign({}, options, {
+        enforceNonOverlap: false,
+        __enforceDepth: null,
+        __enforceLowHalfWidth: null,
+        __enforceHighHalfWidth: null,
+        maxHalfWidth: globalMaxHalfWidth
+      }));
+    }
     if(pairBuckets.length){
       for(let i = 0; i < pairBuckets.length; i++){
         centerBuckets.push(pairBuckets[i]);
       }
     }
-    if(centerBuckets.length){
+    if(centerBuckets.length && !skipBucketCentering){
       for(let b = 0; b < centerBuckets.length; b++){
         const bucket = centerBuckets[b];
         if(!Array.isArray(bucket) || bucket.length <= 1){
@@ -4176,6 +4426,131 @@
         const abs = Math.abs(value || 0);
         if(abs > maxUsed){
           maxUsed = abs;
+        }
+      }
+    }
+    const hasPairOverlap = () => {
+      if(!sortedIndices.length){
+        return false;
+      }
+      const threshold = collisionDistanceSq - 0.0001;
+      for(let i = 0; i < sortedIndices.length; i++){
+        const a = sortedIndices[i];
+        const ay = coords[a];
+        const ax = offsetsByIndex[a] || 0;
+        for(let j = i + 1; j < sortedIndices.length; j++){
+          const b = sortedIndices[j];
+          const dy = coords[b] - ay;
+          if(dy >= collisionDistance){
+            break;
+          }
+          const bx = offsetsByIndex[b] || 0;
+          const dx = bx - ax;
+          if((dx * dx + dy * dy) < threshold){
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+    if(enforceNonOverlap){
+      const overlapsRemain = hasPairOverlap();
+      if(overlapsRemain){
+        const maxAllowedHalfWidth = axisBoundary > 0
+          ? axisBoundary
+          : Math.max(globalMaxHalfWidth, basePointRadius * 1.05 + collisionDistance * Math.max(2, maxCount));
+        const canWiden = Number.isFinite(maxAllowedHalfWidth) && (maxAllowedHalfWidth - globalMaxHalfWidth) > ENFORCE_WIDTH_TOLERANCE;
+        if(enforceDepth < ENFORCE_MAX_DEPTH && canWiden){
+          let nextHalfWidth;
+          if(Number.isFinite(enforceHighHalfWidth) && enforceHighHalfWidth > globalMaxHalfWidth + ENFORCE_WIDTH_TOLERANCE){
+            nextHalfWidth = (globalMaxHalfWidth + enforceHighHalfWidth) / 2;
+          }else{
+            nextHalfWidth = Math.max(globalMaxHalfWidth + 0.8, globalMaxHalfWidth * 1.3);
+          }
+          nextHalfWidth = Math.min(maxAllowedHalfWidth, nextHalfWidth);
+          if(Number.isFinite(nextHalfWidth) && nextHalfWidth > globalMaxHalfWidth + 0.001){
+            if(debugEnabled){
+              console.debug('Debug: computeSwarmOffsets enforce overlap refine',{
+                orientation,
+                sampleSize,
+                depth: enforceDepth,
+                previousHalfWidth: globalMaxHalfWidth,
+                nextHalfWidth
+              });
+            }
+            return computeSwarmOffsets(points, Object.assign({}, options, {
+              maxHalfWidth: nextHalfWidth,
+              enforceNonOverlap: true,
+              __enforceDepth: enforceDepth + 1,
+              __enforceLowHalfWidth: globalMaxHalfWidth,
+              __enforceHighHalfWidth: Number.isFinite(enforceHighHalfWidth) ? enforceHighHalfWidth : null
+            }));
+          }
+        }
+        if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
+          const minEnforcedRadius = Math.max(0.15, enforceBaseRadius * 0.35);
+          if(pointRadiusValue > minEnforcedRadius + 0.02){
+            const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.92);
+            if(nextRadius < pointRadiusValue - 0.0001){
+              if(debugEnabled){
+                console.debug('Debug: computeSwarmOffsets enforce overlap radius shrink',{
+                  orientation,
+                  sampleSize,
+                  depth: enforceDepth,
+                  previousRadius: pointRadiusValue,
+                  nextRadius,
+                  minEnforcedRadius
+                });
+              }
+              return computeSwarmOffsets(points, Object.assign({}, options, {
+                pointRadius: nextRadius,
+                maxHalfWidth: globalMaxHalfWidth,
+                enforceNonOverlap: true,
+                __enforceDepth: enforceDepth + 1,
+                __enforceLowHalfWidth: enforceLowHalfWidth,
+                __enforceHighHalfWidth: enforceHighHalfWidth,
+                __enforceBaseRadius: enforceBaseRadius
+              }));
+            }
+          }
+        }
+        if(debugEnabled){
+          console.debug('Debug: computeSwarmOffsets enforce overlap fallback',{
+            orientation,
+            sampleSize,
+            depth: enforceDepth,
+            halfWidth: globalMaxHalfWidth
+          });
+        }
+        return computeSwarmOffsets(points, Object.assign({}, options, {
+          enforceNonOverlap: false,
+          __enforceDepth: null,
+          __enforceLowHalfWidth: null,
+          __enforceHighHalfWidth: null,
+          maxHalfWidth: globalMaxHalfWidth
+        }));
+      }
+      if(Number.isFinite(enforceLowHalfWidth) && (globalMaxHalfWidth - enforceLowHalfWidth) > ENFORCE_WIDTH_TOLERANCE && enforceDepth < ENFORCE_MAX_DEPTH){
+        const nextHalfWidth = (enforceLowHalfWidth + globalMaxHalfWidth) / 2;
+        if(Number.isFinite(nextHalfWidth) && nextHalfWidth > enforceLowHalfWidth + 0.001 && nextHalfWidth < globalMaxHalfWidth - 0.001){
+          if(debugEnabled){
+            console.debug('Debug: computeSwarmOffsets enforce tighten',{
+              orientation,
+              sampleSize,
+              depth: enforceDepth,
+              lowHalfWidth: enforceLowHalfWidth,
+              highHalfWidth: globalMaxHalfWidth,
+              nextHalfWidth
+            });
+          }
+          return computeSwarmOffsets(points, Object.assign({}, options, {
+            maxHalfWidth: nextHalfWidth,
+            enforceNonOverlap: true,
+            __enforceDepth: enforceDepth + 1,
+            __enforceLowHalfWidth: enforceLowHalfWidth,
+            __enforceHighHalfWidth: globalMaxHalfWidth,
+            __enforceBaseRadius: enforceBaseRadius
+          }));
         }
       }
     }
@@ -16153,14 +16528,35 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
+        const explicitMaxHalfWidth = Number(maxHalfWidth);
+        const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+        const useTightStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual' && sampleCount < 20;
+        const overlapDistance = Math.max(0.5, (Number(spacingRadius) || 0) * 2.1);
+        const estimatedOverlapCount = useTightStripSpacing
+          ? estimateSwarmOverlapCount(pointCoords, overlapDistance)
+          : 0;
+        const inferredStripHalfWidth = useTightStripSpacing && !(Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0)
+          ? computeStripSmallSampleHalfWidth({
+              sampleSize: sampleCount,
+              localBand,
+              pointRadius: spacingRadius,
+              overlapCount: estimatedOverlapCount,
+              debugEnabled
+            })
+          : null;
+        const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+          ? explicitMaxHalfWidth
+          : inferredStripHalfWidth;
         const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
           orientation: 'vertical',
           widthScaleMode,
-          maxHalfWidth,
+          maxHalfWidth: resolvedMaxHalfWidth,
           allowRadiusAdjustment: allowAdjustment,
+          skipBucketCentering: false,
+          enforceNonOverlap: useTightStripSpacing,
           radiusCountExponent,
           debug: debugEnabled
         });
@@ -16992,14 +17388,35 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
+        const explicitMaxHalfWidth = Number(maxHalfWidth);
+        const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+        const useTightStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual' && sampleCount < 20;
+        const overlapDistance = Math.max(0.5, (Number(spacingRadius) || 0) * 2.1);
+        const estimatedOverlapCount = useTightStripSpacing
+          ? estimateSwarmOverlapCount(pointCoords, overlapDistance)
+          : 0;
+        const inferredStripHalfWidth = useTightStripSpacing && !(Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0)
+          ? computeStripSmallSampleHalfWidth({
+              sampleSize: sampleCount,
+              localBand,
+              pointRadius: spacingRadius,
+              overlapCount: estimatedOverlapCount,
+              debugEnabled
+            })
+          : null;
+        const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+          ? explicitMaxHalfWidth
+          : inferredStripHalfWidth;
         const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
           orientation: 'horizontal',
           widthScaleMode,
-          maxHalfWidth,
+          maxHalfWidth: resolvedMaxHalfWidth,
           allowRadiusAdjustment: allowAdjustment,
+          skipBucketCentering: false,
+          enforceNonOverlap: useTightStripSpacing,
           radiusCountExponent,
           debug: debugEnabled
         });

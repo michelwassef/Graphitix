@@ -24,6 +24,127 @@
     return [{ value: 'circle', label: 'Circle' }];
   }
 
+  function readFirstNonEmpty(values){
+    if(!Array.isArray(values)){ return ''; }
+    for(let i = 0; i < values.length; i += 1){
+      const value = values[i];
+      if(value == null){ continue; }
+      const text = String(value).trim();
+      if(text){ return text; }
+    }
+    return '';
+  }
+
+  function toDataAttrName(value){
+    const raw = String(value == null ? '' : value).trim();
+    if(!raw){ return ''; }
+    return raw
+      .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+      .replace(/_/g, '-')
+      .toLowerCase();
+  }
+
+  function inferScopeDatasetLabel(optionValue, target){
+    if(!target){ return ''; }
+    const ds = target.dataset || {};
+    const getAttr = name => {
+      if(!name || typeof target.getAttribute !== 'function'){ return ''; }
+      const value = target.getAttribute(name);
+      return value == null ? '' : String(value).trim();
+    };
+    const normalized = String(optionValue == null ? '' : optionValue).trim().toLowerCase();
+    if(!normalized){ return ''; }
+    if(normalized === 'series'){
+      return readFirstNonEmpty([
+        ds.series,
+        getAttr('data-series'),
+        ds.group,
+        getAttr('data-group'),
+        ds.dist,
+        getAttr('data-dist')
+      ]);
+    }
+    if(normalized === 'trace'){
+      return readFirstNonEmpty([
+        ds.upsetTraceId,
+        getAttr('data-upset-trace-id'),
+        ds.vennTraceId,
+        getAttr('data-venn-trace-id'),
+        ds.traceId,
+        getAttr('data-trace-id'),
+        ds.trace,
+        getAttr('data-trace')
+      ]);
+    }
+    if(normalized === 'label'){
+      return readFirstNonEmpty([
+        target.__scatterPointData?.label,
+        target.__pcaPointData?.label,
+        ds.label,
+        getAttr('data-label')
+      ]);
+    }
+    const dataAttr = toDataAttrName(optionValue);
+    return readFirstNonEmpty([
+      ds[optionValue],
+      dataAttr ? getAttr(`data-${dataAttr}`) : ''
+    ]);
+  }
+
+  function normalizeScopeOptionsInternal(options, context, scopeCfg){
+    const list = Array.isArray(options) ? options : [];
+    const ctx = context || {};
+    const cfg = scopeCfg && typeof scopeCfg === 'object' ? scopeCfg : {};
+    const target = ctx.target || null;
+    const datasetLabels = cfg.datasetLabels && typeof cfg.datasetLabels === 'object'
+      ? cfg.datasetLabels
+      : {};
+    const genericLabels = new Set(['trace', 'series', 'label', 'dataset', 'scope']);
+    const mapped = list.map(option => {
+      const source = option && typeof option === 'object' ? option : {};
+      const value = source.value == null ? '' : String(source.value);
+      const lowerValue = value.trim().toLowerCase();
+      const rawLabel = source.label == null ? value : String(source.label);
+      const trimmedLabel = rawLabel.trim();
+      const lowerLabel = trimmedLabel.toLowerCase();
+      const isGlobal = lowerValue === 'global';
+      const explicitDataset = source.datasetLabel == null ? '' : String(source.datasetLabel).trim();
+      const mappedDataset = datasetLabels[value] == null ? '' : String(datasetLabels[value]).trim();
+      const inferredDataset = inferScopeDatasetLabel(value, target);
+      const isGeneric = !trimmedLabel || genericLabels.has(lowerLabel) || lowerLabel === lowerValue;
+      let nextLabel = trimmedLabel || value;
+      if(isGlobal){
+        nextLabel = 'Global';
+      }else if(explicitDataset){
+        nextLabel = explicitDataset;
+      }else if(mappedDataset){
+        nextLabel = mappedDataset;
+      }else if(isGeneric && inferredDataset){
+        nextLabel = inferredDataset;
+      }
+      return {
+        ...source,
+        value,
+        label: nextLabel,
+        __isGlobal: isGlobal
+      };
+    });
+    const globals = [];
+    const others = [];
+    mapped.forEach(option => {
+      if(option.__isGlobal){
+        globals.push(option);
+      }else{
+        others.push(option);
+      }
+    });
+    return globals.length ? globals.concat(others) : mapped;
+  }
+
+  Shared.normalizeScopeOptions = function normalizeScopeOptions(options, context, scopeCfg){
+    return normalizeScopeOptionsInternal(options, context, scopeCfg);
+  };
+
   function ensureToolbarHost(anchor, scopeId, doc){
     if(!anchor){ return null; }
     let host = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -159,7 +280,7 @@
     const scopeCfg = cfg.scope || {};
     const scopeSelect = doc.createElement('select');
     scopeSelect.className = 'workspace-toolbar__select';
-    const scopeOptions = Array.isArray(scopeCfg.options) ? scopeCfg.options : [];
+    const scopeOptions = Shared.normalizeScopeOptions(Array.isArray(scopeCfg.options) ? scopeCfg.options : [], { target: cfg.target }, scopeCfg);
     scopeOptions.forEach(option => {
       const opt = doc.createElement('option');
       opt.value = option.value;
@@ -168,7 +289,10 @@
       scopeSelect.appendChild(opt);
     });
     if(scopeSelect.options.length){
-      const desired = typeof scopeCfg.value === 'string' ? scopeCfg.value : scopeSelect.options[0].value;
+      const desiredRaw = typeof scopeCfg.value === 'string' ? scopeCfg.value : scopeSelect.options[0].value;
+      const desired = Array.from(scopeSelect.options).some(opt => opt.value === desiredRaw && !opt.disabled)
+        ? desiredRaw
+        : (Array.from(scopeSelect.options).find(opt => !opt.disabled)?.value || scopeSelect.options[0].value);
       scopeSelect.value = desired;
     }
     wrap.appendChild(makeInput(scopeCfg.label || 'Scope', scopeSelect, 'additional-line-controls-panel__field--scope'));

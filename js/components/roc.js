@@ -96,8 +96,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'series', label: 'Series', disabled: !seriesKey },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'series', label: seriesKey || 'Series', datasetLabel: seriesKey || 'Series', disabled: !seriesKey }
           ],
           value: seriesKey ? 'series' : 'global'
         },
@@ -234,9 +234,9 @@
     const scopeField = doc.createElement('label'); scopeField.className='workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
     const scopeLabel = doc.createElement('span'); scopeLabel.className='workspace-toolbar__input-label'; scopeLabel.textContent='Scope';
     const scopeSelect = doc.createElement('select'); scopeSelect.className='workspace-toolbar__select';
-    const optSeries = doc.createElement('option'); optSeries.value='series'; optSeries.textContent='Series'; optSeries.disabled = !seriesKey;
     const optGlobal = doc.createElement('option'); optGlobal.value='global'; optGlobal.textContent='Global';
-    scopeSelect.appendChild(optSeries); scopeSelect.appendChild(optGlobal); scopeSelect.value = seriesKey ? 'series' : 'global';
+    const optSeries = doc.createElement('option'); optSeries.value='series'; optSeries.textContent=seriesKey || 'Series'; optSeries.disabled = !seriesKey;
+    scopeSelect.appendChild(optGlobal); scopeSelect.appendChild(optSeries); scopeSelect.value = seriesKey ? 'series' : 'global';
     scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect); wrap.appendChild(scopeField);
 
     const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || state.labelColors[seriesKey] || '#377eb8'; }catch(e){}

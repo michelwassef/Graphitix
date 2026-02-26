@@ -988,6 +988,12 @@
         inputEl.value = value;
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
       };
+      const barScopeLabel = (() => {
+        const fromSeries = typeof target?.getAttribute === 'function' ? target.getAttribute('data-series') : '';
+        const fromLabel = typeof target?.getAttribute === 'function' ? target.getAttribute('data-label') : '';
+        const resolved = String(fromSeries || fromLabel || 'Histogram').trim();
+        return resolved || 'Histogram';
+      })();
       Shared.symbolToolbar.show({
         document: doc,
         target,
@@ -998,8 +1004,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'trace', label: 'Trace', disabled: false },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'trace', label: barScopeLabel, datasetLabel: barScopeLabel, disabled: false }
           ],
           value: 'trace'
         },
@@ -1158,8 +1164,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'series', label: 'Series', disabled: !distKey },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'series', label: distKey || 'Series', datasetLabel: distKey || 'Series', disabled: !distKey }
           ],
           value: distKey ? 'series' : 'global'
         },
@@ -1308,9 +1314,9 @@
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
     const scopeLabel = doc.createElement('span'); scopeLabel.className = 'workspace-toolbar__input-label'; scopeLabel.textContent = 'Scope';
     const scopeSelect = doc.createElement('select'); scopeSelect.className = 'workspace-toolbar__select';
-    const optSeries = doc.createElement('option'); optSeries.value = 'series'; optSeries.textContent = 'Series'; optSeries.disabled = !distKey;
     const optGlobal = doc.createElement('option'); optGlobal.value = 'global'; optGlobal.textContent = 'Global';
-    scopeSelect.appendChild(optSeries); scopeSelect.appendChild(optGlobal);
+    const optSeries = doc.createElement('option'); optSeries.value = 'series'; optSeries.textContent = distKey || 'Series'; optSeries.disabled = !distKey;
+    scopeSelect.appendChild(optGlobal); scopeSelect.appendChild(optSeries);
     scopeSelect.value = distKey ? 'series' : 'global';
     scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);

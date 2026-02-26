@@ -957,7 +957,11 @@
     if(scopeSelect){
       scopeSelect.innerHTML = '';
       const scopeCfg = config.scope && typeof config.scope === 'object' ? config.scope : null;
-      const options = Array.isArray(scopeCfg?.options) ? scopeCfg.options : [];
+      const rawOptions = Array.isArray(scopeCfg?.options) ? scopeCfg.options : [];
+      const normalizeScopeOptions = Shared && typeof Shared.normalizeScopeOptions === 'function'
+        ? Shared.normalizeScopeOptions
+        : (options => Array.isArray(options) ? options : []);
+      const options = normalizeScopeOptions(rawOptions, { target: config.target }, scopeCfg);
       options.forEach(option => {
         const opt = scopeSelect.ownerDocument.createElement('option');
         opt.value = option.value;
@@ -966,7 +970,10 @@
         scopeSelect.appendChild(opt);
       });
       if(scopeSelect.options.length){
-        const preferred = typeof scopeCfg?.value === 'string' ? scopeCfg.value : scopeSelect.options[0].value;
+        const desired = typeof scopeCfg?.value === 'string' ? scopeCfg.value : scopeSelect.options[0].value;
+        const preferred = Array.from(scopeSelect.options).some(opt => opt.value === desired && !opt.disabled)
+          ? desired
+          : (Array.from(scopeSelect.options).find(opt => !opt.disabled)?.value || scopeSelect.options[0].value);
         scopeSelect.value = preferred;
         activeScope = scopeSelect.value || null;
       }else{

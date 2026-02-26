@@ -1983,8 +1983,8 @@
       scope: {
         label: 'Scope',
         options: [
-          { value: 'trace', label: 'Trace', disabled: !traceId },
-          { value: 'global', label: 'Global', disabled: false }
+          { value: 'global', label: 'Global', disabled: false },
+          { value: 'trace', label: traceId || 'Trace', datasetLabel: traceId || 'Trace', disabled: !traceId }
         ],
         value: traceId ? 'trace' : 'global'
       },
@@ -2047,8 +2047,8 @@
       scope: {
         label: 'Scope',
         options: [
-          { value: 'trace', label: 'Trace', disabled: !traceId },
-          { value: 'global', label: 'Global', disabled: false }
+          { value: 'global', label: 'Global', disabled: false },
+          { value: 'trace', label: traceId || 'Trace', datasetLabel: traceId || 'Trace', disabled: !traceId }
         ],
         value: traceId ? 'trace' : 'global'
       },

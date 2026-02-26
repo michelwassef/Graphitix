@@ -2672,6 +2672,7 @@
         }
         return resolveAlpha(alphaInput?.value) || 0;
       };
+      const seriesScopeLabel = (typeof seriesKey === 'string' && seriesKey.trim()) ? seriesKey : 'Series';
       const sanitizeShape = (shape, index = 0) => sanitizeLineGroupShape(shape, index);
       const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
@@ -2682,8 +2683,8 @@
         scope: {
           label: 'Scope',
           options: [
-            { value: 'series', label: 'Series', disabled: !seriesKey },
-            { value: 'global', label: 'Global', disabled: false }
+            { value: 'global', label: 'Global', disabled: false },
+            { value: 'series', label: seriesScopeLabel, datasetLabel: seriesScopeLabel, disabled: !seriesKey }
           ],
           value: seriesKey ? 'series' : 'global'
         },
@@ -2867,8 +2868,8 @@
             scope: {
               label: 'Scope',
               options: [
-                { value: 'series', label: 'Series', disabled: !seriesKey },
-                { value: 'global', label: 'Global', disabled: false }
+                { value: 'global', label: 'Global', disabled: false },
+                { value: 'series', label: seriesScopeLabel, datasetLabel: seriesScopeLabel, disabled: !seriesKey }
               ],
               value: lineScopeValue,
               onChange(nextScope){

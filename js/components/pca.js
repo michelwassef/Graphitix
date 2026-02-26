@@ -5282,8 +5282,8 @@
           scope: {
             label: 'Scope',
             options: [
-              { value: 'label', label: 'Label', disabled: !hasLabelScope },
-              { value: 'global', label: 'Global', disabled: false }
+              { value: 'global', label: 'Global', disabled: false },
+              { value: 'label', label: labelKey || 'Label', datasetLabel: labelKey || 'Label', disabled: !hasLabelScope }
             ],
             value: hasLabelScope ? 'label' : 'global'
           },
