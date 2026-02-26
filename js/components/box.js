@@ -3827,7 +3827,7 @@
     const safetyMargin = Math.max(0.6, radiusFloor * 0.07);
     const requestedHalfWidth = requiredHalfWidth + safetyMargin;
     const minHalfWidth = Math.max(radiusFloor * 1.05, 0);
-    const maxHalfWidth = localBand * 0.42;
+    const maxHalfWidth = localBand * 0.36;
     const resolved = Math.max(minHalfWidth, Math.min(maxHalfWidth, requestedHalfWidth));
     if(!Number.isFinite(resolved) || resolved <= 0){
       return null;
@@ -3893,6 +3893,10 @@
     const orientation = options?.orientation || 'vertical';
     const widthScaleMode = options?.widthScaleMode || 'none';
     const maxHalfWidthOverride = Number(options?.maxHalfWidth);
+    const hardMaxHalfWidthRaw = Number(options?.hardMaxHalfWidth);
+    const hardMaxHalfWidth = Number.isFinite(hardMaxHalfWidthRaw) && hardMaxHalfWidthRaw > 0
+      ? hardMaxHalfWidthRaw
+      : null;
     const allowRadiusAdjustment = options?.allowRadiusAdjustment !== false;
     const skipBucketCentering = options?.skipBucketCentering === true;
     const enforceNonOverlap = options?.enforceNonOverlap === true;
@@ -3925,6 +3929,9 @@
       if(axisBoundary > 0){
         globalMaxHalfWidth = Math.min(globalMaxHalfWidth, axisBoundary);
       }
+    }
+    if(Number.isFinite(hardMaxHalfWidth) && hardMaxHalfWidth > 0){
+      globalMaxHalfWidth = Math.min(globalMaxHalfWidth, hardMaxHalfWidth);
     }
     if(!entryCount || !Number.isFinite(globalMaxHalfWidth) || globalMaxHalfWidth <= 0){
       if(debugEnabled){
@@ -4591,9 +4598,12 @@
       }
     }
     if(placementFailed && enforceNonOverlap){
-      const maxAllowedHalfWidth = axisBoundary > 0
+      let maxAllowedHalfWidth = axisBoundary > 0
         ? axisBoundary
         : Math.max(globalMaxHalfWidth, basePointRadius * 1.05 + collisionDistance * Math.max(2, maxCount));
+      if(Number.isFinite(hardMaxHalfWidth) && hardMaxHalfWidth > 0){
+        maxAllowedHalfWidth = Math.min(maxAllowedHalfWidth, hardMaxHalfWidth);
+      }
       const canWiden = Number.isFinite(maxAllowedHalfWidth) && (maxAllowedHalfWidth - globalMaxHalfWidth) > ENFORCE_WIDTH_TOLERANCE;
       if(enforceDepth < ENFORCE_MAX_DEPTH && canWiden){
         let nextHalfWidth;
@@ -4744,9 +4754,12 @@
     if(enforceNonOverlap){
       const overlapsRemain = hasPairOverlap();
       if(overlapsRemain){
-        const maxAllowedHalfWidth = axisBoundary > 0
+        let maxAllowedHalfWidth = axisBoundary > 0
           ? axisBoundary
           : Math.max(globalMaxHalfWidth, basePointRadius * 1.05 + collisionDistance * Math.max(2, maxCount));
+        if(Number.isFinite(hardMaxHalfWidth) && hardMaxHalfWidth > 0){
+          maxAllowedHalfWidth = Math.min(maxAllowedHalfWidth, hardMaxHalfWidth);
+        }
         const canWiden = Number.isFinite(maxAllowedHalfWidth) && (maxAllowedHalfWidth - globalMaxHalfWidth) > ENFORCE_WIDTH_TOLERANCE;
         if(enforceDepth < ENFORCE_MAX_DEPTH && canWiden){
           let nextHalfWidth;
@@ -17271,37 +17284,64 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(hasExplicitPointSize(null)){
           return null;
         }
-        let maxIndex = null;
-        let maxCount = 0;
+        const localBand = localBandWidthForTrace();
+        const baseOverlapDistance = Math.max(0.5, pointRadius * 2.1);
+        let selectedIndex = null;
+        let selectedCount = 0;
+        let selectedOverlapCount = 0;
+        let selectedValues = null;
+        let selectedPointCoords = null;
         for(let i = 0; i < traces.length; i++){
           if(hasExplicitPointSize(i)){
             continue;
           }
           const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
-          if(values.length > maxCount){
-            maxCount = values.length;
-            maxIndex = i;
+          if(values.length <= 1){
+            continue;
           }
+          const pointCoords = new Float64Array(values.length);
+          for(let idx = 0; idx < values.length; idx++){
+            pointCoords[idx] = y2px(values[idx]);
+          }
+          const overlapCount = estimateSwarmOverlapCount(pointCoords, baseOverlapDistance);
+          const betterCandidate = selectedIndex == null
+            || overlapCount > selectedOverlapCount
+            || (overlapCount === selectedOverlapCount && values.length > selectedCount);
+          if(!betterCandidate){
+            continue;
+          }
+          selectedIndex = i;
+          selectedCount = values.length;
+          selectedOverlapCount = overlapCount;
+          selectedValues = values;
+          selectedPointCoords = pointCoords;
         }
-        if(maxIndex == null || maxCount <= 1){
+        if(selectedIndex == null || selectedCount <= 1 || !selectedValues || !selectedPointCoords){
           return null;
         }
-        const values = Array.isArray(traces[maxIndex]?.y) ? traces[maxIndex].y : [];
-        if(!values.length){
-          return null;
-        }
-        const pointCoords = new Float64Array(values.length);
-        for(let idx = 0; idx < values.length; idx++){
-          pointCoords[idx] = y2px(values[idx]);
-        }
-        const localBand = localBandWidthForTrace();
-        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: values }, {
+        const useTightStripSpacing = selectedCount < 20;
+        const inferredStripHalfWidth = useTightStripSpacing
+          ? computeStripSmallSampleHalfWidth({
+              sampleSize: selectedCount,
+              localBand,
+              pointRadius,
+              overlapCount: selectedOverlapCount,
+              debugEnabled
+            })
+          : null;
+        const hardStripHalfWidthCap = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
+          ? inferredStripHalfWidth
+          : null;
+        const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
           axisSpacing: localBand,
           pointRadius,
-          sampleSize: maxCount,
+          sampleSize: selectedCount,
           orientation: 'vertical',
           widthScaleMode: 'density',
+          maxHalfWidth: hardStripHalfWidthCap,
+          hardMaxHalfWidth: hardStripHalfWidthCap,
           allowRadiusAdjustment: true,
+          enforceNonOverlap: useTightStripSpacing,
           radiusCountExponent: 0.85,
           debug: debugEnabled
         });
@@ -17310,7 +17350,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         const adjusted = Number(swarm?.adjustedRadius);
         if(debugEnabled){
-          console.debug('Debug: box strip auto size base',{ orientation: 'vertical', traceIndex: maxIndex, pointCount: maxCount, adjustedRadius: Number.isFinite(adjusted) ? adjusted : null, baseRadius: pointRadius });
+          console.debug('Debug: box strip auto size base',{
+            orientation: 'vertical',
+            traceIndex: selectedIndex,
+            pointCount: selectedCount,
+            overlapCount: selectedOverlapCount,
+            tight: useTightStripSpacing,
+            halfWidthCap: hardStripHalfWidthCap,
+            adjustedRadius: Number.isFinite(adjusted) ? adjusted : null,
+            baseRadius: pointRadius
+          });
         }
         return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
       };
@@ -17739,6 +17788,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
           : inferredStripHalfWidth;
+        const hardStripHalfWidthCap = useTightStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
+          ? resolvedMaxHalfWidth
+          : null;
         const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
@@ -17746,6 +17798,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           orientation: 'vertical',
           widthScaleMode,
           maxHalfWidth: resolvedMaxHalfWidth,
+          hardMaxHalfWidth: hardStripHalfWidthCap,
           allowRadiusAdjustment: allowAdjustment,
           skipBucketCentering: false,
           enforceNonOverlap: useTightStripSpacing,
@@ -18599,6 +18652,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
           : inferredStripHalfWidth;
+        const hardStripHalfWidthCap = useTightStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
+          ? resolvedMaxHalfWidth
+          : null;
         const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
@@ -18606,6 +18662,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           orientation: 'horizontal',
           widthScaleMode,
           maxHalfWidth: resolvedMaxHalfWidth,
+          hardMaxHalfWidth: hardStripHalfWidthCap,
           allowRadiusAdjustment: allowAdjustment,
           skipBucketCentering: false,
           enforceNonOverlap: useTightStripSpacing,
@@ -18834,37 +18891,64 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(hasExplicitPointSize(null)){
           return null;
         }
-        let maxIndex = null;
-        let maxCount = 0;
+        const localBand = localBandHeightForTrace();
+        const baseOverlapDistance = Math.max(0.5, pointRadius * 2.1);
+        let selectedIndex = null;
+        let selectedCount = 0;
+        let selectedOverlapCount = 0;
+        let selectedValues = null;
+        let selectedPointCoords = null;
         for(let i = 0; i < traces.length; i++){
           if(hasExplicitPointSize(i)){
             continue;
           }
           const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
-          if(values.length > maxCount){
-            maxCount = values.length;
-            maxIndex = i;
+          if(values.length <= 1){
+            continue;
           }
+          const pointCoords = new Float64Array(values.length);
+          for(let idx = 0; idx < values.length; idx++){
+            pointCoords[idx] = valueToX(values[idx]);
+          }
+          const overlapCount = estimateSwarmOverlapCount(pointCoords, baseOverlapDistance);
+          const betterCandidate = selectedIndex == null
+            || overlapCount > selectedOverlapCount
+            || (overlapCount === selectedOverlapCount && values.length > selectedCount);
+          if(!betterCandidate){
+            continue;
+          }
+          selectedIndex = i;
+          selectedCount = values.length;
+          selectedOverlapCount = overlapCount;
+          selectedValues = values;
+          selectedPointCoords = pointCoords;
         }
-        if(maxIndex == null || maxCount <= 1){
+        if(selectedIndex == null || selectedCount <= 1 || !selectedValues || !selectedPointCoords){
           return null;
         }
-        const values = Array.isArray(traces[maxIndex]?.y) ? traces[maxIndex].y : [];
-        if(!values.length){
-          return null;
-        }
-        const pointCoords = new Float64Array(values.length);
-        for(let idx = 0; idx < values.length; idx++){
-          pointCoords[idx] = valueToX(values[idx]);
-        }
-        const localBand = localBandHeightForTrace();
-        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: values }, {
+        const useTightStripSpacing = selectedCount < 20;
+        const inferredStripHalfWidth = useTightStripSpacing
+          ? computeStripSmallSampleHalfWidth({
+              sampleSize: selectedCount,
+              localBand,
+              pointRadius,
+              overlapCount: selectedOverlapCount,
+              debugEnabled
+            })
+          : null;
+        const hardStripHalfWidthCap = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
+          ? inferredStripHalfWidth
+          : null;
+        const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
           axisSpacing: localBand,
           pointRadius,
-          sampleSize: maxCount,
+          sampleSize: selectedCount,
           orientation: 'horizontal',
           widthScaleMode: 'density',
+          maxHalfWidth: hardStripHalfWidthCap,
+          hardMaxHalfWidth: hardStripHalfWidthCap,
           allowRadiusAdjustment: true,
+          enforceNonOverlap: useTightStripSpacing,
           radiusCountExponent: 0.85,
           debug: debugEnabled
         });
@@ -18873,7 +18957,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         const adjusted = Number(swarm?.adjustedRadius);
         if(debugEnabled){
-          console.debug('Debug: box strip auto size base',{ orientation: 'horizontal', traceIndex: maxIndex, pointCount: maxCount, adjustedRadius: Number.isFinite(adjusted) ? adjusted : null, baseRadius: pointRadius });
+          console.debug('Debug: box strip auto size base',{
+            orientation: 'horizontal',
+            traceIndex: selectedIndex,
+            pointCount: selectedCount,
+            overlapCount: selectedOverlapCount,
+            tight: useTightStripSpacing,
+            halfWidthCap: hardStripHalfWidthCap,
+            adjustedRadius: Number.isFinite(adjusted) ? adjusted : null,
+            baseRadius: pointRadius
+          });
         }
         return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
       };
@@ -20933,6 +21026,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
 	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
+	    computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
+      computeStripSmallSampleHalfWidth:config=>computeStripSmallSampleHalfWidth(config),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
