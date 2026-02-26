@@ -12995,6 +12995,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    if(!ctx){
 		      return null;
 		    }
+		    if(typeof ctx.clearRect !== 'function' || typeof ctx.fillText !== 'function' || typeof ctx.getImageData !== 'function'){
+		      return null;
+		    }
 		    const fontSpec = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
 		    ctx.font = fontSpec;
 		    const measured = ctx.measureText(labelText);
@@ -13072,6 +13075,74 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return offsets && Number.isFinite(offsets.top) ? offsets.top : NaN;
 		  }
 
+		  function resolveSvgAxisUnitsPerPixel(svgLike, axis){
+		    const svg = svgLike && svgLike.ownerSVGElement
+		      ? svgLike.ownerSVGElement
+		      : svgLike;
+		    if(!svg){
+		      return 1;
+		    }
+		    const axisKey = axis === 'x' ? 'x' : 'y';
+		    let viewBoxWidth = NaN;
+		    let viewBoxHeight = NaN;
+		    const viewBox = typeof svg.getAttribute === 'function'
+		      ? String(svg.getAttribute('viewBox') || '').trim()
+		      : '';
+		    if(viewBox){
+		      const parts = viewBox.split(/[\s,]+/).map(Number);
+		      if(parts.length >= 4){
+		        viewBoxWidth = Number(parts[2]);
+		        viewBoxHeight = Number(parts[3]);
+		      }
+		    }
+		    if(!Number.isFinite(viewBoxWidth) || viewBoxWidth <= 0){
+		      viewBoxWidth = Number(svg.width?.baseVal?.value);
+		    }
+		    if(!Number.isFinite(viewBoxHeight) || viewBoxHeight <= 0){
+		      viewBoxHeight = Number(svg.height?.baseVal?.value);
+		    }
+		    if((!Number.isFinite(viewBoxWidth) || viewBoxWidth <= 0) && typeof svg.getAttribute === 'function'){
+		      viewBoxWidth = Number(svg.getAttribute('width'));
+		    }
+		    if((!Number.isFinite(viewBoxHeight) || viewBoxHeight <= 0) && typeof svg.getAttribute === 'function'){
+		      viewBoxHeight = Number(svg.getAttribute('height'));
+		    }
+		    let renderedWidth = NaN;
+		    let renderedHeight = NaN;
+		    if(typeof svg.getBoundingClientRect === 'function'){
+		      const rect = svg.getBoundingClientRect();
+		      renderedWidth = Number(rect?.width);
+		      renderedHeight = Number(rect?.height);
+		    }
+		    if((!Number.isFinite(renderedWidth) || renderedWidth <= 0) && typeof svg.getAttribute === 'function'){
+		      renderedWidth = Number(svg.getAttribute('width'));
+		    }
+		    if((!Number.isFinite(renderedHeight) || renderedHeight <= 0) && typeof svg.getAttribute === 'function'){
+		      renderedHeight = Number(svg.getAttribute('height'));
+		    }
+		    const viewExtent = axisKey === 'x' ? viewBoxWidth : viewBoxHeight;
+		    const renderedExtent = axisKey === 'x' ? renderedWidth : renderedHeight;
+		    if(!Number.isFinite(viewExtent) || viewExtent <= 0 || !Number.isFinite(renderedExtent) || renderedExtent <= 0){
+		      return 1;
+		    }
+		    return viewExtent / renderedExtent;
+		  }
+
+		  function resolveAdaptiveWhiskerGapUnits(svgLike, orientation, gapUnits, gapPx, fallbackPx){
+		    const rawUnits = gapUnits == null ? NaN : Number(gapUnits);
+		    if(Number.isFinite(rawUnits) && rawUnits >= 0){
+		      return rawUnits;
+		    }
+		    const rawPx = gapPx == null ? NaN : Number(gapPx);
+		    const fallback = Number(fallbackPx);
+		    const px = Number.isFinite(rawPx) && rawPx >= 0
+		      ? rawPx
+		      : (Number.isFinite(fallback) && fallback >= 0 ? fallback : 0);
+		    const axis = orientation === 'horizontal' ? 'x' : 'y';
+		    const unitsPerPx = resolveSvgAxisUnitsPerPixel(svgLike, axis);
+		    return Math.max(0, px * (Number.isFinite(unitsPerPx) && unitsPerPx > 0 ? unitsPerPx : 1));
+		  }
+
 		  function alignSignificanceLabelBottom(textNode, bottomY){
 		    if(!textNode || !Number.isFinite(bottomY)){
 		      return false;
@@ -13138,6 +13209,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    const obstacleGap = Number.isFinite(gapRaw) ? Math.max(0, gapRaw) : 2;
 		    const labelGapRaw = Number(options?.labelGap);
 		    const labelGap = Number.isFinite(labelGapRaw) ? Math.max(0, labelGapRaw) : obstacleGap;
+		    const rangeMinRaw = Number(options?.xMin);
+		    const rangeMaxRaw = Number(options?.xMax);
+		    const rangeHalfWidthRaw = Number(options?.xRangeHalfWidth);
+		    const hasExplicitRange = Number.isFinite(rangeMinRaw) && Number.isFinite(rangeMaxRaw);
+		    const hasHalfWidth = Number.isFinite(rangeHalfWidthRaw) && rangeHalfWidthRaw > 0;
+		    const probeMinX = hasExplicitRange
+		      ? Math.min(rangeMinRaw, rangeMaxRaw)
+		      : (hasHalfWidth ? xCoord - rangeHalfWidthRaw : xCoord);
+		    const probeMaxX = hasExplicitRange
+		      ? Math.max(rangeMinRaw, rangeMaxRaw)
+		      : (hasHalfWidth ? xCoord + rangeHalfWidthRaw : xCoord);
 		    const epsilon = 0.01;
 		    const pathNodes = layer.querySelectorAll
 		      ? layer.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]')
@@ -13152,16 +13234,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      }
 		      const minX = Math.min(x1, x2) - epsilon;
 		      const maxX = Math.max(x1, x2) + epsilon;
-		      if(xCoord < minX || xCoord > maxX){
+		      if(probeMaxX < minX || probeMinX > maxX){
 		        continue;
 		      }
 		      if(inner <= innerCoord + epsilon){
 		        continue;
 		      }
-		      if(inner >= clampedOuter - epsilon){
+		      const candidateOuter = inner - obstacleGap;
+		      if(candidateOuter >= clampedOuter - epsilon){
 		        continue;
 		      }
-		      clampedOuter = Math.min(clampedOuter, inner - obstacleGap);
+		      clampedOuter = Math.min(clampedOuter, candidateOuter);
 		    }
 		    const labelNodes = layer.querySelectorAll
 		      ? layer.querySelectorAll('text.box-significance-annotation')
@@ -13182,7 +13265,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      }
 		      const minX = bbox.x - epsilon;
 		      const maxX = bbox.x + bbox.width + epsilon;
-		      if(xCoord < minX || xCoord > maxX){
+		      if(probeMaxX < minX || probeMinX > maxX){
 		        continue;
 		      }
 		      const baselineY = Number(node.getAttribute('y'));
@@ -13204,10 +13287,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      if(bottom <= innerCoord + epsilon){
 		        continue;
 		      }
-		      if(top >= clampedOuter - epsilon){
+		      const candidateOuter = top - labelGap;
+		      if(candidateOuter >= clampedOuter - epsilon){
 		        continue;
 		      }
-		      clampedOuter = Math.min(clampedOuter, top - labelGap);
+		      clampedOuter = Math.min(clampedOuter, candidateOuter);
 		    }
 		    return Math.max(innerCoord, clampedOuter);
 		  }
@@ -13270,11 +13354,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        if(Number.isFinite(opts.outerCoordA)){ outerCoordA = Math.max(outerY, opts.outerCoordA); }
 		        if(Number.isFinite(opts.outerCoordB)){ outerCoordB = Math.max(outerY, opts.outerCoordB); }
 		        const innerCoord = outerY - bracketSize;
-		        const obstacleGap = Number.isFinite(opts.whiskerObstacleGap)
-		          ? Math.max(0, Number(opts.whiskerObstacleGap))
-		          : Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
+		        const gapFallback = Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
+		        const obstacleGap = resolveAdaptiveWhiskerGapUnits(
+		          targetLayer,
+		          orientation,
+		          opts.whiskerObstacleGap,
+		          opts.whiskerObstacleGapPx,
+		          gapFallback
+		        );
 		        const obstacleX1 = Number.isFinite(Number(opts.obstacleX1)) ? Number(opts.obstacleX1) : x1;
 		        const obstacleX2 = Number.isFinite(Number(opts.obstacleX2)) ? Number(opts.obstacleX2) : x2;
+		        const obstacleReachA = Number.isFinite(Number(opts.obstacleReachA))
+		          ? Math.max(0, Number(opts.obstacleReachA))
+		          : Math.max(0, Math.abs(x1 - obstacleX1));
+		        const obstacleReachB = Number.isFinite(Number(opts.obstacleReachB))
+		          ? Math.max(0, Number(opts.obstacleReachB))
+		          : Math.max(0, Math.abs(x2 - obstacleX2));
 		        const dataObstacleA = Number(opts.dataObstacleCoordA);
 		        const dataObstacleB = Number(opts.dataObstacleCoordB);
 		        if(Number.isFinite(dataObstacleA)){
@@ -13283,11 +13378,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        if(Number.isFinite(dataObstacleB)){
 		          outerCoordB = Math.min(outerCoordB, dataObstacleB - obstacleGap);
 		        }
-		        const labelGap = Number.isFinite(opts.whiskerLabelGap)
-		          ? Math.max(0, Number(opts.whiskerLabelGap))
-		          : obstacleGap;
-		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX1, innerCoord, outerCoordA, { gap: obstacleGap, labelGap });
-		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX2, innerCoord, outerCoordB, { gap: obstacleGap, labelGap });
+		        const labelGap = resolveAdaptiveWhiskerGapUnits(
+		          targetLayer,
+		          orientation,
+		          opts.whiskerLabelGap,
+		          opts.whiskerLabelGapPx,
+		          gapFallback
+		        );
+		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX1, innerCoord, outerCoordA, {
+		          gap: obstacleGap,
+		          labelGap,
+		          xRangeHalfWidth: obstacleReachA
+		        });
+		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX2, innerCoord, outerCoordB, {
+		          gap: obstacleGap,
+		          labelGap,
+		          xRangeHalfWidth: obstacleReachB
+		        });
 		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
@@ -13419,7 +13526,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         fontKey: 'significance-label'
       });
     }
-    console.debug('Debug: box annotatePair scaling',{strokeWidth,fontSize:opts.fontSize,orientation,color,showWhiskers});
   }
   function annotateOverall(svg,xCenters,valueToCoord,maxVal,p,level=0,styleOptions){
     const opts=styleOptions||{};
@@ -13962,10 +14068,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
     const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
     const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-    const adaptiveWhiskerGap = Math.max(
+    const adaptiveWhiskerGapPx = Math.max(
       5,
       Math.min(10, (Number.isFinite(annotationOpts.fontSize) ? annotationOpts.fontSize : 12) * 0.45)
     );
+    const adaptiveWhiskerGap = resolveAdaptiveWhiskerGapUnits(
+      svg,
+      orientation,
+      null,
+      adaptiveWhiskerGapPx,
+      adaptiveWhiskerGapPx
+    );
+    const adaptiveDataObstaclePadding = Number.isFinite(Number(annotationOpts.dataObstaclePadding))
+      ? Math.max(0, Number(annotationOpts.dataObstaclePadding))
+      : 0;
     const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
       if(!adaptiveWhiskersEnabled){ return null; }
       const renderedMaxValue = getRenderedMaxValue(traceIdx);
@@ -13986,7 +14102,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         return null;
       }
       const coord = valueToCoord(renderedMaxValue);
-      return Number.isFinite(coord) ? coord : null;
+      if(!Number.isFinite(coord)){
+        return null;
+      }
+      if(orientation === 'horizontal'){
+        return coord + adaptiveDataObstaclePadding;
+      }
+      return coord - adaptiveDataObstaclePadding;
     };
     const resolveLowerInnerCoord = (traceIdx, level, source) => {
       if(!adaptiveWhiskersEnabled || level <= 0){
@@ -14052,6 +14174,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
       const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, lowerSource);
       const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, lowerSource);
+      const centerA = categoryCenter(idxA);
+      const centerB = categoryCenter(idxB);
+      const obstacleReachA = Number.isFinite(lowerSource?.endpointReachByTrace?.get?.(idxA))
+        ? Math.max(0, Number(lowerSource.endpointReachByTrace.get(idxA)))
+        : 0;
+      const obstacleReachB = Number.isFinite(lowerSource?.endpointReachByTrace?.get?.(idxB))
+        ? Math.max(0, Number(lowerSource.endpointReachByTrace.get(idxB)))
+        : 0;
       return {
         ...helpers.annotationStyle,
         outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
@@ -14059,7 +14189,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         dataObstacleCoordA: resolveAdaptiveDataObstacleCoord(idxA),
         dataObstacleCoordB: resolveAdaptiveDataObstacleCoord(idxB),
         whiskerObstacleGap: adaptiveWhiskerGap,
-        whiskerLabelGap: adaptiveWhiskerGap
+        whiskerLabelGap: adaptiveWhiskerGap,
+        whiskerObstacleGapPx: adaptiveWhiskerGapPx,
+        whiskerLabelGapPx: adaptiveWhiskerGapPx,
+        obstacleX1: Number.isFinite(centerA) ? centerA : null,
+        obstacleX2: Number.isFinite(centerB) ? centerB : null,
+        obstacleReachA,
+        obstacleReachB
       };
     };
 
@@ -14083,8 +14219,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         );
         const lowerSource = {
           pairs: renderPairs,
-          geometryByPair: layout.geometryByPair
+          geometryByPair: layout.geometryByPair,
+          endpointReachByTrace: new Map()
         };
+        renderPairs.forEach(pr => {
+          const geom = layout.geometryByPair.get(pr);
+          if(!geom){
+            return;
+          }
+          const centerA = categoryCenter(pr.ai);
+          const centerB = categoryCenter(pr.bi);
+          if(Number.isFinite(centerA) && Number.isFinite(geom.x1)){
+            const reachA = Math.abs(geom.x1 - centerA);
+            const prevA = Number(lowerSource.endpointReachByTrace.get(pr.ai));
+            if(!Number.isFinite(prevA) || reachA > prevA){
+              lowerSource.endpointReachByTrace.set(pr.ai, reachA);
+            }
+          }
+          if(Number.isFinite(centerB) && Number.isFinite(geom.x2)){
+            const reachB = Math.abs(geom.x2 - centerB);
+            const prevB = Number(lowerSource.endpointReachByTrace.get(pr.bi));
+            if(!Number.isFinite(prevB) || reachB > prevB){
+              lowerSource.endpointReachByTrace.set(pr.bi, reachB);
+            }
+          }
+        });
         renderPairs.forEach(pr => {
           const geom = layout.geometryByPair.get(pr) || null;
           const annotationCoord = Number.isFinite(geom?.annotationCoord)
@@ -14393,7 +14552,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const significanceEnabled = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
     state.statsLastSignificanceEnabled = !!significanceEnabled;
     state.significanceMaxLevel = null;
-    console.debug('Debug: box significance annotations status',{ enabled: significanceEnabled });
     const annotationOpts=helpers?.annotationStyle||{};
     const orientation=annotationOpts.orientation==='horizontal'?'horizontal':'vertical';
     const categoryCenter=typeof helpers?.categoryCenter==='function'
@@ -14407,7 +14565,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
     const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth);
     const labelGapForPairs = resolveSignificanceLabelGapPx(annotationOpts.fontSize);
-    console.debug('Debug: box annotation offsets',{baseOffset,levelGap,levelStep,orientation});
     const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
     const fallbackTraceMax = idx => {
       const trace = traces?.[idx];
@@ -14430,21 +14587,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       return fallbackTraceMax(idx);
     };
-	    const getRenderedRangeMax = (idxA, idxB) => {
-	      const start = Math.min(idxA, idxB);
-	      const end = Math.max(idxA, idxB);
-	      let max = -Infinity;
-	      for(let k = start; k <= end; k++){
-	        max = Math.max(max, getRenderedMaxValue(k));
-	      }
-	      return max;
-	    };
+    const getRenderedRangeMax = (idxA, idxB) => {
+      const start = Math.min(idxA, idxB);
+      const end = Math.max(idxA, idxB);
+      let max = -Infinity;
+      for(let k = start; k <= end; k++){
+        max = Math.max(max, getRenderedMaxValue(k));
+      }
+      return max;
+    };
 	    const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
 	    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-	    const adaptiveWhiskerGap = Math.max(
+	    const adaptiveWhiskerGapPx = Math.max(
 	      5,
 	      Math.min(10, (Number.isFinite(annotationOpts.fontSize) ? annotationOpts.fontSize : 12) * 0.45)
 	    );
+	    const adaptiveWhiskerGap = resolveAdaptiveWhiskerGapUnits(
+	      svg,
+	      orientation,
+	      null,
+	      adaptiveWhiskerGapPx,
+	      adaptiveWhiskerGapPx
+	    );
+	    const adaptiveDataObstaclePadding = Number.isFinite(Number(annotationOpts.dataObstaclePadding))
+	      ? Math.max(0, Number(annotationOpts.dataObstaclePadding))
+	      : 0;
 	    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
 	      if(!adaptiveWhiskersEnabled){ return null; }
 	      const renderedMaxValue = getRenderedMaxValue(traceIdx);
@@ -14465,7 +14632,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        return null;
 	      }
 	      const coord = valueToCoord(renderedMaxValue);
-	      return Number.isFinite(coord) ? coord : null;
+	      if(!Number.isFinite(coord)){
+	        return null;
+	      }
+	      if(orientation === 'horizontal'){
+	        return coord + adaptiveDataObstaclePadding;
+	      }
+	      return coord - adaptiveDataObstaclePadding;
 	    };
 	    const resolveLowerInnerCoord = (traceIdx, level, source) => {
 	      if(!adaptiveWhiskersEnabled || level <= 0){
@@ -14531,6 +14704,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
 	      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, lowerSource);
 	      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, lowerSource);
+	      const centerA = categoryCenter(idxA);
+	      const centerB = categoryCenter(idxB);
+	      const obstacleReachA = Number.isFinite(lowerSource?.endpointReachByTrace?.get?.(idxA))
+	        ? Math.max(0, Number(lowerSource.endpointReachByTrace.get(idxA)))
+	        : 0;
+	      const obstacleReachB = Number.isFinite(lowerSource?.endpointReachByTrace?.get?.(idxB))
+	        ? Math.max(0, Number(lowerSource.endpointReachByTrace.get(idxB)))
+	        : 0;
 	      return {
 	        ...helpers.annotationStyle,
 	        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
@@ -14538,7 +14719,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        dataObstacleCoordA: resolveAdaptiveDataObstacleCoord(idxA),
 	        dataObstacleCoordB: resolveAdaptiveDataObstacleCoord(idxB),
 	        whiskerObstacleGap: adaptiveWhiskerGap,
-	        whiskerLabelGap: adaptiveWhiskerGap
+	        whiskerLabelGap: adaptiveWhiskerGap,
+	        whiskerObstacleGapPx: adaptiveWhiskerGapPx,
+	        whiskerLabelGapPx: adaptiveWhiskerGapPx,
+	        obstacleX1: Number.isFinite(centerA) ? centerA : null,
+	        obstacleX2: Number.isFinite(centerB) ? centerB : null,
+	        obstacleReachA,
+	        obstacleReachB
 	      };
 	    };
 	    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
@@ -14574,8 +14761,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      );
 	      const lowerSource = {
 	        pairs: renderPairs,
-	        geometryByPair: layout.geometryByPair
+	        geometryByPair: layout.geometryByPair,
+	        endpointReachByTrace: new Map()
 	      };
+	      renderPairs.forEach(pr => {
+	        const geom = layout.geometryByPair.get(pr);
+	        if(!geom){
+	          return;
+	        }
+	        const centerA = categoryCenter(pr.ai);
+	        const centerB = categoryCenter(pr.bi);
+	        if(Number.isFinite(centerA) && Number.isFinite(geom.x1)){
+	          const reachA = Math.abs(geom.x1 - centerA);
+	          const prevA = Number(lowerSource.endpointReachByTrace.get(pr.ai));
+	          if(!Number.isFinite(prevA) || reachA > prevA){
+	            lowerSource.endpointReachByTrace.set(pr.ai, reachA);
+	          }
+	        }
+	        if(Number.isFinite(centerB) && Number.isFinite(geom.x2)){
+	          const reachB = Math.abs(geom.x2 - centerB);
+	          const prevB = Number(lowerSource.endpointReachByTrace.get(pr.bi));
+	          if(!Number.isFinite(prevB) || reachB > prevB){
+	            lowerSource.endpointReachByTrace.set(pr.bi, reachB);
+	          }
+	        }
+	      });
 	      renderPairs.forEach(pr=>{
 	        const geom = layout.geometryByPair.get(pr) || null;
 	        const annotationCoord = Number.isFinite(geom?.annotationCoord)
@@ -16440,6 +16650,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const annotationOrientation = isFlipped ? 'horizontal' : 'vertical';
     const significanceControlConfig = createSignificanceControlConfig(annotationOrientation);
+    const annotationDataObstaclePadding = Math.max(
+      0,
+      pointRadius,
+      borderWidthPx * 0.5,
+      annotationStrokeWidth * 0.35
+    );
 	    const annotationStyle = {
 	      styleScaleInfo,
 	      fontSize: fs,
@@ -16453,6 +16669,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      baseOffset: annotationBaseOffset,
 	      levelGap: annotationLevelGap,
 	      bracketSize: annotationBracketSize,
+	      dataObstaclePadding: annotationDataObstaclePadding,
 	      orientation: annotationOrientation,
 	      targetLayer: significanceLayer || svg
 	    };
@@ -20535,6 +20752,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
-	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options)
+	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
+	    clampAdaptiveWhiskerToExistingObstacles:(layer,xCoord,innerCoord,desiredOuter,options)=>clampAdaptiveWhiskerToExistingObstacles(layer,xCoord,innerCoord,desiredOuter,options),
+	    resolveSvgAxisUnitsPerPixel:(svgLike,axis)=>resolveSvgAxisUnitsPerPixel(svgLike,axis),
+	    resolveAdaptiveWhiskerGapUnits:(svgLike,orientation,gapUnits,gapPx,fallbackPx)=>resolveAdaptiveWhiskerGapUnits(svgLike,orientation,gapUnits,gapPx,fallbackPx)
 	  });
 })(window);

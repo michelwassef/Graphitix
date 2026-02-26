@@ -127,4 +127,123 @@ describe('Box significance whisker modes', () => {
     expect(aTop.annotationCoord).toBeCloseTo(woTop.annotationCoord, 6);
     expect(bRight.annotationCoord).toBeCloseTo(woRight.annotationCoord, 6);
   });
+
+  test('adaptive whisker obstacle gap stays pixel-stable after resize for bars and labels', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveSvgAxisUnitsPerPixel).toBe('function');
+    expect(typeof hooks.resolveAdaptiveWhiskerGapUnits).toBe('function');
+    expect(typeof hooks.clampAdaptiveWhiskerToExistingObstacles).toBe('function');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const buildLayer = ({ viewBox, width, height, xStart, xEnd, innerY, labelTop, labelBottom }) => {
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', viewBox);
+      svg.setAttribute('width', String(width));
+      svg.setAttribute('height', String(height));
+      svg.getBoundingClientRect = () => ({ width, height, top: 0, left: 0, right: width, bottom: height });
+      const layer = document.createElementNS(svgNS, 'g');
+      svg.appendChild(layer);
+      const bar = document.createElementNS(svgNS, 'path');
+      bar.setAttribute('class', 'box-significance-annotation');
+      bar.setAttribute('data-sig-orientation', 'vertical');
+      bar.setAttribute('data-sig-inner', String(innerY));
+      bar.setAttribute('data-sig-x1', String(xStart));
+      bar.setAttribute('data-sig-x2', String(xEnd));
+      layer.appendChild(bar);
+      const label = document.createElementNS(svgNS, 'text');
+      label.setAttribute('class', 'box-significance-annotation');
+      label.setAttribute('y', String(labelBottom));
+      label.setAttribute('data-sig-label-top', String(labelTop));
+      label.getBBox = () => ({
+        x: xStart,
+        y: labelTop,
+        width: Math.max(1, xEnd - xStart),
+        height: Math.max(1, labelBottom - labelTop)
+      });
+      layer.appendChild(label);
+      return { svg, layer };
+    };
+
+    const gapPx = 6;
+    const small = buildLayer({
+      viewBox: '0 0 200 200',
+      width: 200,
+      height: 200,
+      xStart: 45,
+      xEnd: 55,
+      innerY: 130,
+      labelTop: 112,
+      labelBottom: 120
+    });
+    const smallUnitsPerPx = hooks.resolveSvgAxisUnitsPerPixel(small.svg, 'y');
+    const smallGap = hooks.resolveAdaptiveWhiskerGapUnits(small.svg, 'vertical', null, gapPx, gapPx);
+    const smallOuter = hooks.clampAdaptiveWhiskerToExistingObstacles(
+      small.layer,
+      50,
+      80,
+      170,
+      { gap: smallGap, labelGap: smallGap }
+    );
+    const smallPixelGapToLabel = (112 - smallOuter) / smallUnitsPerPx;
+    expect(smallPixelGapToLabel).toBeCloseTo(gapPx, 4);
+
+    const large = buildLayer({
+      viewBox: '0 0 400 400',
+      width: 200,
+      height: 200,
+      xStart: 90,
+      xEnd: 110,
+      innerY: 260,
+      labelTop: 224,
+      labelBottom: 240
+    });
+    const largeUnitsPerPx = hooks.resolveSvgAxisUnitsPerPixel(large.svg, 'y');
+    const largeGap = hooks.resolveAdaptiveWhiskerGapUnits(large.svg, 'vertical', null, gapPx, gapPx);
+    const largeOuter = hooks.clampAdaptiveWhiskerToExistingObstacles(
+      large.layer,
+      100,
+      160,
+      340,
+      { gap: largeGap, labelGap: largeGap }
+    );
+    const largePixelGapToLabel = (224 - largeOuter) / largeUnitsPerPx;
+    expect(largePixelGapToLabel).toBeCloseTo(gapPx, 4);
+  });
+
+  test('converging whiskers use a shared obstacle window and clamp to identical length', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.clampAdaptiveWhiskerToExistingObstacles).toBe('function');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const layer = document.createElementNS(svgNS, 'g');
+    const leftObstacle = document.createElementNS(svgNS, 'path');
+    leftObstacle.setAttribute('class', 'box-significance-annotation');
+    leftObstacle.setAttribute('data-sig-orientation', 'vertical');
+    leftObstacle.setAttribute('data-sig-inner', '118');
+    leftObstacle.setAttribute('data-sig-x1', '44');
+    leftObstacle.setAttribute('data-sig-x2', '47');
+    layer.appendChild(leftObstacle);
+    const rightObstacle = document.createElementNS(svgNS, 'path');
+    rightObstacle.setAttribute('class', 'box-significance-annotation');
+    rightObstacle.setAttribute('data-sig-orientation', 'vertical');
+    rightObstacle.setAttribute('data-sig-inner', '114');
+    rightObstacle.setAttribute('data-sig-x1', '53');
+    rightObstacle.setAttribute('data-sig-x2', '56');
+    layer.appendChild(rightObstacle);
+
+    const legacyLeft = hooks.clampAdaptiveWhiskerToExistingObstacles(layer, 46, 80, 170, { gap: 4, labelGap: 4 });
+    const legacyRight = hooks.clampAdaptiveWhiskerToExistingObstacles(layer, 54, 80, 170, { gap: 4, labelGap: 4 });
+    expect(legacyLeft).not.toBeCloseTo(legacyRight, 6);
+
+    const sharedLeft = hooks.clampAdaptiveWhiskerToExistingObstacles(layer, 50, 80, 170, {
+      gap: 4,
+      labelGap: 4,
+      xRangeHalfWidth: 6
+    });
+    const sharedRight = hooks.clampAdaptiveWhiskerToExistingObstacles(layer, 50, 80, 170, {
+      gap: 4,
+      labelGap: 4,
+      xRangeHalfWidth: 6
+    });
+    expect(sharedLeft).toBeCloseTo(sharedRight, 6);
+    expect(sharedLeft).toBeCloseTo(110, 6);
+  });
 });
