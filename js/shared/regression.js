@@ -3819,7 +3819,7 @@
           if(rangeFallbackToAllPoints){
             warnings.push(`Fit range excluded too many points (${filteredSampleSize} retained of ${allPoints.length}); using full dataset.`);
           }else{
-            warnings.push(`Fit range filtering applied (${filteredSampleSize} retained of ${allPoints.length}).`);
+            warnings.push(`Fit range filtering applied (${filteredSampleSize} retained of ${allPoints.length}). Adjust or clear Fit range X to use all points.`);
           }
         }
         return {
@@ -3912,7 +3912,7 @@
           ]);
         }else if(filteredSampleSize < allPoints.length){
           model.warnings = (model.warnings || []).concat([
-            `Fit range filtering applied (${filteredSampleSize} retained of ${allPoints.length}).`
+            `Fit range filtering applied (${filteredSampleSize} retained of ${allPoints.length}). Adjust or clear Fit range X to use all points.`
           ]);
         }
       }

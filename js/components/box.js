@@ -7102,12 +7102,28 @@
     });
   }
 
-	  function ensureWhiskerState(ruleCandidate){
+  function ensureWhiskerState(ruleCandidate){
 	    const meta=resolveWhiskerMeta(ruleCandidate || state.whiskerRule);
 	    state.whiskerRule=meta.key;
 	    state.whiskerCustomMultiplier=clampWhiskerMultiplier(state.whiskerCustomMultiplier);
 	    return meta;
 	  }
+
+  function getBoxBorderWidthValue(){
+    const candidate = els?.boxBorderWidth?.value;
+    if(candidate == null || candidate === ''){
+      return '1';
+    }
+    return String(candidate);
+  }
+
+  function getBoxErrorBarWidthValue(){
+    const candidate = els?.boxErrorBarWidth?.value;
+    if(candidate == null || candidate === ''){
+      return getBoxBorderWidthValue();
+    }
+    return String(candidate);
+  }
 
 	  function normalizeSignificanceWhiskerMode(value){
 	    if(typeof value !== 'string'){ return DEFAULT_SIGNIFICANCE_WHISKER_MODE; }
@@ -8286,9 +8302,21 @@
       });
     }
     updateGraphTypeControls();
-    els.boxFill.addEventListener('input',()=>{ console.log('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
-    els.boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
-    els.boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
+    if(els.boxFill){
+      els.boxFill.addEventListener('input',()=>{ console.log('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
+    }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box initUI missing #boxFill control');
+    }
+    if(els.boxBorder){
+      els.boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
+    }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box initUI missing #boxBorder control');
+    }
+    if(els.boxBorderWidth){
+      els.boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
+    }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box initUI missing #boxBorderWidth control');
+    }
     if(els.boxErrorBarWidth){
       els.boxErrorBarWidth.addEventListener('input',()=>{
         console.debug('Debug: boxErrorBarWidth changed',{ value: els.boxErrorBarWidth.value });
@@ -8318,10 +8346,22 @@
     } else {
       console.debug('Debug: box export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: box export fallback
     }
-    global.$('#openBoxGraph')?.addEventListener('click', box.open);
-    global.$('#saveBoxGraph')?.addEventListener('click', box.save);
-    global.$('#saveAsBox').addEventListener('click', box.saveAs);
-    global.$('#boxGraphFile').addEventListener('change', e=>{ const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; box.loadFromFile(f); } });
+    const openBoxGraphBtn = global.$('#openBoxGraph');
+    const saveBoxGraphBtn = global.$('#saveBoxGraph');
+    const saveAsBoxBtn = global.$('#saveAsBox');
+    const boxGraphFileInput = global.$('#boxGraphFile');
+    openBoxGraphBtn?.addEventListener('click', box.open);
+    saveBoxGraphBtn?.addEventListener('click', box.save);
+    saveAsBoxBtn?.addEventListener('click', box.saveAs);
+    boxGraphFileInput?.addEventListener('change', e=>{ const f=e.target.files?.[0]; if(f){ state.fileName=f.name; state.fileHandle=null; box.loadFromFile(f); } });
+    if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+      if(!saveAsBoxBtn){
+        console.debug('Debug: box initUI missing #saveAsBox button');
+      }
+      if(!boxGraphFileInput){
+        console.debug('Debug: box initUI missing #boxGraphFile input');
+      }
+    }
   }
 
   // PART: STATS
@@ -14380,8 +14420,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const colorMode = els.boxColorUnified.checked ? 'unified' : 'individual';
     const defaultFill = els.boxFill.value;
     const defaultBorder = els.boxBorder.value;
-    const borderWidthRaw = Number(els.boxBorderWidth.value);
-    const errorBarWidthInput = Number(els.boxErrorBarWidth?.value);
+    const borderWidthRaw = Number(getBoxBorderWidthValue());
+    const errorBarWidthInput = Number(getBoxErrorBarWidthValue());
     const errorBarWidthRaw = Number.isFinite(errorBarWidthInput) ? errorBarWidthInput : borderWidthRaw;
     const containerRect = els.svgBox?.getBoundingClientRect?.();
     const fontInfo = chartStyle.resolveScaledFontSize({
@@ -18254,8 +18294,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         colorMode:els.boxColorUnified.checked?'unified':'individual',
         fill:els.boxFill.value,
         border:els.boxBorder.value,
-        borderWidth:els.boxBorderWidth.value,
-        errorBarWidth:els.boxErrorBarWidth?.value ?? els.boxBorderWidth.value,
+        borderWidth:getBoxBorderWidthValue(),
+        errorBarWidth:getBoxErrorBarWidthValue(),
         fontSize:els.boxFontSize.value,
         fontStyles: (exportFontStyles('box') || undefined),
         showGrid:els.boxShowGrid.checked,
@@ -18551,12 +18591,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.yLabelText=c.yLabel||state.yLabelText;
     els.boxFill.value=c.fill||els.boxFill.value;
     els.boxBorder.value=c.border||els.boxBorder.value;
-    els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
+    if(els.boxBorderWidth){
+      els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
+    }
     if(els.boxErrorBarWidth){
       if(c.errorBarWidth != null){
         els.boxErrorBarWidth.value = c.errorBarWidth;
       }else if(!els.boxErrorBarWidth.value){
-        els.boxErrorBarWidth.value = els.boxBorderWidth.value;
+        els.boxErrorBarWidth.value = getBoxBorderWidthValue();
       }
     }
     els.boxFontSize.value=c.fontSize||els.boxFontSize.value;

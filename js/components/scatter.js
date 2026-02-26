@@ -6042,6 +6042,49 @@
         reciprocalSlopeCi
       };
     };
+    const predictScatterRegressionValue = (regressionModel, xValue) => {
+      const x = Number(xValue);
+      if(!Number.isFinite(x) || !regressionModel){
+        return NaN;
+      }
+      if(typeof regressionModel.predict === 'function'){
+        const direct = Number(regressionModel.predict(x));
+        return Number.isFinite(direct) ? direct : NaN;
+      }
+      const mode = String(regressionModel.mode || '').toLowerCase();
+      const summary = regressionModel.summary && typeof regressionModel.summary === 'object'
+        ? regressionModel.summary
+        : null;
+      const coefficients = Array.isArray(regressionModel.coefficients)
+        ? regressionModel.coefficients.map(Number)
+        : [];
+      if(mode === 'linear'){
+        const slope = Number(summary?.slope);
+        const intercept = Number(summary?.intercept);
+        if(Number.isFinite(slope) && Number.isFinite(intercept)){
+          return intercept + (slope * x);
+        }
+        if(coefficients.length >= 2 && Number.isFinite(coefficients[0]) && Number.isFinite(coefficients[1])){
+          return coefficients[0] + (coefficients[1] * x);
+        }
+      }
+      if(mode === 'linearthroughorigin'){
+        const slope = Number(summary?.slope);
+        if(Number.isFinite(slope)){
+          return slope * x;
+        }
+        if(coefficients.length >= 1 && Number.isFinite(coefficients[0])){
+          return coefficients[0] * x;
+        }
+      }
+      if(mode === 'quadratic' || mode === 'cubic' || mode === 'polynomial'){
+        if(coefficients.length){
+          const value = coefficients.reduce((acc, coeff, idx) => acc + (coeff * Math.pow(x, idx)), 0);
+          return Number.isFinite(value) ? value : NaN;
+        }
+      }
+      return NaN;
+    };
     const upsertScatterResidualsDataView = (context, regressionModel, options = {}) => {
       const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
       if(!hot || typeof hot.getData !== 'function'){
@@ -6055,7 +6098,7 @@
         return false;
       }
       const points = Array.isArray(context?.points) ? context.points : [];
-      if(!points.length || typeof regressionModel?.predict !== 'function'){
+      if(!points.length || !regressionModel){
         return false;
       }
       const rows = [['Label', 'X', 'Residual']];
@@ -6065,7 +6108,7 @@
         if(!Number.isFinite(x) || !Number.isFinite(y)){
           return;
         }
-        const predicted = Number(regressionModel.predict(x));
+        const predicted = predictScatterRegressionValue(regressionModel, x);
         if(!Number.isFinite(predicted)){
           return;
         }
@@ -6971,6 +7014,11 @@
           }
         });
         Promise.resolve(importPromise).then(result => {
+          const fitRangeCleared = clearScatterFitRangeInputs('file-import');
+          if(fitRangeCleared){
+            requestScatterStatsContextRefresh('fit-range-cleared-import');
+            persistTabState('scatter-fit-range-cleared-import');
+          }
           const prismMeta = result?.prismMeta;
           if(prismMeta?.kind === 'line'){
             const replicateCount = clampScatterReplicateCount(prismMeta.replicatesCount || SCATTER_MIN_REPLICATES);
@@ -7661,6 +7709,34 @@
         }
       }
 
+      function parseScatterOptionalNumberInput(value){
+        const raw = value == null ? '' : String(value).trim();
+        if(raw === ''){
+          return NaN;
+        }
+        const parsed = Number(raw);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function clearScatterFitRangeInputs(reason){
+        let changed = false;
+        if(scatterFitRangeMinX && String(scatterFitRangeMinX.value || '').trim() !== ''){
+          scatterFitRangeMinX.value = '';
+          changed = true;
+        }
+        if(scatterFitRangeMaxX && String(scatterFitRangeMaxX.value || '').trim() !== ''){
+          scatterFitRangeMaxX.value = '';
+          changed = true;
+        }
+        if(changed){
+          validateScatterFitSpecControls();
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: scatter fit range inputs cleared', { reason: reason || null });
+          }
+        }
+        return changed;
+      }
+
       function setScatterFitSpecMessage(target, message, state){
         if(!target){
           return;
@@ -7674,16 +7750,19 @@
       }
 
       function validateScatterFitSpecControls(){
-        const minX = Number(scatterFitRangeMinX?.value);
-        const maxX = Number(scatterFitRangeMaxX?.value);
+        const minX = parseScatterOptionalNumberInput(scatterFitRangeMinX?.value);
+        const maxX = parseScatterOptionalNumberInput(scatterFitRangeMaxX?.value);
         const hasMin = Number.isFinite(minX);
         const hasMax = Number.isFinite(maxX);
-        const confidence = Number(scatterConfidenceLevel?.value);
+        const confidence = parseScatterOptionalNumberInput(scatterConfidenceLevel?.value);
         const initialParse = parseScatterJsonWithError(scatterInitialValuesJson?.value);
         const constraintParse = parseScatterJsonWithError(scatterParameterConstraintsJson?.value);
         const issues = [];
         if(hasMin && hasMax && minX > maxX){
           issues.push('Fit range min X cannot exceed max X.');
+        }
+        if(hasMin && hasMax && minX === maxX){
+          issues.push('Fit range min X and max X cannot be equal.');
         }
         if(Number.isFinite(confidence) && (confidence < 1 || confidence >= 100)){
           issues.push('Confidence level must be between 1 and 99.9.');
@@ -7728,9 +7807,9 @@
       }
 
       function buildScatterFitSpec(){
-        const minX = Number(scatterFitRangeMinX?.value);
-        const maxX = Number(scatterFitRangeMaxX?.value);
-        const confidenceLevel = Number(scatterConfidenceLevel?.value);
+        const minX = parseScatterOptionalNumberInput(scatterFitRangeMinX?.value);
+        const maxX = parseScatterOptionalNumberInput(scatterFitRangeMaxX?.value);
+        const confidenceLevel = parseScatterOptionalNumberInput(scatterConfidenceLevel?.value);
         const hasRange = Number.isFinite(minX) || Number.isFinite(maxX);
         const initialParsed = parseScatterJsonWithError(scatterInitialValuesJson?.value);
         const constraintsParsed = parseScatterJsonWithError(scatterParameterConstraintsJson?.value);
@@ -7757,16 +7836,27 @@
 
       function applyScatterFitSpecControls(spec){
         const fitSpec = spec && typeof spec === 'object' ? spec : {};
+        let minX = parseScatterOptionalNumberInput(fitSpec?.range?.minX);
+        let maxX = parseScatterOptionalNumberInput(fitSpec?.range?.maxX);
+        const looksLegacyZeroRange = Number.isFinite(minX)
+          && Number.isFinite(maxX)
+          && minX === 0
+          && maxX === 0;
+        if(looksLegacyZeroRange){
+          minX = NaN;
+          maxX = NaN;
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: scatter fit range legacy zero-range cleared', { fitSpecRange: fitSpec?.range || null });
+          }
+        }
         if(scatterFitRangeMinX){
-          const minX = Number(fitSpec?.range?.minX);
           scatterFitRangeMinX.value = Number.isFinite(minX) ? String(minX) : '';
         }
         if(scatterFitRangeMaxX){
-          const maxX = Number(fitSpec?.range?.maxX);
           scatterFitRangeMaxX.value = Number.isFinite(maxX) ? String(maxX) : '';
         }
         if(scatterConfidenceLevel){
-          const confidence = Number(fitSpec?.confidenceLevel);
+          const confidence = parseScatterOptionalNumberInput(fitSpec?.confidenceLevel);
           scatterConfidenceLevel.value = Number.isFinite(confidence) ? String(confidence) : '95';
         }
         if(scatterInitialValuesJson){
@@ -8049,6 +8139,202 @@
         scatterState.statsContext = context;
       }
 
+      function hasScatterRegressionReportData(model){
+        if(!model || typeof model !== 'object'){
+          return false;
+        }
+        const summary = (model.summary && typeof model.summary === 'object') ? model.summary : null;
+        const metrics = (model.metrics && typeof model.metrics === 'object') ? model.metrics : null;
+        const residuals = (model.residuals && typeof model.residuals === 'object') ? model.residuals : null;
+        const hasSummary = !!summary && (
+          (typeof summary.equation === 'string' && summary.equation.trim() !== '')
+          || Number.isFinite(summary.slope)
+          || Number.isFinite(summary.intercept)
+          || (summary.parameters && typeof summary.parameters === 'object' && Object.keys(summary.parameters).length > 0)
+        );
+        const hasMetrics = !!metrics && (
+          Number.isFinite(metrics.r2)
+          || Number.isFinite(metrics.rmse)
+          || Number.isFinite(metrics.mae)
+          || Number.isFinite(metrics.sampleSize)
+        );
+        const hasResiduals = !!residuals && (
+          Number.isFinite(residuals.mean)
+          || Number.isFinite(residuals.sd)
+          || Number.isFinite(residuals.min)
+          || Number.isFinite(residuals.max)
+        );
+        const hasCoefficients = Array.isArray(model.coefficients)
+          && model.coefficients.some(value => Number.isFinite(Number(value)));
+        return hasSummary || hasMetrics || hasResiduals || hasCoefficients;
+      }
+
+      function summarizeScatterResiduals(points, regressionModel){
+        const source = Array.isArray(points) ? points : [];
+        if(!source.length || !regressionModel){
+          return null;
+        }
+        let count = 0;
+        let sum = 0;
+        let sumSquares = 0;
+        let min = Infinity;
+        let max = -Infinity;
+        for(let i = 0; i < source.length; i += 1){
+          const point = source[i] || {};
+          const x = Number(point.x);
+          const y = Number(point.y);
+          if(!Number.isFinite(x) || !Number.isFinite(y)){
+            continue;
+          }
+          const predicted = predictScatterRegressionValue(regressionModel, x);
+          if(!Number.isFinite(predicted)){
+            continue;
+          }
+          const residual = y - predicted;
+          count += 1;
+          sum += residual;
+          sumSquares += residual * residual;
+          if(residual < min){
+            min = residual;
+          }
+          if(residual > max){
+            max = residual;
+          }
+        }
+        if(!count){
+          return null;
+        }
+        const mean = sum / count;
+        const variance = count > 1
+          ? Math.max((sumSquares - ((sum * sum) / count)) / (count - 1), 0)
+          : 0;
+        return {
+          mean,
+          sd: Math.sqrt(variance),
+          min,
+          max
+        };
+      }
+
+      function formatScatterEquationFallback(regressionModel, stats){
+        const summary = regressionModel?.summary && typeof regressionModel.summary === 'object'
+          ? regressionModel.summary
+          : null;
+        const summaryEquation = typeof summary?.equation === 'string' ? summary.equation.trim() : '';
+        if(summaryEquation){
+          return summaryEquation;
+        }
+        const mode = String(regressionModel?.mode || '').toLowerCase();
+        const slope = Number(summary?.slope);
+        const intercept = Number(summary?.intercept);
+        if((mode === 'linear' || !mode) && Number.isFinite(slope) && Number.isFinite(intercept)){
+          const sign = slope >= 0 ? '+' : '-';
+          return `y = ${formatMetricValue(intercept)} ${sign} ${formatMetricValue(Math.abs(slope))}x`;
+        }
+        if(mode === 'linearthroughorigin' && Number.isFinite(slope)){
+          return `y = ${formatMetricValue(slope)}x`;
+        }
+        if(Array.isArray(regressionModel?.coefficients) && regressionModel.coefficients.length){
+          const terms = [];
+          regressionModel.coefficients.forEach((value, index) => {
+            const coefficient = Number(value);
+            if(!Number.isFinite(coefficient)){
+              return;
+            }
+            if(index === 0){
+              terms.push(formatMetricValue(coefficient));
+              return;
+            }
+            const abs = formatMetricValue(Math.abs(coefficient));
+            const power = index === 1 ? 'x' : `x^${index}`;
+            terms.push(`${coefficient >= 0 ? '+ ' : '- '}${abs}${power}`);
+          });
+          if(terms.length){
+            return `y = ${terms.join(' ')}`;
+          }
+        }
+        const fallbackSlope = Number(stats?.m);
+        const fallbackIntercept = Number(stats?.b);
+        if(Number.isFinite(fallbackSlope) && Number.isFinite(fallbackIntercept)){
+          const sign = fallbackSlope >= 0 ? '+' : '-';
+          return `y = ${formatMetricValue(fallbackIntercept)} ${sign} ${formatMetricValue(Math.abs(fallbackSlope))}x`;
+        }
+        return '';
+      }
+
+      function ensureScatterRegressionForStats(context, stats, settings){
+        const normalized = (stats && typeof stats === 'object') ? stats : {};
+        const regressionModeValue = settings?.regressionModeValue || 'linear';
+        const fitMethodValue = settings?.fitMethodValue || 'ols';
+        const fitSpec = settings?.fitSpec && typeof settings.fitSpec === 'object'
+          ? settings.fitSpec
+          : {};
+        let regressionModel = normalized?.regression && typeof normalized.regression === 'object'
+          ? normalized.regression
+          : null;
+        if(!hasScatterRegressionReportData(regressionModel)
+          && Array.isArray(context?.points)
+          && context.points.length >= 2
+          && regressionTools
+          && typeof regressionTools.fitRegression === 'function'){
+          try{
+            regressionModel = regressionTools.fitRegression(context.points,{
+              mode: regressionModeValue,
+              method: fitMethodValue,
+              fitSpec,
+              preferDoseResponse: regressionModeValue === 'logistic'
+            });
+            if(regressionModel){
+              if(context?.domain && !regressionModel.domain){
+                regressionModel.domain = { ...context.domain };
+              }
+              normalized.regression = regressionModel;
+              scatterDebug('Debug: scatter stats regression rebuilt', {
+                mode: regressionModel.mode || regressionModeValue,
+                sampleSize: regressionModel?.metrics?.sampleSize || context.points.length
+              });
+            }
+          }catch(err){
+            console.error('scatter stats regression rebuild failed', err);
+          }
+        }
+        regressionModel = normalized?.regression && typeof normalized.regression === 'object'
+          ? normalized.regression
+          : null;
+        if(!regressionModel){
+          return normalized;
+        }
+        const summary = regressionModel.summary && typeof regressionModel.summary === 'object'
+          ? regressionModel.summary
+          : {};
+        regressionModel.summary = summary;
+        if(!Number.isFinite(normalized.r2) && Number.isFinite(regressionModel?.metrics?.r2)){
+          normalized.r2 = regressionModel.metrics.r2;
+        }
+        if(!Number.isFinite(normalized.m) && Number.isFinite(summary.slope)){
+          normalized.m = summary.slope;
+        }
+        if(!Number.isFinite(normalized.b) && Number.isFinite(summary.intercept)){
+          normalized.b = summary.intercept;
+        }
+        const residualSummary = summarizeScatterResiduals(context?.points, regressionModel);
+        if(residualSummary){
+          const residuals = regressionModel.residuals && typeof regressionModel.residuals === 'object'
+            ? regressionModel.residuals
+            : null;
+          const missingResiduals = !residuals
+            || (!Number.isFinite(residuals.mean) && !Number.isFinite(residuals.sd));
+          if(missingResiduals){
+            regressionModel.residuals = residualSummary;
+          }
+        }
+        const equation = formatScatterEquationFallback(regressionModel, normalized);
+        if(equation){
+          summary.equation = equation;
+        }
+        return normalized;
+      }
+
       function applyScatterStatsResults(context, stats, settings){
         if(!scatterStatsResults){
           return;
@@ -8059,6 +8345,7 @@
         const showPI = !!settings?.showPI;
         const showDiagnostics = !!settings?.showDiagnostics;
         const controlSignature = settings?.controlSignature || null;
+        stats = ensureScatterRegressionForStats(context, stats, settings);
         cacheScatterStats(context, stats, controlSignature);
         const regressionModel = stats?.regression || null;
         const fitMethodValue = regressionModel?.fitMethod || settings?.fitMethodValue || 'ols';
@@ -8074,12 +8361,15 @@
         const tablePointCount = Number(context?.pointSummary?.count);
         const pairedPointCount = Number(stats?.pointCount);
         const regressionSampleCount = Number(regressionModel?.metrics?.sampleSize);
-        const sampleSize = Number.isFinite(tablePointCount) && tablePointCount > 0
-          ? tablePointCount
-          : (Number.isFinite(pairedPointCount) && pairedPointCount > 0
-            ? pairedPointCount
-            : (Number.isFinite(regressionSampleCount) && regressionSampleCount > 0 ? regressionSampleCount : Number(context?.points?.length) || 0));
-        const correlationCi = stats?.correlationCI || computeScatterCorrelationConfidenceInterval(stats?.r, sampleSize, 0.05);
+        const correlationSampleSize = Number.isFinite(pairedPointCount) && pairedPointCount > 0
+          ? pairedPointCount
+          : (Number.isFinite(tablePointCount) && tablePointCount > 0
+            ? tablePointCount
+            : (Number(context?.points?.length) || 0));
+        const fitSampleSize = Number.isFinite(regressionSampleCount) && regressionSampleCount > 0
+          ? regressionSampleCount
+          : correlationSampleSize;
+        const correlationCi = stats?.correlationCI || computeScatterCorrelationConfidenceInterval(stats?.r, correlationSampleSize, 0.05);
         const pMethod = stats?.pMethod || (stats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
         const rows=[
           { metric:'r', value:formatMetricValue(stats?.r) },
@@ -8101,8 +8391,11 @@
         if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
           rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
         }
-        if(Number.isFinite(sampleSize)){
-          rows.push({ metric:'N', value:String(Math.max(0, Math.round(sampleSize))) });
+        if(Number.isFinite(correlationSampleSize)){
+          rows.push({ metric:'N', value:String(Math.max(0, Math.round(correlationSampleSize))) });
+        }
+        if(Number.isFinite(fitSampleSize) && Math.round(fitSampleSize) !== Math.round(correlationSampleSize)){
+          rows.push({ metric:'N (fit)', value:String(Math.max(0, Math.round(fitSampleSize))) });
         }
         if(regressionModel?.metrics){
           rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
@@ -8140,8 +8433,9 @@
           if(!summary.parameters && Number.isFinite(summary.intercept)){
             rows.push({ metric:'Intercept', value:formatMetricValue(summary.intercept) });
           }
-          if(summary.equation){
-            rows.push({ metric:'Equation', value:summary.equation });
+          const equationValue = formatScatterEquationFallback(regressionModel, stats);
+          if(equationValue){
+            rows.push({ metric:'Equation', value:equationValue });
           }
         }else{
           rows.push({ metric:'Slope', value:formatMetricValue(stats?.m) });
@@ -13957,7 +14251,7 @@
           });
         }
         if(scatterCurrentGraphType==='scatter'){
-          const statsPoints=points.map(p=>({ x:p.x, y:p.y }));
+          const statsPoints=points.map(p=>({ label:p.label, x:p.x, y:p.y }));
           const statsPointSummary=summarizeScatterPoints(statsPoints);
           const statsPayloadBase={
             graphType:'scatter',

@@ -164,7 +164,21 @@
 
   function computeScatterStats(payload){
     debugState.enabled = !!payload?.debug;
-    const points = Array.isArray(payload.points) ? payload.points : [];
+    const rawPoints = Array.isArray(payload.points) ? payload.points : [];
+    const points = [];
+    const x = [];
+    const y = [];
+    for(let i = 0; i < rawPoints.length; i += 1){
+      const pt = rawPoints[i] || {};
+      const xVal = Number(pt.x);
+      const yVal = Number(pt.y);
+      if(!Number.isFinite(xVal) || !Number.isFinite(yVal)){
+        continue;
+      }
+      points.push({ ...pt, x: xVal, y: yVal });
+      x.push(xVal);
+      y.push(yVal);
+    }
     const method = payload.method === 'spearman' ? 'spearman' : 'pearson';
     const regressionMode = payload.regressionMode || 'linear';
     const fitMethod = payload.fitMethod || 'ols';
@@ -174,16 +188,9 @@
     const n = points.length;
     const label = method === 'pearson' ? 'Pearson' : 'Spearman';
     if(n < 3){
-      return { method: label, r: NaN, p: NaN, r2: NaN, m: NaN, b: NaN, regression: null, curveSamples: [] };
+      return { method: label, r: NaN, p: NaN, r2: NaN, m: NaN, b: NaN, regression: null, curveSamples: [], pointCount: n };
     }
     const jStat = ensureJStat();
-    const x = new Array(n);
-    const y = new Array(n);
-    for(let i = 0; i < n; i += 1){
-      const pt = points[i] || {};
-      x[i] = Number(pt.x) || 0;
-      y[i] = Number(pt.y) || 0;
-    }
     const pearson = jStat.corrcoeff(x, y);
     const r = method === 'pearson' ? pearson : jStat.spearmancoeff(x, y);
     const tDen = 1 - r * r;
@@ -261,6 +268,7 @@
       r2,
       m: resolvedSlope,
       b: resolvedIntercept,
+      pointCount: n,
       regression: serializedRegression,
       curveSamples
     };
