@@ -12955,20 +12955,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return baseGap + resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate);
 		  }
 
-		  const significanceLabelBottomOffsetCache = new Map();
+		  const significanceLabelInkOffsetCache = new Map();
 		  let significanceLabelMeasureCanvas = null;
 
-		  function measureSignificanceLabelBottomOffsetPx(textNode){
+		  function measureSignificanceLabelInkOffsetsPx(textNode){
 		    if(!textNode){
-		      return NaN;
+		      return null;
 		    }
 		    const labelText = typeof textNode.textContent === 'string' ? textNode.textContent : '';
 		    if(!labelText){
-		      return NaN;
+		      return null;
 		    }
 		    const doc = textNode.ownerDocument || global.document;
 		    if(!doc || typeof doc.createElement !== 'function'){
-		      return NaN;
+		      return null;
 		    }
 		    const view = doc.defaultView || global;
 		    const computed = view && typeof view.getComputedStyle === 'function'
@@ -12977,14 +12977,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    const fontSizeRaw = (computed?.fontSize || textNode.getAttribute('font-size') || '').trim();
 		    const fontSize = Number.parseFloat(fontSizeRaw);
 		    if(!Number.isFinite(fontSize) || fontSize <= 0){
-		      return NaN;
+		      return null;
 		    }
 		    const fontStyle = (computed?.fontStyle || textNode.getAttribute('font-style') || 'normal').trim() || 'normal';
 		    const fontWeight = String(computed?.fontWeight || textNode.getAttribute('font-weight') || '400').trim() || '400';
 		    const fontFamily = (computed?.fontFamily || textNode.getAttribute('font-family') || 'sans-serif').trim() || 'sans-serif';
 		    const cacheKey = `${fontStyle}|${fontWeight}|${fontSize}|${fontFamily}|${labelText}`;
-		    const cached = significanceLabelBottomOffsetCache.get(cacheKey);
-		    if(Number.isFinite(cached)){
+		    const cached = significanceLabelInkOffsetCache.get(cacheKey);
+		    if(cached && Number.isFinite(cached.top) && Number.isFinite(cached.bottom)){
 		      return cached;
 		    }
 		    if(!significanceLabelMeasureCanvas){
@@ -12993,7 +12993,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    const canvas = significanceLabelMeasureCanvas;
 		    const ctx = canvas && typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
 		    if(!ctx){
-		      return NaN;
+		      return null;
 		    }
 		    const fontSpec = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
 		    ctx.font = fontSpec;
@@ -13020,10 +13020,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      if(Shared?.isDebugEnabled?.()){
 		        console.debug('Debug: box significance label pixel scan failed', { error: err?.message || String(err) });
 		      }
-		      return NaN;
+		      return null;
 		    }
 		    if(!pixelData){
-		      return NaN;
+		      return null;
+		    }
+		    let topRow = -1;
+		    for(let row = 0; row < height; row++){
+		      const rowOffset = row * width * 4;
+		      for(let col = 0; col < width; col++){
+		        if(pixelData[rowOffset + col * 4 + 3] > 0){
+		          topRow = row;
+		          break;
+		        }
+		      }
+		      if(topRow >= 0){
+		        break;
+		      }
 		    }
 		    let bottomRow = -1;
 		    for(let row = height - 1; row >= 0; row--){
@@ -13038,12 +13051,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        break;
 		      }
 		    }
-		    if(bottomRow < 0){
-		      return NaN;
+		    if(topRow < 0 || bottomRow < 0){
+		      return null;
 		    }
-		    const offset = bottomRow - baselineY;
-		    significanceLabelBottomOffsetCache.set(cacheKey, offset);
-		    return offset;
+		    const offsets = {
+		      top: topRow - baselineY,
+		      bottom: bottomRow - baselineY
+		    };
+		    significanceLabelInkOffsetCache.set(cacheKey, offsets);
+		    return offsets;
+		  }
+
+		  function measureSignificanceLabelBottomOffsetPx(textNode){
+		    const offsets = measureSignificanceLabelInkOffsetsPx(textNode);
+		    return offsets && Number.isFinite(offsets.bottom) ? offsets.bottom : NaN;
+		  }
+
+		  function measureSignificanceLabelTopOffsetPx(textNode){
+		    const offsets = measureSignificanceLabelInkOffsetsPx(textNode);
+		    return offsets && Number.isFinite(offsets.top) ? offsets.top : NaN;
 		  }
 
 		  function alignSignificanceLabelBottom(textNode, bottomY){
@@ -13110,6 +13136,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    let clampedOuter = desiredOuter;
 		    const gapRaw = Number(options?.gap);
 		    const obstacleGap = Number.isFinite(gapRaw) ? Math.max(0, gapRaw) : 2;
+		    const labelGapRaw = Number(options?.labelGap);
+		    const labelGap = Number.isFinite(labelGapRaw) ? Math.max(0, labelGapRaw) : obstacleGap;
 		    const epsilon = 0.01;
 		    const pathNodes = layer.querySelectorAll
 		      ? layer.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]')
@@ -13157,7 +13185,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      if(xCoord < minX || xCoord > maxX){
 		        continue;
 		      }
-		      const top = bbox.y;
+		      const baselineY = Number(node.getAttribute('y'));
+		      const visualTopOffset = Number(node.getAttribute('data-sig-label-top-offset'));
+		      let top = Number(node.getAttribute('data-sig-label-top'));
+		      if(!Number.isFinite(top) && Number.isFinite(baselineY) && Number.isFinite(visualTopOffset)){
+		        top = baselineY + visualTopOffset;
+		      }
+		      if(!Number.isFinite(top) && Number.isFinite(baselineY)){
+		        const measuredTopOffset = measureSignificanceLabelTopOffsetPx(node);
+		        if(Number.isFinite(measuredTopOffset)){
+		          top = baselineY + measuredTopOffset;
+		        }
+		      }
+		      if(!Number.isFinite(top)){
+		        top = bbox.y;
+		      }
 		      const bottom = bbox.y + bbox.height;
 		      if(bottom <= innerCoord + epsilon){
 		        continue;
@@ -13165,7 +13207,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      if(top >= clampedOuter - epsilon){
 		        continue;
 		      }
-		      clampedOuter = Math.min(clampedOuter, top - obstacleGap);
+		      clampedOuter = Math.min(clampedOuter, top - labelGap);
 		    }
 		    return Math.max(innerCoord, clampedOuter);
 		  }
@@ -13231,8 +13273,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        const obstacleGap = Number.isFinite(opts.whiskerObstacleGap)
 		          ? Math.max(0, Number(opts.whiskerObstacleGap))
 		          : Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
-		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x1, innerCoord, outerCoordA, { gap: obstacleGap });
-		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x2, innerCoord, outerCoordB, { gap: obstacleGap });
+		        const labelGap = Number.isFinite(opts.whiskerLabelGap)
+		          ? Math.max(0, Number(opts.whiskerLabelGap))
+		          : Math.max(0, obstacleGap - 1);
+		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x1, innerCoord, outerCoordA, { gap: obstacleGap, labelGap });
+		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x2, innerCoord, outerCoordB, { gap: obstacleGap, labelGap });
 		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
@@ -13331,6 +13376,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    if(orientation!=='horizontal'){
 	      alignSignificanceLabelBottom(txt, labelBottomTarget);
 	    }
+	    const resolvedBaselineY = Number(txt.getAttribute('y'));
+	    if(Number.isFinite(resolvedBaselineY)){
+	      const topOffset = measureSignificanceLabelTopOffsetPx(txt);
+	      if(Number.isFinite(topOffset)){
+	        txt.setAttribute('data-sig-label-top-offset', String(topOffset));
+	        txt.setAttribute('data-sig-label-top', String(resolvedBaselineY + topOffset));
+	      }
+	    }
     if(canRegisterSignificanceControl){
       if(hitPath){
         Shared.significanceControls.registerSignificanceElement(hitPath, {
@@ -13424,6 +13477,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     targetLayer.appendChild(txt);
     if(orientation!=='horizontal'){
       alignSignificanceLabelBottom(txt, labelBottomTarget);
+    }
+    const overallBaselineY = Number(txt.getAttribute('y'));
+    if(Number.isFinite(overallBaselineY)){
+      const topOffset = measureSignificanceLabelTopOffsetPx(txt);
+      if(Number.isFinite(topOffset)){
+        txt.setAttribute('data-sig-label-top-offset', String(topOffset));
+        txt.setAttribute('data-sig-label-top', String(overallBaselineY + topOffset));
+      }
     }
     if(controlConfig && Shared?.significanceControls?.registerSignificanceElement){
       Shared.significanceControls.registerSignificanceElement(txt, {
@@ -13974,7 +14035,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ...helpers.annotationStyle,
         outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
         outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
-        whiskerObstacleGap: adaptiveWhiskerGap
+        whiskerObstacleGap: adaptiveWhiskerGap,
+        whiskerLabelGap: adaptiveWhiskerGap
       };
     };
 
@@ -14439,7 +14501,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        ...helpers.annotationStyle,
 	        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
 	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
-	        whiskerObstacleGap: adaptiveWhiskerGap
+	        whiskerObstacleGap: adaptiveWhiskerGap,
+	        whiskerLabelGap: adaptiveWhiskerGap
 	      };
 	    };
 	    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
