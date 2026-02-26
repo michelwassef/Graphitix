@@ -6058,7 +6058,7 @@
       if(!points.length || typeof regressionModel?.predict !== 'function'){
         return false;
       }
-      const rows = [['X', 'Residual', 'Label', 'Predicted', 'Observed']];
+      const rows = [['Label', 'X', 'Residual']];
       points.forEach((point, index) => {
         const x = Number(point?.x);
         const y = Number(point?.y);
@@ -6073,7 +6073,7 @@
         const label = point?.label != null && String(point.label).trim() !== ''
           ? String(point.label)
           : `Point ${index + 1}`;
-        rows.push([x, residual, label, predicted, y]);
+        rows.push([label, x, residual]);
       });
       if(rows.length <= 1){
         return false;
