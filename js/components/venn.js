@@ -209,6 +209,30 @@
     return normalized;
   }
 
+  function hideLegacyVennStyleControls(){
+    const inputs = state.ui?.inputs;
+    if(!inputs){
+      return;
+    }
+    const candidates = [
+      inputs.colorA?.closest?.('fieldset') || null,
+      inputs.opacity?.closest?.('fieldset') || null
+    ];
+    let hiddenCount = 0;
+    candidates.forEach(fieldset => {
+      if(!fieldset || fieldset.dataset?.vennLegacyStyleHidden === '1'){
+        return;
+      }
+      fieldset.hidden = true;
+      if(fieldset.dataset){
+        fieldset.dataset.vennLegacyStyleHidden = '1';
+      }
+      fieldset.setAttribute('aria-hidden', 'true');
+      hiddenCount += 1;
+    });
+    debugLog('legacy style controls hidden', { hiddenCount });
+  }
+
   function getSpeciesDetectionState() {
     if (!state.analysis.speciesDetection) {
       state.analysis.speciesDetection = {
@@ -576,6 +600,9 @@
           intersectionBars: { global: {}, traces: {} },
           setBars: { global: {}, traces: {} },
           matrix: { global: {}, traces: {} }
+        },
+        vennTraceStyles: {
+          traces: {}
         }
       },
       persistence: {
@@ -694,6 +721,9 @@
     if(style.fontStyles){
       style.fontStyles = cloneFontStyles(style.fontStyles);
     }
+    if(style.vennTraceStyles){
+      style.vennTraceStyles = cloneVennTraceStyles(style.vennTraceStyles);
+    }
     return {
       type: payload.type || 'venn',
       data,
@@ -747,6 +777,7 @@
     if(counts.nABC) counts.nABC.value = data.nABC != null ? String(data.nABC) : '';
     const style = snapshot.payload.style || {};
     importFontStyles('venn', style.fontStyles || null);
+    state.analysis.vennTraceStyles = cloneVennTraceStyles(style.vennTraceStyles);
     if(style.colorA != null && inputs.colorA){ inputs.colorA.value = style.colorA; }
     if(style.colorB != null && inputs.colorB){ inputs.colorB.value = style.colorB; }
     if(style.colorC != null && inputs.colorC){ inputs.colorC.value = style.colorC; }
@@ -838,6 +869,11 @@
       if(strA !== strB){
         return false;
       }
+    }
+    const vennTraceStylesA = cloneVennTraceStyles(styleA.vennTraceStyles || null);
+    const vennTraceStylesB = cloneVennTraceStyles(styleB.vennTraceStyles || null);
+    if(JSON.stringify(vennTraceStylesA) !== JSON.stringify(vennTraceStylesB)){
+      return false;
     }
     if(normalizeValue(a.lastDrawMode) !== normalizeValue(b.lastDrawMode)) return false;
     if(normalizeValue(a.speciesValue) !== normalizeValue(b.speciesValue)) return false;
@@ -1618,6 +1654,179 @@
     return trimmed ? trimmed : fallback;
   }
 
+  function cloneVennTraceStyles(styles){
+    const source = styles && typeof styles === 'object' ? styles : {};
+    const sourceTraces = source.traces && typeof source.traces === 'object'
+      ? source.traces
+      : {};
+    const traces = {};
+    Object.keys(sourceTraces).forEach(traceId => {
+      const traceStyle = sourceTraces[traceId];
+      if(!traceStyle || typeof traceStyle !== 'object'){
+        return;
+      }
+      const nextTraceStyle = {};
+      if(Object.prototype.hasOwnProperty.call(traceStyle, 'fill')){
+        nextTraceStyle.fill = sanitizeColor(traceStyle.fill, '#2f2f2f');
+      }
+      if(Object.prototype.hasOwnProperty.call(traceStyle, 'borderColor')){
+        nextTraceStyle.borderColor = sanitizeColor(traceStyle.borderColor, '#000000');
+      }
+      if(Object.prototype.hasOwnProperty.call(traceStyle, 'borderWidth')){
+        nextTraceStyle.borderWidth = clampNumber(traceStyle.borderWidth, 0, 0);
+      }
+      if(Object.prototype.hasOwnProperty.call(traceStyle, 'opacity')){
+        nextTraceStyle.opacity = clampNumber(traceStyle.opacity, 1, 0, 1);
+      }
+      if(Object.keys(nextTraceStyle).length){
+        traces[traceId] = nextTraceStyle;
+      }
+    });
+    return { traces };
+  }
+
+  function ensureVennTraceStyles(){
+    state.analysis.vennTraceStyles = cloneVennTraceStyles(state.analysis?.vennTraceStyles);
+    return state.analysis.vennTraceStyles;
+  }
+
+  function resolveVennTraceBaseStyle(traceId, fallback = {}){
+    const inputs = state.ui?.inputs || {};
+    const traceKey = traceId ? `color${traceId}` : null;
+    const fallbackFill = sanitizeColor(fallback.fill, '#2f2f2f');
+    const fillValue = traceKey && inputs[traceKey]
+      ? sanitizeColor(inputs[traceKey].value, fallbackFill)
+      : fallbackFill;
+    return {
+      fill: fillValue,
+      borderColor: sanitizeColor(inputs.borderColor?.value, sanitizeColor(fallback.borderColor, '#999999')),
+      borderWidth: clampNumber(inputs.borderWidth?.value, clampNumber(fallback.borderWidth, 1.2, 0), 0),
+      opacity: clampNumber(inputs.opacity?.value, clampNumber(fallback.opacity, 0.75, 0, 1), 0, 1)
+    };
+  }
+
+  function getVennTraceStyle(traceId, fallback = {}){
+    const styles = ensureVennTraceStyles();
+    const traceStyle = traceId && styles.traces && styles.traces[traceId] && typeof styles.traces[traceId] === 'object'
+      ? styles.traces[traceId]
+      : {};
+    return Object.assign({}, fallback, traceStyle);
+  }
+
+  function updateVennTraceStyle(scope, traceId, patch){
+    if(!patch || typeof patch !== 'object'){
+      return;
+    }
+    const inputs = state.ui?.inputs || {};
+    const styles = ensureVennTraceStyles();
+    const safeScope = scope === 'global' ? 'global' : 'trace';
+    const normalizedPatch = {};
+    if(Object.prototype.hasOwnProperty.call(patch, 'fill')){
+      normalizedPatch.fill = sanitizeColor(patch.fill, '#2f2f2f');
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'borderColor')){
+      normalizedPatch.borderColor = sanitizeColor(patch.borderColor, '#000000');
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'borderWidth')){
+      normalizedPatch.borderWidth = clampNumber(patch.borderWidth, clampNumber(inputs.borderWidth?.value, 1.2, 0), 0);
+    }
+    if(Object.prototype.hasOwnProperty.call(patch, 'opacity')){
+      normalizedPatch.opacity = clampNumber(patch.opacity, clampNumber(inputs.opacity?.value, 0.75, 0, 1), 0, 1);
+    }
+    const patchKeys = Object.keys(normalizedPatch);
+    if(!patchKeys.length){
+      return;
+    }
+    let labelsChanged = false;
+    if(safeScope === 'global'){
+      if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'fill')){
+        ['colorA', 'colorB', 'colorC'].forEach(key => {
+          if(inputs[key]){
+            inputs[key].value = normalizedPatch.fill;
+            labelsChanged = true;
+          }
+        });
+      }
+      if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'borderColor') && inputs.borderColor){
+        inputs.borderColor.value = normalizedPatch.borderColor;
+      }
+      if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'borderWidth') && inputs.borderWidth){
+        inputs.borderWidth.value = String(normalizedPatch.borderWidth);
+        if(inputs.borderWidthVal){
+          inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+        }
+      }
+      if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'opacity') && inputs.opacity){
+        inputs.opacity.value = String(normalizedPatch.opacity);
+        if(inputs.opacityVal){
+          inputs.opacityVal.textContent = inputs.opacity.value;
+        }
+      }
+      if(styles.traces && typeof styles.traces === 'object'){
+        let clearedStyleCount = 0;
+        let removedTraceCount = 0;
+        Object.keys(styles.traces).forEach(currentTraceId => {
+          const traceStyle = styles.traces[currentTraceId];
+          if(!traceStyle || typeof traceStyle !== 'object'){
+            delete styles.traces[currentTraceId];
+            removedTraceCount += 1;
+            return;
+          }
+          const nextTraceStyle = { ...traceStyle };
+          let traceChanged = false;
+          patchKeys.forEach(styleKey => {
+            if(Object.prototype.hasOwnProperty.call(nextTraceStyle, styleKey)){
+              delete nextTraceStyle[styleKey];
+              clearedStyleCount += 1;
+              traceChanged = true;
+            }
+          });
+          if(!traceChanged){
+            return;
+          }
+          if(Object.keys(nextTraceStyle).length){
+            styles.traces[currentTraceId] = nextTraceStyle;
+          }else{
+            delete styles.traces[currentTraceId];
+            removedTraceCount += 1;
+          }
+        });
+        if(clearedStyleCount || removedTraceCount){
+          debugLog('venn global trace overrides cleared', {
+            traceId,
+            clearedStyleCount,
+            removedTraceCount,
+            keys: patchKeys
+          });
+        }
+      }
+    }else if(traceId){
+      if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'fill')){
+        const fillKey = `color${traceId}`;
+        if(inputs[fillKey]){
+          inputs[fillKey].value = normalizedPatch.fill;
+          labelsChanged = true;
+        }
+      }
+      const tracePatch = { ...normalizedPatch };
+      if(Object.keys(tracePatch).length){
+        styles.traces = styles.traces || {};
+        styles.traces[traceId] = Object.assign({}, styles.traces[traceId] || {}, tracePatch);
+      }
+    }
+    if(labelsChanged){
+      const labels = {
+        A: inputs.labelA?.value || 'A',
+        B: inputs.labelB?.value || 'B',
+        C: inputs.labelC?.value || 'C'
+      };
+      updateColorLabels(labels);
+    }
+    requestScheduledDraw('venn-trace-style');
+    saveStylePrefs();
+    syncActiveVennPayload('venn-trace-style');
+  }
+
   function cloneUpSetTraceStyles(styles){
     const source = styles && typeof styles === 'object' ? styles : {};
     const normalizeBucket = bucket => {
@@ -1743,6 +1952,76 @@
     return doc.getElementById('vennFontHost')
       || doc.getElementById('sample')
       || null;
+  }
+
+  function showVennTraceSymbolToolbar(target, options = {}){
+    if(!target || !symbolToolbar || typeof symbolToolbar.show !== 'function'){
+      return;
+    }
+    const doc = global.document;
+    if(!doc){ return; }
+    const anchor = resolveVennSymbolToolbarAnchor(doc);
+    if(!anchor){ return; }
+    const traceId = options.traceId || null;
+    const fallback = options.fallback && typeof options.fallback === 'object'
+      ? options.fallback
+      : resolveVennTraceBaseStyle(traceId);
+    debugLog('venn trace toolbar open requested', { traceId });
+    const getStyle = ctx => {
+      const scopedTraceId = ctx?.scope === 'trace' ? traceId : null;
+      const baseTraceId = scopedTraceId || traceId;
+      const baseStyle = resolveVennTraceBaseStyle(baseTraceId, fallback);
+      return getVennTraceStyle(scopedTraceId, baseStyle);
+    };
+    symbolToolbar.show({
+      document: doc,
+      target,
+      anchor,
+      scopeId: 'venn',
+      panelTitle: 'Trace',
+      formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls venn-upset-trace-controls',
+      scope: {
+        label: 'Scope',
+        options: [
+          { value: 'trace', label: 'Trace', disabled: !traceId },
+          { value: 'global', label: 'Global', disabled: false }
+        ],
+        value: traceId ? 'trace' : 'global'
+      },
+      fillShape: {
+        label: 'Fill',
+        showShapePicker: false,
+        shapeOptions: [{ value: 'square', label: 'Square' }],
+        getColor(ctx){ return getStyle(ctx).fill || '#2f2f2f'; },
+        getShape(){ return 'square'; },
+        onColorInput(value, ctx){ updateVennTraceStyle(ctx?.scope, traceId, { fill: value }); },
+        onColorChange(value, ctx){ updateVennTraceStyle(ctx?.scope, traceId, { fill: value }); }
+      },
+      border: {
+        label: 'Border',
+        getColor(ctx){ return getStyle(ctx).borderColor || '#000000'; },
+        onColorInput(value, ctx){ updateVennTraceStyle(ctx?.scope, traceId, { borderColor: value }); },
+        onColorChange(value, ctx){ updateVennTraceStyle(ctx?.scope, traceId, { borderColor: value }); },
+        getWidth(ctx){ return clampNumber(getStyle(ctx).borderWidth, 0, 0); },
+        onWidthChange(value, ctx){ updateVennTraceStyle(ctx?.scope, traceId, { borderWidth: value }); }
+      },
+      size: {
+        enabled: false
+      },
+      transparency: {
+        enabled: true,
+        scale: 'fraction',
+        label: 'Transparency',
+        get(ctx){
+          const opacity = clampNumber(getStyle(ctx).opacity, 1, 0, 1);
+          return 1 - opacity;
+        },
+        onChange(value, ctx){
+          const transparency = clampNumber(value, 0, 0, 1);
+          updateVennTraceStyle(ctx?.scope, traceId, { opacity: 1 - transparency });
+        }
+      }
+    });
   }
 
   function showUpSetTraceSymbolToolbar(target, options = {}){
@@ -3420,7 +3699,35 @@
     if (counts.nC > 0) circles.push({ id: 'C', x: d.Cx, y: d.Cy, r: d.rC, color: style.colorC });
     for (const c of circles) {
       const p = toPx(c.x, c.y);
-      makeEl('circle', { cx: p.x, cy: p.y, r: c.r * scale, fill: c.color, 'fill-opacity': style.opacity, stroke: style.borderColor, 'stroke-width': style.borderWidth });
+      const fallbackStyle = resolveVennTraceBaseStyle(c.id, {
+        fill: c.color,
+        borderColor: style.borderColor,
+        borderWidth: style.borderWidthRaw,
+        opacity: style.opacity
+      });
+      const circleStyle = getVennTraceStyle(c.id, fallbackStyle);
+      const strokeWidthRaw = clampNumber(circleStyle.borderWidth, clampNumber(style.borderWidthRaw, 1.2, 0), 0);
+      const strokeWidth = chartStyle.scaleStrokeWidth(strokeWidthRaw, style.scaleInfo, { context: 'venn-border', min: 0 });
+      const circle = makeEl('circle', {
+        cx: p.x,
+        cy: p.y,
+        r: c.r * scale,
+        fill: sanitizeColor(circleStyle.fill, c.color),
+        'fill-opacity': clampNumber(circleStyle.opacity, clampNumber(style.opacity, 0.75, 0, 1), 0, 1),
+        stroke: sanitizeColor(circleStyle.borderColor, style.borderColor),
+        'stroke-width': strokeWidth,
+        'data-venn-trace-id': c.id
+      });
+      circle.setAttribute('cursor', 'pointer');
+      circle.addEventListener('click', (event) => {
+        if (event && typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
+        showVennTraceSymbolToolbar(circle, {
+          traceId: c.id,
+          fallback: fallbackStyle
+        });
+      });
     }
     function addText(txt, x, y, regionCode, meta) {
       const t = makeEl('text', {
@@ -4673,7 +4980,7 @@
   }
 
   const STYLE_KEY = 'vennStylePrefs';
-  const STYLE_VERSION = 3;
+  const STYLE_VERSION = 4;
   const LEGACY_DEFAULT_FONT_PT = 17;
 
   function loadStylePrefs() {
@@ -4706,6 +5013,7 @@
         if (saved.opacity) inputs.opacity.value = saved.opacity;
         if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
         if (saved.borderWidth) inputs.borderWidth.value = saved.borderWidth;
+        state.analysis.vennTraceStyles = cloneVennTraceStyles(saved.vennTraceStyles);
         if (saved.plotType && state.ui.plotType) {
           syncPlotMode(saved.plotType, { updateTitle: true });
         }
@@ -4746,6 +5054,8 @@
           chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
           debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, fontInfo, savedVersion });
         }
+      }else{
+        state.analysis.vennTraceStyles = cloneVennTraceStyles(null);
       }
       if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
         if (inputs.fontsize?.dataset) {
@@ -4778,6 +5088,7 @@
       fontsize: inputs.fontsize.value,
       borderColor: inputs.borderColor.value,
       borderWidth: inputs.borderWidth.value,
+      vennTraceStyles: cloneVennTraceStyles(state.analysis?.vennTraceStyles),
       plotType: getActivePlotType(),
       upset: resolveUpSetSettings()
     };
@@ -4894,6 +5205,7 @@
         borderWidth: inputs.borderWidth.value,
         fontsize: inputs.fontsize.value,
         fontStyles: exportFontStyles('venn') || undefined,
+        vennTraceStyles: cloneVennTraceStyles(state.analysis?.vennTraceStyles),
         title: state.titleText,
         labelPositions: state.labelPositions || null,
         upset: resolveUpSetSettings()
@@ -5068,6 +5380,7 @@
     const plotType = normalizePlotType(s.plotType || DEFAULT_PLOT_TYPE);
     syncPlotMode(plotType, { updateTitle: false });
     importFontStyles('venn', s.fontStyles || null);
+    state.analysis.vennTraceStyles = cloneVennTraceStyles(s.vennTraceStyles);
     if(s.title !== undefined){
       state.titleText = s.title != null ? String(s.title) : '';
     }else{
@@ -5926,6 +6239,7 @@
       inactiveDotColor: $('#upsetInactiveDotColor'),
       gridColor: $('#upsetGridColor')
     };
+    hideLegacyVennStyleControls();
     state.ui.goResults = $('#goResults');
     state.ui.stringResults = $('#stringResults');
     state.ui.stringNetwork = $('#stringNetwork');

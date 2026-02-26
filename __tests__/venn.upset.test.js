@@ -93,6 +93,55 @@ describe('Venn UpSet integration', () => {
     expect(document.getElementById('upsetConnectorColor')).toBeNull();
   });
 
+  test('Venn hides legacy style controls and opens trace toolbar from circle click', async () => {
+    await activateWorkspace('venn');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    const plotType = document.getElementById('vennPlotType');
+    const colorA = document.getElementById('colorA');
+    const opacity = document.getElementById('opacity');
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.inputs).toBeTruthy();
+    expect(plotType).toBeTruthy();
+    expect(colorA).toBeTruthy();
+    expect(opacity).toBeTruthy();
+    plotType.value = 'venn';
+    dispatchChange(plotType);
+    expect(colorA.closest('fieldset')?.hidden).toBe(true);
+    expect(opacity.closest('fieldset')?.hidden).toBe(true);
+
+    hooks.state.ui.inputs.A.value = 'GeneA\nGeneShared';
+    hooks.state.ui.inputs.B.value = 'GeneB\nGeneShared';
+    hooks.state.ui.inputs.C.value = 'GeneC';
+    hooks.state.ui.syncTableFromInputs?.({ refresh: true });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+    const circle = stage.querySelector('circle[data-venn-trace-id]');
+    expect(circle).toBeTruthy();
+    const traceId = circle.getAttribute('data-venn-trace-id');
+    expect(traceId).toBeTruthy();
+
+    circle.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const panel = document.querySelector('.venn-upset-trace-controls');
+    expect(panel).toBeTruthy();
+    const scopeSelect = panel.querySelector('select.workspace-toolbar__select');
+    const fillInput = panel.querySelector('.shared-shape-color-input');
+    expect(scopeSelect).toBeTruthy();
+    expect(fillInput).toBeTruthy();
+    expect(scopeSelect.value).toBe('trace');
+
+    fillInput.value = '#aa5500';
+    dispatchInput(fillInput);
+    dispatchChange(fillInput);
+    venn.refreshDiagram();
+
+    const updated = stage.querySelector(`circle[data-venn-trace-id="${traceId}"]`);
+    expect(updated).toBeTruthy();
+    expect((updated.getAttribute('fill') || '').toLowerCase()).toBe('#aa5500');
+  });
+
   test('UpSet uses non-empty columns beyond first three and supports intersection selection', async () => {
     await activateWorkspace('venn');
     const plotType = document.getElementById('vennPlotType');
