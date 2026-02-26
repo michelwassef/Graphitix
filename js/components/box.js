@@ -13273,11 +13273,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        const obstacleGap = Number.isFinite(opts.whiskerObstacleGap)
 		          ? Math.max(0, Number(opts.whiskerObstacleGap))
 		          : Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
+		        const obstacleX1 = Number.isFinite(Number(opts.obstacleX1)) ? Number(opts.obstacleX1) : x1;
+		        const obstacleX2 = Number.isFinite(Number(opts.obstacleX2)) ? Number(opts.obstacleX2) : x2;
+		        const dataObstacleA = Number(opts.dataObstacleCoordA);
+		        const dataObstacleB = Number(opts.dataObstacleCoordB);
+		        if(Number.isFinite(dataObstacleA)){
+		          outerCoordA = Math.min(outerCoordA, dataObstacleA - obstacleGap);
+		        }
+		        if(Number.isFinite(dataObstacleB)){
+		          outerCoordB = Math.min(outerCoordB, dataObstacleB - obstacleGap);
+		        }
 		        const labelGap = Number.isFinite(opts.whiskerLabelGap)
 		          ? Math.max(0, Number(opts.whiskerLabelGap))
-		          : Math.max(0, obstacleGap - 1);
-		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x1, innerCoord, outerCoordA, { gap: obstacleGap, labelGap });
-		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x2, innerCoord, outerCoordB, { gap: obstacleGap, labelGap });
+		          : obstacleGap;
+		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX1, innerCoord, outerCoordA, { gap: obstacleGap, labelGap });
+		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX2, innerCoord, outerCoordB, { gap: obstacleGap, labelGap });
 		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
@@ -13967,6 +13977,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ? baseCoord + baseOffset + lvl * levelStep
         : baseCoord - baseOffset - lvl * levelStep;
     };
+    const resolveAdaptiveDataObstacleCoord = traceIdx => {
+      if(!adaptiveWhiskersEnabled){
+        return null;
+      }
+      const renderedMaxValue = getRenderedMaxValue(traceIdx);
+      if(!Number.isFinite(renderedMaxValue)){
+        return null;
+      }
+      const coord = valueToCoord(renderedMaxValue);
+      return Number.isFinite(coord) ? coord : null;
+    };
     const resolveLowerInnerCoord = (traceIdx, level, source) => {
       if(!adaptiveWhiskersEnabled || level <= 0){
         return null;
@@ -14035,6 +14056,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ...helpers.annotationStyle,
         outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
         outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
+        dataObstacleCoordA: resolveAdaptiveDataObstacleCoord(idxA),
+        dataObstacleCoordB: resolveAdaptiveDataObstacleCoord(idxB),
         whiskerObstacleGap: adaptiveWhiskerGap,
         whiskerLabelGap: adaptiveWhiskerGap
       };
@@ -14433,6 +14456,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        ? baseCoord + baseOffset + lvl * levelStep
 	        : baseCoord - baseOffset - lvl * levelStep;
 	    };
+	    const resolveAdaptiveDataObstacleCoord = traceIdx => {
+	      if(!adaptiveWhiskersEnabled){
+	        return null;
+	      }
+	      const renderedMaxValue = getRenderedMaxValue(traceIdx);
+	      if(!Number.isFinite(renderedMaxValue)){
+	        return null;
+	      }
+	      const coord = valueToCoord(renderedMaxValue);
+	      return Number.isFinite(coord) ? coord : null;
+	    };
 	    const resolveLowerInnerCoord = (traceIdx, level, source) => {
 	      if(!adaptiveWhiskersEnabled || level <= 0){
 	        return null;
@@ -14501,6 +14535,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        ...helpers.annotationStyle,
 	        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
 	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
+	        dataObstacleCoordA: resolveAdaptiveDataObstacleCoord(idxA),
+	        dataObstacleCoordB: resolveAdaptiveDataObstacleCoord(idxB),
 	        whiskerObstacleGap: adaptiveWhiskerGap,
 	        whiskerLabelGap: adaptiveWhiskerGap
 	      };
