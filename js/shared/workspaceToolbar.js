@@ -159,7 +159,6 @@
   const toolbarConfigs = new Map();
   const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
   const REDO_BUTTON_SELECTOR = 'button[data-undo-command="redo"]';
-  const IMPORT_TOOLTIP_TEXT = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, ODG, or PRISM files';
   const MENU_WRAPPER_SELECTOR = '.workspace-toolbar__menu';
   const MENU_TRIGGER_SELECTOR = '.workspace-toolbar__button[data-menu-id]';
   const MENU_OPEN_CLASS = 'workspace-toolbar__menu--open';
@@ -239,8 +238,9 @@
     if(config.id){ button.id = config.id; }
     const ariaLabel = config.ariaLabel || config.label || null;
     if(ariaLabel){ button.setAttribute('aria-label', ariaLabel); }
-    const tooltip = config.tooltip || (config.icon === 'import' ? IMPORT_TOOLTIP_TEXT : null);
-    if(config.title || tooltip){ button.title = config.title || tooltip; }
+    const importTooltip = config.icon === 'import' ? 'Import CSV, TSV, TXT, XLS, XLSX, ODS, ODG, or PRISM files' : null;
+    const tooltip = config.tooltip;
+    if(config.title || tooltip || importTooltip){ button.title = config.title || tooltip || importTooltip; }
     if(config.disabled){ button.disabled = true; }
     if(config.hidden){ button.hidden = true; }
     if(config.dataset){
