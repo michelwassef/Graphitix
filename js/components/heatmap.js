@@ -3901,17 +3901,45 @@
         addConstraint('columnSpacing', (cellSize * scaleX) / (columnFont * glyphExtentFactor));
       }
     }
-    const cellValueFontSize = Number(metrics.cellValueFontSize);
-    if(Number.isFinite(cellSize) && cellSize > 0 && Number.isFinite(cellValueFontSize) && cellValueFontSize > 0 && metrics.showValues){
-      addConstraint('cellValueRowSpacing', (cellSize * scaleY) / (cellValueFontSize * glyphExtentFactor));
-      addConstraint('cellValueColumnSpacing', (cellSize * scaleX) / (cellValueFontSize * glyphExtentFactor));
-    }
     const tickCount = Number(metrics.scaleTickCount);
     const tickGap = Number(metrics.scaleTickGap);
     const tickFontSize = Number(metrics.scaleTickFontSize);
     if(Number.isFinite(tickCount) && tickCount > 1 && Number.isFinite(tickGap) && tickGap > 0 && Number.isFinite(tickFontSize) && tickFontSize > 0){
       addConstraint('scaleTickSpacing', (tickGap * scaleY) / (tickFontSize * glyphExtentFactor));
     }
+    if(!Number.isFinite(limit)){
+      return { limit: NaN, constraints };
+    }
+    return { limit: Math.max(0, limit), constraints };
+  }
+
+  function computeHeatmapCellValueScaleLimit(metrics, scaleX, scaleY){
+    if(!metrics || !metrics.showValues || !Number.isFinite(scaleX) || !Number.isFinite(scaleY)){
+      return { limit: NaN, constraints: null };
+    }
+    const cellSize = Number(metrics.cellSize);
+    const baseFontSize = Number(metrics.cellValueFontSize);
+    const maxTextWidth = Number(metrics.cellValueMaxTextWidth);
+    const padding = Number.isFinite(Number(metrics.cellValuePadding))
+      ? Number(metrics.cellValuePadding)
+      : 2;
+    const heightFactor = Number.isFinite(Number(metrics.cellValueHeightFactor))
+      ? Number(metrics.cellValueHeightFactor)
+      : 1.15;
+    if(
+      !Number.isFinite(cellSize) || cellSize <= 0
+      || !Number.isFinite(baseFontSize) || baseFontSize <= 0
+      || !Number.isFinite(maxTextWidth) || maxTextWidth <= 0
+    ){
+      return { limit: NaN, constraints: null };
+    }
+    const constraints = {};
+    const innerSize = Math.max(1, cellSize - (padding * 2));
+    const widthLimit = (innerSize * scaleX) / maxTextWidth;
+    const heightLimit = (innerSize * scaleY) / (baseFontSize * heightFactor);
+    constraints.maxWidth = widthLimit;
+    constraints.maxHeight = heightLimit;
+    let limit = Math.min(widthLimit, heightLimit);
     if(!Number.isFinite(limit)){
       return { limit: NaN, constraints };
     }
@@ -3955,6 +3983,35 @@
     };
   }
 
+  function resolveHeatmapCellValueTextScale(options){
+    const opts = options || {};
+    const scaleX = Number(opts.scaleX);
+    const scaleY = Number(opts.scaleY);
+    const fallbackScale = Number.isFinite(Number(opts.fallbackScale))
+      ? Number(opts.fallbackScale)
+      : 1;
+    const metrics = state.textAspectMetrics;
+    const limitInfo = computeHeatmapCellValueScaleLimit(metrics, scaleX, scaleY);
+    const fitLimit = Number.isFinite(limitInfo?.limit) && limitInfo.limit > 0 ? limitInfo.limit : NaN;
+    const resolved = Number.isFinite(fitLimit)
+      ? Math.max(0.02, Math.min(fallbackScale, fitLimit))
+      : fallbackScale;
+    debugLog('Debug: heatmap cell value text scale resolved', {
+      fallbackScale,
+      fitLimit,
+      resolved,
+      scaleX,
+      scaleY,
+      hasMetrics: !!metrics,
+      constraints: limitInfo?.constraints || null
+    });
+    return {
+      textScale: resolved,
+      limit: fitLimit,
+      constraints: limitInfo?.constraints || null
+    };
+  }
+
   function applyTextAspectCorrection(options){
     const opts = options || {};
     const svg = opts.svg;
@@ -3993,6 +4050,10 @@
     const textScale = Number.isFinite(readableScale?.textScale) && readableScale.textScale > 0
       ? readableScale.textScale
       : defaultScale;
+    const cellValueScale = resolveHeatmapCellValueTextScale({ scaleX, scaleY, fallbackScale: 1 });
+    const cellValueTextScale = Number.isFinite(cellValueScale?.textScale) && cellValueScale.textScale > 0
+      ? cellValueScale.textScale
+      : 1;
     const adjustX = scaleX > 0 ? textScale / scaleX : 1;
     const adjustY = scaleY > 0 ? textScale / scaleY : 1;
     const texts = svg.querySelectorAll ? svg.querySelectorAll('text') : [];
@@ -4001,7 +4062,13 @@
       const x = Number(text.getAttribute('x'));
       const y = Number(text.getAttribute('y'));
       if(!Number.isFinite(x) || !Number.isFinite(y)){ return; }
-      const matrix = `matrix(${adjustX},0,0,${adjustY},${x - adjustX * x},${y - adjustY * y})`;
+      const isCellValueText = text.dataset?.heatmapCellValue === '1'
+        || text.dataset?.fontRole === 'cellValue'
+        || (typeof text.dataset?.fontKey === 'string' && /^cell-\d+-\d+$/.test(text.dataset.fontKey));
+      const localTextScale = isCellValueText ? cellValueTextScale : textScale;
+      const localAdjustX = scaleX > 0 ? localTextScale / scaleX : 1;
+      const localAdjustY = scaleY > 0 ? localTextScale / scaleY : 1;
+      const matrix = `matrix(${localAdjustX},0,0,${localAdjustY},${x - localAdjustX * x},${y - localAdjustY * y})`;
       text.setAttribute('transform', baseTransform ? `${matrix} ${baseTransform}` : matrix);
       text.dataset.heatmapAspectCorrected = '1';
     });
@@ -4013,9 +4080,11 @@
       uniform,
       defaultScale,
       textScale,
+      cellValueTextScale,
       textScaleMode: mode,
       aspectLocked,
-      readableScale: readableScale || null
+      readableScale: readableScale || null,
+      cellValueScale: cellValueScale || null
     });
   }
 
@@ -4550,10 +4619,88 @@
     cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
     cellLayer.setAttribute('data-layer', 'cells');
     g.appendChild(cellLayer);
-    const cellValueFontSize = Math.min(
-      Math.max(8, Math.round(scaledFontSize * 0.85)),
-      Math.max(6, Math.floor(cellSize - 4))
+    const cellValuePadding = Math.max(1, Math.round(cellSize * 0.08));
+    const cellInnerSize = Math.max(1, cellSize - (cellValuePadding * 2));
+    const cellValueHeightFactor = 1.15;
+    const baseGraphFontSize = Number.isFinite(graphFontSize) ? graphFontSize : scaledFontSize;
+    let cellValueFontSize = Math.min(
+      Math.max(6, Math.round(baseGraphFontSize * 0.85)),
+      Math.max(6, Math.floor(cellInnerSize))
     );
+    const cellValueTexts = [];
+    if(showValues){
+      const seen = new Set();
+      let longest = '';
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        for(let columnIndex = 0; columnIndex < columnCount; columnIndex += 1){
+          if(maskLower && columnIndex < rowIndex){
+            continue;
+          }
+          const value = Number(orderedCells[rowIndex]?.[columnIndex]?.value);
+          if(!Number.isFinite(value)){ continue; }
+          const text = value.toFixed(decimals ?? 2);
+          if(text.length > longest.length){
+            longest = text;
+          }
+          if(seen.size < 256 && !seen.has(text)){
+            seen.add(text);
+            cellValueTexts.push(text);
+          }
+        }
+      }
+      if(longest && !seen.has(longest)){
+        cellValueTexts.push(longest);
+      }
+    }
+    const measureCellValueWidthAt = fontPx => {
+      if(!cellValueTexts.length){ return 0; }
+      const font = chartStyle.makeFont ? chartStyle.makeFont(Math.max(4, Math.round(fontPx))) : `${Math.max(4, Math.round(fontPx))}px sans-serif`;
+      let maxWidth = 0;
+      for(let i = 0; i < cellValueTexts.length; i += 1){
+        const value = cellValueTexts[i];
+        let width = NaN;
+        if(typeof chartStyle.measureText === 'function'){
+          try{
+            width = chartStyle.measureText(value, font);
+          }catch(err){
+            width = NaN;
+          }
+        }
+        if(!Number.isFinite(width)){
+          width = String(value || '').length * Math.max(4, fontPx) * 0.6;
+        }
+        if(width > maxWidth){
+          maxWidth = width;
+        }
+      }
+      return maxWidth;
+    };
+    let cellValueMaxTextWidth = measureCellValueWidthAt(cellValueFontSize);
+    const cellValueFits = (fontPx, widthPx) => {
+      if(!Number.isFinite(fontPx) || fontPx <= 0){ return true; }
+      const safeWidth = Number.isFinite(widthPx) ? widthPx : 0;
+      return safeWidth <= cellInnerSize + 0.01 && (fontPx * cellValueHeightFactor) <= cellInnerSize + 0.01;
+    };
+    if(showValues && cellValueTexts.length && !cellValueFits(cellValueFontSize, cellValueMaxTextWidth)){
+      const widthRatio = cellInnerSize / Math.max(cellValueMaxTextWidth, 1);
+      const heightRatio = cellInnerSize / Math.max(cellValueFontSize * cellValueHeightFactor, 1);
+      const ratio = Math.min(1, widthRatio, heightRatio);
+      cellValueFontSize = Math.max(4, Math.floor(cellValueFontSize * ratio));
+      cellValueMaxTextWidth = measureCellValueWidthAt(cellValueFontSize);
+      while(cellValueFontSize > 4 && !cellValueFits(cellValueFontSize, cellValueMaxTextWidth)){
+        cellValueFontSize -= 1;
+        cellValueMaxTextWidth = measureCellValueWidthAt(cellValueFontSize);
+      }
+    }
+    debugLog('Debug: heatmap cell value font resolved', {
+      showValues: !!showValues,
+      cellSize,
+      cellInnerSize,
+      cellValuePadding,
+      samples: cellValueTexts.length,
+      fontSize: cellValueFontSize,
+      maxTextWidth: cellValueMaxTextWidth
+    });
     for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
       for(let columnIndex = 0; columnIndex < columnCount; columnIndex += 1){
         if(maskLower && columnIndex < rowIndex){
@@ -4585,6 +4732,10 @@
           text.setAttribute('font-size', String(cellValueFontSize));
           text.setAttribute('fill', textColorForBackground(cell.fill || '#d0d0d0'));
           text.textContent = cell.value.toFixed(decimals ?? 2);
+          text.setAttribute('data-heatmap-cell-value', '1');
+          if(text.dataset){
+            text.dataset.heatmapCellValue = '1';
+          }
           markFontEditable(text, 'cellValue', `cell-${rowIndex}-${columnIndex}`);
           cellLayer.appendChild(text);
         }
@@ -4672,7 +4823,10 @@
       scaleTickGap: Number.isFinite(minTickGap) ? minTickGap : NaN,
       scaleTickFontSize: tickFont,
       showValues: !!showValues,
-      cellValueFontSize
+      cellValueFontSize,
+      cellValueMaxTextWidth,
+      cellValuePadding,
+      cellValueHeightFactor
     };
     if(showRowDendrogram && rowClustering?.tree){
       renderDendrogram({
