@@ -694,6 +694,61 @@
     return normalizeStyleObject(specific) || state.summaryGlobalStyle || null;
   }
 
+  function normalizeBoxTraceScopeKey(value){
+    const normalized = String(value == null ? '' : value).trim();
+    return normalized || '';
+  }
+
+  function formatBoxTraceFallbackLabel(traceKey){
+    const numeric = Number(traceKey);
+    if(Number.isFinite(numeric)){
+      return `Trace ${numeric + 1}`;
+    }
+    return traceKey ? `Trace ${traceKey}` : 'Trace';
+  }
+
+  function resolveBoxTraceDisplayLabel(traceValue, options){
+    const opts = options || {};
+    const preferredLabel = String(
+      opts.preferredLabel != null
+        ? opts.preferredLabel
+        : (opts.seriesName != null ? opts.seriesName : '')
+    ).trim();
+    if(preferredLabel){
+      return preferredLabel;
+    }
+    const traceKey = normalizeBoxTraceScopeKey(traceValue);
+    if(traceKey){
+      const numeric = Number(traceKey);
+      if(Number.isInteger(numeric) && numeric >= 0){
+        const contextTraces = Array.isArray(state.statsContext?.traces) ? state.statsContext.traces : null;
+        if(contextTraces && numeric < contextTraces.length){
+          const contextTrace = contextTraces[numeric];
+          const fromContext = String(
+            contextTrace?.name
+            || contextTrace?.categoryName
+            || contextTrace?.groupName
+            || ''
+          ).trim();
+          if(fromContext){
+            return fromContext;
+          }
+        }
+        if(Array.isArray(state.lastAxisLabels) && numeric < state.lastAxisLabels.length){
+          const fromAxis = String(state.lastAxisLabels[numeric] || '').trim();
+          if(fromAxis){
+            return fromAxis;
+          }
+        }
+      }
+    }
+    const fallbackLabel = String(opts.fallbackLabel == null ? '' : opts.fallbackLabel).trim();
+    if(fallbackLabel){
+      return fallbackLabel;
+    }
+    return formatBoxTraceFallbackLabel(traceKey);
+  }
+
   function persistBoxSummaryStyle(traceIndexValue, patch){
     if(traceIndexValue == null){ return; }
     state.summaryStyles = state.summaryStyles || {};
@@ -829,12 +884,6 @@
       ? (el.closest('g[data-export-layer="box-points"]') || el.closest('g[data-trace]'))
       : null;
     let traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
-    const formatTraceLabel = traceValue => {
-      const numeric = Number(traceValue);
-      if(Number.isFinite(numeric)){ return `Trace ${numeric + 1}`; }
-      const normalized = String(traceValue == null ? '' : traceValue).trim();
-      return normalized ? `Trace ${normalized}` : 'Trace';
-    };
     const knownTraceIndices = () => {
       const keys = new Set();
       const addKey = value => {
@@ -861,7 +910,7 @@
     const traceScopeLabel = (() => {
       const fromData = data && typeof data.seriesName === 'string' ? data.seriesName.trim() : '';
       if(fromData){ return fromData; }
-      return formatTraceLabel(traceIndex);
+      return resolveBoxTraceDisplayLabel(traceIndex);
     })();
     const resolveTargetPoints = () => {
       const plotRoot = doc.getElementById('boxPlot');
@@ -894,7 +943,7 @@
       scopeTraceIndices.forEach(name => {
         const optTrace = doc.createElement('option');
         optTrace.value = 'trace';
-        optTrace.textContent = formatTraceLabel(name);
+        optTrace.textContent = resolveBoxTraceDisplayLabel(name);
         optTrace.dataset.scopeDataset = name;
         scopeSelect.appendChild(optTrace);
       });
@@ -967,10 +1016,11 @@
             const keys = orderedTraceIndices();
             if(keys.length){
               keys.forEach(name => {
+                const displayLabel = resolveBoxTraceDisplayLabel(name);
                 options.push({
                   value: 'trace',
-                  label: formatTraceLabel(name),
-                  datasetLabel: formatTraceLabel(name),
+                  label: displayLabel,
+                  datasetLabel: displayLabel,
                   scopeDataset: name,
                   scopeKind: 'trace',
                   disabled: false
@@ -1719,10 +1769,7 @@
     let traceIndex = opts.traceIndex != null
       ? String(opts.traceIndex)
       : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null);
-    const summaryTraceIndex = Number(traceIndex);
-    const summaryScopeLabel = Number.isFinite(summaryTraceIndex)
-      ? `Trace ${summaryTraceIndex + 1}`
-      : (traceIndex != null && String(traceIndex).trim() ? `Trace ${traceIndex}` : 'Trace');
+    const summaryScopeLabel = resolveBoxTraceDisplayLabel(traceIndex);
     const knownSummaryTraceIndices = () => {
       const keys = new Set();
       const addKey = value => {
@@ -1834,8 +1881,7 @@
           const keys = orderedSummaryTraceIndices();
           if(keys.length){
             keys.forEach(name => {
-              const numeric = Number(name);
-              const label = Number.isFinite(numeric) ? `Trace ${numeric + 1}` : `Trace ${name}`;
+              const label = resolveBoxTraceDisplayLabel(name);
               options.push({
                 value: 'trace',
                 label,
@@ -1870,11 +1916,7 @@
       getSummary: ctx => {
         const scopeValue = resolveScope(ctx);
         if(scopeValue === 'trace' && traceIndex != null){
-          const index = Number(traceIndex);
-          if(Number.isFinite(index)){
-            return `Trace ${index + 1}`;
-          }
-          return 'Trace';
+          return resolveBoxTraceDisplayLabel(traceIndex);
         }
         return 'Global';
       },
@@ -1988,9 +2030,7 @@
         }
         return [selectedKey].concat(keys.filter(key => key !== selectedKey));
       };
-      const shapeScopeLabel = Number.isFinite(selectedTraceIndex)
-        ? `Trace ${selectedTraceIndex + 1}`
-        : 'Trace';
+      const shapeScopeLabel = resolveBoxTraceDisplayLabel(selectedTraceIndex);
       const plotRootNode = doc.getElementById('boxPlot');
       const resolveBodyTargets = scopeValue => {
         if(scopeValue === 'global'){
@@ -2035,8 +2075,7 @@
             const keys = orderedTraceIndices();
             if(keys.length){
               keys.forEach(name => {
-                const numeric = Number(name);
-                const label = Number.isFinite(numeric) ? `Trace ${numeric + 1}` : `Trace ${name}`;
+                const label = resolveBoxTraceDisplayLabel(name);
                 options.push({
                   value: 'trace',
                   label,
@@ -2230,7 +2269,7 @@
 
     const traceAttr = target.getAttribute('data-trace');
     let traceIndex = traceAttr != null && traceAttr !== '' && traceAttr !== 'null' ? Number(traceAttr) : null;
-    const shapeScopeLabel = Number.isFinite(traceIndex) ? `Trace ${traceIndex + 1}` : 'Trace';
+    const shapeScopeLabel = resolveBoxTraceDisplayLabel(traceIndex);
     const colorIndexAttr = target.getAttribute('data-color-index');
     let colorIndex = colorIndexAttr != null && colorIndexAttr !== '' ? Number(colorIndexAttr) : (traceIndex != null ? traceIndex : null);
     const plotRoot = doc.getElementById('boxPlot');
@@ -2281,8 +2320,7 @@
       scopeTraceIndices.forEach(name => {
         const optTrace = doc.createElement('option');
         optTrace.value = 'trace';
-        const numeric = Number(name);
-        optTrace.textContent = Number.isFinite(numeric) ? `Trace ${numeric + 1}` : `Trace ${name}`;
+        optTrace.textContent = resolveBoxTraceDisplayLabel(name);
         optTrace.dataset.scopeDataset = name;
         scopeSelect.appendChild(optTrace);
       });
@@ -13065,6 +13103,73 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return true;
 		  }
 
+		  function clampAdaptiveWhiskerToExistingObstacles(layer, xCoord, innerCoord, desiredOuter, options){
+		    if(!layer || !Number.isFinite(xCoord) || !Number.isFinite(innerCoord) || !Number.isFinite(desiredOuter)){
+		      return desiredOuter;
+		    }
+		    let clampedOuter = desiredOuter;
+		    const gapRaw = Number(options?.gap);
+		    const obstacleGap = Number.isFinite(gapRaw) ? Math.max(0, gapRaw) : 2;
+		    const epsilon = 0.01;
+		    const pathNodes = layer.querySelectorAll
+		      ? layer.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]')
+		      : [];
+		    for(let i = 0; i < pathNodes.length; i++){
+		      const node = pathNodes[i];
+		      const inner = Number(node.getAttribute('data-sig-inner'));
+		      const x1 = Number(node.getAttribute('data-sig-x1'));
+		      const x2 = Number(node.getAttribute('data-sig-x2'));
+		      if(!Number.isFinite(inner) || !Number.isFinite(x1) || !Number.isFinite(x2)){
+		        continue;
+		      }
+		      const minX = Math.min(x1, x2) - epsilon;
+		      const maxX = Math.max(x1, x2) + epsilon;
+		      if(xCoord < minX || xCoord > maxX){
+		        continue;
+		      }
+		      if(inner <= innerCoord + epsilon){
+		        continue;
+		      }
+		      if(inner >= clampedOuter - epsilon){
+		        continue;
+		      }
+		      clampedOuter = Math.min(clampedOuter, inner - obstacleGap);
+		    }
+		    const labelNodes = layer.querySelectorAll
+		      ? layer.querySelectorAll('text.box-significance-annotation')
+		      : [];
+		    for(let i = 0; i < labelNodes.length; i++){
+		      const node = labelNodes[i];
+		      if(!node || typeof node.getBBox !== 'function'){
+		        continue;
+		      }
+		      let bbox = null;
+		      try{
+		        bbox = node.getBBox();
+		      }catch(err){
+		        continue;
+		      }
+		      if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
+		        continue;
+		      }
+		      const minX = bbox.x - epsilon;
+		      const maxX = bbox.x + bbox.width + epsilon;
+		      if(xCoord < minX || xCoord > maxX){
+		        continue;
+		      }
+		      const top = bbox.y;
+		      const bottom = bbox.y + bbox.height;
+		      if(bottom <= innerCoord + epsilon){
+		        continue;
+		      }
+		      if(top >= clampedOuter - epsilon){
+		        continue;
+		      }
+		      clampedOuter = Math.min(clampedOuter, top - obstacleGap);
+		    }
+		    return Math.max(innerCoord, clampedOuter);
+		  }
+
 		  function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
 		    const opts=styleOptions||{};
 		    const orientation=opts.orientation==='horizontal'?'horizontal':'vertical';
@@ -13087,9 +13192,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    if(path.classList){
 		      path.classList.add('box-significance-annotation');
 	    }else{
-	      path.setAttribute('class','box-significance-annotation');
+	    path.setAttribute('class','box-significance-annotation');
 	    }
 	    path.setAttribute('data-box-viewport-exclude', '1');
+	    path.setAttribute('data-sig-orientation', orientation);
 		    let bracketGeom = null;
 		    let labelOuterCoord = valueCoord;
 		    if(orientation==='horizontal'){
@@ -13121,6 +13227,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      if(showWhiskers && whiskerMode === 'adaptive'){
 		        if(Number.isFinite(opts.outerCoordA)){ outerCoordA = Math.max(outerY, opts.outerCoordA); }
 		        if(Number.isFinite(opts.outerCoordB)){ outerCoordB = Math.max(outerY, opts.outerCoordB); }
+		        const innerCoord = outerY - bracketSize;
+		        const obstacleGap = Number.isFinite(opts.whiskerObstacleGap)
+		          ? Math.max(0, Number(opts.whiskerObstacleGap))
+		          : Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
+		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x1, innerCoord, outerCoordA, { gap: obstacleGap });
+		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, x2, innerCoord, outerCoordB, { gap: obstacleGap });
 		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
@@ -13135,6 +13247,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      });
 		      labelOuterCoord = bracketGeom.refOuter;
 		      path.setAttribute('d', bracketGeom.d);
+		    }
+		    if(bracketGeom){
+		      if(Number.isFinite(bracketGeom.innerCoord)){
+		        path.setAttribute('data-sig-inner', String(bracketGeom.innerCoord));
+		      }
+		      if(Number.isFinite(x1)){
+		        path.setAttribute('data-sig-x1', String(x1));
+		      }
+		      if(Number.isFinite(x2)){
+		        path.setAttribute('data-sig-x2', String(x2));
+		      }
 		    }
 		    path.setAttribute('stroke',color);
 		    if(Number.isFinite(strokeWidth)){
@@ -13768,10 +13891,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
     const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
     const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-    const minClearance = Math.max(2, annotationStrokeWidth * 1.5);
-    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize + labelGapForPairs, levelStep * 0.75));
-    const maxClearance = Math.max(minClearance, levelStep - Math.max(2, annotationStrokeWidth));
-    const adaptiveWhiskerClearance = Math.min(rawClearance, maxClearance);
+    const adaptiveWhiskerClearance = Math.max(2, Math.min(6, annotationStrokeWidth * 1.8));
     const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
       if(!adaptiveWhiskersEnabled){ return null; }
       const renderedMaxValue = getRenderedMaxValue(traceIdx);
@@ -13783,23 +13903,46 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ? baseCoord + baseOffset + lvl * levelStep
         : baseCoord - baseOffset - lvl * levelStep;
     };
-    const resolveLowerInnerCoord = (traceIdx, level, placedPairs) => {
-      if(!adaptiveWhiskersEnabled || !Array.isArray(placedPairs) || level <= 0){
+    const resolveLowerInnerCoord = (traceIdx, level, source) => {
+      if(!adaptiveWhiskersEnabled || level <= 0){
         return null;
       }
+      const pairList = Array.isArray(source?.pairs)
+        ? source.pairs
+        : (Array.isArray(source) ? source : null);
+      if(!Array.isArray(pairList) || !pairList.length){
+        return null;
+      }
+      let bestLevel = -Infinity;
       let candidate = null;
-      for(let i = 0; i < placedPairs.length; i++){
-        const pr = placedPairs[i];
-        if(!pr || !Number.isFinite(pr.innerCoord) || pr.level == null){
+      for(let i = 0; i < pairList.length; i++){
+        const pr = pairList[i];
+        if(!pr || pr.level == null){
           continue;
         }
-        if(pr.level >= level){
+        const pairLevel = Number(pr.level);
+        if(!Number.isFinite(pairLevel) || pairLevel >= level){
           continue;
         }
         if(traceIdx < pr.ai || traceIdx > pr.bi){
           continue;
         }
-        const coord = pr.innerCoord;
+        let coord = Number(pr.innerCoord);
+        if(!Number.isFinite(coord) && source?.geometryByPair instanceof Map){
+          const geom = source.geometryByPair.get(pr);
+          coord = Number(geom?.innerCoord);
+        }
+        if(!Number.isFinite(coord)){
+          continue;
+        }
+        if(pairLevel > bestLevel){
+          bestLevel = pairLevel;
+          candidate = coord;
+          continue;
+        }
+        if(pairLevel !== bestLevel){
+          continue;
+        }
         if(orientation === 'horizontal'){
           candidate = candidate == null ? coord : Math.max(candidate, coord);
         }else{
@@ -13814,20 +13957,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       return orientation === 'horizontal'
         ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerClearance)
-        : Math.min(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
+        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
     };
-    const buildPairAnnotationStyle = (idxA, idxB, level, placedPairs) => {
+    const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
       if(!adaptiveWhiskersEnabled){
         return helpers.annotationStyle;
       }
       const outerCoordA = resolveAdaptiveWhiskerOuterCoord(idxA, level);
       const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
-      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, placedPairs);
-      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, placedPairs);
+      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, lowerSource);
+      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, lowerSource);
       return {
         ...helpers.annotationStyle,
         outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
-        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB)
+        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
+        whiskerObstacleGap: adaptiveWhiskerClearance
       };
     };
 
@@ -13844,7 +13988,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           fontSize: annotationOpts.fontSize,
           strokeWidth: annotationOpts.strokeWidth
         });
-        const placed = [];
+        const lowerSource = {
+          pairs: layout.sorted,
+          geometryByPair: layout.geometryByPair
+        };
         layout.sorted.forEach(pr => {
           const geom = layout.geometryByPair.get(pr) || null;
           const annotationCoord = Number.isFinite(geom?.annotationCoord)
@@ -13852,7 +13999,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             : (orientation === 'horizontal'
               ? Number(valueToCoord(pr.rangeMax)) + baseOffset + (Number(pr.level) || 0) * levelStep
               : Number(valueToCoord(pr.rangeMax)) - baseOffset - (Number(pr.level) || 0) * levelStep);
-          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, placed);
+          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, lowerSource);
           annotatePair(
             svg,
             Number.isFinite(geom?.x1) ? geom.x1 : categoryCenter(pr.ai),
@@ -13867,7 +14014,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             : (orientation === 'horizontal'
               ? annotationCoord + annotationBracketSize
               : annotationCoord - annotationBracketSize);
-          placed.push(pr);
         });
         state.significanceMaxLevel = layout.maxLevel;
       }else{
@@ -14202,10 +14348,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    };
 	    const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
 	    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
-	    const minClearance = Math.max(2, annotationStrokeWidth * 1.5);
-	    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize + labelGapForPairs, levelStep * 0.75));
-	    const maxClearance = Math.max(minClearance, levelStep - Math.max(2, annotationStrokeWidth));
-	    const adaptiveWhiskerClearance = Math.min(rawClearance, maxClearance);
+	    const adaptiveWhiskerClearance = Math.max(2, Math.min(6, annotationStrokeWidth * 1.8));
 	    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
 	      if(!adaptiveWhiskersEnabled){ return null; }
 	      const renderedMaxValue = getRenderedMaxValue(traceIdx);
@@ -14217,23 +14360,46 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        ? baseCoord + baseOffset + lvl * levelStep
 	        : baseCoord - baseOffset - lvl * levelStep;
 	    };
-	    const resolveLowerInnerCoord = (traceIdx, level, placedPairs) => {
-	      if(!adaptiveWhiskersEnabled || !Array.isArray(placedPairs) || level <= 0){
+	    const resolveLowerInnerCoord = (traceIdx, level, source) => {
+	      if(!adaptiveWhiskersEnabled || level <= 0){
 	        return null;
 	      }
+	      const pairList = Array.isArray(source?.pairs)
+	        ? source.pairs
+	        : (Array.isArray(source) ? source : null);
+	      if(!Array.isArray(pairList) || !pairList.length){
+	        return null;
+	      }
+	      let bestLevel = -Infinity;
 	      let candidate = null;
-	      for(let i = 0; i < placedPairs.length; i++){
-	        const pr = placedPairs[i];
-	        if(!pr || !Number.isFinite(pr.innerCoord) || pr.level == null){
+	      for(let i = 0; i < pairList.length; i++){
+	        const pr = pairList[i];
+	        if(!pr || pr.level == null){
 	          continue;
 	        }
-	        if(pr.level >= level){
+	        const pairLevel = Number(pr.level);
+	        if(!Number.isFinite(pairLevel) || pairLevel >= level){
 	          continue;
 	        }
 	        if(traceIdx < pr.ai || traceIdx > pr.bi){
 	          continue;
 	        }
-	        const coord = pr.innerCoord;
+	        let coord = Number(pr.innerCoord);
+	        if(!Number.isFinite(coord) && source?.geometryByPair instanceof Map){
+	          const geom = source.geometryByPair.get(pr);
+	          coord = Number(geom?.innerCoord);
+	        }
+	        if(!Number.isFinite(coord)){
+	          continue;
+	        }
+	        if(pairLevel > bestLevel){
+	          bestLevel = pairLevel;
+	          candidate = coord;
+	          continue;
+	        }
+	        if(pairLevel !== bestLevel){
+	          continue;
+	        }
 	        if(orientation === 'horizontal'){
 	          candidate = candidate == null ? coord : Math.max(candidate, coord);
 	        }else{
@@ -14248,20 +14414,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      }
 	      return orientation === 'horizontal'
 	        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerClearance)
-	        : Math.min(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
+	        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
 	    };
-	    const buildPairAnnotationStyle = (idxA, idxB, level, placedPairs) => {
+	    const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
 	      if(!adaptiveWhiskersEnabled){
 	        return helpers.annotationStyle;
 	      }
 	      const outerCoordA = resolveAdaptiveWhiskerOuterCoord(idxA, level);
 	      const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
-	      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, placedPairs);
-	      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, placedPairs);
+	      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, lowerSource);
+	      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, lowerSource);
 	      return {
 	        ...helpers.annotationStyle,
 	        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
-	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB)
+	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
+	        whiskerObstacleGap: adaptiveWhiskerClearance
 	      };
 	    };
 	    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
@@ -14290,7 +14457,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	        fontSize: annotationOpts.fontSize,
 	        strokeWidth: annotationOpts.strokeWidth
 	      });
-	      const placed=[];
+	      const lowerSource = {
+	        pairs: layout.sorted,
+	        geometryByPair: layout.geometryByPair
+	      };
 	      layout.sorted.forEach(pr=>{
 	        const geom = layout.geometryByPair.get(pr) || null;
 	        const annotationCoord = Number.isFinite(geom?.annotationCoord)
@@ -14298,7 +14468,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	          : (orientation==='horizontal'
 	            ? Number(valueToCoord(pr.rangeMax))+baseOffset+(Number(pr.level)||0)*levelStep
 	            : Number(valueToCoord(pr.rangeMax))-baseOffset-(Number(pr.level)||0)*levelStep);
-	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, placed);
+	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, lowerSource);
 	        annotatePair(
 	          svg,
 	          Number.isFinite(geom?.x1) ? geom.x1 : categoryCenter(pr.ai),
@@ -14313,7 +14483,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	          : (orientation==='horizontal'
 	            ? annotationCoord+annotationBracketSize
 	            : annotationCoord-annotationBracketSize);
-	        placed.push(pr);
 	      });
 	      state.significanceMaxLevel = layout.maxLevel;
 	      return true;
