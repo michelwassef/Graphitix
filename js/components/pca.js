@@ -638,6 +638,10 @@
     input.type = 'checkbox';
     input.className = 'ag-checkbox-input';
     input.tabIndex = -1;
+    // Label toggling is driven by table selection (afterSelectionEnd),
+    // so the renderer remains visual-only to avoid AG Grid event conflicts.
+    input.style.pointerEvents = 'none';
+    wrapper.style.pointerEvents = 'none';
     wrapper.appendChild(input);
     this.eGui = wrapper;
     this.input = input;
@@ -647,18 +651,6 @@
       wrapper.classList.toggle('ag-checked', checked);
     };
     this.syncState(params?.value);
-    input.addEventListener('click', evt => {
-      evt.stopPropagation();
-    });
-    input.addEventListener('change', () => {
-      const checked = input.checked;
-      wrapper.classList.toggle('ag-checked', checked);
-      if(typeof this.params?.setValue === 'function'){
-        this.params.setValue(checked);
-      }else if(this.params?.node?.setDataValue && this.params?.column){
-        this.params.node.setDataValue(this.params.column, checked);
-      }
-    });
   };
   PcaLabelCheckboxRenderer.prototype.getGui = function(){
     return this.eGui;
@@ -671,6 +663,34 @@
     }
     return false;
   };
+
+  function parsePcaAgVisualRowIndex(value){
+    if(Number.isInteger(value) && value >= 0){
+      return value;
+    }
+    if(typeof value !== 'string'){
+      return null;
+    }
+    const trimmed = value.trim();
+    if(!trimmed){
+      return null;
+    }
+    if(/^\d+$/.test(trimmed)){
+      const direct = Number(trimmed);
+      return Number.isInteger(direct) && direct >= 0 ? direct : null;
+    }
+    const prefixed = trimmed.match(/^[A-Za-z][A-Za-z0-9_-]*-(\d+)$/);
+    if(prefixed){
+      const parsed = Number(prefixed[1]);
+      return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+    }
+    const suffixed = trimmed.match(/^[A-Za-z][A-Za-z0-9_-]*(\d+)$/);
+    if(suffixed){
+      const parsed = Number(suffixed[1]);
+      return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+    }
+    return null;
+  }
 
   function getDefaultTitleForMethod(method){
     const key = typeof method === 'string' ? method.toLowerCase() : '';
@@ -1063,6 +1083,7 @@
     });
     let pcaScheduleProxyCount = 0;
     let lastKeyDownAt = 0;
+    let suppressLabelSelectionToggleUntil = 0;
     let pcaHot = null;
     const scheduleDrawPcaProxy = (payload) => {
       pcaScheduleProxyCount += 1;
@@ -1139,6 +1160,9 @@
             && physicalRow <= PCA_GROUPED_SAMPLE_ROW_INDEX
           ){
             baseStyle.backgroundColor = '#f5f5f5';
+          }
+          if(physicalRow === PCA_LABEL_ROW_INDEX && colIndex >= 1){
+            baseStyle.cursor = 'pointer';
           }
           if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped' && colIndex >= 1){
             const role = getPcaGroupedHeaderCellRole(colIndex, pcaHot);
@@ -1278,6 +1302,9 @@
             return;
           }
           const now = Date.now();
+          if(now < suppressLabelSelectionToggleUntil){
+            return;
+          }
           if(now - lastKeyDownAt < 80){
             return;
           }
@@ -1385,6 +1412,65 @@
     });
     if(pcaHot){
       pcaHot.__pcaHostContainer = container || null;
+      if(container && typeof container.addEventListener === 'function'){
+        if(typeof container.__pcaLabelClickToggleHandler === 'function'){
+          container.removeEventListener('pointerdown', container.__pcaLabelClickToggleHandler, true);
+          container.__pcaLabelClickToggleHandler = null;
+          container.__pcaLabelClickToggleBound = false;
+        }
+        const clickHandler = evt => {
+          if(evt?.button != null && evt.button !== 0){
+            return;
+          }
+          const target = evt?.target;
+          const cell = target && typeof target.closest === 'function' ? target.closest('.ag-cell') : null;
+          if(!cell){
+            return;
+          }
+          const colId = cell.getAttribute?.('col-id');
+          if(typeof colId !== 'string' || !/^c\d+$/.test(colId)){
+            return;
+          }
+          const colIndex = Number(colId.slice(1));
+          if(!Number.isInteger(colIndex) || colIndex < 1){
+            return;
+          }
+          const rowAttr = cell.getAttribute?.('row-index')
+            || cell.closest?.('.ag-row')?.getAttribute?.('row-index')
+            || null;
+          const visualRow = parsePcaAgVisualRowIndex(rowAttr);
+          if(visualRow !== PCA_LABEL_ROW_INDEX){
+            return;
+          }
+          const hot = pcaHot;
+          if(!hot){
+            return;
+          }
+          const data = hot.getData?.() || [];
+          const labelRowIndex = resolvePcaLabelRowIndex(data);
+          if(!Number.isInteger(labelRowIndex) || labelRowIndex < 0){
+            return;
+          }
+          const current = data[labelRowIndex]?.[colIndex];
+          const next = !parsePcaPointLabelFlag(current);
+          const source = 'pca-point-label-toggle';
+          const applied = applyPcaCellValue(hot, labelRowIndex, colIndex, next, { source, render: false });
+          if(!applied){
+            return;
+          }
+          if(isPcaPinnedRow(hot, labelRowIndex) && typeof hot.render === 'function'){
+            hot.render();
+          }
+          syncPcaActiveDataViewFromHot(hot, 'afterChange');
+          markPcaDataDirty(source);
+          scheduleDrawPca({ reason: source });
+          suppressLabelSelectionToggleUntil = Date.now() + 500;
+          debugLog('Debug: pca label toggle via cell click', { row: labelRowIndex, col: colIndex, next });
+        };
+        container.addEventListener('pointerdown', clickHandler, true);
+        container.__pcaLabelClickToggleBound = true;
+        container.__pcaLabelClickToggleHandler = clickHandler;
+      }
       ensurePcaEmptyTableDefaults(pcaHot, { source: 'pca-init' });
     }
     if(pcaHot && typeof pcaHot.loadData === 'function' && !pcaHot.__pcaPatched){
@@ -9638,7 +9724,7 @@
         if(scheduleBackup){
           scheduleDrawPca = scheduleBackup;
         }
-        debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataMatrix.length });
+        debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataToLoad.length });
         return true;
       }
 
