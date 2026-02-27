@@ -5492,6 +5492,30 @@
     { value:'no', label:'No, focus on group and condition only' }
   ];
 
+  function inferDistributionAnswerFromNormalityResults(results){
+    const groups=Array.isArray(results?.groups)?results.groups:[];
+    if(!groups.length){
+      return null;
+    }
+    let sawPass=false;
+    for(const group of groups){
+      if(group?.normality?.passed===false){
+        return 'nonnormal';
+      }
+      if(group?.normality?.passed===true){
+        sawPass=true;
+      }
+    }
+    return sawPass?'normal':null;
+  }
+
+  function inferEqualVarianceAnswerFromVarianceResults(variance){
+    if(!variance || variance.passed===undefined){
+      return null;
+    }
+    return variance.passed===true?'yes':'no';
+  }
+
   function normalizeAdvisorGroupAnswer(answer,context){
     const fallback=(context?.groupCount||0)>=3?'threePlus':(context?.groupCount===2?'two':null);
     if(answer==='two'||answer==='threePlus'){ return answer; }
@@ -5532,8 +5556,10 @@
     const rationale=[];
     const warnings=[];
     if(goal==='perCondition'){
-      const summary=`Run row-wise t-tests to compare groups within each of the ${conditionCount} condition${conditionCount===1?'':'s'}.`;
-      rationale.push('Row-wise t-tests provide simple group comparisons within each condition.');
+      const summary=`Run row-wise t-tests (Welch) to compare groups within each of the ${conditionCount} condition${conditionCount===1?'':'s'}.`;
+      rationale.push('Row-wise Welch t-tests provide robust mean-based group comparisons within each condition.');
+      rationale.push('Apply a family-wise correction (Holm recommended) across all per-condition contrasts.');
+      warnings.push('Per-condition analysis is parametric; verify residual normality and consider non-parametric follow-ups if assumptions fail.');
       if(!context.ok && context.message){
         warnings.push(context.message);
       }
@@ -5547,7 +5573,8 @@
         summary,
         rationale,
         warnings,
-        detail:{ goal }
+        detail:{ goal },
+        recommendedCorrection:'holm'
       };
     }
     const repeated=answers.groupedRepeated;
@@ -5668,6 +5695,7 @@
     let postHoc='standard';
     let primaryLabel='';
     let postHocLabel='';
+    let recommendedCorrection=null;
     const rationale=[];
     const warnings=[];
     let recommendationVariant='classic';
@@ -5718,7 +5746,8 @@
           rationale.push('When normality is uncertain for repeated measures, start with rank-based paired contrasts.');
         }
         postHoc='standard';
-        postHocLabel='Apply the selected multiple-testing correction across paired contrasts.';
+        recommendedCorrection='holm';
+        postHocLabel='Apply Holm correction across paired contrasts.';
       }else{
         if(distributionAnswer==='normal'){
           if(equalVarianceAnswer==='no'){
@@ -5743,16 +5772,21 @@
           statsTest='nonparametric';
           primaryLabel='Kruskal–Wallis test';
           postHoc='dunn';
-          postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based).';
+          recommendedCorrection='holm';
+          postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based) and Holm-adjusted P values.';
           rationale.push('Rank-based Kruskal–Wallis handles non-normal independent groups.');
         }else{
           statsTest='nonparametric';
           primaryLabel='Kruskal–Wallis test';
           postHoc='dunn';
-          postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based).';
+          recommendedCorrection='holm';
+          postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based) and Holm-adjusted P values.';
           rationale.push('When normality is uncertain, Kruskal–Wallis offers a robust default for multiple groups.');
         }
       }
+    }
+    if(groupsAnswer!=='two' && postHoc==='standard' && !recommendedCorrection){
+      recommendedCorrection='holm';
     }
 
     if(Array.isArray(sampleSizes) && sampleSizes.some(n=>n>0 && n<3) && groupsAnswer!=='two'){
@@ -5787,7 +5821,8 @@
         primaryLabel,
         postHocLabel
       },
-      parametricVariant:recommendationVariant
+      parametricVariant:recommendationVariant,
+      recommendedCorrection
     };
   }
 
@@ -7681,9 +7716,10 @@
     }
     const rawCount=Number(count);
     const safeCount=Number.isFinite(rawCount) && rawCount>0 ? Math.round(rawCount) : 0;
+    const pendingDetail='pending calculation';
     const oneSampleMode=state.statsMode==='oneSample';
     if(!oneSampleMode && state.statsPostHoc==='tukey'){
-      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
       noteEl.textContent=`Post-hoc: Tukey HSD (${detail}, studentized range).`;
       noteEl.dataset.method='tukey';
       noteEl.dataset.correctionLabel='Tukey HSD';
@@ -7691,7 +7727,7 @@
       return;
     }
     if(!oneSampleMode && state.statsPostHoc==='gamesHowell'){
-      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
       noteEl.textContent=`Post-hoc: Games–Howell (${detail}, Welch-adjusted).`;
       noteEl.dataset.method='gamesHowell';
       noteEl.dataset.correctionLabel='Games–Howell';
@@ -7699,7 +7735,7 @@
       return;
     }
     if(!oneSampleMode && state.statsPostHoc==='dunnett'){
-      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
       noteEl.textContent=`Post-hoc: Dunnett (${detail}, versus reference).`;
       noteEl.dataset.method='dunnett';
       noteEl.dataset.correctionLabel='Dunnett';
@@ -7707,7 +7743,7 @@
       return;
     }
     if(!oneSampleMode && state.statsPostHoc==='dunnettT3'){
-      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
       noteEl.textContent=`Post-hoc: Dunnett T3 (${detail}, Welch-style versus reference).`;
       noteEl.dataset.method='dunnettT3';
       noteEl.dataset.correctionLabel='Dunnett T3';
@@ -7715,10 +7751,12 @@
       return;
     }
     const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
-    const detail=safeCount>0?`${safeCount} test${safeCount===1?'':'s'}`:'awaiting data';
+    const detail=safeCount>0?`${safeCount} test${safeCount===1?'':'s'}`:pendingDetail;
     const labelPrefix=oneSampleMode
       ? 'One-sample correction'
-      : (state.statsPostHoc==='dunn'?"Dunn's test correction":"Multiple-testing correction");
+      : (state.statsMode==='custom'
+        ? 'Custom-pair correction'
+        : (state.statsPostHoc==='dunn'?"Dunn's test correction":"Multiple-testing correction"));
     noteEl.textContent=`${labelPrefix}: ${meta.label} (${detail}).`;
     noteEl.dataset.method=meta.key;
     noteEl.dataset.correctionLabel=meta.shortLabel || meta.label;
@@ -11095,7 +11133,7 @@
     container.innerHTML='';
     
     const card=document.createElement('div');
-    card.className='stats-table-card';
+    card.className='stats-table-card stats-assumption-section';
     
     const heading=document.createElement('div');
     heading.className='stats-table-caption';
@@ -11864,8 +11902,11 @@
             condition: conditionLabels[condIdx] || `Condition ${condIdx + 1}`,
             groupA: data.groupLabels[gA],
             groupB: data.groupLabels[gB],
+            nA: sampleA.length,
+            nB: sampleB.length,
             t: result.t,
             df: result.df,
+            diff: result.diff,
             p: result.p
           });
         }
@@ -11884,25 +11925,34 @@
     console.debug('Debug: row-wise t-tests computed',{ count: tests.length, correction: correctionMeta.key });
     return {
       ok: true,
-      caption: 'Row-wise t-tests',
+      caption: 'Row-wise t-tests (Welch)',
       columns: [
         { key: 'condition', label: 'Condition', align: 'left' },
         { key: 'comparison', label: 'Comparison', align: 'left' },
+        { key: 'nA', label: 'nA', align: 'right' },
+        { key: 'nB', label: 'nB', align: 'right' },
         { key: 't', label: 't', align: 'right' },
         { key: 'df', label: 'df', align: 'right' },
+        { key: 'difference', label: 'Difference', align: 'right' },
         { key: 'p', label: 'P value', align: 'right' },
         { key: 'padjust', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right' }
       ],
       rows: tests.map(test => ({
         condition: test.condition,
         comparison: `${test.groupA} vs ${test.groupB}`,
+        nA: String(test.nA),
+        nB: String(test.nB),
         t: formatStatNumber(test.t),
         df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '—',
+        difference: Number.isFinite(test.diff) ? formatStatNumber(test.diff) : '—',
         p: formatP(test.p),
         padjust: formatP(test.padjust)
       })),
       options:{ fileName:'box-rowwise-ttest', contextLabel:'box-grouped-ttests' },
-      footnotes: correctionMeta.footnote ? [correctionMeta.footnote] : []
+      footnotes: [
+        'Welch two-sample t-tests are run within each condition.',
+        ...(correctionMeta.footnote ? [correctionMeta.footnote] : [])
+      ]
     };
   }
   function getAdvisorState(){
@@ -12120,6 +12170,14 @@
       };
     }
     const indices=[...state.selectedCols].filter(idx=>Number.isInteger(idx) && idx<traces.length);
+    const advisorState=getAdvisorState();
+    const signature=buildAdvisorNormalitySignature(traces,indices);
+    const normalityResults=(advisorState.normality?.signature===signature)
+      ? (advisorState.normality?.results || null)
+      : null;
+    const varianceResults=(advisorState.variance?.signature===signature)
+      ? (advisorState.variance?.results || null)
+      : null;
     const sampleSizes=indices.map(idx=>{
       const trace=traces[idx] || {};
       const values=Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]);
@@ -12132,7 +12190,10 @@
       assumptions: state.assumptionDiagnostics || null,
       currentTest: state.statsTest,
       currentPaired: state.statsPaired,
-      currentPostHoc: state.statsPostHoc
+      currentPostHoc: state.statsPostHoc,
+      currentMode: state.statsMode,
+      normalityResults,
+      varianceResults
     };
   }
   function ensureAdvisorDefaults(context){
@@ -12166,11 +12227,18 @@
     if(answers.paired===undefined){
       answers.paired=state.statsPaired?'paired':'unpaired';
     }
-    if(answers.distribution===undefined){
+    if(answers.distribution===undefined || answers.distribution==='unsure'){
+      let inferredDistribution=null;
       if(context.assumptions?.recommendNonParametric){
-        answers.distribution='nonnormal';
-      }else if(state.statsTest==='parametric'){
-        answers.distribution='normal';
+        inferredDistribution='nonnormal';
+      }else{
+        inferredDistribution=inferDistributionAnswerFromNormalityResults(context.normalityResults);
+      }
+      if(!inferredDistribution && state.statsTest==='parametric'){
+        inferredDistribution='normal';
+      }
+      if(inferredDistribution){
+        answers.distribution=inferredDistribution;
       }
     }
     if((context.groupCount||0)>=3){
@@ -12178,8 +12246,13 @@
         if(answers.equalVariance!=='yes'){
           answers.equalVariance='no';
         }
-      }else if(answers.equalVariance===undefined){
-        answers.equalVariance='unsure';
+      }else if(answers.equalVariance===undefined || answers.equalVariance==='unsure'){
+        const inferredVariance=inferEqualVarianceAnswerFromVarianceResults(context.varianceResults);
+        if(inferredVariance){
+          answers.equalVariance=inferredVariance;
+        }else if(answers.equalVariance===undefined){
+          answers.equalVariance='unsure';
+        }
       }
     }
     return answers;
@@ -12224,6 +12297,9 @@
       help:groupsHelp,
       options:ADVISOR_GROUP_OPTIONS
     });
+    if((context.groupCount || 0)<2){
+      return questions;
+    }
     questions.push({
       id:'paired',
       prompt:'Are the observations paired/repeated on the same subjects?',
@@ -12261,7 +12337,7 @@
     const header=document.createElement('div');
     header.className='stats-advisor__header';
     const title=document.createElement('strong');
-    title.textContent='Test advisor';
+    title.textContent='Statistics advisor';
     header.appendChild(title);
     const toggle=document.createElement('button');
     toggle.type='button';
@@ -12397,6 +12473,11 @@
               results,
               updatedAt: Date.now()
             };
+            const inferredDistribution=inferDistributionAnswerFromNormalityResults(results);
+            if(inferredDistribution && (answers.distribution===undefined || answers.distribution==='unsure')){
+              answers.distribution=inferredDistribution;
+              console.debug('Debug: box stats advisor inferred distribution',{ inferredDistribution });
+            }
             if(debugEnabled){
               console.debug('Debug: box stats advisor normality run',{
                 groupCount: selectionIndices.length,
@@ -12430,6 +12511,11 @@
               results,
               updatedAt: Date.now()
             };
+            const inferredVariance=inferEqualVarianceAnswerFromVarianceResults(results);
+            if(inferredVariance && (answers.equalVariance===undefined || answers.equalVariance==='unsure')){
+              answers.equalVariance=inferredVariance;
+              console.debug('Debug: box stats advisor inferred equalVariance',{ inferredVariance });
+            }
             if(debugEnabled){
               console.debug('Debug: box stats advisor variance run',{
                 groupCount: selectionIndices.length,
@@ -12471,9 +12557,13 @@
           if(recommendation.analysis){
             state.groupedStats.analysis=recommendation.analysis;
           }
+          if(recommendation.recommendedCorrection){
+            state.statsCorrection=ensureValidCorrectionValue(recommendation.recommendedCorrection);
+          }
           advisorState.lastApplied={ ...recommendation };
           console.debug('Debug: box grouped statsAdvisor applied',{
             analysis: state.groupedStats.analysis,
+            statsCorrection: state.statsCorrection,
             answers:{ ...answers }
           });
           renderStatsControls(traces);
@@ -12496,12 +12586,16 @@
         }else{
           state.statsParametricVariant='nonparametric';
         }
+        if(recommendation.recommendedCorrection){
+          state.statsCorrection=ensureValidCorrectionValue(recommendation.recommendedCorrection);
+        }
         advisorState.lastApplied={ ...recommendation };
         console.debug('Debug: box statsAdvisor applied',{
           statsTest: state.statsTest,
           statsPaired: state.statsPaired,
           statsPostHoc: state.statsPostHoc,
           statsVariant: state.statsParametricVariant,
+          statsCorrection: state.statsCorrection,
           answers:{ ...answers }
         });
         renderStatsControls(traces);
@@ -12561,7 +12655,9 @@
   }else if(oneSampleMode || state.statsPaired){
     desiredVariant='classic';
   }else{
-    const comparisonCount=Array.isArray(traces)?traces.length:0;
+    const traceCount=Array.isArray(traces)?traces.length:0;
+    const selectedCount=Math.max(0,Math.min(traceCount,state.selectedCols?.size || 0));
+    const comparisonCount=selectedCount || traceCount;
     if(comparisonCount>=3 && varianceConcern && normalityFailures===0){
       desiredVariant='welch';
     }else{
@@ -12571,19 +12667,6 @@
   if(desiredVariant!==state.statsParametricVariant){
     console.debug('Debug: box statsParametricVariant adjusted',{ before:state.statsParametricVariant, after:desiredVariant, varianceConcern, normalityFailures });
     state.statsParametricVariant=desiredVariant;
-  }
-  const postHocContext={
-    mode: state.statsMode,
-    test: state.statsTest,
-    paired: oneSampleMode ? false : state.statsPaired,
-    groupCount: Array.isArray(traces)?traces.length:0,
-    variant: state.statsParametricVariant,
-    varianceConcern
-  };
-  const normalizedPostHoc=ensureValidPostHoc(state.statsPostHoc,postHocContext);
-  if(normalizedPostHoc!==state.statsPostHoc){
-    console.debug('Debug: box statsPostHoc normalized',{ before:state.statsPostHoc, after:normalizedPostHoc, context:postHocContext });
-    state.statsPostHoc=normalizedPostHoc;
   }
   if(state.selectedCols && state.selectedCols.size){
     const beforeSize = state.selectedCols.size;
@@ -12600,6 +12683,20 @@
   }
   if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
     state.selectedCols.add(state.statsRef);
+  }
+  const selectedCount=Math.max(0,state.selectedCols?.size || 0);
+  const postHocContext={
+    mode: state.statsMode,
+    test: state.statsTest,
+    paired: oneSampleMode ? false : state.statsPaired,
+    groupCount: selectedCount,
+    variant: state.statsParametricVariant,
+    varianceConcern
+  };
+  const normalizedPostHoc=ensureValidPostHoc(state.statsPostHoc,postHocContext);
+  if(normalizedPostHoc!==state.statsPostHoc){
+    console.debug('Debug: box statsPostHoc normalized',{ before:state.statsPostHoc, after:normalizedPostHoc, context:postHocContext });
+    state.statsPostHoc=normalizedPostHoc;
   }
 
   const advisorContext=buildAdvisorContext(traces);
@@ -12703,12 +12800,14 @@
     }
   }
   const testLabel=document.createElement('label');
-  testLabel.textContent='Test:';
+  testLabel.textContent='Analysis family:';
   const testSel=document.createElement('select');
   ['parametric','nonparametric'].forEach(v=>{
     const option=document.createElement('option');
     option.value=v;
-    option.textContent=v==='parametric'?'Parametric':'Non-parametric';
+    option.textContent=v==='parametric'
+      ?'Parametric (mean-based)'
+      :'Non-parametric (rank-based)';
     if(state.statsTest===v) option.selected=true;
     testSel.appendChild(option);
   });
@@ -12722,9 +12821,9 @@
   appendInline(testLabel, testSel, false);
 
   const pairedLabel=document.createElement('label');
-  pairedLabel.textContent='Pairing:';
+  pairedLabel.textContent='Design:';
   const pairedSel=document.createElement('select');
-  [['unpaired','Unpaired'],['paired','Paired']].forEach(([value,text])=>{
+  [['unpaired','Independent groups'],['paired','Paired/repeated']].forEach(([value,text])=>{
     const option=document.createElement('option');
     option.value=value;
     option.textContent=text;
@@ -12747,7 +12846,7 @@
   appendInline(pairedLabel, pairedSel, false);
 
   const modeLabel=document.createElement('label');
-  modeLabel.textContent='Comparison:';
+  modeLabel.textContent='Comparison scope:';
   const modeSel=document.createElement('select');
   [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs'],['oneSample','One-sample vs value']].forEach(([value,text])=>{
     const option=document.createElement('option');
@@ -12802,7 +12901,7 @@
   }
 
   const postHocLabel=document.createElement('label');
-  postHocLabel.textContent='Post-hoc:';
+  postHocLabel.textContent='Pairwise procedure:';
   const postHocSel=document.createElement('select');
   const postHocOptions=listPostHocOptions();
   postHocOptions.forEach(opt=>{
@@ -12823,16 +12922,21 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  postHocSel.disabled=oneSampleMode;
+  const supportsPairwiseProcedure=!oneSampleMode && state.statsMode!=='custom' && selectedCount>=3;
+  postHocSel.disabled=!supportsPairwiseProcedure;
   if(oneSampleMode){
     postHocSel.title='Post-hoc options are unavailable in one-sample mode.';
+  }else if(state.statsMode==='custom'){
+    postHocSel.title='Custom pairs mode runs only the manually specified comparisons.';
+  }else if(selectedCount<3){
+    postHocSel.title='Pairwise procedures are used when at least three groups are selected.';
   }else{
     postHocSel.removeAttribute('title');
   }
   appendInline(postHocLabel, postHocSel, false);
 
   const correctionLabel=document.createElement('label');
-  correctionLabel.textContent='Correction:';
+  correctionLabel.textContent='Multiplicity control:';
   const correctionSel=document.createElement('select');
   correctionOptions.forEach(opt=>{
     const option=document.createElement('option');
@@ -12850,7 +12954,7 @@
     persistTabState('stats-correction-change');
     state.scheduleDraw();
   });
-  correctionSel.disabled=!oneSampleMode && (
+  correctionSel.disabled=supportsPairwiseProcedure && (
     state.statsPostHoc==='tukey'
     || state.statsPostHoc==='gamesHowell'
     || state.statsPostHoc==='dunnett'
@@ -12872,7 +12976,7 @@
   appendInline(correctionLabel, correctionSel, true);
 
   const paramEffectLabel=document.createElement('label');
-  paramEffectLabel.textContent='Param effect size:';
+  paramEffectLabel.textContent='Effect size (parametric):';
   const paramEffectSel=document.createElement('select');
   listEffectOptions('parametric').forEach(opt=>{
     const option=document.createElement('option');
@@ -12893,7 +12997,7 @@
   appendInline(paramEffectLabel, paramEffectSel, true);
 
   const nonParamEffectLabel=document.createElement('label');
-  nonParamEffectLabel.textContent='Non-param effect size:';
+  nonParamEffectLabel.textContent='Effect size (non-parametric):';
   const nonParamEffectSel=document.createElement('select');
   listEffectOptions('nonparametric').forEach(opt=>{
     const option=document.createElement('option');
@@ -12915,9 +13019,15 @@
 
   const postHocHelp=document.getElementById('statsPostHocHelp');
   if(postHocHelp){
-    postHocHelp.textContent=oneSampleMode
-      ? 'One-sample mode compares each selected group with the null value above.'
-      : getPostHocSummary(state.statsPostHoc,postHocContext);
+    if(oneSampleMode){
+      postHocHelp.textContent='One-sample mode compares each selected group with the null value above.';
+    }else if(state.statsMode==='custom'){
+      postHocHelp.textContent='Custom pairs mode applies the selected test and multiplicity control to your manual pair list.';
+    }else if(selectedCount<3){
+      postHocHelp.textContent='With fewer than three selected groups, a dedicated post-hoc procedure is not required.';
+    }else{
+      postHocHelp.textContent=getPostHocSummary(state.statsPostHoc,postHocContext);
+    }
   }
 
   if(state.statsMode==='reference'){
@@ -12965,7 +13075,9 @@
   controls.appendChild(optionWrap);
   const correctionCount=state.statsMode==='oneSample'
     ? state.selectedCols.size
-    : (state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0);
+    : (state.statsMode==='custom'
+      ? (Array.isArray(state.statsCustomPairs)?state.statsCustomPairs.length:0)
+      : (state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0));
   updateStatsCorrectionSummary(correctionCount);
 }
 function renderGroupedStatsControls(traces, controls, precomputed){
@@ -12987,14 +13099,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   analysisWrap.style.gap='8px';
   analysisWrap.style.alignItems='center';
   const label=document.createElement('label');
-  label.textContent='Analysis:';
+  label.textContent='Model:';
   const select=document.createElement('select');
   const options=[
     { value:'twoWayAnova', text:'Two-way ANOVA' },
     { value:'twoWayMixed', text:'Two-way Mixed Model' },
     { value:'threeWayAnova', text:'Three-way ANOVA' },
     { value:'threeWayMixed', text:'Three-way Mixed Model' },
-    { value:'rowTTests', text:'Multiple t tests (row-wise)' }
+    { value:'rowTTests', text:'Per-condition pairwise t-tests' }
   ];
   const allowed=new Set(options.map(opt=>opt.value));
   if(!allowed.has(state.groupedStats.analysis)){
@@ -13020,7 +13132,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   correctionWrap.style.gap='8px';
   correctionWrap.style.alignItems='center';
   const correctionLabel=document.createElement('label');
-  correctionLabel.textContent='Correction:';
+  correctionLabel.textContent='Multiplicity control:';
   const correctionSel=document.createElement('select');
   const correctionOptions=getAvailableCorrections();
   correctionOptions.forEach(opt=>{
@@ -13037,11 +13149,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     updateStatsCorrectionSummary(0);
     state.scheduleDraw();
   });
+  const correctionRelevant=state.groupedStats.analysis==='rowTTests';
+  correctionSel.disabled=!correctionRelevant;
+  if(correctionRelevant){
+    correctionSel.removeAttribute('title');
+  }else{
+    correctionSel.title='Multiplicity correction is applied for per-condition pairwise t-tests.';
+  }
   correctionWrap.appendChild(correctionLabel);
   correctionWrap.appendChild(correctionSel);
   controls.appendChild(correctionWrap);
+  const analysisHelp=document.createElement('div');
+  analysisHelp.className='stats-help-text';
+  if(state.groupedStats.analysis==='rowTTests'){
+    analysisHelp.textContent='Per-condition pairwise tests use Welch t-statistics, then apply the selected multiplicity correction.';
+  }else if(state.groupedStats.analysis==='twoWayMixed' || state.groupedStats.analysis==='threeWayMixed'){
+    analysisHelp.textContent='Mixed models treat rows as repeated/random effects; verify row alignment before interpretation.';
+  }else{
+    analysisHelp.textContent='ANOVA models assume approximately normal residuals and balanced, complete rows.';
+  }
+  controls.appendChild(analysisHelp);
   console.debug('Debug: renderGroupedStatsControls summary',{ analysis: state.groupedStats.analysis, rowsWithData: prepared.rowsWithData });
-  updateStatsCorrectionSummary(prepared.conditionsCount>1?prepared.conditionsCount*(prepared.conditionsCount-1)/2:0);
+  const groupedPairCount=correctionRelevant && prepared.groupsCount>=2
+    ? prepared.conditionsCount * (prepared.groupsCount * (prepared.groupsCount - 1) / 2)
+    : 0;
+  updateStatsCorrectionSummary(groupedPairCount);
 }
 		  function buildSignificanceBracketGeometry(options){
 		    const opts = options || {};
@@ -14466,18 +14598,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         requestStatsContextRefresh('significance-toggle-auto');
         state.scheduleDraw();
       }
-      setStatsStatus('Updating chart for significance bars…');
-      const rerun = () => {
-        if(!state.statsComputationPending){
-          handleStatsComputeClick();
-        }
-      };
-      if(typeof global.requestAnimationFrame === 'function'){
-        global.requestAnimationFrame(rerun);
-      }else{
-        setTimeout(rerun, 0);
-      }
-      return;
+      setStatsStatus('Preparing significance bars…');
     }
     const context = state.statsContext;
     if(!context || !Array.isArray(context.traces) || !context.traces.length){
