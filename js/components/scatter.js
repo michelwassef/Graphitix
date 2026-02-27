@@ -9967,6 +9967,7 @@
           graphType: scatterCurrentGraphType,
           statsMethod: scatterStatType?.value || 'auto',
           regressionMode: scatterRegressionMode?.value || 'linear',
+          fitMethod: scatterFitMethod?.value || 'ols',
           showLine: !!scatterShowLine?.checked,
           showLineStats: !!scatterShowPlotStats?.checked,
           showCI: !!(scatterShowLine && scatterShowCI && scatterShowCI.checked),
@@ -10055,22 +10056,34 @@
 
       function ensureScatterAdvisorDefaults(context){
         const answers=scatterAdvisorState.answers || {};
-        if(!answers.measurement){
-          if(context.approxBinaryY){
-            answers.measurement='binaryOutcome';
-          }else if(context.pointCount>=6 && (context.yOutlierCount>0 || !Number.isFinite(context.yStd) || context.yStd===0)){
-            answers.measurement='continuousNonNormal';
+        if(!answers.analysisGoal){
+          answers.analysisGoal='modelAndAssociation';
+        }
+        if(!answers.regressionModel){
+          if(context.graphType!=='scatter'){
+            answers.regressionModel='linear';
           }else{
-            answers.measurement='continuousNormal';
+            answers.regressionModel=context.regressionMode || 'linear';
           }
         }
-        if(!answers.trend){
-          if(context.graphType!=='scatter'){
-            answers.trend='linear';
-          }else if(context.monotonicSigns && context.monotonicSigns.size>1){
-            answers.trend='multiple';
+        if(!answers.fitPreference){
+          const currentFit = normalizeScatterFitMethod(context.fitMethod || 'ols');
+          if(currentFit === 'wls'){
+            answers.fitPreference='weighted';
+          }else if(currentFit === 'huber'){
+            answers.fitPreference='robust';
           }else{
-            answers.trend='linear';
+            answers.fitPreference='standard';
+          }
+        }
+        if(!answers.associationPreference){
+          const currentAssociation = normalizeScatterAssociationSelection(context.statsMethod || 'auto');
+          if(currentAssociation === 'pearson'){
+            answers.associationPreference='pearson';
+          }else if(currentAssociation === 'spearman'){
+            answers.associationPreference='spearman';
+          }else{
+            answers.associationPreference='automatic';
           }
         }
         if(!answers.lineDetail){
@@ -10094,33 +10107,65 @@
         }
         return [
           {
-            id:'measurement',
-            prompt:'How are X and Y measured?',
-            help:'This determines whether Pearson or Spearman correlation fits best.',
+            id:'analysisGoal',
+            prompt:'What is your primary analysis objective?',
+            help:'This controls whether the report emphasizes model fitting, association statistics, or both.',
             options:[
-              { value:'continuousNormal', label:'Continuous and roughly symmetric' },
-              { value:'continuousNonNormal', label:'Continuous with skew/outliers' },
-              { value:'ordinal', label:'Ordinal or ranked values' },
-              { value:'binaryOutcome', label:'Binary or 0–1 response vs. predictor' }
+              { value:'modelAndAssociation', label:'Model fit + association summary' },
+              { value:'modelOnly', label:'Model fit only (parameters/diagnostics)' },
+              { value:'associationOnly', label:'Association summary only (no fitted curve)' }
             ]
           },
           {
-            id:'trend',
-            prompt:'Which pattern best describes the relationship?',
-            help:'Choose a trend to fit when drawing the optional line.',
+            id:'regressionModel',
+            prompt:'Which regression model best matches your mechanism?',
+            help:'Choose the mechanistic model first. Fit method options are constrained by model support.',
             options:[
-              { value:'linear', label:'Straight-line trend' },
-              { value:'curved', label:'Single curve (U- or inverted-U)' },
-              { value:'sShape', label:'S-shaped / bounded response' },
-              { value:'exponential', label:'Exponential growth or decay' },
-              { value:'power', label:'Power-law scaling (y ∝ xᵏ)' },
-              { value:'multiple', label:'Irregular with multiple bends' }
+              { value:'linear', label:'Linear' },
+              { value:'linearThroughOrigin', label:'Linear (through origin)' },
+              { value:'quadratic', label:'Polynomial (quadratic)' },
+              { value:'cubic', label:'Polynomial (cubic)' },
+              { value:'logistic', label:'Logistic / Dose-response (auto)' },
+              { value:'doseResponse3pl', label:'3PL dose-response' },
+              { value:'doseResponse4pl', label:'4PL dose-response (IC50)' },
+              { value:'doseResponse5pl', label:'5PL dose-response (asymmetric)' },
+              { value:'exponential', label:'Exponential' },
+              { value:'onePhaseAssociation', label:'One-phase association' },
+              { value:'onePhaseDecay', label:'One-phase decay' },
+              { value:'gompertz', label:'Gompertz growth' },
+              { value:'power', label:'Power' },
+              { value:'gaussian', label:'Gaussian' },
+              { value:'spline', label:'Spline' },
+              { value:'bindingSaturation', label:'Binding - saturation' },
+              { value:'bindingCompetitive', label:'Binding - competitive' },
+              { value:'enzymeKineticsSubstrate', label:'Enzyme kinetics - substrate' },
+              { value:'enzymeKineticsInhibition', label:'Enzyme kinetics - inhibition' }
+            ]
+          },
+          {
+            id:'fitPreference',
+            prompt:'How should the fit handle variance and outliers?',
+            help:'Use weighted or robust fitting only when justified; unsupported choices automatically fall back.',
+            options:[
+              { value:'standard', label:'Standard least squares (OLS)' },
+              { value:'weighted', label:'Weighted least squares (WLS)' },
+              { value:'robust', label:'Robust fit (Huber)' }
+            ]
+          },
+          {
+            id:'associationPreference',
+            prompt:'Which association metric should be reported?',
+            help:'Association metrics are optional and do not change fitted regression parameters.',
+            options:[
+              { value:'automatic', label:'Automatic (recommended)' },
+              { value:'pearson', label:'Pearson (linear association)' },
+              { value:'spearman', label:'Spearman (rank association)' }
             ]
           },
           {
             id:'lineDetail',
-            prompt:'How much detail should accompany the fitted line?',
-            help:'Controls the fitted line, interval shading, and diagnostics on the plot.',
+            prompt:'How much model output should be shown on the plot?',
+            help:'This controls trend line visibility and optional uncertainty/diagnostics overlays.',
             options:[
               { value:'minimal', label:'Show fitted line only' },
               { value:'intervals', label:'Include confidence/prediction intervals' },
@@ -10140,6 +10185,7 @@
           warnings:[],
           statsMethod:context.statsMethod || 'auto',
           regression:context.regressionMode || 'linear',
+          fitMethod:context.fitMethod || 'ols',
           showLine:context.showLine,
           showLineStats:context.showLineStats,
           showIntervals:context.showIntervals,
@@ -10149,117 +10195,122 @@
           recommendation.message='Switch the graph type to “Scatter Plot” to access correlation and regression guidance.';
           return recommendation;
         }
-        if(!answers.measurement || !answers.trend || !answers.lineDetail){
+        if(!answers.analysisGoal || !answers.regressionModel || !answers.fitPreference || !answers.associationPreference || !answers.lineDetail){
           recommendation.message='Answer the advisor questions to receive a recommendation.';
           return recommendation;
         }
-        switch(answers.measurement){
-          case 'continuousNormal':
-            recommendation.statsMethod='pearson';
-            recommendation.rationale.push('Pearson correlation is appropriate for roughly normal, continuous variables.');
-            break;
-          case 'continuousNonNormal':
-            recommendation.statsMethod='spearman';
-            recommendation.rationale.push('Spearman correlation is robust to skewed distributions and outliers by ranking the data.');
-            break;
-          case 'ordinal':
-            recommendation.statsMethod='spearman';
-            recommendation.rationale.push('Ordinal scales break Pearson assumptions; Spearman works with ranked measurements.');
-            break;
-          case 'binaryOutcome':
-            recommendation.statsMethod='spearman';
-            recommendation.rationale.push('Binary responses violate Pearson’s normality assumption, so Spearman is safer.');
-            break;
-          default:
-            break;
+        const modelSelection = String(answers.regressionModel || 'linear').trim();
+        const modelInfo = regressionTools && typeof regressionTools.getModelInfo === 'function'
+          ? regressionTools.getModelInfo(modelSelection)
+          : null;
+        recommendation.regression = modelInfo?.id || modelSelection || 'linear';
+        if(!modelInfo && recommendation.regression !== 'linear'){
+          recommendation.warnings.push(`Selected model "${recommendation.regression}" is not recognized; using linear regression.`);
+          recommendation.regression = 'linear';
         }
-        const trendLabels={
-          linear:'linear regression line',
-          curved:'quadratic regression curve',
-          sShape:'logistic / dose-response curve',
-          exponential:'exponential regression curve',
-          power:'power-law regression curve',
-          multiple:'spline smoother'
+        const regressionPolicy = resolveScatterRegressionPolicy(recommendation.regression);
+        const fitPreferenceMap = {
+          standard: 'ols',
+          weighted: 'wls',
+          robust: 'huber'
         };
-        switch(answers.trend){
-          case 'linear':
-            recommendation.regression='linear';
-            recommendation.rationale.push('A straight-line model captures linear relationships.');
-            break;
-          case 'curved':
-            recommendation.regression='quadratic';
-            recommendation.rationale.push('A quadratic polynomial captures a single bend in the trend.');
-            break;
-          case 'sShape':
-            recommendation.regression='logistic';
-            recommendation.rationale.push('Logistic mode fits S-shaped trends and can estimate IC50 via a 4-parameter dose-response model for non-binary responses.');
-            break;
-          case 'exponential':
-            recommendation.regression='exponential';
-            recommendation.rationale.push('Exponential regression fits rapid growth or decay patterns.');
-            break;
-          case 'power':
-            recommendation.regression='power';
-            recommendation.rationale.push('Power regression suits scaling relationships where y varies with xᵏ.');
-            break;
-          case 'multiple':
-            recommendation.regression='spline';
-            recommendation.rationale.push('A spline smoother adapts to multiple bends without a high-order polynomial.');
-            break;
-          default:
-            break;
+        let fitMethodCandidate = fitPreferenceMap[answers.fitPreference] || 'ols';
+        const allowedFitMethods = Array.isArray(regressionPolicy?.fitMethods) && regressionPolicy.fitMethods.length
+          ? regressionPolicy.fitMethods.map(normalizeScatterFitMethod)
+          : ['ols'];
+        if(!allowedFitMethods.includes(fitMethodCandidate)){
+          const fallbackFitMethod = allowedFitMethods[0] || 'ols';
+          recommendation.warnings.push(`Selected fit strategy is not supported for ${getScatterRegressionModeLabel(recommendation.regression)} and was changed to ${getScatterFitMethodLabel(fallbackFitMethod)}.`);
+          fitMethodCandidate = fallbackFitMethod;
         }
-        switch(answers.lineDetail){
-          case 'minimal':
-            recommendation.showLine=true;
-            recommendation.showIntervals=false;
-            recommendation.showDiagnostics=false;
-            recommendation.rationale.push('Showing only the fitted line keeps the scatter uncluttered.');
-            break;
-          case 'intervals':
-            recommendation.showLine=true;
-            recommendation.showIntervals=recommendation.regression!=='spline';
-            recommendation.showDiagnostics=false;
-            recommendation.rationale.push('Confidence/prediction intervals highlight model uncertainty.');
-            if(recommendation.regression==='spline'){
-              recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
-            }
-            break;
-          case 'diagnostics':
-            recommendation.showLine=true;
-            recommendation.showIntervals=recommendation.regression!=='spline';
-            recommendation.showDiagnostics=true;
-            recommendation.rationale.push('Diagnostics summarize residuals to check model assumptions.');
-            if(recommendation.regression==='spline'){
-              recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
-            }
-            break;
-          case 'hide':
-            recommendation.showLine=false;
-            recommendation.showIntervals=false;
-            recommendation.showDiagnostics=false;
-            recommendation.rationale.push('Disabling the trend line keeps the scatter free of model overlays.');
-            break;
-          default:
-            break;
+        recommendation.fitMethod = fitMethodCandidate;
+        recommendation.rationale.push(`Regression model set to ${getScatterRegressionModeLabel(recommendation.regression)}.`);
+        recommendation.rationale.push(`Fit method set to ${getScatterFitMethodLabel(recommendation.fitMethod)}.`);
+        if(regressionPolicy?.fitGuidance){
+          recommendation.rationale.push(regressionPolicy.fitGuidance);
         }
-        if(recommendation.regression==='logistic' && !context.approxBinaryY && !context.yWithinZeroOne){
-          recommendation.warnings.push('Non-binary responses in logistic mode use a 4-parameter dose-response fit and report IC50/LogIC50.');
-        }
-        if(context.pointCount>0 && context.pointCount<6){
-          recommendation.warnings.push('With fewer than six paired observations the fitted model may be unstable.');
-        }
-        const methodLabel = ({
-          pearson: 'Pearson association',
-          spearman: 'Spearman association',
-          none: 'Model-fit diagnostics',
-          auto: 'Automatic association'
-        })[normalizeScatterAssociationSelection(recommendation.statsMethod)] || 'Association summary';
-        if(recommendation.showLine){
-          const regLabel=trendLabels[answers.trend] || `${recommendation.regression} fit`;
-          recommendation.summary=`${methodLabel} with a ${regLabel}.`;
+        const associationPreference = String(answers.associationPreference || 'automatic').trim().toLowerCase();
+        if(answers.analysisGoal === 'modelOnly'){
+          recommendation.statsMethod = 'none';
+          recommendation.rationale.push('Association statistics are disabled to focus on parameter estimation and diagnostics.');
+        }else if(associationPreference === 'pearson'){
+          recommendation.statsMethod = 'pearson';
+          recommendation.rationale.push('Pearson association was selected for linear-scale association reporting.');
+        }else if(associationPreference === 'spearman'){
+          recommendation.statsMethod = 'spearman';
+          recommendation.rationale.push('Spearman association was selected for rank-based, outlier-robust reporting.');
         }else{
-          recommendation.summary=`${methodLabel} without a fitted trend line.`;
+          recommendation.statsMethod = 'auto';
+          recommendation.rationale.push('Association metric is set to automatic so the report follows model-aware defaults.');
+        }
+        if(answers.analysisGoal === 'associationOnly'){
+          recommendation.showLine = false;
+          recommendation.showIntervals = false;
+          recommendation.showDiagnostics = false;
+          recommendation.showLineStats = false;
+          recommendation.rationale.push('Trend-line outputs are disabled because association-only analysis was selected.');
+        }else{
+          switch(answers.lineDetail){
+            case 'minimal':
+              recommendation.showLine = true;
+              recommendation.showIntervals = false;
+              recommendation.showDiagnostics = false;
+              recommendation.showLineStats = false;
+              recommendation.rationale.push('Fitted curve is shown without additional overlays.');
+              break;
+            case 'intervals':
+              recommendation.showLine = true;
+              recommendation.showIntervals = recommendation.regression !== 'spline';
+              recommendation.showDiagnostics = false;
+              recommendation.showLineStats = false;
+              recommendation.rationale.push('Interval overlays are enabled to show prediction uncertainty.');
+              if(recommendation.regression === 'spline'){
+                recommendation.warnings.push('Interval shading is unavailable for spline fits and remains disabled.');
+              }
+              break;
+            case 'diagnostics':
+              recommendation.showLine = true;
+              recommendation.showIntervals = recommendation.regression !== 'spline';
+              recommendation.showDiagnostics = true;
+              recommendation.showLineStats = true;
+              recommendation.rationale.push('Diagnostics and interval overlays are enabled for assumption checking.');
+              if(recommendation.regression === 'spline'){
+                recommendation.warnings.push('Interval shading is unavailable for spline fits and remains disabled.');
+              }
+              break;
+            case 'hide':
+              recommendation.showLine = false;
+              recommendation.showIntervals = false;
+              recommendation.showDiagnostics = false;
+              recommendation.showLineStats = false;
+              recommendation.rationale.push('Trend overlays are hidden.');
+              break;
+            default:
+              break;
+          }
+        }
+        if((recommendation.regression === 'logistic' || recommendation.regression === 'doseResponse4pl') && !context.approxBinaryY && !context.yWithinZeroOne){
+          recommendation.warnings.push('Non-binary responses in logistic/dose-response mode can yield extrapolated IC50 estimates outside the tested X range.');
+        }
+        if(recommendation.regression === 'power' && Number.isFinite(context.xMin) && context.xMin <= 0){
+          recommendation.warnings.push('Power regression is unstable with non-positive X values; consider transforming data or selecting a different model.');
+        }
+        if(context.pointCount > 0 && context.pointCount < 6){
+          recommendation.warnings.push('With fewer than six paired observations, nonlinear model diagnostics can be unstable.');
+        }
+        const resolvedAssociationLabel = recommendation.statsMethod === 'none'
+          ? 'None (model fit only)'
+          : (recommendation.statsMethod === 'auto'
+            ? `Automatic (${getScatterAssociationMethodLabel(resolveScatterAssociationMethod('auto', recommendation.regression))})`
+            : getScatterAssociationMethodLabel(recommendation.statsMethod));
+        const regressionLabel = getScatterRegressionModeLabel(recommendation.regression);
+        const fitLabel = getScatterFitMethodLabel(recommendation.fitMethod);
+        if(answers.analysisGoal === 'associationOnly'){
+          recommendation.summary = `${resolvedAssociationLabel} association summary without fitted regression overlays.`;
+        }else if(recommendation.showLine){
+          recommendation.summary = `${regressionLabel} using ${fitLabel}; association: ${resolvedAssociationLabel}.`;
+        }else{
+          recommendation.summary = `${regressionLabel} configured with overlays hidden; association: ${resolvedAssociationLabel}.`;
         }
         recommendation.ready=true;
         return recommendation;
@@ -10288,7 +10339,7 @@
         const header=document.createElement('div');
         header.className='stats-advisor__header';
         const title=document.createElement('strong');
-        title.textContent='Test advisor';
+        title.textContent='Analysis advisor';
         header.appendChild(title);
         const toggle=document.createElement('button');
         toggle.type='button';
@@ -10313,7 +10364,7 @@
         summary.className='stats-advisor__summary';
         if(!scatterAdvisorState.activated){
           const message=document.createElement('div');
-          message.textContent='Press the "Guide me" button to view advisor recommendations.';
+          message.textContent='Press "Guide me" to receive regression, fit-method, and association recommendations.';
           summary.appendChild(message);
         }else if(recommendation.ready){
           const summaryLine=document.createElement('div');
@@ -10400,11 +10451,19 @@
               if(!recommendation.ready){
                 return;
               }
-              if(scatterStatType){
-                scatterStatType.value=recommendation.statsMethod;
-              }
               if(scatterRegressionMode){
                 scatterRegressionMode.value=recommendation.regression;
+              }
+              syncScatterRegressionOptionVisibility();
+              if(scatterFitMethod){
+                const preferredFit = normalizeScatterFitMethod(recommendation.fitMethod || 'ols');
+                const fitOption = Array.from(scatterFitMethod.options || []).find(option => normalizeScatterFitMethod(option.value) === preferredFit);
+                if(fitOption && !fitOption.disabled){
+                  scatterFitMethod.value = preferredFit;
+                }
+              }
+              if(scatterStatType){
+                scatterStatType.value=normalizeScatterAssociationSelection(recommendation.statsMethod || 'auto');
               }
               if(scatterShowLine){
                 scatterShowLine.checked=!!recommendation.showLine || !!recommendation.showIntervals;
@@ -10421,15 +10480,20 @@
               if(scatterShowDiagnostics){
                 scatterShowDiagnostics.checked=!!recommendation.showDiagnostics;
               }
+              try{
+                updateCIEnabled();
+              }catch(err){}
               scatterAdvisorState.lastApplied={ ...recommendation };
               console.debug('Debug: scatter statsAdvisor applied',{
                 statsMethod:recommendation.statsMethod,
                 regression:recommendation.regression,
+                fitMethod:recommendation.fitMethod,
                 showLine:recommendation.showLine,
                 showIntervals:recommendation.showIntervals,
                 showDiagnostics:recommendation.showDiagnostics,
                 answers:{ ...answers }
               });
+              persistTabState('stats-advisor-apply');
               scheduleDrawScatter();
               renderScatterStatsAdvisor(null, scatterAdvisorState.context);
               requestScatterStatsContextRefresh('stats-advisor-apply');
@@ -10449,7 +10513,7 @@
           }else{
             const hint=document.createElement('div');
             hint.className='stats-advisor__hint';
-            hint.textContent='Switch to the scatter plot type to receive correlation and regression recommendations.';
+            hint.textContent='Switch to the scatter plot type to receive analysis and regression recommendations.';
             wrapper.appendChild(hint);
           }
         }
