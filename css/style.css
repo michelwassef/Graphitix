@@ -831,6 +831,9 @@ select {
     text-align: center;
     justify-content: center;
 }
+.ag-theme-balham .ag-cell.pca-grouped-meta-row {
+    background: #f5f5f5 !important;
+}
 .ag-theme-balham .ag-cell.pca-grouped-header-follower {
     background: #f2f5fa;
     color: #7a8597;
@@ -844,6 +847,15 @@ select {
 }
 .ag-theme-balham .ag-cell.pca-grouped-header-merge-end:not(.ag-cell-focus) {
     border-left-color: transparent;
+}
+.ag-theme-balham .ag-cell.pca-grouped-header-row-divider {
+    border-top: 1px solid #d6d6d6 !important;
+    border-bottom: 1px solid #d6d6d6 !important;
+}
+.ag-theme-balham .ag-pinned-top .ag-cell.pca-grouped-header-row-divider,
+.ag-theme-balham .ag-floating-top .ag-cell.pca-grouped-header-row-divider {
+    border-top: 1px solid #d6d6d6 !important;
+    border-bottom: 1px solid #d6d6d6 !important;
 }
 .ag-theme-balham .ag-header-cell.pca-group-colheader .hot-sort-indicator {
     display: none;

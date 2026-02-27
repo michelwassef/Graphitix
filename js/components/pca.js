@@ -1120,25 +1120,6 @@
             ? existingEditable(params)
             : existingEditable !== false;
         };
-        if(colIndex < 1){
-          return def;
-        }
-        const existingColSpan = def.colSpan;
-        def.colSpan = params => {
-          const physicalRow = params?.data?.__rowIndex;
-          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped'){
-            const info = getPcaGroupedHeaderInfo(colIndex, pcaHot, { forceGrouped: true });
-            if(info?.role === 'groupAnchor'){
-              return info.span;
-            }
-          }
-          if(typeof existingColSpan === 'function'){
-            return existingColSpan(params);
-          }
-          return Number.isFinite(existingColSpan) && existingColSpan > 0
-            ? Math.floor(existingColSpan)
-            : 1;
-        };
         const existingCellStyle = def.cellStyle;
         def.cellStyle = params => {
           let baseStyle = {};
@@ -1159,7 +1140,7 @@
           ){
             baseStyle.backgroundColor = '#f5f5f5';
           }
-          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped'){
+          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped' && colIndex >= 1){
             const role = getPcaGroupedHeaderCellRole(colIndex, pcaHot);
             if(role === 'groupAnchor'){
               baseStyle.textAlign = 'center';
@@ -1172,10 +1153,43 @@
           }
           return baseStyle;
         };
+        const baseRules = def.cellClassRules && typeof def.cellClassRules === 'object'
+          ? Object.assign({}, def.cellClassRules)
+          : {};
+        baseRules['pca-grouped-meta-row'] = params => (
+          pcaState.tableFormat === 'grouped'
+          && Number.isInteger(params?.data?.__rowIndex)
+          && params.data.__rowIndex >= PCA_LABEL_ROW_INDEX
+          && params.data.__rowIndex <= PCA_GROUPED_SAMPLE_ROW_INDEX
+        );
+        baseRules['pca-grouped-header-row-divider'] = params => (
+          pcaState.tableFormat === 'grouped'
+          && params?.data?.__rowIndex === PCA_GROUP_ROW_INDEX
+        );
+        def.cellClassRules = baseRules;
+        if(colIndex < 1){
+          return def;
+        }
+        const existingColSpan = def.colSpan;
+        def.colSpan = params => {
+          const physicalRow = params?.data?.__rowIndex;
+          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped'){
+            const info = getPcaGroupedHeaderInfo(colIndex, pcaHot, { forceGrouped: true });
+            if(info?.role === 'groupAnchor'){
+              return info.span;
+            }
+          }
+          if(typeof existingColSpan === 'function'){
+            return existingColSpan(params);
+          }
+          return Number.isFinite(existingColSpan) && existingColSpan > 0
+            ? Math.floor(existingColSpan)
+            : 1;
+        };
         const existingSelector = def.cellRendererSelector;
         def.cellRendererSelector = params => {
           const physicalRow = params?.data?.__rowIndex;
-          if(physicalRow === PCA_LABEL_ROW_INDEX){
+          if(physicalRow === PCA_LABEL_ROW_INDEX && colIndex >= 1){
             return { component: PcaLabelCheckboxRenderer };
           }
           return typeof existingSelector === 'function' ? existingSelector(params) : undefined;
