@@ -6019,6 +6019,97 @@
       }
       return value.toFixed(digits);
     };
+    const SCATTER_ASSOCIATION_METHOD_LABELS = Object.freeze({
+      auto: 'Automatic',
+      pearson: 'Pearson',
+      spearman: 'Spearman',
+      none: 'None (model fit only)'
+    });
+    const SCATTER_FIT_METHOD_LABELS = Object.freeze({
+      ols: 'Ordinary least squares',
+      wls: 'Weighted least squares',
+      huber: 'Robust (Huber)'
+    });
+    const SCATTER_REGRESSION_METHOD_POLICY = Object.freeze({
+      linear: { fitMethods: ['ols'], autoAssociation: 'pearson', fitGuidance: 'Closed-form linear least-squares fit.' },
+      linearThroughOrigin: { fitMethods: ['ols'], autoAssociation: 'pearson', fitGuidance: 'Closed-form least-squares fit constrained through origin.' },
+      quadratic: { fitMethods: ['ols'], autoAssociation: 'none', fitGuidance: 'Polynomial least-squares fit (fixed estimator).' },
+      cubic: { fitMethods: ['ols'], autoAssociation: 'none', fitGuidance: 'Polynomial least-squares fit (fixed estimator).' },
+      logistic: { fitMethods: ['ols'], autoAssociation: 'spearman', fitGuidance: 'Logistic / dose-response routine uses model-specific optimization.' },
+      doseResponse3pl: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      doseResponse4pl: { fitMethods: ['ols'], autoAssociation: 'spearman', fitGuidance: '4PL optimizer uses model-specific routine.' },
+      doseResponse5pl: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      exponential: { fitMethods: ['ols'], autoAssociation: 'spearman', fitGuidance: 'Model fit uses transformed least-squares routine.' },
+      onePhaseAssociation: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      onePhaseDecay: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      gompertz: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      power: { fitMethods: ['ols'], autoAssociation: 'spearman', fitGuidance: 'Model fit uses transformed least-squares routine.' },
+      gaussian: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'none', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      spline: { fitMethods: ['ols'], autoAssociation: 'none', fitGuidance: 'Spline fit is deterministic from observed knots.' },
+      bindingSaturation: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      bindingCompetitive: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      enzymeKineticsSubstrate: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' },
+      enzymeKineticsInhibition: { fitMethods: ['ols', 'wls', 'huber'], autoAssociation: 'spearman', fitGuidance: 'Nonlinear least-squares with optional weighting/robust loss.' }
+    });
+    const normalizeScatterAssociationSelection = value => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if(normalized === 'pearson' || normalized === 'spearman' || normalized === 'none' || normalized === 'auto'){
+        return normalized;
+      }
+      return 'auto';
+    };
+    const normalizeScatterFitMethod = value => {
+      const normalized = String(value || '').trim().toLowerCase();
+      return (normalized === 'wls' || normalized === 'huber' || normalized === 'ols') ? normalized : 'ols';
+    };
+    const resolveScatterRegressionPolicy = regressionMode => {
+      const key = String(regressionMode || '').trim();
+      return SCATTER_REGRESSION_METHOD_POLICY[key] || { fitMethods: ['ols'], autoAssociation: 'pearson', fitGuidance: 'Model-specific least-squares fit.' };
+    };
+    const resolveScatterAssociationMethod = (selection, regressionMode) => {
+      const normalizedSelection = normalizeScatterAssociationSelection(selection);
+      if(normalizedSelection === 'pearson' || normalizedSelection === 'spearman' || normalizedSelection === 'none'){
+        return normalizedSelection;
+      }
+      const policy = resolveScatterRegressionPolicy(regressionMode);
+      return normalizeScatterAssociationSelection(policy.autoAssociation);
+    };
+    const getScatterAssociationMethodLabel = method => {
+      const normalized = normalizeScatterAssociationSelection(method);
+      return SCATTER_ASSOCIATION_METHOD_LABELS[normalized] || SCATTER_ASSOCIATION_METHOD_LABELS.pearson;
+    };
+    const getScatterFitMethodLabel = method => {
+      const normalized = normalizeScatterFitMethod(method);
+      return SCATTER_FIT_METHOD_LABELS[normalized] || SCATTER_FIT_METHOD_LABELS.ols;
+    };
+    const getScatterRegressionModeLabel = mode => {
+      const safeMode = String(mode || 'linear');
+      const info = regressionTools && typeof regressionTools.getModelInfo === 'function'
+        ? regressionTools.getModelInfo(safeMode)
+        : null;
+      if(info?.label){
+        return info.label;
+      }
+      const compact = safeMode.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
+      return compact.charAt(0).toUpperCase() + compact.slice(1);
+    };
+    const inferScatterAssociationMethod = stats => {
+      const explicit = normalizeScatterAssociationSelection(stats?.associationMethod);
+      if(explicit !== 'auto'){
+        return explicit;
+      }
+      const raw = String(stats?.method || '').trim().toLowerCase();
+      if(raw === 'pearson'){
+        return 'pearson';
+      }
+      if(raw === 'spearman'){
+        return 'spearman';
+      }
+      if(raw.includes('none') || raw.includes('model fit')){
+        return 'none';
+      }
+      return 'pearson';
+    };
     const computeScatterCorrelationConfidenceInterval = (r, n, alpha = 0.05) => {
       const rNum = Number(r);
       const count = Number(n);
@@ -6092,6 +6183,7 @@
       return total ? (extreme / total) : null;
     };
     const computeScatterCorrelationStats = (method, x, y) => {
+      const resolvedMethod = normalizeScatterAssociationSelection(method);
       const n = x.length;
       const statsApi = getScatterJStat();
       let pearson = NaN;
@@ -6116,11 +6208,23 @@
       const studentTCdf = (statsApi && statsApi.studentt && typeof statsApi.studentt.cdf === 'function')
         ? statsApi.studentt.cdf.bind(statsApi.studentt)
         : null;
-      if(method === 'pearson'){
+      if(resolvedMethod === 'none'){
+        return {
+          methodCode: 'none',
+          methodLabel: 'None (model fit only)',
+          r: NaN,
+          p: NaN,
+          pMethod: 'not computed',
+          ci: null,
+          ciApproximate: false
+        };
+      }
+      if(resolvedMethod === 'pearson'){
         const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
         const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
         const p = studentTCdf ? (2 * (1 - studentTCdf(Math.abs(t), n - 2))) : NaN;
         return {
+          methodCode: 'pearson',
           methodLabel: 'Pearson',
           r: pearson,
           p,
@@ -6148,6 +6252,7 @@
         p = studentTCdf ? (2 * (1 - studentTCdf(Math.abs(t), n - 2))) : NaN;
       }
       return {
+        methodCode: 'spearman',
         methodLabel: 'Spearman',
         r: spearman,
         p,
@@ -7863,6 +7968,51 @@
         scatterStatsRegressionOptionsRow.hidden=!shouldShow;
         scatterStatsRegressionOptionsRow.style.display=shouldShow?'':'none';
         scatterStatsRegressionOptionsRow.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+        const regressionModeValue = scatterRegressionMode?.value || 'linear';
+        const policy = resolveScatterRegressionPolicy(regressionModeValue);
+        const allowedFitMethods = Array.isArray(policy?.fitMethods) && policy.fitMethods.length
+          ? policy.fitMethods.slice()
+          : ['ols'];
+        const allowedFitSet = new Set(allowedFitMethods.map(normalizeScatterFitMethod));
+        let fitValueChanged = false;
+        if(scatterFitMethod){
+          const currentValue = normalizeScatterFitMethod(scatterFitMethod.value || 'ols');
+          const options = Array.from(scatterFitMethod.options || []);
+          options.forEach(option => {
+            const optionValue = normalizeScatterFitMethod(option.value);
+            option.disabled = !allowedFitSet.has(optionValue);
+          });
+          const fitSelectDisabled = scatterCurrentGraphType !== 'scatter' || allowedFitSet.size <= 1;
+          scatterFitMethod.disabled = fitSelectDisabled;
+          const preferredFitValue = allowedFitSet.has(currentValue)
+            ? currentValue
+            : normalizeScatterFitMethod(allowedFitMethods[0] || 'ols');
+          if(scatterFitMethod.value !== preferredFitValue){
+            scatterFitMethod.value = preferredFitValue;
+            fitValueChanged = true;
+          }
+          scatterFitMethod.title = policy?.fitGuidance || '';
+        }
+        if(scatterStatType){
+          const normalizedSelection = normalizeScatterAssociationSelection(scatterStatType.value);
+          if(normalizedSelection !== scatterStatType.value){
+            scatterStatType.value = normalizedSelection;
+          }
+          const autoOption = Array.from(scatterStatType.options || [])
+            .find(option => normalizeScatterAssociationSelection(option.value) === 'auto');
+          if(autoOption){
+            const recommended = getScatterAssociationMethodLabel(policy?.autoAssociation || 'pearson');
+            autoOption.textContent = `Automatic (recommended: ${recommended})`;
+          }
+          scatterStatType.title = 'Association summary is optional and does not change the fitted regression model.';
+        }
+        if(fitValueChanged && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: scatter fit method adjusted for regression mode', {
+            regressionMode: regressionModeValue,
+            fitMethod: scatterFitMethod?.value || null,
+            allowedFitMethods
+          });
+        }
       }
 
       function summarizeScatterPoints(points){
@@ -7915,7 +8065,7 @@
 
       function getScatterStatsControlSignature(){
         return [
-          scatterStatType?.value || 'pearson',
+          scatterStatType?.value || 'auto',
           scatterRegressionMode?.value || 'linear',
           scatterFitMethod?.value || 'ols',
           scatterFitRangeMinX?.value || '',
@@ -8656,10 +8806,27 @@
         const showDiagnostics = !!settings?.showDiagnostics;
         const normalizedStats = ensureScatterRegressionForStats(context, stats, settings);
         const regressionModel = normalizedStats?.regression || null;
-        const fitMethodValue = regressionModel?.fitMethod || settings?.fitMethodValue || 'ols';
+        const fitMethodValue = normalizeScatterFitMethod(regressionModel?.fitMethod || settings?.fitMethodValue || 'ols');
         const fitSpecValue = regressionModel?.fitSpec && typeof regressionModel.fitSpec === 'object'
           ? regressionModel.fitSpec
           : (settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : null);
+        const associationSelection = normalizeScatterAssociationSelection(
+          normalizedStats?.associationSelection
+          || settings?.associationSelection
+          || settings?.associationMethod
+          || 'auto'
+        );
+        const associationMethod = resolveScatterAssociationMethod(
+          normalizedStats?.associationMethod || settings?.associationMethod || associationSelection,
+          regressionModeValue
+        );
+        const associationLabel = getScatterAssociationMethodLabel(associationMethod);
+        const associationDisplay = associationSelection === 'auto'
+          ? `${associationLabel} (automatic)`
+          : associationLabel;
+        const regressionLabel = getScatterRegressionModeLabel(regressionModeValue);
+        const fitMethodLabel = getScatterFitMethodLabel(fitMethodValue);
+        const regressionPolicy = resolveScatterRegressionPolicy(regressionModeValue);
         if(regressionModel && Array.isArray(normalizedStats?.curveSamples) && !Array.isArray(regressionModel.curveSamples)){
           regressionModel.curveSamples = normalizedStats.curveSamples;
         }
@@ -8674,151 +8841,160 @@
         const fitSampleSize = Number.isFinite(regressionSampleCount) && regressionSampleCount > 0
           ? regressionSampleCount
           : correlationSampleSize;
-        const correlationCi = normalizedStats?.correlationCI || computeScatterCorrelationConfidenceInterval(normalizedStats?.r, correlationSampleSize, 0.05);
-        const pMethod = normalizedStats?.pMethod || (normalizedStats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
         const rows = [
-          { metric:'r', value:formatMetricValue(normalizedStats?.r) },
-          { metric:'P value', value:formatP(normalizedStats?.p) },
-          { metric:'P calculation', value:pMethod },
-          {
-            metric:normalizedStats?.correlationCiApproximate ? 'Correlation (95% CI, approx)' : 'Correlation (95% CI)',
-            value:(correlationCi && Number.isFinite(correlationCi.low) && Number.isFinite(correlationCi.high))
-              ? `${formatMetricValue(correlationCi.low)} to ${formatMetricValue(correlationCi.high)}`
-              : 'n/a'
-          },
-          { metric:'Fit method', value:fitMethodValue.toUpperCase() }
+          { metric:'[Analysis] Regression model', value:regressionLabel },
+          { metric:'[Analysis] Fit method', value:fitMethodLabel },
+          { metric:'[Analysis] Association metric', value:associationDisplay }
         ];
+        if(regressionPolicy?.fitGuidance){
+          rows.push({ metric:'[Analysis] Fit method scope', value:regressionPolicy.fitGuidance });
+        }
         if(fitSpecValue?.range){
           const minLabel = Number.isFinite(Number(fitSpecValue.range.minX)) ? formatMetricValue(Number(fitSpecValue.range.minX)) : 'Auto';
           const maxLabel = Number.isFinite(Number(fitSpecValue.range.maxX)) ? formatMetricValue(Number(fitSpecValue.range.maxX)) : 'Auto';
-          rows.push({ metric:'Fit range X', value:`${minLabel} to ${maxLabel}` });
+          rows.push({ metric:'[Analysis] Fit range X', value:`${minLabel} to ${maxLabel}` });
         }
         if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
-          rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
+          rows.push({ metric:'[Analysis] Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
         }
         if(Number.isFinite(correlationSampleSize)){
-          rows.push({ metric:'N', value:String(Math.max(0, Math.round(correlationSampleSize))) });
+          rows.push({ metric:'[Analysis] N (paired)', value:String(Math.max(0, Math.round(correlationSampleSize))) });
         }
         if(Number.isFinite(fitSampleSize) && Math.round(fitSampleSize) !== Math.round(correlationSampleSize)){
-          rows.push({ metric:'N (fit)', value:String(Math.max(0, Math.round(fitSampleSize))) });
+          rows.push({ metric:'[Analysis] N (fit)', value:String(Math.max(0, Math.round(fitSampleSize))) });
+        }
+        if(associationMethod !== 'none'){
+          const correlationCi = normalizedStats?.correlationCI || computeScatterCorrelationConfidenceInterval(normalizedStats?.r, correlationSampleSize, 0.05);
+          const pMethod = normalizedStats?.pMethod || (normalizedStats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
+          rows.push({ metric:'[Association] r', value:formatMetricValue(normalizedStats?.r) });
+          rows.push({ metric:'[Association] P value', value:formatP(normalizedStats?.p) });
+          rows.push({ metric:'[Association] P calculation', value:pMethod });
+          rows.push({
+            metric:normalizedStats?.correlationCiApproximate ? '[Association] Correlation (95% CI, approx)' : '[Association] Correlation (95% CI)',
+            value:(correlationCi && Number.isFinite(correlationCi.low) && Number.isFinite(correlationCi.high))
+              ? `${formatMetricValue(correlationCi.low)} to ${formatMetricValue(correlationCi.high)}`
+              : 'n/a'
+          });
+        }else{
+          rows.push({ metric:'[Association] Status', value:'Not computed (model-fit only mode).' });
         }
         if(regressionModel?.metrics){
-          rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
+          rows.push({ metric:'[Fit] R²', value:formatMetricValue(regressionModel.metrics.r2) });
           if(Number.isFinite(regressionModel.metrics.adjR2)){
-            rows.push({ metric:'Adjusted R²', value:formatMetricValue(regressionModel.metrics.adjR2) });
+            rows.push({ metric:'[Fit] Adjusted R²', value:formatMetricValue(regressionModel.metrics.adjR2) });
           }
-          rows.push({ metric:'RMSE', value:formatMetricValue(regressionModel.metrics.rmse) });
-          rows.push({ metric:'MAE', value:formatMetricValue(regressionModel.metrics.mae) });
+          rows.push({ metric:'[Fit] RMSE', value:formatMetricValue(regressionModel.metrics.rmse) });
+          rows.push({ metric:'[Fit] MAE', value:formatMetricValue(regressionModel.metrics.mae) });
           if(Number.isFinite(regressionModel.metrics.logLoss)){
-            rows.push({ metric:'Log loss', value:formatMetricValue(regressionModel.metrics.logLoss,6) });
+            rows.push({ metric:'[Fit] Log loss', value:formatMetricValue(regressionModel.metrics.logLoss,6) });
           }
         }else{
-          rows.push({ metric:'R²', value:formatMetricValue(normalizedStats?.r2) });
+          rows.push({ metric:'[Fit] R²', value:formatMetricValue(normalizedStats?.r2) });
         }
         if(regressionModel?.summary){
           const summary = regressionModel.summary;
           if(summary.parameters && typeof summary.parameters === 'object'){
             Object.entries(summary.parameters).forEach(([label,value]) => {
               if(Number.isFinite(value)){
-                rows.push({ metric:label, value:formatMetricValue(value) });
+                rows.push({ metric:`[Parameters] ${label}`, value:formatMetricValue(value) });
               }else if(value != null && value !== ''){
-                rows.push({ metric:label, value:String(value) });
+                rows.push({ metric:`[Parameters] ${label}`, value:String(value) });
               }
             });
           }
           if(summary.primaryParameter && summary.primaryParameter.label && Number.isFinite(summary.primaryParameter.value)){
             const duplicate = summary.parameters && Object.prototype.hasOwnProperty.call(summary.parameters,summary.primaryParameter.label);
             if(!duplicate){
-              rows.push({ metric:summary.primaryParameter.label, value:formatMetricValue(summary.primaryParameter.value) });
+              rows.push({ metric:`[Parameters] ${summary.primaryParameter.label}`, value:formatMetricValue(summary.primaryParameter.value) });
             }
           }
           if(!summary.parameters && Number.isFinite(summary.slope)){
-            rows.push({ metric:'Slope', value:formatMetricValue(summary.slope) });
+            rows.push({ metric:'[Parameters] Slope', value:formatMetricValue(summary.slope) });
           }
           if(!summary.parameters && Number.isFinite(summary.intercept)){
-            rows.push({ metric:'Intercept', value:formatMetricValue(summary.intercept) });
+            rows.push({ metric:'[Parameters] Intercept', value:formatMetricValue(summary.intercept) });
           }
           const equationValue = formatScatterEquationFallback(regressionModel, normalizedStats);
           if(equationValue){
-            rows.push({ metric:'Equation', value:equationValue });
+            rows.push({ metric:'[Parameters] Equation', value:equationValue });
           }
         }else{
-          rows.push({ metric:'Slope', value:formatMetricValue(normalizedStats?.m) });
-          rows.push({ metric:'Intercept', value:formatMetricValue(normalizedStats?.b) });
+          rows.push({ metric:'[Parameters] Slope', value:formatMetricValue(normalizedStats?.m) });
+          rows.push({ metric:'[Parameters] Intercept', value:formatMetricValue(normalizedStats?.b) });
         }
         if(regressionModel?.mode === 'doseResponse4pl' && Array.isArray(regressionModel?.coefficientStats)){
           const logIc50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'LogIC50') || null;
           const ic50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'IC50') || null;
           if(Number.isFinite(ic50Stat?.standardError)){
-            rows.push({ metric:'IC50 Std. Error', value:formatMetricValue(ic50Stat.standardError) });
+            rows.push({ metric:'[Intervals] IC50 Std. Error', value:formatMetricValue(ic50Stat.standardError) });
           }
           if(Number.isFinite(logIc50Stat?.ciLow) && Number.isFinite(logIc50Stat?.ciHigh)){
             rows.push({
-              metric:'LogIC50 (95% CI)',
+              metric:'[Intervals] LogIC50 (95% CI)',
               value:`${formatMetricValue(logIc50Stat.ciLow)} – ${formatMetricValue(logIc50Stat.ciHigh)}`
             });
           }
           if(Number.isFinite(ic50Stat?.ciLow) && Number.isFinite(ic50Stat?.ciHigh)){
             rows.push({
-              metric:'IC50 (95% CI)',
+              metric:'[Intervals] IC50 (95% CI)',
               value:`${formatMetricValue(ic50Stat.ciLow)} – ${formatMetricValue(ic50Stat.ciHigh)}`
             });
           }
         }
         if(regressionModel?.residuals){
-          rows.push({ metric:'Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
-          rows.push({ metric:'Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
+          rows.push({ metric:'[Diagnostics] Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
+          rows.push({ metric:'[Diagnostics] Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
         }
         if((showCI || showPI) && regressionModel?.intervals?.summary){
           const intervalSummary = regressionModel.intervals.summary;
           if(showCI && Number.isFinite(intervalSummary.ciMin) && Number.isFinite(intervalSummary.ciMax)){
-            rows.push({ metric:'Confidence interval (y)', value:`${formatMetricValue(intervalSummary.ciMin)} – ${formatMetricValue(intervalSummary.ciMax)}` });
+            rows.push({ metric:'[Intervals] Confidence interval (y)', value:`${formatMetricValue(intervalSummary.ciMin)} – ${formatMetricValue(intervalSummary.ciMax)}` });
           }
           if(showPI && Number.isFinite(intervalSummary.piMin) && Number.isFinite(intervalSummary.piMax)){
-            rows.push({ metric:'Prediction interval (y)', value:`${formatMetricValue(intervalSummary.piMin)} – ${formatMetricValue(intervalSummary.piMax)}` });
+            rows.push({ metric:'[Intervals] Prediction interval (y)', value:`${formatMetricValue(intervalSummary.piMin)} – ${formatMetricValue(intervalSummary.piMax)}` });
           }
         }
         if(showDiagnostics && regressionModel?.diagnostics){
-          rows.push({ metric:'Residual skewness', value:formatMetricValue(regressionModel.diagnostics.skewness,3) });
-          rows.push({ metric:'Residual kurtosis', value:formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
+          rows.push({ metric:'[Diagnostics] Residual skewness', value:formatMetricValue(regressionModel.diagnostics.skewness,3) });
+          rows.push({ metric:'[Diagnostics] Residual kurtosis', value:formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
           if(Number.isFinite(regressionModel.diagnostics.jarqueBera)){
-            rows.push({ metric:'Jarque-Bera', value:formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
+            rows.push({ metric:'[Diagnostics] Jarque-Bera', value:formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
           }
           if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
-            rows.push({ metric:'Jarque-Bera p', value:formatP(regressionModel.diagnostics.jarqueBeraP) });
+            rows.push({ metric:'[Diagnostics] Jarque-Bera p', value:formatP(regressionModel.diagnostics.jarqueBeraP) });
           }
           const runs = regressionModel.diagnostics.runsTest || null;
           if(Number.isFinite(runs?.z)){
-            rows.push({ metric:'Runs test z', value:formatMetricValue(runs.z,3) });
+            rows.push({ metric:'[Diagnostics] Runs test z', value:formatMetricValue(runs.z,3) });
           }
           if(Number.isFinite(runs?.pValue)){
-            rows.push({ metric:'Runs test p', value:formatP(runs.pValue) });
+            rows.push({ metric:'[Diagnostics] Runs test p', value:formatP(runs.pValue) });
           }
           const lackOfFit = regressionModel.diagnostics.lackOfFit || null;
           if(Number.isFinite(lackOfFit?.fStatistic)){
-            rows.push({ metric:'Lack-of-fit F', value:formatMetricValue(lackOfFit.fStatistic,3) });
+            rows.push({ metric:'[Diagnostics] Lack-of-fit F', value:formatMetricValue(lackOfFit.fStatistic,3) });
           }
           if(Number.isFinite(lackOfFit?.pValue)){
-            rows.push({ metric:'Lack-of-fit p', value:formatP(lackOfFit.pValue) });
+            rows.push({ metric:'[Diagnostics] Lack-of-fit p', value:formatP(lackOfFit.pValue) });
           }
         }
         const derived = normalizedStats?.derived || computeScatterDerivedRegressionStats(regressionModel);
         if(derived){
           if(Number.isFinite(derived.xIntercept)){
-            rows.push({ metric:'X-intercept', value:formatMetricValue(derived.xIntercept) });
+            rows.push({ metric:'[Parameters] X-intercept', value:formatMetricValue(derived.xIntercept) });
           }
           if(Number.isFinite(derived.xInterceptCi?.low) && Number.isFinite(derived.xInterceptCi?.high)){
             rows.push({
-              metric:'X-intercept (95% CI)',
+              metric:'[Intervals] X-intercept (95% CI)',
               value:`${formatMetricValue(derived.xInterceptCi.low)} to ${formatMetricValue(derived.xInterceptCi.high)}`
             });
           }
           if(Number.isFinite(derived.reciprocalSlope)){
-            rows.push({ metric:'1/Slope', value:formatMetricValue(derived.reciprocalSlope) });
+            rows.push({ metric:'[Parameters] 1/Slope', value:formatMetricValue(derived.reciprocalSlope) });
           }
           if(Number.isFinite(derived.reciprocalSlopeCi?.low) && Number.isFinite(derived.reciprocalSlopeCi?.high)){
             rows.push({
-              metric:'1/Slope (95% CI)',
+              metric:'[Intervals] 1/Slope (95% CI)',
               value:`${formatMetricValue(derived.reciprocalSlopeCi.low)} to ${formatMetricValue(derived.reciprocalSlopeCi.high)}`
             });
           }
@@ -8827,7 +9003,7 @@
           const warnings = regressionModel.warnings.filter(msg => typeof msg === 'string' && msg.trim());
           const visibleWarnings = warnings.filter(msg => !/^Fit range excluded too many points \(\d+ retained of \d+\); using full dataset\.?$/i.test(msg));
           if(visibleWarnings.length){
-            rows.push({ metric:'Warnings', value:visibleWarnings.join('; ') });
+            rows.push({ metric:'[Warnings] Model warnings', value:visibleWarnings.join('; ') });
           }else if(warnings.length && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             console.debug('Debug: scatter warnings row suppressed (fit-range fallback only)', { warnings });
           }
@@ -8848,7 +9024,9 @@
           regressionModel,
           rows,
           coefficientRows,
-          regressionModeValue
+          regressionModeValue,
+          regressionLabel,
+          associationMethod
         };
       }
 
@@ -8884,11 +9062,10 @@
               detail
             };
           });
-          const representativeMethod = groupedReports
-            .map(entry => entry?.detail?.stats?.method)
-            .find(method => typeof method === 'string' && method.trim())
-            || stats?.method
-            || 'Correlation';
+          const reportRegressionLabel = groupedReports
+            .map(entry => entry?.detail?.regressionLabel)
+            .find(label => typeof label === 'string' && label.trim())
+            || getScatterRegressionModeLabel(regressionModeValue);
           const metricOrder = [];
           const metricSet = new Set();
           groupedReports.forEach(entry => {
@@ -8926,12 +9103,12 @@
             return row;
           });
           renderStatsCard(scatterStatsResults,{
-            caption:`${representativeMethod} correlation (${regressionModeValue} regression)` ,
+            caption:`Statistical report by group (${reportRegressionLabel})` ,
             columns:[{ key:'metric', label:'Metric', align:'left' }, ...groupedColumns],
             rows:summaryRows,
             options:{
-              fileName:'scatter-grouped-correlation',
-              contextLabel:'scatter-grouped-correlation'
+              fileName:'scatter-grouped-report',
+              contextLabel:'scatter-grouped-report'
             }
           });
           const coefficientFields = [
@@ -9014,7 +9191,7 @@
           }
           scatterDebug('Debug: scatter grouped stats computed', {
             groupCount: groupedSeriesStats.length,
-            method: representativeMethod,
+            regression: reportRegressionLabel,
             showCI,
             showPI,
             showDiagnostics,
@@ -9022,208 +9199,24 @@
           });
           return;
         }
-        const regressionModel = stats?.regression || null;
-        const fitMethodValue = regressionModel?.fitMethod || settings?.fitMethodValue || 'ols';
-        const fitSpecValue = regressionModel?.fitSpec && typeof regressionModel.fitSpec === 'object'
-          ? regressionModel.fitSpec
-          : (settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : null);
-        if(regressionModel && Array.isArray(stats?.curveSamples) && !Array.isArray(regressionModel.curveSamples)){
-          regressionModel.curveSamples = stats.curveSamples;
-        }
+        const detail = buildScatterStatsDetailReport(context, stats, settings);
+        const regressionModel = detail?.regressionModel || null;
         scatterLastRegressionSummary = typeof regressionTools.createSummary==='function'
           ? regressionTools.createSummary(regressionModel)
           : null;
-        const tablePointCount = Number(context?.pointSummary?.count);
-        const pairedPointCount = Number(stats?.pointCount);
-        const regressionSampleCount = Number(regressionModel?.metrics?.sampleSize);
-        const correlationSampleSize = Number.isFinite(pairedPointCount) && pairedPointCount > 0
-          ? pairedPointCount
-          : (Number.isFinite(tablePointCount) && tablePointCount > 0
-            ? tablePointCount
-            : (Number(context?.points?.length) || 0));
-        const fitSampleSize = Number.isFinite(regressionSampleCount) && regressionSampleCount > 0
-          ? regressionSampleCount
-          : correlationSampleSize;
-        const correlationCi = stats?.correlationCI || computeScatterCorrelationConfidenceInterval(stats?.r, correlationSampleSize, 0.05);
-        const pMethod = stats?.pMethod || (stats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
-        const rows=[
-          { metric:'r', value:formatMetricValue(stats?.r) },
-          { metric:'P value', value:formatP(stats?.p) },
-          { metric:'P calculation', value:pMethod },
-          {
-            metric:stats?.correlationCiApproximate ? 'Correlation (95% CI, approx)' : 'Correlation (95% CI)',
-            value:(correlationCi && Number.isFinite(correlationCi.low) && Number.isFinite(correlationCi.high))
-              ? `${formatMetricValue(correlationCi.low)} to ${formatMetricValue(correlationCi.high)}`
-              : 'n/a'
-          },
-          { metric:'Fit method', value:fitMethodValue.toUpperCase() }
-        ];
-        if(fitSpecValue?.range){
-          const minLabel = Number.isFinite(Number(fitSpecValue.range.minX)) ? formatMetricValue(Number(fitSpecValue.range.minX)) : 'Auto';
-          const maxLabel = Number.isFinite(Number(fitSpecValue.range.maxX)) ? formatMetricValue(Number(fitSpecValue.range.maxX)) : 'Auto';
-          rows.push({ metric:'Fit range X', value:`${minLabel} to ${maxLabel}` });
-        }
-        if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
-          rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
-        }
-        if(Number.isFinite(correlationSampleSize)){
-          rows.push({ metric:'N', value:String(Math.max(0, Math.round(correlationSampleSize))) });
-        }
-        if(Number.isFinite(fitSampleSize) && Math.round(fitSampleSize) !== Math.round(correlationSampleSize)){
-          rows.push({ metric:'N (fit)', value:String(Math.max(0, Math.round(fitSampleSize))) });
-        }
-        if(regressionModel?.metrics){
-          rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
-          if(Number.isFinite(regressionModel.metrics.adjR2)){
-            rows.push({ metric:'Adjusted R²', value:formatMetricValue(regressionModel.metrics.adjR2) });
-          }
-          rows.push({ metric:'RMSE', value:formatMetricValue(regressionModel.metrics.rmse) });
-          rows.push({ metric:'MAE', value:formatMetricValue(regressionModel.metrics.mae) });
-          if(Number.isFinite(regressionModel.metrics.logLoss)){
-            rows.push({ metric:'Log loss', value:formatMetricValue(regressionModel.metrics.logLoss,6) });
-          }
-        }else{
-          rows.push({ metric:'R²', value:formatMetricValue(stats?.r2) });
-        }
-        if(regressionModel?.summary){
-          const summary=regressionModel.summary;
-          if(summary.parameters && typeof summary.parameters==='object'){
-            Object.entries(summary.parameters).forEach(([label,value])=>{
-              if(Number.isFinite(value)){
-                rows.push({ metric:label, value:formatMetricValue(value) });
-              }else if(value!=null && value!==''){
-                rows.push({ metric:label, value:String(value) });
-              }
-            });
-          }
-          if(summary.primaryParameter && summary.primaryParameter.label && Number.isFinite(summary.primaryParameter.value)){
-            const duplicate=summary.parameters && Object.prototype.hasOwnProperty.call(summary.parameters,summary.primaryParameter.label);
-            if(!duplicate){
-              rows.push({ metric:summary.primaryParameter.label, value:formatMetricValue(summary.primaryParameter.value) });
-            }
-          }
-          if(!summary.parameters && Number.isFinite(summary.slope)){
-            rows.push({ metric:'Slope', value:formatMetricValue(summary.slope) });
-          }
-          if(!summary.parameters && Number.isFinite(summary.intercept)){
-            rows.push({ metric:'Intercept', value:formatMetricValue(summary.intercept) });
-          }
-          const equationValue = formatScatterEquationFallback(regressionModel, stats);
-          if(equationValue){
-            rows.push({ metric:'Equation', value:equationValue });
-          }
-        }else{
-          rows.push({ metric:'Slope', value:formatMetricValue(stats?.m) });
-          rows.push({ metric:'Intercept', value:formatMetricValue(stats?.b) });
-        }
-        if(regressionModel?.mode==='doseResponse4pl' && Array.isArray(regressionModel?.coefficientStats)){
-          const logIc50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'LogIC50') || null;
-          const ic50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'IC50') || null;
-          if(Number.isFinite(ic50Stat?.standardError)){
-            rows.push({ metric:'IC50 Std. Error', value:formatMetricValue(ic50Stat.standardError) });
-          }
-          if(Number.isFinite(logIc50Stat?.ciLow) && Number.isFinite(logIc50Stat?.ciHigh)){
-            rows.push({
-              metric:'LogIC50 (95% CI)',
-              value:`${formatMetricValue(logIc50Stat.ciLow)} – ${formatMetricValue(logIc50Stat.ciHigh)}`
-            });
-          }
-          if(Number.isFinite(ic50Stat?.ciLow) && Number.isFinite(ic50Stat?.ciHigh)){
-            rows.push({
-              metric:'IC50 (95% CI)',
-              value:`${formatMetricValue(ic50Stat.ciLow)} – ${formatMetricValue(ic50Stat.ciHigh)}`
-            });
-          }
-        }
-        if(regressionModel?.residuals){
-          rows.push({ metric:'Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
-          rows.push({ metric:'Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
-        }
-        if((showCI || showPI) && regressionModel?.intervals?.summary){
-          const summary=regressionModel.intervals.summary;
-          if(showCI && Number.isFinite(summary.ciMin) && Number.isFinite(summary.ciMax)){
-            rows.push({ metric:'Confidence interval (y)', value:`${formatMetricValue(summary.ciMin)} – ${formatMetricValue(summary.ciMax)}` });
-          }
-          if(showPI && Number.isFinite(summary.piMin) && Number.isFinite(summary.piMax)){
-            rows.push({ metric:'Prediction interval (y)', value:`${formatMetricValue(summary.piMin)} – ${formatMetricValue(summary.piMax)}` });
-          }
-        }
-        if(showDiagnostics && regressionModel?.diagnostics){
-          rows.push({ metric:'Residual skewness', value:formatMetricValue(regressionModel.diagnostics.skewness,3) });
-          rows.push({ metric:'Residual kurtosis', value:formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
-          if(Number.isFinite(regressionModel.diagnostics.jarqueBera)){
-            rows.push({ metric:'Jarque-Bera', value:formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
-          }
-          if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
-            rows.push({ metric:'Jarque-Bera p', value:formatP(regressionModel.diagnostics.jarqueBeraP) });
-          }
-          const runs = regressionModel.diagnostics.runsTest || null;
-          if(Number.isFinite(runs?.z)){
-            rows.push({ metric:'Runs test z', value:formatMetricValue(runs.z,3) });
-          }
-          if(Number.isFinite(runs?.pValue)){
-            rows.push({ metric:'Runs test p', value:formatP(runs.pValue) });
-          }
-          const lackOfFit = regressionModel.diagnostics.lackOfFit || null;
-          if(Number.isFinite(lackOfFit?.fStatistic)){
-            rows.push({ metric:'Lack-of-fit F', value:formatMetricValue(lackOfFit.fStatistic,3) });
-          }
-          if(Number.isFinite(lackOfFit?.pValue)){
-            rows.push({ metric:'Lack-of-fit p', value:formatP(lackOfFit.pValue) });
-          }
-        }
-        const derived = stats?.derived || computeScatterDerivedRegressionStats(regressionModel);
-        if(derived){
-          if(Number.isFinite(derived.xIntercept)){
-            rows.push({ metric:'X-intercept', value:formatMetricValue(derived.xIntercept) });
-          }
-          if(Number.isFinite(derived.xInterceptCi?.low) && Number.isFinite(derived.xInterceptCi?.high)){
-            rows.push({
-              metric:'X-intercept (95% CI)',
-              value:`${formatMetricValue(derived.xInterceptCi.low)} to ${formatMetricValue(derived.xInterceptCi.high)}`
-            });
-          }
-          if(Number.isFinite(derived.reciprocalSlope)){
-            rows.push({ metric:'1/Slope', value:formatMetricValue(derived.reciprocalSlope) });
-          }
-          if(Number.isFinite(derived.reciprocalSlopeCi?.low) && Number.isFinite(derived.reciprocalSlopeCi?.high)){
-            rows.push({
-              metric:'1/Slope (95% CI)',
-              value:`${formatMetricValue(derived.reciprocalSlopeCi.low)} to ${formatMetricValue(derived.reciprocalSlopeCi.high)}`
-            });
-          }
-        }
-        if(regressionModel?.warnings?.length){
-          const warnings = regressionModel.warnings.filter(msg => typeof msg === 'string' && msg.trim());
-          const visibleWarnings = warnings.filter(msg => !/^Fit range excluded too many points \(\d+ retained of \d+\); using full dataset\.?$/i.test(msg));
-          if(visibleWarnings.length){
-            rows.push({ metric:'Warnings', value:visibleWarnings.join('; ') });
-          }else if(warnings.length && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: scatter warnings row suppressed (fit-range fallback only)', { warnings });
-          }
-        }
         renderStatsCard(scatterStatsResults,{
-          caption:`${stats?.method || 'Correlation'} correlation (${regressionModeValue} regression)` ,
+          caption:`Statistical report (${detail?.regressionLabel || getScatterRegressionModeLabel(regressionModeValue)})` ,
           columns:[
             {key:'metric',label:'Metric',align:'left'},
             {key:'value',label:'Value',align:'right'}
           ],
-          rows,
+          rows: Array.isArray(detail?.rows) ? detail.rows : [],
           options:{
-            fileName:'scatter-correlation',
-            contextLabel:'scatter-correlation'
+            fileName:'scatter-report',
+            contextLabel:'scatter-report'
           }
         });
-        if(Array.isArray(regressionModel?.coefficientStats) && regressionModel.coefficientStats.length){
-          const coefficientRows = regressionModel.coefficientStats.map(stat=>({
-            term: stat?.term ?? '—',
-            estimate: formatMetricValue(stat?.estimate),
-            se: formatMetricValue(stat?.standardError),
-            t: formatMetricValue(stat?.tStatistic, 3),
-            p: formatP(stat?.pValue),
-            ciLow: formatMetricValue(stat?.ciLow),
-            ciHigh: formatMetricValue(stat?.ciHigh)
-          }));
+        if(Array.isArray(detail?.coefficientRows) && detail.coefficientRows.length){
           renderStatsCard(scatterStatsResults,{
             caption:'Coefficient diagnostics',
             columns:[
@@ -9235,7 +9228,7 @@
               { key:'ciLow', label:'CI Low', align:'right' },
               { key:'ciHigh', label:'CI High', align:'right' }
             ],
-            rows:coefficientRows,
+            rows:detail.coefficientRows,
             options:{
               fileName:'scatter-coefficients',
               contextLabel:'scatter-coefficients'
@@ -9279,12 +9272,13 @@
             return Promise.resolve(false);
           }
           if(!Array.isArray(context.points) || context.points.length<3){
-            scatterStatsResults.textContent='Select at least three paired values to compute correlation statistics.';
+            scatterStatsResults.textContent='Select at least three paired values to compute regression statistics.';
             finishStatsPerf({ outcome: 'insufficient-points', pointCount: context.points?.length || 0 });
             return Promise.resolve(false);
           }
-          const method=scatterStatType?.value || 'pearson';
+          const methodSelection = scatterStatType?.value || 'auto';
           const regressionModeValue=scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
+          const resolvedAssociationMethod = resolveScatterAssociationMethod(methodSelection, regressionModeValue);
           const fitMethodValue=scatterFitMethod ? (scatterFitMethod.value || 'ols') : 'ols';
           const fitSpec = buildScatterFitSpec();
           const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
@@ -9292,7 +9286,18 @@
           const showPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
           const showDiagnostics=!!scatterShowDiagnostics?.checked;
           const controlSignature=getScatterStatsControlSignature();
-          const settings = { regressionModeValue, fitMethodValue, fitSpec, showLineMaster, showCI, showPI, showDiagnostics, controlSignature };
+          const settings = {
+            regressionModeValue,
+            fitMethodValue,
+            fitSpec,
+            showLineMaster,
+            showCI,
+            showPI,
+            showDiagnostics,
+            controlSignature,
+            associationSelection: methodSelection,
+            associationMethod: resolvedAssociationMethod
+          };
           const groupedSeries = Array.isArray(context.groupedSeries) ? context.groupedSeries : [];
           const groupedRegressionMode = groupedSeries.length > 1;
           if(groupedRegressionMode){
@@ -9306,7 +9311,8 @@
                   ? String(series.label).trim()
                   : `Series ${index + 1}`;
                 const seriesPoints = Array.isArray(series?.points) ? series.points : [];
-                const computed = computeScatterStats(seriesPoints, method, {
+                const computed = computeScatterStats(seriesPoints, resolvedAssociationMethod, {
+                  associationSelection: methodSelection,
                   regressionMode: regressionModeValue,
                   fitMethod: fitMethodValue,
                   fitSpec,
@@ -9321,7 +9327,7 @@
               const methodLabel = groupedSeriesStats
                 .map(entry => entry?.stats?.method)
                 .find(value => typeof value === 'string' && value.trim())
-                || method;
+                || getScatterAssociationMethodLabel(resolvedAssociationMethod);
               groupedStats = {
                 method: methodLabel,
                 groupedSeriesStats,
@@ -9336,12 +9342,13 @@
           }
           let stats=context.precomputedStats;
           if(!stats || context.precomputedSignature!==controlSignature){
-            const useWorker = shouldUseScatterStatsWorker(context.points, regressionModeValue);
+            const canUseWorkerForAssociation = resolvedAssociationMethod === 'pearson' || resolvedAssociationMethod === 'spearman';
+            const useWorker = canUseWorkerForAssociation && shouldUseScatterStatsWorker(context.points, regressionModeValue);
             if(useWorker){
               const contextVersion = context.version;
               const payload = {
                 points: context.points,
-                method,
+                method: resolvedAssociationMethod,
                 regressionMode: regressionModeValue,
                 fitMethod: fitMethodValue,
                 fitSpec,
@@ -9359,6 +9366,8 @@
                   if(!result || typeof result !== 'object'){
                     throw new Error('Scatter stats worker returned empty result');
                   }
+                  result.associationSelection = methodSelection;
+                  result.associationMethod = resolvedAssociationMethod;
                   stats = result;
                   applyScatterStatsResults(context, stats, settings);
                   scatterDebug('Debug: scatter stats worker applied',{ pointCount: context.points.length, regressionMode: regressionModeValue });
@@ -9366,7 +9375,13 @@
                 })
                 .catch(err => {
                   scatterDebug('Debug: scatter stats worker failed',{ message: err?.message || String(err) });
-                  stats = computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, fitMethod: fitMethodValue, fitSpec, domain:context.domain || null });
+                  stats = computeScatterStats(context.points, resolvedAssociationMethod, {
+                    associationSelection: methodSelection,
+                    regressionMode: regressionModeValue,
+                    fitMethod: fitMethodValue,
+                    fitSpec,
+                    domain: context.domain || null
+                  });
                   applyScatterStatsResults(context, stats, settings);
                   return true;
                 })
@@ -9374,7 +9389,13 @@
                   finishStatsPerf({ outcome: 'worker', pointCount: context.points.length });
                 });
             }
-            stats=computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, fitMethod: fitMethodValue, fitSpec, domain:context.domain || null });
+            stats = computeScatterStats(context.points, resolvedAssociationMethod, {
+              associationSelection: methodSelection,
+              regressionMode: regressionModeValue,
+              fitMethod: fitMethodValue,
+              fitSpec,
+              domain: context.domain || null
+            });
           }
           applyScatterStatsResults(context, stats, settings);
           finishStatsPerf({ outcome: 'sync', pointCount: context.points.length });
@@ -9917,6 +9938,7 @@
           scatterLastGraphType=type;
         }
         renderScatterStatsAdvisor(null, buildScatterAdvisorContext([]));
+        syncScatterRegressionOptionVisibility();
         syncScatterColorModeUI(scatterColorModeApplied);
         console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
         if(scatterViewMode){
@@ -9943,7 +9965,7 @@
       function buildScatterAdvisorContext(points, overrides){
         const context={
           graphType: scatterCurrentGraphType,
-          statsMethod: scatterStatType?.value || 'pearson',
+          statsMethod: scatterStatType?.value || 'auto',
           regressionMode: scatterRegressionMode?.value || 'linear',
           showLine: !!scatterShowLine?.checked,
           showLineStats: !!scatterShowPlotStats?.checked,
@@ -10116,7 +10138,7 @@
           summary:'',
           rationale:[],
           warnings:[],
-          statsMethod:context.statsMethod || 'pearson',
+          statsMethod:context.statsMethod || 'auto',
           regression:context.regressionMode || 'linear',
           showLine:context.showLine,
           showLineStats:context.showLineStats,
@@ -10227,7 +10249,12 @@
         if(context.pointCount>0 && context.pointCount<6){
           recommendation.warnings.push('With fewer than six paired observations the fitted model may be unstable.');
         }
-        const methodLabel=recommendation.statsMethod==='pearson'?'Pearson correlation':'Spearman correlation';
+        const methodLabel = ({
+          pearson: 'Pearson association',
+          spearman: 'Spearman association',
+          none: 'Model-fit diagnostics',
+          auto: 'Automatic association'
+        })[normalizeScatterAssociationSelection(recommendation.statsMethod)] || 'Association summary';
         if(recommendation.showLine){
           const regLabel=trendLabels[answers.trend] || `${recommendation.regression} fit`;
           recommendation.summary=`${methodLabel} with a ${regLabel}.`;
@@ -10761,6 +10788,12 @@
       if(scatterRegressionMode){
         scatterRegressionMode.addEventListener('change',()=>{
           console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
+          const beforeFitMethod = scatterFitMethod?.value || null;
+          syncScatterRegressionOptionVisibility();
+          const afterFitMethod = scatterFitMethod?.value || null;
+          if(beforeFitMethod !== afterFitMethod){
+            persistTabState('scatter-fit-method-auto-adjust');
+          }
           requestScatterStatsContextRefresh('regression-mode-change');
           persistTabState('scatter-regression-mode-change');
           scheduleDrawScatter();
@@ -15257,14 +15290,24 @@
                   const eq=`y=${entryStats.m.toFixed(2)}x${entryStats.b>=0?'+':'-'}${Math.abs(entryStats.b).toFixed(2)}`;
                   infoLines.push(`${prefix}${eq}`);
                 }
-                infoLines.push(`${prefix}r=${formatMetricValue(entryStats?.r,2)} R²=${formatMetricValue(entryStats?.r2,2)} p=${formatP(entryStats?.p)}`);
+                const associationMethod = inferScatterAssociationMethod(entryStats);
+                if(associationMethod === 'none'){
+                  infoLines.push(`${prefix}R²=${formatMetricValue(entryStats?.r2,2)}`);
+                }else{
+                  infoLines.push(`${prefix}r=${formatMetricValue(entryStats?.r,2)} R²=${formatMetricValue(entryStats?.r2,2)} p=${formatP(entryStats?.p)}`);
+                }
                 if(idx < regressionVisualEntries.length - 1){
                   infoLines.push(' ');
                 }
               });
             }else if(visualStats?.regression?.summary?.equation){
               infoLines.push(visualStats.regression.summary.equation);
-              infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
+              const associationMethod = inferScatterAssociationMethod(visualStats);
+              if(associationMethod === 'none'){
+                infoLines.push(`R²=${formatMetricValue(visualStats.r2,2)}`);
+              }else{
+                infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
+              }
             }
             const statsFontSize = Math.max(Math.round(fs * 0.65), 7);
             const statsPos = scatterLabelPositions?.stats || null;
@@ -15517,6 +15560,8 @@
         console.log('computeScatterStats',method,points.length,options);
         const regressionMode = options.regressionMode || 'linear';
         const fitMethod = options.fitMethod || 'ols';
+        const associationSelection = normalizeScatterAssociationSelection(options.associationSelection || method || 'auto');
+        const resolvedAssociationMethod = resolveScatterAssociationMethod(method, regressionMode);
         const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
         const domainOption = options.domain || null;
         const paired = collectScatterStatPairs(points);
@@ -15531,9 +15576,20 @@
           });
         }
         if(n<3){
-          return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN, regression:null, pointCount:n};
+          return {
+            method:getScatterAssociationMethodLabel(resolvedAssociationMethod),
+            associationSelection,
+            associationMethod: resolvedAssociationMethod,
+            r:NaN,
+            p:NaN,
+            r2:NaN,
+            m:NaN,
+            b:NaN,
+            regression:null,
+            pointCount:n
+          };
         }
-        const correlation = computeScatterCorrelationStats(method, x, y);
+        const correlation = computeScatterCorrelationStats(resolvedAssociationMethod, x, y);
         const statsApi = getScatterJStat();
         const pearson = Number.isFinite(correlation?.r)
           ? Number(correlation.r)
@@ -15586,6 +15642,8 @@
         const derived = computeScatterDerivedRegressionStats(regression);
         const stats={
           method:label,
+          associationSelection,
+          associationMethod: correlation?.methodCode || resolvedAssociationMethod,
           r,
           p,
           pMethod: correlation.pMethod,

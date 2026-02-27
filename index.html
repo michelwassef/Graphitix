@@ -774,13 +774,6 @@
             <div id="scatterStatsAdvisor"></div>
             <div class="config-panel__line config-panel__line--split">
               <label class="config-panel__item config-panel__item--wide">
-                <span class="config-panel__label">Method</span>
-                <select id="scatterStatType">
-                  <option value="pearson">Parametric (pearson)</option>
-                  <option value="spearman">Non-parametric (spearman)</option>
-                </select>
-              </label>
-              <label class="config-panel__item config-panel__item--wide">
                 <span class="config-panel__label">Regression</span>
                 <select id="scatterRegressionMode">
                   <optgroup label="Lines">
@@ -814,14 +807,23 @@
                   </optgroup>
                 </select>
               </label>
-            </div>
-            <div class="config-panel__line">
               <label class="config-panel__item config-panel__item--wide">
                 <span class="config-panel__label">Fit method</span>
                 <select id="scatterFitMethod">
                   <option value="ols" selected>Ordinary least squares</option>
                   <option value="wls">Weighted least squares</option>
                   <option value="huber">Robust (Huber)</option>
+                </select>
+              </label>
+            </div>
+            <div class="config-panel__line">
+              <label class="config-panel__item config-panel__item--wide">
+                <span class="config-panel__label">Association metric (optional)</span>
+                <select id="scatterStatType">
+                  <option value="auto" selected>Automatic (recommended)</option>
+                  <option value="pearson">Pearson (linear)</option>
+                  <option value="spearman">Spearman (rank)</option>
+                  <option value="none">None (model fit only)</option>
                 </select>
               </label>
             </div>

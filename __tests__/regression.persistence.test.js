@@ -122,7 +122,7 @@ describe('Regression controls persistence', () => {
 
     const nextPayload = scatter.getPayload();
     expect(nextPayload.config.regression.mode).toBe('logistic');
-    expect(nextPayload.config.regression.method).toBe('huber');
+    expect(nextPayload.config.regression.method).toBe('ols');
     expect(nextPayload.config.regression.fitSpec).toBeTruthy();
     expect(nextPayload.config.regression.fitSpec.confidenceLevel).toBe(90);
     expect(nextPayload.config.regression.fitSpec.range).toEqual(expect.objectContaining({ minX: -8, maxX: -4 }));
