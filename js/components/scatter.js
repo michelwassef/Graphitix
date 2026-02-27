@@ -1624,7 +1624,18 @@
 
   function sanitizeScatterGroupLabel(value, index){
     const trimmed = value == null ? '' : String(value).trim();
-    return trimmed || `Series ${index + 1}`;
+    return trimmed || `Group ${index + 1}`;
+  }
+
+  function formatScatterGroupHeaderTitle(value, index){
+    const trimmed = value == null ? '' : String(value).trim();
+    if(!trimmed){
+      return `Group ${index + 1} title`;
+    }
+    if(/^group\s*\d+$/i.test(trimmed)){
+      return `${trimmed} title`;
+    }
+    return trimmed;
   }
 
   function inferScatterGroupBaseName(value, fallback){
@@ -1632,7 +1643,18 @@
     if(!base){
       return fallback;
     }
-    const stripped = base.replace(/\s+rep(?:licate)?\s*\d+$/i, '').trim();
+    if(/^y\s*title$/i.test(base) || /^z\s*title$/i.test(base)){
+      return fallback;
+    }
+    if(/^rep(?:licate)?\s*\d+$/i.test(base)){
+      return fallback;
+    }
+    const stripped = base
+      .replace(/[:\-]\s*rep(?:licate)?\s*\d+$/i, '')
+      .replace(/\s+rep(?:licate)?\s*\d+$/i, '')
+      .replace(/\s+title$/i, '')
+      .replace(/[:\-]\s*$/, '')
+      .trim();
     return stripped || fallback;
   }
 
@@ -1645,6 +1667,159 @@
       resolved[i] = sanitizeScatterGroupLabel(candidate != null && String(candidate).trim() ? candidate : base, i);
     }
     return resolved;
+  }
+
+  function getScatterGroupedHeaderCellRole(colIndex, options = {}){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 0){
+      return null;
+    }
+    const groupedActive = options.forceGrouped === true
+      ? true
+      : isScatterGroupedMode({
+          graphType: options.graphType || scatterCurrentGraphType,
+          tableFormat: options.tableFormat || scatterTableFormat
+        });
+    if(!groupedActive){
+      return null;
+    }
+    const replicates = clampScatterReplicateCount(options.replicates ?? scatterReplicates);
+    const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+    const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+    const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+    if(col === 0){
+      return 'label';
+    }
+    if(col >= 1 && col < baseCols){
+      return col === 1 ? 'xAnchor' : 'xFollower';
+    }
+    if(col >= baseCols){
+      const offset = col - baseCols;
+      if(replicates <= 1){
+        return 'groupAnchor';
+      }
+      return offset % replicates === 0 ? 'groupAnchor' : 'groupFollower';
+    }
+    return null;
+  }
+
+  function getScatterGroupedHeaderMergeSegment(colIndex, options = {}){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 0){
+      return null;
+    }
+    const role = getScatterGroupedHeaderCellRole(col, options);
+    if(!role){
+      return null;
+    }
+    const replicates = clampScatterReplicateCount(options.replicates ?? scatterReplicates);
+    const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+    const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+    const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+    if(role === 'xAnchor'){
+      return xReplicateCount > 1 ? 'start' : 'single';
+    }
+    if(role === 'xFollower'){
+      const position = col - 1;
+      return position === xReplicateCount - 1 ? 'end' : 'middle';
+    }
+    if(role === 'groupAnchor'){
+      return replicates > 1 ? 'start' : 'single';
+    }
+    if(role === 'groupFollower'){
+      const position = (col - baseCols) % replicates;
+      return position === replicates - 1 ? 'end' : 'middle';
+    }
+    return null;
+  }
+
+  function normalizeScatterGroupedHeaderRow(hotInstance, options = {}){
+    const hot = hotInstance || scatterHot || scatterRefs.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const groupedActive = options.forceGrouped === true
+      ? true
+      : isScatterGroupedMode({
+          graphType: options.graphType || scatterCurrentGraphType,
+          tableFormat: options.tableFormat || scatterTableFormat
+        });
+    if(!groupedActive){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const shouldFill = value => value == null || String(value).trim() === '';
+    const replicates = clampScatterReplicateCount(options.replicates ?? scatterReplicates);
+    const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+    const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+    const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+    const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: baseCols, replicates, xReplicatesEnabled });
+    const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
+    const minCols = baseCols + seriesCount * replicates;
+    const changes = [];
+    for(let c = headerRow.length; c < minCols; c += 1){
+      changes.push([0, c, '']);
+    }
+    if(shouldFill(headerRow[0])){
+      changes.push([0, 0, 'Labels']);
+    }
+    const xAnchorRaw = headerRow[1] != null ? String(headerRow[1]).trim() : '';
+    const xAnchorValue = xAnchorRaw || 'X title';
+    if(String(headerRow[1] ?? '').trim() !== xAnchorValue){
+      changes.push([0, 1, xAnchorValue]);
+    }
+    for(let xRep = 1; xRep < xReplicateCount; xRep += 1){
+      const xCol = 1 + xRep;
+      const xValue = headerRow[xCol];
+      if(xValue != null && String(xValue).trim() !== ''){
+        changes.push([0, xCol, '']);
+      }
+    }
+    const baseNames = [];
+    for(let s = 0; s < seriesCount; s += 1){
+      const startCol = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
+      const raw = headerRow[startCol] != null ? String(headerRow[startCol]).trim() : '';
+      baseNames.push(raw || `Group ${s + 1}`);
+    }
+    const labels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
+    for(let s = 0; s < seriesCount; s += 1){
+      const startCol = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
+      const currentRaw = headerRow[startCol] != null ? String(headerRow[startCol]).trim() : '';
+      const genericLegacyHeader = /^rep(?:licate)?\s*\d+$/i.test(currentRaw)
+        || /^series\s*\d+$/i.test(currentRaw)
+        || /^y\s*title$/i.test(currentRaw)
+        || /^z\s*title$/i.test(currentRaw);
+      const usableRaw = genericLegacyHeader ? '' : currentRaw;
+      const nextBaseLabel = inferScatterGroupBaseName(
+        sanitizeScatterGroupLabel(usableRaw || labels[s], s),
+        `Group ${s + 1}`
+      );
+      labels[s] = nextBaseLabel;
+      const nextHeaderLabel = formatScatterGroupHeaderTitle(usableRaw || nextBaseLabel, s);
+      if(currentRaw !== nextHeaderLabel){
+        changes.push([0, startCol, nextHeaderLabel]);
+      }
+      for(let rep = 1; rep < replicates; rep += 1){
+        const col = startCol + rep;
+        const repValue = headerRow[col];
+        if(repValue != null && String(repValue).trim() !== ''){
+          changes.push([0, col, '']);
+        }
+      }
+    }
+    scatterSeriesGroupLabels = labels.slice();
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, options.source || 'scatter-grouped-header-normalize');
+    scatterDebug('Debug: scatter grouped header row normalized', {
+      changes: changes.length,
+      seriesCount,
+      replicates,
+      xReplicateCount
+    });
+    return true;
   }
 
   function getScatterGroupedSeriesCount(colCount, replicates, options = {}){
@@ -1755,11 +1930,14 @@
     const xHeaderBase = inferScatterGroupBaseName(sourceXHeader, 'X title');
     const baseNames = [];
     for(let s = 0; s < seriesCount; s += 1){
-      const fallback = `Series ${s + 1}`;
+      const fallback = `Group ${s + 1}`;
       const sourceIndex = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
         ? (s === 0 ? 2 : -1)
         : getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
-      const candidate = sourceIndex >= 0 && sourceIndex < headerRow.length ? headerRow[sourceIndex] : null;
+      let candidate = sourceIndex >= 0 && sourceIndex < headerRow.length ? headerRow[sourceIndex] : null;
+      if(sourceFormat === SCATTER_TABLE_FORMAT_SINGLE){
+        candidate = null;
+      }
       baseNames.push(inferScatterGroupBaseName(candidate, fallback));
     }
     const nextGroupLabels = normalizeScatterGroupLabels(seriesCount, options.groupLabels || scatterSeriesGroupLabels, baseNames);
@@ -1775,37 +1953,32 @@
         ? headerRow[oldXCol]
         : '';
       const trimmed = oldLabel == null ? '' : String(oldLabel).trim();
-      const fallback = targetXReplicateCount > 1 ? `X rep ${rep + 1}` : xHeaderBase;
-      newHeader[newXCol] = trimmed || fallback;
+      if(rep === 0){
+        newHeader[newXCol] = trimmed || xHeaderBase;
+      }else{
+        newHeader[newXCol] = '';
+      }
     }
     for(let s = 0; s < seriesCount; s += 1){
-      const groupLabel = scatterSeriesGroupLabels[s] || `Series ${s + 1}`;
-      const groupLower = String(groupLabel).trim().toLowerCase();
+      const groupLabel = scatterSeriesGroupLabels[s] || `Group ${s + 1}`;
       for(let rep = 0; rep < targetCount; rep += 1){
         const newIdx = getScatterGroupedSeriesStartCol(s, targetCount, { xReplicatesEnabled: targetXReplicatesEnabled }) + rep;
-        let label = '';
-        if(rep < sourceCount){
-          const oldIdx = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
-            ? (s === 0 ? 2 : -1)
-            : (getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled }) + rep);
-          if(oldIdx >= 0 && oldIdx < headerRow.length){
-            label = headerRow[oldIdx];
+        if(rep === 0){
+          let label = '';
+          if(rep < sourceCount){
+            const oldIdx = sourceFormat === SCATTER_TABLE_FORMAT_SINGLE
+              ? (s === 0 ? 2 : -1)
+              : getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
+            if(oldIdx >= 0 && oldIdx < headerRow.length){
+              label = headerRow[oldIdx];
+            }
           }
-        }
-        const labelTrimmed = typeof label === 'string' ? label.trim() : '';
-        if(targetCount > 1){
-          if(!labelTrimmed){
-            label = `Rep ${rep + 1}`;
-          }else{
-            const repMatch = /rep(?:licate)?\s*\d+$/i.test(labelTrimmed);
-            const lower = labelTrimmed.toLowerCase();
-            const baseMatch = lower === groupLower || (groupLower && lower.startsWith(groupLower) && repMatch);
-            label = baseMatch ? `Rep ${rep + 1}` : labelTrimmed;
-          }
+          const labelTrimmed = typeof label === 'string' ? label.trim() : '';
+          const usableLabel = /^rep(?:licate)?\s*\d+$/i.test(labelTrimmed) ? '' : labelTrimmed;
+          newHeader[newIdx] = formatScatterGroupHeaderTitle(usableLabel || groupLabel, s);
         }else{
-          label = labelTrimmed || groupLabel;
+          newHeader[newIdx] = '';
         }
-        newHeader[newIdx] = label;
       }
     }
     const newData = new Array(totalRows);
@@ -1887,7 +2060,7 @@
     const baseNames = [];
     for(let s = 0; s < seriesCount; s += 1){
       const idx = getScatterGroupedSeriesStartCol(s, sourceCount, { xReplicatesEnabled: sourceXReplicatesEnabled });
-      baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+      baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Group ${s + 1}`));
     }
     const groupLabels = normalizeScatterGroupLabels(
       seriesCount,
@@ -1934,10 +2107,10 @@
           continue;
         }
         const mean = repValues.reduce((sum, value) => sum + value, 0) / repValues.length;
-        const groupLabel = groupLabels[s] || `Series ${s + 1}`;
+        const safeGroupLabel = groupLabels[s] || `Group ${s + 1}`;
         const pointLabel = labelBase
-          ? `${labelBase} (${groupLabel})`
-          : groupLabel;
+          ? `${labelBase} (${safeGroupLabel})`
+          : safeGroupLabel;
         singleRows.push([pointLabel, xRaw, mean, '', '']);
       }
     }
@@ -2042,13 +2215,15 @@
         }
         for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
           const xCol = 1 + xRep;
-          const xFallback = xReplicateCount > 1 ? `X rep ${xRep + 1}` : 'X title';
+          const xFallback = xRep === 0 ? 'X title' : '';
           changes.push([0, xCol, xFallback]);
         }
         for(let s = 0; s < groupCount; s += 1){
           for(let rep = 0; rep < replicates; rep += 1){
             const colIndex = baseCols + s * replicates + rep;
-            const fallback = replicates > 1 ? `Rep ${rep + 1}` : (labels[s] || `Series ${s + 1}`);
+            const fallback = rep === 0
+              ? formatScatterGroupHeaderTitle(labels[s] || `Group ${s + 1}`, s)
+              : '';
             changes.push([0, colIndex, fallback]);
           }
         }
@@ -2059,9 +2234,23 @@
       }
     }
     if(!changes.length){
+      if(groupedMode){
+        normalizeScatterGroupedHeaderRow(hot, {
+          graphType: options.graphType,
+          tableFormat: options.tableFormat,
+          source: 'scatter-grouped-header-normalize'
+        });
+      }
       return;
     }
     hot.setDataAtCell(changes, 'scatter-header-init');
+    if(groupedMode){
+      normalizeScatterGroupedHeaderRow(hot, {
+        graphType: options.graphType,
+        tableFormat: options.tableFormat,
+        source: 'scatter-grouped-header-normalize'
+      });
+    }
   }
 
   function resolveScatterColumnLayout(data, colCountOverride){
@@ -6597,6 +6786,9 @@
                 graphType: scatterCurrentGraphType,
                 tableFormat: getScatterReplicateMode()
               });
+              if(isGroupedScatterModeActive()){
+                normalizeScatterGroupedHeaderRow(hotInstance, { source: 'scatter-grouped-header-normalize' });
+              }
               updateScatterNestedHeaders(hotInstance, {
                 graphType: scatterCurrentGraphType,
                 tableFormat: getScatterReplicateMode()
@@ -7009,6 +7201,142 @@
           data,
           disablePaste: true,
           pinFirstRow: true,
+          colDefEnhancer(def, meta){
+            const colIndex = Number(meta?.colIndex);
+            if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
+              return def;
+            }
+            const existingColSpan = def.colSpan;
+            def.colSpan = params => {
+              const physicalRow = params?.data?.__rowIndex;
+              if(physicalRow === 0 && isGroupedScatterModeActive()){
+                const role = getScatterGroupedHeaderCellRole(colIndex);
+                if(role === 'xAnchor'){
+                  return getScatterGroupedXReplicateCount(scatterReplicates, { xReplicatesEnabled: scatterGroupedXReplicates });
+                }
+                if(role === 'groupAnchor'){
+                  return clampScatterReplicateCount(scatterReplicates);
+                }
+              }
+              if(typeof existingColSpan === 'function'){
+                return existingColSpan(params);
+              }
+              return Number.isFinite(existingColSpan) && existingColSpan > 0
+                ? Math.floor(existingColSpan)
+                : 1;
+            };
+            const existingCellStyle = def.cellStyle;
+            def.cellStyle = params => {
+              let baseStyle = {};
+              if(typeof existingCellStyle === 'function'){
+                const resolved = existingCellStyle(params);
+                if(resolved && typeof resolved === 'object'){
+                  baseStyle = Object.assign({}, resolved);
+                }
+              }else if(existingCellStyle && typeof existingCellStyle === 'object'){
+                baseStyle = Object.assign({}, existingCellStyle);
+              }
+              const physicalRow = params?.data?.__rowIndex;
+              if(physicalRow === 0 && isGroupedScatterModeActive()){
+                const role = getScatterGroupedHeaderCellRole(colIndex);
+                if(role === 'xAnchor' || role === 'groupAnchor'){
+                  baseStyle.textAlign = 'center';
+                  baseStyle.justifyContent = 'center';
+                  baseStyle.fontWeight = '600';
+                }else if(role === 'xFollower' || role === 'groupFollower'){
+                  baseStyle.textAlign = 'center';
+                  baseStyle.justifyContent = 'center';
+                }
+              }
+              return baseStyle;
+            };
+            const existingHeaderClass = def.headerClass;
+            def.headerClass = params => {
+              const classes = [];
+              const pushClass = value => {
+                if(!value){
+                  return;
+                }
+                if(Array.isArray(value)){
+                  value.forEach(pushClass);
+                  return;
+                }
+                if(typeof value === 'string'){
+                  value.split(/\s+/).filter(Boolean).forEach(token => classes.push(token));
+                }
+              };
+              if(typeof existingHeaderClass === 'function'){
+                pushClass(existingHeaderClass(params));
+              }else{
+                pushClass(existingHeaderClass);
+              }
+              if(isGroupedScatterModeActive()){
+                const role = getScatterGroupedHeaderCellRole(colIndex);
+                if(role === 'groupAnchor' || role === 'groupFollower'){
+                  classes.push('scatter-group-colheader');
+                  const segment = getScatterGroupedHeaderMergeSegment(colIndex);
+                  if(segment === 'start'){
+                    classes.push('scatter-group-colheader-merge-start');
+                  }else if(segment === 'middle'){
+                    classes.push('scatter-group-colheader-merge-middle');
+                  }else if(segment === 'end'){
+                    classes.push('scatter-group-colheader-merge-end');
+                  }
+                }
+              }
+              return classes;
+            };
+            const existingEditable = def.editable;
+            def.editable = params => {
+              const physicalRow = params?.data?.__rowIndex;
+              if(physicalRow === 0){
+                const role = getScatterGroupedHeaderCellRole(colIndex);
+                if(role === 'xFollower' || role === 'groupFollower'){
+                  return false;
+                }
+              }
+              return typeof existingEditable === 'function'
+                ? existingEditable(params)
+                : existingEditable !== false;
+            };
+            const existingRules = def.cellClassRules && typeof def.cellClassRules === 'object'
+              ? Object.assign({}, def.cellClassRules)
+              : {};
+            existingRules['scatter-grouped-header-anchor'] = params => {
+              if(params?.data?.__rowIndex !== 0){
+                return false;
+              }
+              const role = getScatterGroupedHeaderCellRole(colIndex);
+              return role === 'xAnchor' || role === 'groupAnchor';
+            };
+            existingRules['scatter-grouped-header-follower'] = params => {
+              if(params?.data?.__rowIndex !== 0){
+                return false;
+              }
+              const role = getScatterGroupedHeaderCellRole(colIndex);
+              return role === 'xFollower' || role === 'groupFollower';
+            };
+            existingRules['scatter-grouped-header-merge-start'] = params => {
+              if(params?.data?.__rowIndex !== 0){
+                return false;
+              }
+              return getScatterGroupedHeaderMergeSegment(colIndex) === 'start';
+            };
+            existingRules['scatter-grouped-header-merge-middle'] = params => {
+              if(params?.data?.__rowIndex !== 0){
+                return false;
+              }
+              return getScatterGroupedHeaderMergeSegment(colIndex) === 'middle';
+            };
+            existingRules['scatter-grouped-header-merge-end'] = params => {
+              if(params?.data?.__rowIndex !== 0){
+                return false;
+              }
+              return getScatterGroupedHeaderMergeSegment(colIndex) === 'end';
+            };
+            def.cellClassRules = existingRules;
+            return def;
+          },
           hotOptions: {
             colHeaders: ['Labels','X values','Y values','Z values'],
             beforeKeyDown(){
@@ -7023,6 +7351,11 @@
               if(!changes||source==='loadData') return;
               console.log('scatter afterChange', {count:changes.length, source});
               if(isGroupedScatterModeActive()){
+                const headerTouched = changes.some(change => Number(change?.[0]) === 0);
+                if(headerTouched && source !== 'scatter-grouped-header-normalize'){
+                  normalizeScatterGroupedHeaderRow(hotInstance, { source: 'scatter-grouped-header-normalize' });
+                  persistTabState('scatter-grouped-header-row-edit');
+                }
                 updateScatterNestedHeaders(hotInstance);
               }
               revalidateActiveScatterLogAxis('x','data-edit');
@@ -7038,6 +7371,9 @@
                 graphType: scatterCurrentGraphType,
                 tableFormat: getScatterReplicateMode()
               });
+              if(isGroupedScatterModeActive()){
+                normalizeScatterGroupedHeaderRow(hotInstance, { source: 'scatter-grouped-header-normalize' });
+              }
               updateScatterNestedHeaders(hotInstance, {
                 graphType: scatterCurrentGraphType,
                 tableFormat: getScatterReplicateMode()
@@ -7117,6 +7453,9 @@
               graphType: scatterCurrentGraphType,
               tableFormat: getScatterReplicateMode()
             });
+            if(isGroupedScatterModeActive()){
+              normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
+            }
             updateScatterNestedHeaders(scatterHot, {
               graphType: scatterCurrentGraphType,
               tableFormat: getScatterReplicateMode()
@@ -7152,6 +7491,9 @@
             graphType: scatterCurrentGraphType,
             tableFormat: getScatterReplicateMode()
           });
+          if(isGroupedScatterModeActive()){
+            normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
+          }
           updateScatterNestedHeaders(scatterHot, {
             graphType: scatterCurrentGraphType,
             tableFormat: getScatterReplicateMode()
@@ -7230,7 +7572,7 @@
           ['Comet H',7.1,26,80,'']
         ],
         grouped:[
-          ['Labels','X title','Rep 1','Rep 2','Rep 3','Rep 1','Rep 2','Rep 3'],
+          ['Labels','X title','Control','','','Treatment','',''],
           ['Week 1',1,10.2,10.6,10.8,14.2,14.5,14.8],
           ['Week 2',2,10.8,11.0,11.2,14.9,15.2,15.5],
           ['Week 3',3,11.3,11.5,11.9,15.7,16.0,16.4],
@@ -7238,7 +7580,7 @@
           ['Week 5',5,12.5,12.8,13.1,17.3,17.7,18.1]
         ],
         groupedXY:[
-          ['Labels','X rep 1','X rep 2','X rep 3','Rep 1','Rep 2','Rep 3','Rep 1','Rep 2','Rep 3'],
+          ['Labels','X title','','','Control','','','Treatment','',''],
           ['Week 1',0.95,1.02,1.05,10.2,10.6,10.8,14.2,14.5,14.8],
           ['Week 2',1.93,2.00,2.08,10.8,11.0,11.2,14.9,15.2,15.5],
           ['Week 3',2.92,3.01,3.07,11.3,11.5,11.9,15.7,16.0,16.4],
@@ -7303,6 +7645,12 @@
             graphType: 'scatter',
             tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
             xReplicatesEnabled: scatterGroupedXReplicates
+          });
+          normalizeScatterGroupedHeaderRow(scatterHot, {
+            graphType: 'scatter',
+            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            xReplicatesEnabled: scatterGroupedXReplicates,
+            source: 'scatter-grouped-header-normalize'
           });
           updateScatterNestedHeaders(scatterHot, {
             graphType: 'scatter',
@@ -7402,6 +7750,12 @@
               tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
               xReplicatesEnabled: false
             });
+            normalizeScatterGroupedHeaderRow(scatterHot, {
+              graphType: 'scatter',
+              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+              xReplicatesEnabled: false,
+              source: 'scatter-grouped-header-normalize'
+            });
             updateScatterNestedHeaders(scatterHot, {
               graphType: 'scatter',
               tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
@@ -7438,9 +7792,6 @@
       const scatterGroupedControls=$('#scatterGroupedControls');
       const scatterReplicatesInput=$('#scatterReplicates');
       const scatterGroupedXReplicatesInput=$('#scatterGroupedXReplicates');
-      const scatterGroupedList=$('#scatterGroupedList');
-      const scatterGroupedAdd=$('#scatterGroupedAdd');
-      const scatterGroupedRemove=$('#scatterGroupedRemove');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterShowPlotStats=$('#scatterShowPlotStats'), scatterAlpha=$('#scatterAlpha');
@@ -7568,22 +7919,25 @@
         const baseNames = [];
         for(let s = 0; s < seriesCount; s += 1){
           const idx = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
-          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
+          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Group ${s + 1}`));
         }
         scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
         for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
           const col = 1 + xRep;
-          const fallback = xReplicateCount > 1 ? `X rep ${xRep + 1}` : 'X values';
+          const fallback = xRep === 0 ? 'X values' : `X rep ${xRep + 1}`;
           const label = headerRow[col] != null ? String(headerRow[col]).trim() : '';
           headers[col] = label || fallback;
         }
         for(let s = 0; s < seriesCount; s += 1){
-          const groupLabel = scatterSeriesGroupLabels[s] || `Series ${s + 1}`;
+          const groupLabel = scatterSeriesGroupLabels[s] || `Group ${s + 1}`;
           for(let rep = 0; rep < replicates; rep += 1){
             const col = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled }) + rep;
-            const raw = headerRow[col] != null ? String(headerRow[col]).trim() : '';
-            const fallback = replicates > 1 ? `${groupLabel} r${rep + 1}` : groupLabel;
-            headers[col] = raw ? `${groupLabel}: ${raw}` : fallback;
+            if(replicates > 1){
+              headers[col] = rep === 0 ? groupLabel : ' ';
+            }else{
+              const raw = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+              headers[col] = raw || groupLabel;
+            }
           }
         }
         for(let col = baseCols + seriesCount * replicates; col < headers.length; col += 1){
@@ -7603,10 +7957,23 @@
               graphType: options.graphType || scatterCurrentGraphType,
               tableFormat: options.tableFormat || getScatterReplicateMode()
             });
+        const hotRoot = hot.rootElement
+          || hot.__scatterHostContainer
+          || scatterHotContainer
+          || document.getElementById('scatterHot');
+        if(hotRoot && hotRoot.classList){
+          hotRoot.classList.toggle('scatter-grouped-header-merge', !!groupedActive);
+        }
         const replicates = clampScatterReplicateCount(scatterReplicates);
         const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
         const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
-        const shouldUseNestedHeaders = groupedActive && (replicates > 1 || xReplicateCount > 1);
+        if(hotRoot?.style){
+          if(groupedActive){
+            hotRoot.style.setProperty('--scatter-group-span', String(replicates));
+          }else{
+            hotRoot.style.removeProperty('--scatter-group-span');
+          }
+        }
         if(!groupedActive){
           hot.updateSettings({
             nestedHeaders: false,
@@ -7614,97 +7981,15 @@
           });
           return;
         }
-        const data = hot.getData ? (hot.getData() || []) : [];
-        const headerRow = Array.isArray(data[0]) ? data[0] : [];
-        const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: getScatterGroupedBaseCols(replicates, { xReplicatesEnabled }), replicates, xReplicatesEnabled });
-        const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
-        const baseNames = [];
-        for(let s = 0; s < seriesCount; s += 1){
-          const idx = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
-          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
-        }
-        scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
-        const labelHeader = headerRow[0] != null && String(headerRow[0]).trim()
-          ? String(headerRow[0]).trim()
-          : 'Labels';
-        const xHeader = headerRow[1] != null && String(headerRow[1]).trim()
-          ? inferScatterGroupBaseName(String(headerRow[1]).trim(), 'X values')
-          : 'X values';
-        const nested = [{ label: labelHeader, colspan: 1 }, { label: xHeader, colspan: xReplicateCount }];
-        scatterSeriesGroupLabels.forEach(label => {
-          nested.push({ label, colspan: replicates });
-        });
         hot.updateSettings({
-          nestedHeaders: shouldUseNestedHeaders ? [nested] : false,
+          nestedHeaders: false,
           colHeaders: buildScatterAgColHeaders(hot, options)
         });
-        scatterDebug('Debug: scatter nested headers updated', {
-          seriesCount,
+        scatterDebug('Debug: scatter grouped col headers restored', {
           replicates,
-          xReplicateCount,
-          labels: scatterSeriesGroupLabels.slice()
+          xReplicateCount
         });
-      }
-
-      function renderScatterGroupedList(){
-        if(!scatterGroupedList){
-          return;
-        }
-        if(!isGroupedScatterModeActive()){
-          scatterGroupedList.innerHTML = '';
-          return;
-        }
-        const hot = scatterHot || scatterRefs.hot;
-        const matrix = hot?.getData?.() || [];
-        const headerRow = Array.isArray(matrix[0]) ? matrix[0] : [];
-        const baseCols = getScatterGroupedBaseCols(scatterReplicates, { xReplicatesEnabled: scatterGroupedXReplicates });
-        const usedSeriesCols = computeScatterUsedSeriesColumns(matrix, { startCol: baseCols, replicates: scatterReplicates, xReplicatesEnabled: scatterGroupedXReplicates });
-        const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(scatterReplicates, 1)));
-        const baseNames = [];
-        for(let s = 0; s < seriesCount; s += 1){
-          const idx = getScatterGroupedSeriesStartCol(s, scatterReplicates, { xReplicatesEnabled: scatterGroupedXReplicates });
-          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Series ${s + 1}`));
-        }
-        scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
-        scatterGroupedList.innerHTML = '';
-        scatterSeriesGroupLabels.forEach((label, idx) => {
-          const row = document.createElement('div');
-          row.className = 'grouped-row';
-          const labelEl = document.createElement('label');
-          labelEl.textContent = `Group ${idx + 1}`;
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.value = label;
-          input.setAttribute('data-group-index', String(idx));
-          input.addEventListener('change', e => {
-            const nextValue = sanitizeScatterGroupLabel(e.target.value, idx);
-            if(scatterSeriesGroupLabels[idx] === nextValue){
-              e.target.value = nextValue;
-              return;
-            }
-            scatterSeriesGroupLabels[idx] = nextValue;
-            e.target.value = nextValue;
-            updateScatterNestedHeaders();
-            persistTabState('scatter-group-label-change');
-            scheduleDrawScatter();
-          });
-          row.appendChild(labelEl);
-          row.appendChild(input);
-          const removeBtn = document.createElement('button');
-          removeBtn.type = 'button';
-          removeBtn.className = 'grouped-remove';
-          removeBtn.textContent = '×';
-          removeBtn.title = 'Remove group';
-          removeBtn.addEventListener('click', () => {
-            removeScatterGroupedSeriesAt(idx);
-          });
-          row.appendChild(removeBtn);
-          scatterGroupedList.appendChild(row);
-        });
-        scatterDebug('Debug: scatter grouped list rendered', {
-          seriesCount,
-          replicates: scatterReplicates
-        });
+        return;
       }
 
       function updateScatterReplicateModeControls(modeOverride){
@@ -7719,17 +8004,6 @@
         if(scatterGroupedXReplicatesInput){
           scatterGroupedXReplicatesInput.disabled = !groupedActive || scatterReplicates <= SCATTER_MIN_REPLICATES;
           scatterGroupedXReplicatesInput.checked = !!scatterGroupedXReplicates;
-        }
-        if(scatterGroupedAdd){
-          scatterGroupedAdd.disabled = !groupedActive;
-        }
-        if(scatterGroupedRemove){
-          scatterGroupedRemove.disabled = !groupedActive;
-        }
-        if(groupedActive){
-          renderScatterGroupedList();
-        }else if(scatterGroupedList){
-          scatterGroupedList.innerHTML = '';
         }
         syncScatterErrorBarControls(mode);
       }
@@ -7777,6 +8051,7 @@
         }
         if(hot && typeof hot.loadData === 'function'){
           hot.loadData(structure.data);
+          normalizeScatterGroupedHeaderRow(hot, { forceGrouped: true, source: 'scatter-grouped-header-normalize' });
           updateScatterNestedHeaders(hot, { forceGrouped: true });
           syncScatterActiveDataViewFromHot(hot, 'replicate-change');
         }
@@ -7792,44 +8067,6 @@
           seriesCount: structure.seriesCount
         });
         return structure;
-      }
-
-      function removeScatterGroupedSeriesAt(index){
-        if(!isGroupedScatterModeActive()){
-          return;
-        }
-        const labels = Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [];
-        if(!labels.length){
-          return;
-        }
-        const safeIndex = Number.isInteger(index) ? index : labels.length - 1;
-        if(safeIndex < 0 || safeIndex >= labels.length || labels.length <= 1){
-          scatterDebug('Debug: scatter grouped remove skipped', { index: safeIndex, length: labels.length });
-          return;
-        }
-        labels.splice(safeIndex, 1);
-        scatterSeriesGroupLabels = labels;
-        applyScatterReplicateChange(scatterReplicates, {
-          sourceReplicates: scatterReplicates,
-          sourceFormat: SCATTER_TABLE_FORMAT_GROUPED,
-          groupLabels: labels
-        });
-      }
-
-      function addScatterGroupedSeries(){
-        if(!isGroupedScatterModeActive()){
-          return;
-        }
-        const labels = Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [];
-        const nextIndex = labels.length;
-        labels.push(`Series ${nextIndex + 1}`);
-        scatterSeriesGroupLabels = labels;
-        applyScatterReplicateChange(scatterReplicates, {
-          sourceReplicates: scatterReplicates,
-          sourceFormat: SCATTER_TABLE_FORMAT_GROUPED,
-          groupLabels: labels,
-          minSeriesCount: labels.length
-        });
       }
 
       function applyScatterTableFormatMode(requestedMode, options = {}){
@@ -10581,22 +10818,6 @@
           persistTabState('scatter-x-replicates-toggle');
         });
       }
-      if(scatterGroupedAdd){
-        scatterGroupedAdd.addEventListener('click', () => {
-          addScatterGroupedSeries();
-          persistTabState('scatter-group-add');
-        });
-      }
-      if(scatterGroupedRemove){
-        scatterGroupedRemove.addEventListener('click', () => {
-          const length = Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.length : 0;
-          const targetIndex = length > 0 ? length - 1 : -1;
-          if(targetIndex >= 0){
-            removeScatterGroupedSeriesAt(targetIndex);
-            persistTabState('scatter-group-remove');
-          }
-        });
-      }
       if(scatterGroupedToggle){
         scatterGroupedToggle.addEventListener('click', () => {
           if(!isGroupedScatterModeActive()){
@@ -11588,7 +11809,13 @@
           scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
           const normalizedYLabel = yLabelRaw && String(yLabelRaw).trim();
           const yLooksLikeReplicate = /^rep(?:licate)?\s*\d+$/i.test(normalizedYLabel || '');
-          scatterState.yLabelText = (!groupedScatterActive || !yLooksLikeReplicate)
+          const yMatchesGroupedLabel = groupedScatterActive
+            && Array.isArray(groupedYColumns)
+            && groupedYColumns.some(group => {
+              const label = group?.label == null ? '' : String(group.label).trim();
+              return !!label && normalizedYLabel && label.toLowerCase() === normalizedYLabel.toLowerCase();
+            });
+          scatterState.yLabelText = (!groupedScatterActive || (!yLooksLikeReplicate && !yMatchesGroupedLabel))
             ? (normalizedYLabel || 'Y')
             : 'Y';
           const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
@@ -16074,6 +16301,9 @@
           scatterHot.applyExclusions?.(manager.getActiveView().exclusions);
         }
         ensureScatterHeaderTitles(scatterHot);
+        if(isGroupedScatterModeActive()){
+          normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
+        }
         syncScatterActiveDataViewFromHot(scatterHot, 'payload-load');
       }
         const c=obj.config||{};

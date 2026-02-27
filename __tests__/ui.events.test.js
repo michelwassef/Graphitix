@@ -834,7 +834,7 @@ describe('UI events and example loaders', () => {
     const errorLayer = svg.querySelector('[data-layer="error-bars"]');
     expect(errorLayer).toBeTruthy();
     expect(errorLayer.querySelectorAll('line').length).toBeGreaterThan(0);
-    expect(String(hot.getColHeader(2) || '')).toMatch(/series|rep/i);
+    expect(String(hot.getColHeader(2) || '')).toMatch(/group|control|treatment|y title/i);
 
     const payload = scatterComponent.getPayload?.();
     expect(payload?.config?.tableFormat).toBe('grouped');
@@ -885,10 +885,12 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork(80);
 
     const matrix = hot.getData?.() || [];
-    expect(String(matrix?.[0]?.[1] || '')).toMatch(/x rep 1/i);
-    expect(String(matrix?.[0]?.[4] || '')).toMatch(/rep 1/i);
+    expect(String(matrix?.[0]?.[1] || '')).toMatch(/x title|x rep 1/i);
+    expect(String(matrix?.[0]?.[2] || '')).toBe('');
+    expect(String(matrix?.[0]?.[4] || '')).toMatch(/control|series/i);
+    expect(String(matrix?.[0]?.[5] || '')).toBe('');
     expect(String(hot.getColHeader(2) || '')).toMatch(/x rep 2/i);
-    expect(String(hot.getColHeader(4) || '')).toMatch(/control|series/i);
+    expect(String(hot.getColHeader(4) || '')).toMatch(/group|control|treatment/i);
 
     const showErrorBars = document.getElementById('scatterShowErrorBars');
     expect(showErrorBars).toBeTruthy();
