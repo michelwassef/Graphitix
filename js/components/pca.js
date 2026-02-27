@@ -1154,10 +1154,9 @@
           }
           const physicalRow = params?.data?.__rowIndex;
           if(
-            pcaState.tableFormat === 'grouped'
-            && Number.isInteger(physicalRow)
+            Number.isInteger(physicalRow)
             && physicalRow >= PCA_LABEL_ROW_INDEX
-            && physicalRow <= PCA_GROUPED_SAMPLE_ROW_INDEX
+            && physicalRow <= getPcaHeaderRowIndexForMode()
           ){
             baseStyle.backgroundColor = '#f5f5f5';
           }
@@ -1181,10 +1180,13 @@
           ? Object.assign({}, def.cellClassRules)
           : {};
         baseRules['pca-grouped-meta-row'] = params => (
-          pcaState.tableFormat === 'grouped'
-          && Number.isInteger(params?.data?.__rowIndex)
+          Number.isInteger(params?.data?.__rowIndex)
           && params.data.__rowIndex >= PCA_LABEL_ROW_INDEX
-          && params.data.__rowIndex <= PCA_GROUPED_SAMPLE_ROW_INDEX
+          && params.data.__rowIndex <= getPcaHeaderRowIndexForMode()
+        );
+        baseRules['pca-label-row-divider'] = params => (
+          Number.isInteger(params?.data?.__rowIndex)
+          && params.data.__rowIndex === PCA_LABEL_ROW_INDEX
         );
         baseRules['pca-grouped-header-row-divider'] = params => (
           pcaState.tableFormat === 'grouped'

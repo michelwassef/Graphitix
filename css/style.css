@@ -834,6 +834,13 @@ select {
 .ag-theme-balham .ag-cell.pca-grouped-meta-row {
     background: #f5f5f5 !important;
 }
+.ag-theme-balham .ag-cell.pca-label-row-divider {
+    border-bottom: 1px solid #d6d6d6 !important;
+}
+.ag-theme-balham .ag-pinned-top .ag-cell.pca-label-row-divider,
+.ag-theme-balham .ag-floating-top .ag-cell.pca-label-row-divider {
+    border-bottom: 1px solid #d6d6d6 !important;
+}
 .ag-theme-balham .ag-cell.pca-grouped-header-follower {
     background: #f2f5fa;
     color: #7a8597;
