@@ -1765,7 +1765,8 @@
       changes.push([0, 0, 'Labels']);
     }
     const xAnchorRaw = headerRow[1] != null ? String(headerRow[1]).trim() : '';
-    const xAnchorValue = xAnchorRaw || 'X title';
+    const genericLegacyXHeader = /^x(?:\s*(?:value|values|title))?$/i.test(xAnchorRaw);
+    const xAnchorValue = (!xAnchorRaw || genericLegacyXHeader) ? 'X title' : xAnchorRaw;
     if(String(headerRow[1] ?? '').trim() !== xAnchorValue){
       changes.push([0, 1, xAnchorValue]);
     }
@@ -7924,9 +7925,12 @@
         scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
         for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
           const col = 1 + xRep;
-          const fallback = xRep === 0 ? 'X values' : `X rep ${xRep + 1}`;
+          if(xRep === 0){
+            headers[col] = 'X values';
+            continue;
+          }
           const label = headerRow[col] != null ? String(headerRow[col]).trim() : '';
-          headers[col] = label || fallback;
+          headers[col] = label || `X rep ${xRep + 1}`;
         }
         for(let s = 0; s < seriesCount; s += 1){
           const groupLabel = scatterSeriesGroupLabels[s] || `Group ${s + 1}`;

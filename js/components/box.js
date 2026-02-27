@@ -6414,7 +6414,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7780,9 +7780,6 @@
       els.groupedToggle = global.document.getElementById('boxGroupedToggle');
       els.groupedControls = global.document.getElementById('boxGroupedControls');
     els.groupedReplicates = global.document.getElementById('boxGroupedReplicates');
-    els.groupedList = global.document.getElementById('boxGroupedList');
-    els.groupedAdd = global.document.getElementById('boxGroupedAdd');
-    els.groupedRemove = global.document.getElementById('boxGroupedRemove');
     // Controls
     els.boxColorUnified=global.$('#boxColorUnified');
     els.boxColorIndividual=global.$('#boxColorIndividual');
@@ -8286,85 +8283,316 @@
   // PART: INIT_TABLE
   function ensureGroupedDefaults(){
     if(!state.grouped || typeof state.grouped !== 'object'){
-      state.grouped = { replicatesPerGroup: 3, groups: ['Control', 'Treated'] };
+      state.grouped = { replicatesPerGroup: 3 };
     }
     const rawReplicates = Number(state.grouped.replicatesPerGroup);
-    if(!Number.isFinite(rawReplicates) || rawReplicates < 1){
-      state.grouped.replicatesPerGroup = 1;
-    }else{
-      state.grouped.replicatesPerGroup = Math.max(1, Math.round(rawReplicates));
-    }
-    if(!Array.isArray(state.grouped.groups) || !state.grouped.groups.length){
-      state.grouped.groups = ['Group 1', 'Group 2'];
-    }
-    state.grouped.groups = state.grouped.groups.map((name, idx)=>{
-      const trimmed = typeof name === 'string' ? name.trim() : '';
-      return trimmed || `Group ${idx + 1}`;
-    });
-    console.debug('Debug: ensureGroupedDefaults',{ replicates: state.grouped.replicatesPerGroup, groups: [...state.grouped.groups] });
+    state.grouped.replicatesPerGroup = Number.isFinite(rawReplicates) && rawReplicates >= 1
+      ? Math.max(1, Math.round(rawReplicates))
+      : 1;
+    console.debug('Debug: ensureGroupedDefaults',{ replicates: state.grouped.replicatesPerGroup });
   }
 
-  function buildGroupedNestedHeaders(){
-    ensureGroupedDefaults();
-    const headers = state.grouped.groups.map((name, idx)=>({ label: name || `Group ${idx + 1}`, colspan: state.grouped.replicatesPerGroup }));
+  function isBoxGroupedModeActive(){
+    return state.tableFormat === 'grouped';
+  }
+
+  function inferBoxGroupBaseName(rawValue, fallback){
+    const fallbackLabel = typeof fallback === 'string' && fallback.trim() ? fallback.trim() : 'Group 1';
+    const source = rawValue == null ? '' : String(rawValue).trim();
+    if(!source){
+      return fallbackLabel;
+    }
+    if(/^group\s*\d+\s*$/i.test(source)){
+      return source.replace(/\s+/g, ' ').trim();
+    }
+    let normalized = source.replace(/\s+title\s*$/i, '').trim();
+    if(!normalized){
+      normalized = source;
+    }
+    if(/^col(?:umn)?\s*\d+$/i.test(normalized) || /^rep(?:licate)?\s*\d+$/i.test(normalized)){
+      return fallbackLabel;
+    }
+    return normalized;
+  }
+
+  function normalizeBoxGroupHeaderAnchor(rawValue, groupIndex){
+    const source = rawValue == null ? '' : String(rawValue).trim();
+    if(!source){
+      return '';
+    }
+    if(/^col(?:umn)?\s*\d+$/i.test(source) || /^rep(?:licate)?\s*\d+$/i.test(source)){
+      return '';
+    }
+    if(/^group\s*\d+\s*title$/i.test(source)){
+      return '';
+    }
+    const titleMatch = source.match(/^(.*\S)\s+title$/i);
+    if(titleMatch){
+      const stripped = titleMatch[1].trim();
+      if(!stripped || /^group\s*\d+$/i.test(stripped)){
+        return '';
+      }
+      return stripped;
+    }
+    return source;
+  }
+
+  function getBoxGroupedReplicateCount(options = {}){
+    const candidate = options.replicates ?? state.grouped?.replicatesPerGroup;
+    const raw = Number(candidate);
+    if(!Number.isFinite(raw) || raw < 1){
+      return 1;
+    }
+    return Math.max(1, Math.round(raw));
+  }
+
+  function getBoxGroupedGroupCount(colCount, replicates){
+    const safeCols = Math.max(0, Number(colCount) || 0);
+    const safeReplicates = Math.max(1, Number(replicates) || 1);
+    if(safeCols <= 0){
+      return 2;
+    }
+    return Math.max(1, Math.ceil(safeCols / safeReplicates));
+  }
+
+  function getBoxGroupedHeaderCellRole(colIndex, options = {}){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 0){
+      return null;
+    }
+    const groupedActive = options.forceGrouped === true ? true : isBoxGroupedModeActive();
+    if(!groupedActive){
+      return null;
+    }
+    const replicates = getBoxGroupedReplicateCount(options);
+    return col % replicates === 0 ? 'groupAnchor' : 'groupFollower';
+  }
+
+  function getBoxGroupedHeaderMergeSegment(colIndex, options = {}){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 0){
+      return null;
+    }
+    const role = getBoxGroupedHeaderCellRole(col, options);
+    if(!role){
+      return null;
+    }
+    const replicates = getBoxGroupedReplicateCount(options);
+    if(role === 'groupAnchor'){
+      return replicates > 1 ? 'start' : 'single';
+    }
+    const position = col % replicates;
+    return position === replicates - 1 ? 'end' : 'middle';
+  }
+
+  function getBoxUsedColumnCount(matrix){
+    if(!Array.isArray(matrix) || !matrix.length){
+      return 0;
+    }
+    let maxUsed = -1;
+    for(let r = 0; r < matrix.length; r += 1){
+      const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      for(let c = row.length - 1; c >= 0; c -= 1){
+        const value = row[c];
+        if(value != null && String(value).trim() !== ''){
+          if(c > maxUsed){
+            maxUsed = c;
+          }
+          break;
+        }
+      }
+    }
+    return maxUsed + 1;
+  }
+
+  function getBoxUsedValueColumnCount(matrix){
+    if(!Array.isArray(matrix) || matrix.length <= 1){
+      return 0;
+    }
+    let maxUsed = -1;
+    for(let r = 1; r < matrix.length; r += 1){
+      const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      for(let c = row.length - 1; c >= 0; c -= 1){
+        const value = row[c];
+        const numeric = typeof value === 'number' ? value : parseFloat(value);
+        if(Number.isFinite(numeric)){
+          if(c > maxUsed){
+            maxUsed = c;
+          }
+          break;
+        }
+      }
+    }
+    return maxUsed + 1;
+  }
+
+  function areBoxColumnsEmpty(matrix, startCol, endCol){
+    const start = Math.max(0, Number(startCol) || 0);
+    const end = Math.max(start, Number(endCol) || start);
+    if(!Array.isArray(matrix) || !matrix.length){
+      return true;
+    }
+    for(let r = 0; r < matrix.length; r += 1){
+      const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      for(let c = start; c <= end; c += 1){
+        const value = row[c];
+        if(value != null && String(value).trim() !== ''){
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function getBoxGroupedHeaderEntries(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    const replicates = getBoxGroupedReplicateCount(options);
+    const data = Array.isArray(options.dataMatrix)
+      ? options.dataMatrix
+      : (hot?.getData ? (hot.getData() || []) : []);
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const colCount = Number.isInteger(options.colCount)
+      ? options.colCount
+      : (typeof hot?.countCols === 'function' ? hot.countCols() : headerRow.length);
+    const groupCount = Math.max(1, Number(options.minGroupCount) || getBoxGroupedGroupCount(colCount, replicates));
+    const entries = [];
+    for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
+      const startCol = groupIndex * replicates;
+      const rawTitle = headerRow[startCol] != null ? String(headerRow[startCol]).trim() : '';
+      const fallback = `Group ${groupIndex + 1}`;
+      const baseLabel = inferBoxGroupBaseName(rawTitle, fallback);
+      entries.push({
+        groupIndex,
+        startCol,
+        colspan: replicates,
+        label: baseLabel || fallback
+      });
+    }
+    return entries;
+  }
+
+  function applyBoxGroupedLabelsToHeaderRow(hotInstance, labels, options = {}){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const replicates = getBoxGroupedReplicateCount(options);
+    const sourceLabels = Array.isArray(labels) ? labels : [];
+    if(!sourceLabels.length){
+      return false;
+    }
+    const changes = [];
+    sourceLabels.forEach((label, groupIndex) => {
+      const startCol = groupIndex * replicates;
+      const normalized = normalizeBoxGroupHeaderAnchor(label, groupIndex);
+      changes.push([0, startCol, normalized]);
+      for(let repIndex = 1; repIndex < replicates; repIndex += 1){
+        changes.push([0, startCol + repIndex, '']);
+      }
+    });
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, options.source || 'box-grouped-header-normalize');
+    return true;
+  }
+
+  function normalizeBoxGroupedHeaderRow(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const groupedActive = options.forceGrouped === true ? true : isBoxGroupedModeActive();
+    if(!groupedActive){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const replicates = getBoxGroupedReplicateCount(options);
+    const colCount = typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length;
+    const groupEntries = getBoxGroupedHeaderEntries(hot, {
+      replicates,
+      colCount,
+      dataMatrix: data,
+      minGroupCount: getBoxGroupedGroupCount(colCount, replicates)
+    });
+    const targetCols = Math.max(colCount, groupEntries.length * replicates);
+    const changes = [];
+    for(let col = headerRow.length; col < targetCols; col += 1){
+      changes.push([0, col, '']);
+    }
+    groupEntries.forEach((entry, groupIndex) => {
+      const currentRaw = headerRow[entry.startCol] != null ? String(headerRow[entry.startCol]).trim() : '';
+      const nextAnchor = normalizeBoxGroupHeaderAnchor(currentRaw, groupIndex);
+      if(currentRaw !== nextAnchor){
+        changes.push([0, entry.startCol, nextAnchor]);
+      }
+      for(let repIndex = 1; repIndex < replicates; repIndex += 1){
+        const followerCol = entry.startCol + repIndex;
+        const followerValue = headerRow[followerCol];
+        if(followerValue != null && String(followerValue).trim() !== ''){
+          changes.push([0, followerCol, '']);
+        }
+      }
+    });
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, options.source || 'box-grouped-header-normalize');
+    console.debug('Debug: box grouped header row normalized', {
+      changes: changes.length,
+      replicates,
+      groupCount: groupEntries.length
+    });
+    return true;
+  }
+
+  function buildGroupedNestedHeaders(hotInstance){
+    const hot = hotInstance || state.hot;
+    const entries = getBoxGroupedHeaderEntries(hot);
+    const headers = entries.map(entry => ({ label: entry.label, colspan: entry.colspan }));
     console.debug('Debug: buildGroupedNestedHeaders',{ headers });
     return [headers];
   }
 
-  function updateGroupedHeaders(){
-    if(state.tableFormat !== 'grouped' || !state.hot){
-      console.debug('Debug: updateGroupedHeaders skipped',{ tableFormat: state.tableFormat, hasHot: !!state.hot });
-      return;
+  function buildBoxAgColHeaders(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.countCols !== 'function'){
+      return true;
     }
-    const nested = buildGroupedNestedHeaders();
-    state.hot.updateSettings({ nestedHeaders: nested });
-    console.debug('Debug: updateGroupedHeaders applied',{ nested });
+    const groupedActive = options.forceGrouped === true ? true : isBoxGroupedModeActive();
+    if(!groupedActive){
+      return true;
+    }
+    const colCount = Math.max(0, hot.countCols());
+    const replicates = getBoxGroupedReplicateCount(options);
+    const headers = new Array(colCount).fill('');
+    const groupCount = getBoxGroupedGroupCount(colCount, replicates);
+    for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
+      const startCol = groupIndex * replicates;
+      if(startCol >= colCount){
+        break;
+      }
+      headers[startCol] = `Group ${groupIndex + 1}`;
+      for(let repIndex = 1; repIndex < replicates; repIndex += 1){
+        const col = startCol + repIndex;
+        if(col < colCount){
+          headers[col] = '';
+        }
+      }
+    }
+    return headers;
   }
 
-  function renderGroupedList(){
-    if(!els.groupedList){
-      console.debug('Debug: renderGroupedList skipped no container');
+  function updateGroupedHeaders(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(state.tableFormat !== 'grouped' || !hot){
+      console.debug('Debug: updateGroupedHeaders skipped',{ tableFormat: state.tableFormat, hasHot: !!hot });
       return;
     }
-    ensureGroupedDefaults();
-    els.groupedList.innerHTML='';
-    state.grouped.groups.forEach((name, idx)=>{
-      const row = global.document.createElement('div');
-      row.className = 'grouped-row';
-      const label = global.document.createElement('label');
-      label.textContent = `Group ${idx + 1}`;
-      const input = global.document.createElement('input');
-      input.type = 'text';
-      input.value = name;
-      input.addEventListener('input', e=>{
-        state.grouped.groups[idx] = e.target.value;
-        console.debug('Debug: grouped name updated',{ index: idx, value: state.grouped.groups[idx] });
-        updateGroupedHeaders();
-        state.scheduleDraw();
-      });
-      const removeBtn = global.document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'grouped-remove';
-      removeBtn.textContent = '×';
-      removeBtn.addEventListener('click',()=>{
-        if(state.grouped.groups.length <= 1){
-          console.debug('Debug: grouped remove prevented minimum',{ length: state.grouped.groups.length });
-          return;
-        }
-        const removed = state.grouped.groups.splice(idx,1);
-        console.debug('Debug: grouped remove',{ index: idx, removed });
-        renderGroupedList();
-        applyTableFormatToHot();
-        state.scheduleDraw();
-      });
-      row.appendChild(label);
-      row.appendChild(input);
-      row.appendChild(removeBtn);
-      els.groupedList.appendChild(row);
-    });
-    if(els.groupedReplicates){
-      els.groupedReplicates.value = String(state.grouped.replicatesPerGroup);
-    }
+    const colHeaders = buildBoxAgColHeaders(hot, { forceGrouped: true });
+    hot.updateSettings({ nestedHeaders: false, colHeaders });
+    console.debug('Debug: updateGroupedHeaders applied',{ nested: false, colHeaders });
   }
 
   function adjustColumnsForGrouped(){
@@ -8373,21 +8601,24 @@
       return;
     }
     ensureGroupedDefaults();
-    const groupsCount = state.grouped.groups.length;
-    const replicates = Math.max(1, state.grouped.replicatesPerGroup);
-    const targetCols = Math.max(0, groupsCount * replicates);
+    const replicates = getBoxGroupedReplicateCount();
     const currentCols = state.hot.countCols();
+    const matrix = state.hot.getData ? (state.hot.getData() || []) : [];
+    const usedCols = getBoxUsedColumnCount(matrix);
+    const minimumCols = replicates * 2;
+    const desiredCols = Math.max(minimumCols, usedCols || minimumCols);
+    const targetCols = Math.ceil(desiredCols / replicates) * replicates;
     if(targetCols > currentCols){
       const extra = targetCols - currentCols;
       const action = currentCols > 0 ? 'insert_col_end' : 'insert_col_start';
       const index = currentCols > 0 ? currentCols - 1 : 0;
       console.debug('Debug: adjustColumnsForGrouped inserting cols', { extra, action, index, currentCols, targetCols });
       state.hot.alter(action, index, extra);
-    }else if(targetCols < currentCols){
+    }else if(targetCols < currentCols && areBoxColumnsEmpty(matrix, targetCols, currentCols - 1)){
       state.hot.alter('remove_col', targetCols, currentCols - targetCols);
     }
     state.colOrder = Array.from({ length: state.hot.countCols() }, (_, i)=>i);
-    console.debug('Debug: adjustColumnsForGrouped',{ groupsCount, replicates, targetCols, currentCols });
+    console.debug('Debug: adjustColumnsForGrouped',{ replicates, targetCols, currentCols, usedCols });
   }
 
   function applyTableFormatToHot(){
@@ -8398,11 +8629,14 @@
     if(state.tableFormat === 'grouped'){
       ensureGroupedDefaults();
       adjustColumnsForGrouped();
-      const nested = buildGroupedNestedHeaders();
-      state.hot.updateSettings({ nestedHeaders: nested });
-      console.debug('Debug: applyTableFormatToHot grouped',{ nested });
+      normalizeBoxGroupedHeaderRow(state.hot, { forceGrouped: true });
+      state.hot.updateSettings({
+        nestedHeaders: false,
+        colHeaders: buildBoxAgColHeaders(state.hot, { forceGrouped: true })
+      });
+      console.debug('Debug: applyTableFormatToHot grouped',{ nested: false });
     }else{
-      state.hot.updateSettings({ nestedHeaders: false });
+      state.hot.updateSettings({ nestedHeaders: false, colHeaders: true });
       console.debug('Debug: applyTableFormatToHot single');
     }
   }
@@ -8443,7 +8677,9 @@
         }
       }
       if(groupedActive){
-        renderGroupedList();
+        if(els.groupedReplicates){
+          els.groupedReplicates.value = String(getBoxGroupedReplicateCount());
+        }
         updateGroupedHeaders();
       }
       updateGroupedToggleUI();
@@ -8509,15 +8745,157 @@
         data,
         disablePaste: true,
         pinFirstRow: true,
+        colDefEnhancer(def, meta){
+          const colIndex = Number(meta?.colIndex);
+          if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
+            return def;
+          }
+          const existingColSpan = def.colSpan;
+          def.colSpan = params => {
+            const physicalRow = params?.data?.__rowIndex;
+            if(physicalRow === 0 && isBoxGroupedModeActive()){
+              const role = getBoxGroupedHeaderCellRole(colIndex);
+              if(role === 'groupAnchor'){
+                return getBoxGroupedReplicateCount();
+              }
+            }
+            if(typeof existingColSpan === 'function'){
+              return existingColSpan(params);
+            }
+            return Number.isFinite(existingColSpan) && existingColSpan > 0
+              ? Math.floor(existingColSpan)
+              : 1;
+          };
+          const existingCellStyle = def.cellStyle;
+          def.cellStyle = params => {
+            let baseStyle = {};
+            if(typeof existingCellStyle === 'function'){
+              const resolved = existingCellStyle(params);
+              if(resolved && typeof resolved === 'object'){
+                baseStyle = Object.assign({}, resolved);
+              }
+            }else if(existingCellStyle && typeof existingCellStyle === 'object'){
+              baseStyle = Object.assign({}, existingCellStyle);
+            }
+            const physicalRow = params?.data?.__rowIndex;
+            if(physicalRow === 0 && isBoxGroupedModeActive()){
+              const role = getBoxGroupedHeaderCellRole(colIndex);
+              if(role === 'groupAnchor'){
+                baseStyle.textAlign = 'center';
+                baseStyle.justifyContent = 'center';
+                baseStyle.fontWeight = '600';
+              }else if(role === 'groupFollower'){
+                baseStyle.textAlign = 'center';
+                baseStyle.justifyContent = 'center';
+              }
+            }
+            return baseStyle;
+          };
+          const existingHeaderClass = def.headerClass;
+          def.headerClass = params => {
+            const classes = [];
+            const pushClass = value => {
+              if(!value){
+                return;
+              }
+              if(Array.isArray(value)){
+                value.forEach(pushClass);
+                return;
+              }
+              if(typeof value === 'string'){
+                value.split(/\s+/).filter(Boolean).forEach(token => classes.push(token));
+              }
+            };
+            if(typeof existingHeaderClass === 'function'){
+              pushClass(existingHeaderClass(params));
+            }else{
+              pushClass(existingHeaderClass);
+            }
+            if(isBoxGroupedModeActive()){
+              const role = getBoxGroupedHeaderCellRole(colIndex);
+              if(role === 'groupAnchor' || role === 'groupFollower'){
+                classes.push('box-group-colheader');
+                const segment = getBoxGroupedHeaderMergeSegment(colIndex);
+                if(segment === 'start'){
+                  classes.push('box-group-colheader-merge-start');
+                }else if(segment === 'middle'){
+                  classes.push('box-group-colheader-merge-middle');
+                }else if(segment === 'end'){
+                  classes.push('box-group-colheader-merge-end');
+                }
+              }
+            }
+            return classes;
+          };
+          const existingEditable = def.editable;
+          def.editable = params => {
+            const physicalRow = params?.data?.__rowIndex;
+            if(physicalRow === 0){
+              const role = getBoxGroupedHeaderCellRole(colIndex);
+              if(role === 'groupFollower'){
+                return false;
+              }
+            }
+            return typeof existingEditable === 'function'
+              ? existingEditable(params)
+              : existingEditable !== false;
+          };
+          const existingRules = def.cellClassRules && typeof def.cellClassRules === 'object'
+            ? Object.assign({}, def.cellClassRules)
+            : {};
+          existingRules['box-grouped-header-anchor'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getBoxGroupedHeaderCellRole(colIndex) === 'groupAnchor';
+          };
+          existingRules['box-grouped-header-follower'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getBoxGroupedHeaderCellRole(colIndex) === 'groupFollower';
+          };
+          existingRules['box-grouped-header-merge-start'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getBoxGroupedHeaderMergeSegment(colIndex) === 'start';
+          };
+          existingRules['box-grouped-header-merge-middle'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getBoxGroupedHeaderMergeSegment(colIndex) === 'middle';
+          };
+          existingRules['box-grouped-header-merge-end'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getBoxGroupedHeaderMergeSegment(colIndex) === 'end';
+          };
+          def.cellClassRules = existingRules;
+          return def;
+        },
         hotOptions: {
           manualColumnMove: true,
           afterChange(changes, source){
             if(!changes || source === 'loadData') return;
             console.log('boxplot afterChange', { count: changes.length, source });
+            if(isBoxGroupedModeActive()){
+              const headerTouched = changes.some(change => Number(change?.[0]) === 0);
+              if(headerTouched && source !== 'box-grouped-header-normalize'){
+                normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
+              }
+              updateGroupedHeaders(instance);
+            }
             revalidateActiveBoxLogScale('data-edit');
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterLoadData(){
+            if(isBoxGroupedModeActive()){
+              normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
+              updateGroupedHeaders(instance);
+            }
             syncBoxActiveDataViewFromHot(instance, 'afterLoadData');
           },
           afterSelectionEnd(){
@@ -8526,11 +8904,19 @@
           afterCreateCol(){
             state.selectedCols.clear();
             console.debug('Debug: box afterCreateCol cleared selection');
+            if(isBoxGroupedModeActive()){
+              normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
+              updateGroupedHeaders(instance);
+            }
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
             state.selectedCols.clear();
             console.debug('Debug: box afterRemoveCol cleared selection');
+            if(isBoxGroupedModeActive()){
+              normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
+              updateGroupedHeaders(instance);
+            }
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterUndo(){
@@ -8542,6 +8928,10 @@
           afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
             if(orderChanged){
               console.log('boxplot afterColumnMove');
+              if(isBoxGroupedModeActive()){
+                normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
+                updateGroupedHeaders(instance);
+              }
               syncBoxActiveDataViewFromHot(instance, 'afterChange');
             }
           }
@@ -8709,7 +9099,7 @@
       [15.5,17.3,16.6],
       [17.6,20,21.1]
     ];
-    const exampleGrouped=[['Wild type','Knock-out A','Knock-out B','Wild type','Knock-out A','Knock-out B'],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
+    const exampleGrouped=[['Control','','','Treated','',''],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
     loadExampleBtn.addEventListener('click',()=>{
       const hot = state.ensureHotForActiveTab?.() || state.hot;
@@ -8727,11 +9117,11 @@
       state.selectedCols.clear();
       if(state.tableFormat === 'grouped'){
         state.grouped.replicatesPerGroup = 3;
-        state.grouped.groups = ['Control','Treated'];
-        renderGroupedList();
         updateTableFormatUI();
         applyTableFormatToHot();
         hot.loadData(exampleGrouped);
+        normalizeBoxGroupedHeaderRow(hot, { forceGrouped: true });
+        updateGroupedHeaders(hot);
         console.log('boxplot grouped example loaded');
       }else{
         hot.loadData(exampleSingle);
@@ -8909,32 +9299,6 @@
         const resolved = Number.isFinite(raw) && raw >= 1 ? Math.round(raw) : state.grouped.replicatesPerGroup;
         state.grouped.replicatesPerGroup = resolved;
         console.debug('Debug: grouped replicates change',{ raw, resolved });
-        renderGroupedList();
-        applyTableFormatToHot();
-        state.scheduleDraw();
-      });
-    }
-    if(els.groupedAdd){
-      els.groupedAdd.addEventListener('click',()=>{
-        ensureGroupedDefaults();
-        const nextLabel = `Group ${state.grouped.groups.length + 1}`;
-        state.grouped.groups.push(nextLabel);
-        console.debug('Debug: grouped add button',{ nextLabel, groups: [...state.grouped.groups] });
-        renderGroupedList();
-        applyTableFormatToHot();
-        state.scheduleDraw();
-      });
-    }
-    if(els.groupedRemove){
-      els.groupedRemove.addEventListener('click',()=>{
-        ensureGroupedDefaults();
-        if(state.grouped.groups.length <= 1){
-          console.debug('Debug: grouped remove button blocked',{ length: state.grouped.groups.length });
-          return;
-        }
-        const removed = state.grouped.groups.pop();
-        console.debug('Debug: grouped remove button',{ removed, groups: [...state.grouped.groups] });
-        renderGroupedList();
         applyTableFormatToHot();
         state.scheduleDraw();
       });
@@ -11326,10 +11690,7 @@
     ensureGroupedDefaults();
     ensureGroupedStatsDefaults();
     const hotInstance = state.hot;
-    const groups = Array.isArray(state.grouped?.groups) ? state.grouped.groups : [];
-    const groupsCount = groups.length;
-    const replicatesRaw = Number(state.grouped?.replicatesPerGroup);
-    const conditionsCount = Number.isFinite(replicatesRaw) && replicatesRaw >= 1 ? Math.round(replicatesRaw) : 1;
+    const conditionsCount = getBoxGroupedReplicateCount();
     const axisLabelsSource = Array.isArray(helpers?.axisLabels) && helpers.axisLabels.length >= conditionsCount
       ? helpers.axisLabels
       : (Array.isArray(state.lastAxisLabels) && state.lastAxisLabels.length >= conditionsCount ? state.lastAxisLabels : []);
@@ -11341,13 +11702,22 @@
     }
     if(!hotInstance || typeof hotInstance.getData !== 'function'){
       console.debug('Debug: prepareGroupedStatsData missing hot instance');
-      return { ok: false, message: 'Table data unavailable for grouped analysis.', groupsCount, conditionsCount, groupLabels: [], conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
+      return { ok: false, message: 'Table data unavailable for grouped analysis.', groupsCount: 0, conditionsCount, groupLabels: [], conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
     }
     const tableData = hotInstance.getData();
-    const normalizedGroups = groups.map((name, idx)=>{
-      const trimmed = typeof name === 'string' ? name.trim() : '';
-      return trimmed || `Group ${idx + 1}`;
+    const colCount = typeof hotInstance.countCols === 'function'
+      ? hotInstance.countCols()
+      : (Array.isArray(tableData[0]) ? tableData[0].length : 0);
+    const usedValueCols = getBoxUsedValueColumnCount(tableData);
+    const effectiveCols = Math.max(conditionsCount * 2, usedValueCols || 0);
+    const groupedHeaders = getBoxGroupedHeaderEntries(hotInstance, {
+      replicates: conditionsCount,
+      colCount: effectiveCols || colCount,
+      dataMatrix: tableData,
+      minGroupCount: getBoxGroupedGroupCount(effectiveCols || colCount, conditionsCount)
     });
+    const normalizedGroups = groupedHeaders.map(entry => entry.label || `Group ${entry.groupIndex + 1}`);
+    const groupsCount = normalizedGroups.length;
     if(!groupsCount){
       return { ok: false, message: 'Add at least one group to run grouped analyses.', groupsCount, conditionsCount, groupLabels: normalizedGroups, conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
     }
@@ -16310,8 +16680,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const isStackedLayout = layoutMode === 'stacked';
     const usesGroupedSpacing = isGroupedMode && layoutMode === 'interleaved';
-    const groupedGroups = isGroupedMode ? state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }) : [];
-    const groupedReplicates = isGroupedMode ? Math.max(1, state.grouped.replicatesPerGroup) : 1;
+    let groupedGroups = [];
+    let groupedReplicates = 1;
     const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(!hot){
       if(Shared.isDebugEnabled?.()){
@@ -16323,6 +16693,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const dataMatrix = analysis.data || [];
     nCols = analysis.colCount || hot.countCols?.() || (dataMatrix[0]?.length || 0);
     nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
+    if(isGroupedMode){
+      groupedReplicates = getBoxGroupedReplicateCount();
+      const usedValueCols = getBoxUsedValueColumnCount(dataMatrix);
+      const effectiveCols = Math.max(groupedReplicates * 2, usedValueCols || 0);
+      const groupedHeaderEntries = getBoxGroupedHeaderEntries(hot, {
+        replicates: groupedReplicates,
+        colCount: effectiveCols || nCols,
+        dataMatrix,
+        minGroupCount: getBoxGroupedGroupCount(effectiveCols || nCols, groupedReplicates)
+      });
+      groupedGroups = groupedHeaderEntries.map(entry => entry.label || `Group ${entry.groupIndex + 1}`);
+    }
     console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
     if(!isGroupedMode){
       const collectPerf = perfApi?.start('box.data.collect', {
@@ -16409,9 +16791,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       const replicateEntries = [];
       const groupEntries = groupedGroups.map((groupName, gIdx)=>({ groupName, groupIndex: gIdx, replicates: [] }));
+      const conditionLabels = Array.from({ length: groupedReplicates }, (_, idx) => `Condition ${idx + 1}`);
       for(let repIdx = 0; repIdx < groupedReplicates; repIdx++){
         const replicateBucket = [];
-        let categoryName = '';
         for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
           const groupName = groupedGroups[gIdx];
           const colIndex = gIdx * groupedReplicates + repIdx;
@@ -16422,11 +16804,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           if(analysis.isColumnExcluded?.(colIndex)){
             console.debug('Debug: grouped column excluded',{ colIndex, gIdx, repIdx });
             continue;
-          }
-          const headerCell = dataMatrix?.[0]?.[colIndex];
-          const headerText = headerCell && String(headerCell).trim();
-          if(headerText && !categoryName){
-            categoryName = headerText;
           }
           const values = [];
           console.time(`boxColCollect_${colIndex}_${token}`);
@@ -16459,7 +16836,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx });
           continue;
         }
-        const finalCategoryName = categoryName || `Category ${replicateEntries.length + 1}`;
+        const finalCategoryName = conditionLabels[repIdx] || `Condition ${repIdx + 1}`;
         replicateBucket.forEach(entry => { entry.replicateName = finalCategoryName; });
         replicateEntries.push({ name: finalCategoryName, replicateIndex: repIdx, traces: replicateBucket });
       }
@@ -20107,6 +20484,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const violinState = ensureViolinState();
     ensureWhiskerState();
     const significanceStyle = ensureSignificanceStyle();
+    const groupedHeaderLabels = getBoxGroupedHeaderEntries(activeHot, {
+      replicates: getBoxGroupedReplicateCount(),
+      minGroupCount: 2
+    }).map(entry => entry.label);
     const payload = {
       type:'box',
       version:4,
@@ -20159,7 +20540,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         tableFormat: state.tableFormat,
         grouped: {
           replicatesPerGroup: state.grouped?.replicatesPerGroup,
-          groups: Array.isArray(state.grouped?.groups) ? [...state.grouped.groups] : []
+          groups: groupedHeaderLabels
         },
         whisker: {
           rule: state.whiskerRule,
@@ -20571,6 +20952,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
     toggleColorMode();
     const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
+    let restoredGroupedLabels = [];
     if(c.grouped && typeof c.grouped === 'object'){
       const groupCfg = c.grouped;
       const repValue = Number(groupCfg.replicatesPerGroup);
@@ -20578,13 +20960,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         state.grouped.replicatesPerGroup = Math.round(repValue);
       }
       if(Array.isArray(groupCfg.groups) && groupCfg.groups.length){
-        state.grouped.groups = groupCfg.groups.map((name, idx)=>{
+        restoredGroupedLabels = groupCfg.groups.map((name, idx)=>{
           const trimmed = typeof name === 'string' ? name.trim() : '';
           return trimmed || `Group ${idx + 1}`;
         });
       }
     }
     setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
+    if(restoredFormat === 'grouped' && restoredGroupedLabels.length){
+      const activeHot = state.ensureHotForActiveTab?.() || state.hot;
+      if(activeHot){
+        const replicates = getBoxGroupedReplicateCount();
+        const requiredCols = replicates * restoredGroupedLabels.length;
+        const currentCols = typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0;
+        if(requiredCols > currentCols){
+          activeHot.alter(currentCols > 0 ? 'insert_col_end' : 'insert_col_start', currentCols > 0 ? currentCols - 1 : 0, requiredCols - currentCols);
+        }
+        applyBoxGroupedLabelsToHeaderRow(activeHot, restoredGroupedLabels, { source: 'box-grouped-header-load' });
+        normalizeBoxGroupedHeaderRow(activeHot, { forceGrouped: true, source: 'box-grouped-header-normalize' });
+        updateGroupedHeaders(activeHot);
+      }
+    }
     els.boxYMin.value=c.yMin||'';
     els.boxYMax.value=c.yMax||'';
     state.flipAxes=!!c.flipAxes;
@@ -20769,7 +21165,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       hasPairsText: !!state.statsPairsText
     });
     const colorPickerRestoreLabels = state.tableFormat === 'grouped'
-      ? (ensureGroupedDefaults(), state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }))
+      ? getBoxGroupedHeaderEntries(state.hot, {
+          replicates: getBoxGroupedReplicateCount(),
+          minGroupCount: 2
+        }).map(entry => entry.label)
       : labels;
     console.debug('Debug: box restore color labels',{ tableFormat: state.tableFormat, labelCount: colorPickerRestoreLabels.length });
     if(els.boxColorIndividual.checked){ updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' }); } else { els.boxColorPerBox.innerHTML=''; }

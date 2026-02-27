@@ -666,6 +666,60 @@ describe('UI events and example loaders', () => {
     }
   });
 
+  test('Box Plot: grouped mode uses row-1 group titles and removes manual group list controls', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork(20);
+
+    const boxComponent = window.Components?.box;
+    expect(boxComponent).toBeTruthy();
+    const state = boxComponent.__getState?.();
+    const hot = state?.hot;
+    expect(hot).toBeTruthy();
+
+    const formatSelect = document.getElementById('boxTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(40);
+    const groupedInitial = hot.getData?.() || [];
+    expect(String(groupedInitial?.[0]?.[0] || '')).toBe('');
+    expect(String(groupedInitial?.[0]?.[3] || '')).toBe('');
+
+    expect(document.getElementById('boxGroupedList')).toBeNull();
+    expect(document.getElementById('boxGroupedAdd')).toBeNull();
+    expect(document.getElementById('boxGroupedRemove')).toBeNull();
+
+    const replicatesInput = document.getElementById('boxGroupedReplicates');
+    expect(replicatesInput).toBeTruthy();
+    replicatesInput.value = '3';
+    replicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(40);
+
+    hot.loadData([
+      ['Control', '', '', 'Treated', '', ''],
+      [10, 11, 12, 20, 21, 22],
+      [13, 14, 15, 23, 24, 25]
+    ]);
+    await flushAsyncWork(60);
+
+    const matrix = hot.getData?.() || [];
+    expect(String(matrix?.[0]?.[0] || '')).toBe('Control');
+    expect(String(matrix?.[0]?.[1] || '')).toBe('');
+    expect(String(matrix?.[0]?.[3] || '')).toBe('Treated');
+    expect(String(matrix?.[0]?.[4] || '')).toBe('');
+
+    const payload = boxComponent.getPayload?.();
+    expect(payload?.config?.tableFormat).toBe('grouped');
+    expect(payload?.config?.grouped?.replicatesPerGroup).toBe(3);
+    expect(payload?.config?.grouped?.groups).toEqual(['Control', 'Treated']);
+
+    boxComponent.loadFromPayload(payload);
+    await flushAsyncWork(60);
+    const reloaded = hot.getData?.() || [];
+    expect(String(reloaded?.[0]?.[0] || '')).toBe('Control');
+    expect(String(reloaded?.[0]?.[3] || '')).toBe('Treated');
+  }, 20000);
+
   test('Scatter Plot: additional axis ticks/lines persist from FORMAT controls', async () => {
     await activateWorkspace('scatter');
     const loadBtn = document.getElementById('scatterLoadExample');

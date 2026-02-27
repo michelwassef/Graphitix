@@ -3746,10 +3746,154 @@
       .replace(/\s*(?:rep(?:licate)?|r)\s*#?\d+$/i,'')
       .replace(/\s*[:\-]\s*y\d+$/i,'')
       .replace(/\s*y\d+$/i,'')
+      .replace(/\s+title$/i,'')
       .trim();
     const result = cleaned || fallback;
     console.debug('Debug: inferSeriesBaseName',{ label: raw, result, fallback });
     return result;
+  }
+
+  function isLineGroupedModeActive(){
+    return refs.replicateMode?.value === 'grouped' && lineViewState.viewMode !== '3d';
+  }
+
+  function getLineGroupedHeaderCellRole(colIndex){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 0 || !isLineGroupedModeActive()){
+      return null;
+    }
+    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
+    if(col === 0){
+      return 'xAnchor';
+    }
+    const offset = col - 1;
+    if(replicates <= 1){
+      return 'groupAnchor';
+    }
+    return offset % replicates === 0 ? 'groupAnchor' : 'groupFollower';
+  }
+
+  function getLineGroupedHeaderMergeSegment(colIndex){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 0){
+      return null;
+    }
+    const role = getLineGroupedHeaderCellRole(col);
+    if(!role){
+      return null;
+    }
+    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
+    if(role === 'xAnchor'){
+      return 'single';
+    }
+    if(role === 'groupAnchor'){
+      return replicates > 1 ? 'start' : 'single';
+    }
+    const position = (col - 1) % replicates;
+    return position === replicates - 1 ? 'end' : 'middle';
+  }
+
+  function normalizeLineGroupedHeaderRow(hotInstance, options = {}){
+    const hot = hotInstance || lineHot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    if(!isLineGroupedModeActive()){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
+    const colCount = typeof hot.countCols === 'function'
+      ? hot.countCols()
+      : headerRow.length;
+    const seriesCount = Math.max(1, Math.ceil(Math.max(0, colCount - 1) / Math.max(replicates, 1)));
+    const targetCols = 1 + seriesCount * replicates;
+    const changes = [];
+    for(let c = headerRow.length; c < targetCols; c += 1){
+      changes.push([0, c, '']);
+    }
+    const xRaw = headerRow[0] != null ? String(headerRow[0]).trim() : '';
+    const xValue = xRaw || 'X title';
+    if(String(headerRow[0] ?? '').trim() !== xValue){
+      changes.push([0, 0, xValue]);
+    }
+    const nextLabels = new Array(seriesCount).fill('');
+    for(let s = 0; s < seriesCount; s += 1){
+      const startCol = 1 + s * replicates;
+      const currentRaw = headerRow[startCol] != null ? String(headerRow[startCol]).trim() : '';
+      const fallbackTitle = `Group ${s + 1} title`;
+      const genericLegacyHeader = !currentRaw
+        || /^series\s*\d+$/i.test(currentRaw)
+        || /^col(?:umn)?\s*\d+$/i.test(currentRaw)
+        || /^rep(?:licate)?\s*\d+$/i.test(currentRaw)
+        || /^y\s*title$/i.test(currentRaw)
+        || /^z\s*title$/i.test(currentRaw);
+      let normalizedAnchor = fallbackTitle;
+      if(!genericLegacyHeader){
+        const stripped = currentRaw
+          .replace(/\s*\(?(?:rep(?:licate)?|r)\s*#?\d+\)?$/i, '')
+          .replace(/\s*[:\-]\s*(?:rep(?:licate)?|r)\s*#?\d+$/i, '')
+          .replace(/\s*(?:rep(?:licate)?|r)\s*#?\d+$/i, '')
+          .replace(/\s*[:\-]\s*$/, '')
+          .trim();
+        normalizedAnchor = stripped || fallbackTitle;
+      }
+      nextLabels[s] = inferSeriesBaseName(normalizedAnchor || `Group ${s + 1}`, `Group ${s + 1}`);
+      if(currentRaw !== normalizedAnchor){
+        changes.push([0, startCol, normalizedAnchor]);
+      }
+      for(let rep = 1; rep < replicates; rep += 1){
+        const col = startCol + rep;
+        const value = headerRow[col];
+        if(value != null && String(value).trim() !== ''){
+          changes.push([0, col, '']);
+        }
+      }
+    }
+    if(nextLabels.length){
+      lineSeriesGroupLabels = nextLabels.slice();
+    }
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, options.source || 'line-grouped-header-normalize');
+    console.debug('Debug: line grouped header row normalized', {
+      changes: changes.length,
+      seriesCount,
+      replicates
+    });
+    return true;
+  }
+
+  function buildLineAgColHeaders(hotInstance, options = {}){
+    const hot = hotInstance || lineHot;
+    if(!hot){
+      return true;
+    }
+    const groupedActive = options.forceGrouped === true ? true : isLineGroupedModeActive();
+    if(!groupedActive){
+      return true;
+    }
+    const colCount = typeof hot.countCols === 'function' ? hot.countCols() : LINE_DEFAULT_COLS;
+    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
+    const headers = new Array(Math.max(colCount, 1)).fill('');
+    headers[0] = 'X values';
+    const seriesCount = Math.max(1, Math.ceil(Math.max(0, headers.length - 1) / Math.max(replicates, 1)));
+    for(let s = 0; s < seriesCount; s += 1){
+      const startCol = 1 + s * replicates;
+      if(startCol >= headers.length){
+        break;
+      }
+      headers[startCol] = `Group ${s + 1}`;
+      for(let rep = 1; rep < replicates; rep += 1){
+        const col = startCol + rep;
+        if(col < headers.length){
+          headers[col] = ' ';
+        }
+      }
+    }
+    return headers;
   }
 
   function padRowToLength(row, targetLength){
@@ -3829,11 +3973,7 @@
   }
 
   function getLineGroupedListCount(){
-    if(!refs.groupedList){
-      return 0;
-    }
-    const rows = refs.groupedList.querySelectorAll?.('.grouped-row');
-    return rows ? rows.length : 0;
+    return Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
   }
 
   function ensureLineGroupShapeCapacity(count){
@@ -4040,38 +4180,27 @@
       shapes: lineGroupShapes.slice()
     }); // Debug: group label sync trace
     const newHeader = new Array(targetCols).fill('');
-    newHeader[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X';
+    newHeader[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X title';
     for(let s=0;s<seriesCount;s++){
       const groupLabel = lineSeriesGroupLabels[s] || `Series ${s+1}`;
       const groupLabelLower = groupLabel ? String(groupLabel).trim().toLowerCase() : '';
       for(let rep=0;rep<targetCount;rep++){
         const newIdx = 1 + s*targetCount + rep;
         if(newIdx >= targetCols) continue;
-        let label = '';
-        if(rep < sourceCount){
-          const oldIdx = 1 + s*sourceCount + rep;
-          if(oldIdx < headerRow.length){
-            label = headerRow[oldIdx];
-          }
-        }
-        const labelTrimmed = typeof label === 'string' ? label.trim() : '';
         if(targetCount > 1){
-          if(!labelTrimmed){
-            label = `Rep ${rep+1}`;
-          }else{
-            const lower = labelTrimmed.toLowerCase();
-            const repMatch = /rep\s*\d+$/i.test(labelTrimmed);
-            const baseMatch = lower === groupLabelLower || (groupLabelLower && lower.startsWith(groupLabelLower) && repMatch);
-            if(baseMatch){
-              label = `Rep ${rep+1}`;
-            }else{
-              label = labelTrimmed;
+          newHeader[newIdx] = rep === 0 ? groupLabel : '';
+        }else{
+          let label = '';
+          if(rep < sourceCount){
+            const oldIdx = 1 + s*sourceCount + rep;
+            if(oldIdx < headerRow.length){
+              label = headerRow[oldIdx];
             }
           }
-        }else{
+          const labelTrimmed = typeof label === 'string' ? label.trim() : '';
           label = labelTrimmed || groupLabel;
+          newHeader[newIdx] = label;
         }
-        newHeader[newIdx] = label;
       }
     }
     const newData = new Array(totalRows);
@@ -4102,82 +4231,39 @@
 
   function updateLineNestedHeaders(structure){
     if(!lineHot) return;
-    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
-    if(replicates <= 1){
-      lineHot.updateSettings({ nestedHeaders: false });
-      console.debug('Debug: updateLineNestedHeaders disabled',{ replicates });
-      return;
+    const groupedActive = isLineGroupedModeActive() && lineReplicates > LINE_MIN_REPLICATES;
+    const hotRoot = lineHot.rootElement
+      || lineHot.__lineHostContainer
+      || refs.hotContainer
+      || document.getElementById('lineHot');
+    if(hotRoot && hotRoot.classList){
+      hotRoot.classList.toggle('line-grouped-header-merge', !!groupedActive);
     }
-    let baseNames = Array.isArray(structure?.baseNames) ? structure.baseNames.slice() : [];
-    let seriesCount = structure?.seriesCount;
-    let headerRow = structure?.data ? structure.data[0] : null;
-    if(!seriesCount || !baseNames.length){
-      const data = lineHot.getData();
-      headerRow = Array.isArray(data?.[0]) ? data[0] : [];
-      seriesCount = Math.max(0, Math.floor(((headerRow?.length || 1) - 1) / replicates));
-      baseNames = [];
-      for(let s=0;s<seriesCount;s++){
-        const fallback = `Series ${s+1}`;
-        const idx = 1 + s*replicates;
-        const label = headerRow?.[idx];
-        baseNames.push(inferSeriesBaseName(label, fallback));
+    if(hotRoot?.style){
+      if(groupedActive){
+        hotRoot.style.setProperty('--scatter-group-span', String(Math.max(LINE_MIN_REPLICATES, lineReplicates)));
+      }else{
+        hotRoot.style.removeProperty('--scatter-group-span');
       }
     }
-    const nestedRow = [];
-    const xHeaderLabel = 'X values';
-    nestedRow.push({ label: xHeaderLabel, colspan: 1 });
-    for(let s=0;s<seriesCount;s++){
-      const stored = lineSeriesGroupLabels?.[s];
-      const label = stored && String(stored).trim() ? String(stored).trim() : (baseNames[s] || `Series ${s+1}`);
-      nestedRow.push({ label, colspan: replicates });
+    if(!groupedActive){
+      lineHot.updateSettings({ nestedHeaders: false, colHeaders: true });
+      console.debug('Debug: updateLineNestedHeaders disabled',{ replicates: lineReplicates });
+      return;
     }
-    lineHot.updateSettings({ nestedHeaders: [nestedRow] });
-    applyLineNestedHeaderEditors();
-    console.debug('Debug: updateLineNestedHeaders applied',{ replicates, seriesCount, baseNames, labels: lineSeriesGroupLabels.slice(), xHeaderLabel });
+    lineHot.updateSettings({
+      nestedHeaders: false,
+      colHeaders: buildLineAgColHeaders(lineHot, { forceGrouped: true })
+    });
+    console.debug('Debug: updateLineNestedHeaders applied',{
+      grouped: true,
+      replicates: lineReplicates,
+      headers: buildLineAgColHeaders(lineHot, { forceGrouped: true })
+    });
   }
 
   function applyLineNestedHeaderEditors(){
-    if(!lineHot || lineReplicates <= 1) return;
-    const root = lineHot.rootElement;
-    if(!root) return;
-    const headRows = root.querySelectorAll?.('thead tr');
-    if(!headRows || !headRows.length) return;
-    const topRow = headRows[0];
-    if(!topRow) return;
-    const headerCells = topRow.querySelectorAll?.('th');
-    if(!headerCells || !headerCells.length) return;
-    headerCells.forEach((cell, index)=>{
-      if(!cell) return;
-      if(index === 0){
-        const current = cell.textContent?.trim();
-        if(current !== 'X values'){
-          cell.textContent = 'X values';
-        }
-        cell.dataset.lineHeaderRole = 'x-values';
-        return;
-      }
-      const groupIndex = index - 1;
-      const target = cell.querySelector?.('.ht_nestingLabel') || cell.querySelector?.('.ht__nested-header-label') || cell.querySelector?.('.ht__header-content') || cell;
-      if(!target) return;
-      if(target.dataset?.lineGroupEditable === '1') return;
-      target.dataset.lineGroupEditable = '1';
-      target.dataset.lineGroupIndex = String(groupIndex);
-      makeEditableHelper(target, text => {
-        updateLineSeriesGroupLabel(groupIndex, text);
-      }, {
-        promptMessage: 'Edit series group name',
-        onEditStart: ()=>{
-          console.debug('Debug: line group header edit start',{ index: groupIndex });
-        },
-        onEditEnd: (_node, value)=>{
-          console.debug('Debug: line group header edit end',{ index: groupIndex, value });
-        }
-      });
-    });
-    console.debug('Debug: applyLineNestedHeaderEditors complete', {
-      headerCount: headerCells.length,
-      replicates: lineReplicates
-    });
+    return;
   }
 
   function updateLineSeriesGroupLabel(index, nextText){
@@ -4207,9 +4293,6 @@
       renderLine3dList();
     }else{
       updateLineNestedHeaders();
-      if(lineReplicates > LINE_MIN_REPLICATES){
-        renderLineGroupedList();
-      }
     }
     scheduleLineDraw();
   }
@@ -4239,14 +4322,12 @@
     updateLineReplicateModeControls();
     if(lineHot){
       lineHot.loadData(structure.data);
+      if(isLineGroupedModeActive()){
+        normalizeLineGroupedHeaderRow(lineHot, { source: 'line-grouped-header-normalize' });
+      }
       updateLineNestedHeaders(structure);
     }
     console.debug('Debug: applyLineReplicateChange',{ requested:newCount, normalized, sourceReplicates, seriesCount: structure.seriesCount, targetCols: structure.targetCols, shouldResetLabels });
-    if(lineReplicates > LINE_MIN_REPLICATES){
-      renderLineGroupedList();
-    }else if(refs.groupedList){
-      refs.groupedList.innerHTML = '';
-    }
     if(!options?.skipDraw){
       scheduleLineDraw();
     }
@@ -4303,21 +4384,13 @@
     if(refs.replicatesInput){
       refs.replicatesInput.disabled = mode !== 'grouped';
     }
-    if(refs.groupedAdd){
-      refs.groupedAdd.disabled = mode !== 'grouped';
-    }
-    if(refs.groupedRemove){
-      refs.groupedRemove.disabled = mode !== 'grouped';
-    }
     if(refs.threeDAdd){
       refs.threeDAdd.disabled = mode !== '3d';
     }
     if(refs.threeDRemove){
       refs.threeDRemove.disabled = mode !== '3d';
     }
-    if(mode === 'grouped'){
-      renderLineGroupedList();
-    }else if(mode === '3d'){
+    if(mode === '3d'){
       renderLine3dList();
     }
   }
@@ -9738,9 +9811,6 @@
       refs.groupedToggle=document.getElementById('lineGroupedToggle');
       refs.replicatesContainer=document.getElementById('lineGroupedControls');
       refs.replicatesInput=document.getElementById('lineReplicates');
-    refs.groupedList=document.getElementById('lineGroupedList');
-    refs.groupedAdd=document.getElementById('lineGroupedAdd');
-    refs.groupedRemove=document.getElementById('lineGroupedRemove');
     refs.threeDControls=document.getElementById('line3dControls');
     refs.threeDList=document.getElementById('line3dList');
     refs.threeDAdd=document.getElementById('line3dAdd');
@@ -9788,23 +9858,6 @@
         }
       });
     }
-      if(refs.groupedAdd){
-        refs.groupedAdd.addEventListener('click',()=>{
-          console.debug('Debug: line grouped add button');
-          addLineGroup();
-        });
-      }
-      if(refs.groupedRemove){
-        refs.groupedRemove.addEventListener('click',()=>{
-          const listCount = getLineGroupedListCount();
-          const length = listCount || (Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0);
-          const targetIndex = length > 0 ? length - 1 : -1;
-          console.debug('Debug: line grouped remove button',{ length, targetIndex });
-          if(targetIndex >= 0){
-            removeLineGroupAt(targetIndex);
-          }
-        });
-      }
       if(refs.groupedToggle){
         refs.groupedToggle.addEventListener('click', ()=>{
           if(refs.replicateMode?.value !== 'grouped'){
@@ -10274,11 +10327,148 @@
         pinFirstColumn: true,
         pinFirstRow: true,
         rowSelection: null,
+        colDefEnhancer(def, meta){
+          const colIndex = Number(meta?.colIndex);
+          if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
+            return def;
+          }
+          const existingColSpan = def.colSpan;
+          def.colSpan = params => {
+            const physicalRow = params?.data?.__rowIndex;
+            if(physicalRow === 0 && isLineGroupedModeActive()){
+              const role = getLineGroupedHeaderCellRole(colIndex);
+              if(role === 'groupAnchor'){
+                return Math.max(LINE_MIN_REPLICATES, lineReplicates);
+              }
+            }
+            if(typeof existingColSpan === 'function'){
+              return existingColSpan(params);
+            }
+            return Number.isFinite(existingColSpan) && existingColSpan > 0
+              ? Math.floor(existingColSpan)
+              : 1;
+          };
+          const existingCellStyle = def.cellStyle;
+          def.cellStyle = params => {
+            let baseStyle = {};
+            if(typeof existingCellStyle === 'function'){
+              const resolved = existingCellStyle(params);
+              if(resolved && typeof resolved === 'object'){
+                baseStyle = Object.assign({}, resolved);
+              }
+            }else if(existingCellStyle && typeof existingCellStyle === 'object'){
+              baseStyle = Object.assign({}, existingCellStyle);
+            }
+            if(params?.data?.__rowIndex === 0 && isLineGroupedModeActive()){
+              const role = getLineGroupedHeaderCellRole(colIndex);
+              if(role === 'xAnchor' || role === 'groupAnchor'){
+                baseStyle.textAlign = 'center';
+                baseStyle.justifyContent = 'center';
+                baseStyle.fontWeight = '600';
+              }else if(role === 'groupFollower'){
+                baseStyle.textAlign = 'center';
+                baseStyle.justifyContent = 'center';
+              }
+            }
+            return baseStyle;
+          };
+          const existingHeaderClass = def.headerClass;
+          def.headerClass = params => {
+            const classes = [];
+            const pushClass = value => {
+              if(!value){
+                return;
+              }
+              if(Array.isArray(value)){
+                value.forEach(pushClass);
+                return;
+              }
+              if(typeof value === 'string'){
+                value.split(/\s+/).filter(Boolean).forEach(token => classes.push(token));
+              }
+            };
+            if(typeof existingHeaderClass === 'function'){
+              pushClass(existingHeaderClass(params));
+            }else{
+              pushClass(existingHeaderClass);
+            }
+            if(isLineGroupedModeActive()){
+              const role = getLineGroupedHeaderCellRole(colIndex);
+              if(role === 'groupAnchor' || role === 'groupFollower'){
+                classes.push('line-group-colheader');
+                const segment = getLineGroupedHeaderMergeSegment(colIndex);
+                if(segment === 'start'){
+                  classes.push('line-group-colheader-merge-start');
+                }else if(segment === 'middle'){
+                  classes.push('line-group-colheader-merge-middle');
+                }else if(segment === 'end'){
+                  classes.push('line-group-colheader-merge-end');
+                }
+              }
+            }
+            return classes;
+          };
+          const existingEditable = def.editable;
+          def.editable = params => {
+            if(params?.data?.__rowIndex === 0){
+              const role = getLineGroupedHeaderCellRole(colIndex);
+              if(role === 'groupFollower'){
+                return false;
+              }
+            }
+            return typeof existingEditable === 'function'
+              ? existingEditable(params)
+              : existingEditable !== false;
+          };
+          const existingRules = def.cellClassRules && typeof def.cellClassRules === 'object'
+            ? Object.assign({}, def.cellClassRules)
+            : {};
+          existingRules['line-grouped-header-anchor'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            const role = getLineGroupedHeaderCellRole(colIndex);
+            return role === 'xAnchor' || role === 'groupAnchor';
+          };
+          existingRules['line-grouped-header-follower'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getLineGroupedHeaderCellRole(colIndex) === 'groupFollower';
+          };
+          existingRules['line-grouped-header-merge-start'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getLineGroupedHeaderMergeSegment(colIndex) === 'start';
+          };
+          existingRules['line-grouped-header-merge-middle'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getLineGroupedHeaderMergeSegment(colIndex) === 'middle';
+          };
+          existingRules['line-grouped-header-merge-end'] = params => {
+            if(params?.data?.__rowIndex !== 0){
+              return false;
+            }
+            return getLineGroupedHeaderMergeSegment(colIndex) === 'end';
+          };
+          def.cellClassRules = existingRules;
+          return def;
+        },
         hotOptions: {
           stretchH: 'all',
           afterChange(changes, source){
             if(changes && source !== 'loadData'){
               console.debug('Debug: line afterChange', { count: changes.length, source });
+              if(isLineGroupedModeActive()){
+                const headerTouched = changes.some(change => Number(change?.[0]) === 0);
+                if(headerTouched && source !== 'line-grouped-header-normalize'){
+                  normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
+                }
+                updateLineNestedHeaders();
+              }
               revalidateActiveLineLogAxis('x','data-edit');
               revalidateActiveLineLogAxis('y','data-edit');
               syncLine3dAxisHeadersFromTable(changes, source);
@@ -10288,6 +10478,10 @@
             }
           },
           afterLoadData(){
+            if(isLineGroupedModeActive()){
+              normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
+              updateLineNestedHeaders();
+            }
             syncLineActiveDataViewFromHot(instance, 'afterLoadData');
           },
           afterSelectionEnd(){
@@ -10299,6 +10493,10 @@
           },
           afterCreateCol(){
             console.debug('Debug: line col created');
+            if(isLineGroupedModeActive()){
+              normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
+              updateLineNestedHeaders();
+            }
             syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveRow(){
@@ -10307,6 +10505,10 @@
           },
           afterRemoveCol(){
             console.debug('Debug: line col removed');
+            if(isLineGroupedModeActive()){
+              normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
+              updateLineNestedHeaders();
+            }
             syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterUndo(){
