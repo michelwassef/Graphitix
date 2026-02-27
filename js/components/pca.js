@@ -217,10 +217,50 @@
   const PCA_POINT_LABEL_ROW_HEADER = 'Label point';
   const PCA_POINT_LABEL_MARK = '✓';
   const PCA_LABEL_ROW_INDEX = 0;
+  const PCA_GROUP_ROW_INDEX = 1;
   const PCA_HEADER_ROW_INDEX = 1;
+  const PCA_GROUPED_SAMPLE_ROW_INDEX = 2;
+  const PCA_GROUP_ROW_HEADER = 'Group';
+  const PCA_SAMPLE_ROW_HEADER = 'Sample';
 
   function normalizePcaLabelHeader(value){
     return String(value ?? '').trim().toLowerCase();
+  }
+
+  function normalizePcaMetaHeader(value){
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  function isPcaGroupRowHeader(value){
+    const normalized = normalizePcaMetaHeader(value);
+    return normalized === 'group' || normalized === 'groups';
+  }
+
+  function isPcaSampleRowHeader(value){
+    const normalized = normalizePcaMetaHeader(value);
+    return normalized === 'sample'
+      || normalized === 'samples'
+      || normalized === 'variable'
+      || normalized === 'variables';
+  }
+
+  function isPcaGroupedModeActive(options = {}){
+    if(options.forceGrouped === true){
+      return true;
+    }
+    if(options.forceStandard === true){
+      return false;
+    }
+    const format = options.tableFormat ?? pcaState?.tableFormat;
+    return format === 'grouped';
+  }
+
+  function getPcaHeaderRowIndexForMode(options = {}){
+    return isPcaGroupedModeActive(options) ? PCA_GROUPED_SAMPLE_ROW_INDEX : PCA_HEADER_ROW_INDEX;
+  }
+
+  function getPcaPinnedMetaRowCountForMode(options = {}){
+    return getPcaHeaderRowIndexForMode(options) + 1;
   }
 
   function isPcaLabelRowHeader(value){
@@ -256,35 +296,41 @@
       || normalized === 'x';
   }
 
-  function resolvePcaLabelRowIndex(data){
+  function resolvePcaLabelRowIndex(data, options = {}){
     if(!Array.isArray(data) || !data.length){
       return null;
     }
-    const firstRow = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : null;
-    if(firstRow && isPcaLabelRowHeader(firstRow[0])){
-      return PCA_LABEL_ROW_INDEX;
-    }
-    const secondRow = Array.isArray(data[PCA_HEADER_ROW_INDEX]) ? data[PCA_HEADER_ROW_INDEX] : null;
-    if(secondRow && isPcaLabelRowHeader(secondRow[0])){
-      return PCA_HEADER_ROW_INDEX;
+    const maxMetaRow = getPcaHeaderRowIndexForMode(options);
+    for(let rowIndex = 0; rowIndex <= maxMetaRow; rowIndex += 1){
+      const row = Array.isArray(data[rowIndex]) ? data[rowIndex] : null;
+      if(row && isPcaLabelRowHeader(row[0])){
+        return rowIndex;
+      }
     }
     return null;
   }
 
-  function resolvePcaHeaderRowIndex(data, labelRowIndex){
+  function resolvePcaHeaderRowIndex(data, labelRowIndex, options = {}){
+    const preferredHeader = getPcaHeaderRowIndexForMode(options);
     if(!Array.isArray(data) || !data.length){
-      return PCA_LABEL_ROW_INDEX;
+      return preferredHeader;
     }
-    if(Number.isInteger(labelRowIndex)){
-      return labelRowIndex === PCA_LABEL_ROW_INDEX ? PCA_HEADER_ROW_INDEX : PCA_LABEL_ROW_INDEX;
+    if(labelRowIndex === preferredHeader){
+      return preferredHeader === PCA_GROUPED_SAMPLE_ROW_INDEX
+        ? PCA_HEADER_ROW_INDEX
+        : PCA_GROUPED_SAMPLE_ROW_INDEX;
     }
-    return PCA_LABEL_ROW_INDEX;
+    return preferredHeader;
   }
 
-  function resolvePcaDataStartRow(labelRowIndex, headerRowIndex){
-    const headerIdx = Number.isInteger(headerRowIndex) ? headerRowIndex : PCA_LABEL_ROW_INDEX;
+  function resolvePcaDataStartRow(labelRowIndex, headerRowIndex, options = {}){
+    const headerIdx = Number.isInteger(headerRowIndex)
+      ? headerRowIndex
+      : getPcaHeaderRowIndexForMode(options);
+    const groupedActive = isPcaGroupedModeActive(options);
+    const groupIdx = groupedActive ? PCA_GROUP_ROW_INDEX : -1;
     const labelIdx = Number.isInteger(labelRowIndex) ? labelRowIndex : -1;
-    return Math.max(headerIdx, labelIdx) + 1;
+    return Math.max(headerIdx, groupIdx, labelIdx) + 1;
   }
 
   function normalizePcaLabelRowValues(values, colCount){
@@ -302,7 +348,7 @@
   function getPcaPinnedTopRowCount(hot){
     const count = Number.isFinite(hot?.gridApi?.getPinnedTopRowCount?.())
       ? hot.gridApi.getPinnedTopRowCount()
-      : PCA_HEADER_ROW_INDEX + 1;
+      : getPcaPinnedMetaRowCountForMode();
     return Math.max(0, count | 0);
   }
 
@@ -382,6 +428,18 @@
     return text === '';
   }
 
+  function pcaRowHasContent(row, startCol = 0){
+    if(!Array.isArray(row)){
+      return false;
+    }
+    for(let c = Math.max(0, startCol); c < row.length; c += 1){
+      if(!isPcaCellEmpty(row[c])){
+        return true;
+      }
+    }
+    return false;
+  }
+
   function ensurePcaEmptyTableDefaults(hot, options = {}){
     if(!hot || typeof hot.getData !== 'function'){
       return false;
@@ -393,9 +451,10 @@
     if(colCount <= 0){
       return false;
     }
-    const labelRowIndex = resolvePcaLabelRowIndex(data);
-    const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex);
-    const dataStartRow = resolvePcaDataStartRow(labelRowIndex, headerRowIndex);
+    const groupedActive = isPcaGroupedModeActive();
+    const labelRowIndex = resolvePcaLabelRowIndex(data, { forceGrouped: groupedActive });
+    const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex, { forceGrouped: groupedActive });
+    const dataStartRow = resolvePcaDataStartRow(labelRowIndex, headerRowIndex, { forceGrouped: groupedActive });
     let hasData = false;
     for(let r = dataStartRow; r < data.length; r += 1){
       const row = Array.isArray(data[r]) ? data[r] : [];
@@ -409,29 +468,30 @@
         break;
       }
     }
-    let headerHasValue = false;
-    if(Number.isInteger(headerRowIndex) && Array.isArray(data[headerRowIndex])){
-      const headerRow = data[headerRowIndex];
-      for(let c = 0; c < headerRow.length; c += 1){
-        if(!isPcaCellEmpty(headerRow[c])){
-          headerHasValue = true;
-          break;
-        }
-      }
-    }
+    const groupRow = groupedActive && Array.isArray(data[PCA_GROUP_ROW_INDEX]) ? data[PCA_GROUP_ROW_INDEX] : [];
+    const sampleRow = Number.isInteger(headerRowIndex) && Array.isArray(data[headerRowIndex]) ? data[headerRowIndex] : [];
+    const headerHasValue = groupedActive
+      ? (pcaRowHasContent(groupRow, 1) || pcaRowHasContent(sampleRow, 1))
+      : pcaRowHasContent(sampleRow, 1);
     if(hasData || headerHasValue){
       return false;
     }
     const labelRowValues = normalizePcaLabelRowValues(null, colCount);
     const headerRowValues = new Array(colCount).fill('');
-    headerRowValues[0] = 'Variable';
+    headerRowValues[0] = groupedActive ? PCA_SAMPLE_ROW_HEADER : 'Variable';
     const source = options.source || 'pca-empty-defaults';
     const labelApplied = applyPcaRowValues(hot, PCA_LABEL_ROW_INDEX, labelRowValues, { source, render: false });
-    const headerApplied = applyPcaRowValues(hot, PCA_HEADER_ROW_INDEX, headerRowValues, { source, render: false });
-    if((labelApplied || headerApplied) && typeof hot.render === 'function'){
+    let groupApplied = false;
+    if(groupedActive){
+      const groupRowValues = new Array(colCount).fill('');
+      groupRowValues[0] = PCA_GROUP_ROW_HEADER;
+      groupApplied = applyPcaRowValues(hot, PCA_GROUP_ROW_INDEX, groupRowValues, { source, render: false });
+    }
+    const headerApplied = applyPcaRowValues(hot, headerRowIndex, headerRowValues, { source, render: false });
+    if((labelApplied || groupApplied || headerApplied) && typeof hot.render === 'function'){
       hot.render();
     }
-    return labelApplied || headerApplied;
+    return labelApplied || groupApplied || headerApplied;
   }
 
   function ensurePcaLabelRow(hot, options = {}){
@@ -446,48 +506,125 @@
       return false;
     }
     const source = options.source || 'pca-label-row';
+    const groupedActive = isPcaGroupedModeActive();
     const setRowValues = (rowIndex, values)=>{
       if(!Array.isArray(values)){
         return;
       }
       applyPcaRowValues(hot, rowIndex, values, { source, render: false });
     };
-    const row0 = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : null;
-    if(row0 && isPcaLabelRowHeader(row0[0])){
-      if(row0[0] !== PCA_POINT_LABEL_ROW_HEADER){
-        const updated = applyPcaCellValue(hot, PCA_LABEL_ROW_INDEX, 0, PCA_POINT_LABEL_ROW_HEADER, { source, render: true });
-        return !!updated;
-      }
-      return false;
-    }
-    const row1 = Array.isArray(data[PCA_HEADER_ROW_INDEX]) ? data[PCA_HEADER_ROW_INDEX] : null;
-    if(row1 && isPcaLabelRowHeader(row1[0])){
-      const headerRow = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : [];
-      const nextLabelRow = normalizePcaLabelRowValues(row1, colCount);
-      const nextHeaderRow = new Array(colCount).fill('');
-      for(let c = 0; c < colCount; c += 1){
-        if(headerRow[c] !== undefined){
-          nextHeaderRow[c] = headerRow[c];
+    if(!groupedActive){
+      const row0 = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : null;
+      if(row0 && isPcaLabelRowHeader(row0[0])){
+        if(row0[0] !== PCA_POINT_LABEL_ROW_HEADER){
+          const updated = applyPcaCellValue(hot, PCA_LABEL_ROW_INDEX, 0, PCA_POINT_LABEL_ROW_HEADER, { source, render: true });
+          return !!updated;
         }
+        return false;
       }
-      setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
-      setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
+      const row1 = Array.isArray(data[PCA_HEADER_ROW_INDEX]) ? data[PCA_HEADER_ROW_INDEX] : null;
+      if(row1 && isPcaLabelRowHeader(row1[0])){
+        const headerRow = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : [];
+        const nextLabelRow = normalizePcaLabelRowValues(row1, colCount);
+        const nextHeaderRow = new Array(colCount).fill('');
+        for(let c = 0; c < colCount; c += 1){
+          if(headerRow[c] !== undefined){
+            nextHeaderRow[c] = headerRow[c];
+          }
+        }
+        setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
+        setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
+        if(typeof hot.render === 'function'){
+          hot.render();
+        }
+        return true;
+      }
+      if(typeof hot.alter === 'function'){
+        hot.alter('insert_row_above', PCA_LABEL_ROW_INDEX, 1, source);
+      }
+      setRowValues(PCA_LABEL_ROW_INDEX, normalizePcaLabelRowValues(null, colCount));
       if(typeof hot.render === 'function'){
         hot.render();
       }
       return true;
     }
-    const insertLabelRow = () => {
+
+    let changed = false;
+    let workingData = data;
+    let labelRowIndex = resolvePcaLabelRowIndex(workingData, { forceGrouped: true });
+    if(!Number.isInteger(labelRowIndex)){
       if(typeof hot.alter === 'function'){
         hot.alter('insert_row_above', PCA_LABEL_ROW_INDEX, 1, source);
       }
-      setRowValues(PCA_LABEL_ROW_INDEX, normalizePcaLabelRowValues(null, colCount));
-    };
-    insertLabelRow();
-    if(typeof hot.render === 'function'){
+      changed = true;
+      workingData = hot.getData() || [];
+      labelRowIndex = PCA_LABEL_ROW_INDEX;
+    }else if(labelRowIndex !== PCA_LABEL_ROW_INDEX){
+      const row0Current = Array.isArray(workingData[PCA_LABEL_ROW_INDEX])
+        ? workingData[PCA_LABEL_ROW_INDEX].slice(0, colCount)
+        : new Array(colCount).fill('');
+      const labelValues = normalizePcaLabelRowValues(workingData[labelRowIndex], colCount);
+      setRowValues(PCA_LABEL_ROW_INDEX, labelValues);
+      setRowValues(labelRowIndex, row0Current);
+      changed = true;
+      workingData = hot.getData() || [];
+    }
+
+    const normalizedLabelRow = normalizePcaLabelRowValues(workingData[PCA_LABEL_ROW_INDEX], colCount);
+    const currentLabelRow = Array.isArray(workingData[PCA_LABEL_ROW_INDEX]) ? workingData[PCA_LABEL_ROW_INDEX] : [];
+    const needsLabelNormalize = normalizedLabelRow.some((value, idx) => value !== currentLabelRow[idx]);
+    if(needsLabelNormalize){
+      setRowValues(PCA_LABEL_ROW_INDEX, normalizedLabelRow);
+      changed = true;
+      workingData = hot.getData() || [];
+    }
+
+    const existingRow1 = Array.isArray(workingData[PCA_GROUP_ROW_INDEX]) ? workingData[PCA_GROUP_ROW_INDEX] : [];
+    const row1LooksGroup = isPcaGroupRowHeader(existingRow1[0]);
+    const row1LooksSample = isPcaSampleRowHeader(existingRow1[0]);
+    const row1HasSampleContent = pcaRowHasContent(existingRow1, 1);
+    if(!row1LooksGroup && (row1LooksSample || row1HasSampleContent)){
+      if(typeof hot.alter === 'function'){
+        hot.alter('insert_row_above', PCA_GROUP_ROW_INDEX, 1, source);
+      }
+      changed = true;
+      workingData = hot.getData() || [];
+    }
+
+    if((workingData.length || 0) <= PCA_GROUP_ROW_INDEX && typeof hot.alter === 'function'){
+      hot.alter('insert_row_above', PCA_GROUP_ROW_INDEX, 1, source);
+      changed = true;
+      workingData = hot.getData() || [];
+    }
+    if((workingData.length || 0) <= PCA_GROUPED_SAMPLE_ROW_INDEX && typeof hot.alter === 'function'){
+      hot.alter('insert_row_above', PCA_GROUPED_SAMPLE_ROW_INDEX, 1, source);
+      changed = true;
+      workingData = hot.getData() || [];
+    }
+
+    const groupRow = Array.isArray(workingData[PCA_GROUP_ROW_INDEX])
+      ? workingData[PCA_GROUP_ROW_INDEX].slice(0, colCount)
+      : new Array(colCount).fill('');
+    if(String(groupRow[0] ?? '').trim() !== PCA_GROUP_ROW_HEADER){
+      groupRow[0] = PCA_GROUP_ROW_HEADER;
+      setRowValues(PCA_GROUP_ROW_INDEX, groupRow);
+      changed = true;
+      workingData = hot.getData() || [];
+    }
+
+    const sampleRow = Array.isArray(workingData[PCA_GROUPED_SAMPLE_ROW_INDEX])
+      ? workingData[PCA_GROUPED_SAMPLE_ROW_INDEX].slice(0, colCount)
+      : new Array(colCount).fill('');
+    if(!isPcaSampleRowHeader(sampleRow[0])){
+      sampleRow[0] = PCA_SAMPLE_ROW_HEADER;
+      setRowValues(PCA_GROUPED_SAMPLE_ROW_INDEX, sampleRow);
+      changed = true;
+    }
+
+    if(changed && typeof hot.render === 'function'){
       hot.render();
     }
-    return true;
+    return changed;
   }
 
   function PcaLabelCheckboxRenderer(){}
@@ -592,6 +729,324 @@
   let pcaDataToolbarLastActivation = 0;
   let pcaAxesLengthLockRatioPrevious = null;
   let pcaAspectSyncing = false;
+
+  function ensurePcaGroupedDefaults(){
+    if(!pcaState.grouped || typeof pcaState.grouped !== 'object'){
+      pcaState.grouped = { replicatesPerGroup: 2, colors: [], shapes: [] };
+    }
+    let replicates = Number(pcaState.grouped.replicatesPerGroup);
+    if(!Number.isFinite(replicates) || replicates < 1){
+      replicates = 1;
+    }
+    pcaState.grouped.replicatesPerGroup = Math.max(1, Math.round(replicates));
+    if(!Array.isArray(pcaState.grouped.colors)){
+      pcaState.grouped.colors = [];
+    }
+    if(!Array.isArray(pcaState.grouped.shapes)){
+      pcaState.grouped.shapes = [];
+    }
+    debugLog('Debug: pca ensureGroupedDefaults',{ replicates: pcaState.grouped.replicatesPerGroup });
+  }
+
+  function inferPcaGroupBaseName(rawValue, fallback){
+    const fallbackLabel = typeof fallback === 'string' && fallback.trim() ? fallback.trim() : 'Group 1';
+    const source = rawValue == null ? '' : String(rawValue).trim();
+    if(!source){
+      return fallbackLabel;
+    }
+    if(/^group\s*\d+\s*$/i.test(source)){
+      return source.replace(/\s+/g, ' ').trim();
+    }
+    let normalized = source.replace(/\s+title\s*$/i, '').trim();
+    if(!normalized){
+      normalized = source;
+    }
+    if(/^condition\s*\d+$/i.test(normalized) || /^col(?:umn)?\s*\d+$/i.test(normalized) || /^rep(?:licate)?\s*\d+$/i.test(normalized)){
+      return fallbackLabel;
+    }
+    return normalized;
+  }
+
+  function normalizePcaGroupHeaderAnchor(rawValue){
+    const source = rawValue == null ? '' : String(rawValue).trim();
+    if(!source){
+      return '';
+    }
+    if(/^condition\s*\d+$/i.test(source) || /^col(?:umn)?\s*\d+$/i.test(source) || /^rep(?:licate)?\s*\d+$/i.test(source)){
+      return '';
+    }
+    if(/^group\s*\d+\s*title$/i.test(source)){
+      return '';
+    }
+    const titleMatch = source.match(/^(.*\S)\s+title$/i);
+    if(titleMatch){
+      const stripped = titleMatch[1].trim();
+      if(!stripped || /^group\s*\d+$/i.test(stripped)){
+        return '';
+      }
+      return stripped;
+    }
+    return source;
+  }
+
+  function getPcaGroupedReplicateCount(options = {}){
+    const candidate = options.replicates ?? pcaState.grouped?.replicatesPerGroup;
+    const raw = Number(candidate);
+    if(!Number.isFinite(raw) || raw < 1){
+      return 1;
+    }
+    return Math.max(1, Math.round(raw));
+  }
+
+  function getPcaGroupedGroupCount(sampleColCount, replicates){
+    const safeSampleCols = Math.max(0, Number(sampleColCount) || 0);
+    const safeReplicates = Math.max(1, Number(replicates) || 1);
+    if(safeSampleCols <= 0){
+      return 1;
+    }
+    return Math.max(1, Math.ceil(safeSampleCols / safeReplicates));
+  }
+
+  function getPcaGroupedHeaderInfo(colIndex, hotInstance, options = {}){
+    const col = Number(colIndex);
+    if(!Number.isInteger(col) || col < 1){
+      return null;
+    }
+    const groupedActive = options.forceGrouped === true ? true : pcaState.tableFormat === 'grouped';
+    if(!groupedActive){
+      return null;
+    }
+    ensurePcaGroupedDefaults();
+    const hot = hotInstance || ensurePcaHotForActiveTab();
+    const totalCols = hot && typeof hot.countCols === 'function' ? hot.countCols() : 0;
+    if(totalCols <= 1 || col >= totalCols){
+      return null;
+    }
+    const replicates = getPcaGroupedReplicateCount(options);
+    const sampleColCount = Math.max(0, totalCols - 1);
+    const groupCount = getPcaGroupedGroupCount(sampleColCount, replicates);
+    const offset = col - 1;
+    const groupIndex = Math.floor(offset / replicates);
+    if(groupIndex < 0 || groupIndex >= groupCount){
+      return null;
+    }
+    const startCol = 1 + groupIndex * replicates;
+    const span = Math.max(1, Math.min(replicates, totalCols - startCol));
+    const position = col - startCol;
+    if(position < 0 || position >= span){
+      return null;
+    }
+    const role = position === 0 ? 'groupAnchor' : 'groupFollower';
+    let segment = 'single';
+    if(role === 'groupAnchor'){
+      segment = span > 1 ? 'start' : 'single';
+    }else{
+      segment = position === span - 1 ? 'end' : 'middle';
+    }
+    return { groupIndex, span, role, segment, startCol };
+  }
+
+  function getPcaGroupedHeaderCellRole(colIndex, hotInstance, options = {}){
+    const info = getPcaGroupedHeaderInfo(colIndex, hotInstance, options);
+    return info ? info.role : null;
+  }
+
+  function getPcaGroupedHeaderMergeSegment(colIndex, hotInstance, options = {}){
+    const info = getPcaGroupedHeaderInfo(colIndex, hotInstance, options);
+    return info ? info.segment : null;
+  }
+
+  function getPcaGroupedHeaderEntries(hotInstance, options = {}){
+    const hot = hotInstance || ensurePcaHotForActiveTab();
+    const replicates = getPcaGroupedReplicateCount(options);
+    const data = Array.isArray(options.dataMatrix)
+      ? options.dataMatrix
+      : (hot?.getData ? (hot.getData() || []) : []);
+    const headerRow = Array.isArray(data[PCA_GROUP_ROW_INDEX]) ? data[PCA_GROUP_ROW_INDEX] : [];
+    const totalCols = Number.isInteger(options.colCount)
+      ? options.colCount
+      : (typeof hot?.countCols === 'function' ? hot.countCols() : headerRow.length);
+    const sampleCols = Math.max(0, totalCols - 1);
+    const minGroupCount = Number(options.minGroupCount);
+    const groupCount = Number.isFinite(minGroupCount) && minGroupCount > 0
+      ? Math.max(1, Math.floor(minGroupCount))
+      : getPcaGroupedGroupCount(sampleCols, replicates);
+    const entries = [];
+    for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
+      const startCol = 1 + groupIndex * replicates;
+      if(startCol >= totalCols){
+        break;
+      }
+      const rawTitle = headerRow[startCol] != null ? String(headerRow[startCol]).trim() : '';
+      const fallback = `Group ${groupIndex + 1}`;
+      const baseLabel = inferPcaGroupBaseName(rawTitle, fallback);
+      entries.push({
+        groupIndex,
+        startCol,
+        colspan: Math.max(1, Math.min(replicates, totalCols - startCol)),
+        label: baseLabel || fallback
+      });
+    }
+    return entries;
+  }
+
+  function normalizePcaGroupedHeaderRow(hotInstance, options = {}){
+    const hot = hotInstance || ensurePcaHotForActiveTab();
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const groupedActive = options.forceGrouped === true ? true : pcaState.tableFormat === 'grouped';
+    if(!groupedActive){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[PCA_GROUP_ROW_INDEX]) ? data[PCA_GROUP_ROW_INDEX] : [];
+    const replicates = getPcaGroupedReplicateCount(options);
+    const colCount = typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length;
+    const groupEntries = getPcaGroupedHeaderEntries(hot, {
+      replicates,
+      colCount,
+      dataMatrix: data
+    });
+    const targetCols = Math.max(colCount, 1 + groupEntries.length * replicates);
+    const changes = [];
+    for(let col = headerRow.length; col < targetCols; col += 1){
+      changes.push([PCA_GROUP_ROW_INDEX, col, '']);
+    }
+    groupEntries.forEach((entry) => {
+      const currentRaw = headerRow[entry.startCol] != null ? String(headerRow[entry.startCol]).trim() : '';
+      const nextAnchor = normalizePcaGroupHeaderAnchor(currentRaw);
+      if(currentRaw !== nextAnchor){
+        changes.push([PCA_GROUP_ROW_INDEX, entry.startCol, nextAnchor]);
+      }
+      for(let repIndex = 1; repIndex < replicates; repIndex += 1){
+        const followerCol = entry.startCol + repIndex;
+        if(followerCol >= targetCols){
+          break;
+        }
+        const followerValue = headerRow[followerCol];
+        if(followerValue != null && String(followerValue).trim() !== ''){
+          changes.push([PCA_GROUP_ROW_INDEX, followerCol, '']);
+        }
+      }
+    });
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, options.source || 'pca-grouped-header-normalize');
+    debugLog('Debug: pca grouped header row normalized', {
+      changes: changes.length,
+      replicates,
+      groupCount: groupEntries.length
+    });
+    return true;
+  }
+
+  function buildPcaGroupedAgColHeaders(hotInstance, options = {}){
+    const pcaHot = hotInstance || ensurePcaHotForActiveTab();
+    if(!pcaHot || typeof pcaHot.countCols !== 'function'){
+      return true;
+    }
+    const groupedActive = options.forceGrouped === true ? true : pcaState.tableFormat === 'grouped';
+    if(!groupedActive){
+      return true;
+    }
+    const totalCols = Math.max(0, pcaHot.countCols());
+    if(totalCols <= 0){
+      return true;
+    }
+    const headers = new Array(totalCols).fill('');
+    headers[0] = '';
+    for(let col = 1; col < totalCols; col += 1){
+      const info = getPcaGroupedHeaderInfo(col, pcaHot, { forceGrouped: true, ...options });
+      if(!info){
+        headers[col] = '';
+        continue;
+      }
+      headers[col] = info.role === 'groupAnchor'
+        ? `Group ${info.groupIndex + 1}`
+        : ' ';
+    }
+    return headers;
+  }
+
+  function updatePcaGroupedHeaders(hotInstance){
+    const pcaHot = hotInstance || ensurePcaHotForActiveTab();
+    if(!pcaHot){
+      debugLog('Debug: pca updateGroupedHeaders skipped',{ reason: 'no-hot' });
+      return;
+    }
+    const hotRoot = pcaHot.rootElement
+      || pcaHot.__pcaHostContainer
+      || global.document?.getElementById?.('pcaHot');
+    if(hotRoot?.classList){
+      hotRoot.classList.remove('pca-grouped-nested-only');
+    }
+    if(hotRoot?.style){
+      if(pcaState.tableFormat === 'grouped'){
+        const replicates = getPcaGroupedReplicateCount();
+        hotRoot.style.setProperty('--scatter-group-span', String(replicates));
+      }else{
+        hotRoot.style.removeProperty('--scatter-group-span');
+      }
+    }
+    if(pcaState.tableFormat !== 'grouped'){
+      pcaHot.updateSettings({
+        nestedHeaders: false,
+        colHeaders: true,
+        headerRowIndex: PCA_HEADER_ROW_INDEX,
+        pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true })
+      });
+      return;
+    }
+    normalizePcaGroupedHeaderRow(pcaHot, { forceGrouped: true, source: 'pca-grouped-header-normalize' });
+    const headers = buildPcaGroupedAgColHeaders(pcaHot, { forceGrouped: true });
+    pcaHot.updateSettings({
+      nestedHeaders: false,
+      colHeaders: headers,
+      headerRowIndex: getPcaHeaderRowIndexForMode({ forceGrouped: true }),
+      pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceGrouped: true })
+    });
+    debugLog('Debug: pca grouped headers applied',{ headers, totalCols: pcaHot.countCols() });
+  }
+
+  function applyPcaTableFormatToHot(){
+    const pcaHot = ensurePcaHotForActiveTab();
+    if(!pcaHot){
+      return;
+    }
+    if(pcaState.tableFormat === 'grouped'){
+      ensurePcaLabelRow(pcaHot, { source: 'pca-grouped-metadata' });
+      normalizePcaGroupedHeaderRow(pcaHot, { forceGrouped: true, source: 'pca-grouped-header-normalize' });
+      updatePcaGroupedHeaders(pcaHot);
+    }else{
+      if(typeof pcaHot.getData === 'function' && typeof pcaHot.alter === 'function'){
+        const currentData = pcaHot.getData() || [];
+        const row1 = Array.isArray(currentData[PCA_GROUP_ROW_INDEX]) ? currentData[PCA_GROUP_ROW_INDEX] : null;
+        const row2 = Array.isArray(currentData[PCA_GROUPED_SAMPLE_ROW_INDEX]) ? currentData[PCA_GROUPED_SAMPLE_ROW_INDEX] : null;
+        const shouldCollapseGroupedRows = !!row1
+          && isPcaGroupRowHeader(row1[0])
+          && !!row2
+          && (isPcaSampleRowHeader(row2[0]) || pcaRowHasContent(row2, 1));
+        if(shouldCollapseGroupedRows){
+          pcaHot.alter('remove_row', PCA_GROUP_ROW_INDEX, 1, 'pca-standard-metadata-normalize');
+        }
+      }
+      ensurePcaLabelRow(pcaHot, { source: 'pca-standard-metadata' });
+      const standardHeader = pcaHot.getData?.()?.[PCA_HEADER_ROW_INDEX];
+      if(Array.isArray(standardHeader) && String(standardHeader[0] ?? '').trim() !== 'Variable'){
+        applyPcaCellValue(pcaHot, PCA_HEADER_ROW_INDEX, 0, 'Variable', { source: 'pca-standard-metadata', render: false });
+      }
+      pcaHot.updateSettings({
+        nestedHeaders: false,
+        colHeaders: true,
+        headerRowIndex: PCA_HEADER_ROW_INDEX,
+        pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true })
+      });
+      debugLog('Debug: pca grouped headers cleared');
+    }
+  }
+
   function createPcaTableInstance(container){
     if(!container || typeof Shared.hot?.createStandardTable !== 'function'){
       return null;
@@ -642,7 +1097,7 @@
       rowSelection: null,
       firstRowClassName: 'htCenter',
       headerRowIndex: PCA_HEADER_ROW_INDEX,
-      pinFirstRow: PCA_HEADER_ROW_INDEX + 1,
+      pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true }),
       scheduleOnLoadData: true,
       colDefEnhancer(def, meta){
         const colIndex = meta?.colIndex;
@@ -655,6 +1110,12 @@
           if(physicalRow === PCA_LABEL_ROW_INDEX){
             return false;
           }
+          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped'){
+            const role = getPcaGroupedHeaderCellRole(colIndex, pcaHot);
+            if(role === 'groupFollower'){
+              return false;
+            }
+          }
           return typeof existingEditable === 'function'
             ? existingEditable(params)
             : existingEditable !== false;
@@ -662,6 +1123,55 @@
         if(colIndex < 1){
           return def;
         }
+        const existingColSpan = def.colSpan;
+        def.colSpan = params => {
+          const physicalRow = params?.data?.__rowIndex;
+          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped'){
+            const info = getPcaGroupedHeaderInfo(colIndex, pcaHot, { forceGrouped: true });
+            if(info?.role === 'groupAnchor'){
+              return info.span;
+            }
+          }
+          if(typeof existingColSpan === 'function'){
+            return existingColSpan(params);
+          }
+          return Number.isFinite(existingColSpan) && existingColSpan > 0
+            ? Math.floor(existingColSpan)
+            : 1;
+        };
+        const existingCellStyle = def.cellStyle;
+        def.cellStyle = params => {
+          let baseStyle = {};
+          if(typeof existingCellStyle === 'function'){
+            const resolved = existingCellStyle(params);
+            if(resolved && typeof resolved === 'object'){
+              baseStyle = Object.assign({}, resolved);
+            }
+          }else if(existingCellStyle && typeof existingCellStyle === 'object'){
+            baseStyle = Object.assign({}, existingCellStyle);
+          }
+          const physicalRow = params?.data?.__rowIndex;
+          if(
+            pcaState.tableFormat === 'grouped'
+            && Number.isInteger(physicalRow)
+            && physicalRow >= PCA_LABEL_ROW_INDEX
+            && physicalRow <= PCA_GROUPED_SAMPLE_ROW_INDEX
+          ){
+            baseStyle.backgroundColor = '#f5f5f5';
+          }
+          if(physicalRow === PCA_GROUP_ROW_INDEX && pcaState.tableFormat === 'grouped'){
+            const role = getPcaGroupedHeaderCellRole(colIndex, pcaHot);
+            if(role === 'groupAnchor'){
+              baseStyle.textAlign = 'center';
+              baseStyle.justifyContent = 'center';
+              baseStyle.fontWeight = '600';
+            }else if(role === 'groupFollower'){
+              baseStyle.textAlign = 'center';
+              baseStyle.justifyContent = 'center';
+            }
+          }
+          return baseStyle;
+        };
         const existingSelector = def.cellRendererSelector;
         def.cellRendererSelector = params => {
           const physicalRow = params?.data?.__rowIndex;
@@ -670,6 +1180,76 @@
           }
           return typeof existingSelector === 'function' ? existingSelector(params) : undefined;
         };
+        const existingHeaderClass = def.headerClass;
+        def.headerClass = params => {
+          const classes = [];
+          const pushClass = value => {
+            if(!value){
+              return;
+            }
+            if(Array.isArray(value)){
+              value.forEach(pushClass);
+              return;
+            }
+            if(typeof value === 'string'){
+              value.split(/\s+/).filter(Boolean).forEach(token => classes.push(token));
+            }
+          };
+          if(typeof existingHeaderClass === 'function'){
+            pushClass(existingHeaderClass(params));
+          }else{
+            pushClass(existingHeaderClass);
+          }
+          if(pcaState.tableFormat === 'grouped'){
+            const role = getPcaGroupedHeaderCellRole(colIndex, pcaHot);
+            if(role === 'groupAnchor' || role === 'groupFollower'){
+              classes.push('pca-group-colheader');
+              const segment = getPcaGroupedHeaderMergeSegment(colIndex, pcaHot);
+              if(segment === 'start'){
+                classes.push('pca-group-colheader-merge-start');
+              }else if(segment === 'middle'){
+                classes.push('pca-group-colheader-merge-middle');
+              }else if(segment === 'end'){
+                classes.push('pca-group-colheader-merge-end');
+              }
+            }
+          }
+          return classes;
+        };
+        const existingRules = def.cellClassRules && typeof def.cellClassRules === 'object'
+          ? Object.assign({}, def.cellClassRules)
+          : {};
+        existingRules['pca-grouped-header-anchor'] = params => {
+          if(params?.data?.__rowIndex !== PCA_GROUP_ROW_INDEX){
+            return false;
+          }
+          return getPcaGroupedHeaderCellRole(colIndex, pcaHot) === 'groupAnchor';
+        };
+        existingRules['pca-grouped-header-follower'] = params => {
+          if(params?.data?.__rowIndex !== PCA_GROUP_ROW_INDEX){
+            return false;
+          }
+          return getPcaGroupedHeaderCellRole(colIndex, pcaHot) === 'groupFollower';
+        };
+        existingRules['pca-grouped-header-merge-start'] = params => {
+          if(params?.data?.__rowIndex !== PCA_GROUP_ROW_INDEX){
+            return false;
+          }
+          return getPcaGroupedHeaderMergeSegment(colIndex, pcaHot) === 'start';
+        };
+        existingRules['pca-grouped-header-merge-middle'] = params => {
+          if(params?.data?.__rowIndex !== PCA_GROUP_ROW_INDEX){
+            return false;
+          }
+          return getPcaGroupedHeaderMergeSegment(colIndex, pcaHot) === 'middle';
+        };
+        existingRules['pca-grouped-header-merge-end'] = params => {
+          if(params?.data?.__rowIndex !== PCA_GROUP_ROW_INDEX){
+            return false;
+          }
+          return getPcaGroupedHeaderMergeSegment(colIndex, pcaHot) === 'end';
+        };
+        def.cellClassRules = existingRules;
         return def;
       },
       hotOptions: {
@@ -739,6 +1319,13 @@
           }
         },
         afterChange(changes,source){
+          if(Array.isArray(changes) && changes.length && pcaState.tableFormat === 'grouped'){
+            const headerTouched = changes.some(change => Number(change?.[0]) === PCA_GROUP_ROW_INDEX);
+            if(headerTouched && source !== 'pca-grouped-header-normalize'){
+              normalizePcaGroupedHeaderRow(pcaHot, { source: 'pca-grouped-header-normalize' });
+            }
+            updatePcaGroupedHeaders();
+          }
           if(Array.isArray(changes) && changes.length){
             syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
           }
@@ -750,7 +1337,25 @@
           debugLog('Debug: pca table afterChange',{ count: changeCount, source });
         },
         afterLoadData(){
+          if(pcaState.tableFormat === 'grouped'){
+            normalizePcaGroupedHeaderRow(pcaHot, { source: 'pca-grouped-header-normalize' });
+            updatePcaGroupedHeaders();
+          }
           syncPcaActiveDataViewFromHot(pcaHot, 'afterLoadData');
+        },
+        afterCreateCol(){
+          if(pcaState.tableFormat === 'grouped'){
+            normalizePcaGroupedHeaderRow(pcaHot, { source: 'pca-grouped-header-normalize' });
+            updatePcaGroupedHeaders();
+          }
+          syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
+        },
+        afterRemoveCol(){
+          if(pcaState.tableFormat === 'grouped'){
+            normalizePcaGroupedHeaderRow(pcaHot, { source: 'pca-grouped-header-normalize' });
+            updatePcaGroupedHeaders();
+          }
+          syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
         },
         afterUndo(){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -960,7 +1565,12 @@
     const result = manager.applyTransform(transformSpec, {
       title: options.title,
       reason: options.reason || 'toolbar-transform',
-      transformOptions: Object.assign({}, PCA_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+      transformOptions: Object.assign(
+        {},
+        PCA_TRANSFORM_SCOPE_DEFAULT,
+        { headerRows: getPcaPinnedMetaRowCountForMode() },
+        options.transformOptions || {}
+      )
     });
     if(!result?.ok){
       const message = result?.error || 'Transformation failed.';
@@ -1051,7 +1661,12 @@
     const result = manager.applyPipeline(specs, {
       title: options.title,
       reason: options.reason || 'toolbar-transform-pipeline',
-      transformOptions: Object.assign({}, PCA_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+      transformOptions: Object.assign(
+        {},
+        PCA_TRANSFORM_SCOPE_DEFAULT,
+        { headerRows: getPcaPinnedMetaRowCountForMode() },
+        options.transformOptions || {}
+      )
     });
     if(!result?.ok){
       const message = result?.error || 'Transformation failed.';
@@ -1861,7 +2476,7 @@
     }
     const pinnedTopCount = Number.isFinite(hotInstance?.gridApi?.getPinnedTopRowCount?.())
       ? hotInstance.gridApi.getPinnedTopRowCount()
-      : PCA_HEADER_ROW_INDEX + 1;
+      : getPcaPinnedMetaRowCountForMode();
     const isPinnedRow = labelRowIndex >= 0 && labelRowIndex < pinnedTopCount;
     const current = isPinnedRow
       ? data[labelRowIndex]?.[columnIndex]
@@ -1884,7 +2499,7 @@
     }
     const pinnedTopCount = Number.isFinite(hotInstance?.gridApi?.getPinnedTopRowCount?.())
       ? hotInstance.gridApi.getPinnedTopRowCount()
-      : PCA_HEADER_ROW_INDEX + 1;
+      : getPcaPinnedMetaRowCountForMode();
     const isPinnedRow = labelRowIndex >= 0 && labelRowIndex < pinnedTopCount;
     const current = isPinnedRow
       ? data[labelRowIndex]?.[columnIndex]
@@ -3053,7 +3668,6 @@
       groupedControlsCollapsed: false,
       grouped: {
       replicatesPerGroup: 2,
-      groups: ['Group 1', 'Group 2'],
       colors: [],
       shapes: []
     },
@@ -3671,9 +4285,9 @@
           groupedToggle: document.getElementById('pcaGroupedToggle'),
           groupedControls: document.getElementById('pcaGroupedControls'),
         groupedReplicates: document.getElementById('pcaGroupedReplicates'),
-        groupedList: document.getElementById('pcaGroupedList'),
-        groupedAdd: document.getElementById('pcaGroupedAdd'),
-        groupedRemove: document.getElementById('pcaGroupedRemove')
+        groupedList: null,
+        groupedAdd: null,
+        groupedRemove: null
       };
       pcaLiveUpdateToggle = document.getElementById('pcaLiveUpdate');
       pcaRenderRowEl = document.getElementById('pcaRenderRow');
@@ -3805,129 +4419,7 @@
         });
       }
 
-      function ensurePcaGroupedDefaults(){
-        if(!pcaState.grouped || typeof pcaState.grouped !== 'object'){
-          pcaState.grouped = { replicatesPerGroup: 2, groups: ['Group 1', 'Group 2'], colors: [], shapes: [] };
-        }
-        let replicates = Number(pcaState.grouped.replicatesPerGroup);
-        if(!Number.isFinite(replicates) || replicates < 1){
-          replicates = 1;
-        }
-        pcaState.grouped.replicatesPerGroup = Math.max(1, Math.round(replicates));
-        if(!Array.isArray(pcaState.grouped.groups) || !pcaState.grouped.groups.length){
-          pcaState.grouped.groups = ['Group 1', 'Group 2'];
-        }
-        pcaState.grouped.groups = pcaState.grouped.groups.map((name, idx)=>{
-          const trimmed = typeof name === 'string' ? name.trim() : '';
-          return trimmed || `Group ${idx + 1}`;
-        });
-        if(!Array.isArray(pcaState.grouped.colors)){
-          pcaState.grouped.colors = [];
-        }
-        if(!Array.isArray(pcaState.grouped.shapes)){
-          pcaState.grouped.shapes = [];
-        }
-        pcaState.grouped.colors = pcaState.grouped.groups.map((_, idx)=>{
-          const existing = pcaState.grouped.colors[idx];
-          if(typeof existing === 'string' && existing.trim()){
-            return existing;
-          }
-          return DEFAULT_SCATTER_COLORS[idx % DEFAULT_SCATTER_COLORS.length];
-        });
-        pcaState.grouped.shapes = pcaState.grouped.groups.map((_, idx)=>{
-          const sanitized = sanitizeGroupShape(pcaState.grouped.shapes[idx], idx);
-          pcaState.grouped.shapes[idx] = sanitized;
-          return sanitized;
-        });
-        debugLog('Debug: pca ensureGroupedDefaults',{ replicates: pcaState.grouped.replicatesPerGroup, groups: [...pcaState.grouped.groups] });
-      }
-
-      function renderPcaGroupedList(){
-        if(!pcaEls.groupedList){
-          debugLog('Debug: pca renderGroupedList skipped',{ reason: 'no-container' });
-          return;
-        }
-        ensurePcaGroupedDefaults();
-        pcaEls.groupedList.innerHTML='';
-        pcaState.grouped.groups.forEach((name, idx)=>{
-          const row = global.document.createElement('div');
-          row.className = 'grouped-row';
-          row.dataset.groupIndex = String(idx);
-          const inputId = `pca-group-name-${idx}`;
-          const label = global.document.createElement('label');
-          label.textContent = `Group ${idx + 1}`;
-          label.setAttribute('for', inputId);
-          const input = global.document.createElement('input');
-          input.type = 'text';
-          input.value = name;
-          input.id = inputId;
-          input.setAttribute('aria-label', `Display name for Group ${idx + 1}`);
-          input.addEventListener('input', e=>{
-            pcaState.grouped.groups[idx] = e.target.value;
-            debugLog('Debug: pca grouped name updated',{ index: idx, value: e.target.value });
-            updatePcaGroupedHeaders();
-            requestPcaViewRefresh('group-name-change');
-          });
-          const colorInput = global.document.createElement('input');
-          colorInput.type = 'color';
-          colorInput.value = pcaState.grouped.colors[idx];
-          colorInput.dataset.groupIndex = String(idx);
-          colorInput.setAttribute('aria-label', `Color for ${name || `Group ${idx + 1}`}`);
-          colorInput.addEventListener('input', e=>{
-            const value = e.target.value;
-            const resolved = typeof value === 'string' && value ? value : DEFAULT_SCATTER_COLORS[idx % DEFAULT_SCATTER_COLORS.length];
-            pcaState.grouped.colors[idx] = resolved;
-            debugLog('Debug: pca grouped color updated',{ index: idx, color: resolved });
-            requestPcaViewRefresh('group-color-change');
-          });
-          if(typeof Shared.attachColorPickerNear === 'function'){
-            Shared.attachColorPickerNear(colorInput);
-          }
-          const shapeSelect = global.document.createElement('select');
-          shapeSelect.dataset.groupIndex = String(idx);
-          shapeSelect.dataset.shapeControl = '1';
-          shapeSelect.setAttribute('aria-label', `Marker shape for ${name || `Group ${idx + 1}`}`);
-          GROUP_SHAPE_OPTIONS.forEach(opt=>{
-            const option = global.document.createElement('option');
-            option.value = opt.value;
-            option.textContent = opt.label;
-            shapeSelect.appendChild(option);
-          });
-          shapeSelect.value = pcaState.grouped.shapes[idx];
-          shapeSelect.addEventListener('change', e=>{
-            const sanitized = sanitizeGroupShape(e.target.value, idx);
-            pcaState.grouped.shapes[idx] = sanitized;
-            if(e.target.value !== sanitized){
-              e.target.value = sanitized;
-            }
-            debugLog('Debug: pca grouped shape updated',{ index: idx, shape: sanitized });
-            requestPcaViewRefresh('group-shape-change');
-          });
-          attachPcaSelectAutoSize(shapeSelect, `pca-group-shape-${idx}`);
-          const removeBtn = global.document.createElement('button');
-          removeBtn.type = 'button';
-          removeBtn.className = 'grouped-remove';
-          removeBtn.textContent = '×';
-          removeBtn.addEventListener('click',()=>{
-            if(pcaState.grouped.groups.length <= 1){
-              debugLog('Debug: pca grouped remove blocked',{ length: pcaState.grouped.groups.length });
-              return;
-            }
-            const removed = pcaState.grouped.groups.splice(idx,1);
-            pcaState.grouped.colors.splice(idx,1);
-            pcaState.grouped.shapes.splice(idx,1);
-            debugLog('Debug: pca grouped remove',{ index: idx, removed });
-            renderPcaGroupedList();
-            updatePcaGroupedHeaders();
-            requestPcaViewRefresh('group-remove');
-          });
-          row.appendChild(label);
-          row.appendChild(input);
-          row.appendChild(colorInput);
-          row.appendChild(shapeSelect);
-          row.appendChild(removeBtn);
-          pcaEls.groupedList.appendChild(row);
-        });
+      function syncPcaGroupedControls(){
         if(pcaEls.groupedReplicates){
           pcaEls.groupedReplicates.value = String(pcaState.grouped.replicatesPerGroup);
         }
@@ -3963,74 +4455,10 @@
             pcaEls.groupedControls.setAttribute('aria-hidden', showGroupedControls ? 'false' : 'true');
           }
           if(groupedActive){
-            renderPcaGroupedList();
+            syncPcaGroupedControls();
           }
           updatePcaGroupedToggleUI();
         }
-
-      function buildPcaGroupedNestedHeaders(){
-        ensurePcaGroupedDefaults();
-        const pcaHot = ensurePcaHotForActiveTab();
-        if(!pcaHot){
-          return [];
-        }
-        const totalCols = pcaHot.countCols();
-        if(totalCols <= 0){
-          return [];
-        }
-        const headers = [{ label: '', colspan: 1 }];
-        let remaining = Math.max(0, totalCols - 1);
-        const names = pcaState.grouped.groups;
-        const replicates = Math.max(1, pcaState.grouped.replicatesPerGroup);
-        names.forEach((name, idx)=>{
-          if(remaining <= 0){ return; }
-          const groupsLeft = names.length - idx - 1;
-          const minReserve = Math.max(0, groupsLeft);
-          let span = replicates;
-          if(remaining - span < minReserve){
-            span = Math.max(1, remaining - minReserve);
-          }
-          span = Math.max(1, Math.min(span, remaining));
-          headers.push({ label: name || `Group ${idx + 1}`, colspan: span });
-          remaining -= span;
-        });
-        if(remaining > 0){
-          headers.push({ label: 'Extra', colspan: remaining });
-        }
-        return [headers];
-      }
-
-      function updatePcaGroupedHeaders(){
-        const pcaHot = ensurePcaHotForActiveTab();
-        if(!pcaHot){
-          debugLog('Debug: pca updateGroupedHeaders skipped',{ reason: 'no-hot' });
-          return;
-        }
-        if(pcaState.tableFormat !== 'grouped'){
-          pcaHot.updateSettings({ nestedHeaders: false });
-          return;
-        }
-        const nested = buildPcaGroupedNestedHeaders();
-        if(nested.length){
-          pcaHot.updateSettings({ nestedHeaders: nested });
-        }else{
-          pcaHot.updateSettings({ nestedHeaders: false });
-        }
-        debugLog('Debug: pca grouped headers applied',{ nested, totalCols: pcaHot.countCols() });
-      }
-
-      function applyPcaTableFormatToHot(){
-        const pcaHot = ensurePcaHotForActiveTab();
-        if(!pcaHot){
-          return;
-        }
-        if(pcaState.tableFormat === 'grouped'){
-          updatePcaGroupedHeaders();
-        }else{
-          pcaHot.updateSettings({ nestedHeaders: false });
-          debugLog('Debug: pca grouped headers cleared');
-        }
-      }
 
       function setPcaTableFormat(format){
         const normalized = format === 'grouped' ? 'grouped' : 'standard';
@@ -4061,39 +4489,88 @@
         }
       }
 
-      function resolvePcaGroupMeta(sampleCount, labels){
+      function resolvePcaGroupMeta(sampleCount, labels, options = {}){
         if(pcaState.tableFormat !== 'grouped' || sampleCount <= 0){
           return null;
         }
         ensurePcaGroupedDefaults();
-        const names = pcaState.grouped.groups;
-        if(!names.length){
-          return null;
-        }
+        const replicates = getPcaGroupedReplicateCount();
+        const sampleLabels = Array.isArray(labels) ? labels : [];
+        const columnIndices = Array.isArray(options.columnIndices) ? options.columnIndices : [];
+        const groupHeaderRow = Array.isArray(options.groupHeaderRow) ? options.groupHeaderRow : [];
+        const fallbackGroupCount = getPcaGroupedGroupCount(sampleCount, replicates);
         const assignments = new Array(sampleCount).fill(-1);
-        const counts = new Array(names.length).fill(0);
-        const replicates = Math.max(1, pcaState.grouped.replicatesPerGroup);
-        let cursor = 0;
-        for(let idx=0; idx<names.length && cursor<sampleCount; idx+=1){
-          const groupsLeft = names.length - idx - 1;
-          const remaining = sampleCount - cursor;
-          let span = replicates;
-          const minReserve = Math.max(0, groupsLeft);
-          if(remaining - span < minReserve){
-            span = Math.max(1, remaining - minReserve);
-          }
-          span = Math.max(1, Math.min(span, remaining));
-          for(let copy=0; copy<span && cursor<sampleCount; copy+=1){
-            assignments[cursor] = idx;
-            counts[idx] += 1;
-            cursor += 1;
+        let maxAssignedGroupIndex = -1;
+        if(columnIndices.length === sampleCount){
+          for(let sampleIdx = 0; sampleIdx < sampleCount; sampleIdx += 1){
+            const sourceCol = Number(columnIndices[sampleIdx]);
+            if(!Number.isInteger(sourceCol) || sourceCol < 1){
+              continue;
+            }
+            const groupIndex = Math.max(0, Math.floor((sourceCol - 1) / replicates));
+            assignments[sampleIdx] = groupIndex;
+            if(groupIndex > maxAssignedGroupIndex){
+              maxAssignedGroupIndex = groupIndex;
+            }
           }
         }
-        if(cursor < sampleCount){
-          const fallbackIndex = Math.max(0, names.length - 1);
-          for(; cursor<sampleCount; cursor+=1){
-            assignments[cursor] = fallbackIndex;
-            counts[fallbackIndex] += 1;
+        if(maxAssignedGroupIndex < 0){
+          let cursor = 0;
+          const groupCountFallback = Math.max(1, fallbackGroupCount);
+          for(let groupIdx = 0; groupIdx < groupCountFallback && cursor < sampleCount; groupIdx += 1){
+            const groupsLeft = groupCountFallback - groupIdx - 1;
+            const remaining = sampleCount - cursor;
+            let span = replicates;
+            const minReserve = Math.max(0, groupsLeft);
+            if(remaining - span < minReserve){
+              span = Math.max(1, remaining - minReserve);
+            }
+            span = Math.max(1, Math.min(span, remaining));
+            for(let copy = 0; copy < span && cursor < sampleCount; copy += 1){
+              assignments[cursor] = groupIdx;
+              cursor += 1;
+            }
+          }
+          for(let idx = 0; idx < sampleCount; idx += 1){
+            if(assignments[idx] >= 0){
+              maxAssignedGroupIndex = Math.max(maxAssignedGroupIndex, assignments[idx]);
+            }
+          }
+        }else{
+          for(let sampleIdx = 0; sampleIdx < sampleCount; sampleIdx += 1){
+            if(assignments[sampleIdx] >= 0){
+              continue;
+            }
+            const fallbackIdx = Math.max(0, Math.floor(sampleIdx / replicates));
+            assignments[sampleIdx] = fallbackIdx;
+            if(fallbackIdx > maxAssignedGroupIndex){
+              maxAssignedGroupIndex = fallbackIdx;
+            }
+          }
+        }
+        const groupCount = Math.max(1, fallbackGroupCount, maxAssignedGroupIndex + 1);
+        const names = Array.from({ length: groupCount }, (_, idx) => {
+          const anchorCol = 1 + idx * replicates;
+          const groupAnchor = groupHeaderRow[anchorCol];
+          const groupText = groupAnchor == null ? '' : String(groupAnchor).trim();
+          if(groupText){
+            return inferPcaGroupBaseName(groupText, `Group ${idx + 1}`);
+          }
+          const sampleAnchor = sampleLabels[idx * replicates];
+          return inferPcaGroupBaseName(sampleAnchor, `Group ${idx + 1}`);
+        });
+        const counts = new Array(groupCount).fill(0);
+        pcaState.grouped.colors = names.map((_, idx) => {
+          const existing = pcaState.grouped.colors[idx];
+          return (typeof existing === 'string' && existing.trim())
+            ? existing
+            : DEFAULT_SCATTER_COLORS[idx % DEFAULT_SCATTER_COLORS.length];
+        });
+        pcaState.grouped.shapes = names.map((_, idx) => sanitizeGroupShape(pcaState.grouped.shapes[idx], idx));
+        for(let sampleIdx = 0; sampleIdx < assignments.length; sampleIdx += 1){
+          const groupIndex = assignments[sampleIdx];
+          if(Number.isInteger(groupIndex) && groupIndex >= 0 && groupIndex < counts.length){
+            counts[groupIndex] += 1;
           }
         }
         const styleByIndex = [];
@@ -4111,8 +4588,8 @@
           return null;
         }
         const labelToGroup = new Map();
-        if(Array.isArray(labels)){
-          labels.forEach((lab, sampleIdx)=>{
+        if(sampleLabels.length){
+          sampleLabels.forEach((lab, sampleIdx)=>{
             if(!lab){ return; }
             const groupIndex = assignments[sampleIdx];
             if(Number.isInteger(groupIndex) && groupIndex >= 0){
@@ -4226,37 +4703,6 @@
           requestPcaViewRefresh('group-replicate-change');
         });
       }
-      if(pcaEls.groupedAdd){
-        pcaEls.groupedAdd.addEventListener('click',()=>{
-          ensurePcaGroupedDefaults();
-          const nextIndex = pcaState.grouped.groups.length;
-          const nextLabel = `Group ${nextIndex + 1}`;
-          pcaState.grouped.groups.push(nextLabel);
-          pcaState.grouped.colors.push(DEFAULT_SCATTER_COLORS[nextIndex % DEFAULT_SCATTER_COLORS.length]);
-          pcaState.grouped.shapes.push(GROUP_SHAPE_DEFAULTS[nextIndex % GROUP_SHAPE_DEFAULTS.length]);
-          debugLog('Debug: pca grouped add button',{ nextLabel, groups: [...pcaState.grouped.groups] });
-          renderPcaGroupedList();
-          updatePcaGroupedHeaders();
-          requestPcaViewRefresh('group-add');
-        });
-      }
-      if(pcaEls.groupedRemove){
-        pcaEls.groupedRemove.addEventListener('click',()=>{
-          ensurePcaGroupedDefaults();
-          if(pcaState.grouped.groups.length <= 1){
-            debugLog('Debug: pca grouped remove blocked',{ length: pcaState.grouped.groups.length });
-            return;
-          }
-          const removedName = pcaState.grouped.groups.pop();
-          pcaState.grouped.colors.pop();
-          pcaState.grouped.shapes.pop();
-          debugLog('Debug: pca grouped remove button',{ removed: removedName, groups: [...pcaState.grouped.groups] });
-          renderPcaGroupedList();
-          updatePcaGroupedHeaders();
-          requestPcaViewRefresh('group-remove');
-        });
-      }
-
       const makeEditableHelper = (node, onChange, options) => {
         const fn = Shared.makeEditable || global.makeEditable;
         if(typeof fn === 'function'){
@@ -4284,14 +4730,24 @@
       };
       document.getElementById('pcaLoadExample').addEventListener('click',()=>{
         const selectedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
-        const pcaExample=[
-          [PCA_POINT_LABEL_ROW_HEADER,true,false,false,true,false,false,false,false],
-          ['Variable','A','B','C','D','E','F','G','H'],
-          ['Var1',1,2,3,2,10,20,30,20],
-          ['Var2',2,3,2,3,20,10,20,30],
-          ['Var3',3,4,1,4,30,30,10,40],
-          ['Var4',4,2,4,1,40,20,40,10]
-        ];
+        const pcaExample = selectedFormat === 'grouped'
+          ? [
+              [PCA_POINT_LABEL_ROW_HEADER,true,false,false,true,false,false,false,false],
+              [PCA_GROUP_ROW_HEADER,'Control','','Treatment','','KO','','Rescue',''],
+              [PCA_SAMPLE_ROW_HEADER,'A','B','C','D','E','F','G','H'],
+              ['Var1',1,2,3,2,10,20,30,20],
+              ['Var2',2,3,2,3,20,10,20,30],
+              ['Var3',3,4,1,4,30,30,10,40],
+              ['Var4',4,2,4,1,40,20,40,10]
+            ]
+          : [
+              [PCA_POINT_LABEL_ROW_HEADER,true,false,false,true,false,false,false,false],
+              ['Variable','A','B','C','D','E','F','G','H'],
+              ['Var1',1,2,3,2,10,20,30,20],
+              ['Var2',2,3,2,3,20,10,20,30],
+              ['Var3',3,4,1,4,30,30,10,40],
+              ['Var4',4,2,4,1,40,20,40,10]
+            ];
         const hot = ensurePcaHotForActiveTab();
         markPcaOverlayPending('example-data');
         hot?.loadData?.(pcaExample);
@@ -4299,7 +4755,6 @@
         debugLog('Debug: pca example dataset applied (transposed labels)', { rows: pcaExample.length, cols: pcaExample[0]?.length });
         pcaState.grouped = {
           replicatesPerGroup: 2,
-          groups: ['Control', 'Treatment A', 'Treatment B', 'Treatment C'],
           colors: DEFAULT_SCATTER_COLORS.slice(0,4),
           shapes: GROUP_SHAPE_DEFAULTS.slice(0,4)
         };
@@ -5764,6 +6219,8 @@
       let dimensionMeta = [];
       let labels = [];
       let manualLabelFlags = [];
+      let sampleColumnIndices = [];
+      let groupedHeaderRowCache = [];
       let points3d = [];
       let axisIndices = { x: 0, y: 1, z: null };
       let pcaXLabelText = 'PC1';
@@ -5954,6 +6411,8 @@
           points = Array.isArray(cached.points) ? cached.points : [];
           points3d = Array.isArray(cached.points3d) ? cached.points3d : [];
           labels = Array.isArray(cached.labels) ? cached.labels : [];
+          sampleColumnIndices = Array.isArray(cached.sampleColumnIndices) ? cached.sampleColumnIndices.slice() : [];
+          groupedHeaderRowCache = Array.isArray(cached.groupedHeaderRow) ? cached.groupedHeaderRow.slice() : [];
           loadingsRows = Array.isArray(cached.loadingsRows) ? cached.loadingsRows : [];
           loadingsComponents = Number(cached.loadingsComponents) || 0;
           loadingsTotalCount = Number.isFinite(cached.loadingsTotalCount) ? cached.loadingsTotalCount : loadingsRows.length;
@@ -5995,6 +6454,9 @@
       const labelRowIndex = resolvePcaLabelRowIndex(data);
       const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex);
       const labelRow = Number.isInteger(labelRowIndex) ? (Array.isArray(data[labelRowIndex]) ? data[labelRowIndex] : []) : [];
+      const groupHeaderRow = (pcaState.tableFormat === 'grouped' && Array.isArray(data[PCA_GROUP_ROW_INDEX]))
+        ? data[PCA_GROUP_ROW_INDEX]
+        : [];
       const dataStartRow = resolvePcaDataStartRow(labelRowIndex, headerRowIndex);
       const headerRow = Number.isInteger(headerRowIndex) && Array.isArray(data[headerRowIndex]) ? data[headerRowIndex] : [];
       const candidateColCount = headerRow.length;
@@ -6030,6 +6492,8 @@
         candidateColCount,
         numericColIndices,
       });
+      sampleColumnIndices = numericColIndices.slice();
+      groupedHeaderRowCache = groupHeaderRow.slice();
 
       const conditionLabels = numericColIndices.map((colIndex, idx) => {
         const headerVal = headerRow[colIndex];
@@ -6153,7 +6617,10 @@
         return;
       }
 
-      groupMeta = resolvePcaGroupMeta(nSamples, labels);
+      groupMeta = resolvePcaGroupMeta(nSamples, labels, {
+        columnIndices: sampleColumnIndices,
+        groupHeaderRow: groupedHeaderRowCache
+      });
       if(pcaState.tableFormat === 'grouped'){
         updatePcaGroupedHeaders();
       }
@@ -6841,6 +7308,8 @@
           points,
           points3d,
           labels,
+          sampleColumnIndices,
+          groupedHeaderRow: groupedHeaderRowCache,
           loadingsRows,
           loadingsComponents,
           loadingsTotalCount,
@@ -6860,7 +7329,10 @@
       }
 
       if(usingCache){
-        groupMeta = resolvePcaGroupMeta(points.length, labels);
+        groupMeta = resolvePcaGroupMeta(points.length, labels, {
+          columnIndices: sampleColumnIndices,
+          groupHeaderRow: groupedHeaderRowCache
+        });
       }
 
       if(usingCache){
@@ -8797,7 +9269,6 @@
         loadingsLimit:pcaState.loadingsLimit,
         grouped:pcaState.grouped ? {
           replicatesPerGroup: pcaState.grouped.replicatesPerGroup,
-          groups: Array.isArray(pcaState.grouped.groups) ? [...pcaState.grouped.groups] : [],
           colors: Array.isArray(pcaState.grouped.colors) ? [...pcaState.grouped.colors] : [],
           shapes: Array.isArray(pcaState.grouped.shapes) ? [...pcaState.grouped.shapes] : []
         } : null,
@@ -9023,7 +9494,6 @@
         if(c.grouped && typeof c.grouped === 'object'){
           pcaState.grouped = {
             replicatesPerGroup: c.grouped.replicatesPerGroup,
-            groups: Array.isArray(c.grouped.groups) ? [...c.grouped.groups] : [],
             colors: Array.isArray(c.grouped.colors) ? [...c.grouped.colors] : [],
             shapes: Array.isArray(c.grouped.shapes) ? [...c.grouped.shapes] : []
           };

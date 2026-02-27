@@ -643,10 +643,10 @@
     let colCount = Math.max(MIN_INPUT_COLS, requestedColCount);
     const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? true;
     const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
-    const headerRowIndex = treatFirstRowAsHeader
+    let headerRowIndex = treatFirstRowAsHeader
       ? (Number.isInteger(overrides?.headerRowIndex) ? Math.max(0, overrides.headerRowIndex) : 0)
       : null;
-    const headerRowCount = treatFirstRowAsHeader
+    let headerRowCount = treatFirstRowAsHeader
       ? (Number.isInteger(overrides?.headerRowCount) ? Math.max(1, overrides.headerRowCount) : 1)
       : 0;
     const isHeaderRow = (physicalRow)=>(
@@ -2169,7 +2169,7 @@
 
 
     const pinFirstRow = overrides?.pinFirstRow;
-    const pinRowCount = Number.isInteger(pinFirstRow)
+    let pinRowCount = Number.isInteger(pinFirstRow)
       ? Math.max(0, pinFirstRow)
       : (pinFirstRow === true ? 1 : 0);
     const shouldPinRows = pinRowCount > 0;
@@ -3876,6 +3876,7 @@
         let needsSync = false;
         let needsRebuild = false;
         let needsSchedule = false;
+        let pinConfigChanged = false;
         const hasIncomingData = Object.prototype.hasOwnProperty.call(opts, 'data') && Array.isArray(opts.data);
         const existingExclusions = hasIncomingData && preserveExclusionsOnLoad ? exclusionController.exportState() : null;
         const hasMinRows = Number.isFinite(opts.minRows);
@@ -3883,6 +3884,35 @@
         const trimIncoming = hasIncomingData && (opts.trimData === true || opts.allowShrink === true);
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
         const prevColCount = colCount;
+
+        if(treatFirstRowAsHeader){
+          if(Object.prototype.hasOwnProperty.call(opts, 'headerRowIndex')){
+            const nextHeaderRowIndex = Number.isInteger(opts.headerRowIndex)
+              ? Math.max(0, opts.headerRowIndex)
+              : headerRowIndex;
+            if(nextHeaderRowIndex !== headerRowIndex){
+              headerRowIndex = nextHeaderRowIndex;
+            }
+          }
+          if(Object.prototype.hasOwnProperty.call(opts, 'headerRowCount')){
+            const nextHeaderRowCount = Number.isInteger(opts.headerRowCount)
+              ? Math.max(1, opts.headerRowCount)
+              : headerRowCount;
+            if(nextHeaderRowCount !== headerRowCount){
+              headerRowCount = nextHeaderRowCount;
+            }
+          }
+        }
+        if(shouldPinRows && Object.prototype.hasOwnProperty.call(opts, 'pinFirstRow')){
+          const rawPinFirstRow = opts.pinFirstRow;
+          const nextPinRowCount = Number.isInteger(rawPinFirstRow)
+            ? Math.max(0, rawPinFirstRow)
+            : (rawPinFirstRow === true ? 1 : 0);
+          if(nextPinRowCount !== pinRowCount){
+            pinRowCount = nextPinRowCount;
+            pinConfigChanged = true;
+          }
+        }
 
         if(Object.prototype.hasOwnProperty.call(opts, 'rowHeaders')){
           rowHeadersSetting = opts.rowHeaders;
@@ -3971,6 +4001,9 @@
         }
         if(needsRebuild){
           rebuildColumns(instance.gridApi);
+        }
+        if(pinConfigChanged){
+          applyPinnedTopRowData(instance.gridApi);
         }
         if(needsSchedule){
           if(hasIncomingData){
@@ -5364,7 +5397,7 @@
         if(usePinnedRows && isPinnedTopRow(physicalRow) && !params?.node?.rowPinned){
           classes.push('hot-pinned-ghost-row');
         }
-        if(usePinnedRows && Number.isInteger(physicalRow) && physicalRow === pinRowCount){
+        if(usePinnedRows && pinRowCount > 0 && Number.isInteger(physicalRow) && physicalRow === pinRowCount){
           classes.push('hot-pinned-first-body-row');
         }
         return classes.length ? classes.join(' ') : null;
