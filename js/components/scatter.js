@@ -6062,7 +6062,6 @@
   let scatterGroupedXReplicates = false;
   let scatterLastGroupedReplicateCount = SCATTER_DEFAULT_GROUPED_REPLICATES;
   let scatterSeriesGroupLabels = [];
-  let scatterGroupedControlsCollapsed = true;
   let scatterLastGraphType='scatter';
   let scatterLastRegressionSummary=null;
   const scatterAdvisorState={
@@ -7789,8 +7788,8 @@
         const scatterSignificantOptions=$('#scatterSignificantOptions');
         const scatterShowSignificantLabels=$('#scatterShowSignificantLabels');
       scatterTableFormatSelect=$('#scatterTableFormat');
-      const scatterGroupedToggle=$('#scatterGroupedToggle');
       const scatterGroupedControls=$('#scatterGroupedControls');
+      const scatterGroupedControlsExtra=$('#scatterGroupedControlsExtra');
       const scatterReplicatesInput=$('#scatterReplicates');
       const scatterGroupedXReplicatesInput=$('#scatterGroupedXReplicates');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
@@ -7858,33 +7857,16 @@
         });
       }
 
-      function updateScatterGroupedToggleUI(mode){
-        if(!scatterGroupedToggle){
-          return;
-        }
-        const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
-        const expanded = groupedActive && !scatterGroupedControlsCollapsed;
-        if(!groupedActive){
-          scatterGroupedToggle.hidden = true;
-          scatterGroupedToggle.disabled = true;
-          scatterGroupedToggle.setAttribute('aria-expanded', 'false');
-          scatterGroupedToggle.textContent = 'Show group settings';
-          return;
-        }
-        scatterGroupedToggle.hidden = false;
-        scatterGroupedToggle.disabled = false;
-        scatterGroupedToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        scatterGroupedToggle.textContent = expanded ? 'Hide group settings' : 'Show group settings';
-      }
-
       function updateScatterGroupedControlsVisibility(mode){
-        if(!scatterGroupedControls){
-          return;
-        }
         const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
-        const expanded = groupedActive && !scatterGroupedControlsCollapsed;
-        scatterGroupedControls.style.display = expanded ? '' : 'none';
-        scatterGroupedControls.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+        if(scatterGroupedControls){
+          scatterGroupedControls.style.display = groupedActive ? '' : 'none';
+          scatterGroupedControls.setAttribute('aria-hidden', groupedActive ? 'false' : 'true');
+        }
+        if(scatterGroupedControlsExtra){
+          scatterGroupedControlsExtra.style.display = groupedActive ? '' : 'none';
+          scatterGroupedControlsExtra.setAttribute('aria-hidden', groupedActive ? 'false' : 'true');
+        }
       }
 
       function buildScatterAgColHeaders(hotInstance, options = {}){
@@ -7998,7 +7980,6 @@
 
       function updateScatterReplicateModeControls(modeOverride){
         const mode = normalizeScatterTableFormat(modeOverride || getScatterReplicateMode());
-        updateScatterGroupedToggleUI(mode);
         updateScatterGroupedControlsVisibility(mode);
         const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
         if(scatterReplicatesInput){
@@ -8087,9 +8068,6 @@
         }
         const hot = scatterHot || scatterRefs.hot;
         if(nextMode === SCATTER_TABLE_FORMAT_GROUPED){
-          scatterGroupedControlsCollapsed = options.keepCollapsed === true
-            ? !!scatterGroupedControlsCollapsed
-            : false;
           const matrix = hot?.getData ? (hot.getData() || []) : [];
           const shouldResetGroups = isScatterMatrixEmpty(matrix);
           const targetReplicates = scatterReplicates > SCATTER_MIN_REPLICATES
@@ -8111,7 +8089,6 @@
           scatterState.supportsBubble = false;
           applyScatterViewMode('2d', { allow3d: false, allowBubble: false, skipSchedule: true, forceUpdate: true, persistRequest: true });
         }else{
-          scatterGroupedControlsCollapsed = true;
           if(previousMode === SCATTER_TABLE_FORMAT_GROUPED && hot){
             const groupedMatrix = hot.getData ? (hot.getData() || []) : [];
             const converted = buildScatterSingleMatrixFromGrouped(groupedMatrix, scatterReplicates, {
@@ -10820,15 +10797,6 @@
             xReplicatesEnabled: nextEnabled
           });
           persistTabState('scatter-x-replicates-toggle');
-        });
-      }
-      if(scatterGroupedToggle){
-        scatterGroupedToggle.addEventListener('click', () => {
-          if(!isGroupedScatterModeActive()){
-            return;
-          }
-          scatterGroupedControlsCollapsed = !scatterGroupedControlsCollapsed;
-          updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
         });
       }
       if(scatterLog2FCThreshold){

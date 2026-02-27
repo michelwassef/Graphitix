@@ -360,17 +360,13 @@
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
         <div class="table-format-controls">
-          <label for="boxTableFormat" class="idx-inline-019">Table format</label>
           <select id="boxTableFormat">
             <option value="single" selected>Single replicates</option>
             <option value="grouped">Grouped replicates</option>
           </select>
-          <button type="button" class="btn grouped-toggle" id="boxGroupedToggle" aria-controls="boxGroupedControls" aria-expanded="false" hidden>Show group settings</button>
-        </div>
-        <div id="boxGroupedControls" class="grouped-controls idx-inline-001">
-          <div class="grouped-config-row">
+          <div id="boxGroupedControls" class="grouped-controls grouped-controls--inline idx-inline-001">
             <label for="boxGroupedReplicates" class="grouped-config-inline">
-              <span>Conditions per group</span>
+              <span>n =</span>
               <input type="number" id="boxGroupedReplicates" min="1" max="50" step="1" value="3" />
             </label>
           </div>
@@ -561,20 +557,18 @@
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
         <div class="table-format-controls">
-          <label for="scatterTableFormat" class="idx-inline-019">Table format</label>
           <select id="scatterTableFormat">
             <option value="single" selected>Single replicates</option>
             <option value="grouped">Grouped replicates</option>
           </select>
-          <button type="button" class="btn grouped-toggle" id="scatterGroupedToggle" aria-controls="scatterGroupedControls" aria-expanded="false" hidden>Show group settings</button>
-        </div>
-        <div id="scatterGroupedControls" class="grouped-controls idx-inline-001" aria-hidden="true">
-          <div class="grouped-config-row">
+          <div id="scatterGroupedControls" class="grouped-controls grouped-controls--inline idx-inline-001" aria-hidden="true">
             <label for="scatterReplicates" class="grouped-config-inline">
-              <span>Replicates per group</span>
+              <span>n =</span>
               <input type="number" id="scatterReplicates" min="1" max="10" step="1" value="1" />
             </label>
           </div>
+        </div>
+        <div id="scatterGroupedControlsExtra" class="grouped-controls idx-inline-001" aria-hidden="true">
           <div class="grouped-config-row">
             <label for="scatterGroupedXReplicates" class="grouped-config-inline">
               <input type="checkbox" id="scatterGroupedXReplicates" />
@@ -878,17 +872,13 @@
     <div class="wrap">
         <div class="panel" id="pcaTablePanel">
           <div class="table-format-controls">
-            <label for="pcaTableFormat" class="idx-inline-019">Table format</label>
             <select id="pcaTableFormat">
               <option value="standard" selected>Standard</option>
               <option value="grouped">Grouped samples</option>
             </select>
-            <button type="button" class="btn grouped-toggle" id="pcaGroupedToggle" aria-controls="pcaGroupedControls" aria-expanded="false" hidden>Show group settings</button>
-          </div>
-        <div id="pcaGroupedControls" class="grouped-controls idx-inline-001">
-          <div class="grouped-config-row">
+            <div id="pcaGroupedControls" class="grouped-controls grouped-controls--inline idx-inline-001">
             <label for="pcaGroupedReplicates" class="grouped-config-inline">
-              <span>Samples per group</span>
+              <span>n =</span>
               <input type="number" id="pcaGroupedReplicates" min="1" max="100" step="1" value="2" />
             </label>
           </div>
@@ -1210,18 +1200,14 @@
     <div class="wrap">
         <div class="panel" id="lineTablePanel">
           <div class="table-format-controls">
-            <label for="lineTableFormat" class="idx-inline-019">Table format</label>
             <select id="lineTableFormat">
               <option value="single" selected>Single replicates</option>
               <option value="grouped">Grouped replicates</option>
               <option value="3d">3D datasets (Y+Z columns)</option>
             </select>
-            <button type="button" class="btn grouped-toggle" id="lineGroupedToggle" aria-controls="lineGroupedControls" aria-expanded="false" hidden>Show group settings</button>
-          </div>
-        <div id="lineGroupedControls" class="grouped-controls idx-inline-001" aria-hidden="true">
-          <div class="grouped-config-row">
+            <div id="lineGroupedControls" class="grouped-controls grouped-controls--inline idx-inline-001" aria-hidden="true">
             <label for="lineReplicates" class="grouped-config-inline">
-              <span>Replicates per series</span>
+              <span>n =</span>
               <input type="number" id="lineReplicates" min="1" max="10" step="1" value="1" />
             </label>
           </div>

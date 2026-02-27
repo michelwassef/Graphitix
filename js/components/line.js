@@ -503,7 +503,6 @@
     let lineFileHandle = null;
     let lineFileName = 'line.graph';
     let lineReplicates = LINE_MIN_REPLICATES;
-    let lineGroupedControlsCollapsed = false;
     let lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, LINE_MIN_REPLICATES + 1));
   let lineLayout = null;
   let lineSeriesGroupLabels = [];
@@ -4334,25 +4333,6 @@
     return structure;
   }
 
-    function updateLineGroupedToggleUI(mode){
-      if(!refs.groupedToggle){
-        return;
-      }
-      const groupedActive = mode === 'grouped';
-      const expanded = groupedActive && !lineGroupedControlsCollapsed;
-      if(!groupedActive){
-        refs.groupedToggle.hidden = true;
-        refs.groupedToggle.disabled = true;
-        refs.groupedToggle.setAttribute('aria-expanded', 'false');
-        refs.groupedToggle.textContent = 'Show group settings';
-        return;
-      }
-      refs.groupedToggle.hidden = false;
-      refs.groupedToggle.disabled = false;
-      refs.groupedToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      refs.groupedToggle.textContent = expanded ? 'Hide group settings' : 'Show group settings';
-    }
-
     function updateLineReplicateModeControls(modeOverride){
       const wants3d = modeOverride === '3d'
         || lineViewState.viewMode === '3d'
@@ -4362,7 +4342,7 @@
         refs.replicateMode.value = mode;
       }
       if(refs.replicatesContainer){
-        const showGroupedControls = mode === 'grouped' && !lineGroupedControlsCollapsed;
+        const showGroupedControls = mode === 'grouped';
         if(showGroupedControls){
           refs.replicatesContainer.style.display = '';
           refs.replicatesContainer.setAttribute('aria-hidden', 'false');
@@ -4371,7 +4351,6 @@
           refs.replicatesContainer.setAttribute('aria-hidden', 'true');
         }
       }
-      updateLineGroupedToggleUI(mode);
     if(refs.threeDControls){
       if(mode === '3d'){
         refs.threeDControls.style.display = '';
@@ -9808,7 +9787,6 @@
     refs.forecastAuto=document.getElementById('lineForecastAuto');
       refs.forecastCriterion=document.getElementById('lineForecastCriterion');
       refs.replicateMode=document.getElementById('lineTableFormat');
-      refs.groupedToggle=document.getElementById('lineGroupedToggle');
       refs.replicatesContainer=document.getElementById('lineGroupedControls');
       refs.replicatesInput=document.getElementById('lineReplicates');
     refs.threeDControls=document.getElementById('line3dControls');
@@ -9858,18 +9836,6 @@
         }
       });
     }
-      if(refs.groupedToggle){
-        refs.groupedToggle.addEventListener('click', ()=>{
-          if(refs.replicateMode?.value !== 'grouped'){
-            return;
-          }
-          lineGroupedControlsCollapsed = !lineGroupedControlsCollapsed;
-          if(Shared.isDebugEnabled?.()){
-            console.debug('Debug: line grouped controls toggled',{ collapsed: lineGroupedControlsCollapsed });
-          }
-          updateLineReplicateModeControls('grouped');
-        });
-      }
     if(refs.threeDAdd){
       refs.threeDAdd.addEventListener('click', () => {
         console.debug('Debug: line 3d add dataset button');

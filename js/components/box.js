@@ -6414,7 +6414,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', groupedControlsCollapsed: false, grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7777,7 +7777,6 @@
       els.hotWrapper = global.document.getElementById('hotWrapper');
       els.plotDiv = global.document.getElementById('boxPlot');
       els.tableFormat = global.document.getElementById('boxTableFormat');
-      els.groupedToggle = global.document.getElementById('boxGroupedToggle');
       els.groupedControls = global.document.getElementById('boxGroupedControls');
     els.groupedReplicates = global.document.getElementById('boxGroupedReplicates');
     // Controls
@@ -8641,31 +8640,12 @@
     }
   }
 
-    function updateGroupedToggleUI(){
-      if(!els.groupedToggle){
-        return;
-      }
-      const groupedActive = state.tableFormat === 'grouped';
-      const expanded = groupedActive && !state.groupedControlsCollapsed;
-      if(!groupedActive){
-        els.groupedToggle.hidden = true;
-        els.groupedToggle.disabled = true;
-        els.groupedToggle.setAttribute('aria-expanded', 'false');
-        els.groupedToggle.textContent = 'Show group settings';
-        return;
-      }
-      els.groupedToggle.hidden = false;
-      els.groupedToggle.disabled = false;
-      els.groupedToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      els.groupedToggle.textContent = expanded ? 'Hide group settings' : 'Show group settings';
-    }
-
     function updateTableFormatUI(){
       if(els.tableFormat){
         els.tableFormat.value = state.tableFormat;
       }
       const groupedActive = state.tableFormat === 'grouped';
-      const showGroupedControls = groupedActive && !state.groupedControlsCollapsed;
+      const showGroupedControls = groupedActive;
       if(els.groupedControls){
         els.groupedControls.style.display = showGroupedControls ? '' : 'none';
         els.groupedControls.setAttribute('aria-hidden', showGroupedControls ? 'false' : 'true');
@@ -8682,7 +8662,6 @@
         }
         updateGroupedHeaders();
       }
-      updateGroupedToggleUI();
       console.debug('Debug: updateTableFormatUI',{ tableFormat: state.tableFormat });
     }
 
@@ -9279,18 +9258,6 @@
       els.tableFormat.addEventListener('change', e=>{
         console.debug('Debug: tableFormat select change',{ value: e.target.value });
         setTableFormat(e.target.value);
-      });
-    }
-    if(els.groupedToggle){
-      els.groupedToggle.addEventListener('click', ()=>{
-        if(state.tableFormat !== 'grouped'){
-          return;
-        }
-        state.groupedControlsCollapsed = !state.groupedControlsCollapsed;
-        updateTableFormatUI();
-        if(boxDebugEnabled()){
-          console.debug('Debug: box grouped controls toggled',{ collapsed: state.groupedControlsCollapsed });
-        }
       });
     }
     if(els.groupedReplicates){
