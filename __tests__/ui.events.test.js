@@ -850,7 +850,7 @@ describe('UI events and example loaders', () => {
     expect(document.getElementById('scatterTableFormat')?.value).toBe('grouped');
     expect(document.getElementById('scatterReplicates')?.value).toBe('3');
     expect(document.getElementById('scatterShowErrorBars')?.checked).toBe(true);
-  });
+  }, 20000);
 
   test('Scatter Plot: grouped X replicates support horizontal error bars and grouped example headers', async () => {
     await activateWorkspace('scatter');

@@ -8649,6 +8649,209 @@
         return normalized;
       }
 
+      function buildScatterStatsDetailReport(context, stats, settings){
+        const regressionModeValue = settings?.regressionModeValue || 'linear';
+        const showCI = !!settings?.showCI;
+        const showPI = !!settings?.showPI;
+        const showDiagnostics = !!settings?.showDiagnostics;
+        const normalizedStats = ensureScatterRegressionForStats(context, stats, settings);
+        const regressionModel = normalizedStats?.regression || null;
+        const fitMethodValue = regressionModel?.fitMethod || settings?.fitMethodValue || 'ols';
+        const fitSpecValue = regressionModel?.fitSpec && typeof regressionModel.fitSpec === 'object'
+          ? regressionModel.fitSpec
+          : (settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : null);
+        if(regressionModel && Array.isArray(normalizedStats?.curveSamples) && !Array.isArray(regressionModel.curveSamples)){
+          regressionModel.curveSamples = normalizedStats.curveSamples;
+        }
+        const tablePointCount = Number(context?.pointSummary?.count);
+        const pairedPointCount = Number(normalizedStats?.pointCount);
+        const regressionSampleCount = Number(regressionModel?.metrics?.sampleSize);
+        const correlationSampleSize = Number.isFinite(pairedPointCount) && pairedPointCount > 0
+          ? pairedPointCount
+          : (Number.isFinite(tablePointCount) && tablePointCount > 0
+            ? tablePointCount
+            : (Number(context?.points?.length) || 0));
+        const fitSampleSize = Number.isFinite(regressionSampleCount) && regressionSampleCount > 0
+          ? regressionSampleCount
+          : correlationSampleSize;
+        const correlationCi = normalizedStats?.correlationCI || computeScatterCorrelationConfidenceInterval(normalizedStats?.r, correlationSampleSize, 0.05);
+        const pMethod = normalizedStats?.pMethod || (normalizedStats?.method === 'Spearman' ? 't approximation' : 'Student t approximation');
+        const rows = [
+          { metric:'r', value:formatMetricValue(normalizedStats?.r) },
+          { metric:'P value', value:formatP(normalizedStats?.p) },
+          { metric:'P calculation', value:pMethod },
+          {
+            metric:normalizedStats?.correlationCiApproximate ? 'Correlation (95% CI, approx)' : 'Correlation (95% CI)',
+            value:(correlationCi && Number.isFinite(correlationCi.low) && Number.isFinite(correlationCi.high))
+              ? `${formatMetricValue(correlationCi.low)} to ${formatMetricValue(correlationCi.high)}`
+              : 'n/a'
+          },
+          { metric:'Fit method', value:fitMethodValue.toUpperCase() }
+        ];
+        if(fitSpecValue?.range){
+          const minLabel = Number.isFinite(Number(fitSpecValue.range.minX)) ? formatMetricValue(Number(fitSpecValue.range.minX)) : 'Auto';
+          const maxLabel = Number.isFinite(Number(fitSpecValue.range.maxX)) ? formatMetricValue(Number(fitSpecValue.range.maxX)) : 'Auto';
+          rows.push({ metric:'Fit range X', value:`${minLabel} to ${maxLabel}` });
+        }
+        if(Number.isFinite(Number(fitSpecValue?.confidenceLevel))){
+          rows.push({ metric:'Confidence level', value:`${formatMetricValue(Number(fitSpecValue.confidenceLevel), 2)}%` });
+        }
+        if(Number.isFinite(correlationSampleSize)){
+          rows.push({ metric:'N', value:String(Math.max(0, Math.round(correlationSampleSize))) });
+        }
+        if(Number.isFinite(fitSampleSize) && Math.round(fitSampleSize) !== Math.round(correlationSampleSize)){
+          rows.push({ metric:'N (fit)', value:String(Math.max(0, Math.round(fitSampleSize))) });
+        }
+        if(regressionModel?.metrics){
+          rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
+          if(Number.isFinite(regressionModel.metrics.adjR2)){
+            rows.push({ metric:'Adjusted R²', value:formatMetricValue(regressionModel.metrics.adjR2) });
+          }
+          rows.push({ metric:'RMSE', value:formatMetricValue(regressionModel.metrics.rmse) });
+          rows.push({ metric:'MAE', value:formatMetricValue(regressionModel.metrics.mae) });
+          if(Number.isFinite(regressionModel.metrics.logLoss)){
+            rows.push({ metric:'Log loss', value:formatMetricValue(regressionModel.metrics.logLoss,6) });
+          }
+        }else{
+          rows.push({ metric:'R²', value:formatMetricValue(normalizedStats?.r2) });
+        }
+        if(regressionModel?.summary){
+          const summary = regressionModel.summary;
+          if(summary.parameters && typeof summary.parameters === 'object'){
+            Object.entries(summary.parameters).forEach(([label,value]) => {
+              if(Number.isFinite(value)){
+                rows.push({ metric:label, value:formatMetricValue(value) });
+              }else if(value != null && value !== ''){
+                rows.push({ metric:label, value:String(value) });
+              }
+            });
+          }
+          if(summary.primaryParameter && summary.primaryParameter.label && Number.isFinite(summary.primaryParameter.value)){
+            const duplicate = summary.parameters && Object.prototype.hasOwnProperty.call(summary.parameters,summary.primaryParameter.label);
+            if(!duplicate){
+              rows.push({ metric:summary.primaryParameter.label, value:formatMetricValue(summary.primaryParameter.value) });
+            }
+          }
+          if(!summary.parameters && Number.isFinite(summary.slope)){
+            rows.push({ metric:'Slope', value:formatMetricValue(summary.slope) });
+          }
+          if(!summary.parameters && Number.isFinite(summary.intercept)){
+            rows.push({ metric:'Intercept', value:formatMetricValue(summary.intercept) });
+          }
+          const equationValue = formatScatterEquationFallback(regressionModel, normalizedStats);
+          if(equationValue){
+            rows.push({ metric:'Equation', value:equationValue });
+          }
+        }else{
+          rows.push({ metric:'Slope', value:formatMetricValue(normalizedStats?.m) });
+          rows.push({ metric:'Intercept', value:formatMetricValue(normalizedStats?.b) });
+        }
+        if(regressionModel?.mode === 'doseResponse4pl' && Array.isArray(regressionModel?.coefficientStats)){
+          const logIc50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'LogIC50') || null;
+          const ic50Stat = regressionModel.coefficientStats.find(stat => stat?.term === 'IC50') || null;
+          if(Number.isFinite(ic50Stat?.standardError)){
+            rows.push({ metric:'IC50 Std. Error', value:formatMetricValue(ic50Stat.standardError) });
+          }
+          if(Number.isFinite(logIc50Stat?.ciLow) && Number.isFinite(logIc50Stat?.ciHigh)){
+            rows.push({
+              metric:'LogIC50 (95% CI)',
+              value:`${formatMetricValue(logIc50Stat.ciLow)} – ${formatMetricValue(logIc50Stat.ciHigh)}`
+            });
+          }
+          if(Number.isFinite(ic50Stat?.ciLow) && Number.isFinite(ic50Stat?.ciHigh)){
+            rows.push({
+              metric:'IC50 (95% CI)',
+              value:`${formatMetricValue(ic50Stat.ciLow)} – ${formatMetricValue(ic50Stat.ciHigh)}`
+            });
+          }
+        }
+        if(regressionModel?.residuals){
+          rows.push({ metric:'Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
+          rows.push({ metric:'Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
+        }
+        if((showCI || showPI) && regressionModel?.intervals?.summary){
+          const intervalSummary = regressionModel.intervals.summary;
+          if(showCI && Number.isFinite(intervalSummary.ciMin) && Number.isFinite(intervalSummary.ciMax)){
+            rows.push({ metric:'Confidence interval (y)', value:`${formatMetricValue(intervalSummary.ciMin)} – ${formatMetricValue(intervalSummary.ciMax)}` });
+          }
+          if(showPI && Number.isFinite(intervalSummary.piMin) && Number.isFinite(intervalSummary.piMax)){
+            rows.push({ metric:'Prediction interval (y)', value:`${formatMetricValue(intervalSummary.piMin)} – ${formatMetricValue(intervalSummary.piMax)}` });
+          }
+        }
+        if(showDiagnostics && regressionModel?.diagnostics){
+          rows.push({ metric:'Residual skewness', value:formatMetricValue(regressionModel.diagnostics.skewness,3) });
+          rows.push({ metric:'Residual kurtosis', value:formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
+          if(Number.isFinite(regressionModel.diagnostics.jarqueBera)){
+            rows.push({ metric:'Jarque-Bera', value:formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
+          }
+          if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
+            rows.push({ metric:'Jarque-Bera p', value:formatP(regressionModel.diagnostics.jarqueBeraP) });
+          }
+          const runs = regressionModel.diagnostics.runsTest || null;
+          if(Number.isFinite(runs?.z)){
+            rows.push({ metric:'Runs test z', value:formatMetricValue(runs.z,3) });
+          }
+          if(Number.isFinite(runs?.pValue)){
+            rows.push({ metric:'Runs test p', value:formatP(runs.pValue) });
+          }
+          const lackOfFit = regressionModel.diagnostics.lackOfFit || null;
+          if(Number.isFinite(lackOfFit?.fStatistic)){
+            rows.push({ metric:'Lack-of-fit F', value:formatMetricValue(lackOfFit.fStatistic,3) });
+          }
+          if(Number.isFinite(lackOfFit?.pValue)){
+            rows.push({ metric:'Lack-of-fit p', value:formatP(lackOfFit.pValue) });
+          }
+        }
+        const derived = normalizedStats?.derived || computeScatterDerivedRegressionStats(regressionModel);
+        if(derived){
+          if(Number.isFinite(derived.xIntercept)){
+            rows.push({ metric:'X-intercept', value:formatMetricValue(derived.xIntercept) });
+          }
+          if(Number.isFinite(derived.xInterceptCi?.low) && Number.isFinite(derived.xInterceptCi?.high)){
+            rows.push({
+              metric:'X-intercept (95% CI)',
+              value:`${formatMetricValue(derived.xInterceptCi.low)} to ${formatMetricValue(derived.xInterceptCi.high)}`
+            });
+          }
+          if(Number.isFinite(derived.reciprocalSlope)){
+            rows.push({ metric:'1/Slope', value:formatMetricValue(derived.reciprocalSlope) });
+          }
+          if(Number.isFinite(derived.reciprocalSlopeCi?.low) && Number.isFinite(derived.reciprocalSlopeCi?.high)){
+            rows.push({
+              metric:'1/Slope (95% CI)',
+              value:`${formatMetricValue(derived.reciprocalSlopeCi.low)} to ${formatMetricValue(derived.reciprocalSlopeCi.high)}`
+            });
+          }
+        }
+        if(regressionModel?.warnings?.length){
+          const warnings = regressionModel.warnings.filter(msg => typeof msg === 'string' && msg.trim());
+          const visibleWarnings = warnings.filter(msg => !/^Fit range excluded too many points \(\d+ retained of \d+\); using full dataset\.?$/i.test(msg));
+          if(visibleWarnings.length){
+            rows.push({ metric:'Warnings', value:visibleWarnings.join('; ') });
+          }else if(warnings.length && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: scatter warnings row suppressed (fit-range fallback only)', { warnings });
+          }
+        }
+        const coefficientRows = Array.isArray(regressionModel?.coefficientStats)
+          ? regressionModel.coefficientStats.map(stat => ({
+              term: stat?.term ?? '—',
+              estimate: formatMetricValue(stat?.estimate),
+              se: formatMetricValue(stat?.standardError),
+              t: formatMetricValue(stat?.tStatistic, 3),
+              p: formatP(stat?.pValue),
+              ciLow: formatMetricValue(stat?.ciLow),
+              ciHigh: formatMetricValue(stat?.ciHigh)
+            }))
+          : [];
+        return {
+          stats: normalizedStats,
+          regressionModel,
+          rows,
+          coefficientRows,
+          regressionModeValue
+        };
+      }
+
       function applyScatterStatsResults(context, stats, settings){
         if(!scatterStatsResults){
           return;
@@ -8665,66 +8868,135 @@
           ? stats.groupedSeriesStats
           : [];
         if(groupedSeriesStats.length){
-          const summaryRows = groupedSeriesStats.map((entry, index) => {
-            const groupStats = entry?.stats || {};
-            const regression = groupStats?.regression || null;
-            const regressionSummary = regression?.summary || {};
-            const rowPointCount = Number.isFinite(groupStats?.pointCount)
-              ? groupStats.pointCount
-              : (Array.isArray(entry?.points) ? entry.points.length : NaN);
+          const groupedReports = groupedSeriesStats.map((entry, index) => {
             const label = (entry?.label != null && String(entry.label).trim() !== '')
               ? String(entry.label).trim()
               : `Series ${index + 1}`;
-            const slopeValue = Number.isFinite(regressionSummary?.slope)
-              ? regressionSummary.slope
-              : groupStats?.m;
-            const r2Value = Number.isFinite(regression?.metrics?.r2)
-              ? regression.metrics.r2
-              : groupStats?.r2;
-            const rmseValue = Number.isFinite(regression?.metrics?.rmse)
-              ? regression.metrics.rmse
-              : NaN;
+            const points = Array.isArray(entry?.points) ? entry.points : [];
+            const pointSummary = summarizeScatterPoints(points);
+            const detail = buildScatterStatsDetailReport(
+              { ...context, points, pointSummary },
+              entry?.stats || {},
+              settings
+            );
             return {
-              group: label,
-              n: Number.isFinite(rowPointCount) ? String(Math.max(0, Math.round(rowPointCount))) : '0',
-              r: formatMetricValue(groupStats?.r),
-              p: formatP(groupStats?.p),
-              slope: formatMetricValue(slopeValue),
-              r2: formatMetricValue(r2Value),
-              rmse: formatMetricValue(rmseValue)
+              label,
+              detail
             };
           });
-          const representativeMethod = groupedSeriesStats
-            .map(entry => entry?.stats?.method)
+          const representativeMethod = groupedReports
+            .map(entry => entry?.detail?.stats?.method)
             .find(method => typeof method === 'string' && method.trim())
             || stats?.method
             || 'Correlation';
+          const metricOrder = [];
+          const metricSet = new Set();
+          groupedReports.forEach(entry => {
+            const detailRows = Array.isArray(entry?.detail?.rows) ? entry.detail.rows : [];
+            detailRows.forEach(row => {
+              const metric = String(row?.metric || '').trim();
+              if(!metric || metricSet.has(metric)){
+                return;
+              }
+              metricSet.add(metric);
+              metricOrder.push(metric);
+            });
+          });
+          const groupedColumns = groupedReports.map((entry, index) => ({
+            key: `group_${index}`,
+            label: entry.label,
+            align: 'right'
+          }));
+          const valueLookup = groupedReports.map(entry => {
+            const map = new Map();
+            const rows = Array.isArray(entry?.detail?.rows) ? entry.detail.rows : [];
+            rows.forEach(row => {
+              const metric = String(row?.metric || '').trim();
+              if(metric){
+                map.set(metric, row?.value ?? '—');
+              }
+            });
+            return map;
+          });
+          const summaryRows = metricOrder.map(metric => {
+            const row = { metric };
+            groupedColumns.forEach((col, index) => {
+              row[col.key] = valueLookup[index].has(metric) ? valueLookup[index].get(metric) : '—';
+            });
+            return row;
+          });
           renderStatsCard(scatterStatsResults,{
-            caption:`${representativeMethod} correlation by group (${regressionModeValue} regression)` ,
-            columns:[
-              { key:'group', label:'Group', align:'left' },
-              { key:'n', label:'N', align:'right' },
-              { key:'r', label:'r', align:'right' },
-              { key:'p', label:'p', align:'right' },
-              { key:'slope', label:'Slope', align:'right' },
-              { key:'r2', label:'R²', align:'right' },
-              { key:'rmse', label:'RMSE', align:'right' }
-            ],
+            caption:`${representativeMethod} correlation (${regressionModeValue} regression)` ,
+            columns:[{ key:'metric', label:'Metric', align:'left' }, ...groupedColumns],
             rows:summaryRows,
             options:{
               fileName:'scatter-grouped-correlation',
               contextLabel:'scatter-grouped-correlation'
             }
           });
+          const coefficientFields = [
+            { key:'estimate', label:'Estimate' },
+            { key:'se', label:'Std Error' },
+            { key:'t', label:'t-stat' },
+            { key:'p', label:'p-value' },
+            { key:'ciLow', label:'CI Low' },
+            { key:'ciHigh', label:'CI High' }
+          ];
+          const coefficientTermOrder = [];
+          const coefficientTermSet = new Set();
+          groupedReports.forEach(entry => {
+            const coeffRows = Array.isArray(entry?.detail?.coefficientRows) ? entry.detail.coefficientRows : [];
+            coeffRows.forEach(row => {
+              const term = String(row?.term || '').trim();
+              if(!term || coefficientTermSet.has(term)){
+                return;
+              }
+              coefficientTermSet.add(term);
+              coefficientTermOrder.push(term);
+            });
+          });
+          if(coefficientTermOrder.length){
+            const coefficientLookup = groupedReports.map(entry => {
+              const termMap = new Map();
+              const coeffRows = Array.isArray(entry?.detail?.coefficientRows) ? entry.detail.coefficientRows : [];
+              coeffRows.forEach(row => {
+                const term = String(row?.term || '').trim();
+                if(term){
+                  termMap.set(term, row);
+                }
+              });
+              return termMap;
+            });
+            const coefficientRows = [];
+            coefficientTermOrder.forEach(term => {
+              coefficientFields.forEach(field => {
+                const row = { metric: `${term} · ${field.label}` };
+                groupedColumns.forEach((col, index) => {
+                  const termRow = coefficientLookup[index].get(term);
+                  row[col.key] = termRow && Object.prototype.hasOwnProperty.call(termRow, field.key)
+                    ? termRow[field.key]
+                    : '—';
+                });
+                coefficientRows.push(row);
+              });
+            });
+            renderStatsCard(scatterStatsResults,{
+              caption:'Coefficient diagnostics',
+              columns:[{ key:'metric', label:'Metric', align:'left' }, ...groupedColumns],
+              rows:coefficientRows,
+              options:{
+                fileName:'scatter-grouped-coefficients',
+                contextLabel:'scatter-grouped-coefficients'
+              },
+              append:true
+            });
+          }
           scatterLastRegressionSummary = {
             grouped: true,
-            series: groupedSeriesStats.map((entry, index) => {
-              const label = (entry?.label != null && String(entry.label).trim() !== '')
-                ? String(entry.label).trim()
-                : `Series ${index + 1}`;
-              const regression = entry?.stats?.regression || null;
+            series: groupedReports.map(entry => {
+              const regression = entry?.detail?.regressionModel || null;
               return {
-                label,
+                label: entry.label,
                 summary: regression?.summary || null
               };
             })
