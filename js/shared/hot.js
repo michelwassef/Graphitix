@@ -4002,8 +4002,68 @@
         if(needsRebuild){
           rebuildColumns(instance.gridApi);
         }
-        if(pinConfigChanged){
+        if (pinConfigChanged) {
           applyPinnedTopRowData(instance.gridApi);
+
+          // When pinFirstRow changes, AG Grid may keep stale internal rowTop values
+          // for the first render pass. That produces a 1-row blank band.
+          // Force a full height + rowTop recompute now, and again on next frame.
+          try {
+            const api = instance.gridApi;
+
+            if (api && typeof api.resetRowHeights === "function") {
+              api.resetRowHeights();
+
+              if (typeof api.onRowHeightChanged === "function") {
+                api.onRowHeightChanged();
+              }
+
+              if (debugEnabled) {
+                console.debug("Debug: Shared.hot pinFirstRow height recompute (immediate)", {
+                  debugLabel,
+                  pinRowCount,
+                  usePinnedRows,
+                });
+              }
+            }
+
+            // Extra pass next frame to catch the first-layout timing issue.
+            if (api && typeof requestAnimationFrame === "function") {
+              requestAnimationFrame(() => {
+                try {
+                  if (typeof api.resetRowHeights === "function") {
+                    api.resetRowHeights();
+                  }
+                  if (typeof api.onRowHeightChanged === "function") {
+                    api.onRowHeightChanged();
+                  }
+                  if (typeof api.redrawRows === "function") {
+                    api.redrawRows();
+                  } else if (typeof api.refreshCells === "function") {
+                    api.refreshCells({ force: true });
+                  }
+
+                  if (debugEnabled) {
+                    console.debug("Debug: Shared.hot pinFirstRow height recompute (raf)", {
+                      debugLabel,
+                      pinRowCount,
+                      usePinnedRows,
+                    });
+                  }
+                } catch (err2) {
+                  console.error("Shared.hot pinFirstRow raf recompute error", {
+                    debugLabel,
+                    message: err2?.message || String(err2),
+                  });
+                }
+              });
+            }
+          } catch (err) {
+            console.error("Shared.hot pinFirstRow recompute error", {
+              debugLabel,
+              message: err?.message || String(err),
+            });
+          }
         }
         if(needsSchedule){
           if(hasIncomingData){
@@ -4952,6 +5012,34 @@
     const gridOptions = {
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
+
+      // IMPORTANT: The first N rows exist twice when using pinnedTopRowData:
+      // - as pinned rows (rowPinned === 'top')
+      // - and as normal body rows (ghost duplicates)
+      // If we only hide the ghost rows with CSS, AG Grid still reserves their space.
+      // Returning height 0 removes the blank band while keeping indexing stable.
+      getRowHeight: (params) => {
+        try {
+          const node = params?.node;
+          if (
+            usePinnedRows &&
+            pinRowCount > 0 &&
+            node &&
+            !node.rowPinned &&
+            Number.isInteger(node.rowIndex) &&
+            node.rowIndex >= 0 &&
+            node.rowIndex < pinRowCount
+          ) {
+            return 0;
+          }
+        } catch (err) {
+          console.error("Shared.hot getRowHeight error", {
+            message: err?.message || String(err),
+          });
+        }
+        return undefined; // default height
+      },
+
       columnDefs,
       rowBuffer: initialRowBuffer,
       columnBuffer: initialColumnBuffer,
