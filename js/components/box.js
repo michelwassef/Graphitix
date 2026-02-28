@@ -8817,12 +8817,38 @@
     return headers;
   }
 
+  function updateBoxGroupedHeaderMergeStyles(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    const groupedActive = options.forceGrouped === true
+      ? true
+      : (options.forceGrouped === false ? false : isBoxGroupedModeActive());
+    const hotRoot = hot?.rootElement
+      || hot?.__boxHostContainer
+      || els.hotContainer
+      || global.document?.getElementById?.('hot')
+      || null;
+    if(!hotRoot){
+      return;
+    }
+    if(hotRoot.classList){
+      hotRoot.classList.toggle('box-grouped-header-merge', !!groupedActive);
+    }
+    if(hotRoot.style){
+      if(groupedActive){
+        hotRoot.style.setProperty('--scatter-group-span', String(getBoxGroupedReplicateCount(options)));
+      }else{
+        hotRoot.style.removeProperty('--scatter-group-span');
+      }
+    }
+  }
+
   function updateGroupedHeaders(hotInstance){
     const hot = hotInstance || state.hot;
     if(state.tableFormat !== 'grouped' || !hot){
       console.debug('Debug: updateGroupedHeaders skipped',{ tableFormat: state.tableFormat, hasHot: !!hot });
       return;
     }
+    updateBoxGroupedHeaderMergeStyles(hot, { forceGrouped: true });
     const colHeaders = buildBoxAgColHeaders(hot, { forceGrouped: true });
     const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
     hot.updateSettings({
@@ -8869,6 +8895,7 @@
       ensureGroupedDefaults();
       adjustColumnsForGrouped();
       normalizeBoxGroupedHeaderRow(state.hot, { forceGrouped: true });
+      updateBoxGroupedHeaderMergeStyles(state.hot, { forceGrouped: true });
       const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
       state.hot.updateSettings({
         nestedHeaders: false,
@@ -8878,6 +8905,7 @@
       });
       console.debug('Debug: applyTableFormatToHot grouped',{ nested: false });
     }else{
+      updateBoxGroupedHeaderMergeStyles(state.hot, { forceGrouped: false });
       state.hot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
@@ -9348,7 +9376,14 @@
       [15.5,17.3,16.6],
       [17.6,20,21.1]
     ];
-    const exampleGrouped=[['Control','','','Treated','',''],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
+    const exampleGrouped=[
+      ['Control','','','Treated','',''],
+      ['Week 1','Week 2','Week 3','Week 1','Week 2','Week 3'],
+      [23,24,21,67,29,65],
+      [21,23,25,79,31,69],
+      [19,25,27,98,32,71],
+      [22,26,24,88,30,67]
+    ];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
     loadExampleBtn.addEventListener('click',()=>{
       const hot = state.ensureHotForActiveTab?.() || state.hot;

@@ -297,6 +297,34 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('Box Plot: grouped example seeds condition names', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork(20);
+
+    const formatSelect = document.getElementById('boxTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(40);
+
+    const btn = document.getElementById('boxLoadExample');
+    expect(btn).toBeTruthy();
+    btn.click();
+    await flushAsyncWork(60);
+
+    const hot = window.Components?.box?.__getState?.()?.hot;
+    expect(hot).toBeTruthy();
+    const matrix = hot.getData?.() || [];
+    expect(String(matrix?.[0]?.[0] || '')).toBe('Control');
+    expect(String(matrix?.[0]?.[3] || '')).toBe('Treated');
+    expect(String(matrix?.[1]?.[0] || '')).toBe('Week 1');
+    expect(String(matrix?.[1]?.[1] || '')).toBe('Week 2');
+    expect(String(matrix?.[1]?.[2] || '')).toBe('Week 3');
+    expect(String(matrix?.[1]?.[3] || '')).toBe('Week 1');
+    expect(String(matrix?.[1]?.[4] || '')).toBe('Week 2');
+    expect(String(matrix?.[1]?.[5] || '')).toBe('Week 3');
+  });
+
   test('Box Plot: whisker rule selection persists to payload', async () => {
     await activateWorkspace('box');
     await flushAsyncWork();
