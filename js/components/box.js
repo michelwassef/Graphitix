@@ -8860,9 +8860,6 @@
 
   function syncBoxGroupedCheckboxColumnLabels(hotInstance, options = {}){
     const hot = hotInstance || state.hot;
-    const groupedActive = options.forceGrouped === true
-      ? true
-      : (options.forceGrouped === false ? false : isBoxGroupedModeActive());
     const hotRoot = hot?.rootElement
       || hot?.__boxHostContainer
       || els.hotContainer
@@ -8871,204 +8868,19 @@
     if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
       return;
     }
-    const cleanup = () => {
-      hotRoot.querySelectorAll('.box-grouped-checkbox-row-label').forEach(cell => {
-        cell.classList.remove('box-grouped-checkbox-row-label');
-        cell.removeAttribute('data-box-checkbox-row-label');
-      });
-      hotRoot.querySelectorAll('.box-grouped-row-header-separator').forEach(cell => {
-        cell.classList.remove('box-grouped-row-header-separator');
-      });
-      hotRoot.querySelectorAll('.box-grouped-after-checkbox-label').forEach(cell => {
-        cell.classList.remove('box-grouped-after-checkbox-label');
-      });
-      hotRoot.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => {
-        node.remove();
-      });
-    };
-    const syncToken = (Number(hotRoot.__boxGroupedCheckboxSyncToken) || 0) + 1;
-    hotRoot.__boxGroupedCheckboxSyncToken = syncToken;
-    const isTokenCurrent = () => hotRoot.__boxGroupedCheckboxSyncToken === syncToken;
-    if(!groupedActive){
-      cleanup();
-      return;
-    }
-    const clearLabelCell = cell => {
-      if(!cell || !cell.classList){
-        return;
-      }
+    hotRoot.querySelectorAll('.box-grouped-checkbox-row-label').forEach(cell => {
       cell.classList.remove('box-grouped-checkbox-row-label');
       cell.removeAttribute('data-box-checkbox-row-label');
-      if(typeof cell.querySelectorAll === 'function'){
-        cell.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => node.remove());
-      }
-      const nextCell = cell.nextElementSibling;
-      if(nextCell && nextCell.classList && nextCell.classList.contains('ag-cell')){
-        nextCell.classList.remove('box-grouped-after-checkbox-label');
-      }
-    };
-    const applyLabels = () => {
-      if(!isTokenCurrent()){
-        return null;
-      }
-      const bodyCheckboxCell = hotRoot.querySelector('.ag-row .ag-checkbox-input-wrapper')
-        ?.closest?.('.ag-cell')
-        || null;
-      const selectionColId = bodyCheckboxCell?.getAttribute?.('col-id') || '';
-      const parsePinnedRowIndex = row => {
-        if(!row || typeof row.getAttribute !== 'function'){
-          return null;
-        }
-        const direct = Number(row.getAttribute('row-index'));
-        if(Number.isInteger(direct)){
-          return direct;
-        }
-        const dataIndex = Number(row.getAttribute('data-row-index'));
-        if(Number.isInteger(dataIndex)){
-          return dataIndex;
-        }
-        const ariaIndex = Number(row.getAttribute('aria-rowindex'));
-        if(Number.isInteger(ariaIndex)){
-          return Math.max(0, ariaIndex - 1);
-        }
-        return null;
-      };
-      const pinnedRowsAll = Array.from(hotRoot.querySelectorAll('.ag-pinned-top .ag-row, .ag-floating-top .ag-row'))
-        .filter(row => !row.classList.contains('hot-pinned-ghost-row'));
-      let pinnedRows = pinnedRowsAll;
-      if(selectionColId){
-        const rowsWithSelectionColumn = pinnedRowsAll.filter(row => {
-          const cells = Array.from(row.querySelectorAll('.ag-cell'));
-          return cells.some(cell => (cell.getAttribute('col-id') || '') === selectionColId);
-        });
-        if(rowsWithSelectionColumn.length){
-          pinnedRows = rowsWithSelectionColumn;
-        }
-      }
-      pinnedRows.sort((a, b) => {
-        const aIndex = parsePinnedRowIndex(a);
-        const bIndex = parsePinnedRowIndex(b);
-        if(Number.isInteger(aIndex) && Number.isInteger(bIndex)){
-          return aIndex - bIndex;
-        }
-        if(Number.isInteger(aIndex)){
-          return -1;
-        }
-        if(Number.isInteger(bIndex)){
-          return 1;
-        }
-        return 0;
-      });
-      const pinnedRowByIndex = new Map();
-      pinnedRows.forEach(row => {
-        const rowIndex = parsePinnedRowIndex(row);
-        if(Number.isInteger(rowIndex) && !pinnedRowByIndex.has(rowIndex)){
-          pinnedRowByIndex.set(rowIndex, row);
-        }
-      });
-      const targets = [
-        { rowIndex: BOX_GROUPED_GROUP_HEADER_ROW_INDEX, label: BOX_GROUPED_GROUP_ROW_LABEL },
-        { rowIndex: BOX_GROUPED_CONDITION_HEADER_ROW_INDEX, label: BOX_GROUPED_CONDITION_ROW_LABEL }
-      ];
-      let labeledCount = 0;
-      const activeLabelCells = new Set();
-      const activeRowHeaderCells = new Set();
-      targets.forEach((target, idx) => {
-        const pinnedRow = pinnedRowByIndex.get(target.rowIndex) || pinnedRows[idx] || null;
-        if(!pinnedRow){
-          return;
-        }
-        const candidateCells = Array.from(pinnedRow.querySelectorAll('.ag-cell'));
-        const rowHeaderCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === '__rowHeader') || null;
-        if(rowHeaderCell && rowHeaderCell.classList){
-          rowHeaderCell.classList.add('box-grouped-row-header-separator');
-          activeRowHeaderCells.add(rowHeaderCell);
-        }
-        let labelCell = null;
-        if(selectionColId){
-          labelCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === selectionColId) || null;
-        }
-        if(!labelCell){
-          const afterRowHeader = rowHeaderCell?.nextElementSibling;
-          if(afterRowHeader && afterRowHeader.classList && afterRowHeader.classList.contains('ag-cell')){
-            labelCell = afterRowHeader;
-          }
-        }
-        if(!labelCell){
-          labelCell = candidateCells.find(cell => {
-            const colId = cell.getAttribute('col-id') || '';
-            return colId && colId !== '__rowHeader' && !/^c\d+$/i.test(colId);
-          }) || null;
-        }
-        if(!labelCell){
-          labelCell = candidateCells.find(cell => {
-            const colId = cell.getAttribute('col-id') || '';
-            return colId && colId !== '__rowHeader';
-          }) || null;
-        }
-        if(!labelCell){
-          return;
-        }
-        activeLabelCells.add(labelCell);
-        labelCell.classList.add('box-grouped-checkbox-row-label');
-        labelCell.removeAttribute('data-box-checkbox-row-label');
-        if(typeof labelCell.querySelectorAll === 'function'){
-          labelCell.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => node.remove());
-        }
-        const nextCell = labelCell.nextElementSibling;
-        if(nextCell && nextCell.classList && nextCell.classList.contains('ag-cell')){
-          nextCell.classList.add('box-grouped-after-checkbox-label');
-        }
-        labeledCount += 1;
-      });
-      if(labeledCount === targets.length){
-        hotRoot.querySelectorAll('.box-grouped-checkbox-row-label').forEach(cell => {
-          if(!activeLabelCells.has(cell)){
-            clearLabelCell(cell);
-          }
-        });
-        hotRoot.querySelectorAll('.box-grouped-row-header-separator').forEach(cell => {
-          if(!activeRowHeaderCells.has(cell)){
-            cell.classList.remove('box-grouped-row-header-separator');
-          }
-        });
-      }
-      if(Shared?.isDebugEnabled?.()){
-        console.debug('Debug: box grouped checkbox row labels synced', {
-          selectionColId: selectionColId || null,
-          pinnedRowCount: pinnedRows.length,
-          labeledCount,
-          preserveExisting: labeledCount < targets.length
-        });
-      }
-      return labeledCount;
-    };
-    const scheduleAttempt = (attempt) => {
-      const run = () => {
-        if(!isTokenCurrent()){
-          return;
-        }
-        const count = applyLabels();
-        if(count == null){
-          return;
-        }
-        if(count < 2 && attempt < 4){
-          scheduleAttempt(attempt + 1);
-        }
-      };
-      if(typeof global.requestAnimationFrame === 'function'){
-        global.requestAnimationFrame(run);
-      }else{
-        global.setTimeout(run, 0);
-      }
-    };
-    const immediateCount = applyLabels();
-    if(immediateCount == null){
-      return;
-    }
-    if(immediateCount < 2){
-      scheduleAttempt(1);
-    }
+    });
+    hotRoot.querySelectorAll('.box-grouped-row-header-separator').forEach(cell => {
+      cell.classList.remove('box-grouped-row-header-separator');
+    });
+    hotRoot.querySelectorAll('.box-grouped-after-checkbox-label').forEach(cell => {
+      cell.classList.remove('box-grouped-after-checkbox-label');
+    });
+    hotRoot.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => {
+      node.remove();
+    });
   }
 
   function updateGroupedHeaders(hotInstance){
