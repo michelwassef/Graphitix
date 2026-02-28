@@ -666,7 +666,7 @@ describe('UI events and example loaders', () => {
     }
   });
 
-  test('Box Plot: grouped mode uses row-1 group titles and removes manual group list controls', async () => {
+  test('Box Plot: grouped mode uses group + condition header rows and removes manual group list controls', async () => {
     await activateWorkspace('box');
     await flushAsyncWork(20);
 
@@ -684,6 +684,8 @@ describe('UI events and example loaders', () => {
     const groupedInitial = hot.getData?.() || [];
     expect(String(groupedInitial?.[0]?.[0] || '')).toBe('');
     expect(String(groupedInitial?.[0]?.[3] || '')).toBe('');
+    expect(String(groupedInitial?.[1]?.[0] || '')).toBe('');
+    expect(String(groupedInitial?.[1]?.[3] || '')).toBe('');
 
     expect(document.getElementById('boxGroupedList')).toBeNull();
     expect(document.getElementById('boxGroupedAdd')).toBeNull();
@@ -697,6 +699,7 @@ describe('UI events and example loaders', () => {
 
     hot.loadData([
       ['Control', '', '', 'Treated', '', ''],
+      ['Baseline', 'Week 1', 'Week 2', '', '', ''],
       [10, 11, 12, 20, 21, 22],
       [13, 14, 15, 23, 24, 25]
     ]);
@@ -707,17 +710,34 @@ describe('UI events and example loaders', () => {
     expect(String(matrix?.[0]?.[1] || '')).toBe('');
     expect(String(matrix?.[0]?.[3] || '')).toBe('Treated');
     expect(String(matrix?.[0]?.[4] || '')).toBe('');
+    expect(String(matrix?.[1]?.[0] || '')).toBe('Baseline');
+    expect(String(matrix?.[1]?.[1] || '')).toBe('Week 1');
+    expect(String(matrix?.[1]?.[2] || '')).toBe('Week 2');
+    expect(String(matrix?.[1]?.[3] || '')).toBe('Baseline');
+    expect(String(matrix?.[1]?.[4] || '')).toBe('Week 1');
+    expect(String(matrix?.[1]?.[5] || '')).toBe('Week 2');
+
+    hot.setDataAtCell?.(1, 4, 'Day 7');
+    await flushAsyncWork(40);
+    const synced = hot.getData?.() || [];
+    expect(String(synced?.[1]?.[1] || '')).toBe('Day 7');
+    expect(String(synced?.[1]?.[4] || '')).toBe('Day 7');
 
     const payload = boxComponent.getPayload?.();
     expect(payload?.config?.tableFormat).toBe('grouped');
     expect(payload?.config?.grouped?.replicatesPerGroup).toBe(3);
     expect(payload?.config?.grouped?.groups).toEqual(['Control', 'Treated']);
+    expect(payload?.config?.grouped?.conditions).toEqual(['Baseline', 'Day 7', 'Week 2']);
 
     boxComponent.loadFromPayload(payload);
     await flushAsyncWork(60);
     const reloaded = hot.getData?.() || [];
     expect(String(reloaded?.[0]?.[0] || '')).toBe('Control');
     expect(String(reloaded?.[0]?.[3] || '')).toBe('Treated');
+    expect(String(reloaded?.[1]?.[0] || '')).toBe('Baseline');
+    expect(String(reloaded?.[1]?.[1] || '')).toBe('Day 7');
+    expect(String(reloaded?.[1]?.[2] || '')).toBe('Week 2');
+    expect(String(reloaded?.[1]?.[4] || '')).toBe('Day 7');
   }, 20000);
 
   test('Scatter Plot: additional axis ticks/lines persist from FORMAT controls', async () => {

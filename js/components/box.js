@@ -6534,10 +6534,13 @@
       return false;
     }
     syncBoxActiveDataViewFromHot(hot, 'transform-before');
+    const transformDefaults = Object.assign({}, BOX_TRANSFORM_SCOPE_DEFAULT, {
+      headerRows: getBoxDataStartRow()
+    });
     const result = manager.applyTransform(transformSpec, {
       title: options.title,
       reason: options.reason || 'toolbar-transform',
-      transformOptions: Object.assign({}, BOX_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+      transformOptions: Object.assign({}, transformDefaults, options.transformOptions || {})
     });
     if(!result?.ok){
       const message = result?.error || 'Transformation failed.';
@@ -6625,10 +6628,13 @@
       return false;
     }
     syncBoxActiveDataViewFromHot(hot, 'transform-before');
+    const transformDefaults = Object.assign({}, BOX_TRANSFORM_SCOPE_DEFAULT, {
+      headerRows: getBoxDataStartRow()
+    });
     const result = manager.applyPipeline(specs, {
       title: options.title,
       reason: options.reason || 'toolbar-transform-pipeline',
-      transformOptions: Object.assign({}, BOX_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
+      transformOptions: Object.assign({}, transformDefaults, options.transformOptions || {})
     });
     if(!result?.ok){
       const message = result?.error || 'Transformation failed.';
@@ -7524,6 +7530,7 @@
       }
       return { allowed: true };
     }
+    const dataStartRow = getBoxDataStartRow();
     let hasZeros = false;
     let hasNegatives = false;
     let firstZeroLocation = null;
@@ -7534,7 +7541,7 @@
       }
       const headerCell = dataMatrix?.[0]?.[c];
       const columnLabel = (headerCell && String(headerCell).trim()) || `Column ${c + 1}`;
-      for(let r = 1; r < rowCount; r += 1){
+      for(let r = dataStartRow; r < rowCount; r += 1){
         if(analysis.isRowExcluded?.(r) || analysis.isCellExcluded?.(r, c)){
           continue;
         }
@@ -8336,6 +8343,10 @@
     return source;
   }
 
+  const BOX_GROUPED_GROUP_HEADER_ROW_INDEX = 0;
+  const BOX_GROUPED_CONDITION_HEADER_ROW_INDEX = 1;
+  const BOX_GROUPED_HEADER_ROW_COUNT = 2;
+
   function getBoxGroupedReplicateCount(options = {}){
     const candidate = options.replicates ?? state.grouped?.replicatesPerGroup;
     const raw = Number(candidate);
@@ -8384,6 +8395,35 @@
     return position === replicates - 1 ? 'end' : 'middle';
   }
 
+  function getBoxHeaderRowCount(options = {}){
+    const groupedActive = options.forceGrouped === true ? true : (options.forceGrouped === false ? false : isBoxGroupedModeActive());
+    return groupedActive ? BOX_GROUPED_HEADER_ROW_COUNT : 1;
+  }
+
+  function getBoxDataStartRow(options = {}){
+    return getBoxHeaderRowCount(options);
+  }
+
+  function normalizeBoxGroupedConditionLabel(rawValue, conditionIndex, options = {}){
+    const value = rawValue == null ? '' : String(rawValue).trim();
+    if(options.fillDefault === true){
+      return value || `Condition ${conditionIndex + 1}`;
+    }
+    return value;
+  }
+
+  function parseStrictFiniteNumber(value){
+    const text = value == null ? '' : String(value).trim();
+    if(!text){
+      return null;
+    }
+    if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)){
+      return null;
+    }
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
   function getBoxUsedColumnCount(matrix){
     if(!Array.isArray(matrix) || !matrix.length){
       return 0;
@@ -8404,12 +8444,16 @@
     return maxUsed + 1;
   }
 
-  function getBoxUsedValueColumnCount(matrix){
-    if(!Array.isArray(matrix) || matrix.length <= 1){
+  function getBoxUsedValueColumnCount(matrix, options = {}){
+    const headerRowsRaw = Number(options.headerRows);
+    const headerRows = Number.isInteger(headerRowsRaw) && headerRowsRaw >= 0
+      ? headerRowsRaw
+      : 1;
+    if(!Array.isArray(matrix) || matrix.length <= headerRows){
       return 0;
     }
     let maxUsed = -1;
-    for(let r = 1; r < matrix.length; r += 1){
+    for(let r = headerRows; r < matrix.length; r += 1){
       const row = Array.isArray(matrix[r]) ? matrix[r] : [];
       for(let c = row.length - 1; c >= 0; c -= 1){
         const value = row[c];
@@ -8496,6 +8540,166 @@
     return true;
   }
 
+  function getBoxGroupedConditionLabels(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    const replicates = getBoxGroupedReplicateCount(options);
+    if(replicates < 1){
+      return [];
+    }
+    const data = Array.isArray(options.dataMatrix)
+      ? options.dataMatrix
+      : (hot?.getData ? (hot.getData() || []) : []);
+    const colCount = Number.isInteger(options.colCount)
+      ? options.colCount
+      : (typeof hot?.countCols === 'function' ? hot.countCols() : (Array.isArray(data[0]) ? data[0].length : 0));
+    const minGroupCount = Math.max(1, Number(options.minGroupCount) || getBoxGroupedGroupCount(colCount, replicates));
+    const groupEntries = Array.isArray(options.groupEntries) && options.groupEntries.length
+      ? options.groupEntries
+      : getBoxGroupedHeaderEntries(hot, {
+        replicates,
+        colCount,
+        dataMatrix: data,
+        minGroupCount
+      });
+    const groupCount = Math.max(1, groupEntries.length);
+    const conditionRow = Array.isArray(data[BOX_GROUPED_CONDITION_HEADER_ROW_INDEX])
+      ? data[BOX_GROUPED_CONDITION_HEADER_ROW_INDEX]
+      : [];
+    const preferred = Array.isArray(options.preferredConditionLabels) ? options.preferredConditionLabels : [];
+    const preferredMap = options.preferredConditionLabelMap && typeof options.preferredConditionLabelMap === 'object'
+      ? options.preferredConditionLabelMap
+      : null;
+    const fillDefaults = options.fillDefaults === true;
+    const labels = [];
+    for(let repIndex = 0; repIndex < replicates; repIndex += 1){
+      const hasMappedPreferred = !!(preferredMap && Object.prototype.hasOwnProperty.call(preferredMap, repIndex));
+      let candidate = hasMappedPreferred
+        ? (preferredMap[repIndex] == null ? '' : String(preferredMap[repIndex]).trim())
+        : (preferred[repIndex] == null ? '' : String(preferred[repIndex]).trim());
+      if(!candidate && !hasMappedPreferred){
+        for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
+          const col = groupIndex * replicates + repIndex;
+          const raw = conditionRow[col];
+          const trimmed = raw == null ? '' : String(raw).trim();
+          if(trimmed){
+            candidate = trimmed;
+            break;
+          }
+        }
+      }
+      labels.push(normalizeBoxGroupedConditionLabel(candidate, repIndex, { fillDefault: fillDefaults }));
+    }
+    return labels;
+  }
+
+  function applyBoxGroupedConditionLabelsToHeaderRow(hotInstance, labels, options = {}){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const replicates = getBoxGroupedReplicateCount(options);
+    if(replicates < 1){
+      return false;
+    }
+    const sourceLabels = Array.isArray(labels) ? labels : [];
+    const colCount = typeof hot.countCols === 'function' ? hot.countCols() : 0;
+    const groupCount = Math.max(1, Number(options.groupCount) || getBoxGroupedGroupCount(colCount, replicates));
+    const changes = [];
+    for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
+      const startCol = groupIndex * replicates;
+      for(let repIndex = 0; repIndex < replicates; repIndex += 1){
+        const col = startCol + repIndex;
+        if(col >= colCount){
+          continue;
+        }
+        const normalized = normalizeBoxGroupedConditionLabel(sourceLabels[repIndex], repIndex);
+        changes.push([BOX_GROUPED_CONDITION_HEADER_ROW_INDEX, col, normalized]);
+      }
+    }
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, options.source || 'box-grouped-header-normalize');
+    return true;
+  }
+
+  function extractBoxGroupedConditionLabelOverrides(changes, options = {}){
+    const replicates = getBoxGroupedReplicateCount(options);
+    if(!Array.isArray(changes) || !changes.length || replicates < 1){
+      return null;
+    }
+    const overrides = {};
+    let hasOverride = false;
+    changes.forEach(change => {
+      if(!Array.isArray(change) || change.length < 3){
+        return;
+      }
+      const row = Number(change[0]);
+      const col = Number(change[1]);
+      if(row !== BOX_GROUPED_CONDITION_HEADER_ROW_INDEX || !Number.isInteger(col) || col < 0){
+        return;
+      }
+      const repIndex = col % replicates;
+      const valueIndex = change.length >= 4 ? 3 : 2;
+      const rawValue = change[valueIndex];
+      overrides[repIndex] = rawValue == null ? '' : String(rawValue).trim();
+      hasOverride = true;
+    });
+    return hasOverride ? overrides : null;
+  }
+
+  function shouldPromoteLegacyGroupedConditionRow(dataMatrix, groupEntries, replicates){
+    if(!Array.isArray(dataMatrix) || dataMatrix.length <= BOX_GROUPED_CONDITION_HEADER_ROW_INDEX){
+      return false;
+    }
+    const conditionRow = Array.isArray(dataMatrix[BOX_GROUPED_CONDITION_HEADER_ROW_INDEX])
+      ? dataMatrix[BOX_GROUPED_CONDITION_HEADER_ROW_INDEX]
+      : [];
+    if(!conditionRow.length){
+      return false;
+    }
+    const effectiveGroups = Array.isArray(groupEntries) && groupEntries.length
+      ? groupEntries
+      : [{ startCol: 0 }, { startCol: replicates }];
+    let nonEmptyCount = 0;
+    let numericCount = 0;
+    let comparableReplicates = 0;
+    let mismatchReplicates = 0;
+    for(let repIndex = 0; repIndex < replicates; repIndex += 1){
+      const values = [];
+      for(let groupIndex = 0; groupIndex < effectiveGroups.length; groupIndex += 1){
+        const startCol = Number(effectiveGroups[groupIndex]?.startCol);
+        if(!Number.isInteger(startCol) || startCol < 0){
+          continue;
+        }
+        const raw = conditionRow[startCol + repIndex];
+        const trimmed = raw == null ? '' : String(raw).trim();
+        if(!trimmed){
+          continue;
+        }
+        nonEmptyCount += 1;
+        if(parseStrictFiniteNumber(trimmed) != null){
+          numericCount += 1;
+        }
+        values.push(trimmed);
+      }
+      if(values.length >= 2){
+        comparableReplicates += 1;
+        const first = values[0];
+        const allSame = values.every(value => value === first);
+        if(!allSame){
+          mismatchReplicates += 1;
+        }
+      }
+    }
+    if(nonEmptyCount === 0){
+      return false;
+    }
+    const numericRatio = numericCount / nonEmptyCount;
+    const mismatchRatio = comparableReplicates > 0 ? (mismatchReplicates / comparableReplicates) : 0;
+    return numericRatio >= 0.8 && mismatchRatio >= 0.5;
+  }
+
   function normalizeBoxGroupedHeaderRow(hotInstance, options = {}){
     const hot = hotInstance || state.hot;
     if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
@@ -8506,7 +8710,8 @@
       return false;
     }
     const data = hot.getData() || [];
-    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const headerRow = Array.isArray(data[BOX_GROUPED_GROUP_HEADER_ROW_INDEX]) ? data[BOX_GROUPED_GROUP_HEADER_ROW_INDEX] : [];
+    const conditionRow = Array.isArray(data[BOX_GROUPED_CONDITION_HEADER_ROW_INDEX]) ? data[BOX_GROUPED_CONDITION_HEADER_ROW_INDEX] : [];
     const replicates = getBoxGroupedReplicateCount(options);
     const colCount = typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length;
     const groupEntries = getBoxGroupedHeaderEntries(hot, {
@@ -8515,22 +8720,50 @@
       dataMatrix: data,
       minGroupCount: getBoxGroupedGroupCount(colCount, replicates)
     });
+    if(shouldPromoteLegacyGroupedConditionRow(data, groupEntries, replicates)){
+      hot.alter('insert_row_above', BOX_GROUPED_CONDITION_HEADER_ROW_INDEX, 1, options.source || 'box-grouped-header-normalize');
+      console.debug('Debug: grouped legacy header migrated to two-row header', {
+        replicates,
+        groupCount: groupEntries.length
+      });
+      return normalizeBoxGroupedHeaderRow(hot, options);
+    }
     const targetCols = Math.max(colCount, groupEntries.length * replicates);
+    const conditionLabels = getBoxGroupedConditionLabels(hot, {
+      replicates,
+      colCount: targetCols,
+      dataMatrix: data,
+      groupEntries,
+      minGroupCount: groupEntries.length,
+      preferredConditionLabels: options.preferredConditionLabels,
+      preferredConditionLabelMap: options.preferredConditionLabelMap
+    });
     const changes = [];
     for(let col = headerRow.length; col < targetCols; col += 1){
-      changes.push([0, col, '']);
+      changes.push([BOX_GROUPED_GROUP_HEADER_ROW_INDEX, col, '']);
+    }
+    for(let col = conditionRow.length; col < targetCols; col += 1){
+      const repIndex = col % replicates;
+      changes.push([BOX_GROUPED_CONDITION_HEADER_ROW_INDEX, col, conditionLabels[repIndex] || '']);
     }
     groupEntries.forEach((entry, groupIndex) => {
       const currentRaw = headerRow[entry.startCol] != null ? String(headerRow[entry.startCol]).trim() : '';
       const nextAnchor = normalizeBoxGroupHeaderAnchor(currentRaw, groupIndex);
       if(currentRaw !== nextAnchor){
-        changes.push([0, entry.startCol, nextAnchor]);
+        changes.push([BOX_GROUPED_GROUP_HEADER_ROW_INDEX, entry.startCol, nextAnchor]);
       }
-      for(let repIndex = 1; repIndex < replicates; repIndex += 1){
-        const followerCol = entry.startCol + repIndex;
-        const followerValue = headerRow[followerCol];
-        if(followerValue != null && String(followerValue).trim() !== ''){
-          changes.push([0, followerCol, '']);
+      for(let repIndex = 0; repIndex < replicates; repIndex += 1){
+        const col = entry.startCol + repIndex;
+        if(repIndex > 0){
+          const followerValue = headerRow[col];
+          if(followerValue != null && String(followerValue).trim() !== ''){
+            changes.push([BOX_GROUPED_GROUP_HEADER_ROW_INDEX, col, '']);
+          }
+        }
+        const desiredCondition = conditionLabels[repIndex] || '';
+        const currentCondition = conditionRow[col] != null ? String(conditionRow[col]).trim() : '';
+        if(currentCondition !== desiredCondition){
+          changes.push([BOX_GROUPED_CONDITION_HEADER_ROW_INDEX, col, desiredCondition]);
         }
       }
     });
@@ -8541,7 +8774,8 @@
     console.debug('Debug: box grouped header row normalized', {
       changes: changes.length,
       replicates,
-      groupCount: groupEntries.length
+      groupCount: groupEntries.length,
+      conditionCount: conditionLabels.length
     });
     return true;
   }
@@ -8590,7 +8824,13 @@
       return;
     }
     const colHeaders = buildBoxAgColHeaders(hot, { forceGrouped: true });
-    hot.updateSettings({ nestedHeaders: false, colHeaders });
+    const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
+    hot.updateSettings({
+      nestedHeaders: false,
+      colHeaders,
+      headerRowCount: groupedHeaderRows,
+      pinFirstRow: groupedHeaderRows
+    });
     console.debug('Debug: updateGroupedHeaders applied',{ nested: false, colHeaders });
   }
 
@@ -8629,13 +8869,21 @@
       ensureGroupedDefaults();
       adjustColumnsForGrouped();
       normalizeBoxGroupedHeaderRow(state.hot, { forceGrouped: true });
+      const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
       state.hot.updateSettings({
         nestedHeaders: false,
-        colHeaders: buildBoxAgColHeaders(state.hot, { forceGrouped: true })
+        colHeaders: buildBoxAgColHeaders(state.hot, { forceGrouped: true }),
+        headerRowCount: groupedHeaderRows,
+        pinFirstRow: groupedHeaderRows
       });
       console.debug('Debug: applyTableFormatToHot grouped',{ nested: false });
     }else{
-      state.hot.updateSettings({ nestedHeaders: false, colHeaders: true });
+      state.hot.updateSettings({
+        nestedHeaders: false,
+        colHeaders: true,
+        headerRowCount: 1,
+        pinFirstRow: 1
+      });
       console.debug('Debug: applyTableFormatToHot single');
     }
   }
@@ -8757,15 +9005,21 @@
               baseStyle = Object.assign({}, existingCellStyle);
             }
             const physicalRow = params?.data?.__rowIndex;
-            if(physicalRow === 0 && isBoxGroupedModeActive()){
-              const role = getBoxGroupedHeaderCellRole(colIndex);
-              if(role === 'groupAnchor'){
+            if(isBoxGroupedModeActive()){
+              if(physicalRow === BOX_GROUPED_GROUP_HEADER_ROW_INDEX){
+                const role = getBoxGroupedHeaderCellRole(colIndex);
+                if(role === 'groupAnchor'){
+                  baseStyle.textAlign = 'center';
+                  baseStyle.justifyContent = 'center';
+                  baseStyle.fontWeight = '600';
+                }else if(role === 'groupFollower'){
+                  baseStyle.textAlign = 'center';
+                  baseStyle.justifyContent = 'center';
+                }
+              }else if(physicalRow === BOX_GROUPED_CONDITION_HEADER_ROW_INDEX){
                 baseStyle.textAlign = 'center';
                 baseStyle.justifyContent = 'center';
-                baseStyle.fontWeight = '600';
-              }else if(role === 'groupFollower'){
-                baseStyle.textAlign = 'center';
-                baseStyle.justifyContent = 'center';
+                baseStyle.fontWeight = '500';
               }
             }
             return baseStyle;
@@ -8823,34 +9077,40 @@
             ? Object.assign({}, def.cellClassRules)
             : {};
           existingRules['box-grouped-header-anchor'] = params => {
-            if(params?.data?.__rowIndex !== 0){
+            if(params?.data?.__rowIndex !== BOX_GROUPED_GROUP_HEADER_ROW_INDEX){
               return false;
             }
             return getBoxGroupedHeaderCellRole(colIndex) === 'groupAnchor';
           };
           existingRules['box-grouped-header-follower'] = params => {
-            if(params?.data?.__rowIndex !== 0){
+            if(params?.data?.__rowIndex !== BOX_GROUPED_GROUP_HEADER_ROW_INDEX){
               return false;
             }
             return getBoxGroupedHeaderCellRole(colIndex) === 'groupFollower';
           };
           existingRules['box-grouped-header-merge-start'] = params => {
-            if(params?.data?.__rowIndex !== 0){
+            if(params?.data?.__rowIndex !== BOX_GROUPED_GROUP_HEADER_ROW_INDEX){
               return false;
             }
             return getBoxGroupedHeaderMergeSegment(colIndex) === 'start';
           };
           existingRules['box-grouped-header-merge-middle'] = params => {
-            if(params?.data?.__rowIndex !== 0){
+            if(params?.data?.__rowIndex !== BOX_GROUPED_GROUP_HEADER_ROW_INDEX){
               return false;
             }
             return getBoxGroupedHeaderMergeSegment(colIndex) === 'middle';
           };
           existingRules['box-grouped-header-merge-end'] = params => {
-            if(params?.data?.__rowIndex !== 0){
+            if(params?.data?.__rowIndex !== BOX_GROUPED_GROUP_HEADER_ROW_INDEX){
               return false;
             }
             return getBoxGroupedHeaderMergeSegment(colIndex) === 'end';
+          };
+          existingRules['box-grouped-condition-header'] = params => {
+            if(params?.data?.__rowIndex !== BOX_GROUPED_CONDITION_HEADER_ROW_INDEX){
+              return false;
+            }
+            return isBoxGroupedModeActive();
           };
           def.cellClassRules = existingRules;
           return def;
@@ -8861,9 +9121,19 @@
             if(!changes || source === 'loadData') return;
             console.log('boxplot afterChange', { count: changes.length, source });
             if(isBoxGroupedModeActive()){
-              const headerTouched = changes.some(change => Number(change?.[0]) === 0);
+              const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
+              const headerTouched = changes.some(change => {
+                const row = Number(change?.[0]);
+                return Number.isInteger(row) && row >= 0 && row < groupedHeaderRows;
+              });
               if(headerTouched && source !== 'box-grouped-header-normalize'){
-                normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
+                const preferredConditionLabelMap = extractBoxGroupedConditionLabelOverrides(changes, {
+                  replicates: getBoxGroupedReplicateCount()
+                });
+                normalizeBoxGroupedHeaderRow(instance, {
+                  source: 'box-grouped-header-normalize',
+                  preferredConditionLabelMap
+                });
               }
               updateGroupedHeaders(instance);
             }
@@ -11658,30 +11928,43 @@
     ensureGroupedStatsDefaults();
     const hotInstance = state.hot;
     const conditionsCount = getBoxGroupedReplicateCount();
-    const axisLabelsSource = Array.isArray(helpers?.axisLabels) && helpers.axisLabels.length >= conditionsCount
-      ? helpers.axisLabels
-      : (Array.isArray(state.lastAxisLabels) && state.lastAxisLabels.length >= conditionsCount ? state.lastAxisLabels : []);
-    const conditionLabels = [];
-    for(let i = 0; i < conditionsCount; i++){
-      const rawLabel = axisLabelsSource[i];
-      const trimmed = typeof rawLabel === 'string' ? rawLabel.trim() : '';
-      conditionLabels.push(trimmed || `Condition ${i + 1}`);
-    }
+    const fallbackConditionLabels = Array.from({ length: conditionsCount }, (_, i) => `Condition ${i + 1}`);
+    const dataStartRow = getBoxDataStartRow({ forceGrouped: true });
     if(!hotInstance || typeof hotInstance.getData !== 'function'){
       console.debug('Debug: prepareGroupedStatsData missing hot instance');
-      return { ok: false, message: 'Table data unavailable for grouped analysis.', groupsCount: 0, conditionsCount, groupLabels: [], conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
+      return {
+        ok: false,
+        message: 'Table data unavailable for grouped analysis.',
+        groupsCount: 0,
+        conditionsCount,
+        groupLabels: [],
+        conditionLabels: fallbackConditionLabels,
+        rows: [],
+        cellData: [],
+        rowsWithData: 0,
+        totalRows: 0,
+        partialRowsSkipped: 0
+      };
     }
     const tableData = hotInstance.getData();
     const colCount = typeof hotInstance.countCols === 'function'
       ? hotInstance.countCols()
       : (Array.isArray(tableData[0]) ? tableData[0].length : 0);
-    const usedValueCols = getBoxUsedValueColumnCount(tableData);
+    const usedValueCols = getBoxUsedValueColumnCount(tableData, { headerRows: dataStartRow });
     const effectiveCols = Math.max(conditionsCount * 2, usedValueCols || 0);
     const groupedHeaders = getBoxGroupedHeaderEntries(hotInstance, {
       replicates: conditionsCount,
       colCount: effectiveCols || colCount,
       dataMatrix: tableData,
       minGroupCount: getBoxGroupedGroupCount(effectiveCols || colCount, conditionsCount)
+    });
+    const conditionLabels = getBoxGroupedConditionLabels(hotInstance, {
+      replicates: conditionsCount,
+      colCount: effectiveCols || colCount,
+      dataMatrix: tableData,
+      groupEntries: groupedHeaders,
+      minGroupCount: groupedHeaders.length,
+      fillDefaults: true
     });
     const normalizedGroups = groupedHeaders.map(entry => entry.label || `Group ${entry.groupIndex + 1}`);
     const groupsCount = normalizedGroups.length;
@@ -11690,7 +11973,7 @@
     }
     const rows = [];
     let candidateRows = 0;
-    for(let r = 1; r < tableData.length; r++){
+    for(let r = dataStartRow; r < tableData.length; r++){
       const row = tableData[r];
       if(!row) continue;
       let rowHasAny = false;
@@ -16649,6 +16932,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const usesGroupedSpacing = isGroupedMode && layoutMode === 'interleaved';
     let groupedGroups = [];
     let groupedReplicates = 1;
+    let groupedHeaderEntries = [];
+    let groupedConditionLabels = [];
     const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(!hot){
       if(Shared.isDebugEnabled?.()){
@@ -16662,15 +16947,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
     if(isGroupedMode){
       groupedReplicates = getBoxGroupedReplicateCount();
-      const usedValueCols = getBoxUsedValueColumnCount(dataMatrix);
+      const groupedDataStartRow = getBoxDataStartRow({ forceGrouped: true });
+      const usedValueCols = getBoxUsedValueColumnCount(dataMatrix, { headerRows: groupedDataStartRow });
       const effectiveCols = Math.max(groupedReplicates * 2, usedValueCols || 0);
-      const groupedHeaderEntries = getBoxGroupedHeaderEntries(hot, {
+      groupedHeaderEntries = getBoxGroupedHeaderEntries(hot, {
         replicates: groupedReplicates,
         colCount: effectiveCols || nCols,
         dataMatrix,
         minGroupCount: getBoxGroupedGroupCount(effectiveCols || nCols, groupedReplicates)
       });
       groupedGroups = groupedHeaderEntries.map(entry => entry.label || `Group ${entry.groupIndex + 1}`);
+      groupedConditionLabels = getBoxGroupedConditionLabels(hot, {
+        replicates: groupedReplicates,
+        colCount: effectiveCols || nCols,
+        dataMatrix,
+        groupEntries: groupedHeaderEntries,
+        minGroupCount: groupedHeaderEntries.length,
+        fillDefaults: true
+      });
     }
     console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
     if(!isGroupedMode){
@@ -16688,6 +16982,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           perfApi.end(collectPerf, { component: 'box', mode: 'single', token, ...meta });
         }
       };
+      const dataStartRow = getBoxDataStartRow({ forceGrouped: false });
       if(state.colOrder.length !== nCols){
         state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       }
@@ -16708,7 +17003,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
         const col = [];
         console.time(`boxColCollect_${i}_${token}`);
-        for(let r = 1; r < nRows; r++){
+        for(let r = dataStartRow; r < nRows; r++){
           const rawValue = dataMatrix?.[r]?.[i];
           if(rawValue === null || typeof rawValue === 'undefined'){
             continue;
@@ -16755,10 +17050,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           perfApi.end(collectPerf, { component: 'box', mode: 'grouped', token, ...meta });
         }
       };
+      const dataStartRow = getBoxDataStartRow({ forceGrouped: true });
       state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       const replicateEntries = [];
       const groupEntries = groupedGroups.map((groupName, gIdx)=>({ groupName, groupIndex: gIdx, replicates: [] }));
-      const conditionLabels = Array.from({ length: groupedReplicates }, (_, idx) => `Condition ${idx + 1}`);
+      const conditionLabels = Array.from({ length: groupedReplicates }, (_, idx) =>
+        normalizeBoxGroupedConditionLabel(groupedConditionLabels[idx], idx, { fillDefault: true })
+      );
       for(let repIdx = 0; repIdx < groupedReplicates; repIdx++){
         const replicateBucket = [];
         for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
@@ -16774,7 +17072,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           const values = [];
           console.time(`boxColCollect_${colIndex}_${token}`);
-          for(let r = 1; r < nRows; r++){
+          for(let r = dataStartRow; r < nRows; r++){
             const rawValue = dataMatrix?.[r]?.[colIndex];
             if(rawValue === null || typeof rawValue === 'undefined'){
               continue;
@@ -20455,6 +20753,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       replicates: getBoxGroupedReplicateCount(),
       minGroupCount: 2
     }).map(entry => entry.label);
+    const groupedConditionLabels = getBoxGroupedConditionLabels(activeHot, {
+      replicates: getBoxGroupedReplicateCount(),
+      minGroupCount: 2
+    });
     const payload = {
       type:'box',
       version:4,
@@ -20507,7 +20809,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         tableFormat: state.tableFormat,
         grouped: {
           replicatesPerGroup: state.grouped?.replicatesPerGroup,
-          groups: groupedHeaderLabels
+          groups: groupedHeaderLabels,
+          conditions: groupedConditionLabels
         },
         whisker: {
           rule: state.whiskerRule,
@@ -20920,6 +21223,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     toggleColorMode();
     const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
     let restoredGroupedLabels = [];
+    let restoredConditionLabels = [];
     if(c.grouped && typeof c.grouped === 'object'){
       const groupCfg = c.grouped;
       const repValue = Number(groupCfg.replicatesPerGroup);
@@ -20932,18 +21236,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           return trimmed || `Group ${idx + 1}`;
         });
       }
+      if(Array.isArray(groupCfg.conditions) && groupCfg.conditions.length){
+        restoredConditionLabels = groupCfg.conditions.map((name, idx) => normalizeBoxGroupedConditionLabel(name, idx));
+      }
     }
     setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
-    if(restoredFormat === 'grouped' && restoredGroupedLabels.length){
+    if(restoredFormat === 'grouped' && (restoredGroupedLabels.length || restoredConditionLabels.length)){
       const activeHot = state.ensureHotForActiveTab?.() || state.hot;
       if(activeHot){
         const replicates = getBoxGroupedReplicateCount();
-        const requiredCols = replicates * restoredGroupedLabels.length;
+        const requiredGroupCount = Math.max(
+          restoredGroupedLabels.length,
+          getBoxGroupedGroupCount(typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0, replicates)
+        );
+        const requiredCols = replicates * requiredGroupCount;
         const currentCols = typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0;
         if(requiredCols > currentCols){
           activeHot.alter(currentCols > 0 ? 'insert_col_end' : 'insert_col_start', currentCols > 0 ? currentCols - 1 : 0, requiredCols - currentCols);
         }
-        applyBoxGroupedLabelsToHeaderRow(activeHot, restoredGroupedLabels, { source: 'box-grouped-header-load' });
+        if(restoredGroupedLabels.length){
+          applyBoxGroupedLabelsToHeaderRow(activeHot, restoredGroupedLabels, { source: 'box-grouped-header-load' });
+        }
+        if(restoredConditionLabels.length){
+          applyBoxGroupedConditionLabelsToHeaderRow(activeHot, restoredConditionLabels, {
+            groupCount: Math.max(requiredGroupCount, 1),
+            source: 'box-grouped-header-load'
+          });
+        }
         normalizeBoxGroupedHeaderRow(activeHot, { forceGrouped: true, source: 'box-grouped-header-normalize' });
         updateGroupedHeaders(activeHot);
       }

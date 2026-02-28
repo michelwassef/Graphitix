@@ -760,6 +760,17 @@ select {
 .ag-theme-balham .ag-cell.box-grouped-header-merge-end:not(.ag-cell-focus) {
     border-left-color: transparent;
 }
+.ag-theme-balham .ag-cell.box-grouped-condition-header {
+    background: #f7f8fc;
+    color: #1f2937;
+    font-weight: 500;
+}
+.ag-theme-balham .ag-cell.box-grouped-condition-header .ag-cell-value,
+.ag-theme-balham .ag-cell.box-grouped-condition-header .ag-cell-wrapper {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+}
 .ag-theme-balham .ag-cell.line-grouped-header-anchor {
     background: #f2f5fa;
     font-weight: 600;
@@ -1157,6 +1168,13 @@ select {
 .ag-theme-balham .ag-pinned-top .ag-cell,
 .ag-theme-balham .ag-floating-top .ag-cell {
     border-bottom: 0 !important;
+}
+/* Restore the internal divider between grouped row-1 (groups) and row-2 (conditions). */
+.ag-theme-balham .ag-pinned-top .ag-cell.box-grouped-header-anchor,
+.ag-theme-balham .ag-pinned-top .ag-cell.box-grouped-header-follower,
+.ag-theme-balham .ag-floating-top .ag-cell.box-grouped-header-anchor,
+.ag-theme-balham .ag-floating-top .ag-cell.box-grouped-header-follower {
+    border-bottom: 1px solid #d6d6d6 !important;
 }
 /* Keep a visible divider under pinned-top rows even while scrolling */
 .ag-theme-balham .ag-pinned-top,
