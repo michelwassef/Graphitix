@@ -8346,6 +8346,8 @@
   const BOX_GROUPED_GROUP_HEADER_ROW_INDEX = 0;
   const BOX_GROUPED_CONDITION_HEADER_ROW_INDEX = 1;
   const BOX_GROUPED_HEADER_ROW_COUNT = 2;
+  const BOX_GROUPED_GROUP_ROW_LABEL = 'Group';
+  const BOX_GROUPED_CONDITION_ROW_LABEL = 'Condition';
 
   function getBoxGroupedReplicateCount(options = {}){
     const candidate = options.replicates ?? state.grouped?.replicatesPerGroup;
@@ -8354,6 +8356,16 @@
       return 1;
     }
     return Math.max(1, Math.round(raw));
+  }
+
+  function getBoxGroupedValueColumnStart(){
+    return 0;
+  }
+
+  function getBoxGroupedSeriesStartCol(groupIndex, options = {}){
+    const safeGroupIndex = Number.isInteger(groupIndex) && groupIndex >= 0 ? groupIndex : 0;
+    const replicates = getBoxGroupedReplicateCount(options);
+    return safeGroupIndex * Math.max(1, replicates);
   }
 
   function getBoxGroupedGroupCount(colCount, replicates){
@@ -8449,13 +8461,17 @@
     const headerRows = Number.isInteger(headerRowsRaw) && headerRowsRaw >= 0
       ? headerRowsRaw
       : 1;
+    const valueColStartRaw = Number(options.valueColumnStart);
+    const valueColStart = Number.isInteger(valueColStartRaw) && valueColStartRaw >= 0
+      ? valueColStartRaw
+      : 0;
     if(!Array.isArray(matrix) || matrix.length <= headerRows){
       return 0;
     }
     let maxUsed = -1;
     for(let r = headerRows; r < matrix.length; r += 1){
       const row = Array.isArray(matrix[r]) ? matrix[r] : [];
-      for(let c = row.length - 1; c >= 0; c -= 1){
+      for(let c = row.length - 1; c >= valueColStart; c -= 1){
         const value = row[c];
         const numeric = typeof value === 'number' ? value : parseFloat(value);
         if(Number.isFinite(numeric)){
@@ -8500,7 +8516,7 @@
     const groupCount = Math.max(1, Number(options.minGroupCount) || getBoxGroupedGroupCount(colCount, replicates));
     const entries = [];
     for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
-      const startCol = groupIndex * replicates;
+      const startCol = getBoxGroupedSeriesStartCol(groupIndex, { replicates });
       const rawTitle = headerRow[startCol] != null ? String(headerRow[startCol]).trim() : '';
       const fallback = `Group ${groupIndex + 1}`;
       const baseLabel = inferBoxGroupBaseName(rawTitle, fallback);
@@ -8526,7 +8542,7 @@
     }
     const changes = [];
     sourceLabels.forEach((label, groupIndex) => {
-      const startCol = groupIndex * replicates;
+      const startCol = getBoxGroupedSeriesStartCol(groupIndex, { replicates });
       const normalized = normalizeBoxGroupHeaderAnchor(label, groupIndex);
       changes.push([0, startCol, normalized]);
       for(let repIndex = 1; repIndex < replicates; repIndex += 1){
@@ -8578,7 +8594,7 @@
         : (preferred[repIndex] == null ? '' : String(preferred[repIndex]).trim());
       if(!candidate && !hasMappedPreferred){
         for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
-          const col = groupIndex * replicates + repIndex;
+          const col = getBoxGroupedSeriesStartCol(groupIndex, { replicates }) + repIndex;
           const raw = conditionRow[col];
           const trimmed = raw == null ? '' : String(raw).trim();
           if(trimmed){
@@ -8606,7 +8622,7 @@
     const groupCount = Math.max(1, Number(options.groupCount) || getBoxGroupedGroupCount(colCount, replicates));
     const changes = [];
     for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
-      const startCol = groupIndex * replicates;
+      const startCol = getBoxGroupedSeriesStartCol(groupIndex, { replicates });
       for(let repIndex = 0; repIndex < replicates; repIndex += 1){
         const col = startCol + repIndex;
         if(col >= colCount){
@@ -8802,7 +8818,7 @@
     const headers = new Array(colCount).fill('');
     const groupCount = getBoxGroupedGroupCount(colCount, replicates);
     for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
-      const startCol = groupIndex * replicates;
+      const startCol = getBoxGroupedSeriesStartCol(groupIndex, { replicates });
       if(startCol >= colCount){
         break;
       }
@@ -8842,6 +8858,206 @@
     }
   }
 
+  function syncBoxGroupedCheckboxColumnLabels(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    const groupedActive = options.forceGrouped === true
+      ? true
+      : (options.forceGrouped === false ? false : isBoxGroupedModeActive());
+    const hotRoot = hot?.rootElement
+      || hot?.__boxHostContainer
+      || els.hotContainer
+      || global.document?.getElementById?.('hot')
+      || null;
+    if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
+      return;
+    }
+    const cleanup = () => {
+      hotRoot.querySelectorAll('.box-grouped-checkbox-row-label').forEach(cell => {
+        cell.classList.remove('box-grouped-checkbox-row-label');
+        cell.removeAttribute('data-box-checkbox-row-label');
+      });
+      hotRoot.querySelectorAll('.box-grouped-after-checkbox-label').forEach(cell => {
+        cell.classList.remove('box-grouped-after-checkbox-label');
+      });
+      hotRoot.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => {
+        node.remove();
+      });
+    };
+    const syncToken = (Number(hotRoot.__boxGroupedCheckboxSyncToken) || 0) + 1;
+    hotRoot.__boxGroupedCheckboxSyncToken = syncToken;
+    const isTokenCurrent = () => hotRoot.__boxGroupedCheckboxSyncToken === syncToken;
+    if(!groupedActive){
+      cleanup();
+      return;
+    }
+    const clearLabelCell = cell => {
+      if(!cell || !cell.classList){
+        return;
+      }
+      cell.classList.remove('box-grouped-checkbox-row-label');
+      cell.removeAttribute('data-box-checkbox-row-label');
+      if(typeof cell.querySelectorAll === 'function'){
+        cell.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => node.remove());
+      }
+      const nextCell = cell.nextElementSibling;
+      if(nextCell && nextCell.classList && nextCell.classList.contains('ag-cell')){
+        nextCell.classList.remove('box-grouped-after-checkbox-label');
+      }
+    };
+    const applyLabels = () => {
+      if(!isTokenCurrent()){
+        return null;
+      }
+      const bodyCheckboxCell = hotRoot.querySelector('.ag-row .ag-checkbox-input-wrapper')
+        ?.closest?.('.ag-cell')
+        || null;
+      const selectionColId = bodyCheckboxCell?.getAttribute?.('col-id') || '';
+      const parsePinnedRowIndex = row => {
+        if(!row || typeof row.getAttribute !== 'function'){
+          return null;
+        }
+        const direct = Number(row.getAttribute('row-index'));
+        if(Number.isInteger(direct)){
+          return direct;
+        }
+        const dataIndex = Number(row.getAttribute('data-row-index'));
+        if(Number.isInteger(dataIndex)){
+          return dataIndex;
+        }
+        const ariaIndex = Number(row.getAttribute('aria-rowindex'));
+        if(Number.isInteger(ariaIndex)){
+          return Math.max(0, ariaIndex - 1);
+        }
+        return null;
+      };
+      const pinnedRowsAll = Array.from(hotRoot.querySelectorAll('.ag-pinned-top .ag-row, .ag-floating-top .ag-row'))
+        .filter(row => !row.classList.contains('hot-pinned-ghost-row'));
+      let pinnedRows = pinnedRowsAll;
+      if(selectionColId){
+        const rowsWithSelectionColumn = pinnedRowsAll.filter(row => {
+          const cells = Array.from(row.querySelectorAll('.ag-cell'));
+          return cells.some(cell => (cell.getAttribute('col-id') || '') === selectionColId);
+        });
+        if(rowsWithSelectionColumn.length){
+          pinnedRows = rowsWithSelectionColumn;
+        }
+      }
+      pinnedRows.sort((a, b) => {
+        const aIndex = parsePinnedRowIndex(a);
+        const bIndex = parsePinnedRowIndex(b);
+        if(Number.isInteger(aIndex) && Number.isInteger(bIndex)){
+          return aIndex - bIndex;
+        }
+        if(Number.isInteger(aIndex)){
+          return -1;
+        }
+        if(Number.isInteger(bIndex)){
+          return 1;
+        }
+        return 0;
+      });
+      const pinnedRowByIndex = new Map();
+      pinnedRows.forEach(row => {
+        const rowIndex = parsePinnedRowIndex(row);
+        if(Number.isInteger(rowIndex) && !pinnedRowByIndex.has(rowIndex)){
+          pinnedRowByIndex.set(rowIndex, row);
+        }
+      });
+      const targets = [
+        { rowIndex: BOX_GROUPED_GROUP_HEADER_ROW_INDEX, label: BOX_GROUPED_GROUP_ROW_LABEL },
+        { rowIndex: BOX_GROUPED_CONDITION_HEADER_ROW_INDEX, label: BOX_GROUPED_CONDITION_ROW_LABEL }
+      ];
+      let labeledCount = 0;
+      const activeLabelCells = new Set();
+      targets.forEach((target, idx) => {
+        const pinnedRow = pinnedRowByIndex.get(target.rowIndex) || pinnedRows[idx] || null;
+        if(!pinnedRow){
+          return;
+        }
+        const candidateCells = Array.from(pinnedRow.querySelectorAll('.ag-cell'));
+        let labelCell = null;
+        if(selectionColId){
+          labelCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === selectionColId) || null;
+        }
+        if(!labelCell){
+          const rowHeaderCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === '__rowHeader') || null;
+          const afterRowHeader = rowHeaderCell?.nextElementSibling;
+          if(afterRowHeader && afterRowHeader.classList && afterRowHeader.classList.contains('ag-cell')){
+            labelCell = afterRowHeader;
+          }
+        }
+        if(!labelCell){
+          labelCell = candidateCells.find(cell => {
+            const colId = cell.getAttribute('col-id') || '';
+            return colId && colId !== '__rowHeader' && !/^c\d+$/i.test(colId);
+          }) || null;
+        }
+        if(!labelCell){
+          labelCell = candidateCells.find(cell => {
+            const colId = cell.getAttribute('col-id') || '';
+            return colId && colId !== '__rowHeader';
+          }) || null;
+        }
+        if(!labelCell){
+          return;
+        }
+        activeLabelCells.add(labelCell);
+        labelCell.classList.add('box-grouped-checkbox-row-label');
+        labelCell.removeAttribute('data-box-checkbox-row-label');
+        if(typeof labelCell.querySelectorAll === 'function'){
+          labelCell.querySelectorAll('.box-grouped-checkbox-row-label__text').forEach(node => node.remove());
+        }
+        const nextCell = labelCell.nextElementSibling;
+        if(nextCell && nextCell.classList && nextCell.classList.contains('ag-cell')){
+          nextCell.classList.add('box-grouped-after-checkbox-label');
+        }
+        labeledCount += 1;
+      });
+      if(labeledCount === targets.length){
+        hotRoot.querySelectorAll('.box-grouped-checkbox-row-label').forEach(cell => {
+          if(!activeLabelCells.has(cell)){
+            clearLabelCell(cell);
+          }
+        });
+      }
+      if(Shared?.isDebugEnabled?.()){
+        console.debug('Debug: box grouped checkbox row labels synced', {
+          selectionColId: selectionColId || null,
+          pinnedRowCount: pinnedRows.length,
+          labeledCount,
+          preserveExisting: labeledCount < targets.length
+        });
+      }
+      return labeledCount;
+    };
+    const scheduleAttempt = (attempt) => {
+      const run = () => {
+        if(!isTokenCurrent()){
+          return;
+        }
+        const count = applyLabels();
+        if(count == null){
+          return;
+        }
+        if(count < 2 && attempt < 4){
+          scheduleAttempt(attempt + 1);
+        }
+      };
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(run);
+      }else{
+        global.setTimeout(run, 0);
+      }
+    };
+    const immediateCount = applyLabels();
+    if(immediateCount == null){
+      return;
+    }
+    if(immediateCount < 2){
+      scheduleAttempt(1);
+    }
+  }
+
   function updateGroupedHeaders(hotInstance){
     const hot = hotInstance || state.hot;
     if(state.tableFormat !== 'grouped' || !hot){
@@ -8857,6 +9073,7 @@
       headerRowCount: groupedHeaderRows,
       pinFirstRow: groupedHeaderRows
     });
+    syncBoxGroupedCheckboxColumnLabels(hot, { forceGrouped: true });
     console.debug('Debug: updateGroupedHeaders applied',{ nested: false, colHeaders });
   }
 
@@ -8869,10 +9086,12 @@
     const replicates = getBoxGroupedReplicateCount();
     const currentCols = state.hot.countCols();
     const matrix = state.hot.getData ? (state.hot.getData() || []) : [];
+    const baseCols = getBoxGroupedValueColumnStart();
     const usedCols = getBoxUsedColumnCount(matrix);
-    const minimumCols = replicates * 2;
+    const minimumCols = baseCols + replicates * 2;
     const desiredCols = Math.max(minimumCols, usedCols || minimumCols);
-    const targetCols = Math.ceil(desiredCols / replicates) * replicates;
+    const desiredValueCols = Math.max(0, desiredCols - baseCols);
+    const targetCols = baseCols + Math.ceil(desiredValueCols / replicates) * replicates;
     if(targetCols > currentCols){
       const extra = targetCols - currentCols;
       const action = currentCols > 0 ? 'insert_col_end' : 'insert_col_start';
@@ -8903,6 +9122,7 @@
         headerRowCount: groupedHeaderRows,
         pinFirstRow: groupedHeaderRows
       });
+      syncBoxGroupedCheckboxColumnLabels(state.hot, { forceGrouped: true });
       console.debug('Debug: applyTableFormatToHot grouped',{ nested: false });
     }else{
       updateBoxGroupedHeaderMergeStyles(state.hot, { forceGrouped: false });
@@ -8912,6 +9132,7 @@
         headerRowCount: 1,
         pinFirstRow: 1
       });
+      syncBoxGroupedCheckboxColumnLabels(state.hot, { forceGrouped: false });
       console.debug('Debug: applyTableFormatToHot single');
     }
   }
@@ -12016,7 +12237,7 @@
       const entry = Array.from({ length: groupsCount }, () => Array(conditionsCount).fill(null));
       for(let gIdx = 0; gIdx < groupsCount; gIdx++){
         for(let cIdx = 0; cIdx < conditionsCount; cIdx++){
-          const colIndex = gIdx * conditionsCount + cIdx;
+          const colIndex = getBoxGroupedSeriesStartCol(gIdx, { replicates: conditionsCount }) + cIdx;
           const rawValue = Array.isArray(row) ? row[colIndex] : undefined;
           const parsed = typeof rawValue === 'number' ? rawValue : parseFloat(rawValue);
           if(Number.isFinite(parsed)){
@@ -17096,7 +17317,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const replicateBucket = [];
         for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
           const groupName = groupedGroups[gIdx];
-          const colIndex = gIdx * groupedReplicates + repIdx;
+          const colIndex = getBoxGroupedSeriesStartCol(gIdx, { replicates: groupedReplicates }) + repIdx;
           if(colIndex >= nCols){
             console.debug('Debug: grouped column missing',{ colIndex, gIdx, repIdx, nCols });
             continue;
