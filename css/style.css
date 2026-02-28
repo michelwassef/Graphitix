@@ -1181,7 +1181,8 @@ select {
 }
 .ag-theme-balham .ag-cell.box-grouped-checkbox-row-label {
     position: relative;
-    border-right: 1px solid #d6d6d6 !important;
+    border-right: 0 !important;
+    border-left: 0 !important;
 }
 .ag-theme-balham .ag-cell.box-grouped-checkbox-row-label .box-grouped-checkbox-row-label__text {
     position: absolute;
@@ -1198,7 +1199,23 @@ select {
     font-weight: inherit;
 }
 .ag-theme-balham .ag-cell.box-grouped-after-checkbox-label {
-    border-left: 1px solid #d6d6d6 !important;
+    border-left: 0 !important;
+}
+/* Align grouped-row divider with native AG Grid column separators:
+   draw it at the row-header cell right edge for the first two pinned rows. */
+.ag-theme-balham .ag-cell.box-grouped-row-header-separator {
+    border-right: 1px solid #d6d6d6 !important;
+}
+/* Box grouped mode: only Group/Condition rows use header-tone background. */
+.ag-theme-balham.box-grouped-header-merge .ag-pinned-top .ag-row[row-index="0"] .ag-cell,
+.ag-theme-balham.box-grouped-header-merge .ag-pinned-top .ag-row[row-index="1"] .ag-cell,
+.ag-theme-balham.box-grouped-header-merge .ag-floating-top .ag-row[row-index="0"] .ag-cell,
+.ag-theme-balham.box-grouped-header-merge .ag-floating-top .ag-row[row-index="1"] .ag-cell {
+    background: var(--ag-header-background-color, #f5f5f5) !important;
+}
+/* Box grouped mode: keep the first data row on default body background (not odd-row gray). */
+.ag-theme-balham.box-grouped-header-merge .ag-row.hot-pinned-first-body-row .ag-cell {
+    background: #ffffff !important;
 }
 /* Keep a visible divider under pinned-top rows even while scrolling */
 .ag-theme-balham .ag-pinned-top,

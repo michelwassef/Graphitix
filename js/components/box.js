@@ -8876,6 +8876,9 @@
         cell.classList.remove('box-grouped-checkbox-row-label');
         cell.removeAttribute('data-box-checkbox-row-label');
       });
+      hotRoot.querySelectorAll('.box-grouped-row-header-separator').forEach(cell => {
+        cell.classList.remove('box-grouped-row-header-separator');
+      });
       hotRoot.querySelectorAll('.box-grouped-after-checkbox-label').forEach(cell => {
         cell.classList.remove('box-grouped-after-checkbox-label');
       });
@@ -8969,18 +8972,23 @@
       ];
       let labeledCount = 0;
       const activeLabelCells = new Set();
+      const activeRowHeaderCells = new Set();
       targets.forEach((target, idx) => {
         const pinnedRow = pinnedRowByIndex.get(target.rowIndex) || pinnedRows[idx] || null;
         if(!pinnedRow){
           return;
         }
         const candidateCells = Array.from(pinnedRow.querySelectorAll('.ag-cell'));
+        const rowHeaderCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === '__rowHeader') || null;
+        if(rowHeaderCell && rowHeaderCell.classList){
+          rowHeaderCell.classList.add('box-grouped-row-header-separator');
+          activeRowHeaderCells.add(rowHeaderCell);
+        }
         let labelCell = null;
         if(selectionColId){
           labelCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === selectionColId) || null;
         }
         if(!labelCell){
-          const rowHeaderCell = candidateCells.find(cell => (cell.getAttribute('col-id') || '') === '__rowHeader') || null;
           const afterRowHeader = rowHeaderCell?.nextElementSibling;
           if(afterRowHeader && afterRowHeader.classList && afterRowHeader.classList.contains('ag-cell')){
             labelCell = afterRowHeader;
@@ -9017,6 +9025,11 @@
         hotRoot.querySelectorAll('.box-grouped-checkbox-row-label').forEach(cell => {
           if(!activeLabelCells.has(cell)){
             clearLabelCell(cell);
+          }
+        });
+        hotRoot.querySelectorAll('.box-grouped-row-header-separator').forEach(cell => {
+          if(!activeRowHeaderCells.has(cell)){
+            cell.classList.remove('box-grouped-row-header-separator');
           }
         });
       }
