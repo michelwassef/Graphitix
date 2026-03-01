@@ -2703,16 +2703,49 @@
         resizable: false,
         width: 56,
         valueGetter(params){
-          const rowIndex = params?.node?.rowIndex ?? params?.data?.__rowIndex ?? 0;
+          const node = params?.node;
+          const isPinnedTop = !!(node && node.rowPinned === 'top');
+
+          const rawRowIndex = node?.rowIndex ?? params?.data?.__rowIndex ?? 0;
+
+          // Start numbering at the first NON pinned row (the first row below pinned rows)
+          const offset = (usePinnedRows && Number.isInteger(pinRowCount) && pinRowCount > 0) ? pinRowCount : 0;
+          const logicalRowIndex = rawRowIndex - offset;
+
+          // Do not show a number on pinned rows (these are "header like" rows)
+          if(isPinnedTop){
+            if(typeof Shared !== 'undefined' && Shared && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot rowHeader pinned row number suppressed', { debugLabel, rawRowIndex, offset });
+            }
+            return '';
+          }
+
+          // Guard: if a ghost row ever becomes visible, do not label it
+          if(offset > 0 && logicalRowIndex < 0){
+            if(typeof Shared !== 'undefined' && Shared && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot rowHeader ghost row number suppressed', { debugLabel, rawRowIndex, logicalRowIndex, offset });
+            }
+            return '';
+          }
+
           if(typeof rowHeadersSetting === 'function'){
             try{
-              const label = rowHeadersSetting(rowIndex);
+              // Pass logical index so numbering aligns with "first row below pinned rows"
+              const label = rowHeadersSetting(logicalRowIndex);
               return label == null ? '' : String(label);
             }catch(err){
-              return String(rowIndex + 1);
+              console.error('Shared.hot rowHeader rowHeadersSetting error', {
+                debugLabel,
+                message: err?.message || String(err),
+                rawRowIndex,
+                logicalRowIndex,
+                offset
+              });
+              return String(logicalRowIndex + 1);
             }
           }
-          return String(rowIndex + 1);
+
+          return String(logicalRowIndex + 1);
         },
         cellClass: 'hot-row-header',
         headerClass: 'hot-row-header'
