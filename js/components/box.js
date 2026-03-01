@@ -18840,6 +18840,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       };
       const stackedErrorQueue = [];
       const annotationMaxByTrace = new Array(traces.length).fill(null);
+      const pendingIndividualSummaryBars = [];
+      let globalIndividualSummaryHalfSpan = 0;
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
           console.log('boxplot draw cancelled during render loop',{ token });
@@ -19181,6 +19183,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             summaryGroup.style.cursor = 'pointer';
             summaryGroup.addEventListener('click', handleBoxSummaryClick);
             const summaryCap = Math.max(6, localBand * 0.12);
+            const summaryPointHalfSpan = (() => {
+              const offsetExtent = Number.isFinite(Number(swarmResult?.maxOffsetUsed)) ? Number(swarmResult.maxOffsetUsed) : 0;
+              const radiusExtent = Number.isFinite(Number(summaryRadius)) ? Number(summaryRadius) : pointRadius;
+              const pointSpreadHalfExtent = Math.max(0, offsetExtent) + Math.max(0, radiusExtent || 0);
+              const pointSpreadWidth = pointSpreadHalfExtent * 2;
+              const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * 1.4, 4);
+              const scaledHalfSpan = pointSpreadHalfExtent > 0 ? pointSpreadHalfExtent * 1.3 : NaN;
+              const resolvedHalfSpan = Number.isFinite(scaledHalfSpan) && scaledHalfSpan > 0
+                ? Math.max(fallbackHalfSpan, scaledHalfSpan)
+                : fallbackHalfSpan;
+              if(debugEnabled){
+                console.debug('Debug: box strip summary span',{
+                  index: i,
+                  orientation: 'vertical',
+                  maxOffsetUsed: offsetExtent,
+                  summaryRadius: radiusExtent,
+                  pointSpreadWidth,
+                  summaryBarWidth: resolvedHalfSpan * 2
+                });
+              }
+              return resolvedHalfSpan;
+            })();
             const summaryStyle = getSummaryStyle(i);
             const summaryColor = (summaryStyle && summaryStyle.color) ? summaryStyle.color : borderColor;
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
@@ -19248,8 +19272,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const cySummary = y2px(value);
-                const halfWidth = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
-                summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                const fallbackHalfWidth = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
+                const halfWidth = Math.max(summaryPointHalfSpan, fallbackHalfWidth);
+                if(halfWidth > globalIndividualSummaryHalfSpan){
+                  globalIndividualSummaryHalfSpan = halfWidth;
+                }
+                const node = summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                pendingIndividualSummaryBars.push({
+                  node,
+                  orientation: 'vertical',
+                  cx,
+                  cy: cySummary,
+                  traceIndex: i,
+                  mode: individualSummaryMode,
+                  kind: 'point'
+                });
                 return true;
               },
               drawMedianLine: value => {
@@ -19257,7 +19294,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const yMid = y2px(value);
-                summaryAdd('line',{ x1: cx - Math.max(summaryCap, 4), y1: yMid, x2: cx + Math.max(summaryCap, 4), y2: yMid, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                const halfWidth = Math.max(summaryPointHalfSpan, Math.max(summaryCap, 4));
+                if(halfWidth > globalIndividualSummaryHalfSpan){
+                  globalIndividualSummaryHalfSpan = halfWidth;
+                }
+                const node = summaryAdd('line',{ x1: cx - halfWidth, y1: yMid, x2: cx + halfWidth, y2: yMid, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                pendingIndividualSummaryBars.push({
+                  node,
+                  orientation: 'vertical',
+                  cx,
+                  cy: yMid,
+                  traceIndex: i,
+                  mode: individualSummaryMode,
+                  kind: 'median-line'
+                });
                 return true;
               },
               debug: debugEnabled
@@ -19350,6 +19400,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
+        }
+      }
+      if(pendingIndividualSummaryBars.length && Number.isFinite(globalIndividualSummaryHalfSpan) && globalIndividualSummaryHalfSpan > 0){
+        for(const pendingBar of pendingIndividualSummaryBars){
+          const node = pendingBar?.node;
+          if(!node || typeof node.setAttribute !== 'function'){
+            continue;
+          }
+          node.setAttribute('x1', String(pendingBar.cx - globalIndividualSummaryHalfSpan));
+          node.setAttribute('x2', String(pendingBar.cx + globalIndividualSummaryHalfSpan));
+          node.setAttribute('y1', String(pendingBar.cy));
+          node.setAttribute('y2', String(pendingBar.cy));
+        }
+        if(debugEnabled){
+          console.debug('Debug: box strip summary span normalized globally',{
+            count: pendingIndividualSummaryBars.length,
+            orientation: 'vertical',
+            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2
+          });
         }
       }
       if(isStackedLayout && stackedErrorQueue.length){
@@ -20072,6 +20141,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const stackedErrorQueue = [];
       const annotationMaxByTrace = new Array(traces.length).fill(null);
+      const pendingIndividualSummaryBars = [];
+      let globalIndividualSummaryHalfSpan = 0;
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
           console.log('boxplot draw cancelled during render loop',{ token });
@@ -20422,6 +20493,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             summaryGroup.style.cursor = 'pointer';
             summaryGroup.addEventListener('click', handleBoxSummaryClick);
             const summaryCap = Math.max(6, localBand * 0.12);
+            const summaryPointHalfSpan = (() => {
+              const offsetExtent = Number.isFinite(Number(swarmResult?.maxOffsetUsed)) ? Number(swarmResult.maxOffsetUsed) : 0;
+              const radiusExtent = Number.isFinite(Number(summaryRadius)) ? Number(summaryRadius) : pointRadius;
+              const pointSpreadHalfExtent = Math.max(0, offsetExtent) + Math.max(0, radiusExtent || 0);
+              const pointSpreadWidth = pointSpreadHalfExtent * 2;
+              const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * 1.4, 4);
+              const scaledHalfSpan = pointSpreadHalfExtent > 0 ? pointSpreadHalfExtent * 1.3 : NaN;
+              const resolvedHalfSpan = Number.isFinite(scaledHalfSpan) && scaledHalfSpan > 0
+                ? Math.max(fallbackHalfSpan, scaledHalfSpan)
+                : fallbackHalfSpan;
+              if(debugEnabled){
+                console.debug('Debug: box strip summary span',{
+                  index: i,
+                  orientation: 'horizontal',
+                  maxOffsetUsed: offsetExtent,
+                  summaryRadius: radiusExtent,
+                  pointSpreadWidth,
+                  summaryBarWidth: resolvedHalfSpan * 2
+                });
+              }
+              return resolvedHalfSpan;
+            })();
             const summaryStyle = getSummaryStyle(i);
             const summaryColor = (summaryStyle && summaryStyle.color) ? summaryStyle.color : borderColor;
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
@@ -20484,8 +20577,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const xVal = valueToX(value);
-                const halfWidth = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
-                summaryAdd('line',{ x1: xVal - halfWidth, y1: cy, x2: xVal + halfWidth, y2: cy, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                const fallbackHalfHeight = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
+                const halfHeight = Math.max(summaryPointHalfSpan, fallbackHalfHeight);
+                if(halfHeight > globalIndividualSummaryHalfSpan){
+                  globalIndividualSummaryHalfSpan = halfHeight;
+                }
+                const node = summaryAdd('line',{ x1: xVal, y1: cy - halfHeight, x2: xVal, y2: cy + halfHeight, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                pendingIndividualSummaryBars.push({
+                  node,
+                  orientation: 'horizontal',
+                  x: xVal,
+                  cy,
+                  traceIndex: i,
+                  mode: individualSummaryMode,
+                  kind: 'point'
+                });
                 return true;
               },
               drawMedianLine: value => {
@@ -20493,8 +20599,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const xMid = valueToX(value);
-                const cap = Math.max(summaryCap, 4);
-                summaryAdd('line',{ x1: xMid, y1: cy - cap, x2: xMid, y2: cy + cap, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                const halfHeight = Math.max(summaryPointHalfSpan, Math.max(summaryCap, 4));
+                if(halfHeight > globalIndividualSummaryHalfSpan){
+                  globalIndividualSummaryHalfSpan = halfHeight;
+                }
+                const node = summaryAdd('line',{ x1: xMid, y1: cy - halfHeight, x2: xMid, y2: cy + halfHeight, ...summaryStrokeAttrs(summaryStrokeWidth) });
+                pendingIndividualSummaryBars.push({
+                  node,
+                  orientation: 'horizontal',
+                  x: xMid,
+                  cy,
+                  traceIndex: i,
+                  mode: individualSummaryMode,
+                  kind: 'median-line'
+                });
                 return true;
               },
               debug: debugEnabled
@@ -20588,6 +20706,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
+        }
+      }
+      if(pendingIndividualSummaryBars.length && Number.isFinite(globalIndividualSummaryHalfSpan) && globalIndividualSummaryHalfSpan > 0){
+        for(const pendingBar of pendingIndividualSummaryBars){
+          const node = pendingBar?.node;
+          if(!node || typeof node.setAttribute !== 'function'){
+            continue;
+          }
+          node.setAttribute('x1', String(pendingBar.x));
+          node.setAttribute('x2', String(pendingBar.x));
+          node.setAttribute('y1', String(pendingBar.cy - globalIndividualSummaryHalfSpan));
+          node.setAttribute('y2', String(pendingBar.cy + globalIndividualSummaryHalfSpan));
+        }
+        if(debugEnabled){
+          console.debug('Debug: box strip summary span normalized globally',{
+            count: pendingIndividualSummaryBars.length,
+            orientation: 'horizontal',
+            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2
+          });
         }
       }
       if(isStackedLayout && stackedErrorQueue.length){
