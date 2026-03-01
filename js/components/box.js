@@ -3751,6 +3751,116 @@
     return newColor;
   }
 
+  function parseColorToRgb(color){
+    const raw = String(color == null ? '' : color).trim().toLowerCase();
+    if(!raw || raw === 'none' || raw === 'transparent'){
+      return null;
+    }
+    if(raw[0] === '#'){
+      const hex = raw.slice(1);
+      if(hex.length === 3){
+        const r = parseInt(hex[0] + hex[0], 16);
+        const g = parseInt(hex[1] + hex[1], 16);
+        const b = parseInt(hex[2] + hex[2], 16);
+        return [r, g, b];
+      }
+      if(hex.length === 6){
+        const num = parseInt(hex, 16);
+        if(Number.isFinite(num)){
+          return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+        }
+      }
+      return null;
+    }
+    const rgbMatch = raw.match(/^rgba?\(([^)]+)\)$/);
+    if(rgbMatch){
+      const parts = rgbMatch[1].split(',').map(part => Number.parseFloat(part.trim()));
+      if(parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)){
+        return [
+          Math.max(0, Math.min(255, Math.round(parts[0]))),
+          Math.max(0, Math.min(255, Math.round(parts[1]))),
+          Math.max(0, Math.min(255, Math.round(parts[2])))
+        ];
+      }
+    }
+    const named = {
+      black: [0, 0, 0],
+      white: [255, 255, 255],
+      red: [255, 0, 0],
+      gray: [128, 128, 128],
+      grey: [128, 128, 128],
+      lightgray: [211, 211, 211],
+      lightgrey: [211, 211, 211],
+      darkgray: [169, 169, 169],
+      darkgrey: [169, 169, 169]
+    };
+    return named[raw] || null;
+  }
+
+  function getColorLuminance(color){
+    const rgb = parseColorToRgb(color);
+    if(!rgb){
+      return null;
+    }
+    const [r, g, b] = rgb.map(value => {
+      const normalized = value / 255;
+      return normalized <= 0.03928
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  function isNearNeutralColor(color){
+    const rgb = parseColorToRgb(color);
+    if(!rgb){
+      return false;
+    }
+    const max = Math.max(rgb[0], rgb[1], rgb[2]);
+    const min = Math.min(rgb[0], rgb[1], rgb[2]);
+    return (max - min) <= 18;
+  }
+
+  function resolveIndividualPointThemeDefaults(config){
+    const fillColor = String(config?.fillColor == null ? '' : config.fillColor).trim();
+    const borderColor = String(config?.borderColor == null ? '' : config.borderColor).trim();
+    const fontStyles = exportFontStyles('box') || null;
+    const graphFontColor = String(fontStyles?.__graph__?.fill == null ? '' : fontStyles.__graph__.fill).trim();
+    const graphFontLuminance = getColorLuminance(graphFontColor);
+    const fillLuminance = getColorLuminance(fillColor);
+    const borderLuminance = getColorLuminance(borderColor);
+    const monochromePalette =
+      isNearNeutralColor(fillColor) ||
+      isNearNeutralColor(borderColor) ||
+      (!fillColor && !borderColor) ||
+      ((fillLuminance != null && fillLuminance >= 0.88) && (borderLuminance == null || borderLuminance >= 0.55));
+
+    let resolvedFill = fillColor || '#000000';
+    let resolvedStroke = borderColor || resolvedFill;
+    let mode = 'palette';
+
+    if(graphFontLuminance != null && graphFontLuminance >= 0.72){
+      resolvedFill = '#ffffff';
+      resolvedStroke = '#ffffff';
+      mode = 'dark-theme';
+    }else if(monochromePalette){
+      resolvedFill = '#000000';
+      resolvedStroke = '#000000';
+      mode = 'monochrome-theme';
+    }else{
+      resolvedFill = fillColor || resolvedFill;
+      resolvedStroke = borderColor || (fillColor ? shadeColor(fillColor, -30) : resolvedStroke);
+      mode = 'palette-theme';
+    }
+
+    return {
+      fill: resolvedFill,
+      stroke: resolvedStroke,
+      graphFontColor,
+      mode
+    };
+  }
+
   function computeSampleSpreadFactor(sampleSize, debugEnabled){
     const n = Number(sampleSize) || 0;
     if(n <= 1){
@@ -6414,7 +6524,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -18655,10 +18765,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
-        const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
+        const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
+        const themedPointDefaults = useClassicStripDefaults
+          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor })
+          : null;
+        const effectiveFill = (traceStyle && traceStyle.fill)
+          ? traceStyle.fill
+          : (themedPointDefaults ? themedPointDefaults.fill : fillColor);
         const traceStrokeColor = traceStyle && (traceStyle.stroke || traceStyle.borderColor)
           ? (traceStyle.stroke || traceStyle.borderColor)
-          : borderColor;
+          : (themedPointDefaults ? themedPointDefaults.stroke : borderColor);
+        if(useClassicStripDefaults && debugEnabled){
+          console.debug('Debug: box strip theme point defaults applied',{
+            traceIndex,
+            orientation: 'vertical',
+            fill: effectiveFill,
+            stroke: traceStrokeColor,
+            mode: themedPointDefaults?.mode || 'none',
+            graphFontColor: themedPointDefaults?.graphFontColor || ''
+          });
+        }
         const traceStrokeWidthRaw = traceStyle && Number.isFinite(Number(traceStyle.borderWidth))
           ? Number(traceStyle.borderWidth)
           : (traceStyle && Number.isFinite(Number(traceStyle.strokeWidth))
@@ -18841,6 +18967,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const stackedErrorQueue = [];
       const annotationMaxByTrace = new Array(traces.length).fill(null);
       const pendingIndividualSummaryBars = [];
+      const pendingIndividualSummaryIntervalCaps = [];
       let globalIndividualSummaryHalfSpan = 0;
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
@@ -19262,8 +19389,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 const capsEnabled = opts.caps !== false;
                 const capSize = opts.capSize ?? summaryCap;
                 if(capsEnabled && capSize > 0){
-                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yStart, x2: cx + capSize / 2, y2: yStart, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yEnd, x2: cx + capSize / 2, y2: yEnd, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  const capStartNode = summaryAdd('line',{ x1: cx - capSize / 2, y1: yStart, x2: cx + capSize / 2, y2: yStart, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  const capEndNode = summaryAdd('line',{ x1: cx - capSize / 2, y1: yEnd, x2: cx + capSize / 2, y2: yEnd, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  pendingIndividualSummaryIntervalCaps.push({
+                    node: capStartNode,
+                    orientation: 'vertical',
+                    cx,
+                    cy: yStart,
+                    traceIndex: i,
+                    mode: individualSummaryMode,
+                    kind: 'interval-cap'
+                  });
+                  pendingIndividualSummaryIntervalCaps.push({
+                    node: capEndNode,
+                    orientation: 'vertical',
+                    cx,
+                    cy: yEnd,
+                    traceIndex: i,
+                    mode: individualSummaryMode,
+                    kind: 'interval-cap'
+                  });
                 }
                 return true;
               },
@@ -19413,11 +19558,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           node.setAttribute('y1', String(pendingBar.cy));
           node.setAttribute('y2', String(pendingBar.cy));
         }
+        const globalIntervalCapHalfSpan = globalIndividualSummaryHalfSpan / 2;
+        if(pendingIndividualSummaryIntervalCaps.length && Number.isFinite(globalIntervalCapHalfSpan) && globalIntervalCapHalfSpan > 0){
+          for(const pendingCap of pendingIndividualSummaryIntervalCaps){
+            const node = pendingCap?.node;
+            if(!node || typeof node.setAttribute !== 'function'){
+              continue;
+            }
+            node.setAttribute('x1', String(pendingCap.cx - globalIntervalCapHalfSpan));
+            node.setAttribute('x2', String(pendingCap.cx + globalIntervalCapHalfSpan));
+            node.setAttribute('y1', String(pendingCap.cy));
+            node.setAttribute('y2', String(pendingCap.cy));
+          }
+        }
         if(debugEnabled){
           console.debug('Debug: box strip summary span normalized globally',{
             count: pendingIndividualSummaryBars.length,
+            capCount: pendingIndividualSummaryIntervalCaps.length,
             orientation: 'vertical',
-            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2
+            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2,
+            globalIntervalCapWidth: globalIndividualSummaryHalfSpan
           });
         }
       }
@@ -19588,10 +19748,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
-        const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
+        const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
+        const themedPointDefaultsH = useClassicStripDefaults
+          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor })
+          : null;
+        const effectiveFill = (traceStyleH && traceStyleH.fill)
+          ? traceStyleH.fill
+          : (themedPointDefaultsH ? themedPointDefaultsH.fill : fillColor);
         const traceStrokeColorH = traceStyleH && (traceStyleH.stroke || traceStyleH.borderColor)
           ? (traceStyleH.stroke || traceStyleH.borderColor)
-          : borderColor;
+          : (themedPointDefaultsH ? themedPointDefaultsH.stroke : borderColor);
+        if(useClassicStripDefaults && debugEnabled){
+          console.debug('Debug: box strip theme point defaults applied',{
+            traceIndex,
+            orientation: 'horizontal',
+            fill: effectiveFill,
+            stroke: traceStrokeColorH,
+            mode: themedPointDefaultsH?.mode || 'none',
+            graphFontColor: themedPointDefaultsH?.graphFontColor || ''
+          });
+        }
         const traceStrokeWidthRawH = traceStyleH && Number.isFinite(Number(traceStyleH.borderWidth))
           ? Number(traceStyleH.borderWidth)
           : (traceStyleH && Number.isFinite(Number(traceStyleH.strokeWidth))
@@ -20142,6 +20318,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const stackedErrorQueue = [];
       const annotationMaxByTrace = new Array(traces.length).fill(null);
       const pendingIndividualSummaryBars = [];
+      const pendingIndividualSummaryIntervalCaps = [];
       let globalIndividualSummaryHalfSpan = 0;
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
@@ -20567,8 +20744,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 const capsEnabled = opts.caps !== false;
                 const capSize = opts.capSize ?? summaryCap;
                 if(capsEnabled && capSize > 0){
-                  summaryAdd('line',{ x1: xStart, y1: cy - capSize / 2, x2: xStart, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                  summaryAdd('line',{ x1: xEnd, y1: cy - capSize / 2, x2: xEnd, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  const capStartNode = summaryAdd('line',{ x1: xStart, y1: cy - capSize / 2, x2: xStart, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  const capEndNode = summaryAdd('line',{ x1: xEnd, y1: cy - capSize / 2, x2: xEnd, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  pendingIndividualSummaryIntervalCaps.push({
+                    node: capStartNode,
+                    orientation: 'horizontal',
+                    x: xStart,
+                    cy,
+                    traceIndex: i,
+                    mode: individualSummaryMode,
+                    kind: 'interval-cap'
+                  });
+                  pendingIndividualSummaryIntervalCaps.push({
+                    node: capEndNode,
+                    orientation: 'horizontal',
+                    x: xEnd,
+                    cy,
+                    traceIndex: i,
+                    mode: individualSummaryMode,
+                    kind: 'interval-cap'
+                  });
                 }
                 return true;
               },
@@ -20719,11 +20914,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           node.setAttribute('y1', String(pendingBar.cy - globalIndividualSummaryHalfSpan));
           node.setAttribute('y2', String(pendingBar.cy + globalIndividualSummaryHalfSpan));
         }
+        const globalIntervalCapHalfSpan = globalIndividualSummaryHalfSpan / 2;
+        if(pendingIndividualSummaryIntervalCaps.length && Number.isFinite(globalIntervalCapHalfSpan) && globalIntervalCapHalfSpan > 0){
+          for(const pendingCap of pendingIndividualSummaryIntervalCaps){
+            const node = pendingCap?.node;
+            if(!node || typeof node.setAttribute !== 'function'){
+              continue;
+            }
+            node.setAttribute('x1', String(pendingCap.x));
+            node.setAttribute('x2', String(pendingCap.x));
+            node.setAttribute('y1', String(pendingCap.cy - globalIntervalCapHalfSpan));
+            node.setAttribute('y2', String(pendingCap.cy + globalIntervalCapHalfSpan));
+          }
+        }
         if(debugEnabled){
           console.debug('Debug: box strip summary span normalized globally',{
             count: pendingIndividualSummaryBars.length,
+            capCount: pendingIndividualSummaryIntervalCaps.length,
             orientation: 'horizontal',
-            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2
+            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2,
+            globalIntervalCapWidth: globalIndividualSummaryHalfSpan
           });
         }
       }
