@@ -3573,6 +3573,68 @@
     lineAdvisorState.context=context;
     const answers=ensureLineAdvisorDefaults(context);
     const recommendation=computeLineAdvisorRecommendation(answers, context);
+    const sharedAdvisorUi = Shared.statsUi;
+    if(sharedAdvisorUi && typeof sharedAdvisorUi.renderAdvisorPanel==='function'){
+      sharedAdvisorUi.renderAdvisorPanel({
+        container,
+        state: lineAdvisorState,
+        title: 'Statistics advisor',
+        inactiveMessage: 'Press the "Guide me" button to view advisor recommendations.',
+        recommendation,
+        answers,
+        questions: lineAdvisorState.open ? buildLineAdvisorQuestions(context, answers) : [],
+        namePrefix: 'line-advisor',
+        onToggle: (nextOpen)=>{
+          lineAdvisorState.open=!!nextOpen;
+          if(lineAdvisorState.open && !lineAdvisorState.activated){
+            lineAdvisorState.activated=true;
+            console.debug('Debug: line statsAdvisor activated');
+          }
+          console.debug('Debug: line statsAdvisor toggled',{ open:lineAdvisorState.open });
+          renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+        },
+        onAnswerChange: (question, value)=>{
+          answers[question.id]=value;
+          lineAdvisorState.answers=answers;
+          console.debug('Debug: line statsAdvisor answer change',{ question:question.id, value });
+          renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+        },
+        onApply: ()=>{
+          if(!recommendation.ready){
+            return;
+          }
+          if(refs.statType){
+            refs.statType.value=recommendation.statsMethod;
+          }
+          if(refs.regressionMode){
+            refs.regressionMode.value=recommendation.regression;
+          }
+          if(refs.showIntervals){
+            refs.showIntervals.checked=!!recommendation.showIntervals;
+          }
+          if(refs.showDiagnostics){
+            refs.showDiagnostics.checked=!!recommendation.showDiagnostics;
+          }
+          updateForecastVisibility();
+          lineAdvisorState.lastApplied={ ...recommendation };
+          console.debug('Debug: line statsAdvisor applied',{
+            statsMethod:recommendation.statsMethod,
+            regression:recommendation.regression,
+            showIntervals:recommendation.showIntervals,
+            showDiagnostics:recommendation.showDiagnostics,
+            answers:{ ...answers }
+          });
+          scheduleLineDraw();
+          renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+        },
+        onReset: ()=>{
+          lineAdvisorState.answers={};
+          console.debug('Debug: line statsAdvisor reset');
+          renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+        }
+      });
+      return;
+    }
     container.innerHTML='';
     const wrapper=document.createElement('div');
     wrapper.className='stats-advisor';
@@ -6077,6 +6139,39 @@
       }
     }else{
       refs.statsResults.textContent='Not enough data for statistics.';
+    }
+    if(tableRows.length && refs.statsResults && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function'){
+      const methodsParts = [
+        `Association and regression statistics were computed for ${tableRows.length} series using ${methodLabel || method} correlation with ${regressionMode} regression.`,
+        showIntervals ? 'Regression interval bounds were requested.' : null,
+        showDiagnostics ? 'Residual diagnostic summaries were requested.' : null,
+        forecastRows.length ? 'Forecast accuracy metrics were also summarised when available.' : null
+      ].filter(Boolean);
+      const bestSeries = tableRows[0] || null;
+      const resultsParts = [
+        `${tableRows.length} series were analysable.`,
+        bestSeries ? `${bestSeries.series} returned r = ${bestSeries.r}, p = ${bestSeries.p}, and R² = ${bestSeries.r2}.` : null,
+        forecastRows.length ? `${forecastRows.length} series produced forecast accuracy statistics.` : null,
+        coefficientRows.length ? `${coefficientRows.length} coefficient estimates were tabulated.` : null
+      ].filter(Boolean);
+      Shared.statsReporting.appendReportPanel(refs.statsResults, {
+        methodsText: methodsParts.join(' '),
+        resultsText: resultsParts.join(' '),
+        analysisSpec: {
+          component: 'line',
+          method,
+          regressionMode,
+          showIntervals,
+          showDiagnostics,
+          seriesCount: tableRows.length,
+          intervalSeries: intervalRows.length,
+          diagnosticSeries: diagnosticRows.length,
+          parameterRows: parameterRows.length,
+          seasonalRows: seasonalRows.length,
+          forecastRows: forecastRows.length,
+          coefficientRows: coefficientRows.length
+        }
+      }, { title: 'Reporting and reproducibility' });
     }
     console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,intervalRows:intervalRows.length,diagnosticRows:diagnosticRows.length,parameterRows:parameterRows.length,seasonalRows:seasonalRows.length,forecastRows:forecastRows.length,methodLabel,regressionMode}); // Debug: stats update exit
   }

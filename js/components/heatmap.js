@@ -4209,6 +4209,25 @@
         }
         row.append(global.document.createTextNode(pieces.join('')));
       }
+      if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+        Shared.statsReporting.appendReportPanel(state.statsEl, {
+          methodsText: `Heatmap summary statistics were generated for a correlation matrix using the ${methodLabel} method${stats.useAbs ? ' with absolute-value display' : ''}.`,
+          resultsText: [
+            `Items analysed = ${stats.itemCount || 0}; pairs evaluated = ${stats.pairCount || 0}.`,
+            stats.strongest ? `Strongest |r| involved ${Array.isArray(stats.strongest.labels) ? stats.strongest.labels.join(' vs ') : String(stats.strongest.labels || '')}.` : null
+          ].filter(Boolean).join(' '),
+          analysisSpec: {
+            component: 'heatmap',
+            type: stats.type,
+            method: stats.method || null,
+            useAbs: !!stats.useAbs,
+            itemCount: stats.itemCount || 0,
+            pairCount: stats.pairCount || 0,
+            rowClusterLabel: stats.rowClusterLabel || null,
+            columnClusterLabel: stats.columnClusterLabel || null
+          }
+        }, { title: 'Reporting and reproducibility' });
+      }
       return;
     }
     if(stats.type === 'values'){
@@ -4254,6 +4273,25 @@
         if(stats.adjustments.normalizeColumns && stats.adjustments.normalizeColumns.normalized !== undefined){
           appendStatRow('Columns normalized', String(stats.adjustments.normalizeColumns.normalized));
         }
+      }
+      if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+        Shared.statsReporting.appendReportPanel(state.statsEl, {
+          methodsText: 'Heatmap value-summary statistics were generated from the current matrix view.',
+          resultsText: [
+            `Rows = ${stats.rowCount || 0}; columns = ${stats.columnCount || 0}.`,
+            Number.isFinite(stats.min) && Number.isFinite(stats.max) ? `Values ranged from ${stats.min.toFixed(stats.decimals ?? 2)} to ${stats.max.toFixed(stats.decimals ?? 2)}.` : null
+          ].filter(Boolean).join(' '),
+          analysisSpec: {
+            component: 'heatmap',
+            type: stats.type,
+            rowCount: stats.rowCount || 0,
+            columnCount: stats.columnCount || 0,
+            finiteCount: Number.isFinite(stats.finiteCount) ? stats.finiteCount : null,
+            logApplied: stats.logApplied === undefined ? null : !!stats.logApplied,
+            rowsFiltered: stats.rowsFiltered || 0,
+            columnsRemoved: stats.columnsRemoved || 0
+          }
+        }, { title: 'Reporting and reproducibility' });
       }
       return;
     }

@@ -871,6 +871,292 @@
 
   const reporting = Shared.statsReporting = Shared.statsReporting || {};
 
+  function humanizeAnalysisKey(key){
+    if(typeof key !== 'string' || !key){
+      return '';
+    }
+    return key
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\bci\b/gi, 'CI')
+      .replace(/\baicc\b/gi, 'AICc')
+      .replace(/\baic\b/gi, 'AIC')
+      .replace(/\bbic\b/gi, 'BIC')
+      .replace(/\bauc\b/gi, 'AUC')
+      .replace(/\broc\b/gi, 'ROC')
+      .replace(/\bpr\b/gi, 'PR')
+      .replace(/\bpca\b/gi, 'PCA')
+      .replace(/\bqq\b/gi, 'QQ')
+      .replace(/\bcox\b/gi, 'Cox')
+      .trim()
+      .replace(/^./, char => char.toUpperCase());
+  }
+
+  function isInternalAnalysisSpecKey(key){
+    return key === 'index' || key === 'key' || key === '__internal' || key === '__debug';
+  }
+
+  function sanitizeAnalysisSpecForDisplay(value){
+    if(value == null || value === ''){
+      return undefined;
+    }
+    if(Array.isArray(value)){
+      const items = value
+        .map(item => sanitizeAnalysisSpecForDisplay(item))
+        .filter(item => item !== undefined);
+      return items.length ? items : undefined;
+    }
+    if(typeof value === 'object'){
+      const output = {};
+      Object.entries(value).forEach(([key, entry]) => {
+        if(isInternalAnalysisSpecKey(key)){
+          return;
+        }
+        const cleaned = sanitizeAnalysisSpecForDisplay(entry);
+        if(cleaned === undefined){
+          return;
+        }
+        if(cleaned && typeof cleaned === 'object' && !Array.isArray(cleaned) && !Object.keys(cleaned).length){
+          return;
+        }
+        output[key] = cleaned;
+      });
+      return Object.keys(output).length ? output : undefined;
+    }
+    return value;
+  }
+
+  function formatAnalysisSummaryValue(key, value){
+    if(value == null || value === ''){
+      return '';
+    }
+    if(typeof value === 'boolean'){
+      return value ? 'Yes' : 'No';
+    }
+    if(typeof value === 'number'){
+      if((key === 'ciLevel' || /confidence/i.test(key)) && value > 0 && value <= 1){
+        return `${(value * 100).toFixed(value * 100 % 1 === 0 ? 0 : 1)}%`;
+      }
+      return String(value);
+    }
+    if(Array.isArray(value)){
+      if(!value.length){
+        return '';
+      }
+      const namedItems = value.map(item => {
+        if(item && typeof item === 'object'){
+          return item.header || item.label || item.name || item.value || null;
+        }
+        return item;
+      }).filter(item => item != null && item !== '');
+      if(namedItems.length){
+        return namedItems.join(', ');
+      }
+      return `${value.length} item${value.length === 1 ? '' : 's'}`;
+    }
+    if(typeof value === 'object'){
+      const named = value.label || value.name || value.header || value.value || null;
+      if(named != null && named !== ''){
+        return String(named);
+      }
+      return '';
+    }
+    return String(value);
+  }
+
+  function shouldHideAnalysisSummaryKey(key){
+    if(typeof key !== 'string' || !key){
+      return false;
+    }
+    const normalized = key.trim();
+    return normalized === 'schemaVersion'
+      || normalized === 'seed'
+      || normalized === 'randomSeed'
+      || normalized === 'generatedAt'
+      || normalized === 'hazardRatioRows'
+      || normalized === 'coxCoefficientCount'
+      || normalized === 'logRankAvailable'
+      || normalized === 'rowCount'
+      || normalized === 'columnCount'
+      || normalized === 'colCount'
+      || normalized === 'pointCount';
+  }
+
+  function copyReportTextToClipboard(text, button){
+    const value = typeof text === 'string' ? text : String(text ?? '');
+    const onDebug = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const setButtonState = (label, isError) => {
+      if(!button){
+        return;
+      }
+      button.textContent = label;
+      if(isError){
+        button.dataset.copyState = 'error';
+      }else if(label === 'Copied'){
+        button.dataset.copyState = 'copied';
+      }else{
+        delete button.dataset.copyState;
+      }
+    };
+    const resetLater = () => {
+      if(!button){
+        return;
+      }
+      global.setTimeout(() => {
+        button.textContent = 'Copy';
+        delete button.dataset.copyState;
+      }, 1600);
+    };
+    const fallbackCopy = () => {
+      if(!global.document || !global.document.createElement || !global.document.body){
+        return false;
+      }
+      const textarea = global.document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.pointerEvents = 'none';
+      global.document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      let ok = false;
+      try{
+        ok = typeof global.document.execCommand === 'function' ? !!global.document.execCommand('copy') : false;
+      }catch(error){
+        if(onDebug){
+          console.debug('Debug: statsReporting.copyReportTextToClipboard fallback failed', { message: error?.message || String(error) });
+        }
+        ok = false;
+      }
+      global.document.body.removeChild(textarea);
+      return ok;
+    };
+    const complete = copied => {
+      if(copied){
+        setButtonState('Copied', false);
+      }else{
+        setButtonState('Copy failed', true);
+      }
+      resetLater();
+      if(onDebug){
+        console.debug('Debug: statsReporting.copyReportTextToClipboard', { copied, length: value.length });
+      }
+      return copied;
+    };
+    try{
+      if(global.navigator?.clipboard?.writeText){
+        return global.navigator.clipboard.writeText(value)
+          .then(() => complete(true))
+          .catch(error => {
+            if(onDebug){
+              console.debug('Debug: statsReporting.copyReportTextToClipboard navigator fallback', { message: error?.message || String(error) });
+            }
+            return complete(fallbackCopy());
+          });
+      }
+    }catch(error){
+      if(onDebug){
+        console.debug('Debug: statsReporting.copyReportTextToClipboard navigator failed', { message: error?.message || String(error) });
+      }
+    }
+    return Promise.resolve(complete(fallbackCopy()));
+  }
+
+  function createReportBlockHeader(documentRef, labelText, copyText){
+    const row = documentRef.createElement('div');
+    row.className = 'stats-report-panel__header';
+    const label = documentRef.createElement('div');
+    label.className = 'stats-table-lead';
+    label.textContent = labelText;
+    row.appendChild(label);
+    const button = documentRef.createElement('button');
+    button.type = 'button';
+    button.className = 'stats-report-panel__copy-btn';
+    button.textContent = 'Copy';
+    button.setAttribute('aria-label', `${labelText}: copy to clipboard`);
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      copyReportTextToClipboard(copyText, button);
+    });
+    row.appendChild(button);
+    return row;
+  }
+
+  function buildAnalysisSummaryLines(spec){
+    const cleaned = sanitizeAnalysisSpecForDisplay(spec);
+    if(!cleaned || typeof cleaned !== 'object'){
+      return [];
+    }
+    const priorityKeys = [
+      'component','testFamily','test','analysis','analysisMode','mode','regressionMode','associationMethod','metric',
+      'groupCount','paired','alternative','alpha','ciLevel','correction','fitMethod','fitModel','fitEquation',
+      'showHazardRatios','fitCox','covariates','selectedColumns','referenceIndex','postHoc'
+    ];
+    const seen = new Set();
+    const lines = [];
+    const pushLine = (label, value) => {
+      if(!label || value == null || value === ''){
+        return;
+      }
+      lines.push({ label, value: String(value) });
+    };
+    const processEntry = (key, value, prefix) => {
+      if(value == null || value === '' || shouldHideAnalysisSummaryKey(key)){
+        return;
+      }
+      const label = prefix ? `${prefix}: ${humanizeAnalysisKey(key)}` : humanizeAnalysisKey(key);
+      if(Array.isArray(value) || typeof value !== 'object'){
+        pushLine(label, formatAnalysisSummaryValue(key, value));
+        return;
+      }
+      const compactValue = formatAnalysisSummaryValue(key, value);
+      if(compactValue){
+        pushLine(label, compactValue);
+        return;
+      }
+      Object.entries(value).forEach(([childKey, childValue]) => {
+        processEntry(childKey, childValue, label);
+      });
+    };
+
+    priorityKeys.forEach(key => {
+      if(Object.prototype.hasOwnProperty.call(cleaned, key)){
+        seen.add(key);
+        processEntry(key, cleaned[key], '');
+      }
+    });
+    Object.entries(cleaned).forEach(([key, value]) => {
+      if(seen.has(key) || shouldHideAnalysisSummaryKey(key)){
+        return;
+      }
+      processEntry(key, value, '');
+    });
+    return lines.filter(line => line.value && line.value !== 'null').slice(0, 14);
+  }
+
+  function appendAnalysisSummaryBlock(target, lines, documentRef){
+    if(!target || !Array.isArray(lines) || !lines.length || !documentRef || !documentRef.createElement){
+      return;
+    }
+    const summaryText = lines.map(line => `${line.label}: ${line.value}`).join('\n');
+    target.appendChild(createReportBlockHeader(documentRef, 'Configuration summary', summaryText));
+
+    const list = documentRef.createElement('ul');
+    list.className = 'stats-report-panel__summary-list';
+    lines.forEach(line => {
+      const item = documentRef.createElement('li');
+      item.className = 'stats-report-panel__summary-item';
+      const strong = documentRef.createElement('strong');
+      strong.textContent = `${line.label}: `;
+      item.appendChild(strong);
+      item.appendChild(documentRef.createTextNode(line.value));
+      list.appendChild(item);
+    });
+    target.appendChild(list);
+  }
+
   reporting.appendReportPanel = function appendReportPanel(target, report, options){
     const documentRef = global.document;
     if(!target || !report || !documentRef || !documentRef.createElement){
@@ -887,7 +1173,7 @@
       : 'Results text';
     const specLabel = typeof options?.specLabel === 'string' && options.specLabel.trim()
       ? options.specLabel.trim()
-      : 'Analysis spec';
+      : 'Technical analysis record (advanced)';
     const panel = documentRef.createElement('details');
     panel.className = 'stats-report-panel';
     const summary = documentRef.createElement('summary');
@@ -895,12 +1181,10 @@
     panel.appendChild(summary);
 
     const addBlock = (labelText, valueText) => {
-      const label = documentRef.createElement('div');
-      label.className = 'stats-table-lead';
-      label.textContent = labelText;
-      panel.appendChild(label);
+      const normalizedText = valueText || '';
+      panel.appendChild(createReportBlockHeader(documentRef, labelText, normalizedText));
       const pre = documentRef.createElement('pre');
-      pre.textContent = valueText || '';
+      pre.textContent = normalizedText;
       panel.appendChild(pre);
     };
 
@@ -908,10 +1192,31 @@
     addBlock(resultsLabel, report.resultsText || '');
 
     const spec = report.analysisSpec || options?.analysisSpecFallback || null;
-    addBlock(specLabel, spec ? JSON.stringify(spec, null, 2) : '');
+    const displaySpec = sanitizeAnalysisSpecForDisplay(spec);
+    const summaryLines = buildAnalysisSummaryLines(displaySpec);
+    if(summaryLines.length){
+      appendAnalysisSummaryBlock(panel, summaryLines, documentRef);
+    }
+    if(displaySpec){
+      const advanced = documentRef.createElement('details');
+      advanced.className = 'stats-report-panel__advanced';
+      const advancedSummary = documentRef.createElement('summary');
+      advancedSummary.textContent = specLabel;
+      advanced.appendChild(advancedSummary);
+      const note = documentRef.createElement('p');
+      note.className = 'stats-report-panel__note';
+      note.textContent = 'Machine-readable analysis settings snapshot kept for reproducibility and troubleshooting.';
+      advanced.appendChild(note);
+      const advancedJson = JSON.stringify(displaySpec, null, 2);
+      advanced.appendChild(createReportBlockHeader(documentRef, 'Technical analysis record', advancedJson));
+      const pre = documentRef.createElement('pre');
+      pre.textContent = advancedJson;
+      advanced.appendChild(pre);
+      panel.appendChild(advanced);
+    }
 
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: statsReporting.appendReportPanel',{ title, hasMethods: !!report.methodsText, hasResults: !!report.resultsText });
+      console.debug('Debug: statsReporting.appendReportPanel',{ title, hasMethods: !!report.methodsText, hasResults: !!report.resultsText, hasAnalysisSpec: !!displaySpec });
     }
     target.appendChild(panel);
   };

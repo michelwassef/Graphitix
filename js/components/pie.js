@@ -975,6 +975,20 @@
       }else{
         out.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${isFinite(p)?formatP(p):'N/A'}</td></tr></table>`;
       }
+      if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+        Shared.statsReporting.appendReportPanel(out, {
+          methodsText: `A chi-square goodness-of-fit test compared observed counts across ${observed.length} categories against the supplied expected counts.`,
+          resultsText: `Chi-square = ${chi2.toFixed(4)}, df = ${df}, p = ${isFinite(p)?formatP(p):'N/A'}.`,
+          analysisSpec: {
+            component: 'pie',
+            categoryCount: observed.length,
+            labels: Array.isArray(labels) ? labels.slice() : [],
+            chiSquare: Number.isFinite(chi2) ? chi2 : null,
+            df,
+            p: Number.isFinite(p) ? p : null
+          }
+        }, { title: 'Reporting and reproducibility' });
+      }
       console.debug('Debug: updatePieStats result',{chi2,df,p});
     }catch(err){ console.error('updatePieStats error',err); }
   }

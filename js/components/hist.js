@@ -2391,6 +2391,18 @@
     };
     if(Shared.statsTable && typeof Shared.statsTable.render === 'function'){
       Shared.statsTable.render(statsModel);
+      if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+        Shared.statsReporting.appendReportPanel(target, {
+          methodsText: `Histogram descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
+          resultsText: `Mean = ${statsRow.mean}, median = ${statsRow.median}, SD = ${statsRow.sd}, and range = ${statsRow.min} to ${statsRow.max}.`,
+          analysisSpec: {
+            component: 'hist',
+            n: sorted.length,
+            bestFit: bestFit?.fit?.key || bestFit?.fit?.label || null,
+            distributionsTried: Array.isArray(distributionSummaries) ? distributionSummaries.length : 0
+          }
+        }, { title: 'Reporting and reproducibility' });
+      }
       if(debugEnabled){
         console.debug('Debug: hist stats rendered via Shared.statsTable', { rows: statsModel.rows.length });
       }
@@ -2414,6 +2426,18 @@
     });
     table.appendChild(bodyRow);
     target.appendChild(table);
+    if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+      Shared.statsReporting.appendReportPanel(target, {
+        methodsText: `Histogram descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
+        resultsText: `Mean = ${statsRow.mean}, median = ${statsRow.median}, SD = ${statsRow.sd}, and range = ${statsRow.min} to ${statsRow.max}.`,
+        analysisSpec: {
+          component: 'hist',
+          n: sorted.length,
+          bestFit: bestFit?.fit?.key || bestFit?.fit?.label || null,
+          distributionsTried: Array.isArray(distributionSummaries) ? distributionSummaries.length : 0
+        }
+      }, { title: 'Reporting and reproducibility' });
+    }
     if(debugEnabled){
       console.debug('Debug: hist stats rendered via fallback table', { rows: statsModel.rows.length });
     }

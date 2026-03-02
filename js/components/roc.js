@@ -1230,6 +1230,51 @@
     rocAdvisorState.context=context;
     const answers=ensureRocAdvisorDefaults(context);
     const recommendation=computeRocAdvisorRecommendation(answers, context);
+    const sharedAdvisorUi = Shared.statsUi;
+    if(sharedAdvisorUi && typeof sharedAdvisorUi.renderAdvisorPanel==='function'){
+      sharedAdvisorUi.renderAdvisorPanel({
+        container,
+        state: rocAdvisorState,
+        title: 'Statistics advisor',
+        inactiveMessage: 'Press the "Guide me" button to view advisor recommendations.',
+        recommendation,
+        answers,
+        questions: rocAdvisorState.open ? buildRocAdvisorQuestions(context) : [],
+        namePrefix: 'roc-advisor',
+        onToggle: (nextOpen)=>{
+          rocAdvisorState.open=!!nextOpen;
+          if(rocAdvisorState.open && !rocAdvisorState.activated){
+            rocAdvisorState.activated=true;
+            console.debug('Debug: roc statsAdvisor activated');
+          }
+          console.debug('Debug: roc statsAdvisor toggled',{ open:rocAdvisorState.open });
+          renderRocStatsAdvisor(rocAdvisorState.context);
+        },
+        onAnswerChange: (question, value)=>{
+          answers[question.id]=value;
+          rocAdvisorState.answers=answers;
+          console.debug('Debug: roc statsAdvisor answer change',{ question:question.id, value });
+          renderRocStatsAdvisor(rocAdvisorState.context);
+        },
+        onApply: ()=>{
+          if(!recommendation.ready){
+            return;
+          }
+          state.diffMethod=recommendation.diffMethod;
+          renderRocStatsControls({ graphType: refs.graphType?.value || 'roc' });
+          scheduleDraw();
+          rocAdvisorState.lastApplied={ ...recommendation };
+          console.debug('Debug: roc statsAdvisor applied',{ diffMethod:recommendation.diffMethod, answers:{ ...answers } });
+          renderRocStatsAdvisor(rocAdvisorState.context);
+        },
+        onReset: ()=>{
+          rocAdvisorState.answers={};
+          console.debug('Debug: roc statsAdvisor reset');
+          renderRocStatsAdvisor(rocAdvisorState.context);
+        }
+      });
+      return;
+    }
     container.innerHTML='';
     const wrapper=document.createElement('div');
     wrapper.className='stats-advisor';
@@ -1871,6 +1916,36 @@
     });
     refs.statsResults.appendChild(footnoteBlock);
     console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
+  }
+
+
+  function appendRocReportPanel(stats, graphType, diffResult){
+    if(!refs.statsResults || !Array.isArray(stats) || !stats.length || !(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function')){
+      return;
+    }
+    const primary = stats[0] || null;
+    const compareText = state.compareResult && state.compareResult.textContent ? state.compareResult.textContent.trim() : '';
+    Shared.statsReporting.appendReportPanel(refs.statsResults, {
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series. ${graphType === 'roc' ? 'Curve comparison used the selected ROC difference method.' : 'Curve comparison used the selected resampling method when requested.'}`,
+      resultsText: [
+        `${stats.length} series were analysed.`,
+        primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'area'} = ${formatRocDecimal(primary.auc,3)} and p = ${formatPValue(primary.pVal)}.` : null,
+        compareText || null
+      ].filter(Boolean).join(' '),
+      analysisSpec: {
+        component: 'roc',
+        graphType,
+        seriesCount: stats.length,
+        diffMethod: state.diffMethod,
+        compareSelection: state.compareSelection || state.compareSel?.value || null,
+        compared: !!compareText,
+        differenceSummary: diffResult ? {
+          diff: Number.isFinite(diffResult.diff) ? Number(diffResult.diff) : null,
+          p: Number.isFinite(diffResult.p) ? Number(diffResult.p) : null,
+          ci: Array.isArray(diffResult.ci) ? diffResult.ci : null
+        } : null
+      }
+    }, { title: 'Reporting and reproducibility' });
   }
 
   async function runRocDrawCycle(){
@@ -2677,11 +2752,11 @@
 
     renderRocStatsSummary(stats, graphType);
 
+    let diffResult = null;
     if(series.length >= 2 && state.compareSel && state.compareSel.value){
       const [i, j] = state.compareSel.value.split(',').map(Number);
       const pairsA = allPairs[i];
       const pairsB = allPairs[j];
-      let diffResult;
       if(graphType === 'roc' && state.diffMethod === 'delong'){
         diffResult = delongCurveDiff(pairsA, pairsB);
         state.compareResult.textContent = `ΔAUC = ${diffResult.diff.toFixed(3)}, p = ${formatPValue(diffResult.p)}, CI = [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]`;
@@ -2700,6 +2775,7 @@
     }else if(state.compareResult){
       state.compareResult.textContent = '';
     }
+    appendRocReportPanel(stats, graphType, diffResult);
     registerRocGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     ensureGraphViewport(svg, { padding: Math.max(fontSize, 16), debugLabel: 'roc-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });

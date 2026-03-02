@@ -11552,12 +11552,12 @@
       return 'Exact rank-based p-values were requested whenever a tractable exact distribution was available; otherwise the analysis fell back to Monte Carlo or asymptotic methods as needed.';
     }
     if(mode==='monte-carlo'){
-      return `Rank-based tests used Monte Carlo calibration (${resolveStatsMonteCarloIterations(options)} iterations, seed ${resolveStatsSeed(options)}).`;
+      return `Rank-based tests used Monte Carlo calibration (${resolveStatsMonteCarloIterations(options)} iterations).`;
     }
     if(mode==='asymptotic'){
       return 'Rank-based tests used asymptotic p-values unless an exact closed-form distribution was already built into the test.';
     }
-    return `Rank-based tests used an automatic hierarchy: exact when tractable, otherwise Monte Carlo or asymptotic approximations as appropriate (seed ${resolveStatsSeed(options)}).`;
+    return 'Rank-based tests used an automatic hierarchy: exact when tractable, otherwise Monte Carlo or asymptotic approximations as appropriate.';
   }
   function detectGrubbsOutliers(values,options={}){
     const cleaned=(Array.isArray(values)?values:[]).map((value,index)=>({ value:Number(value), index })).filter(item=>Number.isFinite(item.value));
@@ -16704,6 +16704,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
 ${report.resultsText}` : '') + `
 
+Technical analysis record (advanced)
 ` + JSON.stringify(report.analysisSpec || buildStatsAnalysisSpec(null),null,2);
     panel.appendChild(pre);
     target.appendChild(panel);

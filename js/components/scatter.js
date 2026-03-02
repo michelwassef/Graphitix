@@ -11656,7 +11656,7 @@
 
 ${report.resultsText}` : '') + (analysisSpec ? `
 
-${JSON.stringify(analysisSpec, null, 2)}` : '');
+Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` : '');
         panel.appendChild(pre);
         target.appendChild(panel);
       }

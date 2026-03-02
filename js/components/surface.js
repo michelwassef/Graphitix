@@ -1225,6 +1225,27 @@
       row.appendChild(value);
       container.appendChild(row);
     });
+    if(info && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+      Shared.statsReporting.appendReportPanel(container, {
+        methodsText: 'Surface summary statistics were generated from the parsed X/Y/Z grid or point cloud.',
+        resultsText: [
+          Number.isFinite(info.vertexCount) ? `Vertices = ${info.vertexCount}.` : null,
+          Number.isFinite(info.faceCount) ? `Faces = ${info.faceCount}.` : null,
+          Number.isFinite(info.zMin) && Number.isFinite(info.zMax) ? `Z range = ${formatNumber(info.zMin)} to ${formatNumber(info.zMax)}.` : null
+        ].filter(Boolean).join(' '),
+        analysisSpec: {
+          component: 'surface',
+          vertexCount: Number.isFinite(info.vertexCount) ? info.vertexCount : 0,
+          faceCount: Number.isFinite(info.faceCount) ? info.faceCount : 0,
+          zMin: Number.isFinite(info.zMin) ? info.zMin : null,
+          zMax: Number.isFinite(info.zMax) ? info.zMax : null,
+          gridColumns: info.gridColumns || 0,
+          gridRows: info.gridRows || 0,
+          gridComplete: !!info.gridComplete,
+          skipped: info.skipped || 0
+        }
+      }, { title: 'Reporting and reproducibility' });
+    }
   }
   function ensureAxisRange(range){
     if(!range){ return { min: -1, max: 1 }; }

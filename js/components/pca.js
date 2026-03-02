@@ -5690,6 +5690,25 @@
           enableExport: opts.enableEigenExport,
           method: opts.method,
         });
+        if(pcaStatsSummary && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
+          const statsSnapshot = lastPcaStats || {};
+          Shared.statsReporting.appendReportPanel(pcaStatsSummary, {
+            methodsText: `${(opts.method || statsSnapshot.method || 'pca').toUpperCase()} summary statistics were generated for the current ordination result.`,
+            resultsText: [
+              summaryLines.length ? summaryLines.join(' ') : null,
+              Number.isFinite(statsSnapshot.totalVariance) ? `Total explained variance = ${statsSnapshot.totalVariance.toFixed(2)}%.` : null,
+              Number.isFinite(statsSnapshot.stress) ? `Stress = ${statsSnapshot.stress.toFixed(4)}.` : null
+            ].filter(Boolean).join(' '),
+            analysisSpec: {
+              component: 'pca',
+              method: opts.method || statsSnapshot.method || null,
+              dimensions: statsSnapshot.dimensions || null,
+              totalVariance: Number.isFinite(statsSnapshot.totalVariance) ? statsSnapshot.totalVariance : null,
+              stress: Number.isFinite(statsSnapshot.stress) ? statsSnapshot.stress : null,
+              eigenCount: Array.isArray(statsSnapshot.eigenSummary) ? statsSnapshot.eigenSummary.length : (Array.isArray(opts.eigenSummary) ? opts.eigenSummary.length : 0)
+            }
+          }, { title: 'Reporting and reproducibility' });
+        }
       }
       function handleEigenExport(){
         if(!lastPcaStats || !['pca','mds'].includes(lastPcaStats.method)){

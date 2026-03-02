@@ -447,6 +447,105 @@
     'Covariate 2',
     'Covariate 3'
   ];
+
+  function hasMeaningfulCellValue(value){
+    if(value == null){
+      return false;
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value);
+    }
+    if(typeof value === 'boolean'){
+      return true;
+    }
+    return String(value).trim().length > 0;
+  }
+
+  function normalizeHeaderLabel(value, fallback){
+    const str = value == null ? '' : String(value).trim();
+    return str || fallback;
+  }
+
+  function columnHasData(data, columnIndex){
+    if(!Array.isArray(data) || !data.length){
+      return false;
+    }
+    for(let rowIndex = 0; rowIndex < data.length; rowIndex += 1){
+      const row = data[rowIndex];
+      if(Array.isArray(row) && hasMeaningfulCellValue(row[columnIndex])){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function detectTimeDependentSupport(data){
+    if(!Array.isArray(data) || !data.length){
+      return false;
+    }
+    for(let rowIndex = 0; rowIndex < data.length; rowIndex += 1){
+      const row = data[rowIndex];
+      if(!Array.isArray(row)){
+        continue;
+      }
+      const entry = Number.parseFloat(row[3]);
+      const time = Number.parseFloat(row[1]);
+      if(Number.isFinite(entry) && Number.isFinite(time) && entry > 0 && entry < time){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function collectMeaningfulCovariateColumns(data, headerLookup, columnCount){
+    const covariateColumns = [];
+    const debugEnabled = typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    let skippedNoData = 0;
+    let skippedBlank = 0;
+
+    for(let col = BASE_COLUMN_COUNT; col < columnCount; col += 1){
+      const rawHeader = Array.isArray(headerLookup) ? headerLookup[col] : '';
+      let trimmedHeader = rawHeader == null ? '' : String(rawHeader).trim();
+
+      const hasData = columnHasData(data, col);
+
+      // Do NOT offer empty columns as covariates, even if the grid auto-generated a header like "Column 8".
+      if(!hasData){
+        skippedNoData += 1;
+        continue;
+      }
+
+      // Treat auto-generated placeholders as blank so we show "Covariate N" instead of "Column 8".
+      if(/^column\s+\d+$/i.test(trimmedHeader)){
+        trimmedHeader = '';
+      }
+
+      if(!trimmedHeader){
+        skippedBlank += 1;
+      }
+
+      covariateColumns.push({
+        index: col,
+        header: trimmedHeader || `Covariate ${covariateColumns.length + 1}`,
+        key: `col${col}`,
+        derivedHeader: !trimmedHeader
+      });
+    }
+
+    if(debugEnabled){
+      try{
+        console.debug('Debug: survival covariate column scan', {
+          baseColumnCount: BASE_COLUMN_COUNT,
+          columnCount,
+          covariateCount: covariateColumns.length,
+          skippedNoData,
+          unnamedCovariates: skippedBlank
+        });
+      }catch(_e){}
+    }
+
+    return covariateColumns;
+  }
   function attachSurvivalSelectAutoSize(select, label){
     if(!select){ return; }
     if(typeof formControls.attachSelectAutoSize === 'function'){
@@ -1019,8 +1118,10 @@
       enabledTimeCovariates: enabledTime,
       hazardRatiosEnabled: !!refs.showHazardRatios?.checked,
       coxEnabled: !!refs.fitCoxModel?.checked,
+      coxAnalysisActive: !!refs.showHazardRatios?.checked || !!refs.fitCoxModel?.checked,
       hasLogRank: !!safeSummary?.logRank?.available,
       maxTime: Number.isFinite(safeSummary?.maxTime) ? safeSummary.maxTime : 0,
+      supportsTimeDependent: !!safeSummary?.supportsTimeDependent,
       ...overrides
     };
     logDebug('advisor context built', {
@@ -1046,13 +1147,16 @@
       answers.comparisonDetail = context.groupCount >= 2 ? 'hazardRatios' : 'logRankOnly';
     }
     if(answers.analysisFocus === 'adjust' && !answers.covariateStrategy){
-      if(context.enabledTimeCovariates > 0){
+      if(context.supportsTimeDependent && context.enabledTimeCovariates > 0){
         answers.covariateStrategy = 'timeDependent';
       } else if(context.enabledBaselineCovariates > 0 || context.covariateCount > 0){
         answers.covariateStrategy = 'baseline';
       } else {
         answers.covariateStrategy = 'none';
       }
+    }
+    if(answers.covariateStrategy === 'timeDependent' && !context.supportsTimeDependent){
+      answers.covariateStrategy = context.covariateCount > 0 ? 'baseline' : 'none';
     }
     return answers;
   }
@@ -1083,15 +1187,20 @@
       });
     }
     if(answers.analysisFocus === 'adjust'){
+      const covariateOptions = [
+        { value: 'baseline', label: 'Baseline predictors only' }
+      ];
+      if(context.supportsTimeDependent){
+        covariateOptions.push({ value: 'timeDependent', label: 'Include time-dependent covariates' });
+      }
+      covariateOptions.push({ value: 'none', label: 'No covariates yet—fit the Cox model for groups only' });
       questions.push({
         id: 'covariateStrategy',
         prompt: 'How will you model covariates?',
-        help: 'Baseline covariates stay fixed; time-dependent covariates can vary over follow-up.',
-        options: [
-          { value: 'baseline', label: 'Baseline predictors only' },
-          { value: 'timeDependent', label: 'Include time-dependent covariates' },
-          { value: 'none', label: 'No covariates yet—fit the Cox model for groups only' }
-        ]
+        help: context.supportsTimeDependent
+          ? 'Check covariate columns below to include them in the Cox model. Use time-dependent covariates only when Entry Time defines interval starts.'
+          : 'Check covariate columns below to include them in the Cox model. Time-dependent covariates become available when Entry Time contains interval starts.',
+        options: covariateOptions
       });
     }
     return questions;
@@ -1117,8 +1226,12 @@
       recommendation.message = 'Answer the advisor questions to receive a recommendation.';
       return recommendation;
     }
-    if(context.groupCount < 2 && answers.analysisFocus !== 'describe'){
-      recommendation.message = 'Provide at least two groups to compare survival or fit a Cox model across groups.';
+    if(context.groupCount < 2 && answers.analysisFocus === 'compare'){
+      recommendation.message = 'Provide at least two groups to compare survival.';
+      return recommendation;
+    }
+    if(context.groupCount < 2 && answers.analysisFocus === 'adjust' && context.enabledCovariateCount === 0 && context.covariateCount === 0){
+      recommendation.message = 'Provide at least two groups or add covariates before fitting a Cox model.';
       return recommendation;
     }
     switch(answers.analysisFocus){
@@ -1194,6 +1307,61 @@
     survivalAdvisorState.context = context;
     const answers = ensureSurvivalAdvisorDefaults(context);
     const recommendation = computeSurvivalAdvisorRecommendation(answers, context);
+    const sharedAdvisorUi = Shared.statsUi;
+    if(sharedAdvisorUi && typeof sharedAdvisorUi.renderAdvisorPanel === 'function'){
+      sharedAdvisorUi.renderAdvisorPanel({
+        container,
+        state: survivalAdvisorState,
+        title: 'Statistics advisor',
+        inactiveMessage: 'Press the "Guide me" button to view advisor recommendations.',
+        recommendation,
+        answers,
+        questions: survivalAdvisorState.open ? buildSurvivalAdvisorQuestions(context) : [],
+        namePrefix: 'survival-advisor',
+        onToggle: (nextOpen)=>{
+          survivalAdvisorState.open = !!nextOpen;
+          if(survivalAdvisorState.open && !survivalAdvisorState.activated){
+            survivalAdvisorState.activated = true;
+            logDebug('stats advisor activated');
+          }
+          logDebug('stats advisor toggled', { open: survivalAdvisorState.open });
+          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+        },
+        onAnswerChange: (question, value)=>{
+          answers[question.id] = value;
+          survivalAdvisorState.answers = answers;
+          logDebug('stats advisor answer change', { question: question.id, value });
+          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+        },
+        onApply: ()=>{
+          if(!recommendation.ready){
+            return;
+          }
+          if(refs.showHazardRatios){
+            refs.showHazardRatios.checked = !!recommendation.showHazardRatios;
+          }
+          if(refs.fitCoxModel){
+            refs.fitCoxModel.checked = !!recommendation.fitCoxModel;
+          }
+          survivalAdvisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+          logDebug('stats advisor recommendation applied', {
+            showHazardRatios: recommendation.showHazardRatios,
+            fitCoxModel: recommendation.fitCoxModel,
+            answers: { ...answers }
+          });
+          if(typeof state.scheduleDraw === 'function'){
+            state.scheduleDraw();
+          }
+          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+        },
+        onReset: ()=>{
+          survivalAdvisorState.answers = {};
+          logDebug('stats advisor answers reset');
+          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+        }
+      });
+      return;
+    }
     container.innerHTML = '';
     const wrapper = document.createElement('div');
     wrapper.className = 'stats-advisor';
@@ -1514,40 +1682,73 @@
       }
     });
     refs.covariateControls.innerHTML = '';
-    if(!columns.length){
-      if(refs.covariateHint){
-        refs.covariateHint.style.display = '';
-      }
-      logDebug('covariate controls hidden - no extra columns');
-      return;
-    }
+
+    const coxAnalysisActive = !!refs.showHazardRatios?.checked || !!refs.fitCoxModel?.checked;
+    const supportsTimeDependent = detectTimeDependentSupport(state.hot?.getData?.() || []);
+
     if(refs.covariateHint){
       refs.covariateHint.style.display = 'none';
     }
-    columns.forEach((col, index) => {
+
+    const hint = document.createElement('div');
+    hint.className = 'survival-covariate-hint-text';
+    hint.style.fontSize = '12px';
+    hint.style.color = '#4a5568';
+    hint.style.marginBottom = '8px';
+
+    if(!columns.length){
+      hint.textContent = 'Add named or populated columns after Entry Time to make them available as Cox covariates.';
+      refs.covariateControls.appendChild(hint);
+      logDebug('covariate controls hidden - no meaningful covariate columns');
+      return;
+    }
+
+    if(!coxAnalysisActive){
+      hint.textContent = 'Enable "Fit Cox Model" or "Show Hazard Ratios" to include covariates in model-based survival analyses.';
+    } else if(supportsTimeDependent){
+      hint.textContent = 'Check a column to include it in the Cox model. Unchecked covariates are ignored. Time-dependent covariates require Entry Time to mark interval starts.';
+    } else {
+      hint.textContent = 'Check a column to include it in the Cox model. Unchecked covariates are ignored. Time-dependent covariates become available when Entry Time contains interval starts.';
+    }
+    refs.covariateControls.appendChild(hint);
+
+    columns.forEach((col) => {
       const key = String(col.index);
       if(!state.covariateSettings[key]){
         state.covariateSettings[key] = { enabled: false, type: 'baseline' };
       }
       const settings = state.covariateSettings[key];
+      if(settings.type === 'time' && !supportsTimeDependent){
+        settings.type = 'baseline';
+      }
+
       const row = document.createElement('div');
       row.className = 'survival-covariate-option';
       row.style.display = 'flex';
       row.style.alignItems = 'center';
       row.style.gap = '6px';
       row.style.flexWrap = 'wrap';
+      row.style.marginBottom = '6px';
+      row.style.opacity = coxAnalysisActive ? '1' : '0.65';
 
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.id = `survivalCovariateToggle-${col.index}`;
       checkbox.dataset.columnIndex = key;
       checkbox.checked = !!settings.enabled;
+      checkbox.disabled = !coxAnalysisActive;
+      checkbox.title = coxAnalysisActive
+        ? `Include ${col.header} in the Cox model`
+        : 'Enable Cox modelling or hazard ratios to include covariates';
 
       const label = document.createElement('label');
       label.setAttribute('for', checkbox.id);
       label.textContent = col.header;
       label.style.fontWeight = '500';
       label.style.minWidth = '140px';
+      label.title = col.derivedHeader
+        ? `${col.header} (generated because the column header was blank)`
+        : col.header;
 
       const select = document.createElement('select');
       select.dataset.columnIndex = key;
@@ -1558,15 +1759,25 @@
       const optionTime = document.createElement('option');
       optionTime.value = 'time';
       optionTime.textContent = 'Time-dependent';
+      optionTime.disabled = !supportsTimeDependent;
       select.appendChild(optionBaseline);
       select.appendChild(optionTime);
-      select.value = settings.type === 'time' ? 'time' : 'baseline';
+      select.value = settings.type === 'time' && supportsTimeDependent ? 'time' : 'baseline';
+      select.disabled = !coxAnalysisActive || !checkbox.checked;
+      select.title = !coxAnalysisActive
+        ? 'Enable Cox modelling or hazard ratios first'
+        : (!checkbox.checked
+          ? 'Check the covariate to include it in the model'
+          : (supportsTimeDependent
+            ? 'Choose whether the covariate is fixed at baseline or varies across intervals'
+            : 'Time-dependent covariates require interval starts in Entry Time'));
       attachSurvivalSelectAutoSize(select, 'survival-covariate');
 
       checkbox.addEventListener('change', ev => {
         const idx = ev.target.dataset.columnIndex;
         state.covariateSettings[idx] = state.covariateSettings[idx] || { type: select.value };
         state.covariateSettings[idx].enabled = ev.target.checked;
+        select.disabled = !coxAnalysisActive || !ev.target.checked;
         logDebug('covariate toggle changed', { columnIndex: Number(idx), enabled: ev.target.checked });
         if(state.scheduleDraw){
           state.scheduleDraw();
@@ -1576,7 +1787,7 @@
       select.addEventListener('change', ev => {
         const idx = ev.target.dataset.columnIndex;
         state.covariateSettings[idx] = state.covariateSettings[idx] || { enabled: checkbox.checked };
-        state.covariateSettings[idx].type = ev.target.value === 'time' ? 'time' : 'baseline';
+        state.covariateSettings[idx].type = ev.target.value === 'time' && supportsTimeDependent ? 'time' : 'baseline';
         logDebug('covariate type changed', { columnIndex: Number(idx), type: state.covariateSettings[idx].type });
         if(state.scheduleDraw){
           state.scheduleDraw();
@@ -1590,7 +1801,9 @@
     });
     logDebug('covariate controls refreshed', {
       available: columns.map(col => ({ index: col.index, header: col.header })),
-      enabled: Object.keys(state.covariateSettings).filter(key => state.covariateSettings[key]?.enabled)
+      enabled: Object.keys(state.covariateSettings).filter(key => state.covariateSettings[key]?.enabled),
+      coxAnalysisActive,
+      supportsTimeDependent
     });
   }
 
@@ -1864,15 +2077,13 @@
     const headerLookup = [];
     for(let col = 0; col < columnCount; col += 1){
       const headerValue = Array.isArray(headersRaw) ? headersRaw[col] : null;
-      headerLookup[col] = headerValue != null ? String(headerValue) : (SURVIVAL_COL_HEADERS[col] || `Column ${col + 1}`);
+      headerLookup[col] = normalizeHeaderLabel(headerValue, SURVIVAL_COL_HEADERS[col] || `Column ${col + 1}`);
     }
-    const covariateColumns = [];
-    for(let col = BASE_COLUMN_COUNT; col < columnCount; col += 1){
-      covariateColumns.push({ index: col, header: headerLookup[col], key: `col${col}` });
-    }
+    const covariateColumns = collectMeaningfulCovariateColumns(data, headerLookup, columnCount);
+    const supportsTimeDependent = detectTimeDependentSupport(data);
     state.covariateColumns = covariateColumns;
     if(!Array.isArray(data) || !data.length){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup, supportsTimeDependent };
     }
     const groups = new Map();
     let maxTime = 0;
@@ -1914,7 +2125,7 @@
     }
     const groupNames = Array.from(groups.keys());
     if(!groupNames.length || usedRows === 0){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup, supportsTimeDependent };
     }
     state.groupOrder = state.groupOrder.filter(name => groups.has(name));
     groupNames.forEach(name => {
@@ -1947,7 +2158,7 @@
       usedRows,
       covariateColumnCount: covariateColumns.length
     });
-    return { series, groupNames: ordered, maxTime, logRank, covariateColumns, headers: headerLookup };
+    return { series, groupNames: ordered, maxTime, logRank, covariateColumns, headers: headerLookup, supportsTimeDependent };
   }
 
   function escapeHtml(value){
@@ -3419,6 +3630,38 @@
       flags: summary.flags
     };
     state.lastStats = statsPayload;
+    if(refs.statsCox && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+      const logRankText = summary.logRank?.available
+        ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = ${formatP(summary.logRank.p)}.`
+        : (summary.logRank?.message || 'Log-rank test unavailable.');
+      const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
+        ? `${summary.hazardRatios.rows.length} hazard-ratio comparison(s) were available.`
+        : null;
+      const coxText = summary.coxModel?.available && Array.isArray(summary.coxModel.coefficients)
+        ? `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`
+        : null;
+      Shared.statsReporting.appendReportPanel(refs.statsCox, {
+        methodsText: `Kaplan–Meier group summaries were generated for ${summary.series.length} group(s). ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were requested.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? 'A Cox proportional-hazards model was fit when estimable.' : 'Cox modelling was disabled.'}`,
+        resultsText: [
+          `${summary.series.length} group(s) contributed survival data.`,
+          logRankText,
+          hazardText,
+          coxText
+        ].filter(Boolean).join(' '),
+        analysisSpec: {
+          component: 'survival',
+          groupCount: summary.series.length,
+          showHazardRatios: !!summary.flags?.hazardRatiosEnabled,
+          fitCox: !!summary.flags?.coxEnabled,
+          hazardRatioRows: Array.isArray(summary.hazardRatios?.rows) ? summary.hazardRatios.rows.length : 0,
+          coxCoefficientCount: Array.isArray(summary.coxModel?.coefficients) ? summary.coxModel.coefficients.length : 0,
+          logRankAvailable: !!summary.logRank?.available,
+          covariates: getSelectedCovariates(summary.covariateColumns),
+          availableCovariates: Array.isArray(summary.covariateColumns) ? summary.covariateColumns.slice() : [],
+          supportsTimeDependent: !!summary.supportsTimeDependent
+        }
+      }, { title: 'Reporting and reproducibility' });
+    }
     logDebug('statistics updated', {
       groupCount: summary.series.length,
       logRank: summary.logRank,
@@ -3906,14 +4149,17 @@
       control?.addEventListener('change', () => {
         console.debug('Debug: survival control toggle', { id: control.id, checked: control.checked });
         logDebug('control toggled', { id: control.id, checked: control.checked });
-        renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns });
+        if(control === refs.showHazardRatios || control === refs.fitCoxModel){
+          refreshCovariateControls();
+        }
+        renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns, supportsTimeDependent: detectTimeDependentSupport(state.hot?.getData?.() || []) });
         schedule();
       });
     });
     refs.showFrame?.addEventListener('change', () => {
       console.debug('Debug: survival control toggle', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       logDebug('control toggled', { id: refs.showFrame.id, checked: refs.showFrame.checked });
-      renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns });
+      renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns, supportsTimeDependent: detectTimeDependentSupport(state.hot?.getData?.() || []) });
       schedule();
     });
     refs.showLegend?.addEventListener('change', () => {

@@ -3584,6 +3584,22 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-advisor__actions button:not(.stats-advisor__reset):hover,.stats-advisor__actions button:not(.stats-advisor__reset):focus-visible{background:#1d4ed8}
 .stats-advisor__reset{background:transparent;border:1px solid #cbd5e1;color:#1e293b}
 .stats-advisor__reset:hover,.stats-advisor__reset:focus-visible{background:#f1f5f9}
+.stats-report-panel{margin:12px 0;border:1px solid #d7e0ef;background:#f8fbff;padding:0;color:#1d2735}
+.stats-report-panel>summary,.stats-report-panel__advanced>summary{cursor:pointer;font-weight:600;padding:10px 14px;list-style:none}
+.stats-report-panel>summary::-webkit-details-marker,.stats-report-panel__advanced>summary::-webkit-details-marker{display:none}
+.stats-report-panel>summary::before,.stats-report-panel__advanced>summary::before{content:'▸';display:inline-block;margin-right:8px;transition:transform .15s ease}
+.stats-report-panel[open]>summary::before,.stats-report-panel__advanced[open]>summary::before{transform:rotate(90deg)}
+.stats-report-panel pre{margin:0;padding:10px 14px 14px;background:#fff;border-top:1px solid #e2e8f0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5}
+.stats-report-panel__header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px 0}
+.stats-report-panel .stats-table-lead{padding:0;font-size:12px;font-weight:600;color:#1d2735}
+.stats-report-panel__copy-btn{appearance:none;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;line-height:1.2;color:#334155;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+.stats-report-panel__copy-btn:hover{background:#f8fafc;border-color:#94a3b8}
+.stats-report-panel__copy-btn[data-copy-state="copied"]{background:#ecfdf5;border-color:#10b981;color:#047857}
+.stats-report-panel__copy-btn[data-copy-state="error"]{background:#fef2f2;border-color:#ef4444;color:#b91c1c}
+.stats-report-panel__summary-list{margin:0;padding:8px 28px 14px 34px;display:flex;flex-direction:column;gap:6px;font-size:12px}
+.stats-report-panel__summary-item{color:#334155}
+.stats-report-panel__advanced{margin:0 12px 12px;border:1px solid #dbe4f3;background:#fff}
+.stats-report-panel__note{margin:0;padding:0 14px 10px;font-size:12px;color:#475569}
 .stats-conditions-section{margin:0 0 12px;padding:12px 0;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px}
 .stats-conditions-title{font-weight:600;font-size:13px;color:#1d2735}
 .stats-conditions-checkboxes{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
