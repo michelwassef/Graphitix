@@ -3969,6 +3969,576 @@
     };
   }
 
+
+  const cloneRegressionPlainObject = (value) => {
+    if(!value || typeof value !== 'object'){
+      return {};
+    }
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      regressionDebug('cloneRegressionPlainObject fallback', { message: err?.message || String(err) });
+      return { ...value };
+    }
+  };
+
+  const stripGroupedGlobalFitSpec = (fitSpec) => {
+    const cloned = cloneRegressionPlainObject(fitSpec || {});
+    if(cloned && typeof cloned === 'object'){
+      delete cloned.globalFit;
+    }
+    return cloned;
+  };
+
+  const collectGroupedSharedParametersFromConstraints = (parameters) => {
+    if(!parameters || typeof parameters !== 'object'){
+      return [];
+    }
+    return Object.entries(parameters)
+      .filter(([, rule]) => {
+        if(!rule || typeof rule !== 'object'){
+          return false;
+        }
+        const sharedValue = rule.shared ?? rule.share ?? rule.global ?? null;
+        if(typeof sharedValue === 'boolean'){
+          return sharedValue;
+        }
+        const normalized = String(sharedValue || '').trim().toLowerCase();
+        return normalized === 'true' || normalized === 'shared' || normalized === 'global' || normalized === 'yes';
+      })
+      .map(([name]) => String(name || '').trim())
+      .filter(Boolean);
+  };
+
+  const normalizeGroupedGlobalFitSpec = (rawValue, fallbackParameters) => {
+    const fallbackShared = collectGroupedSharedParametersFromConstraints(fallbackParameters);
+    const raw = rawValue && typeof rawValue === 'object' ? rawValue : null;
+    if(!raw && !fallbackShared.length){
+      return { value: null, error: null };
+    }
+    if(rawValue != null && (!raw || Array.isArray(raw))){
+      return { value: null, error: 'Grouped global-fit JSON must be an object.' };
+    }
+    const rawShared = raw?.sharedParameters ?? raw?.shared ?? raw?.parameters ?? fallbackShared;
+    const normalizeNames = (input) => {
+      if(Array.isArray(input)){
+        return input.map(item => String(item || '').trim()).filter(Boolean);
+      }
+      if(typeof input === 'string'){
+        const trimmed = input.trim();
+        if(!trimmed){
+          return [];
+        }
+        if(trimmed.startsWith('[')){
+          try{
+            return normalizeNames(JSON.parse(trimmed));
+          }catch(err){
+            return trimmed.split(',').map(part => part.trim()).filter(Boolean);
+          }
+        }
+        return trimmed.split(',').map(part => part.trim()).filter(Boolean);
+      }
+      if(input && typeof input === 'object'){
+        return Object.entries(input)
+          .filter(([, enabled]) => !!enabled)
+          .map(([name]) => String(name || '').trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+    const sharedParameters = Array.from(new Set(normalizeNames(rawShared))).filter(Boolean);
+    const enabled = raw
+      ? (typeof raw.enabled === 'boolean'
+        ? raw.enabled
+        : (sharedParameters.length > 0))
+      : (sharedParameters.length > 0);
+    const compareCommonCurve = raw && Object.prototype.hasOwnProperty.call(raw, 'compareCommonCurve')
+      ? raw.compareCommonCurve !== false
+      : true;
+    const useSharedFitForRendering = raw && Object.prototype.hasOwnProperty.call(raw, 'useSharedFitForRendering')
+      ? raw.useSharedFitForRendering !== false
+      : true;
+    const maxIterations = Number(raw?.maxIterations);
+    const tolerance = Number(raw?.tolerance);
+    return {
+      value: enabled
+        ? {
+            enabled: true,
+            sharedParameters,
+            compareCommonCurve,
+            useSharedFitForRendering,
+            maxIterations: Number.isFinite(maxIterations) ? Math.max(10, Math.round(maxIterations)) : undefined,
+            tolerance: Number.isFinite(tolerance) ? Math.max(1e-12, tolerance) : undefined
+          }
+        : null,
+      error: null
+    };
+  };
+
+  const extractGroupedRegressionParameterInfo = (model) => {
+    const values = {};
+    const available = [];
+    const fitted = [];
+    const add = (bucket, name, value) => {
+      const key = String(name || '').trim();
+      if(!key || !Number.isFinite(value)){
+        return;
+      }
+      if(!Object.prototype.hasOwnProperty.call(values, key)){
+        values[key] = Number(value);
+      }
+      if(Array.isArray(bucket) && !bucket.includes(key)){
+        bucket.push(key);
+      }
+      if(!available.includes(key)){
+        available.push(key);
+      }
+    };
+    const coefficientStats = Array.isArray(model?.coefficientStats) ? model.coefficientStats : [];
+    coefficientStats.forEach(stat => add(fitted, stat?.term, stat?.estimate));
+    const params = model?.summary?.parameters;
+    if(params && typeof params === 'object'){
+      Object.entries(params).forEach(([name, value]) => add(null, name, value));
+    }
+    add(fitted, 'Intercept', model?.summary?.intercept);
+    add(fitted, 'Slope', model?.summary?.slope);
+    return { values, availableNames: available, fittedNames: fitted };
+  };
+
+  const GROUPED_PARAMETER_ALIAS_BY_MODE = {
+    doseresponse3pl: { ic50: 'LogIC50' },
+    doseresponse5pl: { ic50: 'LogIC50' }
+  };
+
+  const resolveGroupedSharedParameter = (requestedName, availableNames, fittedNames, mode) => {
+    const target = String(requestedName || '').trim();
+    if(!target){
+      return '';
+    }
+    const available = Array.isArray(availableNames) ? availableNames : [];
+    const fitted = Array.isArray(fittedNames) && fittedNames.length ? fittedNames : available;
+    if(fitted.includes(target)){
+      return target;
+    }
+    const lowerTarget = target.toLowerCase();
+    const direct = fitted.find(name => String(name || '').trim().toLowerCase() === lowerTarget);
+    if(direct){
+      return direct;
+    }
+    const modeAliases = GROUPED_PARAMETER_ALIAS_BY_MODE[String(mode || '').trim().toLowerCase()] || null;
+    const aliasTarget = modeAliases ? modeAliases[lowerTarget] : '';
+    if(aliasTarget){
+      const aliasMatch = fitted.find(name => String(name || '').trim().toLowerCase() === String(aliasTarget).trim().toLowerCase());
+      if(aliasMatch){
+        return aliasMatch;
+      }
+    }
+    const fallback = available.find(name => String(name || '').trim().toLowerCase() === lowerTarget);
+    if(fallback && fitted.includes(fallback)){
+      return fallback;
+    }
+    return '';
+  };
+
+  const buildGroupedFixedConstraintSpec = (baseConstraints, fixedValues) => {
+    const merged = cloneRegressionPlainObject(baseConstraints || {});
+    Object.entries(fixedValues || {}).forEach(([name, value]) => {
+      const current = merged[name] && typeof merged[name] === 'object' ? merged[name] : {};
+      merged[name] = {
+        ...current,
+        value,
+        lower: value,
+        upper: value,
+        fixed: true
+      };
+      delete merged[name].shared;
+      delete merged[name].share;
+      delete merged[name].global;
+    });
+    return merged;
+  };
+
+  const buildGroupedFixedInitialValues = (baseInitialValues, fallbackValues, fixedValues) => ({
+    ...cloneRegressionPlainObject(baseInitialValues || {}),
+    ...cloneRegressionPlainObject(fallbackValues || {}),
+    ...(fixedValues || {})
+  });
+
+  const clampGroupedValue = (value, lower, upper) => {
+    let next = Number(value);
+    if(!Number.isFinite(next)){
+      next = 0;
+    }
+    if(Number.isFinite(lower) && next < lower){
+      next = lower;
+    }
+    if(Number.isFinite(upper) && next > upper){
+      next = upper;
+    }
+    return next;
+  };
+
+  const optimizeGroupedSharedParameters = (startVector, evaluate, bounds, options = {}) => {
+    const dims = Array.isArray(startVector) ? startVector.length : 0;
+    if(!dims){
+      return { bestVector: [], evaluation: evaluate([]), iterations: 0, converged: true };
+    }
+    const tolerance = Number.isFinite(options?.tolerance) ? Math.max(1e-9, Number(options.tolerance)) : 1e-6;
+    const maxIterations = Number.isFinite(options?.maxIterations) ? Math.max(10, Math.round(Number(options.maxIterations))) : 80;
+    const clampVector = (vector) => vector.map((value, index) => clampGroupedValue(value, bounds[index]?.lower, bounds[index]?.upper));
+    let current = clampVector(startVector);
+    let currentEval = evaluate(current);
+    let steps = current.map((value, index) => {
+      const lower = bounds[index]?.lower;
+      const upper = bounds[index]?.upper;
+      const width = Number.isFinite(lower) && Number.isFinite(upper) && upper > lower ? (upper - lower) : NaN;
+      if(Number.isFinite(width) && width > 0){
+        return Math.max(width * 0.2, tolerance * 10);
+      }
+      const magnitude = Math.abs(Number(value));
+      return Math.max(magnitude * 0.2, 0.1, tolerance * 10);
+    });
+    let iterations = 0;
+    while(iterations < maxIterations){
+      let improved = false;
+      for(let dim = 0; dim < dims; dim += 1){
+        const baseValue = current[dim];
+        const deltas = [steps[dim], -steps[dim]];
+        for(let j = 0; j < deltas.length; j += 1){
+          const candidate = current.slice();
+          candidate[dim] = clampGroupedValue(baseValue + deltas[j], bounds[dim]?.lower, bounds[dim]?.upper);
+          if(Math.abs(candidate[dim] - baseValue) <= tolerance){
+            continue;
+          }
+          const candidateEval = evaluate(candidate);
+          if(candidateEval && Number.isFinite(candidateEval.objective) && candidateEval.objective + tolerance < currentEval.objective){
+            current = candidate;
+            currentEval = candidateEval;
+            improved = true;
+            break;
+          }
+        }
+      }
+      if(!improved){
+        steps = steps.map(step => step * 0.5);
+        if(steps.every(step => step <= tolerance * 4)){
+          break;
+        }
+      }
+      iterations += 1;
+    }
+    return {
+      bestVector: current,
+      evaluation: currentEval,
+      iterations,
+      converged: steps.every(step => step <= tolerance * 4)
+    };
+  };
+
+  const computeGroupedAicMetrics = (sse, n, k) => {
+    const sampleSize = Number(n);
+    const parameterCount = Number(k);
+    const rss = Number(sse);
+    if(!(Number.isFinite(sampleSize) && sampleSize > 0 && Number.isFinite(parameterCount) && parameterCount >= 0 && Number.isFinite(rss) && rss > 0)){
+      return { aic: NaN, aicc: NaN, bic: NaN };
+    }
+    const aic = (sampleSize * Math.log(rss / sampleSize)) + (2 * parameterCount);
+    const correctionDenom = sampleSize - parameterCount - 1;
+    const aicc = correctionDenom > 0 ? aic + ((2 * parameterCount * (parameterCount + 1)) / correctionDenom) : NaN;
+    const bic = (sampleSize * Math.log(rss / sampleSize)) + (parameterCount * Math.log(sampleSize));
+    return { aic, aicc, bic };
+  };
+
+  const computeGroupedExtraSumSquaresF = (simplerSse, simplerDf, complexSse, complexDf) => {
+    if(
+      !Number.isFinite(simplerSse) || !Number.isFinite(simplerDf)
+      || !Number.isFinite(complexSse) || !Number.isFinite(complexDf)
+      || simplerDf <= complexDf || complexDf <= 0 || simplerSse < complexSse
+    ){
+      return null;
+    }
+    const df1 = simplerDf - complexDf;
+    const df2 = complexDf;
+    const numerator = (simplerSse - complexSse) / df1;
+    const denominator = complexSse / df2;
+    if(!(denominator > 0) || !(numerator >= 0)){
+      return null;
+    }
+    const fStatistic = numerator / denominator;
+    const pValue = (jStatLib?.centralF && Number.isFinite(fStatistic))
+      ? (1 - jStatLib.centralF.cdf(fStatistic, df1, df2))
+      : NaN;
+    return { fStatistic, pValue, df1, df2 };
+  };
+
+  const GROUPED_GLOBAL_FIT_UNSUPPORTED_MODES = new Set(['deming', 'orthogonal', 'lowess', 'spline', 'arima', 'holtwinters']);
+
+  if(!regressionTools.fitGroupedRegression){
+    regressionTools.fitGroupedRegression = function fitGroupedRegression(groupedSeries, options = {}){
+      const mode = resolveModelId(options?.mode || 'linear');
+      const normalizedMode = String(mode || '').trim().toLowerCase();
+      if(GROUPED_GLOBAL_FIT_UNSUPPORTED_MODES.has(normalizedMode)){
+        regressionDebug('fitGroupedRegression skipped unsupported mode', { mode: normalizedMode });
+        return null;
+      }
+      const groups = (Array.isArray(groupedSeries) ? groupedSeries : [])
+        .map((entry, index) => ({
+          label: (entry?.label != null && String(entry.label).trim() !== '') ? String(entry.label).trim() : `Series ${index + 1}`,
+          points: Array.isArray(entry?.points)
+            ? entry.points
+              .filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y))
+              .map(pt => ({ x: Number(pt.x), y: Number(pt.y) }))
+            : []
+        }))
+        .filter(entry => entry.points.length >= 3);
+      if(groups.length < 2){
+        return null;
+      }
+
+      const fitMethod = typeof options?.method === 'string' ? options.method.toLowerCase() : 'ols';
+      const baseFitSpec = stripGroupedGlobalFitSpec(options?.fitSpec || {});
+      const globalSpecNormalized = normalizeGroupedGlobalFitSpec(options?.fitSpec?.globalFit || null, baseFitSpec.parameters);
+      const globalSpec = globalSpecNormalized.value || null;
+      const warnings = [];
+      if(globalSpecNormalized.error){
+        warnings.push(globalSpecNormalized.error);
+      }
+
+      const fitSingle = (points, fitSpecOverride) => {
+        try{
+          return regressionTools.fitRegression(points, {
+            ...options,
+            mode,
+            method: fitMethod,
+            fitSpec: fitSpecOverride
+          });
+        }catch(err){
+          console.error('fitGroupedRegression single fit failed', err);
+          return null;
+        }
+      };
+
+      const separateSeries = groups.map(group => ({
+        label: group.label,
+        points: group.points,
+        model: fitSingle(group.points, baseFitSpec)
+      }));
+      if(separateSeries.some(entry => !entry.model || !Number.isFinite(entry.model.metrics?.sse))){
+        warnings.push('Separate grouped fits could not be computed for all series.');
+        return {
+          mode,
+          fitMethod,
+          globalSpec,
+          activeKind: 'separate',
+          separate: null,
+          commonCurve: null,
+          sharedFit: null,
+          activeSeries: [],
+          warnings
+        };
+      }
+
+      const totalN = groups.reduce((sum, group) => sum + group.points.length, 0);
+      const separateParamInfo = separateSeries.map(entry => extractGroupedRegressionParameterInfo(entry.model));
+      const separateParameterCount = separateSeries.reduce((sum, entry) => sum + (resolveModelParameterCount(entry.model) || 0), 0);
+      const separateSse = separateSeries.reduce((sum, entry) => sum + Number(entry.model?.metrics?.sse || 0), 0);
+      const separateDf = totalN - separateParameterCount;
+
+      let commonCurve = null;
+      if(!globalSpec || globalSpec.compareCommonCurve !== false){
+        const pooledPoints = groups.flatMap(group => group.points.map(pt => ({ ...pt })));
+        const commonModel = fitSingle(pooledPoints, baseFitSpec);
+        if(commonModel && Number.isFinite(commonModel.metrics?.sse)){
+          const commonParameterCount = resolveModelParameterCount(commonModel) || 0;
+          commonCurve = {
+            label: 'Common curve',
+            model: commonModel,
+            sse: Number(commonModel.metrics.sse),
+            parameterCount: commonParameterCount,
+            df: totalN - commonParameterCount,
+            infoCriteria: computeGroupedAicMetrics(commonModel.metrics.sse, totalN, commonParameterCount),
+            versusSeparate: computeGroupedExtraSumSquaresF(commonModel.metrics.sse, totalN - commonParameterCount, separateSse, separateDf)
+          };
+        }else{
+          warnings.push('Common pooled curve could not be fitted; only separate fits are available for comparison.');
+        }
+      }
+
+      let sharedFit = null;
+      if(globalSpec?.enabled && Array.isArray(globalSpec.sharedParameters) && globalSpec.sharedParameters.length){
+        const availableNames = Array.from(new Set(separateParamInfo.flatMap(info => info.availableNames || [])));
+        const fittedNames = Array.from(new Set(separateParamInfo.flatMap(info => info.fittedNames || [])));
+        const rawRequestedShared = globalSpec.sharedParameters.slice();
+        const aliasWarnings = [];
+        const requestedShared = rawRequestedShared
+          .map(name => {
+            const resolved = resolveGroupedSharedParameter(name, availableNames, fittedNames, normalizedMode);
+            if(!resolved){
+              return '';
+            }
+            if(String(resolved).trim().toLowerCase() !== String(name || '').trim().toLowerCase()){
+              aliasWarnings.push(`${name} → ${resolved}`);
+            }
+            return resolved;
+          })
+          .filter(Boolean);
+        const ignoredShared = rawRequestedShared.filter(name => !requestedShared.some(resolved => String(resolved).trim().toLowerCase() === String(name || '').trim().toLowerCase()) && !resolveGroupedSharedParameter(name, availableNames, fittedNames, normalizedMode));
+        if(aliasWarnings.length){
+          warnings.push(`Shared parameter aliases resolved: ${Array.from(new Set(aliasWarnings)).join(', ')}.`);
+        }
+        if(ignoredShared.length){
+          warnings.push(`Shared parameters not recognized and ignored: ${ignoredShared.join(', ')}.`);
+        }
+        const sharedSet = new Set(requestedShared);
+        if(requestedShared.length){
+          const pooledParamValues = {};
+          if(commonCurve?.model){
+            pooledParamValues.common = extractGroupedRegressionParameterInfo(commonCurve.model);
+          }
+          const startVector = requestedShared.map(name => {
+            const estimates = [];
+            if(Number.isFinite(Number(pooledParamValues.common?.values?.[name]))){
+              estimates.push(Number(pooledParamValues.common.values[name]));
+            }
+            separateParamInfo.forEach(info => {
+              const candidate = Number(info?.values?.[name]);
+              if(Number.isFinite(candidate)){
+                estimates.push(candidate);
+              }
+            });
+            if(!estimates.length){
+              return 0;
+            }
+            return estimates.reduce((sum, value) => sum + value, 0) / estimates.length;
+          });
+          const bounds = requestedShared.map(name => {
+            const rule = baseFitSpec?.parameters?.[name];
+            return {
+              lower: Number.isFinite(Number(rule?.lower)) ? Number(rule.lower) : NaN,
+              upper: Number.isFinite(Number(rule?.upper)) ? Number(rule.upper) : NaN
+            };
+          });
+          const evalCache = new Map();
+          const evaluate = (vector) => {
+            const key = vector.map(value => Number(value).toPrecision(12)).join('|');
+            if(evalCache.has(key)){
+              return evalCache.get(key);
+            }
+            const fixedValues = Object.fromEntries(requestedShared.map((name, index) => [name, vector[index]]));
+            let totalSse = 0;
+            let parameterCount = requestedShared.length;
+            const series = [];
+            for(let i = 0; i < groups.length; i += 1){
+              const fallbackValues = separateParamInfo[i]?.values || {};
+              const fitSpec = {
+                ...baseFitSpec,
+                initialValues: buildGroupedFixedInitialValues(baseFitSpec?.initialValues, fallbackValues, fixedValues),
+                parameters: buildGroupedFixedConstraintSpec(baseFitSpec?.parameters, fixedValues)
+              };
+              const model = fitSingle(groups[i].points, fitSpec);
+              const sse = Number(model?.metrics?.sse);
+              if(!model || !Number.isFinite(sse)){
+                const failed = { objective: Number.POSITIVE_INFINITY, totalSse: Number.POSITIVE_INFINITY, series: [], parameterCount: Number.POSITIVE_INFINITY };
+                evalCache.set(key, failed);
+                return failed;
+              }
+              totalSse += sse;
+              const info = extractGroupedRegressionParameterInfo(model);
+              const freeCount = Math.max(0, (resolveModelParameterCount(model) || info.fittedNames.length) - info.fittedNames.filter(name => sharedSet.has(name)).length);
+              parameterCount += freeCount;
+              series.push({
+                label: groups[i].label,
+                points: groups[i].points,
+                model
+              });
+            }
+            const result = { objective: totalSse, totalSse, series, parameterCount };
+            evalCache.set(key, result);
+            return result;
+          };
+          const optimization = optimizeGroupedSharedParameters(startVector, evaluate, bounds, {
+            maxIterations: globalSpec?.maxIterations,
+            tolerance: globalSpec?.tolerance
+          });
+          const bestVector = Array.isArray(optimization.bestVector) ? optimization.bestVector : startVector;
+          const bestFixedValues = Object.fromEntries(requestedShared.map((name, index) => [name, bestVector[index]]));
+          const finalSeries = groups.map((group, index) => {
+            const fallbackValues = separateParamInfo[index]?.values || {};
+            const fitSpec = {
+              ...baseFitSpec,
+              initialValues: buildGroupedFixedInitialValues(baseFitSpec?.initialValues, fallbackValues, bestFixedValues),
+              parameters: buildGroupedFixedConstraintSpec(baseFitSpec?.parameters, bestFixedValues)
+            };
+            return {
+              label: group.label,
+              points: group.points,
+              model: fitSingle(group.points, fitSpec)
+            };
+          });
+          const finalSse = finalSeries.reduce((sum, entry) => sum + Number(entry?.model?.metrics?.sse || 0), 0);
+          const finalParamCount = requestedShared.length + finalSeries.reduce((sum, entry) => {
+            const info = extractGroupedRegressionParameterInfo(entry?.model || null);
+            const freeCount = Math.max(0, (resolveModelParameterCount(entry?.model) || info.fittedNames.length) - info.fittedNames.filter(name => sharedSet.has(name)).length);
+            return sum + freeCount;
+          }, 0);
+          const finalDf = totalN - finalParamCount;
+          sharedFit = {
+            sharedParameters: requestedShared,
+            fixedValues: bestFixedValues,
+            series: finalSeries,
+            sse: finalSse,
+            parameterCount: finalParamCount,
+            df: finalDf,
+            infoCriteria: computeGroupedAicMetrics(finalSse, totalN, finalParamCount),
+            optimizer: {
+              iterations: optimization.iterations,
+              converged: !!optimization.converged,
+              tolerance: globalSpec?.tolerance,
+              maxIterations: globalSpec?.maxIterations
+            },
+            versusSeparate: computeGroupedExtraSumSquaresF(finalSse, finalDf, separateSse, separateDf),
+            versusCommon: commonCurve ? computeGroupedExtraSumSquaresF(commonCurve.sse, commonCurve.df, finalSse, finalDf) : null
+          };
+          if(!sharedFit.series.every(entry => entry?.model && Number.isFinite(entry.model.metrics?.sse))){
+            warnings.push('Shared-parameter global fit did not converge cleanly for every group; separate fits remain available for comparison.');
+          }
+        }
+      }
+
+      const activeKind = (sharedFit && globalSpec?.useSharedFitForRendering !== false) ? 'shared' : 'separate';
+      const activeSeries = activeKind === 'shared' ? (sharedFit?.series || []) : separateSeries;
+
+      regressionDebug('fitGroupedRegression result', {
+        mode: normalizedMode,
+        groupCount: groups.length,
+        activeKind,
+        separateSse,
+        commonCurveSse: commonCurve?.sse || null,
+        sharedSse: sharedFit?.sse || null,
+        warnings
+      });
+
+      return {
+        mode: normalizedMode,
+        fitMethod,
+        globalSpec,
+        activeKind,
+        separate: {
+          label: 'Separate curves',
+          series: separateSeries,
+          sse: separateSse,
+          parameterCount: separateParameterCount,
+          df: separateDf,
+          infoCriteria: computeGroupedAicMetrics(separateSse, totalN, separateParameterCount)
+        },
+        commonCurve,
+        sharedFit,
+        activeSeries,
+        warnings
+      };
+    };
+  }
+
   if(!regressionTools.createSummary){
     regressionTools.createSummary = function createRegressionSummary(model){
       if(!model) return null;

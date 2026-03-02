@@ -867,6 +867,54 @@
     return list;
   };
 
+
+
+  const reporting = Shared.statsReporting = Shared.statsReporting || {};
+
+  reporting.appendReportPanel = function appendReportPanel(target, report, options){
+    const documentRef = global.document;
+    if(!target || !report || !documentRef || !documentRef.createElement){
+      return;
+    }
+    const title = typeof options?.title === 'string' && options.title.trim()
+      ? options.title.trim()
+      : 'Reporting and reproducibility';
+    const methodsLabel = typeof options?.methodsLabel === 'string' && options.methodsLabel.trim()
+      ? options.methodsLabel.trim()
+      : 'Methods text';
+    const resultsLabel = typeof options?.resultsLabel === 'string' && options.resultsLabel.trim()
+      ? options.resultsLabel.trim()
+      : 'Results text';
+    const specLabel = typeof options?.specLabel === 'string' && options.specLabel.trim()
+      ? options.specLabel.trim()
+      : 'Analysis spec';
+    const panel = documentRef.createElement('details');
+    panel.className = 'stats-report-panel';
+    const summary = documentRef.createElement('summary');
+    summary.textContent = title;
+    panel.appendChild(summary);
+
+    const addBlock = (labelText, valueText) => {
+      const label = documentRef.createElement('div');
+      label.className = 'stats-table-lead';
+      label.textContent = labelText;
+      panel.appendChild(label);
+      const pre = documentRef.createElement('pre');
+      pre.textContent = valueText || '';
+      panel.appendChild(pre);
+    };
+
+    addBlock(methodsLabel, report.methodsText || '');
+    addBlock(resultsLabel, report.resultsText || '');
+
+    const spec = report.analysisSpec || options?.analysisSpecFallback || null;
+    addBlock(specLabel, spec ? JSON.stringify(spec, null, 2) : '');
+
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: statsReporting.appendReportPanel',{ title, hasMethods: !!report.methodsText, hasResults: !!report.resultsText });
+    }
+    target.appendChild(panel);
+  };
   stats.getCorrectionMeta = function(method){
     const methodKey = normalizeMethod(method);
     const cfg = METHOD_CONFIG[methodKey] || METHOD_CONFIG[DEFAULT_METHOD];

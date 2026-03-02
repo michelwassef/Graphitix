@@ -286,6 +286,17 @@
     console.debug(label, payload);
   }
 
+  function boxLog(...args){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore
+    }
+    console.debug(...args);
+  }
+
   function ensureBoxTooltipHost(tooltip, doc){
     if(!tooltip){ return null; }
     const documentRef = doc || tooltip.ownerDocument || global.document;
@@ -6861,7 +6872,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -8349,6 +8360,7 @@
     els.statsTable=global.document.getElementById('statsTable');
     els.statsButton=global.document.getElementById('boxComputeStats');
     els.statsStatus=global.document.getElementById('boxStatsStatus');
+    ensureBoxStatsActionRowPlacement();
     if(els.statsButton && !els.statsButton.dataset?.boxHandlerAttached){
       els.statsButton.addEventListener('click', handleStatsComputeClick);
       els.statsButton.dataset.boxHandlerAttached='true';
@@ -9648,7 +9660,7 @@
           manualColumnMove: true,
           afterChange(changes, source){
             if(!changes || source === 'loadData') return;
-            console.log('boxplot afterChange', { count: changes.length, source });
+            boxLog('boxplot afterChange', { count: changes.length, source });
             if(isBoxGroupedModeActive()){
               const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
               const headerTouched = changes.some(change => {
@@ -9698,14 +9710,14 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterUndo(){
-            console.log('boxplot undo');
+            boxLog('boxplot undo');
           },
           afterRedo(){
-            console.log('boxplot redo');
+            boxLog('boxplot redo');
           },
           afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
             if(orderChanged){
-              console.log('boxplot afterColumnMove');
+              boxLog('boxplot afterColumnMove');
               if(isBoxGroupedModeActive()){
                 normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
                 updateGroupedHeaders(instance);
@@ -9842,8 +9854,8 @@
                 state.scheduleDraw();
               },
               debugLabel: 'box',
-              onBeforeProcess: meta => console.log('boxplot fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
-              onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
+              onBeforeProcess: meta => boxLog('boxplot fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+              onProcessed: info => boxLog('boxplot data imported', {rows: info?.rows, cols: info?.cols})
             });
           }catch(err){
             if(forcedOverlay){
@@ -9907,10 +9919,10 @@
         hot.loadData(exampleGrouped);
         normalizeBoxGroupedHeaderRow(hot, { forceGrouped: true });
         updateGroupedHeaders(hot);
-        console.log('boxplot grouped example loaded');
+        boxLog('boxplot grouped example loaded');
       }else{
         hot.loadData(exampleSingle);
-        console.log('boxplot example loaded');
+        boxLog('boxplot example loaded');
       }
       state.axisSettings = createDefaultAxisSettings();
       state.gridStyle = null;
@@ -9981,7 +9993,7 @@
         },
         debugLabel: 'box',
         onPrismStyle: applyBoxPrismStyle,
-        onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
+        onProcessed: info => boxLog('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
         onCompleted: () => {
           const renderReason = 'import-load';
           markBoxOverlayPending(renderReason);
@@ -10009,7 +10021,7 @@
     const mode=els.boxColorUnified.checked?'unified':'individual';
     els.boxUnifiedColors.style.display=mode==='unified'?'':'none';
     if(mode==='unified'){ els.boxColorPerBox.innerHTML=''; }
-    console.log('box color mode toggled',mode);
+    boxLog('box color mode toggled',mode);
     state.scheduleDraw();
   }
   function updateBoxColorPickers(labels, options){
@@ -10027,7 +10039,7 @@
       if(global.attachColorPickerNear) global.attachColorPickerNear(fillInput);
       fillInput.addEventListener('input',e=>{
         state.fillColors[colorIndex]=e.target.value;
-        console.log('box fill color changed',{index:colorIndex,color:state.fillColors[colorIndex],grouped});
+        boxLog('box fill color changed',{index:colorIndex,color:state.fillColors[colorIndex],grouped});
         state.scheduleDraw();
       });
       const borderInput=document.createElement('input');
@@ -10036,7 +10048,7 @@
       if(global.attachColorPickerNear) global.attachColorPickerNear(borderInput);
       borderInput.addEventListener('input',e=>{
         state.borderColors[colorIndex]=e.target.value;
-        console.log('box border color changed',{index:colorIndex,color:state.borderColors[colorIndex],grouped});
+        boxLog('box border color changed',{index:colorIndex,color:state.borderColors[colorIndex],grouped});
         state.scheduleDraw();
       });
       const lbl=document.createElement('label'); lbl.textContent=lab+' '; lbl.appendChild(fillInput); lbl.appendChild(borderInput); els.boxColorPerBox.appendChild(lbl);
@@ -10170,7 +10182,7 @@
       chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
       state.scheduleDraw();
     });
-    els.boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
+    els.boxShowGrid.addEventListener('change',()=>{ boxLog('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
     els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
     els.boxShowLegend?.addEventListener('change',()=>{
       console.debug('Debug: box showLegend change',{checked:els.boxShowLegend.checked});
@@ -10207,7 +10219,7 @@
         state.logPlusOne = false;
         clearBoxLogWarning();
       }
-      console.log('boxLogScale changed', els.boxLogScale.checked);
+      boxLog('boxLogScale changed', els.boxLogScale.checked);
       state.scheduleDraw();
     });
     const updateGraphTypeControls = () => {
@@ -10275,7 +10287,7 @@
       console.debug('Debug: box graph type controls',{ graphTypeValue, showErrorControls });
     };
     els.updateGraphTypeControls = updateGraphTypeControls;
-    els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
+    els.boxGraphType.addEventListener('change',()=>{ boxLog('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
     if(els.boxLayoutMode){
       els.boxLayoutMode.addEventListener('change',()=>{
         const requested = els.boxLayoutMode.value;
@@ -10328,8 +10340,8 @@
         state.scheduleDraw();
       });
     }
-    els.boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
-    els.boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', els.boxShowCaps.checked); state.scheduleDraw(); });
+    els.boxPointMode.addEventListener('change',()=>{ boxLog('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
+    els.boxShowCaps.addEventListener('change',()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); state.scheduleDraw(); });
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
       els.boxShowSignificance.addEventListener('change',()=>{
@@ -10338,11 +10350,11 @@
         state.scheduleDraw();
       });
     }
-    els.boxErrorMode.addEventListener('change',()=>{ console.log('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
+    els.boxErrorMode.addEventListener('change',()=>{ boxLog('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
     const handleBoxAxisLimitInput=(event)=>{
       const target=event?.target;
       if(target===els.boxYMin){
-        console.log('boxYMin changed', els.boxYMin.value);
+        boxLog('boxYMin changed', els.boxYMin.value);
         if(els.boxLogScale?.checked && isBoxLogAxisInputInProgress(target)){
           if(boxDebugEnabled()){
             console.debug('Debug: box log scale validation deferred',{ context: 'axis-min-input', value: target.value });
@@ -10354,7 +10366,7 @@
           return;
         }
       }else if(target===els.boxYMax){
-        console.log('boxYMax changed', els.boxYMax.value);
+        boxLog('boxYMax changed', els.boxYMax.value);
         if(els.boxLogScale?.checked && isBoxLogAxisInputInProgress(target)){
           if(boxDebugEnabled()){
             console.debug('Debug: box log scale validation deferred',{ context: 'axis-max-input', value: target.value });
@@ -10388,17 +10400,17 @@
     }
     updateGraphTypeControls();
     if(els.boxFill){
-      els.boxFill.addEventListener('input',()=>{ console.log('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
+      els.boxFill.addEventListener('input',()=>{ boxLog('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxFill control');
     }
     if(els.boxBorder){
-      els.boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
+      els.boxBorder.addEventListener('input',()=>{ boxLog('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxBorder control');
     }
     if(els.boxBorderWidth){
-      els.boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
+      els.boxBorderWidth.addEventListener('input',()=>{ boxLog('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxBorderWidth control');
     }
@@ -15179,7 +15191,7 @@
     checkbox.addEventListener('change', () => {
       if(checkbox.checked) state.selectedCols.add(index);
       else state.selectedCols.delete(index);
-      console.log('boxplot column toggle', {index, checked: checkbox.checked});
+      boxLog('boxplot column toggle', {index, checked: checkbox.checked});
       requestStatsContextRefresh('stats-column-toggle');
       persistTabState('stats-column-toggle');
       state.scheduleDraw();
@@ -15264,7 +15276,7 @@
   });
   testSel.addEventListener('change',()=>{
     state.statsTest=testSel.value;
-    console.log('boxplot statsTest changed', state.statsTest);
+    boxLog('boxplot statsTest changed', state.statsTest);
     requestStatsContextRefresh('stats-test-change');
     persistTabState('stats-test-change');
     state.scheduleDraw();
@@ -15283,7 +15295,7 @@
   });
   pairedSel.addEventListener('change',()=>{
     state.statsPaired=pairedSel.value==='paired';
-    console.log('boxplot statsPaired changed', state.statsPaired);
+    boxLog('boxplot statsPaired changed', state.statsPaired);
     requestStatsContextRefresh('stats-pairing-change');
     persistTabState('stats-pairing-change');
     state.scheduleDraw();
@@ -15312,7 +15324,7 @@
       state.statsPaired=false;
       state.statsPostHoc='standard';
     }
-    console.log('boxplot statsMode changed', state.statsMode);
+    boxLog('boxplot statsMode changed', state.statsMode);
     if(state.selectedCols && state.selectedCols.size){
       const beforeSize = state.selectedCols.size;
       const filteredSelection = [...state.selectedCols].filter(idx => idx < traces.length);
@@ -15705,7 +15717,7 @@
     });
     refSel.addEventListener('change',()=>{
       state.statsRef=+refSel.value;
-      console.log('boxplot statsRef changed', state.statsRef);
+      boxLog('boxplot statsRef changed', state.statsRef);
       requestStatsContextRefresh('stats-reference-change');
       persistTabState('stats-reference-change');
       renderStatsControls(traces);
@@ -15722,7 +15734,7 @@
     pairInput.addEventListener('change',()=>{
       state.statsPairsText=pairInput.value;
       state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
-      console.log('boxplot custom pairs changed', state.statsPairsText);
+      boxLog('boxplot custom pairs changed', state.statsPairsText);
       requestStatsContextRefresh('stats-custom-pairs-change');
       persistTabState('stats-custom-pairs-change');
       state.scheduleDraw();
@@ -16665,41 +16677,74 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
   }
 
-  function appendStatsReportPanel(target,report){
+
+  function appendStatsReportPanel(target, report){
     if(!target || !report){
       return;
     }
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.appendReportPanel === 'function'){
+      reporting.appendReportPanel(target, {
+        methodsText: report.methodsText || '',
+        resultsText: report.resultsText || '',
+        analysisSpec: report.analysisSpec || buildStatsAnalysisSpec(null)
+      }, {
+        title: 'Reporting and reproducibility'
+      });
+      return;
+    }
+    // Fallback UI if Shared.statsReporting is unavailable.
     const panel=document.createElement('details');
     panel.className='stats-report-panel';
     const summary=document.createElement('summary');
     summary.textContent='Reporting and reproducibility';
     panel.appendChild(summary);
+    const pre=document.createElement('pre');
+    pre.textContent=(report.methodsText || '') + (report.resultsText ? `
 
-    const methodsLabel=document.createElement('div');
-    methodsLabel.className='stats-table-lead';
-    methodsLabel.textContent='Methods text';
-    panel.appendChild(methodsLabel);
-    const methodsPre=document.createElement('pre');
-    methodsPre.textContent=report.methodsText || '';
-    panel.appendChild(methodsPre);
+${report.resultsText}` : '') + `
 
-    const resultsLabel=document.createElement('div');
-    resultsLabel.className='stats-table-lead';
-    resultsLabel.textContent='Results text';
-    panel.appendChild(resultsLabel);
-    const resultsPre=document.createElement('pre');
-    resultsPre.textContent=report.resultsText || '';
-    panel.appendChild(resultsPre);
-
-    const specLabel=document.createElement('div');
-    specLabel.className='stats-table-lead';
-    specLabel.textContent='Analysis spec';
-    panel.appendChild(specLabel);
-    const specPre=document.createElement('pre');
-    specPre.textContent=JSON.stringify(report.analysisSpec || buildStatsAnalysisSpec(null),null,2);
-    panel.appendChild(specPre);
+` + JSON.stringify(report.analysisSpec || buildStatsAnalysisSpec(null),null,2);
+    panel.appendChild(pre);
     target.appendChild(panel);
   }
+
+  function shouldSuppressStatsSvgReapply(reason){
+    if(typeof reason !== 'string' || !reason){
+      return false;
+    }
+    return reason === 'stats-advisor-apply'
+      || reason === 'stats-advisor-apply-grouped'
+      || reason.startsWith('stats-');
+  }
+
+  function ensureBoxStatsActionRowPlacement(){
+    const actionRow = global.document.getElementById('boxStatsActionRow');
+    const results = global.document.getElementById('statsResults');
+    const table = global.document.getElementById('statsTable');
+    const note = global.document.getElementById('statsCorrectionNote');
+    const help = global.document.getElementById('statsPostHocHelp');
+    const controls = global.document.getElementById('statsControls');
+    if(!actionRow || !actionRow.parentNode){
+      return false;
+    }
+    const parent = actionRow.parentNode;
+    const anchor = results || table;
+    if(!anchor || anchor.parentNode !== parent){
+      return false;
+    }
+    const preferredAnchor = note && note.parentNode === parent
+      ? note.nextSibling
+      : (help && help.parentNode === parent
+        ? help.nextSibling
+        : (controls && controls.parentNode === parent ? controls.nextSibling : anchor));
+    if(preferredAnchor === actionRow){
+      return false;
+    }
+    parent.insertBefore(actionRow, preferredAnchor || anchor);
+    return true;
+  }
+
 
   function updateStatsButtonState(config){
     if(!els.statsButton){
@@ -16807,6 +16852,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.statsLastRunVersion = 0;
       state.statsComputationPending = false;
       state.assumptionDiagnostics = null;
+      state.suppressNextStatsSvgReapply = false;
       clearStatsOutputs('Add data to enable statistics.');
       setStatsStatus('');
       updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
@@ -16840,8 +16886,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       updateSignificanceControlState({ statsReady: false });
     }
-    const needsSvgReapply = svgChanged && (state.showSignificanceBars || state.statsLastSignificanceEnabled) && !state.statsComputationPending;
-    if(needsSvgReapply){
+    const suppressSvgReapply = !!state.suppressNextStatsSvgReapply;
+    const needsSvgReapply = svgChanged && (state.showSignificanceBars || state.statsLastSignificanceEnabled) && !state.statsComputationPending && !suppressSvgReapply;
+    if(svgChanged && suppressSvgReapply){
+      state.suppressNextStatsSvgReapply = false;
+      console.debug('Debug: box stats svg reapply suppressed',{ significance: state.showSignificanceBars, version });
+    }else if(needsSvgReapply){
       console.debug('Debug: box stats recompute for new svg',{ svgChanged, significance: state.showSignificanceBars, version });
       handleStatsComputeClick();
     }
@@ -17408,6 +17458,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
       }
       state.pendingAutoShowSignificance = false;
+      state.suppressNextStatsSvgReapply = false;
       state.statsLastRunVersion = context.version;
       reconcileStatsContextSignature(context.traces);
       setStatsStatus('Statistics up to date.');
@@ -17504,6 +17555,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(!hasContext){
       console.debug('Debug: box stats context refresh skipped',{ reason, hasContext: !!ctx });
       if(!ctx){
+        state.suppressNextStatsSvgReapply = false;
         clearStatsOutputs('Statistics will appear after calculation.');
         setStatsStatus('');
         updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
@@ -17517,6 +17569,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         enabled: !!state.showSignificanceBars
       }
     };
+    state.suppressNextStatsSvgReapply = shouldSuppressStatsSvgReapply(reason);
     console.debug('Debug: box stats context refresh requested',{
       reason,
       traceCount: ctx.traces.length,
@@ -19001,7 +19054,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     let nCols = 0;
     let traceCount = 0;
     try{
-    console.log('boxplot draw start',{token});
+    boxLog('boxplot draw start',{token});
     hideBoxTooltip('draw-start');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     ensureWhiskerState();
@@ -19318,11 +19371,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }
         console.timeEnd(`boxColCollect_${i}_${token}`);
-        console.log('boxplot collected column',{ index: i, values: col.length });
+        boxLog('boxplot collected column',{ index: i, values: col.length });
         if(token !== state.drawToken){
           finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
           drawOutcome = 'cancelled';
-          console.log('boxplot draw cancelled after collect',{ token });
+          boxLog('boxplot draw cancelled after collect',{ token });
           return;
         }
         if(col.length){
@@ -19387,11 +19440,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
           }
           console.timeEnd(`boxColCollect_${colIndex}_${token}`);
-          console.log('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
+          boxLog('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
           if(token !== state.drawToken){
             finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
             drawOutcome = 'cancelled';
-            console.log('boxplot draw cancelled after grouped collect',{ token });
+            boxLog('boxplot draw cancelled after grouped collect',{ token });
             return;
           }
           if(values.length){
@@ -19457,7 +19510,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
     }
     if(token !== state.drawToken){
-      console.log('boxplot draw cancelled before traces ready',{ token });
+      boxLog('boxplot draw cancelled before traces ready',{ token });
       return;
     }
     if(!traces.length){
@@ -19582,10 +19635,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       };
     });
     if(token !== state.drawToken){
-      console.log('boxplot draw cancelled after range calc',{ token });
+      boxLog('boxplot draw cancelled after range calc',{ token });
       return;
     }
-    console.log('boxplot ymin/ymax',{ ymin, ymax });
+    boxLog('boxplot ymin/ymax',{ ymin, ymax });
     const computeStackedErrorExtents = (baseValue, meanValue, sdValue, mode) => {
       if(!Number.isFinite(baseValue) || !Number.isFinite(meanValue)){
         return null;
@@ -19692,8 +19745,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const userYMax = parseFloat(els.boxYMax.value);
     if(isFinite(userYMin)) ymin = logScale ? Math.log10(userYMin) : userYMin;
     if(isFinite(userYMax)) ymax = logScale ? Math.log10(userYMax) : userYMax;
-    console.log('boxplot axis override',{ userYMin, userYMax, ymin, ymax });
-    console.log('boxplot range',{ ymin, ymax });
+    boxLog('boxplot axis override',{ userYMin, userYMax, ymin, ymax });
+    boxLog('boxplot range',{ ymin, ymax });
     if(graphTypeRaw === 'bar' && !logScale){
       const beforeYMin = ymin;
       const beforeYMax = ymax;
@@ -20727,7 +20780,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               state.colOrder.splice(targetIdx, 0, moved);
             }
             if(Shared.isDebugEnabled?.()){
-              console.log('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'horizontal-axis' });
+              boxLog('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'horizontal-axis' });
             }
             state.scheduleDraw();
           };
@@ -21083,7 +21136,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       let globalIndividualSummaryHalfSpan = 0;
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
-          console.log('boxplot draw cancelled during render loop',{ token });
+          boxLog('boxplot draw cancelled during render loop',{ token });
           return null;
         }
         const t = traces[i];
@@ -22419,7 +22472,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               state.colOrder.splice(targetIdx, 0, moved);
             }
             if(Shared.isDebugEnabled?.()){
-              console.log('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'vertical-axis' });
+              boxLog('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'vertical-axis' });
             }
             state.scheduleDraw();
           };
@@ -22434,7 +22487,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       let globalIndividualSummaryHalfSpan = 0;
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
-          console.log('boxplot draw cancelled during render loop',{ token });
+          boxLog('boxplot draw cancelled during render loop',{ token });
           return null;
         }
         const t = traces[i];
@@ -23089,7 +23142,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return;
     }
     if(token !== state.drawToken){
-      console.log('boxplot draw cancelled before finalize',{ token });
+      boxLog('boxplot draw cancelled before finalize',{ token });
       return;
     }
     const defaultTitleX = orientationResult.titleX;
@@ -23242,7 +23295,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncBoxAutoDrawNoticeWidth('draw');
     traceCount = traces.length;
-    console.log('boxplot render complete');
+    boxLog('boxplot render complete');
     }catch(err){
       drawOutcome = 'error';
       throw err;

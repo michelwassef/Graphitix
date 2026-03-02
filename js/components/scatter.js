@@ -725,6 +725,7 @@
     draw(){ /* noop legend renderer when hidden */ }
   });
 
+
   function scatterDebug(label, payload){
     try{
       if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
@@ -734,6 +735,17 @@
       // ignore toggle errors and log by default
     }
     console.debug(label, payload);
+  }
+
+  function scatterLog(...args){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore
+    }
+    console.debug(...args);
   }
 
   function getScatterLockRatioCheckbox(){
@@ -7719,6 +7731,506 @@
       return rows.length ? rows : null;
     };
 
+
+    const SCATTER_GROUPED_GLOBAL_UNSUPPORTED_MODES = new Set(['deming', 'orthogonal', 'lowess', 'spline']);
+    const canScatterUseGroupedGlobalFit = mode => {
+      const normalized = String(mode || '').trim().toLowerCase();
+      return !!normalized && !SCATTER_GROUPED_GLOBAL_UNSUPPORTED_MODES.has(normalized) && !!(regressionTools && typeof regressionTools.fitRegression === 'function');
+    };
+    const fitScatterCoreRegressionModel = (points, options = {}) => {
+      const mode = String(options.mode || 'linear').toLowerCase();
+      if((mode === 'linear' || mode === 'linearthroughorigin') && typeof fitScatterLinearLikeRegression === 'function'){
+        return fitScatterLinearLikeRegression(points, options);
+      }
+      if((mode === 'deming' || mode === 'orthogonal') && typeof fitScatterDemingRegression === 'function'){
+        return fitScatterDemingRegression(points, options);
+      }
+      if(mode === 'lowess' && typeof fitScatterLowessRegression === 'function'){
+        return fitScatterLowessRegression(points, options);
+      }
+      if(regressionTools && typeof regressionTools.fitRegression === 'function'){
+        try{
+          return regressionTools.fitRegression(points, {
+            ...options,
+            fitSpec: stripScatterGlobalFitSpec(options.fitSpec || {}),
+            method: getScatterFitMethodFamily(options.method || 'ols')
+          });
+        }catch(err){
+          console.error('scatter fitScatterCoreRegressionModel failed', err);
+        }
+      }
+      return null;
+    };
+    const extractScatterRegressionParameters = model => {
+      const values = {};
+      const order = [];
+      const add = (name, value) => {
+        const key = String(name || '').trim();
+        if(!key || !Number.isFinite(value) || Object.prototype.hasOwnProperty.call(values, key)){
+          return;
+        }
+        values[key] = Number(value);
+        order.push(key);
+      };
+      const coeffRows = Array.isArray(model?.coefficientStats) ? model.coefficientStats : [];
+      coeffRows.forEach(stat => add(stat?.term, stat?.estimate));
+      const params = model?.summary?.parameters;
+      if(params && typeof params === 'object'){
+        Object.entries(params).forEach(([name, value]) => add(name, value));
+      }
+      add('Slope', model?.summary?.slope);
+      add('Intercept', model?.summary?.intercept);
+      return { order, values };
+    };
+    const resolveScatterParameterName = (requestedName, availableNames) => {
+      const target = String(requestedName || '').trim();
+      if(!target){
+        return '';
+      }
+      const names = Array.isArray(availableNames) ? availableNames : [];
+      if(names.includes(target)){
+        return target;
+      }
+      const lowerTarget = target.toLowerCase();
+      const ciMatch = names.find(name => String(name || '').trim().toLowerCase() === lowerTarget);
+      return ciMatch || '';
+    };
+    const buildScatterFixedConstraintSpec = (baseConstraints, fixedValues) => {
+      const merged = cloneScatterJsonValue(baseConstraints || {});
+      Object.entries(fixedValues || {}).forEach(([name, value]) => {
+        const current = merged[name] && typeof merged[name] === 'object' ? merged[name] : {};
+        merged[name] = {
+          ...current,
+          value,
+          lower: value,
+          upper: value,
+          fixed: true
+        };
+        delete merged[name].shared;
+        delete merged[name].share;
+        delete merged[name].global;
+      });
+      return merged;
+    };
+    const buildScatterFixedInitialValues = (baseInitialValues, fallbackValues, fixedValues) => {
+      return {
+        ...cloneScatterJsonValue(baseInitialValues || {}),
+        ...cloneScatterJsonValue(fallbackValues || {}),
+        ...(fixedValues || {})
+      };
+    };
+    const countScatterFreeParameters = (parameterNames, sharedNameSet) => {
+      const names = Array.isArray(parameterNames) ? parameterNames : [];
+      const shared = sharedNameSet instanceof Set ? sharedNameSet : new Set();
+      return names.reduce((sum, name) => sum + (shared.has(name) ? 0 : 1), 0);
+    };
+    const clampScatterValue = (value, lower, upper) => {
+      let next = Number(value);
+      if(!Number.isFinite(next)){
+        next = 0;
+      }
+      if(Number.isFinite(lower) && next < lower){
+        next = lower;
+      }
+      if(Number.isFinite(upper) && next > upper){
+        next = upper;
+      }
+      return next;
+    };
+    const optimizeScatterSharedParameters = (startVector, evaluate, bounds, options = {}) => {
+      const dims = Array.isArray(startVector) ? startVector.length : 0;
+      if(!dims){
+        return { bestVector: [], evaluation: evaluate([]), iterations: 0, converged: true };
+      }
+      const tolerance = Number.isFinite(options?.tolerance) ? Math.max(1e-9, Number(options.tolerance)) : 1e-6;
+      const maxIterations = Number.isFinite(options?.maxIterations) ? Math.max(10, Math.round(Number(options.maxIterations))) : 80;
+      const clampVector = vector => vector.map((value, index) => clampScatterValue(value, bounds[index]?.lower, bounds[index]?.upper));
+      let current = clampVector(startVector);
+      let currentEval = evaluate(current);
+      let steps = current.map((value, index) => {
+        const lower = bounds[index]?.lower;
+        const upper = bounds[index]?.upper;
+        const width = Number.isFinite(lower) && Number.isFinite(upper) && upper > lower ? (upper - lower) : NaN;
+        if(Number.isFinite(width) && width > 0){
+          return Math.max(width * 0.2, tolerance * 10);
+        }
+        const magnitude = Math.abs(Number(value));
+        return Math.max(magnitude * 0.2, 0.1, tolerance * 10);
+      });
+      let iterations = 0;
+      while(iterations < maxIterations){
+        let improved = false;
+        for(let dim = 0; dim < dims; dim += 1){
+          const baseValue = current[dim];
+          const deltas = [steps[dim], -steps[dim]];
+          for(let j = 0; j < deltas.length; j += 1){
+            const candidate = current.slice();
+            candidate[dim] = clampScatterValue(baseValue + deltas[j], bounds[dim]?.lower, bounds[dim]?.upper);
+            if(Math.abs(candidate[dim] - baseValue) <= tolerance){
+              continue;
+            }
+            const candidateEval = evaluate(candidate);
+            if(candidateEval && Number.isFinite(candidateEval.objective) && candidateEval.objective + tolerance < currentEval.objective){
+              current = candidate;
+              currentEval = candidateEval;
+              improved = true;
+              break;
+            }
+          }
+        }
+        if(!improved){
+          steps = steps.map(step => step * 0.5);
+          if(steps.every(step => step <= tolerance * 4)){
+            break;
+          }
+        }
+        iterations += 1;
+      }
+      return {
+        bestVector: current,
+        evaluation: currentEval,
+        iterations,
+        converged: steps.every(step => step <= tolerance * 4)
+      };
+    };
+    const adaptRegressionGroupedFitForScatter = (groupedFitResult, groups) => {
+      if(!groupedFitResult || !Array.isArray(groups)){
+        return null;
+      }
+      const mergeSeries = (seriesList) => (Array.isArray(seriesList) ? seriesList : []).map((entry, index) => ({
+        label: entry?.label || groups[index]?.label || `Series ${index + 1}`,
+        points: Array.isArray(entry?.points) ? entry.points : (groups[index]?.points || []),
+        stats: {
+          ...(groups[index]?.stats || {}),
+          regression: entry?.model || null,
+          derived: entry?.model ? computeScatterDerivedRegressionStats(entry.model) : null
+        }
+      }));
+      return {
+        mode: groupedFitResult.mode,
+        fitMethod: groupedFitResult.fitMethod,
+        globalSpec: groupedFitResult.globalSpec || null,
+        activeKind: groupedFitResult.activeKind === 'shared' ? 'shared' : 'separate',
+        separate: groupedFitResult.separate ? {
+          ...groupedFitResult.separate,
+          seriesStats: mergeSeries(groupedFitResult.separate.series)
+        } : null,
+        commonCurve: groupedFitResult.commonCurve || null,
+        sharedFit: groupedFitResult.sharedFit ? {
+          ...groupedFitResult.sharedFit,
+          seriesStats: mergeSeries(groupedFitResult.sharedFit.series)
+        } : null,
+        activeSeriesStats: mergeSeries(groupedFitResult.activeSeries),
+        warnings: Array.isArray(groupedFitResult.warnings) ? groupedFitResult.warnings.slice() : []
+      };
+    };
+    const buildScatterGroupedGlobalFitAnalysis = (groupedSeriesStats, options = {}) => {
+      const groups = (Array.isArray(groupedSeriesStats) ? groupedSeriesStats : [])
+        .map((entry, index) => ({
+          label: (entry?.label != null && String(entry.label).trim() !== '') ? String(entry.label).trim() : `Series ${index + 1}`,
+          points: Array.isArray(entry?.points) ? entry.points.filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y)).map(pt => ({ x: Number(pt.x), y: Number(pt.y) })) : [],
+          stats: entry?.stats || null
+        }))
+        .filter(entry => entry.points.length >= 3 && entry?.stats?.regression);
+      const mode = String(options?.regressionModeValue || '').trim();
+      const fitMethod = String(options?.fitMethodValue || 'ols').trim();
+      const baseFitSpec = stripScatterGlobalFitSpec(options?.fitSpec || {});
+      const globalSpecNormalized = normalizeScatterGlobalFitSpec(options?.fitSpec?.globalFit || null, baseFitSpec.parameters);
+      const globalSpec = globalSpecNormalized.value || null;
+      if(groups.length < 2 || !canScatterUseGroupedGlobalFit(mode)){
+        return null;
+      }
+      if(regressionTools && typeof regressionTools.fitGroupedRegression === 'function'){
+        try{
+          const groupedFitResult = regressionTools.fitGroupedRegression(
+            groups.map(group => ({ label: group.label, points: group.points })),
+            {
+              mode,
+              method: getScatterFitMethodFamily(fitMethod),
+              fitSpec: options?.fitSpec || {},
+              domain: options?.domain || null
+            }
+          );
+          const adapted = adaptRegressionGroupedFitForScatter(groupedFitResult, groups);
+          if(adapted){
+            return adapted;
+          }
+        }catch(err){
+          console.error('scatter grouped global fit shared-regression path failed', err);
+        }
+      }
+      const warnings = [];
+      const separateSeriesStats = groups.map(group => ({
+        label: group.label,
+        points: group.points,
+        stats: group.stats
+      }));
+      const separateSse = separateSeriesStats.reduce((sum, entry) => sum + Number(entry?.stats?.regression?.metrics?.sse || 0), 0);
+      const totalN = groups.reduce((sum, group) => sum + group.points.length, 0);
+      const separateParamInfo = separateSeriesStats.map(entry => extractScatterRegressionParameters(entry?.stats?.regression || null));
+      const separateParamCounts = separateParamInfo.map(info => info.order.length);
+      const separateParameterCount = separateParamCounts.reduce((sum, count) => sum + count, 0);
+      const separateDf = totalN - separateParameterCount;
+      const pooledPoints = groups.flatMap(group => group.points.map(pt => ({ x: pt.x, y: pt.y })));
+      let commonCurve = null;
+      if(globalSpec?.compareCommonCurve !== false){
+        const pooledModel = fitScatterRegressionModel(pooledPoints, {
+          mode,
+          method: fitMethod,
+          fitSpec: baseFitSpec,
+          domain: options?.domain || null
+        });
+        if(pooledModel && Number.isFinite(pooledModel.metrics?.sse)){
+          const pooledParams = extractScatterRegressionParameters(pooledModel);
+          const pooledK = pooledParams.order.length || Number(pooledModel.metrics?.parameterCount) || 0;
+          const pooledDf = totalN - pooledK;
+          const commonStats = groups.map(group => {
+            const clonedModel = typeof cloneScatterRegressionModel === 'function'
+              ? cloneScatterRegressionModel(pooledModel)
+              : pooledModel;
+            return {
+              label: group.label,
+              points: group.points,
+              stats: {
+                ...(group.stats || {}),
+                regression: clonedModel,
+                derived: computeScatterDerivedRegressionStats(clonedModel)
+              }
+            };
+          });
+          commonCurve = {
+            label: 'Common curve',
+            model: pooledModel,
+            seriesStats: commonStats,
+            sse: Number(pooledModel.metrics?.sse),
+            parameterCount: pooledK,
+            df: pooledDf,
+            infoCriteria: computeScatterAicMetrics(Number(pooledModel.metrics?.sse), totalN, pooledK),
+            versusSeparate: computeScatterExtraSumSquaresF(Number(pooledModel.metrics?.sse), pooledDf, separateSse, separateDf)
+          };
+        }else{
+          warnings.push('Common-curve pooled fit did not converge, so only separate fits are reported.');
+        }
+      }
+      let sharedFit = null;
+      const rawRequestedShared = Array.isArray(globalSpec?.sharedParameters) ? globalSpec.sharedParameters.slice() : [];
+      const availableNames = Array.from(new Set(separateParamInfo.flatMap(info => info.order)));
+      let requestedShared = rawRequestedShared.map(name => resolveScatterParameterName(name, availableNames) || String(name || '').trim()).filter(Boolean);
+      if(requestedShared.includes('__all__')){
+        requestedShared = availableNames.slice();
+      }
+      requestedShared = Array.from(new Set(requestedShared.map(name => resolveScatterParameterName(name, availableNames) || name).filter(name => availableNames.includes(name))));
+      const ignoredShared = rawRequestedShared.filter(name => {
+        const resolved = resolveScatterParameterName(name, availableNames);
+        return name !== '__all__' && !resolved;
+      });
+      if(ignoredShared.length){
+        warnings.push(`Shared parameters not recognized and ignored: ${ignoredShared.join(', ')}.`);
+      }
+      if(globalSpec?.enabled && requestedShared.length){
+        const sharedSet = new Set(requestedShared);
+        const startVector = requestedShared.map(name => {
+          const estimates = separateParamInfo.map(info => Number(info.values?.[name])).filter(Number.isFinite);
+          if(!estimates.length && commonCurve?.model){
+            const commonParams = extractScatterRegressionParameters(commonCurve.model);
+            if(Number.isFinite(commonParams.values?.[name])){
+              estimates.push(Number(commonParams.values[name]));
+            }
+          }
+          if(!estimates.length){
+            return 0;
+          }
+          return estimates.reduce((sum, value) => sum + value, 0) / estimates.length;
+        });
+        const bounds = requestedShared.map(name => {
+          const rule = baseFitSpec?.parameters?.[name];
+          return {
+            lower: Number.isFinite(Number(rule?.lower)) ? Number(rule.lower) : NaN,
+            upper: Number.isFinite(Number(rule?.upper)) ? Number(rule.upper) : NaN
+          };
+        });
+        const evalCache = new Map();
+        const evaluate = vector => {
+          const key = vector.map(value => Number(value).toPrecision(12)).join('|');
+          if(evalCache.has(key)){
+            return evalCache.get(key);
+          }
+          const fixedValues = Object.fromEntries(requestedShared.map((name, index) => [name, vector[index]]));
+          let totalSse = 0;
+          let parameterCount = requestedShared.length;
+          const seriesStats = [];
+          for(let i = 0; i < groups.length; i += 1){
+            const fallbackValues = separateParamInfo[i]?.values || {};
+            const fitSpec = {
+              ...baseFitSpec,
+              initialValues: buildScatterFixedInitialValues(baseFitSpec?.initialValues, fallbackValues, fixedValues),
+              parameters: buildScatterFixedConstraintSpec(baseFitSpec?.parameters, fixedValues)
+            };
+            const model = fitScatterCoreRegressionModel(groups[i].points, {
+              mode,
+              method: fitMethod,
+              fitSpec,
+              domain: options?.domain || null
+            });
+            const sse = Number(model?.metrics?.sse);
+            if(!model || !Number.isFinite(sse)){
+              const failed = { objective: Number.POSITIVE_INFINITY, totalSse: Number.POSITIVE_INFINITY, seriesStats: [], parameterCount: Number.POSITIVE_INFINITY };
+              evalCache.set(key, failed);
+              return failed;
+            }
+            totalSse += sse;
+            const paramInfo = extractScatterRegressionParameters(model);
+            parameterCount += countScatterFreeParameters(paramInfo.order, sharedSet);
+            seriesStats.push({
+              label: groups[i].label,
+              points: groups[i].points,
+              stats: {
+                ...(groups[i].stats || {}),
+                regression: model,
+                derived: computeScatterDerivedRegressionStats(model)
+              }
+            });
+          }
+          const result = { objective: totalSse, totalSse, seriesStats, parameterCount };
+          evalCache.set(key, result);
+          return result;
+        };
+        const optimization = optimizeScatterSharedParameters(startVector, evaluate, bounds, {
+          maxIterations: globalSpec?.maxIterations,
+          tolerance: globalSpec?.tolerance
+        });
+        const bestVector = Array.isArray(optimization.bestVector) ? optimization.bestVector : startVector;
+        const bestFixedValues = Object.fromEntries(requestedShared.map((name, index) => [name, bestVector[index]]));
+        const finalSeriesStats = groups.map((group, index) => {
+          const fallbackValues = separateParamInfo[index]?.values || {};
+          const fitSpec = {
+            ...baseFitSpec,
+            initialValues: buildScatterFixedInitialValues(baseFitSpec?.initialValues, fallbackValues, bestFixedValues),
+            parameters: buildScatterFixedConstraintSpec(baseFitSpec?.parameters, bestFixedValues)
+          };
+          const model = fitScatterRegressionModel(group.points, {
+            mode,
+            method: fitMethod,
+            fitSpec,
+            domain: options?.domain || null
+          });
+          return {
+            label: group.label,
+            points: group.points,
+            stats: {
+              ...(group.stats || {}),
+              regression: model,
+              derived: computeScatterDerivedRegressionStats(model)
+            }
+          };
+        });
+        const finalSse = finalSeriesStats.reduce((sum, entry) => sum + Number(entry?.stats?.regression?.metrics?.sse || 0), 0);
+        const finalParamCount = requestedShared.length + finalSeriesStats.reduce((sum, entry) => {
+          const paramInfo = extractScatterRegressionParameters(entry?.stats?.regression || null);
+          return sum + countScatterFreeParameters(paramInfo.order, sharedSet);
+        }, 0);
+        const finalDf = totalN - finalParamCount;
+        sharedFit = {
+          sharedParameters: requestedShared,
+          fixedValues: bestFixedValues,
+          seriesStats: finalSeriesStats,
+          sse: finalSse,
+          parameterCount: finalParamCount,
+          df: finalDf,
+          infoCriteria: computeScatterAicMetrics(finalSse, totalN, finalParamCount),
+          optimizer: {
+            iterations: optimization.iterations,
+            converged: !!optimization.converged,
+            tolerance: globalSpec?.tolerance,
+            maxIterations: globalSpec?.maxIterations
+          },
+          versusSeparate: computeScatterExtraSumSquaresF(finalSse, finalDf, separateSse, separateDf),
+          versusCommon: commonCurve ? computeScatterExtraSumSquaresF(commonCurve.sse, commonCurve.df, finalSse, finalDf) : null
+        };
+        if(!sharedFit.seriesStats.every(entry => entry?.stats?.regression && Number.isFinite(entry.stats.regression.metrics?.sse))){
+          warnings.push('Shared-parameter global fit did not converge cleanly for every group; separate fits remain available for comparison.');
+        }
+      }
+      const activeSeriesStats = (sharedFit && globalSpec?.useSharedFitForRendering !== false)
+        ? sharedFit.seriesStats
+        : separateSeriesStats;
+      return {
+        mode,
+        fitMethod,
+        globalSpec,
+        activeKind: sharedFit && globalSpec?.useSharedFitForRendering !== false ? 'shared' : 'separate',
+        separate: {
+          label: 'Separate curves',
+          seriesStats: separateSeriesStats,
+          sse: separateSse,
+          parameterCount: separateParameterCount,
+          df: separateDf,
+          infoCriteria: computeScatterAicMetrics(separateSse, totalN, separateParameterCount)
+        },
+        commonCurve,
+        sharedFit,
+        activeSeriesStats,
+        warnings
+      };
+    };
+    const buildScatterGroupedCurveComparisonRows = groupedGlobalFit => {
+      if(!groupedGlobalFit){
+        return null;
+      }
+      const rows = [];
+      rows.push({ metric: '[Global fit] Active plotted grouped fit', value: groupedGlobalFit.activeKind === 'shared' ? 'Shared-parameter fit' : 'Separate curves' });
+      const addModelRows = (prefix, model) => {
+        if(!model || !Number.isFinite(model.sse)){
+          return;
+        }
+        rows.push({ metric: `${prefix} SSE`, value: formatMetricValue(model.sse, 4) });
+        if(Number.isFinite(model.infoCriteria?.aic)){
+          rows.push({ metric: `${prefix} AIC`, value: formatMetricValue(model.infoCriteria.aic, 4) });
+        }
+        if(Number.isFinite(model.infoCriteria?.aicc)){
+          rows.push({ metric: `${prefix} AICc`, value: formatMetricValue(model.infoCriteria.aicc, 4) });
+        }
+        if(Number.isFinite(model.infoCriteria?.bic)){
+          rows.push({ metric: `${prefix} BIC`, value: formatMetricValue(model.infoCriteria.bic, 4) });
+        }
+      };
+      addModelRows('[Curve comparison] Separate curves', groupedGlobalFit.separate);
+      addModelRows('[Curve comparison] Common curve', groupedGlobalFit.commonCurve);
+      addModelRows('[Curve comparison] Shared-parameter fit', groupedGlobalFit.sharedFit);
+      if(groupedGlobalFit.sharedFit?.sharedParameters?.length){
+        rows.push({ metric: '[Global fit] Shared parameters', value: groupedGlobalFit.sharedFit.sharedParameters.join(', ') });
+        Object.entries(groupedGlobalFit.sharedFit.fixedValues || {}).forEach(([name, value]) => {
+          rows.push({ metric: `[Global fit] Shared ${name}`, value: formatMetricValue(value, 4) });
+        });
+      }
+      const addTestRows = (prefix, test) => {
+        if(!test){
+          return;
+        }
+        rows.push({ metric: `${prefix} F`, value: formatMetricValue(test.fStatistic, 4) });
+        rows.push({ metric: `${prefix} p`, value: formatP(test.pValue) });
+      };
+      addTestRows('[Curve comparison] Common curve vs separate curves', groupedGlobalFit.commonCurve?.versusSeparate);
+      addTestRows('[Curve comparison] Shared-parameter fit vs separate curves', groupedGlobalFit.sharedFit?.versusSeparate);
+      addTestRows('[Curve comparison] Common curve vs shared-parameter fit', groupedGlobalFit.sharedFit?.versusCommon);
+      if(groupedGlobalFit.sharedFit?.optimizer){
+        rows.push({ metric: '[Global fit] Optimizer iterations', value: String(Math.max(0, Math.round(groupedGlobalFit.sharedFit.optimizer.iterations || 0))) });
+        rows.push({ metric: '[Global fit] Optimizer converged', value: groupedGlobalFit.sharedFit.optimizer.converged ? 'Yes' : 'Stopped before tolerance was reached' });
+      }
+      const preferred = [
+        ['Separate curves', groupedGlobalFit.separate?.infoCriteria?.aicc],
+        ['Common curve', groupedGlobalFit.commonCurve?.infoCriteria?.aicc],
+        ['Shared-parameter fit', groupedGlobalFit.sharedFit?.infoCriteria?.aicc]
+      ].filter(entry => Number.isFinite(entry[1])).sort((a, b) => a[1] - b[1])[0];
+      if(preferred){
+        rows.push({ metric: '[Curve comparison] Preferred model by AICc', value: preferred[0] });
+      }
+      if(Array.isArray(groupedGlobalFit.warnings) && groupedGlobalFit.warnings.length){
+        rows.push({ metric: '[Warnings] Grouped curve comparison', value: groupedGlobalFit.warnings.join('; ') });
+      }
+      return rows.length ? rows : null;
+    };
+
     const computeScatterSpearmanExactP = (rho, n) => {
       const size = Number(n);
       const observed = Math.abs(Number(rho));
@@ -8795,7 +9307,7 @@
             // Row selection checkboxes now control point labeling exclusively
             afterChange(changes,source){
               if(!changes||source==='loadData') return;
-              console.log('scatter afterChange', {count:changes.length, source});
+              scatterLog('scatter afterChange', {count:changes.length, source});
               if(isGroupedScatterModeActive()){
                 const headerTouched = changes.some(change => Number(change?.[0]) === 0);
                 if(headerTouched && source !== 'scatter-grouped-header-normalize'){
@@ -8834,10 +9346,10 @@
               activateScatterDataToolbar('table-selection');
             },
             afterUndo(){
-              console.log('scatter undo');
+              scatterLog('scatter undo');
             },
             afterRedo(){
-              console.log('scatter redo');
+              scatterLog('scatter redo');
             }
           }
         });
@@ -9055,7 +9567,7 @@
           ['GeneH',2.7,0.0,0.9,'']
         ]
       };
-      if(global.DEBUG_SCATTER) console.log('scatter example dataset map', scatterExamples);
+      if(global.DEBUG_SCATTER) scatterLog('scatter example dataset map', scatterExamples);
       document.getElementById('scatterLoadExample').addEventListener('click',()=>{
         const type=scatterGraphTypeSelect?.value || 'scatter';
         const rawViewMode = type==='scatter' ? (scatterViewMode && typeof scatterViewMode.value === 'string' ? scatterViewMode.value : null) : null;
@@ -9108,7 +9620,7 @@
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
           scatterFill.value=DEFAULT_NON_SIG_COLOR;
         }
-        console.log('scatter example loaded',{type,viewMode,rows:dataset.length});
+        scatterLog('scatter example loaded',{type,viewMode,rows:dataset.length});
         syncScatterGraphTypeUI();
         syncScatterAspectControls('payload');
         scheduleDrawScatter();
@@ -9137,7 +9649,7 @@
             scheduleDrawScatter({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'scatter',
-          onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols}),
+          onProcessed: info => scatterLog('scatter data imported',{rows: info?.rows, cols: info?.cols}),
           onCompleted: () => {
             const renderReason = 'import-load';
             markScatterOverlayPending(renderReason);
@@ -9284,6 +9796,45 @@
       const scatterFitSpecStatus=$('#scatterFitSpecStatus');
       const scatterInitialValuesJsonError=$('#scatterInitialValuesJsonError');
       const scatterParameterConstraintsJsonError=$('#scatterParameterConstraintsJsonError');
+      function ensureScatterGlobalFitControls(){
+        const existingTextarea = document.getElementById('scatterGlobalFitJson');
+        const existingError = document.getElementById('scatterGlobalFitJsonError');
+        if(existingTextarea || existingError){
+          return { textarea: existingTextarea, error: existingError };
+        }
+        const fitBody = document.querySelector('#scatterFitSpecControls .fit-specification-body');
+        if(!fitBody){
+          return { textarea: null, error: null };
+        }
+        const line = document.createElement('div');
+        line.className = 'config-panel__line fit-textarea-line';
+        const label = document.createElement('span');
+        label.className = 'config-panel__label';
+        label.textContent = 'Grouped global-fit JSON';
+        const textarea = document.createElement('textarea');
+        textarea.id = 'scatterGlobalFitJson';
+        textarea.rows = 2;
+        textarea.className = 'fit-textarea';
+        textarea.placeholder = '{"enabled":true,"sharedParameters":["Top","Bottom"],"compareCommonCurve":true}';
+        line.appendChild(label);
+        line.appendChild(textarea);
+        const error = document.createElement('div');
+        error.id = 'scatterGlobalFitJsonError';
+        error.className = 'fit-spec-status fit-spec-status--inline';
+        error.setAttribute('aria-live', 'polite');
+        const constraintsError = document.getElementById('scatterParameterConstraintsJsonError');
+        if(constraintsError && constraintsError.parentNode === fitBody){
+          fitBody.insertBefore(line, constraintsError.nextSibling);
+          fitBody.insertBefore(error, line.nextSibling);
+        }else{
+          fitBody.appendChild(line);
+          fitBody.appendChild(error);
+        }
+        return { textarea, error };
+      }
+      const scatterGlobalFitControls = ensureScatterGlobalFitControls();
+      const scatterGlobalFitJson = scatterGlobalFitControls?.textarea || $('#scatterGlobalFitJson');
+      const scatterGlobalFitJsonError = scatterGlobalFitControls?.error || $('#scatterGlobalFitJsonError');
       const scatterViewMode=$('#scatterViewMode');
       const scatterViewControls=$('#scatterViewControls');
       scatterViewModeInput = scatterViewMode;
@@ -9769,7 +10320,8 @@
           scatterFitRangeMaxX?.value || '',
           scatterConfidenceLevel?.value || '95',
           scatterInitialValuesJson?.value || '',
-          scatterParameterConstraintsJson?.value || ''
+          scatterParameterConstraintsJson?.value || '',
+          scatterGlobalFitJson?.value || ''
         ].join('|');
       }
 
@@ -9787,6 +10339,101 @@
             empty: false
           };
         }
+      }
+
+      function cloneScatterJsonValue(value){
+        if(!value || typeof value !== 'object'){
+          return {};
+        }
+        try{
+          return JSON.parse(JSON.stringify(value));
+        }catch(err){
+          console.debug('Debug: scatter JSON clone fallback', { message: err?.message || String(err) });
+          return Object.assign({}, value);
+        }
+      }
+
+      function stripScatterGlobalFitSpec(fitSpec){
+        const cloned = cloneScatterJsonValue(fitSpec || {});
+        if(cloned && typeof cloned === 'object'){
+          delete cloned.globalFit;
+        }
+        return cloned;
+      }
+
+      function collectScatterSharedParametersFromConstraints(parameters){
+        if(!parameters || typeof parameters !== 'object'){
+          return [];
+        }
+        return Object.entries(parameters)
+          .filter(([, rule]) => {
+            if(!rule || typeof rule !== 'object'){
+              return false;
+            }
+            const sharedValue = rule.shared ?? rule.share ?? rule.global ?? null;
+            if(typeof sharedValue === 'boolean'){
+              return sharedValue;
+            }
+            const normalized = String(sharedValue || '').trim().toLowerCase();
+            return normalized === 'true' || normalized === 'shared' || normalized === 'global' || normalized === 'yes';
+          })
+          .map(([name]) => String(name || '').trim())
+          .filter(Boolean);
+      }
+
+      function normalizeScatterGlobalFitSpec(rawValue, fallbackParameters){
+        const fallbackShared = collectScatterSharedParametersFromConstraints(fallbackParameters);
+        const raw = rawValue && typeof rawValue === 'object' ? rawValue : null;
+        if(!raw && !fallbackShared.length){
+          return { value: null, error: null };
+        }
+        if(rawValue != null && (!raw || Array.isArray(raw))){
+          return { value: null, error: 'Grouped global-fit JSON must be an object.' };
+        }
+        const rawShared = raw?.sharedParameters ?? raw?.shared ?? raw?.parameters ?? fallbackShared;
+        const normalizeNames = input => {
+          if(Array.isArray(input)){
+            return input.map(item => String(item || '').trim()).filter(Boolean);
+          }
+          if(typeof input === 'string'){
+            const trimmed = input.trim();
+            if(!trimmed){
+              return [];
+            }
+            if(trimmed === '*' || /^all$/i.test(trimmed)){
+              return ['__all__'];
+            }
+            return trimmed.split(',').map(item => item.trim()).filter(Boolean);
+          }
+          return [];
+        };
+        const sharedParameters = Array.from(new Set(normalizeNames(rawShared))).filter(Boolean);
+        const enabled = raw
+          ? (typeof raw.enabled === 'boolean'
+            ? raw.enabled
+            : (sharedParameters.length > 0))
+          : (sharedParameters.length > 0);
+        const compareCommonCurve = raw && Object.prototype.hasOwnProperty.call(raw, 'compareCommonCurve')
+          ? !!raw.compareCommonCurve
+          : true;
+        const useSharedFitForRendering = raw && Object.prototype.hasOwnProperty.call(raw, 'useSharedFitForRendering')
+          ? !!raw.useSharedFitForRendering
+          : true;
+        const maxIterationsRaw = Number(raw?.maxIterations);
+        const toleranceRaw = Number(raw?.tolerance);
+        const maxIterations = Number.isFinite(maxIterationsRaw) ? Math.max(20, Math.min(300, Math.round(maxIterationsRaw))) : 80;
+        const tolerance = Number.isFinite(toleranceRaw) ? Math.max(1e-9, Math.min(1, toleranceRaw)) : 1e-6;
+        return {
+          value: {
+            enabled,
+            sharedParameters,
+            compareCommonCurve,
+            useSharedFitForRendering,
+            maxIterations,
+            tolerance
+          },
+          error: null
+        };
       }
 
       function parseScatterOptionalNumberInput(value){
@@ -9837,6 +10484,8 @@
         const confidence = parseScatterOptionalNumberInput(scatterConfidenceLevel?.value);
         const initialParse = parseScatterJsonWithError(scatterInitialValuesJson?.value);
         const constraintParse = parseScatterJsonWithError(scatterParameterConstraintsJson?.value);
+        const globalParse = parseScatterJsonWithError(scatterGlobalFitJson?.value);
+        const normalizedGlobal = normalizeScatterGlobalFitSpec(globalParse.error ? null : globalParse.value, constraintParse.error ? null : constraintParse.value);
         const issues = [];
         if(hasMin && hasMax && minX > maxX){
           issues.push('Fit range min X cannot exceed max X.');
@@ -9853,6 +10502,11 @@
         if(constraintParse.error){
           issues.push(`Parameter constraints JSON: ${constraintParse.error}`);
         }
+        if(globalParse.error){
+          issues.push(`Grouped global-fit JSON: ${globalParse.error}`);
+        }else if(normalizedGlobal.error){
+          issues.push(`Grouped global-fit JSON: ${normalizedGlobal.error}`);
+        }
         if(initialParse.error){
           setScatterFitSpecMessage(scatterInitialValuesJsonError, `Invalid JSON: ${initialParse.error}`, 'invalid');
         }else if(!initialParse.empty){
@@ -9867,6 +10521,13 @@
         }else{
           setScatterFitSpecMessage(scatterParameterConstraintsJsonError, '', null);
         }
+        if(globalParse.error || normalizedGlobal.error){
+          setScatterFitSpecMessage(scatterGlobalFitJsonError, `Invalid JSON: ${globalParse.error || normalizedGlobal.error}`, 'invalid');
+        }else if(!globalParse.empty || Array.isArray(normalizedGlobal.value?.sharedParameters) && normalizedGlobal.value.sharedParameters.length){
+          setScatterFitSpecMessage(scatterGlobalFitJsonError, 'Grouped global-fit JSON is valid.', 'valid');
+        }else{
+          setScatterFitSpecMessage(scatterGlobalFitJsonError, '', null);
+        }
         if(issues.length){
           setScatterFitSpecMessage(scatterFitSpecStatus, issues[0], 'invalid');
           if(scatterFitSpecBadge){
@@ -9875,7 +10536,8 @@
           }
           return false;
         }
-        const hint = (!initialParse.empty || !constraintParse.empty || hasMin || hasMax)
+        const hasGlobal = !globalParse.empty || Array.isArray(normalizedGlobal.value?.sharedParameters) && normalizedGlobal.value.sharedParameters.length;
+        const hint = (!initialParse.empty || !constraintParse.empty || hasMin || hasMax || hasGlobal)
           ? 'Fit specification is valid.'
           : 'Using default fit specification.';
         setScatterFitSpecMessage(scatterFitSpecStatus, hint, 'valid');
@@ -9893,8 +10555,10 @@
         const hasRange = Number.isFinite(minX) || Number.isFinite(maxX);
         const initialParsed = parseScatterJsonWithError(scatterInitialValuesJson?.value);
         const constraintsParsed = parseScatterJsonWithError(scatterParameterConstraintsJson?.value);
+        const globalParsed = parseScatterJsonWithError(scatterGlobalFitJson?.value);
         const initialValues = initialParsed.error ? null : initialParsed.value;
         const parameters = constraintsParsed.error ? null : constraintsParsed.value;
+        const normalizedGlobal = normalizeScatterGlobalFitSpec(globalParsed.error ? null : globalParsed.value, parameters);
         const fitSpec = {};
         if(hasRange){
           fitSpec.range = {
@@ -9910,6 +10574,9 @@
         }
         if(parameters && typeof parameters === 'object'){
           fitSpec.parameters = parameters;
+        }
+        if(normalizedGlobal.value){
+          fitSpec.globalFit = normalizedGlobal.value;
         }
         return fitSpec;
       }
@@ -9949,6 +10616,12 @@
           const constraints = fitSpec?.parameters;
           scatterParameterConstraintsJson.value = (constraints && typeof constraints === 'object')
             ? JSON.stringify(constraints)
+            : '';
+        }
+        if(scatterGlobalFitJson){
+          const globalFit = fitSpec?.globalFit;
+          scatterGlobalFitJson.value = (globalFit && typeof globalFit === 'object')
+            ? JSON.stringify(globalFit)
             : '';
         }
         validateScatterFitSpecControls();
@@ -10815,6 +11488,178 @@
         };
       }
 
+
+
+      function buildScatterAnalysisSpec(context, stats, settings, extra){
+        const regressionModeValue = settings?.regressionModeValue || scatterRegressionMode?.value || 'linear';
+        const fitMethodValue = settings?.fitMethodValue || scatterFitMethod?.value || 'ols';
+        const fitSpec = settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : buildScatterFitSpec();
+        const globalFit = fitSpec?.globalFit && typeof fitSpec.globalFit === 'object' ? fitSpec.globalFit : null;
+        const range = fitSpec?.range && typeof fitSpec.range === 'object' ? fitSpec.range : null;
+        return {
+          schemaVersion: 'scatter-stats-spec-v1',
+          component: 'scatter',
+          xLabel: scatterState.xLabelText || 'X',
+          yLabel: scatterState.yLabelText || 'Y',
+          pointCount: Number.isFinite(stats?.pointCount) ? stats.pointCount : (Array.isArray(context?.points) ? context.points.length : 0),
+          grouped: !!stats?.grouped,
+          groupLabels: Array.isArray(stats?.groupedSeriesStats)
+            ? stats.groupedSeriesStats.map((entry, idx) => entry?.label || `Series ${idx + 1}`)
+            : null,
+          associationSelection: stats?.associationSelection || (scatterStatType?.value || 'auto'),
+          associationMethod: stats?.associationMethod || null,
+          regressionMode: regressionModeValue,
+          fitMethod: fitMethodValue,
+          fitRange: range,
+          confidenceLevel: fitSpec?.confidenceLevel || null,
+          fitSpec: {
+            initialValues: fitSpec?.initialValues || null,
+            parameters: fitSpec?.parameters || null
+          },
+          globalFit,
+          overlays: {
+            showLine: !!settings?.showLineMaster,
+            showCI: !!settings?.showCI,
+            showPI: !!settings?.showPI,
+            showDiagnostics: !!settings?.showDiagnostics
+          },
+          generatedAt: new Date().toISOString(),
+          extra: extra || null
+        };
+      }
+
+      function buildScatterReportingText(context, stats, settings){
+        const xLabel = scatterState.xLabelText || 'X';
+        const yLabel = scatterState.yLabelText || 'Y';
+        const regressionModeValue = settings?.regressionModeValue || scatterRegressionMode?.value || 'linear';
+        const fitMethodValue = settings?.fitMethodValue || scatterFitMethod?.value || 'ols';
+        const fitSpec = settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : buildScatterFitSpec();
+        const confidence = Number.isFinite(Number(fitSpec?.confidenceLevel)) ? Number(fitSpec.confidenceLevel) : 95;
+        const associationLabel = typeof stats?.method === 'string' && stats.method.trim()
+          ? stats.method.trim()
+          : getScatterAssociationMethodLabel(resolveScatterAssociationMethod(stats?.associationMethod || 'auto', regressionModeValue));
+        const regressionLabel = getScatterRegressionModeLabel(regressionModeValue);
+        const fitLabel = getScatterFitMethodLabel(fitMethodValue);
+
+        const methodsParts = [];
+        const resultsParts = [];
+
+        if(stats?.grouped){
+          const groupCount = Array.isArray(stats?.groupedSeriesStats) ? stats.groupedSeriesStats.length : 0;
+          methodsParts.push(`Scatter data (${xLabel} vs ${yLabel}) were analyzed across ${groupCount} group${groupCount === 1 ? '' : 's'}.`);
+        }else{
+          const n = Number.isFinite(stats?.pointCount) ? stats.pointCount : (Array.isArray(context?.points) ? context.points.length : 0);
+          methodsParts.push(`Scatter data (${xLabel} vs ${yLabel}) were analyzed using ${associationLabel} association (n = ${n}).`);
+        }
+
+        if(stats?.associationMethod && stats.associationMethod !== 'none'){
+          methodsParts.push(`Association P values used the ${stats.pMethod || 'standard'} method.`);
+          if(stats.correlationCI && Number.isFinite(stats.correlationCI.low) && Number.isFinite(stats.correlationCI.high)){
+            methodsParts.push(`${confidence}% confidence intervals were reported for the association estimate${stats.correlationCiApproximate ? ' (approximate)' : ''}.`);
+          }
+        }
+
+        if(regressionModeValue && regressionModeValue !== 'none'){
+          methodsParts.push(`${regressionLabel} was fit using ${fitLabel}.`);
+          if(fitSpec?.range && (Number.isFinite(Number(fitSpec.range.minX)) || Number.isFinite(Number(fitSpec.range.maxX)))){
+            const minX = Number.isFinite(Number(fitSpec.range.minX)) ? Number(fitSpec.range.minX) : null;
+            const maxX = Number.isFinite(Number(fitSpec.range.maxX)) ? Number(fitSpec.range.maxX) : null;
+            methodsParts.push(`Fits were restricted to ${minX != null ? `X >= ${formatMetricValue(minX, 4)}` : ''}${minX != null && maxX != null ? ' and ' : ''}${maxX != null ? `X <= ${formatMetricValue(maxX, 4)}` : ''}.`);
+          }
+          methodsParts.push(`${confidence}% confidence intervals were used for coefficient and prediction summaries when available.`);
+        }
+
+        if(stats?.groupedGlobalFit){
+          const gf = stats.groupedGlobalFit;
+          if(gf.sharedFit && Array.isArray(gf.sharedFit.sharedParameters) && gf.sharedFit.sharedParameters.length){
+            methodsParts.push(`Grouped curve fitting used shared parameters (${gf.sharedFit.sharedParameters.join(', ')}) with separate remaining parameters per group.`);
+          }
+          if(gf.commonCurve){
+            methodsParts.push('Common versus separate curve families were compared using information criteria and extra sum-of-squares F tests where applicable.');
+          }
+        }
+
+        if(!stats?.grouped){
+          if(Number.isFinite(stats?.r)){
+            const ci = stats.correlationCI;
+            const ciText = ci && Number.isFinite(ci.low) && Number.isFinite(ci.high)
+              ? `, ${formatMetricValue(ci.low, 4)} to ${formatMetricValue(ci.high, 4)}`
+              : '';
+            resultsParts.push(`${associationLabel} association: r = ${formatMetricValue(stats.r, 4)}${ciText}, P = ${formatP(stats.p)}.`);
+          }
+          const model = stats?.regression || stats?.regressionModel || null;
+          const slope = model?.summary?.slope;
+          const intercept = model?.summary?.intercept;
+          const r2 = model?.metrics?.r2;
+          const rmse = model?.metrics?.rmse;
+          if(Number.isFinite(slope) && Number.isFinite(intercept)){
+            resultsParts.push(`Fitted model: ${yLabel} = ${formatMetricValue(intercept, 4)} + ${formatMetricValue(slope, 4)} * ${xLabel}.`);
+          }
+          if(Number.isFinite(r2)){
+            resultsParts.push(`R² = ${formatMetricValue(r2, 4)}${Number.isFinite(rmse) ? `, RMSE = ${formatMetricValue(rmse, 4)}` : ''}.`);
+          }
+          const primary = model?.summary?.primaryParameter;
+          if(primary && typeof primary.label === 'string' && Number.isFinite(primary.value)){
+            resultsParts.push(`${primary.label} = ${formatMetricValue(primary.value, 4)}.`);
+          }
+        }else{
+          const gf = stats?.groupedGlobalFit || null;
+          if(gf){
+            const candidates = [
+              ['Separate curves', gf.separate?.infoCriteria?.aicc],
+              ['Common curve', gf.commonCurve?.infoCriteria?.aicc],
+              ['Shared-parameter fit', gf.sharedFit?.infoCriteria?.aicc]
+            ].filter(entry => Number.isFinite(entry[1])).sort((a, b) => a[1] - b[1]);
+            if(candidates.length){
+              resultsParts.push(`Preferred grouped model by AICc: ${candidates[0][0]}.`);
+            }
+            const sharedTest = gf.sharedFit?.versusSeparate;
+            if(sharedTest && Number.isFinite(sharedTest.pValue)){
+              resultsParts.push(`Shared-parameter versus separate curves: F = ${formatMetricValue(sharedTest.fStatistic, 4)}, P = ${formatP(sharedTest.pValue)}.`);
+            }
+            const commonTest = gf.commonCurve?.versusSeparate;
+            if(commonTest && Number.isFinite(commonTest.pValue)){
+              resultsParts.push(`Common versus separate curves: F = ${formatMetricValue(commonTest.fStatistic, 4)}, P = ${formatP(commonTest.pValue)}.`);
+            }
+          }
+        }
+
+        return {
+          methodsText: methodsParts.filter(Boolean).join(' '),
+          resultsText: resultsParts.filter(Boolean).join(' ')
+        };
+      }
+
+      function appendScatterReportPanel(target, report, analysisSpec){
+        const reporting = Shared.statsReporting;
+        if(reporting && typeof reporting.appendReportPanel === 'function'){
+          reporting.appendReportPanel(target, {
+            methodsText: report?.methodsText || '',
+            resultsText: report?.resultsText || '',
+            analysisSpec: analysisSpec || null
+          }, {
+            title: 'Reporting and reproducibility'
+          });
+          return;
+        }
+        // Fallback if shared reporting helper is missing.
+        if(!target || !document || !document.createElement){
+          return;
+        }
+        const panel = document.createElement('details');
+        panel.className = 'stats-report-panel';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Reporting and reproducibility';
+        panel.appendChild(summary);
+        const pre = document.createElement('pre');
+        pre.textContent = (report?.methodsText || '') + (report?.resultsText ? `
+
+${report.resultsText}` : '') + (analysisSpec ? `
+
+${JSON.stringify(analysisSpec, null, 2)}` : '');
+        panel.appendChild(pre);
+        target.appendChild(panel);
+      }
       function applyScatterStatsResults(context, stats, settings){
         if(!scatterStatsResults){
           return;
@@ -10953,21 +11798,38 @@
               append:true
             });
           }
-          const groupedComparisonRows = buildScatterGroupedComparisonReport(groupedSeriesStats);
-          if(Array.isArray(groupedComparisonRows) && groupedComparisonRows.length){
+          const groupedGlobalFitRows = buildScatterGroupedCurveComparisonRows(stats?.groupedGlobalFit || null);
+          if(Array.isArray(groupedGlobalFitRows) && groupedGlobalFitRows.length){
             renderStatsCard(scatterStatsResults,{
-              caption:'Comparison of fitted lines',
+              caption:'Comparison of fitted curves',
               columns:[
                 { key:'metric', label:'Metric', align:'left' },
                 { key:'value', label:'Value', align:'right' }
               ],
-              rows:groupedComparisonRows,
+              rows:groupedGlobalFitRows,
               options:{
-                fileName:'scatter-grouped-comparison',
-                contextLabel:'scatter-grouped-comparison'
+                fileName:'scatter-grouped-curve-comparison',
+                contextLabel:'scatter-grouped-curve-comparison'
               },
               append:true
             });
+          }else{
+            const groupedComparisonRows = buildScatterGroupedComparisonReport(groupedSeriesStats);
+            if(Array.isArray(groupedComparisonRows) && groupedComparisonRows.length){
+              renderStatsCard(scatterStatsResults,{
+                caption:'Comparison of fitted lines',
+                columns:[
+                  { key:'metric', label:'Metric', align:'left' },
+                  { key:'value', label:'Value', align:'right' }
+                ],
+                rows:groupedComparisonRows,
+                options:{
+                  fileName:'scatter-grouped-comparison',
+                  contextLabel:'scatter-grouped-comparison'
+                },
+                append:true
+              });
+            }
           }
           scatterLastRegressionSummary = {
             grouped: true,
@@ -10995,6 +11857,10 @@
               console.error('scatter grouped residual data view update failed', err);
             }
           }
+          const groupedReportText = buildScatterReportingText(context, { ...stats, grouped: true }, settings);
+          const groupedAnalysisSpec = buildScatterAnalysisSpec(context, { ...stats, grouped: true }, settings, { controlSignature });
+          appendScatterReportPanel(scatterStatsResults, groupedReportText, groupedAnalysisSpec);
+
           scatterDebug('Debug: scatter grouped stats computed', {
             groupCount: groupedSeriesStats.length,
             regression: reportRegressionLabel,
@@ -11058,6 +11924,10 @@
             console.error('scatter residual data view update failed', err);
           }
         }
+        const reportText = buildScatterReportingText(context, stats, settings);
+        const analysisSpec = buildScatterAnalysisSpec(context, stats, settings, { controlSignature });
+        appendScatterReportPanel(scatterStatsResults, reportText, analysisSpec);
+
         scatterDebug('Debug: scatter manual stats computed',{ stats, regressionSummary: scatterLastRegressionSummary });
       }
 
@@ -11117,7 +11987,7 @@
               && context.precomputedSignature === controlSignature
               && Array.isArray(groupedStats?.groupedSeriesStats);
             if(!canReuseGroupedStats){
-              const groupedSeriesStats = groupedSeries.map((series, index) => {
+              const groupedSeriesStatsSeparate = groupedSeries.map((series, index) => {
                 const label = (series?.label != null && String(series.label).trim() !== '')
                   ? String(series.label).trim()
                   : `Series ${index + 1}`;
@@ -11135,6 +12005,15 @@
                   stats: computed
                 };
               });
+              const groupedGlobalFit = buildScatterGroupedGlobalFitAnalysis(groupedSeriesStatsSeparate, {
+                regressionModeValue,
+                fitMethodValue,
+                fitSpec,
+                domain: context.domain || null
+              });
+              const groupedSeriesStats = Array.isArray(groupedGlobalFit?.activeSeriesStats) && groupedGlobalFit.activeSeriesStats.length
+                ? groupedGlobalFit.activeSeriesStats
+                : groupedSeriesStatsSeparate;
               const methodLabel = groupedSeriesStats
                 .map(entry => entry?.stats?.method)
                 .find(value => typeof value === 'string' && value.trim())
@@ -11142,6 +12021,8 @@
               groupedStats = {
                 method: methodLabel,
                 groupedSeriesStats,
+                groupedSeriesStatsSeparate,
+                groupedGlobalFit,
                 grouped: true,
                 pointCount: context.points.length,
                 regression: null
@@ -12146,7 +13027,11 @@
           recommendation.warnings.push('Replicate X values are present. Lack-of-fit style diagnostics are more informative when replicate structure is preserved.');
         }
         if(context.groupedSeriesCount > 1){
-          recommendation.rationale.push('Multiple series are present, so grouped line-comparison statistics should be inspected in addition to per-series fits.');
+          if(canScatterUseGroupedGlobalFit(recommendation.regression)){
+            recommendation.rationale.push('Multiple series are present, so separate fits should be compared against common-curve and shared-parameter global fits when a shared biological mechanism is plausible.');
+          }else{
+            recommendation.rationale.push('Multiple series are present, so grouped line-comparison statistics should be inspected in addition to per-series fits.');
+          }
         }
         const resolvedAssociationLabel = recommendation.statsMethod === 'none'
           ? 'None (model fit only)'
@@ -12189,7 +13074,7 @@
         const header=document.createElement('div');
         header.className='stats-advisor__header';
         const title=document.createElement('strong');
-        title.textContent='Analysis advisor';
+        title.textContent='Statistics advisor';
         header.appendChild(title);
         const toggle=document.createElement('button');
         toggle.type='button';
@@ -12214,7 +13099,7 @@
         summary.className='stats-advisor__summary';
         if(!scatterAdvisorState.activated){
           const message=document.createElement('div');
-          message.textContent='Press "Guide me" to receive regression, fit-method, and association recommendations.';
+          message.textContent='Press the "Guide me" button to view advisor recommendations.';
           summary.appendChild(message);
         }else if(recommendation.ready){
           const summaryLine=document.createElement('div');
@@ -12475,9 +13360,9 @@
           scheduleDrawScatter();
         });
       }
-      scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
-      scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
-      scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
+      scatterFill.addEventListener('input',()=>{scatterLog('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
+      scatterBorder.addEventListener('input',()=>{scatterLog('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
+      scatterBorderWidth.addEventListener('input',()=>{scatterLog('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
       scatterDotSize.addEventListener('input',()=>{
         const raw = Number(scatterDotSize.value);
         if(Number.isFinite(raw)){
@@ -12489,7 +13374,7 @@
           scatterState.dotSizeOverrideEnabled = false;
           scatterState.dotSizeOverrideRaw = null;
         }
-        console.log('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
+        scatterLog('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
         scheduleDrawScatter();
       });
       if(scatterShowErrorBars){
@@ -12505,7 +13390,7 @@
           scheduleDrawScatter();
         });
       }
-      scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; console.log('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
+      scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; scatterLog('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
       scatterFontSize.addEventListener('input',()=>{
         if(scatterFontSize.dataset){
           scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
@@ -12545,14 +13430,14 @@
           }
           scheduleDrawScatter();
         }));
-      [scatterFitRangeMinX, scatterFitRangeMaxX, scatterConfidenceLevel, scatterInitialValuesJson, scatterParameterConstraintsJson]
+      [scatterFitRangeMinX, scatterFitRangeMaxX, scatterConfidenceLevel, scatterInitialValuesJson, scatterParameterConstraintsJson, scatterGlobalFitJson]
         .forEach(el => el && el.addEventListener('change', () => {
           validateScatterFitSpecControls();
           requestScatterStatsContextRefresh(`${el.id || 'scatter-fit-spec'}-change`);
           persistTabState('scatter-fit-spec-change');
           scheduleDrawScatter();
         }));
-      [scatterInitialValuesJson, scatterParameterConstraintsJson]
+      [scatterInitialValuesJson, scatterParameterConstraintsJson, scatterGlobalFitJson]
         .forEach(el => el && el.addEventListener('input', () => {
           validateScatterFitSpecControls();
         }));
@@ -12711,7 +13596,7 @@
           return;
         }
         el.addEventListener('input',()=>{
-          console.log(logLabel, el.value);
+          scatterLog(logLabel, el.value);
           const logActive = axis === 'x' ? scatterLogX?.checked : scatterLogY?.checked;
           if(logActive && isScatterLogAxisInputInProgress(el)){
             if(scatterDebugEnabled()){
@@ -13150,7 +14035,7 @@
       async function drawScatter(){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
-        const info = debugEnabled ? console.log.bind(console) : () => {};
+        const info = debugEnabled ? console.debug.bind(console) : () => {};
         const time = debugEnabled ? console.time.bind(console) : () => {};
         const timeEnd = debugEnabled ? console.timeEnd.bind(console) : () => {};
         const rowSkipCounts = debugEnabled ? Object.create(null) : null;
@@ -16311,29 +17196,29 @@
           
           // Create a combined apply function that updates both visual and table header
           const applyBoth = (value) => {
-            console.log('applyBoth called with value:', value);
+            scatterLog('applyBoth called with value:', value);
             
             // Update visual title
             applyScatterXLabel(value);
             
             // Also update the table header to maintain consistency
             const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
-            console.log('Undo sync - HOT instance:', hot);
+            scatterLog('Undo sync - HOT instance:', hot);
             
             if(hot && typeof hot.setDataAtCell === 'function'){
               try {
                 const data = hot.getData() || [];
-                console.log('Undo sync - Current table data:', data);
+                scatterLog('Undo sync - Current table data:', data);
                 
                 if(Array.isArray(data) && data.length > 0) {
                   const headerRow = Array.isArray(data[0]) ? data[0] : [];
-                  console.log('Undo sync - Current header row:', headerRow);
+                  scatterLog('Undo sync - Current header row:', headerRow);
                   
                   const layout = resolveScatterColumnLayout(data);
-                  console.log('Undo sync - Column layout:', layout);
+                  scatterLog('Undo sync - Column layout:', layout);
                   
                   if(layout && Number.isInteger(layout.xCol) && layout.xCol >= 0 && layout.xCol < headerRow.length){
-                    console.log('Undo sync - Updating x-axis header to:', value);
+                    scatterLog('Undo sync - Updating x-axis header to:', value);
                     
                     // Try multiple approaches to ensure the update works
                     let updateSuccessful = false;
@@ -16341,17 +17226,17 @@
                     // Approach 1: setDataAtCell
                     try {
                       const result = hot.setDataAtCell([0, layout.xCol, value], 'scatter-x-axis-undo-sync');
-                      console.log('Undo sync - setDataAtCell result:', result);
+                      scatterLog('Undo sync - setDataAtCell result:', result);
                       
                       // Verify the update
                       const verifyData = hot.getData() || [];
                       const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
                       if(verifyHeader[layout.xCol] === value) {
                         updateSuccessful = true;
-                        console.log('Undo sync - Successfully updated with setDataAtCell');
+                        scatterLog('Undo sync - Successfully updated with setDataAtCell');
                       }
                     } catch(err) {
-                      console.log('Undo sync - setDataAtCell failed:', err.message);
+                      scatterLog('Undo sync - setDataAtCell failed:', err.message);
                     }
                     
                     // Approach 2: Direct data manipulation if setDataAtCell failed
@@ -16366,13 +17251,13 @@
                           // Try different update methods
                           if(typeof hot.setData === 'function') {
                             hot.setData(newData);
-                            console.log('Undo sync - Used setData method');
+                            scatterLog('Undo sync - Used setData method');
                           } else if(typeof hot.updateSettings === 'function') {
                             hot.updateSettings({ data: newData });
-                            console.log('Undo sync - Used updateSettings method');
+                            scatterLog('Undo sync - Used updateSettings method');
                           } else if(typeof hot.gridApi?.setRowData === 'function') {
                             hot.gridApi.setRowData(newData);
-                            console.log('Undo sync - Used gridApi.setRowData method');
+                            scatterLog('Undo sync - Used gridApi.setRowData method');
                           }
                           
                           // Verify the update
@@ -16380,7 +17265,7 @@
                           const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
                           if(verifyHeader[layout.xCol] === value) {
                             updateSuccessful = true;
-                            console.log('Undo sync - Successfully updated with direct manipulation');
+                            scatterLog('Undo sync - Successfully updated with direct manipulation');
                           }
                         }
                       } catch(err) {
@@ -16405,7 +17290,7 @@
               scheduleDrawScatter({ reason: 'x-axis-undo-sync' });
             }
             
-            console.log('Undo sync - Completed x-axis update');
+            scatterLog('Undo sync - Completed x-axis update');
             return true;
           };
           
@@ -16413,17 +17298,17 @@
           recordScatterChange('scatter:x-label',previous,nextValue,applyBoth);
           
           // IMMEDIATE DEBUG: Check if this function is being called
-          console.log('X-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
+          scatterLog('X-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
           
           // Update the table header to make the change permanent
           const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
-          console.log('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
+          scatterLog('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
           
           if(hot && typeof hot.setDataAtCell === 'function'){
             try {
-              console.log('Attempting to update table header...');
+              scatterLog('Attempting to update table header...');
               const data = hot.getData() || [];
-              console.log('Table data:', data);
+              scatterLog('Table data:', data);
               
               if(!Array.isArray(data) || data.length === 0) {
                 console.warn('No table data available for x-axis header update');
@@ -16431,7 +17316,7 @@
               }
               
               const headerRow = Array.isArray(data[0]) ? data[0] : [];
-              console.log('Header row:', headerRow);
+              scatterLog('Header row:', headerRow);
               
               if(!Array.isArray(headerRow) || headerRow.length === 0) {
                 console.warn('No header row available for x-axis header update');
@@ -16439,7 +17324,7 @@
               }
               
               const layout = resolveScatterColumnLayout(data);
-              console.log('Column layout:', layout);
+              scatterLog('Column layout:', layout);
               
               if(!layout || !Number.isInteger(layout.xCol)) {
                 console.warn('Invalid column layout for x-axis:', layout);
@@ -16451,7 +17336,7 @@
                 return;
               }
               
-              console.log('Updating x-axis header:', { 
+              scatterLog('Updating x-axis header:', { 
                 row: 0, 
                 col: layout.xCol, 
                 oldValue: headerRow[layout.xCol], 
@@ -16464,17 +17349,17 @@
               // Approach 1: Try the original setDataAtCell
               try {
                 const result = hot.setDataAtCell([0, layout.xCol, nextValue], 'scatter-x-axis-edit');
-                console.log('setDataAtCell result:', result);
+                scatterLog('setDataAtCell result:', result);
                 
                 // Check if the update worked
                 const updatedData1 = hot.getData() || [];
                 const updatedHeader1 = Array.isArray(updatedData1[0]) ? updatedData1[0] : [];
                 if(updatedHeader1[layout.xCol] === nextValue) {
                   updateSuccessful = true;
-                  console.log('Update successful with setDataAtCell');
+                  scatterLog('Update successful with setDataAtCell');
                 }
               } catch(err) {
-                console.log('setDataAtCell failed, trying alternative approach:', err.message);
+                scatterLog('setDataAtCell failed, trying alternative approach:', err.message);
               }
               
               // Approach 2: If setDataAtCell didn't work, try updating the data directly
@@ -16489,13 +17374,13 @@
                     // Try different AG Grid update methods
                     if(typeof hot.setData === 'function') {
                       hot.setData(newData);
-                      console.log('Used setData method');
+                      scatterLog('Used setData method');
                     } else if(typeof hot.updateSettings === 'function') {
                       hot.updateSettings({ data: newData });
-                      console.log('Used updateSettings method');
+                      scatterLog('Used updateSettings method');
                     } else if(typeof hot.gridApi?.setRowData === 'function') {
                       hot.gridApi.setRowData(newData);
-                      console.log('Used gridApi.setRowData method');
+                      scatterLog('Used gridApi.setRowData method');
                     } else {
                       console.warn('No suitable update method found');
                     }
@@ -16505,7 +17390,7 @@
                     const updatedHeader2 = Array.isArray(updatedData2[0]) ? updatedData2[0] : [];
                     if(updatedHeader2[layout.xCol] === nextValue) {
                       updateSuccessful = true;
-                      console.log('Update successful with direct data manipulation');
+                      scatterLog('Update successful with direct data manipulation');
                     }
                   }
                 } catch(err) {
@@ -16516,11 +17401,11 @@
               // Final verification
               const finalData = hot.getData() || [];
               const finalHeader = Array.isArray(finalData[0]) ? finalData[0] : [];
-              console.log('Final header row:', finalHeader);
-              console.log('Header at xCol after all attempts:', finalHeader[layout.xCol]);
+              scatterLog('Final header row:', finalHeader);
+              scatterLog('Header at xCol after all attempts:', finalHeader[layout.xCol]);
               
               if(finalHeader[layout.xCol] === nextValue) {
-                console.log('SUCCESS: X-axis header updated to:', nextValue);
+                scatterLog('SUCCESS: X-axis header updated to:', nextValue);
               } else {
                 console.error('FAILED: X-axis header still shows:', finalHeader[layout.xCol]);
               }
@@ -16595,29 +17480,29 @@
           
           // Create a combined apply function that updates both visual and table header
           const applyBoth = (value) => {
-            console.log('applyBoth called with value:', value);
+            scatterLog('applyBoth called with value:', value);
             
             // Update visual title
             applyScatterYLabel(value);
             
             // Also update the table header to maintain consistency
             const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
-            console.log('Undo sync - HOT instance:', hot);
+            scatterLog('Undo sync - HOT instance:', hot);
             
             if(hot && typeof hot.setDataAtCell === 'function'){
               try {
                 const data = hot.getData() || [];
-                console.log('Undo sync - Current table data:', data);
+                scatterLog('Undo sync - Current table data:', data);
                 
                 if(Array.isArray(data) && data.length > 0) {
                   const headerRow = Array.isArray(data[0]) ? data[0] : [];
-                  console.log('Undo sync - Current header row:', headerRow);
+                  scatterLog('Undo sync - Current header row:', headerRow);
                   
                   const layout = resolveScatterColumnLayout(data);
-                  console.log('Undo sync - Column layout:', layout);
+                  scatterLog('Undo sync - Column layout:', layout);
                   
                   if(layout && Number.isInteger(layout.yCol) && layout.yCol >= 0 && layout.yCol < headerRow.length){
-                    console.log('Undo sync - Updating y-axis header to:', value);
+                    scatterLog('Undo sync - Updating y-axis header to:', value);
                     
                     // Try multiple approaches to ensure the update works
                     let updateSuccessful = false;
@@ -16625,17 +17510,17 @@
                     // Approach 1: setDataAtCell
                     try {
                       const result = hot.setDataAtCell([0, layout.yCol, value], 'scatter-y-axis-undo-sync');
-                      console.log('Undo sync - setDataAtCell result:', result);
+                      scatterLog('Undo sync - setDataAtCell result:', result);
                       
                       // Verify the update
                       const verifyData = hot.getData() || [];
                       const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
                       if(verifyHeader[layout.yCol] === value) {
                         updateSuccessful = true;
-                        console.log('Undo sync - Successfully updated with setDataAtCell');
+                        scatterLog('Undo sync - Successfully updated with setDataAtCell');
                       }
                     } catch(err) {
-                      console.log('Undo sync - setDataAtCell failed:', err.message);
+                      scatterLog('Undo sync - setDataAtCell failed:', err.message);
                     }
                     
                     // Approach 2: Direct data manipulation if setDataAtCell failed
@@ -16650,13 +17535,13 @@
                           // Try different update methods
                           if(typeof hot.setData === 'function') {
                             hot.setData(newData);
-                            console.log('Undo sync - Used setData method');
+                            scatterLog('Undo sync - Used setData method');
                           } else if(typeof hot.updateSettings === 'function') {
                             hot.updateSettings({ data: newData });
-                            console.log('Undo sync - Used updateSettings method');
+                            scatterLog('Undo sync - Used updateSettings method');
                           } else if(typeof hot.gridApi?.setRowData === 'function') {
                             hot.gridApi.setRowData(newData);
-                            console.log('Undo sync - Used gridApi.setRowData method');
+                            scatterLog('Undo sync - Used gridApi.setRowData method');
                           }
                           
                           // Verify the update
@@ -16664,7 +17549,7 @@
                           const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
                           if(verifyHeader[layout.yCol] === value) {
                             updateSuccessful = true;
-                            console.log('Undo sync - Successfully updated with direct manipulation');
+                            scatterLog('Undo sync - Successfully updated with direct manipulation');
                           }
                         }
                       } catch(err) {
@@ -16689,7 +17574,7 @@
               scheduleDrawScatter({ reason: 'y-axis-undo-sync' });
             }
             
-            console.log('Undo sync - Completed y-axis update');
+            scatterLog('Undo sync - Completed y-axis update');
             return true;
           };
           
@@ -16697,17 +17582,17 @@
           recordScatterChange('scatter:y-label',previous,nextValue,applyBoth);
           
           // IMMEDIATE DEBUG: Check if this function is being called
-          console.log('Y-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
+          scatterLog('Y-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
           
           // Update the table header to make the change permanent
           const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
-          console.log('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
+          scatterLog('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
           
           if(hot && typeof hot.setDataAtCell === 'function'){
             try {
-              console.log('Attempting to update table header...');
+              scatterLog('Attempting to update table header...');
               const data = hot.getData() || [];
-              console.log('Table data:', data);
+              scatterLog('Table data:', data);
               
               if(!Array.isArray(data) || data.length === 0) {
                 console.warn('No table data available for y-axis header update');
@@ -16715,7 +17600,7 @@
               }
               
               const headerRow = Array.isArray(data[0]) ? data[0] : [];
-              console.log('Header row:', headerRow);
+              scatterLog('Header row:', headerRow);
               
               if(!Array.isArray(headerRow) || headerRow.length === 0) {
                 console.warn('No header row available for y-axis header update');
@@ -16723,7 +17608,7 @@
               }
               
               const layout = resolveScatterColumnLayout(data);
-              console.log('Column layout:', layout);
+              scatterLog('Column layout:', layout);
               
               if(!layout || !Number.isInteger(layout.yCol)) {
                 console.warn('Invalid column layout for y-axis:', layout);
@@ -16735,7 +17620,7 @@
                 return;
               }
               
-              console.log('Updating y-axis header:', { 
+              scatterLog('Updating y-axis header:', { 
                 row: 0, 
                 col: layout.yCol, 
                 oldValue: headerRow[layout.yCol], 
@@ -16748,17 +17633,17 @@
               // Approach 1: Try the original setDataAtCell
               try {
                 const result = hot.setDataAtCell([0, layout.yCol, nextValue], 'scatter-y-axis-edit');
-                console.log('setDataAtCell result:', result);
+                scatterLog('setDataAtCell result:', result);
                 
                 // Check if the update worked
                 const updatedData1 = hot.getData() || [];
                 const updatedHeader1 = Array.isArray(updatedData1[0]) ? updatedData1[0] : [];
                 if(updatedHeader1[layout.yCol] === nextValue) {
                   updateSuccessful = true;
-                  console.log('Update successful with setDataAtCell');
+                  scatterLog('Update successful with setDataAtCell');
                 }
               } catch(err) {
-                console.log('setDataAtCell failed, trying alternative approach:', err.message);
+                scatterLog('setDataAtCell failed, trying alternative approach:', err.message);
               }
               
               // Approach 2: If setDataAtCell didn't work, try updating the data directly
@@ -16773,13 +17658,13 @@
                     // Try different AG Grid update methods
                     if(typeof hot.setData === 'function') {
                       hot.setData(newData);
-                      console.log('Used setData method');
+                      scatterLog('Used setData method');
                     } else if(typeof hot.updateSettings === 'function') {
                       hot.updateSettings({ data: newData });
-                      console.log('Used updateSettings method');
+                      scatterLog('Used updateSettings method');
                     } else if(typeof hot.gridApi?.setRowData === 'function') {
                       hot.gridApi.setRowData(newData);
-                      console.log('Used gridApi.setRowData method');
+                      scatterLog('Used gridApi.setRowData method');
                     } else {
                       console.warn('No suitable update method found');
                     }
@@ -16789,7 +17674,7 @@
                     const updatedHeader2 = Array.isArray(updatedData2[0]) ? updatedData2[0] : [];
                     if(updatedHeader2[layout.yCol] === nextValue) {
                       updateSuccessful = true;
-                      console.log('Update successful with direct data manipulation');
+                      scatterLog('Update successful with direct data manipulation');
                     }
                   }
                 } catch(err) {
@@ -16800,11 +17685,11 @@
               // Final verification
               const finalData = hot.getData() || [];
               const finalHeader = Array.isArray(finalData[0]) ? finalData[0] : [];
-              console.log('Final header row:', finalHeader);
-              console.log('Header at yCol after all attempts:', finalHeader[layout.yCol]);
+              scatterLog('Final header row:', finalHeader);
+              scatterLog('Header at yCol after all attempts:', finalHeader[layout.yCol]);
               
               if(finalHeader[layout.yCol] === nextValue) {
-                console.log('SUCCESS: Y-axis header updated to:', nextValue);
+                scatterLog('SUCCESS: Y-axis header updated to:', nextValue);
               } else {
                 console.error('FAILED: Y-axis header still shows:', finalHeader[layout.yCol]);
               }
@@ -17452,7 +18337,10 @@
     
     
       function computeScatterStats(points,method,options={}){
-        console.log('computeScatterStats',method,points.length,options);
+        const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+        if(debugEnabled){
+          console.debug('Debug: computeScatterStats',{ method, pointCount: points.length, options });
+        }
         const regressionMode = options.regressionMode || 'linear';
         const fitMethod = options.fitMethod || 'ols';
         const associationSelection = normalizeScatterAssociationSelection(options.associationSelection || method || 'auto');
@@ -17553,14 +18441,16 @@
           regression,
           derived
         };
-        console.log('computeScatterStats result',{method:label,r,r2,p,m:resolvedSlope,b:resolvedIntercept,mode:regressionMode});
+        if(debugEnabled){
+          console.debug('Debug: computeScatterStats result',{ method: label, r, r2, p, slope: resolvedSlope, intercept: resolvedIntercept, mode: regressionMode });
+        }
         return stats;
       }
       function updateLineStats(series){
         const method=lineStatType.value;
         const regressionEl=global.lineRegressionMode || document.getElementById('lineRegressionMode');
         const regressionMode=(regressionEl&&regressionEl.value)||'linear';
-        console.log('updateLineStats start',{seriesCount:series.length,method,regressionMode});
+        scatterLog('updateLineStats start',{seriesCount:series.length,method,regressionMode});
         const tableRows=[];
         let methodLabel='';
         series.forEach(s=>{
@@ -17598,10 +18488,10 @@
         }else{
           lineStatsResults.textContent='Not enough data for statistics.';
         }
-        console.log('updateLineStats complete',{rows:tableRows.length,regressionMode});
+        scatterLog('updateLineStats complete',{rows:tableRows.length,regressionMode});
       }
       function updateHistStats(values){
-        console.log('updateHistStats start',values.length);
+        scatterLog('updateHistStats start',values.length);
         if(!values.length){histStatsResults.textContent='No data';return;}
         const mean=jStat.mean(values);
         const median=jStat.median(values);
@@ -17623,10 +18513,10 @@
             contextLabel:'hist-summary'
           }
         });
-        console.log('updateHistStats result',{mean,median,sd});
+        scatterLog('updateHistStats result',{mean,median,sd});
       }
       function updatePieStats(labels,observed,expected){
-        console.log('updatePieStats start',{labels:labels.length,observed:observed.length,expected:expected.length});
+        scatterLog('updatePieStats start',{labels:labels.length,observed:observed.length,expected:expected.length});
         if(!observed.length){pieStatsResults.textContent='No data';return;}
         if(expected.length!==observed.length || expected.some(e=>isNaN(e))){
           pieStatsResults.textContent='Expected values required';
@@ -17651,7 +18541,7 @@
             contextLabel:'pie-chi-square'
           }
         });
-        console.log('updatePieStats result',{chi2,df,p});
+        scatterLog('updatePieStats result',{chi2,df,p});
       }
     
       function getScatterGraphPayload(){
