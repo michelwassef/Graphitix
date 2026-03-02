@@ -97,7 +97,7 @@
   const ANN_LEVEL_GAP=25;
   const ANN_LABEL_GAP_MIN=7;
   const ANN_LABEL_GAP_SCALE=0.65;
-  const DEFAULT_CORRECTION='bonferroni';
+  const DEFAULT_CORRECTION='holm';
   const ASSUMPTION_ALPHA=0.05;
   const DEFAULT_WHISKER_RULE='iqr15';
   const DEFAULT_WHISKER_MULTIPLIER=1.5;
@@ -127,12 +127,11 @@
 	    timeoutMs: 20000
 	  };
   function shouldUseBoxStatsWorker(valueCount){
-    const workerApi = Shared.Workers;
-    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
-      return false;
-    }
     const count = Number(valueCount) || 0;
-    return count >= BOX_STATS_WORKER.minValues;
+    if(count >= BOX_STATS_WORKER.minValues){
+      console.debug('Debug: box stats worker bypassed to preserve full local statistics feature parity',{ count });
+    }
+    return false;
   }
   function runBoxStatsWorker(payload){
     const workerApi = Shared.Workers;
@@ -2825,6 +2824,32 @@
     return lowerValue + (upperValue - lowerValue) * (pos - lowerIndex);
   }
 
+  function quantileFromSorted(sortedValues, p){
+    if(!Array.isArray(sortedValues) || !sortedValues.length){
+      console.debug('Debug: box quantileFromSorted received empty input');
+      return NaN;
+    }
+    const clampedP = Math.min(Math.max(Number(p), 0), 1);
+    const pos = (sortedValues.length - 1) * clampedP;
+    const lowerIndex = Math.floor(pos);
+    const upperIndex = Math.ceil(pos);
+    const lowerValue = Number(sortedValues[lowerIndex]);
+    const upperValue = Number(sortedValues[upperIndex]);
+    if(!Number.isFinite(lowerValue) || !Number.isFinite(upperValue)){
+      console.debug('Debug: box quantileFromSorted encountered non-finite values',{
+        lowerIndex,
+        upperIndex,
+        lowerValue,
+        upperValue
+      });
+      return NaN;
+    }
+    if(upperIndex === lowerIndex){
+      return lowerValue;
+    }
+    return lowerValue + (upperValue - lowerValue) * (pos - lowerIndex);
+  }
+
   function selectQuantileInPlace(work, p){
     if(!work.length){
       return NaN;
@@ -3060,6 +3085,8 @@
       const labels = traces.map(t => t.name);
       assumption = computeAssumptionDiagnostics(groups, labels, {
         qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
+        alpha: resolveStatsAlpha({}),
+        normalityMethod: resolveNormalityMethodOption({}),
         summaries
       });
     }
@@ -5492,6 +5519,14 @@
       applies:context=>context && context.mode!=='custom' && context.test==='nonparametric' && !context.paired && context.groupCount>=3,
       summary:context=>`Dunn's rank-based post-hoc across ${context?.groupCount || 0} groups.`
     },
+    nemenyi:{
+      value:'nemenyi',
+      label:"Nemenyi's test",
+      shortLabel:'Nemenyi',
+      tooltip:'Friedman/Nemenyi post-hoc test on average ranks for paired or repeated-measures non-parametric designs.',
+      applies:context=>context && context.mode!=='custom' && context.test==='nonparametric' && context.paired && context.groupCount>=3,
+      summary:context=>`Nemenyi post-hoc comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
+    },
     dunnett:{
       value:'dunnett',
       label:"Dunnett's test",
@@ -5509,7 +5544,7 @@
       summary:context=>`Dunnett T3-style control comparisons across ${Math.max(0,(context?.groupCount||0)-1)} group${(context?.groupCount||0)===2?'':'s'}.`
     }
   };
-  const POST_HOC_ORDER=['standard','tukey','gamesHowell','dunn','dunnett','dunnettT3'];
+  const POST_HOC_ORDER=['standard','tukey','gamesHowell','dunn','nemenyi','dunnett','dunnettT3'];
   function listPostHocOptions(){
     return POST_HOC_ORDER.map(key=>({
       value:key,
@@ -5550,6 +5585,12 @@
         console.debug('Debug: box postHoc welch fallback',{ requested, fallback:'gamesHowell', context:ctx });
       }
       return 'gamesHowell';
+    }
+    if(ctx.paired && ctx.test==='nonparametric' && isPostHocSupported('nemenyi',ctx)){
+      if(requested && requested!=='nemenyi'){
+        console.debug('Debug: box postHoc paired nonparametric fallback',{ requested, fallback:'nemenyi', context:ctx });
+      }
+      return 'nemenyi';
     }
     for(const key of POST_HOC_ORDER){
       if(isPostHocSupported(key,ctx)){
@@ -5844,20 +5885,26 @@
       if(paired){
         if(distributionAnswer==='normal'){
           statsTest='parametric';
-          primaryLabel='Paired contrasts with Holm correction';
-          rationale.push('Repeated measures with normal-ish differences can use paired t-tests plus Holm correction.');
+          primaryLabel='Repeated-measures ANOVA';
+          postHoc='standard';
+          recommendedCorrection='holm';
+          postHocLabel='If the omnibus test is significant, follow with Holm-adjusted paired contrasts.';
+          rationale.push('For three or more paired groups, start with a repeated-measures omnibus test rather than isolated paired t-tests.');
+          rationale.push('Holm-adjusted paired contrasts provide a practical follow-up when specific pairwise differences are needed.');
         }else if(distributionAnswer==='nonnormal'){
           statsTest='nonparametric';
-          primaryLabel='Wilcoxon signed-rank contrasts with Holm correction';
-          rationale.push('Rank-based paired contrasts protect against non-normal repeated measures.');
+          primaryLabel='Friedman test';
+          postHoc='nemenyi';
+          postHocLabel='If the omnibus test is significant, follow with Nemenyi post-hoc comparisons on average ranks.';
+          rationale.push('For three or more paired non-normal groups, Friedman is the standard omnibus test.');
+          rationale.push('Nemenyi provides a dedicated post-hoc route after Friedman for publication-style repeated-measures rank analyses.');
         }else{
           statsTest='nonparametric';
-          primaryLabel='Wilcoxon signed-rank contrasts with Holm correction';
-          rationale.push('When normality is uncertain for repeated measures, start with rank-based paired contrasts.');
+          primaryLabel='Friedman test';
+          postHoc='nemenyi';
+          postHocLabel='If the omnibus test is significant, follow with Nemenyi post-hoc comparisons on average ranks.';
+          rationale.push('When normality is uncertain for repeated measures, Friedman is a safer default than chaining multiple paired tests.');
         }
-        postHoc='standard';
-        recommendedCorrection='holm';
-        postHocLabel='Apply Holm correction across paired contrasts.';
       }else{
         if(distributionAnswer==='normal'){
           if(equalVarianceAnswer==='no'){
@@ -5904,6 +5951,13 @@
     }
     if(assumptionDiagnostics?.recommendNonParametric && statsTest==='parametric' && recommendationVariant!=='welch'){
       warnings.push('Recent assumption diagnostics flagged issues with parametric assumptions.');
+    }
+    if(groupsAnswer!=='two'){
+      warnings.push('Define the multiplicity family up front, then report adjusted P values rather than mixing corrected and uncorrected pairwise results.');
+    }
+    warnings.push('Report effect sizes and confidence intervals alongside P values; statistical significance alone is not a measure of scientific importance.');
+    if(paired){
+      warnings.push('If repeated-measures data contain missing values, a full mixed-effects engine is preferable to deleting incomplete subjects.');
     }
 
     const groupPhrase=groupsAnswer==='two'
@@ -6008,6 +6062,33 @@
     console.debug('Debug: box studentizedRangeCDF',{ q, r, df, scale, adjusted, result });
     return result;
   }
+  function resolveStudentizedRangeCritical(alpha,r,df){
+    const tailAlpha=Number.isFinite(alpha) && alpha>0 && alpha<1 ? alpha : 0.05;
+    const groups=Math.max(2,Math.round(Number(r) || 2));
+    const dof=Number.isFinite(df) ? df : Number.POSITIVE_INFINITY;
+    let low=0;
+    let high=12;
+    let cdf=studentizedRangeCDF(high,groups,dof);
+    let guard=0;
+    while(cdf < 1-tailAlpha && high < 200 && guard < 40){
+      low=high;
+      high*=1.5;
+      cdf=studentizedRangeCDF(high,groups,dof);
+      guard+=1;
+    }
+    for(let iter=0; iter<60; iter++){
+      const mid=(low+high)/2;
+      const midCdf=studentizedRangeCDF(mid,groups,dof);
+      if(midCdf >= 1-tailAlpha){
+        high=mid;
+      }else{
+        low=mid;
+      }
+    }
+    const critical=(low+high)/2;
+    console.debug('Debug: box studentizedRange critical',{ alpha:tailAlpha, groups, df:dof, critical });
+    return critical;
+  }
   function computeAnovaComponents(groups){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
@@ -6042,14 +6123,209 @@
       sse
     };
   }
-  function computeTukeyComparisons(groups,labels){
+  function computeEtaSquared(ssEffect,ssTotal){
+    if(!Number.isFinite(ssEffect) || !Number.isFinite(ssTotal) || ssTotal<=0){
+      return NaN;
+    }
+    return clamp(ssEffect/ssTotal,0,1);
+  }
+  function computePartialEtaSquared(ssEffect,ssError){
+    if(!Number.isFinite(ssEffect) || !Number.isFinite(ssError)){
+      return NaN;
+    }
+    const denom=ssEffect+ssError;
+    if(!(denom>0)){
+      return NaN;
+    }
+    return clamp(ssEffect/denom,0,1);
+  }
+  function computeOmegaSquared(ssEffect,dfEffect,msError,ssTotal){
+    if(!Number.isFinite(ssEffect) || !Number.isFinite(dfEffect) || !Number.isFinite(msError) || !Number.isFinite(ssTotal)){
+      return NaN;
+    }
+    const denom=ssTotal+msError;
+    if(!(denom>0)){
+      return NaN;
+    }
+    return clamp((ssEffect-(dfEffect*msError))/denom,0,1);
+  }
+  function computeKruskalEpsilonSquared(H,k,n){
+    if(!Number.isFinite(H) || !Number.isFinite(k) || !Number.isFinite(n)){
+      return NaN;
+    }
+    const denom=n-k;
+    if(!(denom>0)){
+      return NaN;
+    }
+    return clamp((H-k+1)/denom,0,1);
+  }
+  function computeKendallsW(Q,n,k){
+    if(!Number.isFinite(Q) || !Number.isFinite(n) || !Number.isFinite(k) || !(n>0) || !(k>1)){
+      return NaN;
+    }
+    return clamp(Q/(n*(k-1)),0,1);
+  }
+  function buildGroupDataQualityFootnotes(groups,labels){
+    const notes=[];
+    let totalExcluded=0;
+    (Array.isArray(groups)?groups:[]).forEach((group,idx)=>{
+      const source=Array.isArray(group)?group:[];
+      const kept=source.filter(Number.isFinite).length;
+      const excluded=Math.max(0,source.length-kept);
+      totalExcluded+=excluded;
+      if(excluded>0){
+        console.warn('Box statistics excluded missing/non-numeric values',{ group: labels?.[idx] || `Group ${idx+1}`, excluded, total: source.length });
+        notes.push(`${labels?.[idx] || `Group ${idx+1}`}: excluded ${excluded} missing/non-numeric value${excluded===1?'':'s'} before analysis.`);
+      }
+    });
+    if(totalExcluded>0){
+      notes.unshift(`Complete-case filtering excluded ${totalExcluded} missing/non-numeric value${totalExcluded===1?'':'s'} before analysis.`);
+    }
+    return notes;
+  }
+  function computeNemenyiComparisons(groups,labels,options={}){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const k=cleaned.length;
+    if(k<3){
+      return { ok:false, message:"Nemenyi's test requires at least three paired groups." };
+    }
+    const n=cleaned[0]?.length || 0;
+    if(n<2){
+      return { ok:false, message:"Nemenyi's test requires at least two paired rows." };
+    }
+    if(cleaned.some(group=>group.length!==n)){
+      return { ok:false, message:"Nemenyi's test requires equal group sizes." };
+    }
+    const rowRanks=[];
+    const rankSums=new Array(k).fill(0);
+    let tieRows=0;
+    for(let row=0; row<n; row++){
+      const rowValues=cleaned.map(group=>group[row]);
+      const rankInfo=rankValuesWithTieInfo(rowValues);
+      if(rankInfo.tieTerm>0){
+        tieRows+=1;
+      }
+      rowRanks.push(rankInfo.ranks.slice());
+      for(let col=0; col<k; col++){
+        rankSums[col]+=rankInfo.ranks[col];
+      }
+    }
+    const meanRanks=rankSums.map(sum=>sum/n);
+    const se=Math.sqrt((k*(k+1))/(6*n));
+    if(!(se>0)){
+      return { ok:false, message:"Unable to compute Nemenyi standard error." };
+    }
+    const pairs=[];
+    for(let i=0;i<k;i++){
+      for(let j=i+1;j<k;j++){
+        const diff=meanRanks[i]-meanRanks[j];
+        const q=Math.abs(diff)/se;
+        const p=Math.max(0,Math.min(1,1-studentizedRangeCDF(q*Math.SQRT2,k,Number.POSITIVE_INFINITY)));
+        pairs.push({
+          i,
+          j,
+          diff,
+          q,
+          p,
+          meanRankA:meanRanks[i],
+          meanRankB:meanRanks[j],
+          labelA:labels?.[i],
+          labelB:labels?.[j]
+        });
+      }
+    }
+    const resamplingMode=resolveStatsResamplingMode(options);
+    const iterations=resolveStatsMonteCarloIterations(options);
+    const seed=resolveStatsSeed(options);
+    const exactEligible=tieRows===0 && Math.pow(factorialInt(k),n)<=200000;
+    if(resamplingMode!=='asymptotic' && (exactEligible || resamplingMode==='monte-carlo' || (resamplingMode==='auto' && n<=10))){
+      const observedStats=pairs.map(pair=>Math.abs(pair.diff));
+      const exceed=new Array(pairs.length).fill(0);
+      let total=0;
+      if(exactEligible && resamplingMode!=='monte-carlo'){
+        const perms=generatePermutations(Array.from({ length:k },(_,idx)=>idx+1));
+        function visit(rowIndex,currentSums){
+          if(rowIndex>=n){
+            total+=1;
+            const simMeans=currentSums.map(sum=>sum/n);
+            pairs.forEach((pair,pairIdx)=>{
+              const stat=Math.abs(simMeans[pair.i]-simMeans[pair.j]);
+              if(stat>=observedStats[pairIdx]-1e-12){
+                exceed[pairIdx]+=1;
+              }
+            });
+            return;
+          }
+          perms.forEach(perm=>{
+            for(let col=0; col<k; col++){
+              currentSums[col]+=perm[col];
+            }
+            visit(rowIndex+1,currentSums);
+            for(let col=0; col<k; col++){
+              currentSums[col]-=perm[col];
+            }
+          });
+        }
+        visit(0,new Array(k).fill(0));
+        pairs.forEach((pair,pairIdx)=>{
+          pair.p=Math.max(0,Math.min(1,exceed[pairIdx]/Math.max(total,1)));
+          pair.method='exact-permutation';
+        });
+        return {
+          ok:pairs.length>0,
+          pairs,
+          meanRanks,
+          footnote:'Nemenyi follow-up calibrated from the exact within-row permutation distribution after Friedman.'
+        };
+      }
+      const nextRand=createSeededRandom(seed + n*271 + k*31);
+      for(let iter=0; iter<iterations; iter++){
+        const simSums=new Array(k).fill(0);
+        for(let row=0; row<n; row++){
+          const perm=shuffleInPlace(rowRanks[row].slice(),nextRand);
+          for(let col=0; col<k; col++){
+            simSums[col]+=perm[col];
+          }
+        }
+        const simMeans=simSums.map(sum=>sum/n);
+        pairs.forEach((pair,pairIdx)=>{
+          const stat=Math.abs(simMeans[pair.i]-simMeans[pair.j]);
+          if(stat>=observedStats[pairIdx]-1e-12){
+            exceed[pairIdx]+=1;
+          }
+        });
+      }
+      pairs.forEach((pair,pairIdx)=>{
+        pair.p=(exceed[pairIdx]+1)/(iterations+1);
+        pair.method='monte-carlo';
+      });
+      return {
+        ok:pairs.length>0,
+        pairs,
+        meanRanks,
+        footnote:tieRows>0
+          ? `Nemenyi follow-up calibrated by Monte Carlo within-row permutations (${iterations} iterations; ties present).`
+          : `Nemenyi follow-up calibrated by Monte Carlo within-row permutations (${iterations} iterations).`
+      };
+    }
+    return {
+      ok:pairs.length>0,
+      pairs,
+      meanRanks,
+      footnote:tieRows>0
+        ? "Nemenyi post-hoc on average ranks after Friedman (studentized range approximation; ties present, so interpret conservatively)."
+        : "Nemenyi post-hoc on average ranks after Friedman (studentized range approximation)."
+    };
+  }
+
+  function computeTukeyComparisons(groups,labels,options={}){
     const base=computeAnovaComponents(groups);
     if(!base.ok){
       console.debug('Debug: box computeTukeyComparisons unavailable',base);
       return { ok:false, message:base.reason || 'Unable to compute Tukey HSD.' };
     }
     const pairs=[];
-    const tCritical=resolveTCritical(base.dfWithin,0.05);
+    const qCritical=resolveStudentizedRangeCritical(resolveStatsAlpha({ alpha: options?.alpha }),base.groupCount,base.dfWithin);
     for(let i=0;i<base.groupCount;i++){
       for(let j=i+1;j<base.groupCount;j++){
         const ni=base.counts[i];
@@ -6063,7 +6339,7 @@
         const q=Math.abs(diff)/se;
         const cdf=studentizedRangeCDF(q,base.groupCount,base.dfWithin);
         const pAdj=Math.max(0,Math.min(1,1-cdf));
-        const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
+        const ciHalf=Number.isFinite(qCritical)?qCritical*se:NaN;
         pairs.push({
           i,
           j,
@@ -6093,7 +6369,7 @@
       means:base.means
     };
   }
-  function computeGamesHowellComparisons(groups,labels){
+  function computeGamesHowellComparisons(groups,labels,options={}){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
     const k=cleaned.length;
@@ -6126,8 +6402,8 @@
         const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
         const cdf=studentizedRangeCDF(q,k,df);
         const p=Math.max(0,Math.min(1,1-cdf));
-        const tCritical=resolveTCritical(df,0.05);
-        const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
+        const qCritical=resolveStudentizedRangeCritical(resolveStatsAlpha({ alpha: options?.alpha }),k,df);
+        const ciHalf=Number.isFinite(qCritical)?qCritical*se:NaN;
         pairs.push({
           i,
           j,
@@ -6257,7 +6533,7 @@
         : "Dunnett approximated with pooled-variance t-tests and Sidak family-wise adjustment versus reference."
     };
   }
-  function computeDunnComparisons(groups,labels){
+  function computeDunnComparisons(groups,labels,options={}){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
     if(counts.some(n=>n===0)){
@@ -6308,7 +6584,7 @@
         const absZ=Math.abs(z);
         const jStatLib=global.jStat;
         const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
-          ? jStatLib.normal.cdf(absZ,0,1)
+          ? jStatLib.normal.cdf
           : 0.5*(1+Math.erf(absZ/Math.SQRT2));
         const p=Math.max(0,Math.min(1,2*(1-cdf)));
         pairs.push({
@@ -6324,6 +6600,67 @@
           rankMeans:{ a:meanRankI, b:meanRankJ }
         });
       }
+    }
+    const resamplingMode=resolveStatsResamplingMode(options);
+    const iterations=resolveStatsMonteCarloIterations(options);
+    const seed=resolveStatsSeed(options);
+    const exactEligible=tieSum===0 && totalN<=10 && multinomialCount(counts)<=200000;
+    if(resamplingMode!=='asymptotic' && (exactEligible || resamplingMode==='monte-carlo' || (resamplingMode==='auto' && totalN<=24))){
+      const observedStats=pairs.map(pair=>Math.abs(pair.diff));
+      const exceed=new Array(pairs.length).fill(0);
+      if(exactEligible && resamplingMode!=='monte-carlo'){
+        enumerateRankAssignmentsExact(counts,rankAssignment=>{
+          const simMeanRanks=rankAssignment.map((sum,groupIdx)=>sum/counts[groupIdx]);
+          pairs.forEach((pair,pairIdx)=>{
+            const stat=Math.abs(simMeanRanks[pair.i]-simMeanRanks[pair.j]);
+            if(stat>=observedStats[pairIdx]-1e-12){
+              exceed[pairIdx]+=1;
+            }
+          });
+        });
+        const totalStates=multinomialCount(counts);
+        pairs.forEach((pair,pairIdx)=>{
+          pair.p=Math.max(0,Math.min(1,exceed[pairIdx]/Math.max(totalStates,1)));
+          pair.method='exact-permutation';
+        });
+        console.debug('Debug: box computeDunnComparisons exact summary',{ pairCount:pairs.length, totalN, totalStates });
+        return {
+          ok:pairs.length>0,
+          pairs,
+          footnote:"Dunn's test uses exact pooled-rank assignments for small tie-free datasets.",
+          totalN,
+          counts
+        };
+      }
+      const assignmentLabels=createPooledAssignmentLabels(counts);
+      const rankValues=flat.map(item=>item.rank);
+      const nextRand=createSeededRandom(seed + totalN*317 + k*37);
+      for(let iter=0; iter<iterations; iter++){
+        const labelsSim=shuffleInPlace(assignmentLabels.slice(),nextRand);
+        const rankSumsSim=new Array(k).fill(0);
+        for(let rankIdx=0; rankIdx<rankValues.length; rankIdx++){
+          rankSumsSim[labelsSim[rankIdx]]+=rankValues[rankIdx];
+        }
+        const meanRanksSim=rankSumsSim.map((sum,groupIdx)=>sum/counts[groupIdx]);
+        pairs.forEach((pair,pairIdx)=>{
+          const stat=Math.abs(meanRanksSim[pair.i]-meanRanksSim[pair.j]);
+          if(stat>=observedStats[pairIdx]-1e-12){
+            exceed[pairIdx]+=1;
+          }
+        });
+      }
+      pairs.forEach((pair,pairIdx)=>{
+        pair.p=(exceed[pairIdx]+1)/(iterations+1);
+        pair.method='monte-carlo';
+      });
+      console.debug('Debug: box computeDunnComparisons monte-carlo summary',{ pairCount:pairs.length, totalN, iterations });
+      return {
+        ok:pairs.length>0,
+        pairs,
+        footnote:`Dunn's test calibrated by permutation/Monte Carlo over pooled rank assignments (${iterations} iterations).`,
+        totalN,
+        counts
+      };
     }
     console.debug('Debug: box computeDunnComparisons summary',{ pairCount:pairs.length, totalN, tieCorrection:corrected });
     return {
@@ -6524,7 +6861,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7867,13 +8204,21 @@
       console.debug('Debug: box updateStatsCorrectionSummary dunnettT3',{ count:safeCount });
       return;
     }
+    if(!oneSampleMode && state.statsPostHoc==='nemenyi'){
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
+      noteEl.textContent=`Post-hoc: Nemenyi (${detail}, Friedman rank comparisons).`;
+      noteEl.dataset.method='nemenyi';
+      noteEl.dataset.correctionLabel='Nemenyi';
+      console.debug('Debug: box updateStatsCorrectionSummary nemenyi',{ count:safeCount });
+      return;
+    }
     const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
     const detail=safeCount>0?`${safeCount} test${safeCount===1?'':'s'}`:pendingDetail;
     const labelPrefix=oneSampleMode
       ? 'One-sample correction'
       : (state.statsMode==='custom'
         ? 'Custom-pair correction'
-        : (state.statsPostHoc==='dunn'?"Dunn's test correction":"Multiple-testing correction"));
+        : (state.statsPostHoc==='dunn'?"Dunn's test correction":(state.statsPostHoc==='nemenyi'?"Nemenyi correction":"Multiple-testing correction")));
     noteEl.textContent=`${labelPrefix}: ${meta.label} (${detail}).`;
     noteEl.dataset.method=meta.key;
     noteEl.dataset.correctionLabel=meta.shortLabel || meta.label;
@@ -10438,6 +10783,927 @@
     }
     return 0;
   }
+  function sanitizeStatsAlpha(value,fallback=0.05){
+    const numeric=Number(value);
+    if(Number.isFinite(numeric) && numeric>0 && numeric<0.5){
+      return numeric;
+    }
+    return fallback;
+  }
+  function sanitizeStatsCiLevel(value,fallback=0.95){
+    const numeric=Number(value);
+    if(Number.isFinite(numeric) && numeric>0.5 && numeric<0.9999){
+      return numeric;
+    }
+    return fallback;
+  }
+  function sanitizeStatsAlternative(value){
+    return value==='greater' || value==='less' ? value : 'two-sided';
+  }
+  function sanitizeNormalityMethod(value){
+    if(value==='auto' || value==='shapiro-wilk' || value==='dagostino'){
+      return value;
+    }
+    return 'shapiro-wilk';
+  }
+  function sanitizeStatsSeed(value,fallback=1337){
+    const numeric=Math.round(Number(value));
+    if(Number.isFinite(numeric)){
+      return numeric;
+    }
+    return fallback;
+  }
+
+  function sanitizeResamplingMode(value){
+    return value==='exact' || value==='monte-carlo' || value==='asymptotic' ? value : 'auto';
+  }
+  function sanitizeMonteCarloIterations(value,fallback=10000){
+    const numeric=Math.round(Number(value));
+    if(Number.isFinite(numeric) && numeric>=250 && numeric<=200000){
+      return numeric;
+    }
+    return fallback;
+  }
+  function sanitizeOutlierMode(value){
+    return value==='grubbs' || value==='rout' ? value : 'none';
+  }
+  function sanitizeOutlierAlpha(value,fallback=0.05){
+    const numeric=Number(value);
+    if(Number.isFinite(numeric) && numeric>0 && numeric<0.25){
+      return numeric;
+    }
+    return fallback;
+  }
+  function sanitizeOutlierQ(value,fallback=0.01){
+    const numeric=Number(value);
+    if(Number.isFinite(numeric) && numeric>0 && numeric<0.25){
+      return numeric;
+    }
+    return fallback;
+  }
+  function resolveStatsAlpha(options){
+    return sanitizeStatsAlpha(options?.alpha ?? state?.statsAlpha ?? ASSUMPTION_ALPHA, ASSUMPTION_ALPHA);
+  }
+  function resolveStatsCiLevel(options){
+    return sanitizeStatsCiLevel(options?.ciLevel ?? state?.statsCiLevel ?? 0.95, 0.95);
+  }
+  function resolveStatsAlternative(options){
+    return sanitizeStatsAlternative(options?.alternative ?? state?.statsAlternative ?? 'two-sided');
+  }
+  function resolveNormalityMethodOption(options){
+    return sanitizeNormalityMethod(options?.normalityMethod ?? state?.statsNormalityMethod ?? 'shapiro-wilk');
+  }
+  function resolveStatsSeed(options){
+    return sanitizeStatsSeed(options?.seed ?? state?.statsSeed ?? 1337, 1337);
+  }
+
+  function resolveStatsResamplingMode(options){
+    return sanitizeResamplingMode(options?.resamplingMode ?? state?.statsResamplingMode ?? 'auto');
+  }
+  function resolveStatsMonteCarloIterations(options){
+    return sanitizeMonteCarloIterations(options?.iterations ?? options?.monteCarloIterations ?? state?.statsMonteCarloIterations ?? 10000, 10000);
+  }
+  function resolveStatsOutlierMode(options){
+    return sanitizeOutlierMode(options?.outlierMode ?? state?.statsOutlierMode ?? 'none');
+  }
+  function resolveStatsOutlierAlpha(options){
+    return sanitizeOutlierAlpha(options?.outlierAlpha ?? state?.statsOutlierAlpha ?? 0.05, 0.05);
+  }
+  function resolveStatsOutlierQ(options){
+    return sanitizeOutlierQ(options?.outlierQ ?? state?.statsOutlierQ ?? 0.01, 0.01);
+  }
+  function formatPercentLabel(value){
+    const numeric=Number(value);
+    if(!Number.isFinite(numeric)){
+      return '—';
+    }
+    return `${(numeric*100).toFixed(1)}%`;
+  }
+  function formatIntervalBound(value,digits){
+    if(value===Infinity){
+      return '∞';
+    }
+    if(value===-Infinity){
+      return '-∞';
+    }
+    return formatStatNumber(value,digits);
+  }
+  function formatConfidenceInterval(ciLow,ciHigh,digits){
+    if(ciLow==null || ciHigh==null){
+      return '—';
+    }
+    const low=formatIntervalBound(ciLow,digits);
+    const high=formatIntervalBound(ciHigh,digits);
+    if(low==='—' && high==='—'){
+      return '—';
+    }
+    return `${low} to ${high}`;
+  }
+  function resolveTestPValueFromT(cdf,t,df,alternative){
+    const safeAlt=sanitizeStatsAlternative(alternative);
+    if(!Number.isFinite(t) || !Number.isFinite(df) || !(df>0)){
+      return NaN;
+    }
+    if(safeAlt==='greater'){
+      return Math.max(0,Math.min(1,1-cdf(t,df)));
+    }
+    if(safeAlt==='less'){
+      return Math.max(0,Math.min(1,cdf(t,df)));
+    }
+    return Math.max(0,Math.min(1,2*(1-cdf(Math.abs(t),df))));
+  }
+  function resolveDirectionalTCritical(df,ciLevel,alternative){
+    const jStatLib=global.jStat;
+    const inv=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.inv==='function'
+      ? jStatLib.studentt.inv
+      : null;
+    if(!inv || !Number.isFinite(df) || df<=0){
+      return NaN;
+    }
+    const safeLevel=sanitizeStatsCiLevel(ciLevel,0.95);
+    const safeAlt=sanitizeStatsAlternative(alternative);
+    try{
+      if(safeAlt==='greater' || safeAlt==='less'){
+        return inv(safeLevel,df);
+      }
+      return inv(1-((1-safeLevel)/2),df);
+    }catch(err){
+      console.debug('Debug: box resolveDirectionalTCritical failed',{ df, ciLevel:safeLevel, alternative:safeAlt, message: err?.message });
+      return NaN;
+    }
+  }
+  function resolveMeanDifferenceInterval(diff,se,df,options){
+    const ciLevel=resolveStatsCiLevel(options);
+    const alternative=resolveStatsAlternative(options);
+    const critical=resolveDirectionalTCritical(df,ciLevel,alternative);
+    if(!Number.isFinite(diff) || !Number.isFinite(se) || !(se>=0) || !Number.isFinite(critical)){
+      return { ciLow:NaN, ciHigh:NaN, ciLevel, alternative };
+    }
+    if(alternative==='greater'){
+      return { ciLow:diff-(critical*se), ciHigh:Infinity, ciLevel, alternative };
+    }
+    if(alternative==='less'){
+      return { ciLow:-Infinity, ciHigh:diff+(critical*se), ciLevel, alternative };
+    }
+    const ciHalf=critical*se;
+    return { ciLow:diff-ciHalf, ciHigh:diff+ciHalf, ciLevel, alternative };
+  }
+  function resolveTieGroupSizes(values){
+    const sorted=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+    const sizes=[];
+    for(let i=0;i<sorted.length;){
+      let j=i+1;
+      while(j<sorted.length && sorted[j]===sorted[i]){
+        j++;
+      }
+      sizes.push(j-i);
+      i=j;
+    }
+    return sizes;
+  }
+  function hasDuplicateFiniteValues(values){
+    const seen=new Set();
+    const arr=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite);
+    for(let i=0;i<arr.length;i++){
+      const key=String(arr[i]);
+      if(seen.has(key)){
+        return true;
+      }
+      seen.add(key);
+    }
+    return false;
+  }
+  function exactTwoSidedFromTails(lowerTail,upperTail){
+    if(!Number.isFinite(lowerTail) || !Number.isFinite(upperTail)){
+      return NaN;
+    }
+    return Math.max(0,Math.min(1,2*Math.min(lowerTail,upperTail)));
+  }
+  function buildMannWhitneyExactDistribution(nA,nB){
+    const memo=new Map();
+    function compute(a,b){
+      const key=`${a}|${b}`;
+      const cached=memo.get(key);
+      if(cached){
+        return cached;
+      }
+      let dist;
+      if(a===0 || b===0){
+        dist=[1];
+      }else{
+        const left=compute(a-1,b);
+        const right=compute(a,b-1);
+        const maxU=a*b;
+        dist=new Array(maxU+1).fill(0);
+        for(let u=0;u<right.length;u++){
+          dist[u]+=right[u];
+        }
+        for(let u=0;u<left.length;u++){
+          dist[u+b]+=left[u];
+        }
+      }
+      memo.set(key,dist);
+      return dist;
+    }
+    return compute(nA,nB);
+  }
+  function computeExactTailProbabilitiesFromDistribution(dist,total,observed,alternative){
+    const safeAlt=sanitizeStatsAlternative(alternative);
+    if(!Array.isArray(dist) || !Number.isFinite(total) || total<=0){
+      return { p:NaN, lowerTail:NaN, upperTail:NaN };
+    }
+    const obs=Math.max(0,Math.min(dist.length-1,Math.round(observed)));
+    let lowerCount=0;
+    let upperCount=0;
+    for(let u=0;u<dist.length;u++){
+      const count=Number(dist[u]) || 0;
+      if(u<=obs){
+        lowerCount+=count;
+      }
+      if(u>=obs){
+        upperCount+=count;
+      }
+    }
+    const lowerTail=lowerCount/total;
+    const upperTail=upperCount/total;
+    const p=safeAlt==='greater'
+      ? upperTail
+      : safeAlt==='less'
+        ? lowerTail
+        : exactTwoSidedFromTails(lowerTail,upperTail);
+    return { p, lowerTail, upperTail };
+  }
+  function buildSignedRankExactDistribution(n){
+    const maxSum=(n*(n+1))/2;
+    const counts=new Array(maxSum+1).fill(0);
+    counts[0]=1;
+    for(let rank=1; rank<=n; rank++){
+      for(let sum=maxSum-rank; sum>=0; sum--){
+        if(counts[sum]){
+          counts[sum+rank]+=counts[sum];
+        }
+      }
+    }
+    return counts;
+  }
+
+  function createSeededRandom(seed){
+    let rng=resolveStatsSeed({ seed }) >>> 0;
+    return ()=>{
+      rng=(rng*1664525 + 1013904223) >>> 0;
+      return rng / 4294967295;
+    };
+  }
+  function shuffleInPlace(array,nextRand){
+    for(let i=array.length-1; i>0; i--){
+      const j=Math.floor(nextRand() * (i + 1));
+      const tmp=array[i];
+      array[i]=array[j];
+      array[j]=tmp;
+    }
+    return array;
+  }
+  function factorialInt(n){
+    let value=1;
+    for(let i=2; i<=n; i++){
+      value*=i;
+    }
+    return value;
+  }
+  function multinomialCount(counts){
+    const total=(Array.isArray(counts)?counts:[]).reduce((sum,val)=>sum+(Number(val)||0),0);
+    let value=factorialInt(total);
+    (Array.isArray(counts)?counts:[]).forEach(count=>{
+      value/=factorialInt(Number(count)||0);
+    });
+    return value;
+  }
+  function createPooledAssignmentLabels(counts){
+    const labels=[];
+    (Array.isArray(counts)?counts:[]).forEach((count,groupIdx)=>{
+      for(let i=0; i<(Number(count)||0); i++){
+        labels.push(groupIdx);
+      }
+    });
+    return labels;
+  }
+  function computeEmpiricalPValue(observed, sampled, alternative, options={}){
+    const safeAlt=sanitizeStatsAlternative(alternative);
+    const mode=options?.mode || 'absolute';
+    let hits=1;
+    const total=(Array.isArray(sampled)?sampled.length:0)+1;
+    const obs=Number(observed);
+    (Array.isArray(sampled)?sampled:[]).forEach(value=>{
+      const simulated=Number(value);
+      if(!Number.isFinite(simulated)){
+        return;
+      }
+      let extreme=false;
+      if(safeAlt==='greater'){
+        extreme=simulated>=obs;
+      }else if(safeAlt==='less'){
+        extreme=simulated<=obs;
+      }else if(mode==='signed'){
+        extreme=Math.abs(simulated)>=Math.abs(obs);
+      }else{
+        extreme=Math.abs(simulated)>=Math.abs(obs);
+      }
+      if(extreme){
+        hits+=1;
+      }
+    });
+    return hits/Math.max(total,1);
+  }
+  function enumerateRankAssignmentsExact(counts,visitor){
+    const remaining=counts.slice();
+    const k=remaining.length;
+    const rankSums=new Array(k).fill(0);
+    const total=remaining.reduce((sum,val)=>sum+val,0);
+    function visit(rank){
+      if(rank>total){
+        visitor(rankSums);
+        return;
+      }
+      for(let g=0; g<k; g++){
+        if(remaining[g]<=0){
+          continue;
+        }
+        remaining[g]-=1;
+        rankSums[g]+=rank;
+        visit(rank+1);
+        rankSums[g]-=rank;
+        remaining[g]+=1;
+      }
+    }
+    visit(1);
+  }
+  function generatePermutations(values){
+    const source=(Array.isArray(values)?values:[]).slice();
+    const permutations=[];
+    function visit(index){
+      if(index>=source.length){
+        permutations.push(source.slice());
+        return;
+      }
+      for(let i=index; i<source.length; i++){
+        const tmp=source[index];
+        source[index]=source[i];
+        source[i]=tmp;
+        visit(index+1);
+        source[i]=source[index];
+        source[index]=tmp;
+      }
+    }
+    visit(0);
+    return permutations;
+  }
+  function estimateRandomInterceptVariance(residualClusters,dfResidual){
+    const clusterSizes=residualClusters.map(cluster=>cluster.length).filter(length=>length>0);
+    const clusterCount=clusterSizes.length;
+    const totalObs=clusterSizes.reduce((sum,val)=>sum+val,0);
+    if(clusterCount<2 || totalObs<=clusterCount){
+      const sse=residualClusters.reduce((sum,cluster)=>sum+cluster.reduce((inner,val)=>inner+(val*val),0),0);
+      const sigmaE=sse/Math.max(dfResidual,1);
+      return { sigmaSubject:0, sigmaResidual:Math.max(sigmaE,Number.EPSILON) };
+    }
+    let withinSS=0;
+    let withinDf=0;
+    const means=[];
+    residualClusters.forEach(cluster=>{
+      const meanVal=cluster.reduce((sum,val)=>sum+val,0)/cluster.length;
+      means.push(meanVal);
+      cluster.forEach(value=>{
+        withinSS+=Math.pow(value-meanVal,2);
+      });
+      withinDf+=Math.max(0,cluster.length-1);
+    });
+    const sigmaResidual=withinDf>0 ? Math.max(withinSS/withinDf,Number.EPSILON) : Number.EPSILON;
+    const grandMean=means.reduce((sum,val,idx)=>sum+(val*clusterSizes[idx]),0)/Math.max(totalObs,1);
+    let betweenSS=0;
+    means.forEach((meanVal,idx)=>{
+      betweenSS+=clusterSizes[idx]*Math.pow(meanVal-grandMean,2);
+    });
+    const msBetween=betweenSS/Math.max(clusterCount-1,1);
+    const mBar=(totalObs - (clusterSizes.reduce((sum,val)=>sum+(val*val),0)/Math.max(totalObs,1))) / Math.max(clusterCount-1,1);
+    const sigmaSubject=mBar>0 ? Math.max((msBetween-sigmaResidual)/mBar,0) : 0;
+    return { sigmaSubject, sigmaResidual };
+  }
+  function solveLinearSystem(matrix,vector){
+    const n=Array.isArray(matrix)?matrix.length:0;
+    if(!n){
+      return [];
+    }
+    const aug=matrix.map((row,idx)=>{
+      const source=Array.isArray(row)?row:[];
+      const next=new Array(n+1).fill(0);
+      for(let col=0; col<n; col++){
+        next[col]=Number(source[col]) || 0;
+      }
+      next[n]=Number(Array.isArray(vector)?vector[idx]:0) || 0;
+      return next;
+    });
+    const epsilon=1e-10;
+    for(let col=0; col<n; col++){
+      let pivotRow=col;
+      let pivotAbs=Math.abs(aug[col][col]);
+      for(let row=col+1; row<n; row++){
+        const candidate=Math.abs(aug[row][col]);
+        if(candidate>pivotAbs){
+          pivotAbs=candidate;
+          pivotRow=row;
+        }
+      }
+      if(pivotAbs<epsilon){
+        aug[col][col]+=epsilon;
+        pivotAbs=Math.abs(aug[col][col]);
+      }
+      if(pivotRow!==col){
+        const tmp=aug[col];
+        aug[col]=aug[pivotRow];
+        aug[pivotRow]=tmp;
+      }
+      const pivot=aug[col][col];
+      if(Math.abs(pivot)<epsilon){
+        continue;
+      }
+      for(let k=col; k<=n; k++){
+        aug[col][k]/=pivot;
+      }
+      for(let row=0; row<n; row++){
+        if(row===col){
+          continue;
+        }
+        const factor=aug[row][col];
+        if(factor===0){
+          continue;
+        }
+        for(let k=col; k<=n; k++){
+          aug[row][k]-=factor*aug[col][k];
+        }
+      }
+    }
+    return aug.map(row=>row[n]);
+  }
+  function invertSquareMatrix(matrix){
+    const n=Array.isArray(matrix)?matrix.length:0;
+    if(!n){
+      return [];
+    }
+    const aug=matrix.map((row,rowIdx)=>{
+      const left=new Array(n).fill(0).map((_,colIdx)=>Number(Array.isArray(row)?row[colIdx]:0) || 0);
+      const right=new Array(n).fill(0).map((_,colIdx)=>colIdx===rowIdx?1:0);
+      return left.concat(right);
+    });
+    const epsilon=1e-10;
+    for(let col=0; col<n; col++){
+      let pivotRow=col;
+      let pivotAbs=Math.abs(aug[col][col]);
+      for(let row=col+1; row<n; row++){
+        const candidate=Math.abs(aug[row][col]);
+        if(candidate>pivotAbs){
+          pivotAbs=candidate;
+          pivotRow=row;
+        }
+      }
+      if(pivotAbs<epsilon){
+        aug[col][col]+=epsilon;
+      }
+      if(pivotRow!==col){
+        const tmp=aug[col];
+        aug[col]=aug[pivotRow];
+        aug[pivotRow]=tmp;
+      }
+      const pivot=aug[col][col];
+      if(Math.abs(pivot)<epsilon){
+        return null;
+      }
+      for(let k=0; k<(2*n); k++){
+        aug[col][k]/=pivot;
+      }
+      for(let row=0; row<n; row++){
+        if(row===col){
+          continue;
+        }
+        const factor=aug[row][col];
+        if(factor===0){
+          continue;
+        }
+        for(let k=0; k<(2*n); k++){
+          aug[row][k]-=factor*aug[col][k];
+        }
+      }
+    }
+    return aug.map(row=>row.slice(n));
+  }
+  function fitRandomInterceptGLS(observations,designInfo){
+    const obs=Array.isArray(observations)?observations:[];
+    const X=designInfo?.X || [];
+    const y=obs.map(item=>Number(item?.value) || 0);
+    const clusterIds=obs.map(item=>Number(item?.row) || 0);
+    const n=y.length;
+    const p=Array.isArray(X[0]) ? X[0].length : 0;
+    if(!n || !p || n<=p){
+      return { ok:false, message:'Not enough observations to fit the mixed-effects model.' };
+    }
+    const xtx=Array.from({ length:p },()=>Array(p).fill(0));
+    const xty=new Array(p).fill(0);
+    for(let i=0; i<n; i++){
+      const row=X[i];
+      for(let a=0; a<p; a++){
+        xty[a]+=row[a]*y[i];
+        for(let b=0; b<p; b++){
+          xtx[a][b]+=row[a]*row[b];
+        }
+      }
+    }
+    const betaOls=solveLinearSystem(xtx,xty);
+    const residuals=y.map((value,idx)=>value - X[idx].reduce((sum,coef,colIdx)=>sum+coef*(betaOls[colIdx] || 0),0));
+    const clusterMap=new Map();
+    residuals.forEach((residual,idx)=>{
+      const key=clusterIds[idx];
+      if(!clusterMap.has(key)){
+        clusterMap.set(key,[]);
+      }
+      clusterMap.get(key).push(residual);
+    });
+    const residualClusters=Array.from(clusterMap.values());
+    const variance=estimateRandomInterceptVariance(residualClusters,n-p);
+    const sigmaSubject=Math.max(variance.sigmaSubject,0);
+    const sigmaResidual=Math.max(variance.sigmaResidual,Number.EPSILON);
+    const xtvix=Array.from({ length:p },()=>Array(p).fill(0));
+    const xtviy=new Array(p).fill(0);
+    const clusterObservations=new Map();
+    obs.forEach((item,idx)=>{
+      const key=clusterIds[idx];
+      if(!clusterObservations.has(key)){
+        clusterObservations.set(key,[]);
+      }
+      clusterObservations.get(key).push(idx);
+    });
+    clusterObservations.forEach(indices=>{
+      const m=indices.length;
+      const scale=1/sigmaResidual;
+      const corr=sigmaSubject>0 ? (sigmaSubject/(sigmaResidual + m*sigmaSubject)) : 0;
+      const xSums=new Array(p).fill(0);
+      let ySum=0;
+      indices.forEach(obsIndex=>{
+        const row=X[obsIndex];
+        ySum+=y[obsIndex];
+        for(let col=0; col<p; col++){
+          xSums[col]+=row[col];
+        }
+      });
+      indices.forEach(obsIndex=>{
+        const row=X[obsIndex];
+        const weightY=scale * (y[obsIndex] - corr*ySum);
+        for(let a=0; a<p; a++){
+          xtviy[a]+=row[a]*weightY;
+          for(let b=0; b<p; b++){
+            xtvix[a][b]+=row[a] * scale * (row[b] - corr*xSums[b]);
+          }
+        }
+      });
+    });
+    const beta=solveLinearSystem(xtvix,xtviy);
+    const xtvixInv=invertSquareMatrix(xtvix);
+    if(!xtvixInv){
+      return { ok:false, message:'Unable to invert the mixed-effects information matrix.' };
+    }
+    let sse=0;
+    clusterObservations.forEach(indices=>{
+      const m=indices.length;
+      const scale=1/sigmaResidual;
+      const corr=sigmaSubject>0 ? (sigmaSubject/(sigmaResidual + m*sigmaSubject)) : 0;
+      const residualCluster=indices.map(obsIndex=>y[obsIndex] - X[obsIndex].reduce((sum,coef,colIdx)=>sum+coef*(beta[colIdx] || 0),0));
+      const residualSum=residualCluster.reduce((sum,val)=>sum+val,0);
+      residualCluster.forEach(value=>{
+        sse+=scale * (value*value - corr*value*residualSum);
+      });
+    });
+    const dfResidual=Math.max(n-p,1);
+    const dispersion=sse/dfResidual;
+    return {
+      ok:true,
+      beta,
+      covariance:xtvixInv.map(row=>row.map(value=>value*dispersion)),
+      sse,
+      dfResidual,
+      observationCount:n,
+      subjectCount:clusterObservations.size,
+      sigmaSubject,
+      sigmaResidual
+    };
+  }
+  function extractSubmatrix(matrix,indices){
+    return indices.map(rowIdx=>indices.map(colIdx=>Number(matrix?.[rowIdx]?.[colIdx]) || 0));
+  }
+  function extractVector(values,indices){
+    return indices.map(idx=>Number(values?.[idx]) || 0);
+  }
+  function computeWaldTermStats(glsFit,indices){
+    const jStatLib=global.jStat;
+    if(!glsFit?.ok || !Array.isArray(indices) || !indices.length){
+      return { df1:0, df2:glsFit?.dfResidual || 0, F:NaN, p:NaN };
+    }
+    const betaSub=extractVector(glsFit.beta,indices);
+    const covSub=extractSubmatrix(glsFit.covariance,indices);
+    const invCov=invertSquareMatrix(covSub);
+    if(!invCov){
+      return { df1:indices.length, df2:glsFit.dfResidual, F:NaN, p:NaN };
+    }
+    let quad=0;
+    for(let i=0; i<indices.length; i++){
+      for(let j=0; j<indices.length; j++){
+        quad+=betaSub[i] * invCov[i][j] * betaSub[j];
+      }
+    }
+    const df1=indices.length;
+    const df2=Math.max(glsFit.dfResidual,1);
+    const F=quad/Math.max(df1,1);
+    const p=(jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf==='function' && Number.isFinite(F))
+      ? Math.max(0,Math.min(1,1-jStatLib.centralF.cdf(F,df1,df2)))
+      : NaN;
+    return { df1, df2, F, p };
+  }
+  function buildIncompleteMixedDesign(observations,groupCount,conditionCount){
+    const metadata={
+      group:[],
+      condition:[],
+      interaction:[]
+    };
+    const X=[];
+    (Array.isArray(observations)?observations:[]).forEach(observation=>{
+      const row=[1];
+      for(let g=1; g<groupCount; g++){
+        const index=row.length;
+        row.push(observation.group===g ? 1 : 0);
+        metadata.group.push(index);
+      }
+      for(let c=1; c<conditionCount; c++){
+        const index=row.length;
+        row.push(observation.condition===c ? 1 : 0);
+        metadata.condition.push(index);
+      }
+      for(let g=1; g<groupCount; g++){
+        for(let c=1; c<conditionCount; c++){
+          const index=row.length;
+          row.push(observation.group===g && observation.condition===c ? 1 : 0);
+          metadata.interaction.push(index);
+        }
+      }
+      X.push(row);
+    });
+    metadata.group=[...new Set(metadata.group)];
+    metadata.condition=[...new Set(metadata.condition)];
+    metadata.interaction=[...new Set(metadata.interaction)];
+    return { X, metadata };
+  }
+  function analyzeIncompleteMixedByGLS(data,options={}){
+    const observations=[];
+    const rowSource=Array.isArray(data?.allRows) ? data.allRows : [];
+    for(let rowIdx=0; rowIdx<rowSource.length; rowIdx++){
+      const rowEntry=rowSource[rowIdx];
+      for(let gIdx=0; gIdx<(data?.groupsCount || 0); gIdx++){
+        for(let cIdx=0; cIdx<(data?.conditionsCount || 0); cIdx++){
+          const value=rowEntry?.[gIdx]?.[cIdx];
+          if(Number.isFinite(value)){
+            observations.push({ row:rowIdx, group:gIdx, condition:cIdx, value });
+          }
+        }
+      }
+    }
+    if(!observations.length){
+      return { ok:false, message:'No observed values remain after filtering incomplete repeated-measures rows.' };
+    }
+    const design=buildIncompleteMixedDesign(observations,data.groupsCount,data.conditionsCount);
+    const glsFit=fitRandomInterceptGLS(observations,design);
+    if(!glsFit.ok){
+      return { ok:false, message:glsFit.message || 'Unable to fit the incomplete-data mixed model.' };
+    }
+    const groupStats=computeWaldTermStats(glsFit,design.metadata.group);
+    const conditionStats=computeWaldTermStats(glsFit,design.metadata.condition);
+    const interactionStats=computeWaldTermStats(glsFit,design.metadata.interaction);
+    const etaFromF=(stat)=>Number.isFinite(stat?.F) ? clamp((stat.F*stat.df1)/Math.max((stat.F*stat.df1)+stat.df2,Number.EPSILON),0,1) : NaN;
+    const caption=options?.caption || 'Mixed-effects model (random intercept)';
+    return {
+      ok:true,
+      caption,
+      columns:[
+        { key:'source', label:'Source', align:'left' },
+        { key:'df', label:'df', align:'right' },
+        { key:'f', label:'F approx', align:'right' },
+        { key:'p', label:'P value', align:'right' },
+        { key:'etaP2', label:'ηp²', align:'right' }
+      ],
+      rows:[
+        { source:'Group', df:`${groupStats.df1}, ${groupStats.df2}`, f:formatStatNumber(groupStats.F), p:formatP(groupStats.p), etaP2:formatStatNumber(etaFromF(groupStats)) },
+        { source:'Condition', df:`${conditionStats.df1}, ${conditionStats.df2}`, f:formatStatNumber(conditionStats.F), p:formatP(conditionStats.p), etaP2:formatStatNumber(etaFromF(conditionStats)) },
+        { source:'Group × Condition', df:`${interactionStats.df1}, ${interactionStats.df2}`, f:formatStatNumber(interactionStats.F), p:formatP(interactionStats.p), etaP2:formatStatNumber(etaFromF(interactionStats)) },
+        { source:'Random intercept variance', df:'—', f:formatStatNumber(glsFit.sigmaSubject), p:'—', etaP2:'—' },
+        { source:'Residual variance', df:'—', f:formatStatNumber(glsFit.sigmaResidual), p:'—', etaP2:'—' }
+      ],
+      options:{
+        fileName:options?.fileName || 'box-mixed-incomplete',
+        contextLabel:options?.contextLabel || 'box-grouped-mixed-incomplete'
+      },
+      footnotes:[
+        `Approximate random-intercept mixed-effects model fitted by feasible GLS to retain incomplete repeated-measures rows (${glsFit.observationCount} observations across ${glsFit.subjectCount} row subjects).`,
+        `This path is intended for missing repeated-measures values; fixed-effect tests are Wald/F approximations rather than classical balanced ANOVA denominators.`
+      ],
+      diagnostics:{
+        observationCount:glsFit.observationCount,
+        subjectCount:glsFit.subjectCount,
+        dfResidual:glsFit.dfResidual,
+        sigmaSubject:glsFit.sigmaSubject,
+        sigmaResidual:glsFit.sigmaResidual
+      },
+      report:{
+        methodsText:`An approximate random-intercept mixed-effects model was fitted by feasible GLS to retain incomplete repeated-measures rows, with fixed effects for group, condition, and their interaction.`,
+        resultsText:`Mixed-effects model retained ${glsFit.observationCount} observed values across ${glsFit.subjectCount} row subjects.`,
+        analysisSpec:buildStatsAnalysisSpec({ grouped:true, groupedAnalysis:options?.analysisKey || 'mixed-incomplete', retainedObservations:glsFit.observationCount, retainedSubjects:glsFit.subjectCount })
+      }
+    };
+  }
+  function describeOutlierWorkflowForMethods(options={}){
+    const mode=resolveStatsOutlierMode(options);
+    if(mode==='grubbs'){
+      return `Outlier screening used an iterative Grubbs procedure with alpha = ${formatStatNumber(resolveStatsOutlierAlpha(options),3)} and a documented exclusion log.`;
+    }
+    if(mode==='rout'){
+      return `Outlier screening used a ROUT-style robust FDR screen (median/MAD robust z-scores with Benjamini-Hochberg q = ${formatStatNumber(resolveStatsOutlierQ(options),3)}), with all exclusions logged.`;
+    }
+    return 'No statistical outlier screening was applied before analysis.';
+  }
+  function describeResamplingForMethods(options={}){
+    const mode=resolveStatsResamplingMode(options);
+    if(mode==='exact'){
+      return 'Exact rank-based p-values were requested whenever a tractable exact distribution was available; otherwise the analysis fell back to Monte Carlo or asymptotic methods as needed.';
+    }
+    if(mode==='monte-carlo'){
+      return `Rank-based tests used Monte Carlo calibration (${resolveStatsMonteCarloIterations(options)} iterations, seed ${resolveStatsSeed(options)}).`;
+    }
+    if(mode==='asymptotic'){
+      return 'Rank-based tests used asymptotic p-values unless an exact closed-form distribution was already built into the test.';
+    }
+    return `Rank-based tests used an automatic hierarchy: exact when tractable, otherwise Monte Carlo or asymptotic approximations as appropriate (seed ${resolveStatsSeed(options)}).`;
+  }
+  function detectGrubbsOutliers(values,options={}){
+    const cleaned=(Array.isArray(values)?values:[]).map((value,index)=>({ value:Number(value), index })).filter(item=>Number.isFinite(item.value));
+    const removed=[];
+    if(cleaned.length<3){
+      return { removed, kept:cleaned.map(item=>item.value) };
+    }
+    const alpha=resolveStatsOutlierAlpha(options);
+    const jStatLib=global.jStat;
+    const inv=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.inv==='function'
+      ? jStatLib.studentt.inv
+      : null;
+    if(typeof inv!=='function'){
+      return { removed, kept:cleaned.map(item=>item.value), note:'Student-t inverse unavailable; Grubbs screening skipped.' };
+    }
+    const working=cleaned.slice();
+    const maxRemoved=Math.max(1,Math.floor(cleaned.length*0.2));
+    while(working.length>=3 && removed.length<maxRemoved){
+      const meanVal=working.reduce((sum,item)=>sum+item.value,0)/working.length;
+      const variance=working.reduce((sum,item)=>sum+Math.pow(item.value-meanVal,2),0)/Math.max(working.length-1,1);
+      const sd=Math.sqrt(Math.max(variance,0));
+      if(!(sd>0)){
+        break;
+      }
+      let maxIndex=-1;
+      let maxG=-Infinity;
+      for(let i=0; i<working.length; i++){
+        const score=Math.abs(working[i].value-meanVal)/sd;
+        if(score>maxG){
+          maxG=score;
+          maxIndex=i;
+        }
+      }
+      const n=working.length;
+      const tCritical=inv(1-(alpha/(2*n)),n-2);
+      const critical=((n-1)/Math.sqrt(n))*Math.sqrt((tCritical*tCritical)/Math.max(n-2+tCritical*tCritical,Number.EPSILON));
+      if(!(Number.isFinite(maxG) && Number.isFinite(critical) && maxG>critical && maxIndex>=0)){
+        break;
+      }
+      removed.push({ ...working[maxIndex], statistic:maxG, critical });
+      working.splice(maxIndex,1);
+    }
+    return { removed, kept:working.map(item=>item.value) };
+  }
+  function detectRoutStyleOutliers(values,options={}){
+    const cleaned=(Array.isArray(values)?values:[]).map((value,index)=>({ value:Number(value), index })).filter(item=>Number.isFinite(item.value));
+    const removed=[];
+    if(cleaned.length<4){
+      return { removed, kept:cleaned.map(item=>item.value) };
+    }
+    const sorted=cleaned.map(item=>item.value).slice().sort((a,b)=>a-b);
+    const median=quantileFromSorted(sorted,0.5);
+    const absDev=cleaned.map(item=>Math.abs(item.value-median)).sort((a,b)=>a-b);
+    const mad=quantileFromSorted(absDev,0.5);
+    const sigma=Math.max(1.4826*mad,Number.EPSILON);
+    const pValues=cleaned.map(item=>{
+      const robustZ=Math.abs((item.value-median)/sigma);
+      const cdf=global.jStat && global.jStat.normal && typeof global.jStat.normal.cdf==='function'
+        ? global.jStat.normal.cdf
+        : (x=>0.5*(1+Math.erf(x/Math.SQRT2)));
+      const p=Math.max(0,Math.min(1,2*(1-cdf(robustZ,0,1))));
+      return { robustZ, p };
+    });
+    const adjusted=applyPValueCorrection(pValues.map(item=>item.p),'bh');
+    const q=resolveStatsOutlierQ(options);
+    const keep=[];
+    cleaned.forEach((item,idx)=>{
+      const info=pValues[idx];
+      const adjP=Number.isFinite(adjusted?.[idx]) ? adjusted[idx] : info.p;
+      if(adjP<=q && info.robustZ>=3){
+        removed.push({ ...item, robustZ:info.robustZ, adjP });
+      }else{
+        keep.push(item.value);
+      }
+    });
+    return { removed, kept:keep };
+  }
+  function preprocessGroupsForAnalysis(groups,labels,options={}){
+    const rawGroups=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite));
+    const mode=resolveStatsOutlierMode(options);
+    if(mode==='none'){
+      return { groups:rawGroups, labels, auditNotes:[], excludedCount:0, exclusions:[] };
+    }
+    const auditNotes=[];
+    const exclusions=[];
+    if(options?.paired && rawGroups.length===2){
+      const paired=computePairedSamples(rawGroups[0],rawGroups[1]);
+      const diffs=paired.map(item=>item.a-item.b);
+      const result=mode==='grubbs'
+        ? detectGrubbsOutliers(diffs,options)
+        : detectRoutStyleOutliers(diffs,options);
+      if(result.removed.length){
+        const removedSet=new Set(result.removed.map(item=>item.index));
+        const keepPairs=paired.filter((_,idx)=>!removedSet.has(idx));
+        rawGroups[0]=keepPairs.map(item=>item.a);
+        rawGroups[1]=keepPairs.map(item=>item.b);
+        result.removed.forEach(item=>{
+          exclusions.push({ group:'paired-differences', value:diffs[item.index], index:item.index });
+        });
+        auditNotes.push(`Outlier workflow excluded ${result.removed.length} paired row(s) based on paired differences before analysis.`);
+      }else{
+        auditNotes.push(`Outlier workflow reviewed paired differences but excluded no rows.`);
+      }
+      return { groups:rawGroups, labels, auditNotes, excludedCount:exclusions.length, exclusions };
+    }
+    if(options?.paired && rawGroups.length>2){
+      auditNotes.push('Outlier workflow was requested but automatic row-level exclusion is disabled for repeated-measures analyses with more than two groups; data were left unchanged.');
+      return { groups:rawGroups, labels, auditNotes, excludedCount:0, exclusions };
+    }
+    rawGroups.forEach((group,idx)=>{
+      const result=mode==='grubbs'
+        ? detectGrubbsOutliers(group,options)
+        : detectRoutStyleOutliers(group,options);
+      if(result.note){
+        auditNotes.push(`${labels?.[idx] || `Group ${idx+1}`}: ${result.note}`);
+      }
+      if(result.removed.length){
+        auditNotes.push(`${labels?.[idx] || `Group ${idx+1}`}: excluded ${result.removed.length} value${result.removed.length===1?'':'s'} by ${mode==='grubbs'?'Grubbs':'ROUT-style'} screening.`);
+        result.removed.forEach(item=>{
+          exclusions.push({ group:labels?.[idx] || `Group ${idx+1}`, value:item.value, index:item.index });
+        });
+      }
+      rawGroups[idx]=result.kept.slice();
+    });
+    return { groups:rawGroups, labels, auditNotes, excludedCount:exclusions.length, exclusions };
+  }
+  function finalizeStatsReport(report,context={}){
+    if(!report || typeof report!=='object'){
+      return report;
+    }
+    const methodParts=[];
+    if(report.methodsText){
+      methodParts.push(report.methodsText.trim());
+    }
+    methodParts.push(describeResamplingForMethods({}));
+    methodParts.push(describeOutlierWorkflowForMethods({}));
+    if(context?.familyDescription){
+      methodParts.push(context.familyDescription);
+    }
+    report.methodsText=methodParts.filter(Boolean).join(' ');
+    if(context?.resultSuffix){
+      report.resultsText=`${report.resultsText || ''} ${context.resultSuffix}`.trim();
+    }
+    return report;
+  }
+  function bootstrapPercentileInterval(samples,level){
+    if(!Array.isArray(samples) || !samples.length){
+      return { ciLow:NaN, ciHigh:NaN };
+    }
+    const sorted=samples.filter(Number.isFinite).sort((a,b)=>a-b);
+    if(!sorted.length){
+      return { ciLow:NaN, ciHigh:NaN };
+    }
+    const alpha=1-sanitizeStatsCiLevel(level,0.95);
+    const lowIndex=Math.max(0,Math.min(sorted.length-1,Math.floor((alpha/2)*sorted.length)));
+    const highIndex=Math.max(0,Math.min(sorted.length-1,Math.ceil((1-alpha/2)*sorted.length)-1));
+    return { ciLow:sorted[lowIndex], ciHigh:sorted[highIndex] };
+  }
   function resolveTCritical(df,alpha=0.05){
     const jStatLib=global.jStat;
     const inv=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.inv==='function'
@@ -10453,7 +11719,7 @@
       return NaN;
     }
   }
-  function tTest(a,b){
+  function tTest(a,b,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
       ? jStatLib.studentt.cdf
@@ -10467,21 +11733,40 @@
     const va=a.reduce((s,v)=>s+Math.pow(v-ma,2),0)/(na-1||1);
     const vb=b.reduce((s,v)=>s+Math.pow(v-mb,2),0)/(nb-1||1);
     const se=Math.sqrt(va/na+vb/nb);
-    const t=(ma-mb)/se;
-    const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1));
-    const p=2*(1-cdf(Math.abs(t),df));
     const diff=ma-mb;
-    const tCritical=resolveTCritical(df,0.05);
-    const ciHalf=Number.isFinite(tCritical)&&Number.isFinite(se)?tCritical*se:NaN;
+    let t;
+    let df;
+    let p;
+    if(se===0){
+      if(diff===0){
+        t=0;
+        p=1;
+      }else{
+        t=diff>0?Infinity:-Infinity;
+        p=resolveStatsAlternative(options)==='two-sided'
+          ? 0
+          : resolveStatsAlternative(options)==='greater'
+            ? (diff>0?0:1)
+            : (diff<0?0:1);
+      }
+      df=na+nb-2;
+    }else{
+      t=diff/se;
+      df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1));
+      p=resolveTestPValueFromT(cdf,t,df,resolveStatsAlternative(options));
+    }
+    const interval=resolveMeanDifferenceInterval(diff,se,df,options);
     return {
       t,df,p,se,diff,
       meanA:ma,
       meanB:mb,
-      ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
-      ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN
+      ciLow:interval.ciLow,
+      ciHigh:interval.ciHigh,
+      ciLevel:interval.ciLevel,
+      alternative:interval.alternative
     };
   }
-  function tTestPaired(a,b){
+  function tTestPaired(a,b,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
       ? jStatLib.studentt.cdf
@@ -10494,19 +11779,36 @@
     const n=diffs.length;
     const md=mean(diffs);
     const sd=Math.sqrt(diffs.reduce((s,v)=>s+Math.pow(v-md,2),0)/(n-1||1));
-    const t=md/(sd/Math.sqrt(n));
-    const p=2*(1-cdf(Math.abs(t),n-1));
-    const se=sd/Math.sqrt(n);
-    const tCritical=resolveTCritical(n-1,0.05);
-    const ciHalf=Number.isFinite(tCritical)&&Number.isFinite(se)?tCritical*se:NaN;
+    const se=sd/Math.sqrt(n||1);
+    let t;
+    let p;
+    if(se===0){
+      if(md===0){
+        t=0;
+        p=1;
+      }else{
+        t=md>0?Infinity:-Infinity;
+        p=resolveStatsAlternative(options)==='two-sided'
+          ? 0
+          : resolveStatsAlternative(options)==='greater'
+            ? (md>0?0:1)
+            : (md<0?0:1);
+      }
+    }else{
+      t=md/se;
+      p=resolveTestPValueFromT(cdf,t,n-1,resolveStatsAlternative(options));
+    }
+    const interval=resolveMeanDifferenceInterval(md,se,n-1,options);
     return {
       t,df:n-1,p,se,diff:md,
       meanDiff:md,
-      ciLow:Number.isFinite(ciHalf)?md-ciHalf:NaN,
-      ciHigh:Number.isFinite(ciHalf)?md+ciHalf:NaN
+      ciLow:interval.ciLow,
+      ciHigh:interval.ciHigh,
+      ciLevel:interval.ciLevel,
+      alternative:interval.alternative
     };
   }
-  function tTestOneSample(values,nullValue){
+  function tTestOneSample(values,nullValue,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
       ? jStatLib.studentt.cdf
@@ -10526,25 +11828,30 @@
     const meanVal=mean(cleaned);
     const variance=cleaned.reduce((acc,val)=>acc+Math.pow(val-meanVal,2),0)/(n-1);
     const sd=Math.sqrt(Math.max(variance,0));
+    const diff=meanVal-target;
     let t;
     let p;
+    let se=sd/Math.sqrt(n);
     if(sd===0){
-      const delta=meanVal-target;
-      if(delta===0){
+      if(diff===0){
         t=0;
         p=1;
       }else{
-        t=delta>0?Infinity:-Infinity;
-        p=0;
+        t=diff>0?Infinity:-Infinity;
+        p=resolveStatsAlternative(options)==='two-sided'
+          ? 0
+          : resolveStatsAlternative(options)==='greater'
+            ? (diff>0?0:1)
+            : (diff<0?0:1);
       }
     }else{
-      const se=sd/Math.sqrt(n);
-      t=(meanVal-target)/se;
-      p=2*(1-cdf(Math.abs(t),n-1));
+      t=diff/se;
+      p=resolveTestPValueFromT(cdf,t,n-1,resolveStatsAlternative(options));
     }
-    return { t, df:n-1, p, n, mean:meanVal, sd };
+    const interval=resolveMeanDifferenceInterval(diff,se,n-1,options);
+    return { t, df:n-1, p, n, mean:meanVal, sd, diff, se, ciLow:interval.ciLow, ciHigh:interval.ciHigh, ciLevel:interval.ciLevel, alternative:interval.alternative };
   }
-  function wilcoxonOneSample(values,nullValue){
+  function wilcoxonOneSample(values,nullValue,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
       ? jStatLib.normal.cdf
@@ -10566,28 +11873,74 @@
     const effectiveN=nonZeroDiffs.length;
     const medianDiff=quantileFromUnsorted(diffs,0.5);
     if(!effectiveN){
-      return { W:0, z:0, p:1, n, effectiveN:0, median:medianDiff };
+      return { W:0, z:0, p:1, n, effectiveN:0, median:medianDiff, method:'degenerate', exact:false, continuityCorrected:false, tieCorrected:false };
     }
     const abs=nonZeroDiffs.map(Math.abs);
-    const ranks=rankArray(abs);
+    const rankInfo=rankValuesWithTieInfo(abs);
+    const ranks=rankInfo.ranks;
     let Wpos=0;
     let Wneg=0;
-    ranks.forEach((rk,idx)=>{
+    for(let idx=0; idx<ranks.length; idx++){
       if(nonZeroDiffs[idx]>0){
-        Wpos+=rk;
+        Wpos+=ranks[idx];
       }else{
-        Wneg+=rk;
+        Wneg+=ranks[idx];
       }
-    });
+    }
     const W=Math.min(Wpos,Wneg);
+    const alternative=resolveStatsAlternative(options);
+    const noTies=rankInfo.tieTerm===0;
+    const exactEligible=noTies && effectiveN<=25;
+    const resamplingMode=resolveStatsResamplingMode(options);
+    const iterations=resolveStatsMonteCarloIterations(options);
+    const seed=resolveStatsSeed(options);
+    if(resamplingMode!=='asymptotic' && exactEligible){
+      const dist=buildSignedRankExactDistribution(effectiveN);
+      const total=Math.pow(2,effectiveN);
+      const exact=computeExactTailProbabilitiesFromDistribution(dist,total,Math.round(Wpos),alternative);
+      return { W, Wpos, Wneg, z:NaN, p:exact.p, n, effectiveN, median:medianDiff, method:'exact', exact:true, continuityCorrected:false, tieCorrected:false };
+    }
+    if(resamplingMode==='monte-carlo' || (resamplingMode==='auto' && effectiveN<=40)){
+      const nextRand=createSeededRandom(seed + effectiveN*149);
+      const simulations=[];
+      for(let iter=0; iter<iterations; iter++){
+        let simWpos=0;
+        for(let idx=0; idx<ranks.length; idx++){
+          if(nextRand()>=0.5){
+            simWpos+=ranks[idx];
+          }
+        }
+        simulations.push(simWpos);
+      }
+      const p=computeEmpiricalPValue(Wpos,simulations,alternative,{ mode:'signed' });
+      return { W, Wpos, Wneg, z:NaN, p, n, effectiveN, median:medianDiff, method:'monte-carlo', exact:false, iterations, seed, continuityCorrected:false, tieCorrected:rankInfo.tieTerm>0, tieTerm:rankInfo.tieTerm };
+    }
     const mu=effectiveN*(effectiveN+1)/4;
-    const sigma=Math.sqrt(effectiveN*(effectiveN+1)*(2*effectiveN+1)/24);
-    const z=sigma===0?0:(W-mu)/sigma;
-    const p=2*(1-cdf(Math.abs(z),0,1));
-    return { W, z, p, n, effectiveN, median:medianDiff };
+    const sigmaSq=((effectiveN*(effectiveN+1)*(2*effectiveN+1))-(rankInfo.tieTerm/2))/24;
+    const sigma=Math.sqrt(Math.max(sigmaSq,0));
+    let z=0;
+    let p=1;
+    let correction=0;
+    if(sigma>0){
+      if(alternative==='greater'){
+        correction=Wpos>mu?0.5:-0.5;
+        z=(Wpos-mu-correction)/sigma;
+        p=Math.max(0,Math.min(1,1-cdf(z,0,1)));
+      }else if(alternative==='less'){
+        correction=Wpos<mu?-0.5:0.5;
+        z=(Wpos-mu-correction)/sigma;
+        p=Math.max(0,Math.min(1,cdf(z,0,1)));
+      }else{
+        const signed=Wpos-mu;
+        correction=signed===0?0:0.5*Math.sign(signed);
+        z=(signed-correction)/sigma;
+        p=Math.max(0,Math.min(1,2*(1-cdf(Math.abs(z),0,1))));
+      }
+    }
+    return { W, Wpos, Wneg, z, p, n, effectiveN, median:medianDiff, method:'normal-approximation', exact:false, continuityCorrected:true, tieCorrected:rankInfo.tieTerm>0, tieTerm:rankInfo.tieTerm };
   }
   function rankArray(arr){ const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v); const ranks=new Array(arr.length); let i=0; while(i<sorted.length){ let j=i; while(j<sorted.length && sorted[j].v===sorted[i].v) j++; const avg=(i+j-1)/2+1; for(let k=i;k<j;k++) ranks[sorted[k].i]=avg; i=j; } return ranks; }
-  function mannWhitney(a,b){
+  function mannWhitney(a,b,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
       ? jStatLib.normal.cdf
@@ -10596,29 +11949,75 @@
       warnDistributionUnavailable('normal',{ helper:'mannWhitney' });
       return createUnavailableStatResult({ U:NaN, z:NaN, p:NaN },'Normal distribution unavailable.');
     }
-    const all=[...a.map(v=>({v,g:0})),...b.map(v=>({v,g:1}))];
-    all.sort((x,y)=>x.v-y.v);
-    let rank=1;
-    for(let idx=0;idx<all.length;idx++){
-      let j=idx;
-      while(j<all.length && all[j].v===all[idx].v){ j++; }
-      const avg=(rank+(j-1))/2;
-      for(let k=idx;k<j;k++){ all[k].rank=avg; }
-      rank=j+1;
+    const arrA=(Array.isArray(a)?a:[]).map(Number).filter(Number.isFinite);
+    const arrB=(Array.isArray(b)?b:[]).map(Number).filter(Number.isFinite);
+    const na=arrA.length, nb=arrB.length;
+    if(!na || !nb){
+      return createUnavailableStatResult({ U:NaN, z:NaN, p:NaN, nA:na, nB:nb },'Mann-Whitney U test needs at least one value per group.');
     }
-    const Ra=all.filter(o=>o.g===0).reduce((s,o)=>s+o.rank,0);
-    const Rb=all.filter(o=>o.g===1).reduce((s,o)=>s+o.rank,0);
-    const na=a.length, nb=b.length;
-    const Ua=Ra-na*(na+1)/2;
-    const Ub=Rb-nb*(nb+1)/2;
-    const U=Math.min(Ua,Ub);
-    const mu=na*nb/2;
-    const sigma=Math.sqrt(na*nb*(na+nb+1)/12);
-    const z=(U-mu)/sigma;
-    const p=2*(1-cdf(Math.abs(z),0,1));
-    return {U,z,p};
+    const pooled=arrA.concat(arrB);
+    const rankInfo=rankValuesWithTieInfo(pooled);
+    let rankSumA=0;
+    for(let i=0;i<na;i++){
+      rankSumA+=rankInfo.ranks[i];
+    }
+    const U1=rankSumA-(na*(na+1)/2);
+    const U2=(na*nb)-U1;
+    const U=Math.min(U1,U2);
+    const alternative=resolveStatsAlternative(options);
+    const resamplingMode=resolveStatsResamplingMode(options);
+    const iterations=resolveStatsMonteCarloIterations(options);
+    const seed=resolveStatsSeed(options);
+    const noTies=rankInfo.tieTerm===0 && !hasDuplicateFiniteValues(pooled);
+    const exactEligible=noTies && (na+nb)<=20;
+    if(resamplingMode!=='asymptotic' && exactEligible){
+      const dist=buildMannWhitneyExactDistribution(na,nb);
+      const total=dist.reduce((sum,count)=>sum+count,0);
+      const exact=computeExactTailProbabilitiesFromDistribution(dist,total,Math.round(U1),alternative);
+      return { U,U1,U2,z:NaN,p:exact.p,nA:na,nB:nb,method:'exact',exact:true,continuityCorrected:false,tieCorrected:false };
+    }
+    if(resamplingMode==='monte-carlo' || (resamplingMode==='auto' && (na+nb)<=40)){
+      const pooledRanks=rankInfo.ranks.slice();
+      const nextRand=createSeededRandom(seed + na*97 + nb*193);
+      const simulations=[];
+      for(let iter=0; iter<iterations; iter++){
+        const shuffled=shuffleInPlace(pooledRanks.slice(),nextRand);
+        let simRankSum=0;
+        for(let idx=0; idx<na; idx++){
+          simRankSum+=shuffled[idx];
+        }
+        const simU1=simRankSum-(na*(na+1)/2);
+        simulations.push(simU1);
+      }
+      const p=computeEmpiricalPValue(U1,simulations,alternative,{ mode:'signed' });
+      return { U,U1,U2,z:NaN,p,nA:na,nB:nb,method:'monte-carlo',exact:false,iterations,seed,continuityCorrected:false,tieCorrected:rankInfo.tieTerm>0 };
+    }
+    const nTotal=na+nb;
+    const mu=(na*nb)/2;
+    const sigmaSq=(na*nb/12)*(nTotal+1-(rankInfo.tieTerm/(nTotal*(nTotal-1||1))));
+    const sigma=Math.sqrt(Math.max(sigmaSq,0));
+    let z=0;
+    let p=1;
+    let correction=0;
+    if(sigma>0){
+      if(alternative==='greater'){
+        correction=U1>mu?0.5:-0.5;
+        z=(U1-mu-correction)/sigma;
+        p=Math.max(0,Math.min(1,1-cdf(z,0,1)));
+      }else if(alternative==='less'){
+        correction=U1<mu?-0.5:0.5;
+        z=(U1-mu-correction)/sigma;
+        p=Math.max(0,Math.min(1,cdf(z,0,1)));
+      }else{
+        const signed=U1-mu;
+        correction=signed===0?0:0.5*Math.sign(signed);
+        z=(signed-correction)/sigma;
+        p=Math.max(0,Math.min(1,2*(1-cdf(Math.abs(z),0,1))));
+      }
+    }
+    return { U,U1,U2,z,p,nA:na,nB:nb,method:'normal-approximation',exact:false,continuityCorrected:true,tieCorrected:rankInfo.tieTerm>0,tieTerm:rankInfo.tieTerm };
   }
-  function wilcoxonSignedRank(a,b){
+  function wilcoxonSignedRank(a,b,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
       ? jStatLib.normal.cdf
@@ -10627,18 +12026,68 @@
       warnDistributionUnavailable('normal',{ helper:'wilcoxonSignedRank' });
       return createUnavailableStatResult({ W:NaN, z:NaN, p:NaN },'Normal distribution unavailable.');
     }
-    const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0);
+    const pairedSamples=computePairedSamples(a,b);
+    const diffs=pairedSamples.map(pair=>pair.a-pair.b).filter(v=>v!==0);
+    const nRaw=pairedSamples.length;
+    const nEff=diffs.length;
+    if(!nEff){
+      return { W:0, Wpos:0, Wneg:0, z:0, p:1, n:nRaw, effectiveN:0, method:'degenerate', exact:false, continuityCorrected:false, tieCorrected:false };
+    }
     const abs=diffs.map(Math.abs);
-    const ranks=rankArray(abs);
-    let Wpos=0,Wneg=0;
+    const rankInfo=rankValuesWithTieInfo(abs);
+    const ranks=rankInfo.ranks;
+    let Wpos=0, Wneg=0;
     ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; });
     const W=Math.min(Wpos,Wneg);
-    const nEff=ranks.length;
+    const alternative=resolveStatsAlternative(options);
+    const resamplingMode=resolveStatsResamplingMode(options);
+    const iterations=resolveStatsMonteCarloIterations(options);
+    const seed=resolveStatsSeed(options);
+    const exactEligible=rankInfo.tieTerm===0 && nEff<=25;
+    if(resamplingMode!=='asymptotic' && exactEligible){
+      const dist=buildSignedRankExactDistribution(nEff);
+      const total=Math.pow(2,nEff);
+      const exact=computeExactTailProbabilitiesFromDistribution(dist,total,Math.round(Wpos),alternative);
+      return { W,Wpos,Wneg,z:NaN,p:exact.p,n:nRaw,effectiveN:nEff,method:'exact',exact:true,continuityCorrected:false,tieCorrected:false };
+    }
+    if(resamplingMode==='monte-carlo' || (resamplingMode==='auto' && nEff<=40)){
+      const nextRand=createSeededRandom(seed + nEff*131);
+      const simulations=[];
+      for(let iter=0; iter<iterations; iter++){
+        let simWpos=0;
+        for(let idx=0; idx<ranks.length; idx++){
+          if(nextRand()>=0.5){
+            simWpos+=ranks[idx];
+          }
+        }
+        simulations.push(simWpos);
+      }
+      const p=computeEmpiricalPValue(Wpos,simulations,alternative,{ mode:'signed' });
+      return { W,Wpos,Wneg,z:NaN,p,n:nRaw,effectiveN:nEff,method:'monte-carlo',exact:false,iterations,seed,continuityCorrected:false,tieCorrected:rankInfo.tieTerm>0 };
+    }
     const mu=nEff*(nEff+1)/4;
-    const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24);
-    const z=(W-mu)/sigma;
-    const p=2*(1-cdf(Math.abs(z),0,1));
-    return {W,z,p};
+    const sigmaSq=((nEff*(nEff+1)*(2*nEff+1))-(rankInfo.tieTerm/2))/24;
+    const sigma=Math.sqrt(Math.max(sigmaSq,0));
+    let z=0;
+    let p=1;
+    let correction=0;
+    if(sigma>0){
+      if(alternative==='greater'){
+        correction=Wpos>mu?0.5:-0.5;
+        z=(Wpos-mu-correction)/sigma;
+        p=Math.max(0,Math.min(1,1-cdf(z,0,1)));
+      }else if(alternative==='less'){
+        correction=Wpos<mu?-0.5:0.5;
+        z=(Wpos-mu-correction)/sigma;
+        p=Math.max(0,Math.min(1,cdf(z,0,1)));
+      }else{
+        const signed=Wpos-mu;
+        correction=signed===0?0:0.5*Math.sign(signed);
+        z=(signed-correction)/sigma;
+        p=Math.max(0,Math.min(1,2*(1-cdf(Math.abs(z),0,1))));
+      }
+    }
+    return { W,Wpos,Wneg,z,p,n:nRaw,effectiveN:nEff,method:'normal-approximation',exact:false,continuityCorrected:true,tieCorrected:rankInfo.tieTerm>0,tieTerm:rankInfo.tieTerm };
   }
   function anova(groups){
     const jStatLib=global.jStat;
@@ -10665,7 +12114,7 @@
     const msWithin=ssWithin/dfWithin;
     const F=msBetween/msWithin;
     const p=1-cdf(F,dfBetween,dfWithin);
-    return {F,p,dfBetween,dfWithin};
+    return {F,p,dfBetween,dfWithin,ssBetween,ssWithin,ssTotal:ssBetween+ssWithin,msWithin};
   }
   function kruskalWallis(groups){
     const jStatLib=global.jStat;
@@ -10688,7 +12137,7 @@
     const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
     const df=groups.length-1;
     const p=1-cdf(H,df);
-    return {H,p};
+    return {H,p,n,k:groups.length,epsilonSquared:computeKruskalEpsilonSquared(H,groups.length,n)};
   }
   function rankValuesWithTieInfo(values){
     const sorted=values.map((v,i)=>({ v, i })).sort((a,b)=>a.v-b.v);
@@ -10856,12 +12305,15 @@
       hfEpsilon,
       ggP,
       hfP,
+      ssCondition,
+      ssError,
+      partialEtaSquared:computePartialEtaSquared(ssCondition,ssError),
       footnote:correctionNotes.length
         ? `Repeated-measures ANOVA assumes sphericity. ${correctionNotes.join(' ')}`
         : 'Repeated-measures ANOVA assumes sphericity.'
     };
   }
-  function computeFriedmanTest(groups){
+  function computeFriedmanTest(groups,options={}){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
     const k=cleaned.length;
     if(k<3){
@@ -10882,11 +12334,13 @@
       warnDistributionUnavailable('chi-square',{ helper:'computeFriedmanTest' });
       return { ok:false, message:'Chi-square distribution unavailable.' };
     }
+    const rowRanks=[];
     const rankSums=new Array(k).fill(0);
     let tieTermSum=0;
     for(let row=0; row<n; row++){
       const rowValues=cleaned.map(group=>group[row]);
       const rankInfo=rankValuesWithTieInfo(rowValues);
+      rowRanks.push(rankInfo.ranks.slice());
       tieTermSum+=rankInfo.tieTerm;
       for(let col=0; col<k; col++){
         rankSums[col]+=rankInfo.ranks[col];
@@ -10904,6 +12358,79 @@
       }
     }
     const df=k-1;
+    const resamplingMode=resolveStatsResamplingMode(options);
+    const iterations=resolveStatsMonteCarloIterations(options);
+    const seed=resolveStatsSeed(options);
+    const exactEligible=tieTermSum===0 && Math.pow(factorialInt(k),n)<=200000;
+    if(resamplingMode!=='asymptotic' && exactEligible){
+      const perms=generatePermutations(Array.from({ length:k },(_,idx)=>idx+1));
+      let total=0;
+      let hits=0;
+      function visit(rowIndex,currentSums){
+        if(rowIndex>=n){
+          let simQ=(12/(n*k*(k+1)))*currentSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1);
+          total+=1;
+          if(simQ>=Q-1e-12){
+            hits+=1;
+          }
+          return;
+        }
+        perms.forEach(perm=>{
+          for(let col=0; col<k; col++){
+            currentSums[col]+=perm[col];
+          }
+          visit(rowIndex+1,currentSums);
+          for(let col=0; col<k; col++){
+            currentSums[col]-=perm[col];
+          }
+        });
+      }
+      visit(0,new Array(k).fill(0));
+      const p=hits/Math.max(total,1);
+      return {
+        ok:true,
+        Q,
+        p,
+        df,
+        tieCorrection,
+        n,
+        k,
+        kendallsW:computeKendallsW(Q,n,k),
+        footnote:'Friedman exact permutation distribution over within-row rank assignments.'
+      };
+    }
+    if(resamplingMode==='monte-carlo' || (resamplingMode==='auto' && n<=12)){
+      const perms=Array.from({ length:k },(_,idx)=>idx+1);
+      const nextRand=createSeededRandom(seed + n*211 + k*19);
+      const simulations=[];
+      for(let iter=0; iter<iterations; iter++){
+        const simSums=new Array(k).fill(0);
+        for(let row=0; row<n; row++){
+          const perm=shuffleInPlace(perms.slice(),nextRand);
+          for(let col=0; col<k; col++){
+            simSums[col]+=perm[col];
+          }
+        }
+        const simQ=(12/(n*k*(k+1)))*simSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1);
+        simulations.push(simQ);
+      }
+      const p=computeEmpiricalPValue(Q,simulations,'greater',{ mode:'signed' });
+      return {
+        ok:true,
+        Q,
+        p,
+        df,
+        tieCorrection,
+        n,
+        k,
+        kendallsW:computeKendallsW(Q,n,k),
+        iterations,
+        seed,
+        footnote:tieTermSum>0
+          ? `Friedman Monte Carlo calibration (${iterations} iterations; ties retained by rank permutation).`
+          : `Friedman Monte Carlo calibration (${iterations} iterations).`
+      };
+    }
     const p=1-cdf(Q,df);
     return {
       ok:true,
@@ -10911,6 +12438,9 @@
       p,
       df,
       tieCorrection,
+      n,
+      k,
+      kendallsW:computeKendallsW(Q,n,k),
       footnote:tieTermSum>0
         ? `Friedman tie correction applied (factor ${tieCorrection.toFixed(4)}).`
         : 'Friedman test on paired ranks.'
@@ -10957,6 +12487,16 @@
     const df2=df2Den>0?(Math.pow(k,2)-1)/df2Den:Number.POSITIVE_INFINITY;
     const p=Number.isFinite(F)?1-fcdf(F,df1,df2):1;
     console.debug('Debug: box welchAnova',{ k, df1, df2, F, p, weightSum, sumTerm });
+    const totalN=counts.reduce((sum,val)=>sum+val,0);
+    const grandMean=means.reduce((sum,val,idx)=>sum+(val*counts[idx]),0)/Math.max(totalN,1);
+    let ssBetween=0;
+    let ssWithin=0;
+    cleaned.forEach((group,idx)=>{
+      ssBetween+=counts[idx]*Math.pow(means[idx]-grandMean,2);
+      group.forEach(value=>{ ssWithin+=Math.pow(value-means[idx],2); });
+    });
+    const ssTotal=ssBetween+ssWithin;
+    const msWithin=(totalN-k)>0 ? ssWithin/(totalN-k) : NaN;
     return {
       ok:Number.isFinite(F) && Number.isFinite(df2) && df2>0,
       F,
@@ -10966,6 +12506,11 @@
       means,
       counts,
       variances,
+      ssBetween,
+      ssWithin,
+      ssTotal,
+      etaSquared:computeEtaSquared(ssBetween,ssTotal),
+      omegaSquared:computeOmegaSquared(ssBetween,df1,msWithin,ssTotal),
       footnote:`Welch ANOVA (df₁ = ${df1}, df₂ ≈ ${Number.isFinite(df2)?df2.toFixed(2):'∞'})`
     };
   }
@@ -11589,6 +13134,51 @@
 
 
 
+
+  function computeNormalityMetrics(values, summary){
+    const result = computeDagostino(values, summary);
+    console.debug('Debug: box computeNormalityMetrics compatibility shim used',{
+      sampleSize: result?.sampleSize ?? null,
+      method: result?.method ?? null
+    });
+    return result;
+  }
+
+  function computeNormalityDiagnostic(values,options){
+    const alpha=resolveStatsAlpha({ alpha: options?.alpha });
+    const requested=resolveNormalityMethodOption(options);
+    const cleaned=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite);
+    const n=cleaned.length;
+    const uniqueCount=new Set(cleaned.map(value=>String(value))).size;
+    const hasTies=uniqueCount<n;
+    let method=requested;
+    if(requested==='auto'){
+      if(n>5000){
+        method='dagostino';
+      }else if(hasTies){
+        method='dagostino';
+      }else{
+        method='shapiro-wilk';
+      }
+    }
+    let result=method==='dagostino'
+      ? computeNormalityMetrics(cleaned)
+      : computeShapiroWilk(cleaned);
+    if(method==='dagostino' && (!Number.isFinite(result?.pValue) || n<8) && n<=5000){
+      result=computeShapiroWilk(cleaned);
+      method='shapiro-wilk';
+    }
+    const passed=Number.isFinite(result?.pValue) ? result.pValue>=alpha : result?.passed ?? null;
+    return {
+      ...result,
+      method,
+      alpha,
+      passed,
+      hadTies:hasTies,
+      uniqueCount
+    };
+  }
+
   function computeVarianceDiagnostics(groups,labels,options){
     const summaries=[];
     let totalN=0;
@@ -11654,7 +13244,8 @@
     const msWithin=ssWithin/(df2||1);
     const F=msWithin===0?Infinity:msBetween/msWithin;
     const pValue=Number.isFinite(F)?1-fcdf(F,df1,df2):0;
-    const passed=Number.isFinite(pValue)?pValue>=ASSUMPTION_ALPHA:null;
+    const alpha=resolveStatsAlpha({ alpha: options?.alpha });
+    const passed=Number.isFinite(pValue)?pValue>=alpha:null;
     console.debug('Debug: box variance diagnostics',{ df1, df2, F, pValue, passed, grandMean });
     return { method:'brown-forsythe', statistic:F, pValue, passed, df1, df2, sparkline:sparklineValues };
   }
@@ -11673,10 +13264,12 @@
   }
 
   function computeAssumptionDiagnostics(groups,labels,options){
+    const resolvedAlpha=resolveStatsAlpha({ alpha: options?.alpha });
+    const resolvedNormalityMethod=resolveNormalityMethodOption(options);
     const diagnostics={
-      normalityMethod:'shapiro-wilk',
+      normalityMethod:resolvedNormalityMethod,
       varianceMethod:'brown-forsythe',
-      alpha:ASSUMPTION_ALPHA,
+      alpha:resolvedAlpha,
       groups:[],
       warnings:[]
     };
@@ -11689,7 +13282,7 @@
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
       const summaryRef=summaryList && summaryList[idx];
-      const normality=computeShapiroWilk(group);
+      const normality=computeNormalityDiagnostic(group,{ alpha:resolvedAlpha, normalityMethod:resolvedNormalityMethod });
       const sampleSize=Number.isFinite(normality?.sampleSize)
         ? normality.sampleSize
         : Number.isFinite(summaryRef?.count)
@@ -11706,11 +13299,13 @@
       });
       if(normality && normality.passed===false){
         const formatted=Number.isFinite(normality.pValue)?formatP(normality.pValue):'—';
-        failReasons.push(`${label} failed normality (p = ${formatted})`);
+        failReasons.push(`${label} failed ${normality.method || 'normality testing'} (p = ${formatted})`);
         normalityFailures++;
+      }else if(normality?.hadTies && (normality?.method==='dagostino')){
+        failReasons.push(`${label} contains tied values; QQ plots remain important even when the normality test passes.`);
       }
     });
-    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList });
+    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList, alpha: resolvedAlpha });
     diagnostics.variance=variance;
     const varianceConcern=variance && variance.passed===false;
     if(variance && variance.passed===false){
@@ -11722,7 +13317,13 @@
     diagnostics.varianceConcern=!!varianceConcern;
     diagnostics.recommendWelch=!!varianceConcern && normalityFailures===0;
     diagnostics.recommendNonParametric=normalityFailures>0;
-    console.debug('Debug: box assumption diagnostics',{ failCount: failReasons.length, variancePassed: variance?.passed, normalityFailures, recommendWelch: diagnostics.recommendWelch });
+    console.debug('Debug: box assumption diagnostics',{
+      failCount: failReasons.length,
+      variancePassed: variance?.passed,
+      normalityFailures,
+      normalityMethod:resolvedNormalityMethod,
+      recommendWelch: diagnostics.recommendWelch
+    });
     return diagnostics;
   }
 
@@ -12163,6 +13764,7 @@
       return { ok: false, message: 'Add at least one group to run grouped analyses.', groupsCount, conditionsCount, groupLabels: normalizedGroups, conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
     }
     const rows = [];
+    const allRows = [];
     let candidateRows = 0;
     for(let r = dataStartRow; r < tableData.length; r++){
       const row = tableData[r];
@@ -12185,12 +13787,13 @@
       }
       if(rowHasAny){
         candidateRows++;
+        allRows.push(entry);
       }
       if(rowHasAny && rowComplete){
         rows.push(entry);
       }
     }
-    if(!rows.length){
+    if(!rows.length && !allRows.length){
       return {
         ok: false,
         message: 'Enter complete rows (no missing values) to run grouped analyses.',
@@ -12199,7 +13802,9 @@
         groupLabels: normalizedGroups,
         conditionLabels,
         rows: [],
+        allRows: [],
         cellData: [],
+        observedCellData: [],
         rowsWithData: 0,
         totalRows: candidateRows,
         partialRowsSkipped: Math.max(0, candidateRows)
@@ -12214,15 +13819,29 @@
         }
       }
     });
+    const observedCellData = Array.from({ length: groupsCount }, () => Array.from({ length: conditionsCount }, () => []));
+    allRows.forEach(rowEntry => {
+      for(let gIdx = 0; gIdx < groupsCount; gIdx++){
+        for(let cIdx = 0; cIdx < conditionsCount; cIdx++){
+          const value = rowEntry[gIdx][cIdx];
+          if(Number.isFinite(value)){
+            observedCellData[gIdx][cIdx].push(value);
+          }
+        }
+      }
+    });
     const info = {
-      ok: true,
+      ok: rows.length > 0 || allRows.length > 0,
       groupsCount,
       conditionsCount,
       groupLabels: normalizedGroups,
       conditionLabels,
       rows,
+      allRows,
       cellData,
+      observedCellData,
       rowsWithData: rows.length,
+      observedRowsWithData: allRows.length,
       totalRows: candidateRows,
       partialRowsSkipped: Math.max(0, candidateRows - rows.length)
     };
@@ -12378,20 +13997,29 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'P value', align: 'right' },
+        { key: 'etaP2', label: 'ηp²', align: 'right' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Error', df: String(dfError), ss: formatStatNumber(sse), ms: formatStatNumber(mse), f: '—', p: '—' }
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, sse)) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, sse)) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB), etaP2: formatStatNumber(computePartialEtaSquared(ssab, sse)) },
+        { source: 'Error', df: String(dfError), ss: formatStatNumber(sse), ms: formatStatNumber(mse), f: '—', p: '—', etaP2: '—' }
       ],
       options:{ fileName:'box-two-way-anova', contextLabel:'box-grouped-anova2' },
-      footnotes: ['F-tests use the pooled within-cell error term.'],
+      footnotes: ['F-tests use the pooled within-cell error term. Partial eta squared (ηp²) is reported for fixed effects.'],
       diagnostics: { dfA, dfB, dfAB, dfError }
     };
   }
   function analyzeTwoWayMixed(data){
+    if(Number(data?.partialRowsSkipped || 0) > 0 && Array.isArray(data?.allRows) && data.allRows.length){
+      return analyzeIncompleteMixedByGLS(data,{
+        caption:'Two-way Mixed Effects Model',
+        fileName:'box-two-way-mixed-incomplete',
+        contextLabel:'box-grouped-mixed2-incomplete',
+        analysisKey:'twoWayMixed'
+      });
+    }
     const base = collectGroupedMomentInfo(data);
     if(!base.ok){
       return { ok: false, message: base.message };
@@ -12473,19 +14101,20 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'P value', align: 'right' },
+        { key: 'etaP2', label: 'ηp²', align: 'right' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '—', p: '—' },
-        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—' },
-        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—' },
-        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—' }
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssbs)) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB), etaP2: formatStatNumber(computePartialEtaSquared(ssab, ssabs)) },
+        { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '—', p: '—', etaP2: '—' },
+        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—', etaP2: '—' },
+        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—', etaP2: '—' },
+        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—', etaP2: '—' }
       ],
       options:{ fileName:'box-two-way-mixed', contextLabel:'box-grouped-mixed2' },
-      footnotes: ['Mixed model treats rows as a random effect; F-tests for fixed effects use row interactions as denominators.']
+      footnotes: ['Mixed model treats rows as a random effect; F-tests for fixed effects use row interactions as denominators. Partial eta squared (ηp²) is reported for fixed effects.']
     };
   }
   function analyzeThreeWayAnova(data){
@@ -12575,24 +14204,33 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'P value', align: 'right' },
+        { key: 'etaP2', label: 'ηp²', align: 'right' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Row', df: String(dfC), ss: formatStatNumber(ssc), ms: formatStatNumber(msc), f: formatStatNumber(fC), p: formatP(pC) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Group × Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: formatP(pAC) },
-        { source: 'Condition × Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: formatP(pBC) },
-        { source: 'Group × Condition × Row', df: String(dfABC), ss: formatStatNumber(ssabc), ms: formatStatNumber(msabc), f: '—', p: '—' },
-        { source: 'Residual', df: '—', ss: formatStatNumber(residual), ms: '—', f: '—', p: '—' }
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssabc)) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssabc)) },
+        { source: 'Row', df: String(dfC), ss: formatStatNumber(ssc), ms: formatStatNumber(msc), f: formatStatNumber(fC), p: formatP(pC), etaP2: formatStatNumber(computePartialEtaSquared(ssc, ssabc)) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB), etaP2: formatStatNumber(computePartialEtaSquared(ssab, ssabc)) },
+        { source: 'Group × Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: formatP(pAC), etaP2: formatStatNumber(computePartialEtaSquared(ssac, ssabc)) },
+        { source: 'Condition × Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: formatP(pBC), etaP2: formatStatNumber(computePartialEtaSquared(ssbc, ssabc)) },
+        { source: 'Group × Condition × Row', df: String(dfABC), ss: formatStatNumber(ssabc), ms: formatStatNumber(msabc), f: '—', p: '—', etaP2: '—' },
+        { source: 'Residual', df: '—', ss: formatStatNumber(residual), ms: '—', f: '—', p: '—', etaP2: '—' }
       ],
       options:{ fileName:'box-three-way-anova', contextLabel:'box-grouped-anova3' },
-      footnotes: ['Highest-order interaction is used as the error term for F-tests.'],
+      footnotes: ['Highest-order interaction is used as the error term for F-tests. Partial eta squared (ηp²) is reported for fixed effects.'],
       diagnostics: { dfA, dfB, dfC, dfAB, dfAC, dfBC, dfABC }
     };
   }
   function analyzeThreeWayMixed(data){
+    if(Number(data?.partialRowsSkipped || 0) > 0 && Array.isArray(data?.allRows) && data.allRows.length){
+      return analyzeIncompleteMixedByGLS(data,{
+        caption:'Three-way Mixed Effects Model',
+        fileName:'box-three-way-mixed-incomplete',
+        contextLabel:'box-grouped-mixed3-incomplete',
+        analysisKey:'threeWayMixed'
+      });
+    }
     const base = collectGroupedMomentInfo(data);
     if(!base.ok){
       return { ok: false, message: base.message };
@@ -12674,19 +14312,20 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'P value', align: 'right' },
+        { key: 'etaP2', label: 'ηp²', align: 'right' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Row (random)', df: String(dfC), ss: formatStatNumber(sss), ms: formatStatNumber(dfC ? sss / dfC : NaN), f: '—', p: '—' },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—' },
-        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—' },
-        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—' }
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssbs)) },
+        { source: 'Row (random)', df: String(dfC), ss: formatStatNumber(sss), ms: formatStatNumber(dfC ? sss / dfC : NaN), f: '—', p: '—', etaP2: '—' },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB), etaP2: formatStatNumber(computePartialEtaSquared(ssab, ssabs)) },
+        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—', etaP2: '—' },
+        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—', etaP2: '—' },
+        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—', etaP2: '—' }
       ],
       options:{ fileName:'box-three-way-mixed', contextLabel:'box-grouped-mixed3' },
-      footnotes: ['Rows treated as a random effect; F-tests reported for fixed factors only.']
+      footnotes: ['Rows treated as a random effect; F-tests reported for fixed factors only. Partial eta squared (ηp²) is reported for fixed effects.']
     };
   }
   function analyzeRowWiseTTests(data){
@@ -12702,13 +14341,13 @@
     for(let condIdx = 0; condIdx < data.conditionsCount; condIdx++){
       for(let gA = 0; gA < data.groupsCount; gA++){
         for(let gB = gA + 1; gB < data.groupsCount; gB++){
-          const sampleA = data.cellData[gA][condIdx];
-          const sampleB = data.cellData[gB][condIdx];
+          const sampleA = (data.observedCellData?.[gA]?.[condIdx] || data.cellData[gA][condIdx] || []).filter(Number.isFinite);
+          const sampleB = (data.observedCellData?.[gB]?.[condIdx] || data.cellData[gB][condIdx] || []).filter(Number.isFinite);
           if(sampleA.length < 2 || sampleB.length < 2){
             console.debug('Debug: row-wise t-test skipped due to insufficient replicates',{ condIdx, gA, gB, aCount: sampleA.length, bCount: sampleB.length });
             continue;
           }
-          const result = tTest(sampleA, sampleB);
+          const result = tTest(sampleA, sampleB,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative });
           tests.push({
             condition: conditionLabels[condIdx] || `Condition ${condIdx + 1}`,
             groupA: data.groupLabels[gA],
@@ -12810,23 +14449,23 @@
       return trace.summary;
     });
     const results={
-      normalityMethod:'dagostino',
-      alpha:ASSUMPTION_ALPHA,
+      normalityMethod:resolveNormalityMethodOption({}),
+      alpha:resolveStatsAlpha({}),
       groups:[]
     };
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
       const summaryRef=summaryList && summaryList[idx];
-      const dagostino=computeDagostino(group,summaryRef);
-      const sampleSize=Number.isFinite(dagostino?.sampleSize)
-        ? dagostino.sampleSize
+      const normality=computeNormalityDiagnostic(group,{ alpha: resolveStatsAlpha({}), normalityMethod: resolveNormalityMethodOption({}) });
+      const sampleSize=Number.isFinite(normality?.sampleSize)
+        ? normality.sampleSize
         : Number.isFinite(summaryRef?.count)
           ? summaryRef.count
           : countFiniteValues(group);
       results.groups.push({
         label,
         size:sampleSize,
-        normality:dagostino
+        normality
       });
     });
     if(debugEnabled){
@@ -12850,7 +14489,7 @@
       }
       return trace.summary;
     });
-    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList });
+    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList, alpha: resolveStatsAlpha({}) });
     if(debugEnabled){
       console.debug('Debug: box stats advisor variance results',{
         groupCount: groups.length,
@@ -12864,7 +14503,8 @@
     wrapper.className='stats-advisor__inline-results';
     const heading=document.createElement('div');
     heading.className='stats-advisor__inline-label';
-    heading.textContent='Normality test results (D\'Agostino)';
+    const methodLabel=results?.normalityMethod==='dagostino' ? "D’Agostino-Pearson" : results?.normalityMethod==='auto' ? 'Auto-selected normality test' : 'Shapiro-Wilk';
+    heading.textContent=`Normality test results (${methodLabel})`;
     wrapper.appendChild(heading);
     if(!results || !Array.isArray(results.groups) || !results.groups.length){
       const empty=document.createElement('div');
@@ -13120,7 +14760,7 @@
     questions.push({
       id:'distribution',
       prompt:'Do the group distributions look approximately normal?',
-      help:'Inspect the boxplots, QQ plots, or normality diagnostics when available.',
+      help:'Inspect the boxplots, QQ plots, or Shapiro-Wilk diagnostics when available.',
       options:ADVISOR_DISTRIBUTION_OPTIONS
     });
     const resolvedGroups=normalizeAdvisorGroupAnswer(answers.groups,context);
@@ -13770,6 +15410,7 @@
     || state.statsPostHoc==='gamesHowell'
     || state.statsPostHoc==='dunnett'
     || state.statsPostHoc==='dunnettT3'
+    || state.statsPostHoc==='nemenyi'
   );
   if(oneSampleMode){
     correctionSel.removeAttribute('title');
@@ -13781,10 +15422,220 @@
     correctionSel.title='Dunnett already controls family-wise error versus the reference group.';
   }else if(state.statsPostHoc==='dunnettT3'){
     correctionSel.title='Dunnett T3 already controls family-wise error versus the reference group.';
+  }else if(state.statsPostHoc==='nemenyi'){
+    correctionSel.title='Nemenyi already provides a family-wise post-hoc adjustment after Friedman.';
   }else{
     correctionSel.removeAttribute('title');
   }
   appendInline(correctionLabel, correctionSel, true);
+
+  const alphaLabel=document.createElement('label');
+  alphaLabel.textContent='Alpha:';
+  const alphaInput=document.createElement('input');
+  alphaInput.type='number';
+  alphaInput.step='0.001';
+  alphaInput.min='0.0001';
+  alphaInput.max='0.499';
+  alphaInput.value=String(sanitizeStatsAlpha(state.statsAlpha,ASSUMPTION_ALPHA));
+  alphaInput.addEventListener('change',()=>{
+    const value=sanitizeStatsAlpha(alphaInput.value,ASSUMPTION_ALPHA);
+    state.statsAlpha=value;
+    alphaInput.value=String(value);
+    console.debug('Debug: box statsAlpha changed',{ value });
+    requestStatsContextRefresh('stats-alpha-change');
+    persistTabState('stats-alpha-change');
+    state.scheduleDraw();
+  });
+  appendInline(alphaLabel, alphaInput, true);
+
+  const ciLabel=document.createElement('label');
+  ciLabel.textContent='CI level:';
+  const ciInput=document.createElement('input');
+  ciInput.type='number';
+  ciInput.step='0.01';
+  ciInput.min='0.50';
+  ciInput.max='0.999';
+  ciInput.value=String(sanitizeStatsCiLevel(state.statsCiLevel,0.95));
+  ciInput.addEventListener('change',()=>{
+    const value=sanitizeStatsCiLevel(ciInput.value,0.95);
+    state.statsCiLevel=value;
+    ciInput.value=String(value);
+    console.debug('Debug: box statsCiLevel changed',{ value });
+    requestStatsContextRefresh('stats-cilevel-change');
+    persistTabState('stats-cilevel-change');
+    state.scheduleDraw();
+  });
+  appendInline(ciLabel, ciInput, true);
+
+  const alternativeLabel=document.createElement('label');
+  alternativeLabel.textContent='Hypothesis:';
+  const alternativeSel=document.createElement('select');
+  [
+    ['two-sided','Two-sided'],
+    ['greater','A > B / mean > H0'],
+    ['less','A < B / mean < H0']
+  ].forEach(([value,label])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=label;
+    if(state.statsAlternative===value){
+      option.selected=true;
+    }
+    alternativeSel.appendChild(option);
+  });
+  alternativeSel.addEventListener('change',()=>{
+    state.statsAlternative=sanitizeStatsAlternative(alternativeSel.value);
+    console.debug('Debug: box statsAlternative changed',{ value:state.statsAlternative });
+    requestStatsContextRefresh('stats-alternative-change');
+    persistTabState('stats-alternative-change');
+    state.scheduleDraw();
+  });
+  appendInline(alternativeLabel, alternativeSel, true);
+
+  const normalityLabel=document.createElement('label');
+  normalityLabel.textContent='Normality test:';
+  const normalitySel=document.createElement('select');
+  [
+    ['shapiro-wilk','Shapiro-Wilk'],
+    ['dagostino','D’Agostino-Pearson'],
+    ['auto','Auto']
+  ].forEach(([value,label])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=label;
+    if(state.statsNormalityMethod===value){
+      option.selected=true;
+    }
+    normalitySel.appendChild(option);
+  });
+  normalitySel.addEventListener('change',()=>{
+    state.statsNormalityMethod=sanitizeNormalityMethod(normalitySel.value);
+    console.debug('Debug: box statsNormalityMethod changed',{ value:state.statsNormalityMethod });
+    requestStatsContextRefresh('stats-normality-change');
+    persistTabState('stats-normality-change');
+    renderStatsControls(traces);
+    state.scheduleDraw();
+  });
+  appendInline(normalityLabel, normalitySel, true);
+
+  const resamplingLabel=document.createElement('label');
+  resamplingLabel.textContent='Rank P values:';
+  const resamplingSel=document.createElement('select');
+  [
+    ['auto','Auto'],
+    ['exact','Prefer exact'],
+    ['monte-carlo','Monte Carlo'],
+    ['asymptotic','Asymptotic']
+  ].forEach(([value,label])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=label;
+    if(state.statsResamplingMode===value){
+      option.selected=true;
+    }
+    resamplingSel.appendChild(option);
+  });
+  resamplingSel.addEventListener('change',()=>{
+    state.statsResamplingMode=sanitizeResamplingMode(resamplingSel.value);
+    console.debug('Debug: box statsResamplingMode changed',{ value:state.statsResamplingMode });
+    requestStatsContextRefresh('stats-resampling-change');
+    persistTabState('stats-resampling-change');
+    renderStatsControls(traces);
+    state.scheduleDraw();
+  });
+  appendInline(resamplingLabel, resamplingSel, true);
+
+  const iterationsLabel=document.createElement('label');
+  iterationsLabel.textContent='MC iterations:';
+  const iterationsInput=document.createElement('input');
+  iterationsInput.type='number';
+  iterationsInput.step='500';
+  iterationsInput.min='250';
+  iterationsInput.max='200000';
+  iterationsInput.value=String(sanitizeMonteCarloIterations(state.statsMonteCarloIterations,10000));
+  iterationsInput.disabled=state.statsResamplingMode!=='monte-carlo' && state.statsResamplingMode!=='auto';
+  iterationsInput.addEventListener('change',()=>{
+    const value=sanitizeMonteCarloIterations(iterationsInput.value,10000);
+    state.statsMonteCarloIterations=value;
+    iterationsInput.value=String(value);
+    console.debug('Debug: box statsMonteCarloIterations changed',{ value });
+    requestStatsContextRefresh('stats-montecarlo-change');
+    persistTabState('stats-montecarlo-change');
+    state.scheduleDraw();
+  });
+  appendInline(iterationsLabel, iterationsInput, true);
+
+  const seedLabel=document.createElement('label');
+  seedLabel.textContent='Seed:';
+  const seedInput=document.createElement('input');
+  seedInput.type='number';
+  seedInput.step='1';
+  seedInput.value=String(sanitizeStatsSeed(state.statsSeed,1337));
+  seedInput.addEventListener('change',()=>{
+    const value=sanitizeStatsSeed(seedInput.value,1337);
+    state.statsSeed=value;
+    seedInput.value=String(value);
+    console.debug('Debug: box statsSeed changed',{ value });
+    requestStatsContextRefresh('stats-seed-change');
+    persistTabState('stats-seed-change');
+    state.scheduleDraw();
+  });
+  appendInline(seedLabel, seedInput, true);
+
+  const outlierLabel=document.createElement('label');
+  outlierLabel.textContent='Outlier workflow:';
+  const outlierSel=document.createElement('select');
+  [
+    ['none','None'],
+    ['grubbs','Grubbs'],
+    ['rout','ROUT-style']
+  ].forEach(([value,label])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=label;
+    if(state.statsOutlierMode===value){
+      option.selected=true;
+    }
+    outlierSel.appendChild(option);
+  });
+  outlierSel.addEventListener('change',()=>{
+    state.statsOutlierMode=sanitizeOutlierMode(outlierSel.value);
+    console.debug('Debug: box statsOutlierMode changed',{ value:state.statsOutlierMode });
+    requestStatsContextRefresh('stats-outlier-mode-change');
+    persistTabState('stats-outlier-mode-change');
+    renderStatsControls(traces);
+    state.scheduleDraw();
+  });
+  appendInline(outlierLabel, outlierSel, true);
+
+  const outlierParamLabel=document.createElement('label');
+  outlierParamLabel.textContent=state.statsOutlierMode==='rout' ? 'ROUT q:' : 'Outlier α:';
+  const outlierParamInput=document.createElement('input');
+  outlierParamInput.type='number';
+  outlierParamInput.step='0.001';
+  outlierParamInput.min='0.0001';
+  outlierParamInput.max='0.249';
+  outlierParamInput.value=state.statsOutlierMode==='rout'
+    ? String(sanitizeOutlierQ(state.statsOutlierQ,0.01))
+    : String(sanitizeOutlierAlpha(state.statsOutlierAlpha,0.05));
+  outlierParamInput.disabled=state.statsOutlierMode==='none';
+  outlierParamInput.addEventListener('change',()=>{
+    if(state.statsOutlierMode==='rout'){
+      const value=sanitizeOutlierQ(outlierParamInput.value,0.01);
+      state.statsOutlierQ=value;
+      outlierParamInput.value=String(value);
+      console.debug('Debug: box statsOutlierQ changed',{ value });
+    }else{
+      const value=sanitizeOutlierAlpha(outlierParamInput.value,0.05);
+      state.statsOutlierAlpha=value;
+      outlierParamInput.value=String(value);
+      console.debug('Debug: box statsOutlierAlpha changed',{ value });
+    }
+    requestStatsContextRefresh('stats-outlier-param-change');
+    persistTabState('stats-outlier-param-change');
+    state.scheduleDraw();
+  });
+  appendInline(outlierParamLabel, outlierParamInput, true);
 
   const paramEffectLabel=document.createElement('label');
   paramEffectLabel.textContent='Effect size (parametric):';
@@ -13896,13 +15747,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   const prepared=precomputed && precomputed.ok!==undefined ? precomputed : prepareGroupedStatsData(traces,{ axisLabels: state.lastAxisLabels });
   const summary=document.createElement('div');
   summary.className='stats-table-lead';
-  summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Rows with data: ${prepared.rowsWithData || 0}`;
+  summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Complete rows: ${prepared.rowsWithData || 0}${Number(prepared.observedRowsWithData||0)!==Number(prepared.rowsWithData||0) ? ` | Rows with any data: ${prepared.observedRowsWithData || 0}` : ''}`;
   controls.appendChild(summary);
   if(prepared.partialRowsSkipped){
     const note=document.createElement('div');
     note.style.fontSize='12px';
     note.style.color='#555';
-    note.textContent=`${prepared.partialRowsSkipped} row(s) skipped due to missing values.`;
+    note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
     controls.appendChild(note);
   }
   const analysisWrap=document.createElement('div');
@@ -13975,7 +15826,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   if(state.groupedStats.analysis==='rowTTests'){
     analysisHelp.textContent='Per-condition pairwise tests use Welch t-statistics, then apply the selected multiplicity correction.';
   }else if(state.groupedStats.analysis==='twoWayMixed' || state.groupedStats.analysis==='threeWayMixed'){
-    analysisHelp.textContent='Mixed models treat rows as repeated/random effects; verify row alignment before interpretation.';
+    analysisHelp.textContent='Mixed-effects models treat rows as repeated/random effects. When rows contain missing repeated-measures values, the mixed-effects path retains observed values instead of listwise deletion.';
   }else{
     analysisHelp.textContent='ANOVA models assume approximately normal residuals and balanced, complete rows.';
   }
@@ -14783,6 +16634,71 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       els.statsTable.innerHTML = '';
     }
     state.significanceMaxLevel = null;
+    state.statsLastReport = null;
+  }
+
+  function buildStatsAnalysisSpec(extra){
+    const selectedColumns=Array.from(state.selectedCols || []).sort((a,b)=>a-b);
+    return {
+      schemaVersion:'box-stats-spec-v3',
+      alpha:sanitizeStatsAlpha(state.statsAlpha,ASSUMPTION_ALPHA),
+      ciLevel:sanitizeStatsCiLevel(state.statsCiLevel,0.95),
+      alternative:sanitizeStatsAlternative(state.statsAlternative),
+      normalityMethod:sanitizeNormalityMethod(state.statsNormalityMethod),
+      resamplingMode:sanitizeResamplingMode(state.statsResamplingMode),
+      monteCarloIterations:sanitizeMonteCarloIterations(state.statsMonteCarloIterations,10000),
+      correction:state.statsCorrection,
+      outlierMode:sanitizeOutlierMode(state.statsOutlierMode),
+      outlierAlpha:sanitizeOutlierAlpha(state.statsOutlierAlpha,0.05),
+      outlierQ:sanitizeOutlierQ(state.statsOutlierQ,0.01),
+      testFamily:state.statsTest,
+      paired:!!state.statsPaired,
+      mode:state.statsMode,
+      parametricVariant:state.statsParametricVariant,
+      postHoc:state.statsPostHoc,
+      oneSampleNullValue:sanitizeOneSampleNullValue(state.statsOneSampleValue),
+      referenceIndex:state.statsRef,
+      selectedColumns,
+      seed:sanitizeStatsSeed(state.statsSeed,1337),
+      generatedAt:new Date().toISOString(),
+      extra:extra || null
+    };
+  }
+
+  function appendStatsReportPanel(target,report){
+    if(!target || !report){
+      return;
+    }
+    const panel=document.createElement('details');
+    panel.className='stats-report-panel';
+    const summary=document.createElement('summary');
+    summary.textContent='Reporting and reproducibility';
+    panel.appendChild(summary);
+
+    const methodsLabel=document.createElement('div');
+    methodsLabel.className='stats-table-lead';
+    methodsLabel.textContent='Methods text';
+    panel.appendChild(methodsLabel);
+    const methodsPre=document.createElement('pre');
+    methodsPre.textContent=report.methodsText || '';
+    panel.appendChild(methodsPre);
+
+    const resultsLabel=document.createElement('div');
+    resultsLabel.className='stats-table-lead';
+    resultsLabel.textContent='Results text';
+    panel.appendChild(resultsLabel);
+    const resultsPre=document.createElement('pre');
+    resultsPre.textContent=report.resultsText || '';
+    panel.appendChild(resultsPre);
+
+    const specLabel=document.createElement('div');
+    specLabel.className='stats-table-lead';
+    specLabel.textContent='Analysis spec';
+    panel.appendChild(specLabel);
+    const specPre=document.createElement('pre');
+    specPre.textContent=JSON.stringify(report.analysisSpec || buildStatsAnalysisSpec(null),null,2);
+    panel.appendChild(specPre);
+    target.appendChild(panel);
   }
 
   function updateStatsButtonState(config){
@@ -14835,6 +16751,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.statsRef,
       state.statsPaired ? 'paired' : 'unpaired',
       String(state.statsOneSampleValue),
+      String(state.statsAlpha),
+      String(state.statsCiLevel),
+      state.statsAlternative,
+      state.statsNormalityMethod,
+      String(state.statsSeed),
+      state.statsResamplingMode,
+      String(state.statsMonteCarloIterations),
+      state.statsOutlierMode,
+      String(state.statsOutlierAlpha),
+      String(state.statsOutlierQ),
       state.statsCorrection,
       state.statsEffectParametric,
       state.statsEffectNonParametric,
@@ -14953,6 +16879,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       statsOneSampleNull: sanitizeOneSampleNullValue(state.statsOneSampleValue),
       statsRef: state.statsRef,
       statsCustomPairs: Array.isArray(state.statsCustomPairs) ? state.statsCustomPairs : [],
+      statsAlpha: state.statsAlpha,
+      statsCiLevel: state.statsCiLevel,
+      statsAlternative: state.statsAlternative,
+      statsNormalityMethod: state.statsNormalityMethod,
+      statsSeed: state.statsSeed,
+      statsResamplingMode: state.statsResamplingMode,
+      statsMonteCarloIterations: state.statsMonteCarloIterations,
+      statsOutlierMode: state.statsOutlierMode,
+      statsOutlierAlpha: state.statsOutlierAlpha,
+      statsOutlierQ: state.statsOutlierQ,
       statsCorrection: state.statsCorrection,
       statsEffectParametric: state.statsEffectParametric,
       statsEffectNonParametric: state.statsEffectNonParametric,
@@ -15489,6 +17425,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const runLocalCompute = () => {
       computeStats(context.traces, context.svg, context.helpers);
       renderStatsTable(context.traces);
+      if(els.statsResults && state.statsLastReport){
+        appendStatsReportPanel(els.statsResults, state.statsLastReport);
+      }
       applyStatsSuccess();
     };
 
@@ -15943,13 +17882,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	      statsDiv.innerHTML='';
 	      const summary=document.createElement('div');
       summary.className='stats-table-lead';
-      summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Rows with data: ${prepared.rowsWithData || 0}`;
+      summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Complete rows: ${prepared.rowsWithData || 0}${Number(prepared.observedRowsWithData||0)!==Number(prepared.rowsWithData||0) ? ` | Rows with any data: ${prepared.observedRowsWithData || 0}` : ''}`;
       statsDiv.appendChild(summary);
       if(prepared.partialRowsSkipped){
         const note=document.createElement('div');
         note.style.fontSize='12px';
         note.style.color='#555';
-        note.textContent=`${prepared.partialRowsSkipped} row(s) skipped due to missing values.`;
+        note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
         statsDiv.appendChild(note);
       }
       if(!prepared.ok){
@@ -15973,6 +17912,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         return;
       }
       renderTableModel(resultModel, true, statsDiv);
+      if(resultModel.report){
+        state.statsLastReport=finalizeStatsReport(resultModel.report,{
+          familyDescription:'Grouped analyses report the selected factorial model as one prespecified family.'
+        });
+      }else{
+        state.statsLastReport=finalizeStatsReport({
+          methodsText:`${resultModel.caption} was run for grouped data.`,
+          resultsText:`${resultModel.caption} completed for ${prepared.groupsCount} groups and ${prepared.conditionsCount} conditions.`,
+          analysisSpec:buildStatsAnalysisSpec({ grouped:true, groupedAnalysis:analysis, completeRows:prepared.rowsWithData || 0, observedRows:prepared.observedRowsWithData || prepared.rowsWithData || 0 })
+        },{
+          familyDescription:'Grouped analyses report the selected factorial model as one prespecified family.'
+        });
+      }
       console.debug('Debug: grouped stats rendered',{ analysis });
       state.assumptionDiagnostics=null;
       return;
@@ -15993,15 +17945,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         : 'Select at least two columns for statistical analysis.');
       return;
     }
-    const groups=indices.map(i=>traces[i].rawY);
+    const rawGroups=indices.map(i=>traces[i].rawY);
     const labels=indices.map(i=>traces[i].name);
-    const summaryList=indices.map(i=>{
-      const trace=traces[i];
-      if(!trace.summary){
-        trace.summary=computeTraceSummary(Array.isArray(trace.rawY)?trace.rawY:[],{ requireSorted:false });
-      }
-      return trace.summary;
+    const preprocessing=preprocessGroupsForAnalysis(rawGroups,labels,{
+      paired:state.statsPaired,
+      mode:state.statsMode,
+      outlierMode:state.statsOutlierMode,
+      outlierAlpha:state.statsOutlierAlpha,
+      outlierQ:state.statsOutlierQ
     });
+    const groups=preprocessing.groups;
+    const groupMapByTrace=new Map(indices.map((traceIndex,groupIdx)=>[traceIndex,groups[groupIdx]]));
+    const summaryList=groups.map(group=>computeTraceSummary(Array.isArray(group)?group:[],{ requireSorted:false }));
+    const dataQualityFootnotes=[
+      ...buildGroupDataQualityFootnotes(rawGroups,labels),
+      ...(Array.isArray(preprocessing.auditNotes)?preprocessing.auditNotes:[])
+    ];
     const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels,{
       qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
       summaries: summaryList
@@ -16047,9 +18006,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const pairTest=state.statsTest==='parametric'?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
       const pairs=[];
       state.statsCustomPairs.forEach(pr=>{
-        const aData=traces[pr.ai].rawY; const bData=traces[pr.bi].rawY;
+        const aData=groupMapByTrace.get(pr.ai) || traces[pr.ai].rawY; const bData=groupMapByTrace.get(pr.bi) || traces[pr.bi].rawY;
         if(state.statsPaired && aData.length!==bData.length) return;
-        const r=pairTest(aData,bData);
+        const r=pairTest(aData,bData,{ alternative: state.statsAlternative, alpha: state.statsAlpha, ciLevel: state.statsCiLevel, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
         const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
         const statVal=r[statName];
         const effectMetrics=computeEffectSizeMetrics(aData,bData,{ paired:state.statsPaired });
@@ -16103,12 +18062,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         rows:tableRows,
         footnotes:[
           ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
-          ...effectFootnotes
+          ...effectFootnotes,
+          ...dataQualityFootnotes
         ],
         options:{
           fileName:'box-custom-comparisons',
           contextLabel:'box-custom'
         }
+      });
+      state.statsLastReport=finalizeStatsReport({
+        methodsText:`User-specified custom pairwise comparisons were tested with ${state.statsTest==='parametric' ? (state.statsPaired ? 'paired t-tests' : 'Welch two-sample t-tests') : (state.statsPaired ? 'Wilcoxon signed-rank tests' : 'Mann-Whitney U tests')} and ${correctionMeta.label} multiplicity control across the custom comparison family.`,
+        resultsText:`${pairs.length} custom comparison${pairs.length===1?' was':'s were'} reported with ${correctionMeta.shortLabel} adjusted P values.`,
+        analysisSpec:buildStatsAnalysisSpec({ customPairs:pairs.length, comparisonMode:'custom' })
+      },{
+        familyDescription:'Only the manually specified custom pairs were included in the multiplicity family.'
       });
 	      if(pairs.length){
 	        renderPairSignificanceAnnotations(pairs, { reason: 'custom' });
@@ -16127,7 +18094,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const values=groups[groupIdx];
         const label=labels[groupIdx];
         if(param){
-          const result=tTestOneSample(values,nullValue);
+          const result=tTestOneSample(values,nullValue,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative });
           return {
             index:traceIndex,
             label,
@@ -16141,10 +18108,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             stat:result.t,
             auxLabel:'df',
             auxValue:result.df,
-            p:result.p
+            p:result.p,
+            ciLow:result.ciLow,
+            ciHigh:result.ciHigh,
+            method:result.method || null
           };
         }
-        const result=wilcoxonOneSample(values,nullValue);
+        const result=wilcoxonOneSample(values,nullValue,{ alpha: state.statsAlpha, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
         return {
           index:traceIndex,
           label,
@@ -16158,7 +18128,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           stat:result.W,
           auxLabel:'z',
           auxValue:result.z,
-          p:result.p
+          p:result.p,
+          method:result.method || null
         };
       });
       const validTests=tests.filter(test=>test.valid && Number.isFinite(test.p));
@@ -16177,6 +18148,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         .filter(test=>!test.valid)
         .map(test=>`${test.label}: ${test.message || 'skipped'}`);
       if(param){
+        state.statsLastReport=finalizeStatsReport({
+          methodsText:`One-sample t-tests were run against H0 = ${formatStatNumber(nullValue)} with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level, a ${state.statsAlternative} alternative hypothesis, and ${resolveCorrectionMeta(state.statsCorrection,validTests.length).label} adjustment across the selected groups.`,
+          resultsText:`${validTests.length} one-sample t-test${validTests.length===1?' was':'s were'} computed against H0 = ${formatStatNumber(nullValue)}.`,
+          analysisSpec:buildStatsAnalysisSpec({ oneSample:true, test:'t-test', count:validTests.length })
+        },{
+          familyDescription:'The selected one-sample tests were treated as one multiplicity family.'
+        });
         renderTableModel({
           caption:'One-sample t-tests',
           columns:[
@@ -16184,27 +18162,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             { key:'n', label:'n', align:'right', index:1 },
             { key:'mean', label:'Mean', align:'right', index:2 },
             { key:'delta', label:'Mean - H0', align:'right', index:3 },
-            { key:'statistic', label:'t', align:'right', index:4 },
-            { key:'df', label:'df', align:'right', index:5 },
-            { key:'p', label:'P value', align:'right', index:6 },
-            { key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:7 },
-            { key:'note', label:'Note', align:'left', index:8 }
+            { key:'ci', label:`${formatPercentLabel(state.statsCiLevel)} CI`, align:'right', index:4 },
+            { key:'statistic', label:'t', align:'right', index:5 },
+            { key:'df', label:'df', align:'right', index:6 },
+            { key:'p', label:'P value', align:'right', index:7 },
+            { key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:8 },
+            { key:'note', label:'Note', align:'left', index:9 }
           ],
           rows:tests.map(test=>({
             group:test.label,
             n:Number.isFinite(test.n)?String(test.n):'-',
             mean:Number.isFinite(test.mean)?formatStatNumber(test.mean):'-',
             delta:Number.isFinite(test.delta)?formatStatNumber(test.delta):'-',
+            ci:formatConfidenceInterval(test.ciLow,test.ciHigh),
             statistic:Number.isFinite(test.stat)?formatStatNumber(test.stat):'-',
             df:Number.isFinite(test.auxValue)?formatStatNumber(test.auxValue,2):'-',
             p:test.valid?formatP(test.p):'-',
             padj:test.valid?formatP(test.adjP):'-',
-            note:test.valid?'':(test.message || 'Skipped')
+            note:test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes:[
             `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            `Alternative hypothesis: ${state.statsAlternative}. ${formatPercentLabel(state.statsCiLevel)} confidence intervals use alpha = ${formatStatNumber(1-state.statsCiLevel,3)}.`,
             ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
-            ...skippedNotes
+            ...skippedNotes,
+            ...dataQualityFootnotes
           ],
           options:{
             fileName:'box-one-sample-ttest',
@@ -16212,6 +18194,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         });
       }else{
+        state.statsLastReport=finalizeStatsReport({
+          methodsText:`One-sample Wilcoxon signed-rank tests were run against H0 = ${formatStatNumber(nullValue)} with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${state.statsAlternative} alternative hypothesis, and ${resolveCorrectionMeta(state.statsCorrection,validTests.length).label} adjustment across the selected groups. Small, tie-free samples used exact signed-rank P values when available; otherwise tie-aware Monte Carlo or asymptotic calibration was used.`,
+          resultsText:`${validTests.length} one-sample Wilcoxon test${validTests.length===1?' was':'s were'} computed against H0 = ${formatStatNumber(nullValue)}.`,
+          analysisSpec:buildStatsAnalysisSpec({ oneSample:true, test:'wilcoxon', count:validTests.length })
+        },{
+          familyDescription:'The selected one-sample tests were treated as one multiplicity family.'
+        });
         renderTableModel({
           caption:'One-sample Wilcoxon signed-rank tests',
           columns:[
@@ -16234,12 +18223,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             z:Number.isFinite(test.auxValue)?formatStatNumber(test.auxValue):'-',
             p:test.valid?formatP(test.p):'-',
             padj:test.valid?formatP(test.adjP):'-',
-            note:test.valid?'':(test.message || 'Skipped')
+            note:test.valid ? (test.method==='exact' ? 'exact' : '') : (test.message || 'Skipped')
           })),
           footnotes:[
             `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            `Alternative hypothesis: ${state.statsAlternative}. Small, tie-free samples use exact signed-rank P values; otherwise a tie-corrected normal approximation with continuity correction is used.`,
             ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
-            ...skippedNotes
+            ...skippedNotes,
+            ...dataQualityFootnotes
           ],
           options:{
             fileName:'box-one-sample-wilcoxon',
@@ -16254,7 +18245,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     // Two-group case
     if(indices.length===2){
-      const res=pairTest(groups[0],groups[1]);
+      const res=pairTest(groups[0],groups[1],{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
       const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
       const effectMetrics=computeEffectSizeMetrics(groups[0],groups[1],{ paired:state.statsPaired });
       console.debug('Debug: box pair summary effect metrics',{
@@ -16266,17 +18257,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
       const summaryRows=[
         { metric:'Comparison', value:`${labels[0]} vs ${labels[1]}` },
-        { metric:'Test', value:param?(state.statsPaired?'Paired t-test':'t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U') },
+        { metric:'Test', value:param?(state.statsPaired?'Paired t-test':'Welch t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U') },
         { metric:statName, value:res[statName].toFixed(4) }
       ];
       const diffValue=Number.isFinite(res.diff)?res.diff:(mean(groups[0])-mean(groups[1]));
       if(Number.isFinite(diffValue)){
         summaryRows.push({ metric:'Difference (A-B)', value:formatStatNumber(diffValue) });
       }
-      if(Number.isFinite(res.ciLow) && Number.isFinite(res.ciHigh)){
-        summaryRows.push({ metric:'Difference (95% CI)', value:`${formatStatNumber(res.ciLow)} to ${formatStatNumber(res.ciHigh)}` });
+      if(Number.isFinite(res.ciLow) || Number.isFinite(res.ciHigh) || res.ciLow===-Infinity || res.ciHigh===Infinity){
+        summaryRows.push({ metric:`Difference (${formatPercentLabel(res.ciLevel || state.statsCiLevel)} CI)`, value:formatConfidenceInterval(res.ciLow,res.ciHigh) });
       }
       if(res.df!==undefined){ summaryRows.push({ metric:'df', value:res.df.toFixed(4) }); }
+      summaryRows.push({ metric:'Alternative', value:state.statsAlternative });
+      if(res.method){ summaryRows.push({ metric:'P-value method', value:res.method }); }
       summaryRows.push({ metric:'P value', value:formatP(res.p) });
       const correctionMeta=resolveCorrectionMeta(state.statsCorrection,1);
       const adjusted=applyPValueCorrection([res.p], state.statsCorrection);
@@ -16287,8 +18280,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       updateStatsCorrectionSummary(1);
       const footnotes=[
         ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
-        ...effectFootnotes
+        ...effectFootnotes,
+        ...dataQualityFootnotes
       ];
+      state.statsLastReport=finalizeStatsReport({
+        methodsText:`${param ? (state.statsPaired ? 'A paired t-test' : 'A Welch two-sample t-test') : (state.statsPaired ? 'A Wilcoxon signed-rank test' : 'A Mann-Whitney U test')} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level, and a ${state.statsAlternative} alternative hypothesis. Effect sizes were reported as ${paramEffectMeta.shortLabel || paramEffectMeta.label} and ${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label}.`,
+        resultsText:`${labels[0]} vs ${labels[1]}: ${statName} = ${Number.isFinite(res[statName]) ? formatStatNumber(res[statName]) : '—'}, p = ${formatP(res.p)}${Number.isFinite(res.ciLow) || Number.isFinite(res.ciHigh) ? `, difference ${formatConfidenceInterval(res.ciLow,res.ciHigh)}` : ''}.`,
+        analysisSpec:buildStatsAnalysisSpec({ comparison:[labels[0],labels[1]], pMethod:res.method || null })
+      },{
+        familyDescription:'This two-group analysis comprised a single prespecified comparison.'
+      });
       renderTableModel({
         caption:'Pairwise test summary',
         columns:[
@@ -16324,7 +18325,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(paramVariant==='welch'){
           const welch=computeWelchAnova(groups);
           if(welch.ok){
-            overall={ method:'welch', F:welch.F, p:welch.p, df1:welch.df1, df2:welch.df2, footnote:welch.footnote };
+            overall={ method:'welch', F:welch.F, p:welch.p, df1:welch.df1, df2:welch.df2, etaSquared:welch.etaSquared, omegaSquared:welch.omegaSquared, footnote:welch.footnote };
             if(welch.footnote){ overallFootnotes.push(welch.footnote); }
           }else{
             console.debug('Debug: box welchAnova unavailable', welch);
@@ -16333,25 +18334,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(!overall){
           const classic=anova(groups);
           if(classic){
-            overall={ method:'anova', F:classic.F, p:classic.p, df1:classic.dfBetween, df2:classic.dfWithin };
+            overall={ method:'anova', F:classic.F, p:classic.p, df1:classic.dfBetween, df2:classic.dfWithin, etaSquared:computeEtaSquared(classic.ssBetween,classic.ssTotal), omegaSquared:computeOmegaSquared(classic.ssBetween,classic.dfBetween,classic.msWithin,classic.ssTotal) };
           }
         }
       }else{
         const kw=kruskalWallis(groups);
-        overall={ method:'kruskal', H:kw.H, p:kw.p, df:groups.length-1 };
+        overall={ method:'kruskal', H:kw.H, p:kw.p, df:groups.length-1, epsilonSquared:kw.epsilonSquared };
       }
     }else if(param){
       const rm=computeRepeatedMeasuresAnova(groups);
       if(rm.ok){
-        overall={ method:'rmAnova', F:rm.F, p:rm.p, df1:rm.df1, df2:rm.df2, ggEpsilon:rm.ggEpsilon, hfEpsilon:rm.hfEpsilon, ggP:rm.ggP, hfP:rm.hfP, footnote:rm.footnote };
+        overall={ method:'rmAnova', F:rm.F, p:rm.p, df1:rm.df1, df2:rm.df2, ggEpsilon:rm.ggEpsilon, hfEpsilon:rm.hfEpsilon, ggP:rm.ggP, hfP:rm.hfP, partialEtaSquared:rm.partialEtaSquared, footnote:rm.footnote };
         if(rm.footnote){ overallFootnotes.push(rm.footnote); }
       }else{
         console.debug('Debug: box repeated-measures ANOVA unavailable',rm);
       }
     }else{
-      const friedman=computeFriedmanTest(groups);
+      const friedman=computeFriedmanTest(groups,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
       if(friedman.ok){
-        overall={ method:'friedman', Q:friedman.Q, p:friedman.p, df:friedman.df, footnote:friedman.footnote };
+        overall={ method:'friedman', Q:friedman.Q, p:friedman.p, df:friedman.df, kendallsW:friedman.kendallsW, footnote:friedman.footnote };
         if(friedman.footnote){ overallFootnotes.push(friedman.footnote); }
       }else{
         console.debug('Debug: box friedman unavailable',friedman);
@@ -16376,7 +18377,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     if(state.statsMode==='all'){
       if(postHocMode==='tukey'){
-        const tukey=computeTukeyComparisons(groups,labels);
+        const tukey=computeTukeyComparisons(groups,labels,{ alpha: state.statsAlpha });
         if(!tukey.ok){
           setResultsMessage(tukey.message || 'Unable to compute Tukey HSD.');
           updateStatsCorrectionSummary(0);
@@ -16414,7 +18415,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
-        const gh=computeGamesHowellComparisons(groups,labels);
+        const gh=computeGamesHowellComparisons(groups,labels,{ alpha: state.statsAlpha });
         if(!gh.ok){
           setResultsMessage(gh.message || 'Unable to compute Games–Howell comparisons.');
           updateStatsCorrectionSummary(0);
@@ -16452,7 +18453,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
-        const dunn=computeDunnComparisons(groups,labels);
+        const dunn=computeDunnComparisons(groups,labels,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
         if(!dunn.ok){
           setResultsMessage(dunn.message || "Unable to compute Dunn's test.");
           updateStatsCorrectionSummary(0);
@@ -16490,13 +18491,49 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
         updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='nemenyi'){
+        const nemenyi=computeNemenyiComparisons(groups,labels,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
+        if(!nemenyi.ok){
+          setResultsMessage(nemenyi.message || "Unable to compute Nemenyi's test.");
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(nemenyi.footnote);
+        pairs=nemenyi.pairs.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:true });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          const rangeMax=getRenderedRangeMax(ai, bi);
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.p,
+            stat:pr.q,
+            statName:'q',
+            df:null,
+            diff:pr.diff,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'nemenyi'
+          };
+        });
+        updateStatsCorrectionSummary(pairs.length);
       }else{
         for(let i=0;i<indices.length;i++){
           for(let j=i+1;j<indices.length;j++){
             const aIdx=indices[i],bIdx=indices[j];
             const aValues=traces[aIdx].rawY;
             const bValues=traces[bIdx].rawY;
-            const r=pairTest(aValues,bValues);
+            const r=pairTest(aValues,bValues,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
             const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
             const statVal=r[statName];
             const effectMetrics=computeEffectSizeMetrics(aValues,bValues,{ paired:state.statsPaired });
@@ -16537,7 +18574,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const refData=groups[refIdx];
       referenceLabel=labels[refIdx];
       if(postHocMode==='tukey'){
-        const tukey=computeTukeyComparisons(groups,labels);
+        const tukey=computeTukeyComparisons(groups,labels,{ alpha: state.statsAlpha });
         if(!tukey.ok){
           setResultsMessage(tukey.message || 'Unable to compute Tukey HSD.');
           updateStatsCorrectionSummary(0);
@@ -16576,7 +18613,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
-        const gh=computeGamesHowellComparisons(groups,labels);
+        const gh=computeGamesHowellComparisons(groups,labels,{ alpha: state.statsAlpha });
         if(!gh.ok){
           setResultsMessage(gh.message || 'Unable to compute Games–Howell comparisons.');
           updateStatsCorrectionSummary(0);
@@ -16615,7 +18652,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
-        const dunn=computeDunnComparisons(groups,labels);
+        const dunn=computeDunnComparisons(groups,labels,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
         if(!dunn.ok){
           setResultsMessage(dunn.message || "Unable to compute Dunn's test.");
           updateStatsCorrectionSummary(0);
@@ -16654,8 +18691,45 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
         updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='nemenyi'){
+        const nemenyi=computeNemenyiComparisons(groups,labels,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
+        if(!nemenyi.ok){
+          setResultsMessage(nemenyi.message || "Unable to compute Nemenyi's test.");
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(nemenyi.footnote);
+        const filtered=nemenyi.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
+        pairs=filtered.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:true });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          const rangeMax=getRenderedRangeMax(ai, bi);
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.p,
+            stat:pr.q,
+            statName:'q',
+            df:null,
+            diff:pr.diff,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'nemenyi'
+          };
+        });
+        updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunnett' || postHocMode==='dunnettT3'){
-        const dunnett=computeDunnettComparisons(groups,labels,refIdx,{ unequalVariances:postHocMode==='dunnettT3', alpha:0.05 });
+        const dunnett=computeDunnettComparisons(groups,labels,refIdx,{ unequalVariances:postHocMode==='dunnettT3', alpha: state.statsAlpha });
         if(!dunnett.ok){
           setResultsMessage(dunnett.message || "Unable to compute Dunnett comparisons.");
           updateStatsCorrectionSummary(0);
@@ -16698,7 +18772,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         indices.forEach((idx,i)=>{
           if(i===refIdx) return;
           const compareValues=traces[idx].rawY;
-          const r=pairTest(refData,compareValues);
+          const r=pairTest(refData,compareValues,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
           const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
           const statVal=r[statName];
           const effectMetrics=computeEffectSizeMetrics(refData,compareValues,{ paired:state.statsPaired });
@@ -16744,14 +18818,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         correctionMeta={ key:'dunnett', label:'Dunnett', shortLabel:'Dunnett', footnote:null };
       }else if(postHocMode==='dunnettT3'){
         correctionMeta={ key:'dunnettT3', label:'Dunnett T3', shortLabel:'Dunnett T3', footnote:null };
+      }else if(postHocMode==='nemenyi'){
+        correctionMeta={ key:'nemenyi', label:'Nemenyi', shortLabel:'Nemenyi', footnote:null };
       }else{
         correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
       }
       updateStatsCorrectionSummary(pairs.length);
       console.debug('Debug: box pairwise correction applied',{ method:correctionMeta.key, count:pairs.length });
-      const footnotes=[];
+      const footnotes=[`Alpha = ${formatStatNumber(state.statsAlpha,3)}. Alternative hypothesis = ${state.statsAlternative}.`, `Selected pairwise comparisons are treated as one multiplicity family in this view.`, describeResamplingForMethods({}), describeOutlierWorkflowForMethods({})];
       if(correctionMeta.footnote){ footnotes.push(correctionMeta.footnote); }
       methodFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
+      dataQualityFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       let appendForPairs=false;
       if(overall){
         const overallLabel=overall.method==='welch'
@@ -16788,6 +18865,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           overallRows.push({ metric:'df', value:String(overall.df) });
         }
         overallRows.push({ metric:'P value', value:formatP(overall.p) });
+        if(Number.isFinite(overall.etaSquared)){
+          overallRows.push({ metric:'Eta squared (η²)', value:formatStatNumber(overall.etaSquared) });
+        }
+        if(Number.isFinite(overall.omegaSquared)){
+          overallRows.push({ metric:'Omega squared (ω²)', value:formatStatNumber(overall.omegaSquared) });
+        }
+        if(Number.isFinite(overall.partialEtaSquared)){
+          overallRows.push({ metric:'Partial eta squared (ηp²)', value:formatStatNumber(overall.partialEtaSquared) });
+        }
+        if(Number.isFinite(overall.epsilonSquared)){
+          overallRows.push({ metric:'Epsilon squared (ε²)', value:formatStatNumber(overall.epsilonSquared) });
+        }
+        if(Number.isFinite(overall.kendallsW)){
+          overallRows.push({ metric:"Kendall's W", value:formatStatNumber(overall.kendallsW) });
+        }
         if(overall.method==='rmAnova'){
           if(Number.isFinite(overall.ggEpsilon)){
             overallRows.push({ metric:'GG epsilon', value:overall.ggEpsilon.toFixed(4) });
@@ -16809,7 +18901,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             {key:'value',label:'Value',align:'left',index:1}
           ],
           rows:overallRows,
-          footnotes:overallFootnotes.slice(),
+          footnotes:[...overallFootnotes, ...dataQualityFootnotes],
           options:{
             fileName:'box-overall-test',
             contextLabel:'box-overall'
@@ -16822,8 +18914,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
         df:Number.isFinite(pr.df)?pr.df.toFixed(2):(pr.df===Infinity?'∞':'—'),
         difference:Number.isFinite(pr.diff)?formatStatNumber(pr.diff):'—',
-        ci:(Number.isFinite(pr.ciLow)&&Number.isFinite(pr.ciHigh))
-          ? `${formatStatNumber(pr.ciLow)} to ${formatStatNumber(pr.ciHigh)}`
+        ci:(Number.isFinite(pr.ciLow)||Number.isFinite(pr.ciHigh)||pr.ciLow===-Infinity||pr.ciHigh===Infinity)
+          ? formatConfidenceInterval(pr.ciLow,pr.ciHigh)
           : '—',
         padj:formatP(pr.adjP),
         effectParametric:pr.effectParametric,
@@ -16841,7 +18933,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             ? 'P (Dunnett)'
             : postHocMode==='dunnettT3'
               ? 'P (Dunnett T3)'
+              : postHocMode==='nemenyi'
+                ? 'P (Nemenyi)'
           : `P (adj, ${correctionMeta.shortLabel})`;
+      const overallLabelForReport=overall
+        ? (overall.method==='welch'
+            ? 'Welch ANOVA'
+            : overall.method==='anova'
+              ? 'ANOVA'
+              : overall.method==='rmAnova'
+                ? 'Repeated-measures ANOVA'
+                : overall.method==='friedman'
+                  ? 'Friedman test'
+                  : 'Kruskal-Wallis')
+        : '';
+      state.statsLastReport=finalizeStatsReport({
+        methodsText:`${overall ? (overall.method==='welch' ? 'Welch ANOVA' : overall.method==='anova' ? 'One-way ANOVA' : overall.method==='rmAnova' ? 'Repeated-measures ANOVA' : overall.method==='friedman' ? 'Friedman test' : 'Kruskal-Wallis test') + ' followed by ' : ''}${postHocMode==='standard' ? (param ? (state.statsPaired ? 'paired contrasts' : 'pairwise contrasts') : 'rank-based pairwise contrasts') : (POST_HOC_META[postHocMode]?.label || postHocMode)} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, a ${state.statsAlternative} alternative hypothesis for pairwise tests, and ${correctionMeta.label} multiplicity control${postHocMode==='standard' ? ' applied to the selected comparison family' : ''}.`,
+        resultsText:`${overall ? `${overallLabelForReport}: p = ${formatP(overall.p)}. ` : ''}${pairs.length} pairwise comparison${pairs.length===1?' was':'s were'} reported${pairs.length ? ` with ${pLabel}` : ''}.`,
+        analysisSpec:buildStatsAnalysisSpec({ overallMethod: overall ? overall.method : null, pairCount:pairs.length, postHoc:postHocMode })
+      },{
+        familyDescription:'All pairwise contrasts displayed in this table were treated as one multiplicity family.'
+      });
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
         columns:[
@@ -16849,7 +18961,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
           {key:'difference',label:'Difference',align:'right',index:3},
-          {key:'ci',label:'95% CI',align:'right',index:4},
+          {key:'ci',label:`${formatPercentLabel(state.statsCiLevel)} CI`,align:'right',index:4},
           {key:'padj',label:pLabel,align:'right',index:5},
           {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:6,tooltip:paramEffectMeta.tooltip},
           {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:7,tooltip:nonParamEffectMeta.tooltip}
@@ -21290,6 +23402,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           pairsText: state.statsPairsText,
           postHoc: state.statsPostHoc,
           correction: state.statsCorrection,
+          alpha: state.statsAlpha,
+          ciLevel: state.statsCiLevel,
+          alternative: state.statsAlternative,
+          normalityMethod: state.statsNormalityMethod,
+          seed: state.statsSeed,
+          resamplingMode: state.statsResamplingMode,
+          monteCarloIterations: state.statsMonteCarloIterations,
+          outlierMode: state.statsOutlierMode,
+          outlierAlpha: state.statsOutlierAlpha,
+          outlierQ: state.statsOutlierQ,
           effectParametric: state.statsEffectParametric,
           effectNonParametric: state.statsEffectNonParametric,
           parametricVariant: state.statsParametricVariant,
@@ -21794,6 +23916,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const allowedModes=new Set(['all','reference','custom','oneSample']);
     state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
     state.statsOneSampleValue=sanitizeOneSampleNullValue(statsConfig.oneSampleNullValue ?? state.statsOneSampleValue);
+    state.statsAlpha=sanitizeStatsAlpha(statsConfig.alpha ?? state.statsAlpha, ASSUMPTION_ALPHA);
+    state.statsCiLevel=sanitizeStatsCiLevel(statsConfig.ciLevel ?? state.statsCiLevel, 0.95);
+    state.statsAlternative=sanitizeStatsAlternative(statsConfig.alternative ?? state.statsAlternative);
+    state.statsNormalityMethod=sanitizeNormalityMethod(statsConfig.normalityMethod ?? state.statsNormalityMethod);
+    state.statsSeed=sanitizeStatsSeed(statsConfig.seed ?? state.statsSeed, 1337);
+    state.statsResamplingMode=sanitizeResamplingMode(statsConfig.resamplingMode ?? state.statsResamplingMode);
+    state.statsMonteCarloIterations=sanitizeMonteCarloIterations(statsConfig.monteCarloIterations ?? state.statsMonteCarloIterations, 10000);
+    state.statsOutlierMode=sanitizeOutlierMode(statsConfig.outlierMode ?? state.statsOutlierMode);
+    state.statsOutlierAlpha=sanitizeOutlierAlpha(statsConfig.outlierAlpha ?? state.statsOutlierAlpha, 0.05);
+    state.statsOutlierQ=sanitizeOutlierQ(statsConfig.outlierQ ?? state.statsOutlierQ, 0.01);
     state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
     state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
     state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
@@ -22248,7 +24380,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    wilcoxonOneSample:(values,nullValue)=>wilcoxonOneSample(values,nullValue),
 	    anova:groups=>anova(groups),
 	    repeatedMeasuresAnova:groups=>computeRepeatedMeasuresAnova(groups),
-	    friedmanTest:groups=>computeFriedmanTest(groups),
+	    friedmanTest:groups=>computeFriedmanTest(groups,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed }),
 	    kruskalWallis:groups=>kruskalWallis(groups),
 	    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
 	    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
