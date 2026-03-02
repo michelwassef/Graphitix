@@ -161,6 +161,71 @@
     return Promise.resolve(getPayload);
   }
 
+
+  async function resolvePayloadWithGraphSizing(context, getPayload, provided){
+    const resolved = await resolvePayload(getPayload, provided);
+    const graphSizing = Shared.graphSizing || null;
+    if(!graphSizing || typeof graphSizing.enrichPayloadForType !== 'function'){
+      return resolved;
+    }
+    if(!resolved || typeof resolved !== 'object' || isBinaryLike(resolved)){
+      return resolved;
+    }
+    try{
+      const enriched = graphSizing.enrichPayloadForType(context, resolved, {
+        context: `file-save-${context}`
+      });
+      debug('resolvePayloadWithGraphSizing.enriched', {
+        context,
+        hasPayload: !!enriched,
+        hasGraphSizing: !!enriched?.meta?.graphSizing
+      });
+      return enriched;
+    }catch(err){
+      console.error('fileIO.resolvePayloadWithGraphSizing error', { context, err });
+      return resolved;
+    }
+  }
+
+  async function parseJsonPayloadFromBlob(blob, context){
+    if(!blob || typeof blob.text !== 'function'){
+      return null;
+    }
+    try{
+      const text = await blob.text();
+      if(typeof text !== 'string' || !text.trim()){
+        return null;
+      }
+      const parsed = JSON.parse(text);
+      debug('parseJsonPayloadFromBlob.success', {
+        context,
+        length: text.length,
+        hasGraphSizing: !!parsed?.meta?.graphSizing
+      });
+      return parsed;
+    }catch(err){
+      debug('parseJsonPayloadFromBlob.skip', {
+        context,
+        message: err?.message || String(err)
+      });
+      return null;
+    }
+  }
+
+  function scheduleGraphSizingApply(context, payload){
+    if(!payload || !Shared.graphSizing || typeof Shared.graphSizing.applyPayloadSizingForType !== 'function'){
+      return;
+    }
+    try{
+      Shared.graphSizing.applyPayloadSizingForType(context, payload, {
+        context: `file-open-${context}`,
+        retryDelaysMs: [10, 80, 180, 320, 520]
+      });
+    }catch(err){
+      console.error('fileIO.scheduleGraphSizingApply error', { context, err });
+    }
+  }
+
   function downloadURL(url, name){
     const doc = global.document;
     if(!doc || !doc.body){
@@ -293,7 +358,7 @@
       const permitted = await fileIO.verifyPermission(fileHandle, true);
       debug('saveGraphFile.permission', { context, permitted });
       if(permitted){
-        const data = await resolvePayload(getPayload, payload);
+        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
         const normalized = normalizeWritablePayload(data);
         debug('saveGraphFile.payloadReady', {
           context,
@@ -321,7 +386,7 @@
         mimeType
       });
     }
-    const data = await resolvePayload(getPayload, payload);
+    const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
     const normalized = normalizeWritablePayload(data);
     debug('saveGraphFile.payloadReady', {
       context,
@@ -365,7 +430,7 @@
           types: resolveTypes(fileTypes),
           suggestedName: targetName
         });
-        const data = await resolvePayload(getPayload, payload);
+        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
         const normalized = normalizeWritablePayload(data);
         debug('saveGraphFileAs.payloadReady', {
           context,
@@ -384,7 +449,7 @@
         }
         if(isUserActivationError(err)){
           debug('saveGraphFileAs.activationFallback', { context, targetName });
-          const data = await resolvePayload(getPayload, payload);
+          const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
           const normalized = normalizeWritablePayload(data);
           debug('saveGraphFileAs.payloadReady', {
             context,
@@ -404,7 +469,7 @@
       }
       }
     }
-    const data = await resolvePayload(getPayload, payload);
+    const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
     const normalized = normalizeWritablePayload(data);
     debug('saveGraphFileAs.payloadReady', {
       context,
@@ -443,12 +508,14 @@
           return { status: 'cancelled', via: 'picker' };
         }
         const file = await handle.getFile();
+        const parsedPayload = await parseJsonPayloadFromBlob(file, context);
         ensureSetter(setFileHandle, handle);
         if(file?.name) ensureSetter(setFileName, file.name);
         if(typeof loadFromFile === 'function'){
           await loadFromFile(file);
         }
-        return { status: 'opened', via: 'picker', fileHandle: handle, file };
+        scheduleGraphSizingApply(context, parsedPayload);
+        return { status: 'opened', via: 'picker', fileHandle: handle, file, payload: parsedPayload };
       }catch(err){
         console.error('fileIO.openGraphFile error', { context, err });
         return { status: 'error', via: 'picker', error: err };

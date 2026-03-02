@@ -232,7 +232,19 @@
       try {
         const result = config.loadFromPayload(payload, options || {});
         if (result && typeof result.then === 'function') {
-          result.catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
+          result
+            .then(() => {
+              if (Shared.graphSizing?.applyPayloadSizingForType) {
+                Shared.graphSizing.applyPayloadSizingForType(label, payload, {
+                  context: `workspace-payload-${label}`
+                });
+              }
+            })
+            .catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
+        } else if (Shared.graphSizing?.applyPayloadSizingForType) {
+          Shared.graphSizing.applyPayloadSizingForType(label, payload, {
+            context: `workspace-payload-${label}`
+          });
         }
         console.debug('Debug: workspace payload applied via custom handler', { type: label });
       } catch (err) {
@@ -249,6 +261,11 @@
           Shared.fileIO.registerPayloadBlob(blob, payload);
         }
         config.loadFromFile(blob, options || {});
+        if (Shared.graphSizing?.applyPayloadSizingForType) {
+          Shared.graphSizing.applyPayloadSizingForType(label, payload, {
+            context: `workspace-blob-${label}`
+          });
+        }
         console.debug('Debug: workspace payload applied via blob', { type: label, length: serialized.length });
       } catch (err) {
         console.error('applyWorkspacePayload error', { type: label, err });
@@ -384,9 +401,18 @@
             console.error('workspace layout default fallback error', { type: tab.type, err });
           }
         }
-        const layoutSource = tab.layoutState
+        let layoutSource = tab.layoutState
           ? cloneFn?.(tab.layoutState)
           : (defaultLayout ? cloneFn?.(defaultLayout) : null);
+        if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+          try {
+            layoutSource = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutSource, tab.payload, {
+              context: `workspace-layout-${tab.type}`
+            });
+          } catch (err) {
+            console.error('workspace layout graph sizing merge error', { tabId: tab.id, type: tab.type, err });
+          }
+        }
         const applied = config.applyLayoutState(layoutSource, {
           reason: options.reason || 'workspace-view',
           resetStyles: true,

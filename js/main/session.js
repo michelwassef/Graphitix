@@ -661,11 +661,29 @@
     }
     try {
       const payload = config.getPayload();
-      const payloadClone = clonePayload(payload);
+      let payloadClone = clonePayload(payload);
       const layoutState = Shared.componentLayout?.captureStateFor
         ? Shared.componentLayout.captureStateFor(tab.type)
         : null;
-      const layoutClone = clonePayload(layoutState);
+      let layoutClone = clonePayload(layoutState);
+      if (Shared.graphSizing?.enrichPayloadWithLayout) {
+        try {
+          payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
+            context: `persist-${tab.type}`
+          });
+        } catch (err) {
+          console.error('persistActiveTabState graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
+      if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+        try {
+          layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
+            context: `persist-layout-${tab.type}`
+          });
+        } catch (err) {
+          console.error('persistActiveTabState graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
       const previousLayoutSignature = tab.layoutSignature || null;
       const changed = assignTabPayload(tab, payloadClone, { reason: options.reason || 'persist-active' });
       tab.layoutState = layoutClone;
@@ -762,8 +780,26 @@
       ? graphTabs.findIndex(tab => tab.id === active.id)
       : -1;
     const tabsPayload = graphTabs.map((tab, index) => {
-      const payloadClone = clonePayload(tab.payload);
-      const layoutClone = clonePayload(tab.layoutState);
+      let payloadClone = clonePayload(tab.payload);
+      let layoutClone = clonePayload(tab.layoutState);
+      if (Shared.graphSizing?.enrichPayloadWithLayout) {
+        try {
+          payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
+            context: `build-session-${tab.type}`
+          });
+        } catch (err) {
+          console.error('buildSessionPayload graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
+      if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+        try {
+          layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
+            context: `build-session-layout-${tab.type}`
+          });
+        } catch (err) {
+          console.error('buildSessionPayload graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
       console.debug('Debug: session tab snapshot', {
         tabId: tab.id,
         type: tab.type,

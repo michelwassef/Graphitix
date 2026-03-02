@@ -1309,6 +1309,26 @@
     return applySchemeToActiveTab(type, schemeId);
   };
 
+  // Apply a scheme to an arbitrary payload without mutating global defaults.
+  // This is used by higher-level features (e.g. publication styles) that want
+  // to recolor the current graph while keeping the user's preferred palette
+  // for newly created tabs.
+  namespace.applyToPayload = function applyToPayload(type, payload, schemeId){
+    const scheme = getScheme(schemeId);
+    const src = cloneValue(payload) || { type, config: {} };
+    const srcType = type || src.type || null;
+    if(!srcType){
+      debugLog('Debug: colorSchemes.applyToPayload skipped', { reason: 'missing-type' });
+      return src;
+    }
+    try{
+      return applySchemeToPayload(srcType, src, scheme);
+    }catch(err){
+      console.error('colorSchemes.applyToPayload error', { type: srcType, scheme: scheme?.id || null, err });
+      return src;
+    }
+  };
+
   namespace.init = function init(){
     if(state.initialized){
       debugLog('Debug: colorSchemes.init skipped - already initialized');
