@@ -6435,7 +6435,7 @@
       const styleScaleInfo=fontInfo.scaleInfo;
       const axisSettings = ensureAxisSettings();
       const axisStrokeWidthBase = axisSettings.strokeWidth;
-      const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pca-axis', min: 0.5 });
+      const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pca-axis', min: 0, exact: true });
       const axisStroke = axisSettings.color || '#000';
       const pcaThemeDark = String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark';
       const pcaThemeTextColor = normalizePcaThemeColor(
@@ -10041,4 +10041,3 @@
   });
 
 })(window);
-

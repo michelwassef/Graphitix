@@ -1149,7 +1149,7 @@
       }
       const axisSettings = ensureAxisSettings();
       const axisStrokeWidthBase = axisSettings.strokeWidth;
-      const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25});
+      const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0, exact: true});
       const axisStroke = axisSettings.color || '#000';
       const manualIntervalY = getAxisTickInterval('y');
       const axisTickTools = chartStyle.axisTicks || null;
@@ -1489,7 +1489,7 @@
       console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
     }
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
-    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25 });
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0, exact: true });
     const frameStroke = '#000';
     const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
     const contentTop=fs*2;

@@ -14082,7 +14082,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const fs=fontInfo.scaledPx;
         const styleScaleInfo=fontInfo.scaleInfo;
         const axisStrokeWidthBase = getScatterAxisStrokeWidth();
-        const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'scatter-axis', min: 0.25 });
+        const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'scatter-axis', min: 0, exact: true });
         const axisStroke = getScatterAxisColor();
         const scatterThemeDark = String(scatterColorSchemeId || '').toLowerCase() === 'dark';
         const scatterThemeTextColor = normalizeScatterThemeColor(

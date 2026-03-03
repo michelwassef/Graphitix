@@ -6934,7 +6934,7 @@
       const fs = fontInfo.scaledPx;
       const styleScaleInfo = fontInfo.scaleInfo;
       const axisStrokeWidthBase = getLineAxisStrokeWidth();
-      const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis-3d', min: 0.25 });
+      const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis-3d', min: 0, exact: true });
       const axisStroke = getLineAxisColor();
       const lineThemeDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
       const lineThemeTextColor = normalizeLineThemeColor(
@@ -7852,7 +7852,7 @@
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
       const axisStrokeWidthBase = getLineAxisStrokeWidth();
-      const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis', min: 0.25 });
+      const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis', min: 0, exact: true });
       const axisStroke = getLineAxisColor();
       const dotSizeRaw=Number(refs.dotSize?.value)||0;
       const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker', min: 0 });

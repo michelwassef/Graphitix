@@ -1771,7 +1771,7 @@
     const fs = fontInfo.scaledPx || state.settings.fontSize;
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = typeof chartStyle.scaleStrokeWidth === 'function'
-      ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, fontInfo.scaleInfo, { context: 'surface-axis', min: 0.4 })
+      ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, fontInfo.scaleInfo, { context: 'surface-axis', min: 0, exact: true })
       : axisStrokeWidthBase;
     const gridStyleBase = getGridStyle(axisStrokeWidthBase);
     const gridStrokeStyle = Object.assign({}, gridStyleBase, {

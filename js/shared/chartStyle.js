@@ -915,6 +915,19 @@
     const opts = options || {};
     const min = Number.isFinite(opts.min) ? opts.min : 0;
     const max = Number.isFinite(opts.max) ? opts.max : Infinity;
+    const numeric = Number(base);
+    if(opts.exact === true){
+      const exactValue = Number.isFinite(numeric) ? numeric : 0;
+      const clampedExact = Math.min(max, Math.max(min, exactValue));
+      console.debug('Debug: chartStyle.scaleStrokeWidth exact applied', {
+        base,
+        min,
+        max,
+        result: clampedExact,
+        context: opts.context || 'stroke'
+      });
+      return clampedExact;
+    }
     const result = chartStyle.scaleLength(base, scaleInfo, { ...opts, min, max, context: opts.context || 'stroke' });
     console.debug('Debug: chartStyle.scaleStrokeWidth applied', {
       base,

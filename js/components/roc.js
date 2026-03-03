@@ -1985,7 +1985,7 @@
     const fontSize=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
-    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'roc-axis', min: 0.5 });
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'roc-axis', min: 0, exact: true });
     const axisStroke = getAxisColor();
     const gridStyleBase = getGridStyle(axisStrokeWidthBase);
     const gridStrokeStyle = Object.assign({}, gridStyleBase, {

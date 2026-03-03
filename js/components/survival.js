@@ -3035,7 +3035,7 @@
     const styleScaleInfo = fontInfo.scaleInfo || { styleScale: 1 };
     const axisSettings = ensureAxisSettings();
     const axisStrokeWidthBase = axisSettings.strokeWidth;
-    const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'survival-axis', min: 0.5 }) : axisStrokeWidthBase;
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'survival-axis', min: 0, exact: true }) : axisStrokeWidthBase;
     const axisStroke = axisSettings.color || '#000';
     const gridStyleBase = getGridStyle(axisStrokeWidthBase);
     const gridStrokeStyle = Object.assign({}, gridStyleBase, {

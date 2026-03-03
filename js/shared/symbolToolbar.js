@@ -3,6 +3,33 @@
 
   const Shared = global.Shared = global.Shared || {};
 
+  function isDebugEnabled(){
+    try{
+      return !Shared.isDebugEnabled || Shared.isDebugEnabled();
+    }catch(err){
+      return true;
+    }
+  }
+
+  function debugLog(message, payload){
+    if(!isDebugEnabled()){
+      return;
+    }
+    if(payload === undefined){
+      console.debug('[symbolToolbar] ' + message);
+      return;
+    }
+    console.debug('[symbolToolbar] ' + message, payload);
+  }
+
+  function getUndoManager(){
+    const manager = Shared.undoManager || null;
+    if(manager && typeof manager.recordStateChange === 'function'){
+      return manager;
+    }
+    return null;
+  }
+
   function clampNumeric(value, min, fallback){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -320,6 +347,7 @@
     const scopeCfg = cfg.scope || {};
     const scopeSelect = doc.createElement('select');
     scopeSelect.className = 'workspace-toolbar__select';
+    scopeSelect.setAttribute('data-undo-ignore', '1');
     const scopeOptions = Shared.normalizeScopeOptions(Array.isArray(scopeCfg.options) ? scopeCfg.options : [], { target: cfg.target }, scopeCfg);
     scopeOptions.forEach(option => {
       const opt = doc.createElement('option');
@@ -360,6 +388,185 @@
         target: cfg.target || null
       };
     };
+    const undoManager = getUndoManager();
+    let applyingFromUndo = false;
+    const normalizeColorForCompare = value => String(value == null ? '' : value).trim().toLowerCase();
+    const normalizeTextForCompare = value => String(value == null ? '' : value).trim();
+    const normalizeNumberForCompare = value => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+    const numericEquals = (a, b) => Math.abs(normalizeNumberForCompare(a) - normalizeNumberForCompare(b)) <= 1e-9;
+    const colorEquals = (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b);
+    const textEquals = (a, b) => normalizeTextForCompare(a) === normalizeTextForCompare(b);
+    const getUndoScope = () => {
+      if(typeof cfg.undoScope === 'string' && cfg.undoScope.trim()){
+        return cfg.undoScope.trim();
+      }
+      if(typeof cfg.scopeId === 'string' && cfg.scopeId.trim()){
+        return `${cfg.scopeId.trim()}GraphPanel`;
+      }
+      return null;
+    };
+    const snapshotContext = context => {
+      const ctx = context && typeof context === 'object' ? context : getContext();
+      return {
+        scope: ctx.scope || null,
+        scopeValue: ctx.scopeValue || null,
+        scopeDataset: ctx.scopeDataset || null,
+        target: ctx.target || cfg.target || null
+      };
+    };
+    const buildContextFromSnapshot = snapshot => {
+      const fallback = getContext();
+      if(!snapshot || typeof snapshot !== 'object'){
+        return fallback;
+      }
+      const scope = String(snapshot.scope || '').trim() || fallback.scope || null;
+      const scopeDataset = String(snapshot.scopeDataset || '').trim() || fallback.scopeDataset || null;
+      const scopeValueRaw = String(snapshot.scopeValue || '').trim();
+      const scopeValue = scopeValueRaw || encodeScopeValueInternal(scope || '', scopeDataset || '') || fallback.scopeValue || null;
+      return {
+        scope: scope || null,
+        scopeValue: scopeValue || null,
+        scopeDataset: scopeDataset || null,
+        target: snapshot.target || cfg.target || fallback.target || null
+      };
+    };
+    const resolveScopeOptionIndex = snapshot => {
+      if(!scopeSelect || !scopeSelect.options || !scopeSelect.options.length){
+        return -1;
+      }
+      const options = Array.from(scopeSelect.options || []);
+      const scope = String(snapshot?.scope || '').trim();
+      const scopeDataset = String(snapshot?.scopeDataset || '').trim();
+      const scopeValue = String(snapshot?.scopeValue || '').trim();
+      if(scopeValue){
+        const rawValueIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === scopeValue);
+        if(rawValueIndex >= 0){
+          return rawValueIndex;
+        }
+      }
+      if(scope && scopeDataset){
+        const encodedScope = encodeScopeValueInternal(scope, scopeDataset);
+        if(encodedScope){
+          const encodedIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === encodedScope);
+          if(encodedIndex >= 0){
+            return encodedIndex;
+          }
+        }
+        const exactIndex = options.findIndex(opt => (
+          !opt.disabled
+          && String(opt.value || '').trim() === scope
+          && String(opt?.dataset?.scopeDataset || '').trim() === scopeDataset
+        ));
+        if(exactIndex >= 0){
+          return exactIndex;
+        }
+      }
+      if(scopeValue){
+        const parsed = Shared.decodeScopeValue(scopeValue);
+        const parsedScope = String(parsed.kind || '').trim();
+        const parsedDataset = String(parsed.dataset || '').trim();
+        if(parsedScope && parsedDataset){
+          const parsedEncoded = encodeScopeValueInternal(parsedScope, parsedDataset);
+          if(parsedEncoded){
+            const parsedEncodedIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === parsedEncoded);
+            if(parsedEncodedIndex >= 0){
+              return parsedEncodedIndex;
+            }
+          }
+          const encodedIndex = options.findIndex(opt => (
+            !opt.disabled
+            && String(opt.value || '').trim() === parsedScope
+            && String(opt?.dataset?.scopeDataset || '').trim() === parsedDataset
+          ));
+          if(encodedIndex >= 0){
+            return encodedIndex;
+          }
+        }
+        if(parsedScope){
+          const parsedOnlyIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === parsedScope);
+          if(parsedOnlyIndex >= 0){
+            return parsedOnlyIndex;
+          }
+        }
+      }
+      if(scope){
+        const scopeOnlyIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === scope);
+        if(scopeOnlyIndex >= 0){
+          return scopeOnlyIndex;
+        }
+      }
+      return -1;
+    };
+    const restoreScopeFromSnapshot = snapshot => {
+      const contextSnapshot = snapshotContext(snapshot);
+      const optionIndex = resolveScopeOptionIndex(contextSnapshot);
+      if(optionIndex >= 0 && scopeSelect.selectedIndex !== optionIndex){
+        scopeSelect.selectedIndex = optionIndex;
+      }
+      if(typeof scopeCfg.onChange === 'function'){
+        try{
+          scopeCfg.onChange(scopeSelect.value, getContext());
+        }catch(err){
+          debugLog('scope onChange failed during undo apply', { message: err?.message || String(err) });
+        }
+      }
+      return buildContextFromSnapshot({
+        ...getContext(),
+        ...contextSnapshot
+      });
+    };
+    const buildUndoLabel = (fieldType, snapshot) => {
+      const parts = ['symbol'];
+      if(cfg?.scopeId){
+        parts.push(String(cfg.scopeId).trim());
+      }
+      if(snapshot?.scope){
+        parts.push(String(snapshot.scope).trim());
+      }
+      if(snapshot?.scopeDataset){
+        parts.push(String(snapshot.scopeDataset).trim());
+      }
+      parts.push(fieldType);
+      return parts.filter(Boolean).join(':');
+    };
+    const recordSymbolStateChange = (fieldType, previousValue, nextValue, applyFn, options) => {
+      if(!undoManager || applyingFromUndo){
+        return;
+      }
+      const opts = options || {};
+      const equals = typeof opts.equals === 'function' ? opts.equals : ((a, b) => a === b);
+      if(equals(previousValue, nextValue)){
+        return;
+      }
+      const contextSnapshot = snapshotContext(opts.contextSnapshot || opts.context);
+      undoManager.recordStateChange({
+        label: buildUndoLabel(fieldType, contextSnapshot),
+        scope: getUndoScope(),
+        from: previousValue,
+        to: nextValue,
+        equals,
+        apply(value){
+          applyingFromUndo = true;
+          try{
+            const applyContext = restoreScopeFromSnapshot(contextSnapshot);
+            if(typeof applyFn === 'function'){
+              applyFn(value, applyContext);
+            }
+          }finally{
+            applyingFromUndo = false;
+          }
+          syncFillChipUi();
+          syncBorderChipUi();
+          try{
+            syncTransparency();
+          }catch(err){}
+          return true;
+        }
+      });
+    };
 
     const fillCfg = cfg.fillShape || {};
     const borderCfg = cfg.border || {};
@@ -373,21 +580,57 @@
     let currentBorderWidth = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(getContext()) : 0, 0, 0);
     let currentBorderColor = typeof borderCfg.getColor === 'function' ? borderCfg.getColor(getContext()) : '#000000';
 
-    const applySize = (nextValue) => {
+    const applySize = (nextValue, options = {}) => {
       if(!sizeEnabled){ return; }
+      const opts = options && typeof options === 'object' ? options : {};
+      const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
+      const previous = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(context) : currentSize, 0, currentSize);
       const next = clampNumeric(nextValue, 0, 0);
       currentSize = next;
       if(typeof sizeCfg.onChange === 'function'){
-        sizeCfg.onChange(next, getContext());
+        sizeCfg.onChange(next, context);
+      }
+      const nextResolved = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(context) : next, 0, next);
+      currentSize = nextResolved;
+      if(opts.record !== false){
+        const contextSnapshot = snapshotContext(context);
+        recordSymbolStateChange('size', previous, nextResolved, (value, applyContext) => {
+          const normalized = clampNumeric(value, 0, nextResolved);
+          currentSize = normalized;
+          if(typeof sizeCfg.onChange === 'function'){
+            sizeCfg.onChange(normalized, applyContext || context);
+          }
+        }, {
+          equals: numericEquals,
+          contextSnapshot
+        });
       }
       syncFillChipUi();
     };
 
-    const applyBorderWidth = (nextValue) => {
+    const applyBorderWidth = (nextValue, options = {}) => {
+      const opts = options && typeof options === 'object' ? options : {};
+      const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
+      const previous = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(context) : currentBorderWidth, 0, currentBorderWidth);
       const next = clampNumeric(nextValue, 0, 0);
       currentBorderWidth = next;
       if(typeof borderCfg.onWidthChange === 'function'){
-        borderCfg.onWidthChange(next, getContext());
+        borderCfg.onWidthChange(next, context);
+      }
+      const nextResolved = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(context) : next, 0, next);
+      currentBorderWidth = nextResolved;
+      if(opts.record !== false){
+        const contextSnapshot = snapshotContext(context);
+        recordSymbolStateChange('border-width', previous, nextResolved, (value, applyContext) => {
+          const normalized = clampNumeric(value, 0, nextResolved);
+          currentBorderWidth = normalized;
+          if(typeof borderCfg.onWidthChange === 'function'){
+            borderCfg.onWidthChange(normalized, applyContext || context);
+          }
+        }, {
+          equals: numericEquals,
+          contextSnapshot
+        });
       }
       syncBorderChipUi();
     };
@@ -448,6 +691,89 @@
 
     let syncFillChipUi = () => {};
     let syncBorderChipUi = () => {};
+    const buildContextKey = context => {
+      const snapshot = snapshotContext(context);
+      return [
+        String(snapshot.scope || '').trim(),
+        String(snapshot.scopeDataset || '').trim(),
+        String(snapshot.scopeValue || '').trim()
+      ].join('::');
+    };
+    let pendingFillColorChange = null;
+    let pendingBorderColorChange = null;
+    const applyFillColorChange = (value, options = {}) => {
+      if(typeof fillCfg.onColorChange !== 'function'){
+        return;
+      }
+      const opts = options && typeof options === 'object' ? options : {};
+      const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
+      const hasPreviousOverride = Object.prototype.hasOwnProperty.call(opts, 'previousValue');
+      const previous = hasPreviousOverride
+        ? opts.previousValue
+        : (typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null);
+      fillCfg.onColorChange(value, context);
+      const next = typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : value;
+      if(opts.record !== false){
+        const contextSnapshot = snapshotContext(opts.contextSnapshot || context);
+        recordSymbolStateChange('fill-color', previous, next, (resolvedValue, applyContext) => {
+          if(typeof fillCfg.onColorChange === 'function'){
+            fillCfg.onColorChange(resolvedValue, applyContext || context);
+          }
+        }, {
+          equals: colorEquals,
+          contextSnapshot
+        });
+      }
+    };
+    const applyFillShapeChange = (value, options = {}) => {
+      if(typeof fillCfg.onShapeChange !== 'function'){
+        return;
+      }
+      const opts = options && typeof options === 'object' ? options : {};
+      const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
+      const previous = typeof fillCfg.getShape === 'function' ? fillCfg.getShape(context) : null;
+      fillCfg.onShapeChange(value, context);
+      const next = typeof fillCfg.getShape === 'function' ? fillCfg.getShape(context) : value;
+      if(opts.record !== false){
+        const contextSnapshot = snapshotContext(context);
+        recordSymbolStateChange('fill-shape', previous, next, (resolvedValue, applyContext) => {
+          if(typeof fillCfg.onShapeChange === 'function'){
+            fillCfg.onShapeChange(resolvedValue, applyContext || context);
+          }
+        }, {
+          equals: textEquals,
+          contextSnapshot
+        });
+      }
+    };
+    const applyBorderColorChange = (value, options = {}) => {
+      if(typeof borderCfg.onColorChange !== 'function'){
+        return;
+      }
+      const opts = options && typeof options === 'object' ? options : {};
+      const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
+      const hasPreviousOverride = Object.prototype.hasOwnProperty.call(opts, 'previousValue');
+      const previous = hasPreviousOverride
+        ? opts.previousValue
+        : (typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : currentBorderColor);
+      currentBorderColor = value;
+      borderCfg.onColorChange(value, context);
+      const next = typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : value;
+      currentBorderColor = next || value;
+      if(opts.record !== false){
+        const contextSnapshot = snapshotContext(opts.contextSnapshot || context);
+        recordSymbolStateChange('border-color', previous, next, (resolvedValue, applyContext) => {
+          currentBorderColor = resolvedValue;
+          if(typeof borderCfg.onColorChange === 'function'){
+            borderCfg.onColorChange(resolvedValue, applyContext || context);
+          }
+        }, {
+          equals: colorEquals,
+          contextSnapshot
+        });
+      }
+      syncBorderChipUi();
+    };
 
     const fillShapeSwatch = typeof Shared.createShapeColorSwatch === 'function'
       ? Shared.createShapeColorSwatch({
@@ -458,19 +784,39 @@
           shapeOptions: resolveShapeOptions(fillCfg.shapeOptions),
           showShapePicker: shapePickerEnabled,
           onColorInput(value){
+            const context = getContext();
+            const contextSnapshot = snapshotContext(context);
+            const contextKey = buildContextKey(contextSnapshot);
+            if(!pendingFillColorChange || pendingFillColorChange.key !== contextKey){
+              pendingFillColorChange = {
+                key: contextKey,
+                previous: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null,
+                contextSnapshot
+              };
+            }
             if(typeof fillCfg.onColorInput === 'function'){
-              fillCfg.onColorInput(value, getContext());
+              fillCfg.onColorInput(value, context);
             }
           },
           onColorChange(value){
-            if(typeof fillCfg.onColorChange === 'function'){
-              fillCfg.onColorChange(value, getContext());
+            const context = getContext();
+            const contextSnapshot = snapshotContext(context);
+            const contextKey = buildContextKey(contextSnapshot);
+            const pending = pendingFillColorChange && pendingFillColorChange.key === contextKey
+              ? pendingFillColorChange
+              : null;
+            const applyOptions = {
+              context,
+              contextSnapshot: pending?.contextSnapshot || contextSnapshot
+            };
+            if(pending){
+              applyOptions.previousValue = pending.previous;
             }
+            applyFillColorChange(value, applyOptions);
+            pendingFillColorChange = null;
           },
           onShapeChange(value){
-            if(typeof fillCfg.onShapeChange === 'function'){
-              fillCfg.onShapeChange(value, getContext());
-            }
+            applyFillShapeChange(value);
           },
           onPickerOpen(payload){
             fillPickerCleanup = attachSizeSection(payload?.overlay || null);
@@ -489,13 +835,44 @@
       const fallback = doc.createElement('input');
       fallback.type = 'color';
       fallback.value = typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#377eb8';
+      fallback.setAttribute('data-undo-ignore', '1');
       fallback.addEventListener('input', () => {
-        if(typeof fillCfg.onColorInput === 'function'){
-          fillCfg.onColorInput(fallback.value, getContext());
+        const context = getContext();
+        const contextSnapshot = snapshotContext(context);
+        const contextKey = buildContextKey(contextSnapshot);
+        if(!pendingFillColorChange || pendingFillColorChange.key !== contextKey){
+          pendingFillColorChange = {
+            key: contextKey,
+            previous: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null,
+            contextSnapshot
+          };
         }
+        if(typeof fillCfg.onColorInput === 'function'){
+          fillCfg.onColorInput(fallback.value, context);
+        }
+      });
+      fallback.addEventListener('change', () => {
+        const context = getContext();
+        const contextSnapshot = snapshotContext(context);
+        const contextKey = buildContextKey(contextSnapshot);
+        const pending = pendingFillColorChange && pendingFillColorChange.key === contextKey
+          ? pendingFillColorChange
+          : null;
+        const applyOptions = {
+          context,
+          contextSnapshot: pending?.contextSnapshot || contextSnapshot
+        };
+        if(pending){
+          applyOptions.previousValue = pending.previous;
+        }
+        applyFillColorChange(fallback.value, applyOptions);
+        pendingFillColorChange = null;
       });
       return fallback;
     })();
+    if(fillShapeSwatch?.input){
+      fillShapeSwatch.input.setAttribute('data-undo-ignore', '1');
+    }
 
     if(fillShapeSwatch?.swatch){
       fillShapeSwatch.swatch.classList.add('shared-fill-style-chip');
@@ -554,6 +931,7 @@
 
     const borderInput = doc.createElement('input');
     borderInput.type = 'color';
+    borderInput.setAttribute('data-undo-ignore', '1');
     borderInput.value = currentBorderColor || '#000000';
     const borderControl = doc.createElement('div');
     borderControl.className = 'shared-border-style-control';
@@ -580,18 +958,38 @@
     syncBorderChipUi();
 
     borderInput.addEventListener('input', () => {
+      const context = getContext();
+      const contextSnapshot = snapshotContext(context);
+      const contextKey = buildContextKey(contextSnapshot);
+      if(!pendingBorderColorChange || pendingBorderColorChange.key !== contextKey){
+        pendingBorderColorChange = {
+          key: contextKey,
+          previous: typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : currentBorderColor,
+          contextSnapshot
+        };
+      }
       currentBorderColor = borderInput.value;
       if(typeof borderCfg.onColorInput === 'function'){
-        borderCfg.onColorInput(currentBorderColor, getContext());
+        borderCfg.onColorInput(currentBorderColor, context);
       }
       syncBorderChipUi();
     });
     borderInput.addEventListener('change', () => {
-      currentBorderColor = borderInput.value;
-      if(typeof borderCfg.onColorChange === 'function'){
-        borderCfg.onColorChange(currentBorderColor, getContext());
+      const context = getContext();
+      const contextSnapshot = snapshotContext(context);
+      const contextKey = buildContextKey(contextSnapshot);
+      const pending = pendingBorderColorChange && pendingBorderColorChange.key === contextKey
+        ? pendingBorderColorChange
+        : null;
+      const applyOptions = {
+        context,
+        contextSnapshot: pending?.contextSnapshot || contextSnapshot
+      };
+      if(pending){
+        applyOptions.previousValue = pending.previous;
       }
-      syncBorderChipUi();
+      applyBorderColorChange(borderInput.value, applyOptions);
+      pendingBorderColorChange = null;
     });
 
     borderChip.addEventListener('wheel', evt => {
@@ -673,6 +1071,7 @@
       transparencyInput.max = '100';
       transparencyInput.step = '1';
       transparencyInput.className = 'additional-line-controls-panel__transparency-input';
+      transparencyInput.setAttribute('data-undo-ignore', '1');
       const transparencyValue = doc.createElement('span');
       transparencyValue.className = 'additional-line-controls-panel__range-value';
       const resolveTransparencyPercent = () => {
@@ -704,13 +1103,27 @@
       };
       syncTransparency();
       transparencyInput.addEventListener('input', () => {
+        const context = getContext();
+        const previous = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(context) : 0;
         const pct = Number(transparencyInput.value);
         const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
         const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
         const outgoing = scale === 'percent' ? bounded : (bounded / 100);
         if(typeof transparencyCfg.onChange === 'function'){
-          transparencyCfg.onChange(outgoing, getContext());
+          transparencyCfg.onChange(outgoing, context);
         }
+        const next = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(context) : outgoing;
+        recordSymbolStateChange('transparency', previous, next, (value, applyContext) => {
+          if(typeof transparencyCfg.onChange !== 'function'){
+            return;
+          }
+          const rawNumeric = Number(value);
+          const normalized = Number.isFinite(rawNumeric) ? rawNumeric : 0;
+          transparencyCfg.onChange(normalized, applyContext || context);
+        }, {
+          equals: numericEquals,
+          contextSnapshot: snapshotContext(context)
+        });
         const display = quantizeTransparencyPercent(bounded);
         transparencyValue.textContent = `${display}%`;
       });
@@ -722,6 +1135,8 @@
     }
 
     scopeSelect.addEventListener('change', () => {
+      pendingFillColorChange = null;
+      pendingBorderColorChange = null;
       if(typeof scopeCfg.onChange === 'function'){
         scopeCfg.onChange(scopeSelect.value, getContext());
       }

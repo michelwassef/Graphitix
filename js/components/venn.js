@@ -4460,7 +4460,7 @@
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(style.fontSizePx * 0.75));
     const axisWidthBase = clampNumber(settings.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10);
     const axisWidth = typeof chartStyle.scaleStrokeWidth === 'function'
-      ? chartStyle.scaleStrokeWidth(axisWidthBase, style.scaleInfo, { min: 0.45, max: 8, context: 'upset-axis' })
+      ? chartStyle.scaleStrokeWidth(axisWidthBase, style.scaleInfo, { min: 0, max: 8, context: 'upset-axis', exact: true })
       : axisWidthBase;
     const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
     const barBorderColor = sanitizeColor(style.borderColor, axisColor);

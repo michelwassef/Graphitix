@@ -164,6 +164,22 @@
   }
 
   function getContext(scopeOverride){
+    if(scopeOverride && typeof scopeOverride === 'object' && !Array.isArray(scopeOverride)){
+      const scopeKind = String(scopeOverride.scope || '').trim();
+      const scopeDataset = String(scopeOverride.scopeDataset || '').trim();
+      const scopeValueRaw = String(scopeOverride.scopeValue || '').trim();
+      const scopeValue = scopeValueRaw || (
+        scopeKind
+          ? `${scopeKind}${scopeDataset ? `::${encodeURIComponent(scopeDataset)}` : ''}`
+          : ''
+      );
+      return {
+        scope: scopeKind || null,
+        scopeValue: scopeValue || null,
+        scopeDataset: scopeDataset || null,
+        target: scopeOverride.target || activeConfig?.target || null
+      };
+    }
     const rawScope = scopeOverride == null ? activeScope : scopeOverride;
     const parsedScope = decodeScopedValue(rawScope);
     const selectedOption = scopeSelect && scopeSelect.selectedOptions && scopeSelect.selectedOptions.length
@@ -178,6 +194,16 @@
       scopeValue: parsedScope.raw || (rawScope == null ? null : String(rawScope)),
       scopeDataset: scopeDataset || null,
       target: activeConfig?.target || null
+    };
+  }
+
+  function snapshotContext(context){
+    const ctx = context && typeof context === 'object' ? context : getContext();
+    return {
+      scope: ctx.scope || null,
+      scopeValue: ctx.scopeValue || null,
+      scopeDataset: ctx.scopeDataset || null,
+      target: ctx.target || activeConfig?.target || null
     };
   }
 
@@ -663,7 +689,7 @@
       const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
       syncPanelInputsFromConfig(config);
       if(recordUndo){
-        const scopeSnapshot = context.scope;
+        const scopeSnapshot = snapshotContext(context);
         recordStyleStateChange(
           config,
           'thickness',
@@ -770,7 +796,7 @@
         config.onColorChange(requested, context);
       }
       const nextValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
-      const scopeSnapshot = context.scope;
+      const scopeSnapshot = snapshotContext(context);
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
@@ -791,7 +817,7 @@
       const requested = sanitizeColorValue(colorInput.value || null);
       config.onColorChange(requested, context);
       const nextValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
-      const scopeSnapshot = context.scope;
+      const scopeSnapshot = snapshotContext(context);
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
@@ -812,7 +838,7 @@
       const requested = sanitizePatternValue(patternSelect.value);
       config.onPatternChange(requested, context);
       const nextValue = sanitizePatternValue(config.getPattern ? config.getPattern(context) : requested);
-      const scopeSnapshot = context.scope;
+      const scopeSnapshot = snapshotContext(context);
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
@@ -832,7 +858,7 @@
       const requested = sanitizeTransparencyValue(transparencyInput.value);
       config.onTransparencyChange(requested, context);
       const nextValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency(context) : requested);
-      const scopeSnapshot = context.scope;
+      const scopeSnapshot = snapshotContext(context);
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,

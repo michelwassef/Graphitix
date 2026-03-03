@@ -2541,7 +2541,7 @@
     const fs=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
-    const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0.25 });
+    const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0, exact: true });
     const axisStroke = getAxisColor();
     const gridStyleBase = getGridStyle(axisStrokeWidthBase);
     const gridStrokeStyle = Object.assign({}, gridStyleBase, {
