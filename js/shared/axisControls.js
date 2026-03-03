@@ -8,6 +8,9 @@
   let panelTitleEl = null;
   let tickFieldEl = null;
   let tickInput = null;
+  let datasetSpacingFieldEl = null;
+  let datasetSpacingLabelEl = null;
+  let datasetSpacingInput = null;
   let minorTicksFieldEl = null;
   let minorTicksSwitch = null;
   let minorTicksToggleInput = null;
@@ -72,6 +75,13 @@
   }
 
   function sanitizeThicknessValue(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
+    return numeric;
+  }
+
+  function sanitizeDatasetSpacingValue(value){
     if(value === null || value === undefined || value === ''){ return null; }
     const numeric = Number(value);
     if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
@@ -1240,6 +1250,49 @@
       if(tickFieldEl){ tickFieldEl.dataset.disabled = '1'; }
       logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
     }
+
+    const datasetSpacingSupported = (
+      typeof config.getDatasetSpacing === 'function' &&
+      typeof config.onDatasetSpacingChange === 'function' &&
+      (
+        typeof config.isDatasetSpacingSupported === 'function'
+          ? config.isDatasetSpacingSupported(config.axis) !== false
+          : true
+      )
+    );
+    if(datasetSpacingFieldEl && datasetSpacingInput){
+      if(datasetSpacingSupported){
+        datasetSpacingFieldEl.hidden = false;
+        datasetSpacingFieldEl.dataset.disabled = '0';
+        datasetSpacingInput.disabled = false;
+        const minValue = sanitizeDatasetSpacingValue(config.datasetSpacingMin);
+        const maxValue = sanitizeDatasetSpacingValue(config.datasetSpacingMax);
+        const stepValue = sanitizeDatasetSpacingValue(config.datasetSpacingStep);
+        datasetSpacingInput.min = String(minValue == null ? 0.05 : minValue);
+        if(maxValue == null){
+          datasetSpacingInput.removeAttribute('max');
+        }else{
+          datasetSpacingInput.max = String(maxValue);
+        }
+        datasetSpacingInput.step = String(stepValue == null ? 0.05 : stepValue);
+        datasetSpacingInput.placeholder = config.datasetSpacingPlaceholder || '1';
+        const requestedLabel = typeof config.datasetSpacingLabel === 'string' && config.datasetSpacingLabel.trim()
+          ? config.datasetSpacingLabel.trim()
+          : 'Dataset Spacing';
+        if(datasetSpacingLabelEl){
+          datasetSpacingLabelEl.textContent = requestedLabel;
+        }
+        const datasetSpacingRaw = config.getDatasetSpacing ? config.getDatasetSpacing(config.axis) : null;
+        const datasetSpacing = sanitizeDatasetSpacingValue(datasetSpacingRaw);
+        datasetSpacingInput.value = datasetSpacing == null ? '' : String(datasetSpacing);
+      }else{
+        datasetSpacingFieldEl.hidden = true;
+        datasetSpacingFieldEl.dataset.disabled = '1';
+        datasetSpacingInput.disabled = true;
+        datasetSpacingInput.value = '';
+      }
+    }
+
     const minorTickSupported = isMinorTicksSupported(config);
     const minorSubdivisionsSupported = minorTickSupported
       && typeof config.getMinorTickSubdivisions === 'function'
@@ -1611,6 +1664,27 @@
     tickField.appendChild(tickInput);
     fieldsRowEl.appendChild(tickField);
     tickFieldEl = tickField;
+
+    const datasetSpacingField = doc.createElement('label');
+    datasetSpacingField.className = 'axis-controls-panel__field additional-line-controls-panel__field';
+    datasetSpacingField.classList.add('axis-controls-panel__field--numeric');
+    datasetSpacingField.hidden = true;
+    const datasetSpacingLabel = doc.createElement('span');
+    datasetSpacingLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
+    datasetSpacingLabel.textContent = 'Dataset Spacing';
+    datasetSpacingInput = doc.createElement('input');
+    datasetSpacingInput.type = 'number';
+    datasetSpacingInput.min = '0.05';
+    datasetSpacingInput.step = '0.05';
+    datasetSpacingInput.placeholder = '1';
+    datasetSpacingInput.className = 'axis-controls-panel__input additional-line-controls-panel__input';
+    datasetSpacingInput.classList.add('axis-controls-panel__input--small');
+    datasetSpacingInput.setAttribute('data-undo-ignore','1');
+    datasetSpacingField.appendChild(datasetSpacingLabel);
+    datasetSpacingField.appendChild(datasetSpacingInput);
+    fieldsRowEl.appendChild(datasetSpacingField);
+    datasetSpacingFieldEl = datasetSpacingField;
+    datasetSpacingLabelEl = datasetSpacingLabel;
 
     const minorTicksField = doc.createElement('div');
     minorTicksField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--toggle';
@@ -2052,6 +2126,35 @@
       );
     });
 
+    if(datasetSpacingInput){
+      datasetSpacingInput.addEventListener('change', () => {
+        if(applyingFromUndo){ return; }
+        if(!activeConfig || datasetSpacingInput.disabled){ return; }
+        const config = activeConfig;
+        if(typeof config.onDatasetSpacingChange !== 'function'){
+          return;
+        }
+        const raw = datasetSpacingInput.value;
+        const previousValue = sanitizeDatasetSpacingValue(config.getDatasetSpacing ? config.getDatasetSpacing(config.axis) : null);
+        const requestedValue = sanitizeDatasetSpacingValue(raw);
+        logDebug('dataset spacing change',{ raw, value: requestedValue, axis: config.axis });
+        config.onDatasetSpacingChange(requestedValue, config.axis);
+        const nextValue = sanitizeDatasetSpacingValue(config.getDatasetSpacing ? config.getDatasetSpacing(config.axis) : null);
+        syncPanelInputsFromConfig(config);
+        recordAxisStateChange(
+          config,
+          'datasetSpacing',
+          previousValue,
+          nextValue,
+          value => {
+            if(config.onDatasetSpacingChange){
+              config.onDatasetSpacingChange(value, config.axis);
+            }
+          }
+        );
+      });
+    }
+
     const applyThicknessFromInput = (recordUndo) => {
       if(applyingFromUndo){ return; }
       if(!activeConfig){ return; }
@@ -2475,6 +2578,14 @@
         tickIntervalDisabledMessage: config.tickIntervalDisabledMessage,
         tickPlaceholder: config.tickPlaceholder,
         onTickIntervalChange: config.onTickIntervalChange,
+        getDatasetSpacing: config.getDatasetSpacing,
+        onDatasetSpacingChange: config.onDatasetSpacingChange,
+        isDatasetSpacingSupported: config.isDatasetSpacingSupported,
+        datasetSpacingLabel: config.datasetSpacingLabel,
+        datasetSpacingMin: config.datasetSpacingMin,
+        datasetSpacingMax: config.datasetSpacingMax,
+        datasetSpacingStep: config.datasetSpacingStep,
+        datasetSpacingPlaceholder: config.datasetSpacingPlaceholder,
         getMinorTicksEnabled: config.getMinorTicksEnabled,
         onMinorTicksChange: config.onMinorTicksChange,
         isMinorTicksSupported: config.isMinorTicksSupported,

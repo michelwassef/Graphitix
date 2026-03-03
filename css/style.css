@@ -4476,8 +4476,8 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     white-space:nowrap;
 }
 .axis-controls-panel__field--numeric{
-    min-width:48px;
-    max-width:48px;
+    min-width:64px;
+    max-width:64px;
 }
 .axis-controls-panel__field--numeric .axis-controls-panel__input--small{
     width:48px;
