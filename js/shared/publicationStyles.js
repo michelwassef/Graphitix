@@ -26,6 +26,7 @@
   });
 
   const FONT_CONTROL_IDS = Object.freeze({
+    venn: Object.freeze({ inputId: 'fontsize', labelId: 'fontsizeVal' }),
     box: Object.freeze({ inputId: 'boxFontSize', labelId: 'boxFontSizeVal' }),
     scatter: Object.freeze({ inputId: 'scatterFontSize', labelId: 'scatterFontSizeVal' }),
     pca: Object.freeze({ inputId: 'pcaFontSize', labelId: 'pcaFontSizeVal' }),
@@ -43,9 +44,9 @@
     targetWidthPx: 336,
     targetHeightPx: 300,
     fontFamily: 'Arial',
-    fontSizePt: 6,
+    fontSizePt: 7,
     axisColor: '#000000',
-    axisStrokeWidth: 1,
+    axisStrokeWidth: 0.333,
     pointSize: 4,
     pointBorderWidth: 1,
     summaryColor: '#000000',
@@ -317,27 +318,51 @@
     return sizing;
   }
 
+  function resolvePresetSchemeId(type, payload, preset){
+    const fallback = (typeof preset?.schemeId === 'string' && preset.schemeId.trim())
+      ? preset.schemeId.trim()
+      : 'colorblind';
+    if(type !== 'box'){
+      return fallback;
+    }
+    const cfg = ensureObject(payload?.config);
+    const tableFormat = String(cfg.tableFormat || '').trim().toLowerCase();
+    // Exact NPG rule for box:
+    // - grouped table format => colorblind
+    // - otherwise (single) => grayscale
+    return tableFormat === 'grouped' ? 'colorblind' : 'grayscale';
+  }
+
   function patchCommonPayload(type, payload, preset){
     let next = cloneValue(payload) || { type, config: {} };
     next.type = type;
+    const schemeId = resolvePresetSchemeId(type, next, preset);
 
     // Recolor first, using existing color scheme logic if available.
     const cs = Shared.colorSchemes;
     if(cs && typeof cs.applyToPayload === 'function'){
-      next = cs.applyToPayload(type, next, preset.schemeId);
+      next = cs.applyToPayload(type, next, schemeId);
     }else{
       next.config = ensureObject(next.config);
-      next.config.colorScheme = preset.schemeId;
+      next.config.colorScheme = schemeId;
     }
 
     // Common config knobs.
     next.config = ensureObject(next.config);
+    next.config.colorScheme = schemeId;
 
     if('showGrid' in next.config){
       next.config.showGrid = !!preset.showGrid;
     }
     if('showFrame' in next.config){
       next.config.showFrame = !!preset.showFrame;
+    }
+
+    if('fontSize' in next.config){
+      next.config.fontSize = preset.fontSizePt;
+    }
+    if('fontsize' in next.config){
+      next.config.fontsize = preset.fontSizePt;
     }
 
     // Typography: only mutate existing graph-scope styles to avoid creating
@@ -357,17 +382,9 @@
     }
 
     // Axis.
-    if(next.config.axis && typeof next.config.axis === 'object'){
-      if('strokeWidth' in next.config.axis){
-        next.config.axis.strokeWidth = preset.axisStrokeWidth;
-      }
-      if('color' in next.config.axis){
-        next.config.axis.color = preset.axisColor;
-      }
-    }else{
-      // Some graphs store axis settings differently, so do not force-create unless
-      // the graph already uses an axis object.
-    }
+    next.config.axis = ensureObject(next.config.axis);
+    next.config.axis.strokeWidth = preset.axisStrokeWidth;
+    next.config.axis.color = preset.axisColor;
 
     return next;
   }
@@ -377,6 +394,12 @@
     const cfg = next.config = ensureObject(next.config);
 
     if(type === 'box'){
+      const tableFormat = String(cfg.tableFormat || '').trim().toLowerCase();
+      const isGroupedReplicates = tableFormat === 'grouped';
+      // Publication styles must expose the selected palette (grayscale for
+      // single, colorblind for grouped), so keep box traces in per-series mode.
+      cfg.colorMode = 'individual';
+
       // Summary overlays and points.
       cfg.summaryGlobalStyle = ensureObject(cfg.summaryGlobalStyle);
       cfg.summaryGlobalStyle.color = preset.summaryColor;
@@ -388,15 +411,104 @@
       }
 
       const graphType = String(cfg.graphType || '').trim().toLowerCase();
+      const isIndividualValues = graphType === 'strip';
       cfg.pointGlobalStyle = ensureObject(cfg.pointGlobalStyle);
-      cfg.pointGlobalStyle.borderWidth = preset.pointBorderWidth;
+      cfg.pointGlobalStyle.borderWidth = isIndividualValues ? 0 : preset.pointBorderWidth;
       // For strip plots, keep marker size on the default/manual route so
       // swarm auto-sizing behaves exactly like a user-driven resize.
-      if(graphType !== 'strip'){
+      if(!isIndividualValues){
         cfg.pointGlobalStyle.size = preset.pointSize;
       }else if(Object.prototype.hasOwnProperty.call(cfg.pointGlobalStyle, 'size')){
         delete cfg.pointGlobalStyle.size;
       }
+      if(cfg.pointStyles && typeof cfg.pointStyles === 'object'){
+        Object.keys(cfg.pointStyles).forEach(key => {
+          const style = cfg.pointStyles[key];
+          if(style && typeof style === 'object'){
+            style.borderWidth = isIndividualValues ? 0 : preset.pointBorderWidth;
+          }
+        });
+      }
+
+      // NPG single-replicate rule:
+      // - all traces use one shared gray fill
+      // - all borders/bars stay pure black
+      if(!isGroupedReplicates){
+        const singleFill = '#666666';
+        const singleStroke = '#000000';
+        const inferredTraceCount = Math.max(
+          Array.isArray(cfg.colors) ? cfg.colors.length : 0,
+          Array.isArray(cfg.borderColors) ? cfg.borderColors.length : 0,
+          (Array.isArray(next.data) && Array.isArray(next.data[0]))
+            ? Math.max(0, next.data[0].length - 1)
+            : 0,
+          1
+        );
+
+        cfg.fill = singleFill;
+        cfg.border = singleStroke;
+        cfg.colors = Array.from({ length: inferredTraceCount }, () => singleFill);
+        cfg.borderColors = Array.from({ length: inferredTraceCount }, () => singleStroke);
+
+        cfg.shapeGlobalStyle = ensureObject(cfg.shapeGlobalStyle);
+        cfg.shapeGlobalStyle.fill = singleFill;
+        cfg.shapeGlobalStyle.color = singleFill;
+        cfg.shapeGlobalStyle.stroke = singleStroke;
+        cfg.shapeGlobalStyle.border = singleStroke;
+        cfg.shapeGlobalStyle.borderColor = singleStroke;
+
+        if(cfg.shapeStyles && typeof cfg.shapeStyles === 'object'){
+          Object.keys(cfg.shapeStyles).forEach(key => {
+            const style = cfg.shapeStyles[key];
+            if(style && typeof style === 'object'){
+              style.fill = singleFill;
+              style.color = singleFill;
+              style.stroke = singleStroke;
+              style.border = singleStroke;
+              style.borderColor = singleStroke;
+            }
+          });
+        }
+
+        cfg.pointGlobalStyle = ensureObject(cfg.pointGlobalStyle);
+        cfg.pointGlobalStyle.fill = singleFill;
+        cfg.pointGlobalStyle.color = singleFill;
+        cfg.pointGlobalStyle.stroke = singleStroke;
+        cfg.pointGlobalStyle.border = singleStroke;
+        cfg.pointGlobalStyle.borderColor = singleStroke;
+
+        if(cfg.pointStyles && typeof cfg.pointStyles === 'object'){
+          Object.keys(cfg.pointStyles).forEach(key => {
+            const style = cfg.pointStyles[key];
+            if(style && typeof style === 'object'){
+              style.fill = singleFill;
+              style.color = singleFill;
+              style.stroke = singleStroke;
+              style.border = singleStroke;
+              style.borderColor = singleStroke;
+            }
+          });
+        }
+
+        if(cfg.summaryStyles && typeof cfg.summaryStyles === 'object'){
+          Object.keys(cfg.summaryStyles).forEach(key => {
+            const style = cfg.summaryStyles[key];
+            if(style && typeof style === 'object'){
+              style.color = singleStroke;
+            }
+          });
+        }
+        cfg.summaryGlobalStyle.color = singleStroke;
+        cfg.significance.color = singleStroke;
+      }
+    }
+
+    if(type === 'venn'){
+      const style = next.style = ensureObject(next.style);
+      style.fontsize = preset.fontSizePt;
+      style.upset = ensureObject(style.upset);
+      style.upset.axisWidth = preset.axisStrokeWidth;
+      style.upset.axisColor = preset.axisColor;
     }
 
     if(type === 'scatter' || type === 'pca' || type === 'line' || type === 'roc' || type === 'survival'){

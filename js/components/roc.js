@@ -3281,6 +3281,11 @@
   }
 
   roc.init = init;
+  roc.ensure = function ensure(){
+    if(!roc.ready){
+      init();
+    }
+  };
   roc.prepareForTab = function prepareForTab(_tab){
     ensureHotForActiveTab();
   };

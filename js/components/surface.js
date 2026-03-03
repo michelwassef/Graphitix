@@ -2639,7 +2639,8 @@
     if(scheduleBackup){
       state.scheduleDraw = scheduleBackup;
     }
-    debugLog('Debug: surface payload applied', { source, rows: dataMatrix.length });
+    const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
+    debugLog('Debug: surface payload applied', { source, rows: rowCount });
     return true;
   }
 

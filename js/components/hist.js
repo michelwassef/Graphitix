@@ -2133,7 +2133,8 @@
       if(scheduleBackup){
         state.scheduleDraw = scheduleBackup;
       }
-      console.debug('Debug: hist payload applied', { source, rows: dataMatrix.length });
+      const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
+      console.debug('Debug: hist payload applied', { source, rows: rowCount });
       return true;
     }
     hist.getPayload = getPayload;

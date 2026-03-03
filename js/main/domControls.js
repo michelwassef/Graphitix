@@ -169,6 +169,83 @@
     return payload;
   }
 
+  function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function cloneValue(value, cloneFn) {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (typeof cloneFn === 'function') {
+      try {
+        return cloneFn(value);
+      } catch (err) {
+        console.error('domControls cloneValue via cloneFn failed', { err });
+      }
+    }
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (err) {
+      console.error('domControls cloneValue JSON fallback failed', { err });
+      return value;
+    }
+  }
+
+  function mergePayloadWithDefaultsRecursive(defaultValue, payloadValue, cloneFn) {
+    if (payloadValue === undefined) {
+      return cloneValue(defaultValue, cloneFn);
+    }
+    if (defaultValue === undefined) {
+      return cloneValue(payloadValue, cloneFn);
+    }
+    if (payloadValue === null || defaultValue === null) {
+      return cloneValue(payloadValue, cloneFn);
+    }
+    if (Array.isArray(payloadValue)) {
+      return cloneValue(payloadValue, cloneFn);
+    }
+    if (Array.isArray(defaultValue)) {
+      return cloneValue(payloadValue, cloneFn);
+    }
+    if (isPlainObject(defaultValue) && isPlainObject(payloadValue)) {
+      const merged = {};
+      const keys = new Set([...Object.keys(defaultValue), ...Object.keys(payloadValue)]);
+      keys.forEach(key => {
+        const hasPayloadKey = Object.prototype.hasOwnProperty.call(payloadValue, key);
+        if (!hasPayloadKey) {
+          merged[key] = cloneValue(defaultValue[key], cloneFn);
+          return;
+        }
+        merged[key] = mergePayloadWithDefaultsRecursive(defaultValue[key], payloadValue[key], cloneFn);
+      });
+      return merged;
+    }
+    return cloneValue(payloadValue, cloneFn);
+  }
+
+  function mergePayloadWithDefaults(payload, defaults, cloneFn) {
+    if (!payload || typeof payload !== 'object') {
+      return cloneValue(defaults, cloneFn);
+    }
+    if (!defaults || typeof defaults !== 'object') {
+      return cloneValue(payload, cloneFn);
+    }
+    return mergePayloadWithDefaultsRecursive(defaults, payload, cloneFn);
+  }
+
+  namespace.mergePayloadWithDefaults = function mergePayloadWithDefaultsForWorkspace(type, payload, defaults, options = {}) {
+    const cloneFn = options.cloneFn;
+    const merged = mergePayloadWithDefaults(payload, defaults, cloneFn);
+    console.debug('Debug: mergePayloadWithDefaults applied', {
+      type,
+      hasPayload: !!payload,
+      hasDefaults: !!defaults,
+      hasMerged: !!merged
+    });
+    return merged;
+  };
+
   namespace.hideWorkspaceElement = function hideWorkspaceElement(config) {
     if (!config?.element) return;
     config.element.setAttribute('hidden', 'hidden');
@@ -461,6 +538,9 @@
           } catch (err) {
             console.error('workspace payload empty rebuild error', { type: tab.type, err });
           }
+        }
+        if (payload && defaultPayload) {
+          payload = namespace.mergePayloadWithDefaults(tab.type, payload, defaultPayload, { cloneFn });
         }
         namespace.applyWorkspacePayload(config, payload, { skipDraw: canRestoreRender, restoreRenderCache: canRestoreRender });
       }
