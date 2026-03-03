@@ -387,8 +387,16 @@
         cfg.significance.thickness = Math.max(1, Number(cfg.significance.thickness) || 1);
       }
 
+      const graphType = String(cfg.graphType || '').trim().toLowerCase();
       cfg.pointGlobalStyle = ensureObject(cfg.pointGlobalStyle);
-      cfg.pointGlobalStyle.size = preset.pointSize;
+      cfg.pointGlobalStyle.borderWidth = preset.pointBorderWidth;
+      // For strip plots, keep marker size on the default/manual route so
+      // swarm auto-sizing behaves exactly like a user-driven resize.
+      if(graphType !== 'strip'){
+        cfg.pointGlobalStyle.size = preset.pointSize;
+      }else if(Object.prototype.hasOwnProperty.call(cfg.pointGlobalStyle, 'size')){
+        delete cfg.pointGlobalStyle.size;
+      }
     }
 
     if(type === 'scatter' || type === 'pca' || type === 'line' || type === 'roc' || type === 'survival'){

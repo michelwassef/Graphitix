@@ -1912,7 +1912,8 @@
     });
     const fontSize = Math.max(4, Number(opts.fontSize) || 12);
     const rowGap = Number.isFinite(opts.rowGap) ? Number(opts.rowGap) : Math.max(4, Math.round(fontSize * 0.3));
-    const swatchSize = Number.isFinite(opts.swatchSize) ? Number(opts.swatchSize) : Math.max(12, Math.round(fontSize * 0.8));
+    // Keep legend symbols compact by default while scaling with legend font size.
+    const swatchSize = Number.isFinite(opts.swatchSize) ? Number(opts.swatchSize) : Math.max(4, Math.round(fontSize * 0.6));
     const swatchGap = Number.isFinite(opts.swatchGap) ? Number(opts.swatchGap) : Math.max(8, Math.round(fontSize * 0.4));
     const minWidth = Number.isFinite(opts.minWidth) ? Number(opts.minWidth) : Math.max(60, Math.round(fontSize * 5.5));
     const fontForMeasure = chartStyle.makeFont(fontSize);
@@ -1925,9 +1926,11 @@
       }
     });
     const width = normalizedEntries.length ? Math.max(minWidth, swatchSize + swatchGap + maxLabelWidth) : 0;
-    const rowHeight = fontSize + rowGap;
+    // Keep row spacing large enough for either text or swatch content to avoid overlap at small fonts.
+    const rowHeight = Math.max(fontSize, swatchSize) + rowGap;
     const baselineOffset = Number.isFinite(opts.baselineOffset) ? Number(opts.baselineOffset) : 0;
-    const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + fontSize : 0;
+    const rowBottomOffset = Math.max(fontSize, (swatchSize - fontSize) + rowGap);
+    const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + rowBottomOffset : 0;
     const debugSummary = {
       entryCount: normalizedEntries.length,
       fontSize,
