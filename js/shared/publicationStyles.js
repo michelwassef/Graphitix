@@ -25,6 +25,19 @@
     })
   });
 
+  const FONT_CONTROL_IDS = Object.freeze({
+    box: Object.freeze({ inputId: 'boxFontSize', labelId: 'boxFontSizeVal' }),
+    scatter: Object.freeze({ inputId: 'scatterFontSize', labelId: 'scatterFontSizeVal' }),
+    pca: Object.freeze({ inputId: 'pcaFontSize', labelId: 'pcaFontSizeVal' }),
+    line: Object.freeze({ inputId: 'lineFontSize', labelId: 'lineFontSizeVal' }),
+    heatmap: Object.freeze({ inputId: 'heatmapFontSize', labelId: 'heatmapFontSizeVal' }),
+    surface: Object.freeze({ inputId: 'surfaceFontSize', labelId: 'surfaceFontSizeVal' }),
+    roc: Object.freeze({ inputId: 'rocFontSize', labelId: 'rocFontSizeVal' }),
+    survival: Object.freeze({ inputId: 'survivalFontSize', labelId: 'survivalFontSizeVal' }),
+    hist: Object.freeze({ inputId: 'histFontSize', labelId: 'histFontSizeVal' }),
+    pie: Object.freeze({ inputId: 'pieFontSize', labelId: 'pieFontSizeVal' })
+  });
+
   // 89mm single-column at 96 dpi.
   const NPG_SINGLE = Object.freeze({
     targetWidthPx: 336,
@@ -328,14 +341,10 @@
     }
 
     // Typography.
-    if('fontSize' in next.config){
-      next.config.fontSize = String(preset.fontSizePt);
-    }
     const fontStyles = ensureObject(next.config.fontStyles);
     const graphFont = ensureObject(fontStyles.__graph__);
     graphFont.fontFamily = preset.fontFamily;
     graphFont.fill = preset.axisColor;
-    graphFont.fontSize = ptToPxToken(preset.fontSizePt);
     fontStyles.__graph__ = graphFont;
     next.config.fontStyles = fontStyles;
 
@@ -395,6 +404,61 @@
     }
 
     return next;
+  }
+
+  function applyManualFontSizeToActiveControl(type, fontSizePt){
+    const descriptor = FONT_CONTROL_IDS[type] || null;
+    if(!descriptor) {
+      debugLog('Debug: publicationStyles manual font apply skipped', { type, reason: 'no-font-control-descriptor' });
+      return false;
+    }
+    const doc = global.document || null;
+    const input = doc ? doc.getElementById(descriptor.inputId) : null;
+    if(!input){
+      debugLog('Debug: publicationStyles manual font apply skipped', { type, reason: 'missing-input', inputId: descriptor.inputId });
+      return false;
+    }
+    const min = Number(input.min);
+    const max = Number(input.max);
+    let target = Number(fontSizePt);
+    if(!Number.isFinite(target) || target <= 0){
+      debugLog('Debug: publicationStyles manual font apply skipped', { type, reason: 'invalid-size', fontSizePt });
+      return false;
+    }
+    if(Number.isFinite(min)) target = Math.max(min, target);
+    if(Number.isFinite(max)) target = Math.min(max, target);
+    const targetValue = String(target);
+    input.value = targetValue;
+    if(input.dataset){
+      input.dataset.fontBasePt = targetValue;
+      input.dataset.fontDisplayPt = targetValue;
+    }
+    const label = descriptor.labelId && doc ? doc.getElementById(descriptor.labelId) : null;
+    if(label && Shared.chartStyle && typeof Shared.chartStyle.renderFontSizeLabel === 'function'){
+      try{
+        Shared.chartStyle.renderFontSizeLabel({
+          element: label,
+          pt: target,
+          input,
+          manual: true
+        });
+      }catch(err){
+        console.error('publicationStyles manual font label update error', { type, err });
+      }
+    }
+    try{
+      input.dispatchEvent(new global.Event('input', { bubbles: true }));
+      input.dispatchEvent(new global.Event('change', { bubbles: true }));
+    }catch(err){
+      console.error('publicationStyles manual font dispatch error', { type, err });
+      return false;
+    }
+    debugLog('Debug: publicationStyles manual font route applied', {
+      type,
+      inputId: descriptor.inputId,
+      fontSizePt: target
+    });
+    return true;
   }
 
   function applyPresetToActiveTab(type, presetId){
@@ -460,6 +524,13 @@
         skipPayloadSizing: true
       });
     }
+
+    const manualFontApplied = applyManualFontSizeToActiveControl(type, preset.fontSizePt);
+    debugLog('Debug: publicationStyles font application route', {
+      type,
+      preset: presetId,
+      manualFontApplied
+    });
 
     // Apply the persisted sizing immediately to the active svg box using the same resize route.
     applySizingToActiveSvgBox(type, nextPayload, preset);

@@ -112,6 +112,63 @@
     });
   };
 
+
+
+  function resolveDefaultFontSizeForType(type) {
+    if (!type || !document || typeof document.getElementById !== "function") {
+      return null;
+    }
+    const inputId = `${type}FontSize`;
+    const input = document.getElementById(inputId);
+    if (!input) {
+      console.debug('Debug: resolveDefaultFontSizeForType skipped', { type, reason: 'missing-input', inputId });
+      return null;
+    }
+    const raw = input.defaultValue != null && String(input.defaultValue).trim() !== ""
+      ? input.defaultValue
+      : input.getAttribute?.('value');
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      console.debug('Debug: resolveDefaultFontSizeForType skipped', { type, reason: 'invalid-default', inputId, raw });
+      return null;
+    }
+    console.debug('Debug: resolveDefaultFontSizeForType resolved', { type, inputId, defaultPt: numeric });
+    return numeric;
+  }
+
+  function normalizeDefaultPayloadForType(type, payload) {
+    if (!payload || typeof payload !== "object") {
+      return payload;
+    }
+    const cfg = payload.config;
+    if (!cfg || typeof cfg !== "object") {
+      return payload;
+    }
+    const defaultFontSize = resolveDefaultFontSizeForType(type);
+    if (!Number.isFinite(defaultFontSize) || defaultFontSize <= 0) {
+      return payload;
+    }
+    const previousFontSize = cfg.fontSize;
+    cfg.fontSize = defaultFontSize;
+    if (cfg.fontStyles && typeof cfg.fontStyles === "object" && cfg.fontStyles.__graph__ && typeof cfg.fontStyles.__graph__ === "object") {
+      if (Object.prototype.hasOwnProperty.call(cfg.fontStyles.__graph__, 'fontSize')) {
+        delete cfg.fontStyles.__graph__.fontSize;
+      }
+      if (!Object.keys(cfg.fontStyles.__graph__).length) {
+        delete cfg.fontStyles.__graph__;
+      }
+      if (!Object.keys(cfg.fontStyles).length) {
+        delete cfg.fontStyles;
+      }
+    }
+    console.debug('Debug: normalizeDefaultPayloadForType applied', {
+      type,
+      previousFontSize,
+      normalizedFontSize: cfg.fontSize
+    });
+    return payload;
+  }
+
   namespace.hideWorkspaceElement = function hideWorkspaceElement(config) {
     if (!config?.element) return;
     config.element.setAttribute('hidden', 'hidden');
@@ -127,12 +184,13 @@
     const cloneFn = session?.fastClonePayload || session?.clonePayload;
     if (moduleState.workspaceDefaults[type]) {
       try {
-        return typeof cloneFn === 'function'
+        const cachedClone = typeof cloneFn === 'function'
           ? cloneFn.call(session, moduleState.workspaceDefaults[type])
           : JSON.parse(JSON.stringify(moduleState.workspaceDefaults[type]));
+        return normalizeDefaultPayloadForType(type, cachedClone);
       } catch (err) {
         console.error('ensureDefaultPayload cached clone error', { type, err });
-        return moduleState.workspaceDefaults[type];
+        return normalizeDefaultPayloadForType(type, moduleState.workspaceDefaults[type]);
       }
     }
     if (!session || typeof cloneFn !== 'function' || !config) {
@@ -171,7 +229,7 @@
         console.debug('Debug: ensureDefaultPayload payload unavailable', { type });
         return null;
       }
-      moduleState.workspaceDefaults[type] = cloneFn.call(session, payload);
+      moduleState.workspaceDefaults[type] = normalizeDefaultPayloadForType(type, cloneFn.call(session, payload));
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
       const layoutGetter = (typeof config.getDefaultLayoutState === 'function')
         ? config.getDefaultLayoutState
@@ -189,9 +247,10 @@
         }
       }
       try {
-        return typeof cloneFn === 'function'
+        const clonedDefault = typeof cloneFn === 'function'
           ? cloneFn.call(session, moduleState.workspaceDefaults[type])
           : JSON.parse(JSON.stringify(moduleState.workspaceDefaults[type]));
+        return normalizeDefaultPayloadForType(type, clonedDefault);
       } catch (cloneErr) {
         console.error('ensureDefaultPayload return clone error', { type, err: cloneErr });
         return moduleState.workspaceDefaults[type];
@@ -228,7 +287,7 @@
         return false;
       }
     }
-    moduleState.workspaceDefaults[type] = cloned;
+    moduleState.workspaceDefaults[type] = normalizeDefaultPayloadForType(type, cloned);
     console.debug('Debug: workspace default payload overridden', {
       type,
       hasPayload: !!moduleState.workspaceDefaults[type]
@@ -396,7 +455,7 @@
         if (!payload && typeof config.createEmptyPayload === 'function') {
           try {
             const emptyPayload = config.createEmptyPayload();
-            moduleState.workspaceDefaults[tab.type] = moduleState.workspaceDefaults[tab.type] || cloneFn?.(emptyPayload);
+            moduleState.workspaceDefaults[tab.type] = moduleState.workspaceDefaults[tab.type] || normalizeDefaultPayloadForType(tab.type, cloneFn?.(emptyPayload) || emptyPayload);
             payload = cloneFn?.(emptyPayload) || emptyPayload;
             console.debug('Debug: workspace payload rebuilt from empty template', { tabId: tab.id, type: tab.type });
           } catch (err) {
