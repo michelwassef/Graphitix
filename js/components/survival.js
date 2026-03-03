@@ -3902,6 +3902,21 @@
     return payload;
   }
   survival.getPayload = getGraphPayload;
+  survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  survival.restoreEmptyPayloadTemplate = function restoreSurvivalEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: survival empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: survival empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
   survival.createEmptyPayload = function createEmptySurvivalPayload(){
     survival.ensure();
     ensureEmptyPayloadTemplate();

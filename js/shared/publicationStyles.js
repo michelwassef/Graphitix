@@ -81,6 +81,15 @@
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   }
 
+  function ptToPxToken(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return '';
+    }
+    const px = Math.round((numeric * (96 / 72)) * 100) / 100;
+    return `${String(px).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1')}px`;
+  }
+
   function setDeep(obj, path, value){
     if(!obj || typeof obj !== 'object') return;
     const parts = Array.isArray(path) ? path : String(path).split('.');
@@ -127,11 +136,69 @@
     return schemeFieldset || panel.firstChild || null;
   }
 
+
+  function captureDefaultState(type, session, domControls, workspace){
+    const snapshot = {
+      defaultPayload: null,
+      emptyPayloadTemplate: null
+    };
+    try{
+      if(domControls && typeof domControls.ensureDefaultPayload === 'function'){
+        snapshot.defaultPayload = cloneValue(domControls.ensureDefaultPayload(session, type, workspace));
+      }
+    }catch(err){
+      console.error('publicationStyles capture default payload error', { type, err });
+    }
+    try{
+      if(workspace && typeof workspace.captureEmptyPayloadTemplate === 'function'){
+        snapshot.emptyPayloadTemplate = cloneValue(workspace.captureEmptyPayloadTemplate());
+      }
+    }catch(err){
+      console.error('publicationStyles capture empty payload template error', { type, err });
+    }
+    debugLog('Debug: publicationStyles captured defaults', {
+      type,
+      hasDefaultPayload: !!snapshot.defaultPayload,
+      hasEmptyPayloadTemplate: !!snapshot.emptyPayloadTemplate
+    });
+    return snapshot;
+  }
+
+  function restoreDefaultState(type, session, domControls, workspace, snapshot, reason){
+    const nextSnapshot = snapshot || {};
+    try{
+      if(nextSnapshot.defaultPayload && domControls && typeof domControls.setWorkspaceDefaultPayload === 'function'){
+        domControls.setWorkspaceDefaultPayload(session, type, cloneValue(nextSnapshot.defaultPayload));
+      }
+    }catch(err){
+      console.error('publicationStyles restore default payload error', { type, reason, err });
+    }
+    try{
+      if(nextSnapshot.emptyPayloadTemplate && workspace && typeof workspace.restoreEmptyPayloadTemplate === 'function'){
+        workspace.restoreEmptyPayloadTemplate(cloneValue(nextSnapshot.emptyPayloadTemplate), {
+          reason: reason || 'publication-style-restore'
+        });
+      }
+    }catch(err){
+      console.error('publicationStyles restore empty payload template error', { type, reason, err });
+    }
+    debugLog('Debug: publicationStyles restored defaults', {
+      type,
+      reason: reason || 'publication-style-restore',
+      hasDefaultPayload: !!nextSnapshot.defaultPayload,
+      hasEmptyPayloadTemplate: !!nextSnapshot.emptyPayloadTemplate
+    });
+  }
+
   function applySizingToActiveSvgBox(type, payload, sizing){
     const graphSizing = Shared.graphSizing || null;
     if(graphSizing && typeof graphSizing.applyPayloadSizingForType === 'function'){
       graphSizing.applyPayloadSizingForType(type, payload, {
-        context: `publication-style-${type}`
+        context: `publication-style-${type}`,
+        updateDefaults: false,
+        updateAspectRatio: true,
+        preserveAspectLock: true,
+        forceExact: true
       });
       const appliedSizing = graphSizing.getPayloadSizing(payload, {
         context: `publication-style-${type}-read`
@@ -139,7 +206,8 @@
       debugLog('Debug: publicationStyles applied payload sizing', {
         type,
         widthPx: appliedSizing?.display?.widthPx || null,
-        heightPx: appliedSizing?.display?.heightPx || null
+        heightPx: appliedSizing?.display?.heightPx || null,
+        manualLikeResize: true
       });
       return;
     }
@@ -148,18 +216,92 @@
     const page = global.document?.getElementById(descriptor.pageId);
     if(!page) return;
     const box = page.querySelector('.svgbox');
-    if(!box || !box.style) return;
+    if(!box) return;
     const w = Number(sizing?.targetWidthPx);
     const h = Number(sizing?.targetHeightPx);
+    if(typeof Shared.applyResizableBoxSize === 'function'){
+      const result = Shared.applyResizableBoxSize(box, {
+        width: w,
+        height: h,
+        axis: 'both',
+        reason: `publication-style-${type}-fallback`,
+        updateDefaults: false,
+        updateAspectRatio: true,
+        preserveAspectLock: true,
+        forceExact: true
+      });
+      if(result){
+        debugLog('Debug: publicationStyles applied svgbox sizing via resizer helper', { type, widthPx: w, heightPx: h });
+        return;
+      }
+    }
+    if(!box.style) return;
     if(Number.isFinite(w) && w > 0){
       box.style.width = `${Math.round(w)}px`;
-      box.style.minWidth = `${Math.round(w)}px`;
     }
     if(Number.isFinite(h) && h > 0){
       box.style.height = `${Math.round(h)}px`;
-      box.style.minHeight = `${Math.round(h)}px`;
     }
     debugLog('Debug: publicationStyles applied svgbox sizing fallback', { type, widthPx: w, heightPx: h });
+  }
+
+
+  function buildSizingRecordForPreset(type, payload, preset){
+    const graphSizing = Shared.graphSizing || null;
+    const chartStyle = Shared.chartStyle || {};
+    const targetWidthPx = Math.max(1, Math.round(Number(preset?.targetWidthPx) || 1));
+    const targetHeightPx = Math.max(1, Math.round(Number(preset?.targetHeightPx) || 1));
+    const existing = (graphSizing && typeof graphSizing.getPayloadSizing === 'function'
+      ? graphSizing.getPayloadSizing(payload, { context: `publication-style-${type}-existing` })
+      : null)
+      || (graphSizing && typeof graphSizing.captureSvgBoxForType === 'function'
+        ? graphSizing.captureSvgBoxForType(type, { context: `publication-style-${type}-capture` })
+        : null);
+    const existingDisplay = existing?.display || {};
+    const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
+    const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
+    const aspectRatio = targetWidthPx > 0 && targetHeightPx > 0 ? (targetWidthPx / targetHeightPx) : 1;
+    const minWidthPx = Number.isFinite(existingDisplay.minWidthPx) && existingDisplay.minWidthPx > 0
+      ? Math.min(existingDisplay.minWidthPx, targetWidthPx)
+      : Math.max(1, Math.round(targetWidthPx * minScale));
+    const minHeightPx = Number.isFinite(existingDisplay.minHeightPx) && existingDisplay.minHeightPx > 0
+      ? Math.min(existingDisplay.minHeightPx, targetHeightPx)
+      : Math.max(1, Math.round(targetHeightPx * minScale));
+    const maxWidthPx = Number.isFinite(existingDisplay.maxWidthPx) && existingDisplay.maxWidthPx > 0
+      ? Math.max(existingDisplay.maxWidthPx, targetWidthPx)
+      : Math.max(targetWidthPx, Math.round(targetWidthPx * maxScale));
+    const maxHeightPx = Number.isFinite(existingDisplay.maxHeightPx) && existingDisplay.maxHeightPx > 0
+      ? Math.max(existingDisplay.maxHeightPx, targetHeightPx)
+      : Math.max(targetHeightPx, Math.round(targetHeightPx * maxScale));
+    const sizing = {
+      display: {
+        widthPx: targetWidthPx,
+        heightPx: targetHeightPx,
+        minWidthPx,
+        minHeightPx,
+        maxWidthPx,
+        maxHeightPx,
+        aspectRatio,
+        aspectLocked: existingDisplay.aspectLocked === true,
+        allowUnlimitedWidth: existingDisplay.allowUnlimitedWidth !== false
+      },
+      export: {
+        widthPx: targetWidthPx,
+        heightPx: targetHeightPx
+      }
+    };
+    debugLog('Debug: publicationStyles computed sizing record', {
+      type,
+      widthPx: targetWidthPx,
+      heightPx: targetHeightPx,
+      minWidthPx,
+      minHeightPx,
+      maxWidthPx,
+      maxHeightPx,
+      allowUnlimitedWidth: sizing.display.allowUnlimitedWidth,
+      aspectLocked: sizing.display.aspectLocked
+    });
+    return sizing;
   }
 
   function patchCommonPayload(type, payload, preset){
@@ -193,6 +335,7 @@
     const graphFont = ensureObject(fontStyles.__graph__);
     graphFont.fontFamily = preset.fontFamily;
     graphFont.fill = preset.axisColor;
+    graphFont.fontSize = ptToPxToken(preset.fontSizePt);
     fontStyles.__graph__ = graphFont;
     next.config.fontStyles = fontStyles;
 
@@ -282,6 +425,8 @@
       return false;
     }
 
+    const preservedDefaults = captureDefaultState(type, session, domControls, workspace);
+
     try{
       if(typeof session.persistActiveTabState === 'function'){
         session.persistActiveTabState(tab, { reason: `publication-style-pre-${type}` });
@@ -297,23 +442,7 @@
     let nextPayload = patchCommonPayload(type, sourcePayload, preset);
     nextPayload = patchTypeSpecific(type, nextPayload, preset);
     if(Shared.graphSizing && typeof Shared.graphSizing.setPayloadSizing === 'function'){
-      nextPayload = Shared.graphSizing.setPayloadSizing(nextPayload, {
-        display: {
-          widthPx: preset.targetWidthPx,
-          heightPx: preset.targetHeightPx,
-          minWidthPx: preset.targetWidthPx,
-          minHeightPx: preset.targetHeightPx,
-          maxWidthPx: preset.targetWidthPx,
-          maxHeightPx: preset.targetHeightPx,
-          aspectRatio: preset.targetWidthPx > 0 && preset.targetHeightPx > 0 ? preset.targetWidthPx / preset.targetHeightPx : 1,
-          aspectLocked: false,
-          allowUnlimitedWidth: false
-        },
-        export: {
-          widthPx: preset.targetWidthPx,
-          heightPx: preset.targetHeightPx
-        }
-      }, {
+      nextPayload = Shared.graphSizing.setPayloadSizing(nextPayload, buildSizingRecordForPreset(type, sourcePayload, preset), {
         type,
         context: `publication-style-payload-${type}`
       });
@@ -326,11 +455,18 @@
       tab.payload = cloneValue(nextPayload);
     }
     if(typeof domControls.applyWorkspacePayload === 'function'){
-      domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), { reason: `publication-style-${type}` });
+      domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), {
+        reason: `publication-style-${type}`,
+        skipPayloadSizing: true
+      });
     }
 
-    // Apply the persisted sizing immediately to the active svg box.
+    // Apply the persisted sizing immediately to the active svg box using the same resize route.
     applySizingToActiveSvgBox(type, nextPayload, preset);
+
+    restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
+    global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred'), 0);
+    global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize'), 180);
 
     try{
       if(typeof session.persistActiveTabState === 'function'){

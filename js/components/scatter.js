@@ -19164,7 +19164,22 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
     };
     scatter.getPayload = getScatterGraphPayload;
-    scatter.createEmptyPayload = function createEmptyScatterPayload(){
+    scatter.captureEmptyPayloadTemplate = function captureScatterEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: scatter empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  scatter.restoreEmptyPayloadTemplate = function restoreScatterEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: scatter empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: scatter empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
+  scatter.createEmptyPayload = function createEmptyScatterPayload(){
       scatter.ensure();
       ensureEmptyPayloadTemplate();
       const payload = cloneSimple(emptyPayloadTemplate) || { type: 'scatter', config: {} };

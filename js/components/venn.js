@@ -5403,6 +5403,21 @@
     return payload;
   }
   venn.getPayload = getVennGraphPayload;
+  venn.captureEmptyPayloadTemplate = function captureVennEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: venn empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  venn.restoreEmptyPayloadTemplate = function restoreVennEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: venn empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: venn empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
   venn.createEmptyPayload = function createEmptyVennPayload(){
     venn.ensure();
     ensureEmptyPayloadTemplate();

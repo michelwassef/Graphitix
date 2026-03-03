@@ -9841,7 +9841,22 @@
       }
     };
     pca.getPayload = getPcaGraphPayload;
-    pca.createEmptyPayload = function createEmptyPcaPayload(){
+    pca.captureEmptyPayloadTemplate = function capturePcaEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: pca empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  pca.restoreEmptyPayloadTemplate = function restorePcaEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: pca empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: pca empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
+  pca.createEmptyPayload = function createEmptyPcaPayload(){
       pca.ensure();
       ensureEmptyPayloadTemplate();
       const payload = cloneSimple(emptyPayloadTemplate) || { type: 'pca', config: {} };

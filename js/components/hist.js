@@ -2137,7 +2137,22 @@
       return true;
     }
     hist.getPayload = getPayload;
-    hist.createEmptyPayload = function createEmptyHistPayload(){
+    hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  hist.restoreEmptyPayloadTemplate = function restoreHistEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: hist empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: hist empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
+  hist.createEmptyPayload = function createEmptyHistPayload(){
       hist.ensure();
       ensureEmptyPayloadTemplate();
       const payload = cloneSimple(emptyPayloadTemplate) || { type: 'hist', config: {} };

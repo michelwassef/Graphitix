@@ -551,10 +551,33 @@
         if(!element || applied){
           return;
         }
-        const result = applySizingRecordToElement(element, record, {
-          context: options.context || `${type || 'graph'}-apply`,
-          delay
-        });
+        let result = null;
+        if(typeof Shared.applyResizableBoxSize === 'function'){
+          result = Shared.applyResizableBoxSize(element, {
+            width: record.display.widthPx,
+            height: record.display.heightPx,
+            axis: typeof options.axis === 'string' && options.axis ? options.axis : 'both',
+            reason: options.context || `${type || 'graph'}-apply`,
+            updateDefaults: options.updateDefaults !== false,
+            updateAspectRatio: options.updateAspectRatio !== false,
+            preserveAspectLock: options.preserveAspectLock !== false,
+            forceExact: options.forceExact !== false
+          });
+          if(result){
+            debug('Debug: graphSizing.applyPayloadSizingForType used resizer helper', {
+              type,
+              delay,
+              widthPx: record.display.widthPx,
+              heightPx: record.display.heightPx
+            });
+          }
+        }
+        if(!result){
+          result = applySizingRecordToElement(element, record, {
+            context: options.context || `${type || 'graph'}-apply`,
+            delay
+          });
+        }
         if(result){
           applied = true;
           debug('Debug: graphSizing.applyPayloadSizingForType success', {

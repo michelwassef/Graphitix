@@ -680,7 +680,22 @@
       return payload;
     }
     pie.getPayload = getPayload;
-    pie.createEmptyPayload = function createEmptyPiePayload(){
+    pie.captureEmptyPayloadTemplate = function capturePieEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: pie empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  pie.restoreEmptyPayloadTemplate = function restorePieEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: pie empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: pie empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
+  pie.createEmptyPayload = function createEmptyPiePayload(){
       pie.ensure();
       ensureEmptyPayloadTemplate();
       const payload = cloneSimple(emptyPayloadTemplate) || { type: 'pie', config: {} };

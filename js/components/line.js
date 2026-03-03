@@ -11307,6 +11307,21 @@
     }
   };
   line.getPayload = getLineGraphPayload;
+  line.captureEmptyPayloadTemplate = function captureLineEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: line empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  line.restoreEmptyPayloadTemplate = function restoreLineEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: line empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: line empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
   line.createEmptyPayload = function createEmptyLinePayload(){
     line.ensure();
     ensureEmptyPayloadTemplate();

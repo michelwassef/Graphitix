@@ -124,10 +124,17 @@
   };
 
   namespace.ensureDefaultPayload = function ensureDefaultPayload(session, type, config) {
-    if (moduleState.workspaceDefaults[type]) {
-      return moduleState.workspaceDefaults[type];
-    }
     const cloneFn = session?.fastClonePayload || session?.clonePayload;
+    if (moduleState.workspaceDefaults[type]) {
+      try {
+        return typeof cloneFn === 'function'
+          ? cloneFn.call(session, moduleState.workspaceDefaults[type])
+          : JSON.parse(JSON.stringify(moduleState.workspaceDefaults[type]));
+      } catch (err) {
+        console.error('ensureDefaultPayload cached clone error', { type, err });
+        return moduleState.workspaceDefaults[type];
+      }
+    }
     if (!session || typeof cloneFn !== 'function' || !config) {
       console.debug('Debug: ensureDefaultPayload skipped', {
         hasSession: !!session,
@@ -181,7 +188,14 @@
           console.error('ensureDefaultPayload layout capture error', { type, err: layoutErr });
         }
       }
-      return moduleState.workspaceDefaults[type];
+      try {
+        return typeof cloneFn === 'function'
+          ? cloneFn.call(session, moduleState.workspaceDefaults[type])
+          : JSON.parse(JSON.stringify(moduleState.workspaceDefaults[type]));
+      } catch (cloneErr) {
+        console.error('ensureDefaultPayload return clone error', { type, err: cloneErr });
+        return moduleState.workspaceDefaults[type];
+      }
     } catch (err) {
       console.error('ensureDefaultPayload error', { type, err });
       return null;
@@ -234,16 +248,18 @@
         if (result && typeof result.then === 'function') {
           result
             .then(() => {
-              if (Shared.graphSizing?.applyPayloadSizingForType) {
+              if (!options?.skipPayloadSizing && Shared.graphSizing?.applyPayloadSizingForType) {
                 Shared.graphSizing.applyPayloadSizingForType(label, payload, {
-                  context: `workspace-payload-${label}`
+                  context: `workspace-payload-${label}`,
+                  ...(options?.payloadSizingOptions || {})
                 });
               }
             })
             .catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
-        } else if (Shared.graphSizing?.applyPayloadSizingForType) {
+        } else if (!options?.skipPayloadSizing && Shared.graphSizing?.applyPayloadSizingForType) {
           Shared.graphSizing.applyPayloadSizingForType(label, payload, {
-            context: `workspace-payload-${label}`
+            context: `workspace-payload-${label}`,
+            ...(options?.payloadSizingOptions || {})
           });
         }
         console.debug('Debug: workspace payload applied via custom handler', { type: label });

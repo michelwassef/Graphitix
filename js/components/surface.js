@@ -2713,6 +2713,21 @@
   }
 
   surface.getPayload = getPayload;
+  surface.captureEmptyPayloadTemplate = function captureSurfaceEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: surface empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  surface.restoreEmptyPayloadTemplate = function restoreSurfaceEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: surface empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: surface empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
   surface.createEmptyPayload = function createEmptySurfacePayload(){
     surface.ensure();
     ensureEmptyPayloadTemplate();

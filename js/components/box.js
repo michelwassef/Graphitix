@@ -23509,6 +23509,21 @@ Technical analysis record (advanced)
     return payload;
   }
   box.getPayload = getPayload;
+  box.captureEmptyPayloadTemplate = function captureBoxEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: box empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  box.restoreEmptyPayloadTemplate = function restoreBoxEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: box empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: box empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
   box.createEmptyPayload = function createEmptyBoxPayload(){
     box.ensure();
     ensureEmptyPayloadTemplate();

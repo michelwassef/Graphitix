@@ -641,6 +641,103 @@
       data.resizerAspectRatio = '';
     }
 
+    function syncAspectCheckboxState(){
+      if(aspectCheckbox){
+        aspectCheckbox.checked = !!aspectLocked;
+      }
+    }
+
+    function applyProgrammaticResize(options = {}){
+      const requestedWidth = parsePositive(options.width);
+      const requestedHeight = parsePositive(options.height);
+      const requestedAxis = typeof options.axis === 'string' && options.axis ? options.axis : 'both';
+      const updateDefaults = options.updateDefaults === true;
+      const updateAspectRatio = options.updateAspectRatio !== false;
+      const preserveAspectLock = options.preserveAspectLock !== false;
+      const forceExact = options.forceExact !== false;
+      const reason = options.reason || 'programmatic';
+      const hadAspectLock = aspectLocked;
+      const nextRatio = (Number.isFinite(requestedWidth) && requestedWidth > 0 && Number.isFinite(requestedHeight) && requestedHeight > 0)
+        ? (requestedWidth / requestedHeight)
+        : NaN;
+      if(updateAspectRatio && Number.isFinite(nextRatio) && nextRatio > 0){
+        setAspectRatio(nextRatio);
+      }
+      if(forceExact && hadAspectLock && requestedAxis === 'both' && Number.isFinite(requestedWidth) && Number.isFinite(requestedHeight)){
+        aspectLocked = false;
+        data.resizerAspectLocked = 'false';
+      }
+      const liveRect = container.getBoundingClientRect();
+      const fallbackWidth = parsePositive(liveRect.width) || defaultWidth;
+      const fallbackHeight = parsePositive(liveRect.height) || defaultHeight;
+      container.style.flex = '0 0 auto';
+      container.dataset.resizerResized = 'true';
+      const applied = applyResize({
+        axis: requestedAxis,
+        width: Number.isFinite(requestedWidth) ? requestedWidth : fallbackWidth,
+        height: Number.isFinite(requestedHeight) ? requestedHeight : fallbackHeight,
+        fallbackWidth,
+        fallbackHeight,
+        reason
+      });
+      if(updateDefaults){
+        if(Number.isFinite(requestedWidth) && requestedWidth > 0){
+          defaultWidth = Math.round(requestedWidth);
+          data.resizerDefaultWidth = String(defaultWidth);
+        }
+        if(Number.isFinite(requestedHeight) && requestedHeight > 0){
+          defaultHeight = Math.round(requestedHeight);
+          data.resizerDefaultHeight = String(defaultHeight);
+        }
+      }
+      if(forceExact && preserveAspectLock && hadAspectLock){
+        aspectLocked = true;
+        data.resizerAspectLocked = 'true';
+      }
+      syncAspectCheckboxState();
+      console.debug('Debug: resizer applyProgrammaticResize', {
+        container: containerLabel,
+        reason,
+        requestedAxis,
+        requestedWidth,
+        requestedHeight,
+        applied,
+        updateDefaults,
+        preserveAspectLock,
+        finalAspectLocked: aspectLocked
+      });
+      if(typeof opts.onResize === 'function'){
+        try { opts.onResize('programmatic'); } catch(err) { console.error('resizer onResize programmatic error', err); }
+      }
+      return applied;
+    }
+
+    container.__sharedResizableBoxApi = {
+      applySize: applyProgrammaticResize,
+      getState: () => ({
+        defaultWidth,
+        defaultHeight,
+        minWidth: MIN_W,
+        minHeight: MIN_H,
+        maxWidth: MAX_W,
+        maxHeight: MAX_H,
+        aspectRatio,
+        aspectLocked,
+        allowUnlimitedWidth
+      })
+    };
+    Shared.applyResizableBoxSize = function applyResizableBoxSize(target, options = {}){
+      const api = target && target.__sharedResizableBoxApi;
+      if(!api || typeof api.applySize !== 'function'){
+        console.debug('Debug: Shared.applyResizableBoxSize skipped', {
+          hasTarget: !!target,
+          hasApi: !!api
+        });
+        return null;
+      }
+      return api.applySize(options);
+    };
+
     console.debug('Debug: attachResizableBox defaults', {
       defaultWidth,
       defaultHeight,

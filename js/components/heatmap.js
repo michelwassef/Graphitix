@@ -5745,6 +5745,21 @@
     return payload;
   }
   heatmap.getPayload = getPayload;
+  heatmap.captureEmptyPayloadTemplate = function captureHeatmapEmptyPayloadTemplate(){
+    ensureEmptyPayloadTemplate();
+    const snapshot = cloneSimple(emptyPayloadTemplate);
+    console.debug('Debug: heatmap empty payload template captured', { hasTemplate: !!snapshot });
+    return snapshot;
+  };
+  heatmap.restoreEmptyPayloadTemplate = function restoreHeatmapEmptyPayloadTemplate(template, options = {}){
+    if(!template || typeof template !== 'object'){
+      console.debug('Debug: heatmap empty payload template restore skipped', { reason: 'invalid-template', options });
+      return false;
+    }
+    emptyPayloadTemplate = cloneSimple(template);
+    console.debug('Debug: heatmap empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    return !!emptyPayloadTemplate;
+  };
   heatmap.createEmptyPayload = function createEmptyHeatmapPayload(){
     heatmap.ensure();
     ensureEmptyPayloadTemplate();
