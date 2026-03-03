@@ -208,7 +208,7 @@
     if(graphSizing && typeof graphSizing.applyPayloadSizingForType === 'function'){
       graphSizing.applyPayloadSizingForType(type, payload, {
         context: `publication-style-${type}`,
-        updateDefaults: false,
+        updateDefaults: true,
         updateAspectRatio: true,
         preserveAspectLock: true,
         forceExact: true
@@ -238,7 +238,7 @@
         height: h,
         axis: 'both',
         reason: `publication-style-${type}-fallback`,
-        updateDefaults: false,
+        updateDefaults: true,
         updateAspectRatio: true,
         preserveAspectLock: true,
         forceExact: true
@@ -340,13 +340,21 @@
       next.config.showFrame = !!preset.showFrame;
     }
 
-    // Typography.
-    const fontStyles = ensureObject(next.config.fontStyles);
-    const graphFont = ensureObject(fontStyles.__graph__);
-    graphFont.fontFamily = preset.fontFamily;
-    graphFont.fill = preset.axisColor;
-    fontStyles.__graph__ = graphFont;
-    next.config.fontStyles = fontStyles;
+    // Typography: only mutate existing graph-scope styles to avoid creating
+    // a new graph-wide font override that can desynchronize toolbar sizing.
+    const fontStyles = next.config.fontStyles;
+    const graphFont = fontStyles && typeof fontStyles === 'object'
+      && fontStyles.__graph__ && typeof fontStyles.__graph__ === 'object'
+      ? fontStyles.__graph__
+      : null;
+    if(graphFont){
+      graphFont.fontFamily = preset.fontFamily;
+      graphFont.fill = preset.axisColor;
+      const fontSizeToken = ptToPxToken(preset.fontSizePt);
+      if(fontSizeToken){
+        graphFont.fontSize = fontSizeToken;
+      }
+    }
 
     // Axis.
     if(next.config.axis && typeof next.config.axis === 'object'){
@@ -518,22 +526,33 @@
     }else{
       tab.payload = cloneValue(nextPayload);
     }
+    let sizingAppliedViaPayload = false;
     if(typeof domControls.applyWorkspacePayload === 'function'){
       domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), {
         reason: `publication-style-${type}`,
-        skipPayloadSizing: true
+        payloadSizingOptions: {
+          context: `publication-style-${type}`,
+          updateDefaults: true,
+          updateAspectRatio: true,
+          preserveAspectLock: true,
+          forceExact: true
+        }
       });
+      sizingAppliedViaPayload = true;
     }
 
     const manualFontApplied = applyManualFontSizeToActiveControl(type, preset.fontSizePt);
     debugLog('Debug: publicationStyles font application route', {
       type,
       preset: presetId,
-      manualFontApplied
+      manualFontApplied,
+      sizingAppliedViaPayload
     });
 
-    // Apply the persisted sizing immediately to the active svg box using the same resize route.
-    applySizingToActiveSvgBox(type, nextPayload, preset);
+    // Fallback path when workspace payload helpers are unavailable.
+    if(!sizingAppliedViaPayload){
+      applySizingToActiveSvgBox(type, nextPayload, preset);
+    }
 
     restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
     global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred'), 0);
