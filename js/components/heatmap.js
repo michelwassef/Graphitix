@@ -4813,7 +4813,8 @@
     scaleGroup.appendChild(scaleRect);
     const tickStartX = scaleStartX + scaleWidth;
     const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
-    const tickLength = Math.max(6, Math.round(scaleWidth * 0.35));
+    const tickLengthScale = Number.isFinite(minScale) && minScale > 0 ? minScale : 1;
+    const tickLength = Math.max(3, Math.round(scaleWidth * 0.35 * tickLengthScale));
     const ticks = colorScale?.ticks || [];
     const tickFont = Math.max(8, Math.round(scaledFontSize * 0.9));
     let previousTickY = null;

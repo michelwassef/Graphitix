@@ -94,6 +94,7 @@
   const RESIZE_MAX_SCALE = 3;
   const DEFAULT_ASPECT_RATIO = 1;
   const DEFAULT_ASPECT_LOCKED = true;
+  const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const GLOBAL_TEXT_SCOPE = '__chartstyle_global__';
   let textSizeLocked = false;
   const textLockState = new Map();
@@ -110,34 +111,106 @@
     return null;
   }
 
+  function normalizeTabId(raw){
+    if(raw == null){ return null; }
+    const trimmed = String(raw).trim();
+    return trimmed ? trimmed : null;
+  }
+
+  function stripTabScopeSuffix(scopeId){
+    const normalized = normalizeScopeId(scopeId);
+    if(!normalized){ return null; }
+    const token = `::${TAB_SCOPE_TOKEN_PREFIX}`;
+    const idx = normalized.indexOf(token);
+    if(idx < 0){
+      return normalized;
+    }
+    const base = normalized.slice(0, idx);
+    return normalizeScopeId(base);
+  }
+
+  function resolveActiveWorkspaceTabId(){
+    try{
+      const hot = Shared.hot || global.Shared?.hot;
+      if(hot && typeof hot.resolveActiveTabId === 'function'){
+        const fromHot = normalizeTabId(hot.resolveActiveTabId());
+        if(fromHot){ return fromHot; }
+      }
+    }catch(err){
+      console.debug('Debug: chartStyle active tab resolve via hot failed', { error: err?.message || String(err) });
+    }
+    try{
+      const session = global.Main?.session || null;
+      if(session && typeof session.getActiveTab === 'function'){
+        const active = session.getActiveTab();
+        const fromSession = normalizeTabId(active?.id);
+        if(fromSession){ return fromSession; }
+      }
+    }catch(err){
+      console.debug('Debug: chartStyle active tab resolve via session failed', { error: err?.message || String(err) });
+    }
+    try{
+      const doc = global.document;
+      if(doc && typeof doc.querySelector === 'function'){
+        const activeBtn = doc.querySelector('.workspace-tab.is-active[data-tab-id]');
+        const fromDom = normalizeTabId(activeBtn?.dataset?.tabId);
+        if(fromDom){ return fromDom; }
+      }
+    }catch(err){
+      console.debug('Debug: chartStyle active tab resolve via dom failed', { error: err?.message || String(err) });
+    }
+    return null;
+  }
+
+  function resolveScopeTabToken(options){
+    const opts = options || {};
+    const svgBox = opts.svgBox || opts.container || opts.element || null;
+    const input = opts.input || opts.control || null;
+    const explicit = normalizeTabId(opts.tabId || opts.workspaceTabId || null);
+    const fromInput = normalizeTabId(input?.dataset?.workspaceTabId || input?.dataset?.fontTabId || input?.dataset?.tabId || null);
+    const fromSvg = normalizeTabId(svgBox?.dataset?.workspaceTabId || svgBox?.dataset?.fontTabId || svgBox?.dataset?.tabId || null);
+    const active = resolveActiveWorkspaceTabId();
+    return normalizeScopeId(explicit || fromInput || fromSvg || active || null);
+  }
+
+  function applyTabScope(scopeId, options){
+    const baseScope = stripTabScopeSuffix(scopeId);
+    if(!baseScope){ return null; }
+    const tabToken = resolveScopeTabToken(options);
+    if(!tabToken){
+      return baseScope;
+    }
+    return `${baseScope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}`;
+  }
+
   function resolveScopeKey(options){
     if(typeof options === 'string'){
-      return normalizeScopeId(options);
+      return applyTabScope(options, {});
     }
     const opts = options || {};
     const directScope = normalizeScopeId(opts.scopeId || opts.scope);
     if(directScope){
-      return directScope;
+      return applyTabScope(directScope, opts);
     }
     const svgBox = opts.svgBox || opts.container || opts.element || null;
     if(svgBox && svgBox.dataset){
       const datasetScope = normalizeScopeId(svgBox.dataset.resizerTextLockScope || svgBox.dataset.textLockScope);
       if(datasetScope){
-        return datasetScope;
+        return applyTabScope(datasetScope, opts);
       }
     }
     const input = opts.input || opts.control || null;
     if(input && input.dataset){
       const inputScope = normalizeScopeId(input.dataset.textLockScope);
       if(inputScope){
-        return inputScope;
+        return applyTabScope(inputScope, opts);
       }
     }
     if(svgBox && svgBox.id){
-      return normalizeScopeId(svgBox.id);
+      return applyTabScope(svgBox.id, opts);
     }
     if(typeof opts.origin === 'string'){
-      return normalizeScopeId(opts.origin);
+      return applyTabScope(opts.origin, opts);
     }
     return null;
   }
@@ -1125,15 +1198,39 @@
     };
   };
 
-  chartStyle.createAxisMetrics = function createAxisMetrics(fontSize){
+  chartStyle.createAxisMetrics = function createAxisMetrics(fontSize, scaleInfo){
     const safeFont = Number(fontSize) || BASE_FONT_SIZE_PX;
-    const tickLength = 6;
-    const tickLabelGap = Math.max(3, Math.round(safeFont * 0.35));
-    const axisTitleGap = Math.max(4, Math.round(safeFont * 0.75));
-    const outerPadding = Math.max(6, Math.round(safeFont * 0.6));
-    const yTitleGap = Math.max(4, Math.round(safeFont * 0.5));
-    const metrics = {tickLength, tickLabelGap, axisTitleGap, outerPadding, yTitleGap};
-    console.debug('Debug: chartStyle.createAxisMetrics',{fontSize:safeFont, metrics}); // Debug: axis metric computation
+    const hasScaleInfo = !!(scaleInfo && (Number.isFinite(scaleInfo.styleScale) || Number.isFinite(scaleInfo.scale)));
+    const resizeScale = hasScaleInfo ? clampScale(resolveStyleScale(scaleInfo)) : 1;
+    const baseMetrics = {
+      tickLength: 6,
+      tickLabelGap: Math.max(3, Math.round(safeFont * 0.35)),
+      axisTitleGap: Math.max(4, Math.round(safeFont * 0.75)),
+      outerPadding: Math.max(6, Math.round(safeFont * 0.6)),
+      yTitleGap: Math.max(4, Math.round(safeFont * 0.5))
+    };
+    const scaleMetric = (base, min) => Math.max(min, base * resizeScale);
+    const tickLengthRaw = scaleMetric(baseMetrics.tickLength, 1);
+    const tickLengthPx = Math.max(1, Math.floor(tickLengthRaw));
+    const metrics = hasScaleInfo
+      ? {
+          tickLength: tickLengthPx,
+          tickLabelGap: scaleMetric(baseMetrics.tickLabelGap, 1.5),
+          axisTitleGap: scaleMetric(baseMetrics.axisTitleGap, 1.5),
+          outerPadding: scaleMetric(baseMetrics.outerPadding, 2),
+          yTitleGap: scaleMetric(baseMetrics.yTitleGap, 1.5)
+        }
+      : baseMetrics;
+    console.debug('Debug: chartStyle.createAxisMetrics',{
+      fontSize:safeFont,
+      hasScaleInfo,
+      scale: scaleInfo?.styleScale ?? scaleInfo?.scale ?? null,
+      resizeScale,
+      baseMetrics,
+      tickLengthRaw,
+      tickLengthPx,
+      metrics
+    }); // Debug: axis metric computation
     return metrics;
   };
 

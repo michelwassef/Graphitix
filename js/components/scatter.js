@@ -14119,7 +14119,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           containerWidth: containerRect?.width,
           containerHeight: containerRect?.height
         }); // Debug: scatter font scaling summary
-        const axisMetrics=chartStyle.createAxisMetrics(fs);
+        const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
         debug('Debug: scatter axis metrics',axisMetrics);
         const showGrid=scatterShowGrid.checked;
         const gridStyleBase = getScatterGridStyle(axisStrokeWidthBase);

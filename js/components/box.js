@@ -8547,7 +8547,8 @@
     }
     let token = key;
     if(!token && isBoxStore){
-      token = storeKey.slice('box::'.length);
+      const segments = storeKey.split('::').filter(Boolean);
+      token = segments.length ? String(segments[segments.length - 1] || '').trim() : '';
     }
     return token === 'significance-label' || token === '__graph__';
   }
@@ -19161,7 +19162,7 @@ Technical analysis record (advanced)
       annotationBracketSize,
       styleScale: styleScaleInfo?.styleScale
     });
-    const axisMetrics = chartStyle.createAxisMetrics(fs);
+    const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     console.debug('Debug: box axis metrics', axisMetrics);
     const showGrid = els.boxShowGrid.checked;
     const showFrame = !!els.boxShowFrame?.checked;

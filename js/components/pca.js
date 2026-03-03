@@ -6463,7 +6463,7 @@
         containerWidth:containerRect?.width,
         containerHeight:containerRect?.height
       });
-      const axisMetrics = chartStyle.createAxisMetrics(fs);
+      const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
       debugLog('Debug: pca axis metrics',axisMetrics);
       const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
       const showGrid = pcaShowGrid.checked;
@@ -10041,5 +10041,4 @@
   });
 
 })(window);
-
 

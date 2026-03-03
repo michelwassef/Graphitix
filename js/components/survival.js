@@ -3046,7 +3046,7 @@
       : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
     const curveStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(2, styleScaleInfo, { context: 'survival-curve', min: 0.8 }) : 2;
 
-    const axisMetrics = chartStyle.createAxisMetrics ? chartStyle.createAxisMetrics(fs) : { tickLength: 6, tickLabelGap: 6, axisTitleGap: 8, outerPadding: 8 };
+    const axisMetrics = chartStyle.createAxisMetrics ? chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo) : { tickLength: 6, tickLabelGap: 6, axisTitleGap: 8, outerPadding: 8 };
     const tickLen = axisMetrics.tickLength ?? 6;
     const tickGap = axisMetrics.tickLabelGap ?? 6;
     const xLabelText = refs.xLabel?.value?.trim() || 'Time';

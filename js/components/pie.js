@@ -1045,9 +1045,9 @@
       containerWidth:containerRect?.width,
       containerHeight:containerRect?.height
     });
-    const axisMetrics=chartStyle.createAxisMetrics(fs);
-    console.debug('Debug: pie axis metrics',axisMetrics);
     const styleScaleInfo=fontInfo.scaleInfo;
+    const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
+    console.debug('Debug: pie axis metrics',axisMetrics);
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
     const borderColor = $('#pieBorderColor')?.value || '#ffffff';
     const borderWidthBase = Number.parseFloat($('#pieBorderWidth')?.value) || 0;

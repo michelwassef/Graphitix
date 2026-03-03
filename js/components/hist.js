@@ -2569,7 +2569,7 @@
       containerWidth:containerRect?.width,
       containerHeight:containerRect?.height
     });
-    const axisMetrics=chartStyle.createAxisMetrics(fs);
+    const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     console.debug('Debug: hist axis metrics',axisMetrics);
     let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
     let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});

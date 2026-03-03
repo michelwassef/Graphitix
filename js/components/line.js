@@ -7880,7 +7880,7 @@
         containerWidth: containerRect?.width,
         containerHeight: containerRect?.height
       }); // Debug: line font scaling summary
-      const axisMetrics=chartStyle.createAxisMetrics(fs);
+      const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
       console.debug('Debug: line axis metrics',axisMetrics);
       const showGrid=!!refs.showGrid?.checked;
       const gridStyleBase = getLineGridStyle(axisStrokeWidthBase);

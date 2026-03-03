@@ -2013,7 +2013,7 @@
       containerWidth:containerRect?.width,
       containerHeight:containerRect?.height
     });
-    const axisMetrics = chartStyle.createAxisMetrics(fontSize);
+    const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     console.debug('Debug: roc axis metrics',axisMetrics);
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
     const data = state.hot.getData();

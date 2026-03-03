@@ -233,6 +233,7 @@
   const FONT_SCOPE_SELECTION = 'selection';
   const FONT_SCOPE_GRAPH = 'graph';
   const GRAPH_SCOPE_TOKEN = '__graph__';
+  const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const scopeModePreferences = new Map();
 
   const styleStore = new Map();
@@ -1149,6 +1150,59 @@
     return scopeId || '__global__';
   }
 
+  function normalizeTabId(raw){
+    if(raw == null){ return null; }
+    const trimmed = String(raw).trim();
+    return trimmed ? trimmed : null;
+  }
+
+  function resolveActiveWorkspaceTabId(){
+    try{
+      const hot = Shared.hot || global.Shared?.hot;
+      if(hot && typeof hot.resolveActiveTabId === 'function'){
+        const fromHot = normalizeTabId(hot.resolveActiveTabId());
+        if(fromHot){ return fromHot; }
+      }
+    }catch(err){
+      logDebug('resolveActiveWorkspaceTabId hot resolver failed', { error: err?.message || String(err) });
+    }
+    try{
+      const mainSession = global.Main?.session || null;
+      if(mainSession && typeof mainSession.getActiveTab === 'function'){
+        const active = mainSession.getActiveTab();
+        const fromSession = normalizeTabId(active?.id);
+        if(fromSession){ return fromSession; }
+      }
+    }catch(err){
+      logDebug('resolveActiveWorkspaceTabId session resolver failed', { error: err?.message || String(err) });
+    }
+    try{
+      const doc = global.document;
+      if(doc && typeof doc.querySelector === 'function'){
+        const activeBtn = doc.querySelector('.workspace-tab.is-active[data-tab-id]');
+        const fromDom = normalizeTabId(activeBtn?.dataset?.tabId);
+        if(fromDom){ return fromDom; }
+      }
+    }catch(err){
+      logDebug('resolveActiveWorkspaceTabId dom resolver failed', { error: err?.message || String(err) });
+    }
+    return null;
+  }
+
+  function sanitizeTabToken(tabId){
+    if(!tabId){ return null; }
+    return sanitizeStoreToken(tabId);
+  }
+
+  function resolveStoreTabToken(options){
+    const opts = options || {};
+    const node = opts.node || opts.target || null;
+    const datasetTab = normalizeTabId(node?.dataset?.fontTabId || node?.dataset?.tabId || null);
+    const explicitTab = normalizeTabId(opts.tabId || opts.workspaceTabId || null);
+    const activeTab = resolveActiveWorkspaceTabId();
+    return sanitizeTabToken(datasetTab || explicitTab || activeTab || null);
+  }
+
   function getScopeMode(scopeId){
     const key = scopePreferenceKey(scopeId || currentScope);
     return scopeModePreferences.get(key) || FONT_SCOPE_SELECTION;
@@ -1190,19 +1244,22 @@
     const scopeId = options?.scopeId ?? dataset.fontScope ?? currentScope ?? null;
     const key = options?.key ?? dataset.fontKey ?? currentKey ?? null;
     const mode = options?.mode || getScopeMode(scopeId);
+    const tabId = options?.tabId ?? dataset.fontTabId ?? null;
     if(mode === FONT_SCOPE_GRAPH){
       return {
         scopeId,
         key: GRAPH_SCOPE_TOKEN,
+        tabId,
         mode,
-        storeKey: buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN)
+        storeKey: buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { target, tabId })
       };
     }
     return {
       scopeId,
       key,
+      tabId,
       mode: FONT_SCOPE_SELECTION,
-      storeKey: buildStoreKey(scopeId, key)
+      storeKey: buildStoreKey(scopeId, key, { target, tabId })
     };
   }
 
@@ -2290,9 +2347,13 @@
     btn.classList.toggle('font-controls-panel__toggle--active', isActive);
   }
 
-  function buildStoreKey(scopeId, key){
+  function buildStoreKey(scopeId, key, options){
     const scope = scopeId || '__global__';
     const token = key || '__default__';
+    const tabToken = resolveStoreTabToken(options);
+    if(tabToken){
+      return `${scope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::${token}`;
+    }
     return `${scope}::${token}`;
   }
 
@@ -2483,7 +2544,8 @@
     const dataset = node.dataset || {};
     const scope = options?.scopeId ?? dataset.fontScope ?? null;
     const key = options?.key ?? dataset.fontKey ?? null;
-    const storeKey = options?.storeKey || buildStoreKey(scope, key);
+    const tabId = options?.tabId ?? dataset.fontTabId ?? null;
+    const storeKey = options?.storeKey || buildStoreKey(scope, key, { node, tabId });
     const explicitEditable = dataset.fontEditable === '1';
     if(!explicitEditable && !scope && !key){
       logDebug('storeStyleForNode skipped (no scope/key for implicit node)', {
@@ -2510,7 +2572,7 @@
     }
     try{
       if(global.document && typeof global.document.dispatchEvent === 'function'){
-        const detail = { scopeId: scope || null, key: key || null, storeKey, style: normalized || null };
+        const detail = { scopeId: scope || null, tabId: tabId || null, key: key || null, storeKey, style: normalized || null };
         let evt;
         if(typeof global.CustomEvent === 'function'){
           evt = new global.CustomEvent('fontControls:styleChanged', { detail });
@@ -2528,31 +2590,64 @@
     }
   }
 
-  function exportScopeStyles(scopeId){
+  function extractStoreTokenFromKey(storeKey, prefix){
+    if(!storeKey || !prefix || !storeKey.startsWith(prefix)){ return null; }
+    return storeKey.slice(prefix.length) || '__default__';
+  }
+
+  function isTabbedStoreKey(storeKey, scope){
+    if(!storeKey){ return false; }
+    const prefix = `${scope}::${TAB_SCOPE_TOKEN_PREFIX}`;
+    return storeKey.startsWith(prefix);
+  }
+
+  function exportScopeStyles(scopeId, options){
     const scope = scopeId || '__global__';
-    const prefix = `${scope}::`;
+    const opts = options || {};
+    const tabToken = resolveStoreTabToken(opts);
+    const tabPrefix = tabToken ? `${scope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::` : null;
+    const legacyPrefix = `${scope}::`;
     const payload = {};
     let count = 0;
     styleStore.forEach((style, storeKey) => {
-      if(!storeKey || !storeKey.startsWith(prefix)){ return; }
-      const token = storeKey.slice(prefix.length) || '__default__';
+      let token = null;
+      if(tabPrefix){
+        token = extractStoreTokenFromKey(storeKey, tabPrefix);
+      }else{
+        if(isTabbedStoreKey(storeKey, scope)){ return; }
+        token = extractStoreTokenFromKey(storeKey, legacyPrefix);
+      }
+      if(!token){ return; }
       const snapshot = cloneStyleSnapshot(style);
       if(!snapshot){ return; }
       payload[token] = snapshot;
       count += 1;
     });
+    if(!count && tabPrefix){
+      styleStore.forEach((style, storeKey) => {
+        if(isTabbedStoreKey(storeKey, scope)){ return; }
+        const token = extractStoreTokenFromKey(storeKey, legacyPrefix);
+        if(!token){ return; }
+        const snapshot = cloneStyleSnapshot(style);
+        if(!snapshot){ return; }
+        payload[token] = snapshot;
+        count += 1;
+      });
+    }
     if(!count){
-      logDebug('exportScopeStyles skipped (empty)', { scope });
+      logDebug('exportScopeStyles skipped (empty)', { scope, tabToken: tabToken || null });
       return null;
     }
-    logDebug('exportScopeStyles captured', { scope, count });
+    logDebug('exportScopeStyles captured', { scope, tabToken: tabToken || null, count });
     return payload;
   }
 
   function importScopeStyles(scopeId, styles, options){
     const scope = scopeId || '__global__';
-    const prefix = `${scope}::`;
     const opts = options || {};
+    const tabToken = resolveStoreTabToken(opts);
+    const prefix = tabToken ? `${scope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::` : `${scope}::`;
+    const legacyPrefix = `${scope}::`;
     const incoming = (styles && typeof styles === 'object') ? styles : null;
     const keep = new Set();
     if(incoming){
@@ -2579,7 +2674,18 @@
     if(opts.prune !== false){
       const stale = [];
       styleStore.forEach((_, storeKey) => {
-        if(storeKey && storeKey.startsWith(prefix) && !keep.has(storeKey)){
+        if(!storeKey || keep.has(storeKey)){
+          return;
+        }
+        if(tabToken){
+          const isCurrentTabKey = storeKey.startsWith(prefix);
+          const isLegacyScopeKey = storeKey.startsWith(legacyPrefix) && !isTabbedStoreKey(storeKey, scope);
+          if(isCurrentTabKey || isLegacyScopeKey){
+            stale.push(storeKey);
+          }
+          return;
+        }
+        if(storeKey.startsWith(prefix) && !isTabbedStoreKey(storeKey, scope)){
           stale.push(storeKey);
         }
       });
@@ -2593,6 +2699,7 @@
     }
     logDebug('importScopeStyles complete', {
       scope,
+      tabToken: tabToken || null,
       imported: incoming ? Object.keys(incoming).length : 0,
       pruned: opts.prune === false ? 0 : undefined
     });
@@ -3706,12 +3813,17 @@
       return;
     }
     const scopeId = options?.scopeId || svg.dataset?.fontScope || svg.id || null;
+    const tabToken = resolveStoreTabToken({ target: svg, tabId: options?.tabId || null });
+    if(svg.dataset && tabToken){
+      svg.dataset.fontTabId = tabToken;
+    }
     svgScopeMap.set(svg, scopeId);
     if(svgRegistry.has(svg)){ return; }
     svg.addEventListener('click', handleSvgClick, true);
     svgRegistry.add(svg);
     logDebug('enableForSvg attached', {
       scopeId,
+      tabToken: tabToken || null,
       hasDatasetScope: !!svg.dataset?.fontScope,
       nodeName: svg.nodeName
     });
@@ -3722,14 +3834,16 @@
     const scopeId = options?.scopeId || node.dataset?.fontScope || null;
     const role = options?.role || null;
     const key = options?.key || role || null;
+    const tabToken = resolveStoreTabToken({ node, tabId: options?.tabId || null });
     if(node.dataset){
       node.dataset.fontEditable = '1';
       if(scopeId){ node.dataset.fontScope = scopeId; }
+      if(tabToken){ node.dataset.fontTabId = tabToken; }
       if(role){ node.dataset.fontRole = role; }
       if(key){ node.dataset.fontKey = key; }
     }
-    const storeKey = buildStoreKey(scopeId, key);
-    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN);
+    const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
+    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
     registerNodeForKey(node, storeKey);
     if(graphStoreKey !== storeKey){
       registerNodeForKey(node, graphStoreKey);
@@ -3740,15 +3854,16 @@
     if(styleStore.has(storeKey)){
       applyStyleToNode(node, styleStore.get(storeKey));
     }
-    logDebug('markText applied', { scopeId, role, key, text: node?.textContent });
+    logDebug('markText applied', { scopeId, tabToken: tabToken || null, role, key, text: node?.textContent });
   }
 
   function applySavedStyle(node){
     if(!node){ return; }
     const scopeId = node.dataset?.fontScope || null;
     const key = node.dataset?.fontKey || null;
-    const storeKey = buildStoreKey(scopeId, key);
-    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN);
+    const tabToken = resolveStoreTabToken({ node, tabId: node.dataset?.fontTabId || null });
+    const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
+    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
     if(styleStore.has(graphStoreKey)){
       applyStyleToNode(node, styleStore.get(graphStoreKey));
     }

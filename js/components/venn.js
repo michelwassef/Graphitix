@@ -4445,8 +4445,11 @@
     const matrixX = labelX + labelAreaWidth + gap;
 
     const axisColor = sanitizeColor(settings.axisColor, chartStyle.TEXT_COLOR || '#000000');
+    const axisBaseFontPx = (typeof chartStyle.ptToPx === 'function' && Number.isFinite(style.fontPt))
+      ? chartStyle.ptToPx(style.fontPt)
+      : style.fontSizePx;
     const axisMetrics = typeof chartStyle.createAxisMetrics === 'function'
-      ? chartStyle.createAxisMetrics(style.fontSizePx)
+      ? chartStyle.createAxisMetrics(axisBaseFontPx, style.scaleInfo)
       : {
           tickLength: 6,
           tickLabelGap: Math.max(3, Math.round(style.fontSizePx * 0.35)),
