@@ -568,7 +568,11 @@
     }
     const textScale = lockOverride ? 1 : resizeInfo.styleScale;
     const scaledPxRaw = normalized.px * textScale;
-    const scaledPx = Math.max(4, Math.round(scaledPxRaw));
+    // Preserve exact pt values when text is locked: rounding 7pt (9.333px)
+    // down to 9px causes a visible 6.75pt drift in the toolbar/readback.
+    const scaledPx = lockOverride
+      ? Math.max(4, scaledPxRaw)
+      : Math.max(4, Math.round(scaledPxRaw));
     const scaledPt = chartStyle.pxToPt(scaledPx);
     if(inputEl && inputEl.dataset){
       inputEl.dataset.fontDisplayPt = String(scaledPt);

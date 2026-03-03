@@ -47,6 +47,7 @@
     fontSizePt: 7,
     axisColor: '#000000',
     axisStrokeWidth: 0.333,
+    textSizeLocked: true,
     pointSize: 4,
     pointBorderWidth: 1,
     summaryColor: '#000000',
@@ -430,6 +431,12 @@
         });
       }
 
+      // NPG default for box dataset spacing.
+      cfg.axis = ensureObject(cfg.axis);
+      cfg.axis.datasetSpacing = ensureObject(cfg.axis.datasetSpacing);
+      cfg.axis.datasetSpacing.x = 0.6;
+      cfg.axis.datasetSpacingX = 0.6;
+
       // NPG single-replicate rule:
       // - all traces use one shared gray fill
       // - all borders/bars stay pure black
@@ -532,6 +539,31 @@
     }
 
     return next;
+  }
+
+  function applyTextSizeLockToActiveGraph(type, locked){
+    const chartStyle = Shared.chartStyle || null;
+    if(!chartStyle || typeof chartStyle.setTextSizeLock !== 'function'){
+      debugLog('Debug: publicationStyles text lock apply skipped', { type, reason: 'missing-chartStyle-setter' });
+      return false;
+    }
+    const descriptor = TYPE_TO_PAGE[type];
+    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
+    const svgBox = page?.querySelector?.('.svgbox') || null;
+    const scopeId = `${type}GraphPanel`;
+    try{
+      chartStyle.setTextSizeLock(!!locked, {
+        origin: `publication-style-${type}`,
+        scopeId,
+        svgBox: svgBox || undefined,
+        force: true
+      });
+      debugLog('Debug: publicationStyles text lock applied', { type, scopeId, locked: !!locked, hasSvgBox: !!svgBox });
+      return true;
+    }catch(err){
+      console.error('publicationStyles text lock apply error', { type, err });
+      return false;
+    }
   }
 
   function applyManualFontSizeToActiveControl(type, fontSizePt){
@@ -660,6 +692,8 @@
       });
       sizingAppliedViaPayload = true;
     }
+
+    applyTextSizeLockToActiveGraph(type, preset.textSizeLocked === true);
 
     const manualFontApplied = applyManualFontSizeToActiveControl(type, preset.fontSizePt);
     debugLog('Debug: publicationStyles font application route', {
