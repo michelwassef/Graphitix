@@ -225,7 +225,7 @@
     rotationPending: false,
     rotationPendingLogged: false,
     axesVarianceScaled: false,
-    equalAxes: true,
+    equalAxes: false,
     equalScaleAxes: false
   };
   if(typeof plot3d.normalizeRotation === 'function'){
@@ -1095,7 +1095,7 @@
       const viewModeValue = refs.viewMode?.value || lineViewState.viewMode || '2d';
       const replicateModeValue = refs.replicateMode?.value;
       const is3dView = String(viewModeValue).toLowerCase() === '3d' || String(replicateModeValue).toLowerCase() === '3d';
-      const enforceLockRatio = equalAxesEnabled || equalScaleEnabled || varianceAxesEnabled || is3dView;
+      const enforceLockRatio = varianceAxesEnabled || is3dView;
       if(lineEqualAxesInput && lineEqualAxesInput.checked !== equalAxesEnabled){
         lineEqualAxesInput.checked = equalAxesEnabled;
       }

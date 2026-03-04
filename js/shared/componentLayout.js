@@ -369,6 +369,18 @@
         console.debug('Debug: componentLayout resizable onResize', { component: componentName, phase });
         const flags = evaluateScheduleFlags({ source: 'resize', phase });
         syncPanels({ skipSchedule: flags.skipSchedule, source: 'resize', phase });
+        if(typeof Shared.axisControls?.refreshActivePanel === 'function'){
+          try{
+            Shared.axisControls.refreshActivePanel({
+              scopeId: componentName,
+              reason: `component-layout-resize-${phase || 'unknown'}`,
+              phase,
+              component: componentName
+            });
+          }catch(err){
+            console.error('Shared.componentLayout axisControls refresh error', err);
+          }
+        }
         if(flags.suppressResizeCallback){
           return;
         }
@@ -571,6 +583,13 @@
       applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config', { reset: resetStyles });
       applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg', { reset: resetStyles });
       applyDataset(elements.svgBox, clonedState.svgBox?.dataset, 'svg', { reset: resetDataset });
+      const zoomApi = elements.svgBox?.__sharedResizableBoxApi;
+      if(zoomApi && typeof zoomApi.setZoomLevel === 'function'){
+        const requestedZoom = Number(elements.svgBox?.dataset?.resizerZoomLevel || elements.svgBox?.dataset?.resizerZoom);
+        if(Number.isFinite(requestedZoom) && requestedZoom > 0){
+          zoomApi.setZoomLevel(requestedZoom, { reason: `${componentName}-layout-apply` });
+        }
+      }
       const skipSchedule = options.skipSchedule === true;
       syncPanels({ skipSchedule });
       console.debug('Debug: componentLayout applyState', {

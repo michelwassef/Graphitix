@@ -3619,7 +3619,16 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .svgbox .resizer-vertical{top:0;right:0;width:12px;height:100%;cursor:ew-resize}
 .svgbox .resizer-horizontal{bottom:0;left:0;height:12px;width:100%;cursor:ns-resize}
 .svgbox .resizer-corner{right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,rgba(0,0,0,0.06),rgba(0,0,0,0));border-radius:2px}
+.svgbox .resizer-zoom-viewport{position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow:hidden}
+.svgbox .resizer-zoom-content{--resizer-content-zoom:1;position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;transform-origin:top left;transform:scale(var(--resizer-content-zoom))}
+.svgbox .resizer-zoom-content>[data-resizer-zoom-target="true"]{flex:1 1 auto;min-width:0;min-height:0}
 .svgbox .resizer-control-tray{position:absolute;top:10px;left:12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;z-index:210}
+.svgbox .resizer-zoom-control{position:absolute;left:12px;bottom:10px;display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:var(--shared-checkbox-chip-bg,#f9fafc);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);color:var(--shared-checkbox-chip-text,#1e2633);font-size:11px;font-weight:400;letter-spacing:.04em;text-transform:none;white-space:nowrap;z-index:210;box-sizing:border-box}
+.svgbox .resizer-zoom-button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:1px solid #8d97a6;background:#fff;color:#1b2634;cursor:pointer;font-size:14px;line-height:1;box-sizing:border-box}
+.svgbox .resizer-zoom-button:hover{background:#edf2ff;border-color:#6c7bb1}
+.svgbox .resizer-zoom-button:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
+.svgbox .resizer-zoom-button:disabled{opacity:.45;cursor:not-allowed;background:#f3f5f7;border-color:#c2c8d1}
+.svgbox .resizer-zoom-value{display:inline-flex;align-items:center;justify-content:center;min-width:44px;font-variant-numeric:tabular-nums}
 .svgbox .resizer-control-tray .resizer-aspect-control,
 .svgbox .resizer-control-tray .resizer-textlock-control,
 .svgbox .resizer-control-tray .resizer-legend-control,
@@ -4183,6 +4192,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .axis-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
 .axis-controls-panel__field{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:62px;flex:0 0 auto;text-align:center}
 .axis-controls-panel__field--numeric{width:auto;min-width:95px;max-width:95px}
+.axis-controls-panel__field--length{min-width:236px;max-width:236px;align-items:flex-start;text-align:left}
+.axis-controls-panel__field--length .axis-controls-panel__field-label{justify-content:flex-start;text-align:left}
+.axis-controls-panel__length-row{display:flex;align-items:center;gap:4px}
+.axis-controls-panel__input--length{width:68px;min-width:68px;max-width:68px;text-align:center}
+.axis-controls-panel__input--unit{width:54px;min-width:54px;max-width:54px;text-align:left;padding-right:18px;appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 6px center}
+.axis-controls-panel__length-preserve{display:inline-flex;align-items:center;gap:4px;width:auto;padding:0 0 0 2px;font-size:11px;letter-spacing:0.01em;text-transform:none;border:none;background:transparent;box-shadow:none;white-space:nowrap}
+.axis-controls-panel__length-preserve .axis-controls-panel__checkbox{width:14px;height:14px}
 .axis-controls-panel__field--color{min-width:64px;width:auto;align-items:center;text-align:center}
 .axis-controls-panel__field--toggle{min-width:120px;align-items:flex-start;gap:6px}
 .axis-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;display:block;width:100%;text-align:center}
@@ -4484,6 +4500,35 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     min-width:48px;
     max-width:48px;
     border-radius:0 !important;
+}
+.axis-controls-panel__field--length{
+    min-width:236px;
+    max-width:236px;
+    align-items:flex-start;
+    text-align:left;
+}
+.axis-controls-panel__field--length .axis-controls-panel__field-label{
+    justify-content:flex-start;
+    text-align:left;
+}
+.axis-controls-panel__field--length .axis-controls-panel__input--length{
+    width:64px;
+    min-width:64px;
+    max-width:64px;
+    border-radius:0 !important;
+}
+.axis-controls-panel__field--length .axis-controls-panel__input--unit{
+    width:54px;
+    min-width:54px;
+    max-width:54px;
+    border-radius:0 !important;
+}
+.axis-controls-panel__field--length .axis-controls-panel__length-preserve{
+    border:none !important;
+    background:transparent !important;
+    border-radius:0 !important;
+    box-shadow:none !important;
+    padding:0 0 0 2px;
 }
 .axis-controls-panel__field--additional-ticks,
 .axis-controls-panel__field--broken-axis{

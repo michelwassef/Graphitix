@@ -248,7 +248,7 @@
     rotationPending: false,
     rotationPendingLogged: false,
     axesVarianceScaled: false,
-    equalAxes: true,
+    equalAxes: false,
     equalScaleAxes: false,
     supports3d: false,
     supportsBubble: false,
@@ -774,7 +774,7 @@
       const varianceAxesEnabled = !!scatterState.axesVarianceScaled;
       const viewMode = scatterViewModeInput?.value || scatterState.viewMode || '2d';
       const is3dView = String(viewMode).toLowerCase() === '3d';
-      const enforceLockRatio = equalAxesEnabled || equalScaleEnabled || varianceAxesEnabled || is3dView;
+      const enforceLockRatio = varianceAxesEnabled || is3dView;
       if(scatterEqualAxesInput && scatterEqualAxesInput.checked !== equalAxesEnabled){
         scatterEqualAxesInput.checked = equalAxesEnabled;
       }

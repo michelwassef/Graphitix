@@ -590,7 +590,19 @@
         textLocked: lockOverride
       }); // Debug: dataset display tracking
     }
-    const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride, manualResize: !!isManualResize, scopeId };
+    const explicitZoomScale = Number(opts.zoomScale);
+    const datasetZoomScale = Number(dataset?.resizerZoomLevel || dataset?.resizerZoom);
+    const zoomScale = Number.isFinite(explicitZoomScale) && explicitZoomScale > 0
+      ? explicitZoomScale
+      : (Number.isFinite(datasetZoomScale) && datasetZoomScale > 0 ? datasetZoomScale : 1);
+    const scaleInfo = {
+      ...resizeInfo,
+      zoomScale,
+      textScale,
+      textLocked: lockOverride,
+      manualResize: !!isManualResize,
+      scopeId
+    };
     const result = {
       ...normalized,
       scaledPx,
@@ -609,6 +621,7 @@
       scaledPt,
       styleScale: resizeInfo.styleScale,
       textScale,
+      zoomScale,
       locked: lockOverride,
       manualResize: isManualResize,
       width: resizeInfo.width,
@@ -895,15 +908,28 @@
       return 0;
     }
     const styleScale = clampScale(resolveStyleScale(scaleInfo));
-    const gentle = Math.sqrt(styleScale);
-    const scaled = numeric * gentle;
+    const zoomScaleRaw = Number(scaleInfo?.zoomScale);
+    const zoomScale = Number.isFinite(zoomScaleRaw) && zoomScaleRaw > 0 ? zoomScaleRaw : 1;
+    const zoomActive = Math.abs(zoomScale - 1) > 1e-4;
+    const rawStyleScale = Number(scaleInfo?.styleUnclamped);
+    const styleScaleForZoom = Number.isFinite(rawStyleScale) && rawStyleScale > 0 ? rawStyleScale : styleScale;
+    const resizeOnlyScale = zoomActive
+      ? clampScale(styleScaleForZoom / zoomScale)
+      : styleScale;
+    const lengthScale = zoomActive
+      ? (Math.sqrt(resizeOnlyScale) * zoomScale)
+      : Math.sqrt(styleScale);
+    const scaled = numeric * lengthScale;
     const min = Number.isFinite(opts.min) ? opts.min : 0;
     const max = Number.isFinite(opts.max) ? opts.max : Infinity;
     const clamped = Math.min(max, Math.max(min, scaled));
     console.debug('Debug: chartStyle.scaleLength', {
       base: numeric,
       styleScale,
-      gentle,
+      resizeOnlyScale,
+      lengthScale,
+      zoomScale,
+      zoomActive,
       result: clamped,
       context: opts.context || 'length'
     }); // Debug: length scaling trace
