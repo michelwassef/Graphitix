@@ -223,10 +223,10 @@
       return null;
     }
     const doc = svgBox.ownerDocument || global.document;
-    let tray = svgBox.querySelector('.resizer-control-tray');
+    let tray = svgBox.querySelector('.resizer-bottom-tray');
     if(!tray && doc){
       tray = doc.createElement('div');
-      tray.className = 'resizer-control-tray';
+      tray.className = 'resizer-bottom-tray';
       svgBox.appendChild(tray);
       console.debug('Debug: resizer ensureLegendControlPlacement tray created', {
         label: opts.debugLabel || null,
@@ -407,6 +407,7 @@
     if(classList && (
       classList.contains('resizer')
       || classList.contains('resizer-control-tray')
+      || classList.contains('resizer-bottom-tray')
       || classList.contains('resizer-zoom-control')
       || classList.contains('resizer-zoom-viewport')
     )){
@@ -964,7 +965,14 @@
         zoomInButton.disabled = !canZoomIn;
       }
       if(zoomValue){
-        zoomValue.textContent = formatZoomLevel(zoomLevel);
+        const displayPercent = String(Math.round(zoomLevel * 100));
+        if(zoomValue.tagName === 'INPUT'){
+          if(doc.activeElement !== zoomValue){
+            zoomValue.value = displayPercent;
+          }
+        }else{
+          zoomValue.textContent = formatZoomLevel(zoomLevel);
+        }
       }
       if(zoomControl){
         zoomControl.setAttribute('aria-label', `Graph zoom ${formatZoomLevel(zoomLevel)}`);
@@ -1023,6 +1031,15 @@
       return applyZoomLevel(zoomLevel + delta, {
         reason: direction > 0 ? 'button-plus' : 'button-minus'
       });
+    }
+
+    function commitZoomFromInput(rawValue){
+      const numeric = Number.parseFloat(String(rawValue ?? '').replace('%', '').trim());
+      if(!Number.isFinite(numeric) || numeric <= 0){
+        syncZoomControls();
+        return zoomLevel;
+      }
+      return applyZoomLevel(numeric / 100, { reason: 'input' });
     }
 
     container.__sharedResizableBoxApi = {
@@ -1225,8 +1242,18 @@
           zoomControl.className = 'resizer-zoom-control';
           zoomControl.setAttribute('role', 'group');
           zoomControl.setAttribute('aria-label', 'Graph zoom controls');
-          container.appendChild(zoomControl);
+          if(controlTray){
+            controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
+          }else{
+            container.appendChild(zoomControl);
+          }
           logZoom('control-created');
+        }else if(controlTray){
+          if(zoomControl.parentNode !== controlTray){
+            controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
+          }else if(controlTray.firstChild !== zoomControl){
+            controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
+          }
         }
         let decreaseButton = zoomControl.querySelector('.resizer-zoom-button--decrease');
         if(!decreaseButton){
@@ -1237,12 +1264,28 @@
           decreaseButton.setAttribute('aria-label', 'Zoom out graph view');
           zoomControl.appendChild(decreaseButton);
         }
-        let zoomValueNode = zoomControl.querySelector('.resizer-zoom-value');
+        let zoomValueNode = zoomControl.querySelector('input.resizer-zoom-value');
         if(!zoomValueNode){
-          zoomValueNode = doc.createElement('span');
-          zoomValueNode.className = 'resizer-zoom-value';
-          zoomValueNode.setAttribute('aria-live', 'polite');
+          const legacyNode = zoomControl.querySelector('.resizer-zoom-value');
+          if(legacyNode){
+            legacyNode.remove();
+          }
+          zoomValueNode = doc.createElement('input');
+          zoomValueNode.type = 'number';
+          zoomValueNode.className = 'resizer-zoom-value resizer-zoom-input';
+          zoomValueNode.setAttribute('inputmode', 'decimal');
+          zoomValueNode.setAttribute('aria-label', 'Zoom level percent');
+          zoomValueNode.min = String(Math.round(zoomBounds.min * 100));
+          zoomValueNode.max = String(Math.round(zoomBounds.max * 100));
+          zoomValueNode.step = '10';
           zoomControl.appendChild(zoomValueNode);
+        }
+        let zoomUnitNode = zoomControl.querySelector('.resizer-zoom-unit');
+        if(!zoomUnitNode){
+          zoomUnitNode = doc.createElement('span');
+          zoomUnitNode.className = 'resizer-zoom-unit';
+          zoomUnitNode.textContent = '%';
+          zoomControl.appendChild(zoomUnitNode);
         }
         let increaseButton = zoomControl.querySelector('.resizer-zoom-button--increase');
         if(!increaseButton){
@@ -1253,12 +1296,31 @@
           increaseButton.setAttribute('aria-label', 'Zoom in graph view');
           zoomControl.appendChild(increaseButton);
         }
-        if(decreaseButton && zoomValueNode && increaseButton){
+        if(decreaseButton && zoomValueNode && zoomUnitNode && increaseButton){
+          if(zoomControl.firstChild !== decreaseButton){
+            zoomControl.insertBefore(decreaseButton, zoomControl.firstChild || null);
+          }
+          if(zoomValueNode.previousSibling !== decreaseButton){
+            zoomControl.insertBefore(zoomValueNode, decreaseButton.nextSibling);
+          }
+          if(zoomUnitNode.previousSibling !== zoomValueNode){
+            zoomControl.insertBefore(zoomUnitNode, zoomValueNode.nextSibling);
+          }
+          if(increaseButton.previousSibling !== zoomUnitNode){
+            zoomControl.appendChild(increaseButton);
+          }
           if(decreaseButton.__resizerZoomHandler){
             decreaseButton.removeEventListener('click', decreaseButton.__resizerZoomHandler);
           }
           if(increaseButton.__resizerZoomHandler){
             increaseButton.removeEventListener('click', increaseButton.__resizerZoomHandler);
+          }
+          if(zoomValueNode.__resizerZoomCommitHandler){
+            zoomValueNode.removeEventListener('change', zoomValueNode.__resizerZoomCommitHandler);
+            zoomValueNode.removeEventListener('blur', zoomValueNode.__resizerZoomCommitHandler);
+          }
+          if(zoomValueNode.__resizerZoomKeyHandler){
+            zoomValueNode.removeEventListener('keydown', zoomValueNode.__resizerZoomKeyHandler);
           }
           const onDecrease = (event) => {
             if(event?.preventDefault){ event.preventDefault(); }
@@ -1268,10 +1330,28 @@
             if(event?.preventDefault){ event.preventDefault(); }
             adjustZoom(1);
           };
+          const onZoomCommit = () => {
+            commitZoomFromInput(zoomValueNode.value);
+          };
+          const onZoomKeyDown = (event) => {
+            if(event?.key === 'Enter'){
+              if(event?.preventDefault){ event.preventDefault(); }
+              commitZoomFromInput(zoomValueNode.value);
+              zoomValueNode.blur();
+            }else if(event?.key === 'Escape'){
+              syncZoomControls();
+              zoomValueNode.blur();
+            }
+          };
           decreaseButton.addEventListener('click', onDecrease);
           increaseButton.addEventListener('click', onIncrease);
+          zoomValueNode.addEventListener('change', onZoomCommit);
+          zoomValueNode.addEventListener('blur', onZoomCommit);
+          zoomValueNode.addEventListener('keydown', onZoomKeyDown);
           decreaseButton.__resizerZoomHandler = onDecrease;
           increaseButton.__resizerZoomHandler = onIncrease;
+          zoomValueNode.__resizerZoomCommitHandler = onZoomCommit;
+          zoomValueNode.__resizerZoomKeyHandler = onZoomKeyDown;
           zoomOutButton = decreaseButton;
           zoomInButton = increaseButton;
           zoomValue = zoomValueNode;
