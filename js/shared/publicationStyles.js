@@ -739,7 +739,7 @@
     }
 
     const fieldset = global.document.createElement('fieldset');
-    fieldset.className = 'config-section';
+    fieldset.className = 'config-panel__fieldset';
     fieldset.dataset.publicationStyleFieldset = '1';
 
     const legend = global.document.createElement('legend');
@@ -747,11 +747,11 @@
     fieldset.appendChild(legend);
 
     const row = global.document.createElement('div');
-    row.className = 'config-row';
+    row.className = 'control config-panel__line';
 
     const label = global.document.createElement('label');
+    label.className = 'config-panel__label';
     label.textContent = 'Preset';
-    label.style.marginRight = '8px';
 
     const select = global.document.createElement('select');
     select.dataset.publicationStyleSelect = '1';
@@ -766,7 +766,6 @@
     applyBtn.type = 'button';
     applyBtn.className = 'btn btn-secondary';
     applyBtn.textContent = 'Apply style';
-    applyBtn.style.marginLeft = '8px';
 
     applyBtn.addEventListener('click', () => {
       const presetId = String(select.value || PRESETS.npg_single.id);
@@ -774,13 +773,13 @@
       debugLog('Debug: publicationStyles apply click', { type, presetId, ok });
     });
 
+    label.appendChild(select);
     row.appendChild(label);
-    row.appendChild(select);
     row.appendChild(applyBtn);
     fieldset.appendChild(row);
 
     const hint = global.document.createElement('div');
-    hint.className = 'config-hint';
+    hint.className = 'idx-inline-048';
     hint.textContent = 'Applies a publication preset to the current graph only.';
     fieldset.appendChild(hint);
 
