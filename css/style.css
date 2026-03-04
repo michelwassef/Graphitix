@@ -3633,6 +3633,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .svgbox .resizer-zoom-value::-webkit-outer-spin-button,
 .svgbox .resizer-zoom-value::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .svgbox .resizer-zoom-value[type=number]{-moz-appearance:textfield}
+.svgbox .resizer-zoom-value:focus,
+.svgbox .resizer-zoom-value:focus-visible{outline:none;box-shadow:none;border-color:#8d97a6}
 .svgbox .resizer-zoom-unit{display:inline-flex;align-items:center;font-size:11px;line-height:1;color:#1e2633}
 .svgbox .resizer-control-tray .resizer-aspect-control,
 .svgbox .resizer-control-tray .resizer-textlock-control,
