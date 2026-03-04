@@ -20317,7 +20317,9 @@ Technical analysis record (advanced)
         yLabelGap = maxTickWidth + tickLen + tickGap;
         marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxTickWidth, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
         marginLocal.top += topExtra;
-        marginLocal.left = Math.max(marginLocal.left, yLabelGap + fs * 0.5);
+        // Keep enough room for rotated y-title center + glyph thickness with a small safety buffer.
+        const yTitleSafetyPad = Math.max(2, Math.round((axisMetrics.yTitleGap || 0) * 0.5));
+        marginLocal.left = Math.max(marginLocal.left, yLabelGap + axisMetrics.axisTitleGap + fs + yTitleSafetyPad);
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
         plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
         bottomLayout = chartStyle.computeBottomLayout({ labels: labelTexts, fontSize: fs, plotWidth: plotWLocal, baseBottom: marginLocal.bottom, axisMetrics });
