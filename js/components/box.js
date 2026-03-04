@@ -80,6 +80,8 @@
   const MIN_X_DATASET_SPACING = 0.2;
   const MAX_X_DATASET_SPACING = 1;
   const X_DATASET_SPACING_STEP = 0.05;
+  const STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR = 2.6;
+  const STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN = 6;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
@@ -19142,14 +19144,23 @@ Technical analysis record (advanced)
     const DEFAULT_POINT_SIZE = 5;
     const pointRadius = chartStyle.scaleRadius(DEFAULT_POINT_SIZE, styleScaleInfo, { context: 'box-point', min: 0.75 });
     const overlayPointRadius = chartStyle.scaleRadius(2, styleScaleInfo, { context: 'box-point-overlay', min: 0.5 });
+    const isAutoDefaultPointSize = rawSize => {
+      const sizeValue = Number(rawSize);
+      if(!Number.isFinite(sizeValue) || sizeValue <= 0){
+        return false;
+      }
+      const tolerance = 0.01;
+      return Math.abs(sizeValue - DEFAULT_POINT_SIZE) <= tolerance
+        || Math.abs(sizeValue - pointRadius) <= tolerance;
+    };
     const hasExplicitPointSize = (traceIndex) => {
       const perTraceSize = state.pointStyles && traceIndex != null ? state.pointStyles[traceIndex]?.size : null;
       if(Number.isFinite(Number(perTraceSize)) && Number(perTraceSize) > 0){
-        return true;
+        return !isAutoDefaultPointSize(perTraceSize);
       }
       const globalSize = state.pointGlobalStyle?.size;
       if(Number.isFinite(Number(globalSize)) && Number(globalSize) > 0){
-        return Number(globalSize) !== DEFAULT_POINT_SIZE;
+        return !isAutoDefaultPointSize(globalSize);
       }
       return false;
     };
@@ -20478,9 +20489,19 @@ Technical analysis record (advanced)
           return null;
         }
         if(hasExplicitPointSize(null)){
+          if(debugEnabled){
+            console.debug('Debug: box strip auto size skipped explicit global size',{
+              orientation: 'vertical',
+              globalSize: state.pointGlobalStyle?.size ?? null
+            });
+          }
           return null;
         }
-        const localBand = localBandWidthForTrace();
+        const referenceHalfWidth = Math.max(
+          STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
+          pointRadius * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
+        );
+        const referenceBand = Math.max(1, referenceHalfWidth / 0.36);
         const baseOverlapDistance = Math.max(0.5, pointRadius * 2.1);
         let selectedIndex = null;
         let selectedCount = 0;
@@ -20489,6 +20510,14 @@ Technical analysis record (advanced)
         let selectedPointCoords = null;
         for(let i = 0; i < traces.length; i++){
           if(hasExplicitPointSize(i)){
+            if(debugEnabled){
+              const explicitSize = state.pointStyles && state.pointStyles[i] ? state.pointStyles[i]?.size : null;
+              console.debug('Debug: box strip auto size trace skipped explicit size',{
+                orientation: 'vertical',
+                traceIndex: i,
+                size: explicitSize
+              });
+            }
             continue;
           }
           const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
@@ -20519,23 +20548,23 @@ Technical analysis record (advanced)
         const inferredStripHalfWidth = useTightStripSpacing
           ? computeStripSmallSampleHalfWidth({
               sampleSize: selectedCount,
-              localBand,
+              localBand: referenceBand,
               pointRadius,
               overlapCount: selectedOverlapCount,
               debugEnabled
             })
           : null;
-        const hardStripHalfWidthCap = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
+        const resolvedHalfWidth = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
           ? inferredStripHalfWidth
-          : null;
+          : referenceHalfWidth;
         const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
-          axisSpacing: localBand,
+          axisSpacing: referenceBand,
           pointRadius,
           sampleSize: selectedCount,
           orientation: 'vertical',
           widthScaleMode: 'density',
-          maxHalfWidth: hardStripHalfWidthCap,
-          hardMaxHalfWidth: hardStripHalfWidthCap,
+          maxHalfWidth: resolvedHalfWidth,
+          hardMaxHalfWidth: resolvedHalfWidth,
           allowRadiusAdjustment: true,
           enforceNonOverlap: useTightStripSpacing,
           radiusCountExponent: 0.85,
@@ -20552,7 +20581,9 @@ Technical analysis record (advanced)
             pointCount: selectedCount,
             overlapCount: selectedOverlapCount,
             tight: useTightStripSpacing,
-            halfWidthCap: hardStripHalfWidthCap,
+            halfWidthCap: resolvedHalfWidth,
+            referenceHalfWidth,
+            referenceBand,
             adjustedRadius: Number.isFinite(adjusted) ? adjusted : null,
             baseRadius: pointRadius
           });
@@ -22223,9 +22254,19 @@ Technical analysis record (advanced)
           return null;
         }
         if(hasExplicitPointSize(null)){
+          if(debugEnabled){
+            console.debug('Debug: box strip auto size skipped explicit global size',{
+              orientation: 'horizontal',
+              globalSize: state.pointGlobalStyle?.size ?? null
+            });
+          }
           return null;
         }
-        const localBand = localBandHeightForTrace();
+        const referenceHalfWidth = Math.max(
+          STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
+          pointRadius * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
+        );
+        const referenceBand = Math.max(1, referenceHalfWidth / 0.36);
         const baseOverlapDistance = Math.max(0.5, pointRadius * 2.1);
         let selectedIndex = null;
         let selectedCount = 0;
@@ -22234,6 +22275,14 @@ Technical analysis record (advanced)
         let selectedPointCoords = null;
         for(let i = 0; i < traces.length; i++){
           if(hasExplicitPointSize(i)){
+            if(debugEnabled){
+              const explicitSize = state.pointStyles && state.pointStyles[i] ? state.pointStyles[i]?.size : null;
+              console.debug('Debug: box strip auto size trace skipped explicit size',{
+                orientation: 'horizontal',
+                traceIndex: i,
+                size: explicitSize
+              });
+            }
             continue;
           }
           const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
@@ -22264,23 +22313,23 @@ Technical analysis record (advanced)
         const inferredStripHalfWidth = useTightStripSpacing
           ? computeStripSmallSampleHalfWidth({
               sampleSize: selectedCount,
-              localBand,
+              localBand: referenceBand,
               pointRadius,
               overlapCount: selectedOverlapCount,
               debugEnabled
             })
           : null;
-        const hardStripHalfWidthCap = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
+        const resolvedHalfWidth = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
           ? inferredStripHalfWidth
-          : null;
+          : referenceHalfWidth;
         const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
-          axisSpacing: localBand,
+          axisSpacing: referenceBand,
           pointRadius,
           sampleSize: selectedCount,
           orientation: 'horizontal',
           widthScaleMode: 'density',
-          maxHalfWidth: hardStripHalfWidthCap,
-          hardMaxHalfWidth: hardStripHalfWidthCap,
+          maxHalfWidth: resolvedHalfWidth,
+          hardMaxHalfWidth: resolvedHalfWidth,
           allowRadiusAdjustment: true,
           enforceNonOverlap: useTightStripSpacing,
           radiusCountExponent: 0.85,
@@ -22297,7 +22346,9 @@ Technical analysis record (advanced)
             pointCount: selectedCount,
             overlapCount: selectedOverlapCount,
             tight: useTightStripSpacing,
-            halfWidthCap: hardStripHalfWidthCap,
+            halfWidthCap: resolvedHalfWidth,
+            referenceHalfWidth,
+            referenceBand,
             adjustedRadius: Number.isFinite(adjusted) ? adjusted : null,
             baseRadius: pointRadius
           });
