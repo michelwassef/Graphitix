@@ -11,8 +11,8 @@
     --ui-rounded-radius: 6px;
     --ui-control-radius: var(--ui-rounded-radius);
     --ui-control-shadow: inset 0 0 0 1px rgba(255,255,255,0.7);
-    --ui-focus-outline: 2px solid #1f6bff;
-    --ui-focus-offset: -2px;
+    --ui-focus-outline: none;
+    --ui-focus-offset: 0;
     --ui-btn-border: 1px solid #8d97a6;
     --ui-btn-bg: #f5f7fb;
     --ui-btn-bg-hover: #e7ecf5;
@@ -5270,4 +5270,21 @@ input[type="reset"],
 }
 .fit-spec-status[data-state="invalid"]{
   color:#991b1b;
+}
+
+/* Global suppression of native/browser focus ring highlights. */
+button:focus,
+button:focus-visible,
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+a:focus,
+a:focus-visible,
+[tabindex]:focus,
+[tabindex]:focus-visible{
+  outline:none !important;
+  box-shadow:none !important;
 }
