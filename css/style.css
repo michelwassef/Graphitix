@@ -3629,7 +3629,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .svgbox .resizer-zoom-button:hover{background:#edf2ff;border-color:#6c7bb1}
 .svgbox .resizer-zoom-button:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
 .svgbox .resizer-zoom-button:disabled{opacity:.45;cursor:not-allowed;background:#f3f5f7;border-color:#c2c8d1}
-.svgbox .resizer-zoom-value{display:inline-flex;align-items:center;justify-content:center;width:48px;height:16px;padding:0 2px;border:1px solid #8d97a6;background:#fff;color:#1b2634;font-size:11px;line-height:1;text-align:center;box-sizing:border-box;border-radius:0;font-variant-numeric:tabular-nums}
+.svgbox .resizer-zoom-value{display:inline-flex;align-items:center;justify-content:center;width:34px;height:16px;padding:0 2px;border:1px solid #8d97a6;background:#fff;color:#1b2634;font-size:11px;line-height:1;text-align:center;box-sizing:border-box;border-radius:0;font-variant-numeric:tabular-nums}
 .svgbox .resizer-zoom-value::-webkit-outer-spin-button,
 .svgbox .resizer-zoom-value::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .svgbox .resizer-zoom-value[type=number]{-moz-appearance:textfield}
