@@ -5013,6 +5013,28 @@ select,
     border-radius: 0 !important;
 }
 
+/* Selection fields (text/number/select) stay sharp across the UI. */
+input[type="text"],
+input[type="number"],
+.workspace-page input[type="text"],
+.workspace-page input[type="number"],
+.config-panel input[type="text"],
+.config-panel input[type="number"],
+.config-panel__fieldset input[type="text"],
+.config-panel__fieldset input[type="number"],
+.config-options input[type="text"],
+.config-options input[type="number"],
+.config-options fieldset input[type="text"],
+.config-options fieldset input[type="number"],
+.workspace-toolbar__input input[type="text"],
+.workspace-toolbar__input input[type="number"],
+.axis-controls-panel__input,
+.font-controls-panel__input,
+.welcome-picker__input,
+.data-view-tabs__title-input {
+    border-radius: 0 !important;
+}
+
 /* BEGIN index.html inline-style migration */
 .idx-inline-001 { display: none; }
 .idx-inline-002 { margin-top: 6px; }
