@@ -515,9 +515,18 @@
         lastDisplayPt = datasetDisplay;
       }
     }
+    const explicitZoomScale = Number(opts.zoomScale);
+    const datasetZoomScale = Number(dataset?.resizerZoomLevel || dataset?.resizerZoom);
+    const zoomScale = Number.isFinite(explicitZoomScale) && explicitZoomScale > 0
+      ? explicitZoomScale
+      : (Number.isFinite(datasetZoomScale) && datasetZoomScale > 0 ? datasetZoomScale : 1);
+    const rawWidth = Number(opts.width);
+    const rawHeight = Number(opts.height);
+    const effectiveWidth = Number.isFinite(rawWidth) ? (rawWidth / zoomScale) : opts.width;
+    const effectiveHeight = Number.isFinite(rawHeight) ? (rawHeight / zoomScale) : opts.height;
     const resizeInfo = chartStyle.computeResizeScale({
-      width: opts.width,
-      height: opts.height,
+      width: effectiveWidth,
+      height: effectiveHeight,
       defaultWidth: opts.defaultWidth,
       defaultHeight: opts.defaultHeight
     });
@@ -590,14 +599,10 @@
         textLocked: lockOverride
       }); // Debug: dataset display tracking
     }
-    const explicitZoomScale = Number(opts.zoomScale);
-    const datasetZoomScale = Number(dataset?.resizerZoomLevel || dataset?.resizerZoom);
-    const zoomScale = Number.isFinite(explicitZoomScale) && explicitZoomScale > 0
-      ? explicitZoomScale
-      : (Number.isFinite(datasetZoomScale) && datasetZoomScale > 0 ? datasetZoomScale : 1);
     const scaleInfo = {
       ...resizeInfo,
-      zoomScale,
+      zoomScale: 1,
+      displayZoomScale: zoomScale,
       textScale,
       textLocked: lockOverride,
       manualResize: !!isManualResize,
@@ -622,6 +627,10 @@
       styleScale: resizeInfo.styleScale,
       textScale,
       zoomScale,
+      rawWidth,
+      rawHeight,
+      effectiveWidth: Number.isFinite(effectiveWidth) ? effectiveWidth : null,
+      effectiveHeight: Number.isFinite(effectiveHeight) ? effectiveHeight : null,
       locked: lockOverride,
       manualResize: isManualResize,
       width: resizeInfo.width,

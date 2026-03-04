@@ -3620,8 +3620,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .svgbox .resizer-horizontal{bottom:0;left:0;height:12px;width:100%;cursor:ns-resize}
 .svgbox .resizer-corner{right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,rgba(0,0,0,0.06),rgba(0,0,0,0));border-radius:2px}
 .svgbox .resizer-zoom-viewport{position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow:hidden}
-.svgbox .resizer-zoom-content{--resizer-content-zoom:1;position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;transform-origin:top left;transform:scale(var(--resizer-content-zoom))}
-.svgbox .resizer-zoom-content>[data-resizer-zoom-target="true"]{flex:1 1 auto;min-width:0;min-height:0}
+.svgbox .resizer-zoom-content{--resizer-content-zoom:1;position:relative;display:flex;flex-direction:column;flex:0 0 auto;min-width:0;min-height:0;width:calc(100% / var(--resizer-content-zoom));height:calc(100% / var(--resizer-content-zoom));transform-origin:top left;transform:scale(var(--resizer-content-zoom))}
+.svgbox .resizer-zoom-content>[data-resizer-zoom-target="true"]{flex:1 1 auto;min-width:0;min-height:0;width:100%;height:100%}
 .svgbox .resizer-control-tray{position:absolute;top:10px;left:12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;z-index:210}
 .svgbox .resizer-bottom-tray{position:absolute;left:12px;bottom:10px;display:flex;align-items:center;gap:8px;z-index:210}
 .svgbox .resizer-control-tray .resizer-zoom-control{position:relative;display:inline-flex;align-items:center;gap:4px}

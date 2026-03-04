@@ -650,6 +650,7 @@
     let zoomOutButton = null;
     let zoomInButton = null;
     let zoomValue = null;
+    let suppressObserveResizeUntil = 0;
 
     const existingScope = data.resizerTextLockScope || null;
     const optionScope = typeof opts.scopeId === 'string' && opts.scopeId.trim() ? opts.scopeId.trim()
@@ -741,6 +742,35 @@
       return getActiveRatio();
     }
 
+    function syncZoomPresentation(baseWidth, baseHeight){
+      const zoomSetup = ensureZoomElements();
+      if(!zoomSetup){
+        return;
+      }
+      const zoomScale = resolveZoomScale();
+      if(zoomSetup.viewport){
+        zoomSetup.viewport.style.flex = '';
+        zoomSetup.viewport.style.width = '';
+        zoomSetup.viewport.style.height = '';
+        zoomSetup.viewport.style.minWidth = '';
+        zoomSetup.viewport.style.minHeight = '';
+      }
+      if(zoomSetup.content){
+        zoomSetup.content.style.flex = '';
+        zoomSetup.content.style.width = '';
+        zoomSetup.content.style.height = '';
+        zoomSetup.content.style.minWidth = '';
+        zoomSetup.content.style.minHeight = '';
+        zoomSetup.content.style.setProperty('--resizer-content-zoom', String(zoomScale));
+      }
+    }
+
+    function suppressObserverResize(ms){
+      const duration = Number.isFinite(ms) && ms > 0 ? ms : 220;
+      suppressObserveResizeUntil = Math.max(suppressObserveResizeUntil, Date.now() + duration);
+      logZoom('observer-suppress', { until: suppressObserveResizeUntil, duration });
+    }
+
     function applyResize({ width, height, axis, fallbackWidth, fallbackHeight, reason, aspectLockedOverride }){
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
       const requestedBaseWidth = Number.isFinite(width) ? (width / zoomScale) : NaN;
@@ -788,6 +818,7 @@
         container.dataset.resizerHeight = container.style.height;
         container.dataset.resizerBaseHeight = String(Math.round(finalBaseHeight));
       }
+      syncZoomPresentation(finalBaseWidth, finalBaseHeight);
       console.debug('Debug: resizer applyResize helper', {
         container: containerLabel,
         reason,
@@ -990,13 +1021,10 @@
       zoomLevel = normalized;
       data.resizerZoom = String(zoomLevel);
       data.resizerZoomLevel = String(zoomLevel);
-      const zoomSetup = ensureZoomElements();
-      if(zoomSetup?.content){
-        zoomSetup.content.style.setProperty('--resizer-content-zoom', '1');
-      }
       const shouldApplySize = changed || options.forceLayout === true || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON;
       let applied = null;
       if(shouldApplySize){
+        suppressObserverResize(options.suppressObserverMs);
         container.style.flex = '0 0 auto';
         if(changed || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON){
           container.dataset.resizerResized = 'true';
@@ -1012,6 +1040,7 @@
           reason: `zoom-${reason}`
         });
       }
+      syncZoomPresentation(baseWidth, baseHeight);
       applyZoomBoundsStyles();
       syncZoomControls();
       if(changed || options.logUnchanged){
@@ -1603,6 +1632,10 @@
     attachDrag(cHandle, 'both');
     if (global.ResizeObserver) {
       const obs = new ResizeObserver(() => {
+        if(Date.now() <= suppressObserveResizeUntil){
+          logZoom('observer-skipped', { suppressObserveResizeUntil });
+          return;
+        }
         console.debug('Debug: resizer observer triggered'); // Debug: resize observer
         if (typeof opts.onResize === 'function') {
           try { opts.onResize('observe'); } catch(e) { console.error('resizer onResize error', e); }
