@@ -161,12 +161,11 @@
     });
   }
   function shouldUseBoxSwarmWorker(pointCount){
-    const workerApi = Shared.Workers;
-    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
-      return false;
-    }
     const count = Number(pointCount) || 0;
-    return count >= BOX_SWARM_WORKER.minPoints;
+    if(count >= BOX_SWARM_WORKER.minPoints && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box swarm worker disabled to keep strict-spacing parity',{ count });
+    }
+    return false;
   }
   function runBoxSwarmWorker(payload){
     const workerApi = Shared.Workers;
@@ -201,7 +200,10 @@
         orientation: options?.orientation,
         widthScaleMode: options?.widthScaleMode,
         maxHalfWidth: options?.maxHalfWidth,
+        hardMaxHalfWidth: options?.hardMaxHalfWidth,
         allowRadiusAdjustment: options?.allowRadiusAdjustment,
+        skipBucketCentering: options?.skipBucketCentering === true,
+        enforceNonOverlap: options?.enforceNonOverlap === true,
         radiusCountExponent: options?.radiusCountExponent,
         fastThreshold: options?.fastThreshold,
         fastMode: options?.fastMode,
@@ -3929,84 +3931,27 @@
     return factor;
   }
 
-  function expandSwarmHalfWidthForSmallSamples(config){
-    const sampleSize = Number(config?.sampleSize) || 0;
-    const currentHalfWidth = Number(config?.currentHalfWidth);
-    const overlapCount = Number(config?.overlapCount);
-    const collisionDistance = Number(config?.collisionDistance);
-    const axisBoundary = Number(config?.axisBoundary);
-    const pointRadius = Number(config?.pointRadius);
-    if(!Number.isFinite(currentHalfWidth) || currentHalfWidth <= 0){
-      return currentHalfWidth;
-    }
-    if(!Number.isFinite(sampleSize) || sampleSize <= 0 || sampleSize >= 20){
-      return currentHalfWidth;
-    }
-    if(!Number.isFinite(overlapCount) || overlapCount <= 1){
-      return currentHalfWidth;
-    }
-    if(!Number.isFinite(collisionDistance) || collisionDistance <= 0){
-      return currentHalfWidth;
-    }
-    const requiredHalfWidth = ((overlapCount - 1) * collisionDistance) / 2;
-    if(!Number.isFinite(requiredHalfWidth) || requiredHalfWidth <= currentHalfWidth){
-      return currentHalfWidth;
-    }
-    const normalized = Math.max(0, Math.min(1, (20 - sampleSize) / 19));
-    const growthFactor = 1 + normalized * 1.2;
-    const maxByFactor = currentHalfWidth * growthFactor;
-    const maxExtra = Math.max(4, Math.min(16, (Number.isFinite(pointRadius) ? pointRadius : 0) * 3.2));
-    const maxByExtra = currentHalfWidth + maxExtra;
-    let maxAllowed = Math.min(maxByFactor, maxByExtra);
-    if(Number.isFinite(axisBoundary) && axisBoundary > 0){
-      maxAllowed = Math.min(maxAllowed, axisBoundary);
-    }
-    if(!Number.isFinite(maxAllowed) || maxAllowed <= currentHalfWidth){
-      return currentHalfWidth;
-    }
-    return Math.max(currentHalfWidth, Math.min(requiredHalfWidth, maxAllowed));
-  }
-
-  function computeStripSmallSampleHalfWidth(config){
-    const sampleSize = Number(config?.sampleSize) || 0;
-    const localBand = Number(config?.localBand);
-    const pointRadius = Number(config?.pointRadius);
-    const overlapCount = Number(config?.overlapCount);
-    const debugEnabled = !!config?.debugEnabled;
-    if(!Number.isFinite(sampleSize) || sampleSize <= 1 || sampleSize >= 20){
-      return null;
-    }
-    if(!Number.isFinite(localBand) || localBand <= 0){
-      return null;
-    }
-    if(!Number.isFinite(overlapCount) || overlapCount <= 1){
-      return null;
-    }
-    const radiusFloor = Number.isFinite(pointRadius) && pointRadius > 0 ? pointRadius : 0;
-    const preferredGapFactor = 2.1;
-    const preferredGap = Math.max(0.5, radiusFloor * preferredGapFactor);
-    const requiredHalfWidth = ((overlapCount - 1) * preferredGap) / 2;
-    const safetyMargin = Math.max(0.6, radiusFloor * 0.07);
-    const requestedHalfWidth = requiredHalfWidth + safetyMargin;
-    const minHalfWidth = Math.max(radiusFloor * 1.05, 0);
-    const maxHalfWidth = localBand * 0.36;
-    const resolved = Math.max(minHalfWidth, Math.min(maxHalfWidth, requestedHalfWidth));
-    if(!Number.isFinite(resolved) || resolved <= 0){
-      return null;
-    }
-    if(debugEnabled){
-      console.debug('Debug: box strip small-sample half-width',{
-        sampleSize,
-        overlapCount,
-        localBand,
-        pointRadius: radiusFloor,
-        preferredGap,
-        requiredHalfWidth,
-        requestedHalfWidth,
-        resolvedHalfWidth: resolved
-      });
-    }
-    return resolved;
+  function computeSwarmSpacingProfile(config){
+    const sampleSizeRaw = Number(config?.sampleSize);
+    const sampleSize = Number.isFinite(sampleSizeRaw) && sampleSizeRaw > 0 ? sampleSizeRaw : 1;
+    const enforceNonOverlap = config?.enforceNonOverlap === true;
+    const logScaled = Math.log10(sampleSize + 1);
+    const compression = Math.max(0, Math.min(1, logScaled / 3));
+    const densityGapFactor = 2.05;
+    const overlapGapMin = 1.35;
+    const overlapGapFactor = densityGapFactor - (densityGapFactor - overlapGapMin) * compression;
+    const collisionGapFactor = enforceNonOverlap
+      ? Math.max(2, overlapGapFactor)
+      : overlapGapFactor;
+    const minRadiusScale = enforceNonOverlap
+      ? Math.max(0.02, 0.08 - 0.06 * compression)
+      : 0.45;
+    return {
+      densityGapFactor,
+      collisionGapFactor,
+      minRadiusScale,
+      compression
+    };
   }
 
   function estimateSwarmOverlapCount(coordsInput, distance){
@@ -4071,13 +4016,17 @@
     const enforceBaseRadius = Number.isFinite(enforceBaseRadiusRaw) && enforceBaseRadiusRaw > 0
       ? enforceBaseRadiusRaw
       : basePointRadius;
-    const ENFORCE_MAX_DEPTH = 10;
+    const ENFORCE_MAX_DEPTH = 24;
     const ENFORCE_WIDTH_TOLERANCE = 0.25;
     const radiusCountExponent = Number(options?.radiusCountExponent);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const spreadFactor = computeSampleSpreadFactor(sampleSize, debugEnabled);
-    const PREFERRED_GAP_FACTOR = 2.05;
-    const densityDistance = Math.max(0.5, basePointRadius * PREFERRED_GAP_FACTOR);
+    const spacingProfile = computeSwarmSpacingProfile({
+      sampleSize,
+      enforceNonOverlap
+    });
+    const minRadiusScale = Math.max(0.08, spacingProfile.minRadiusScale);
+    const densityDistance = Math.max(0.5, basePointRadius * spacingProfile.densityGapFactor);
     let axisBoundary = Math.max(0, axisSpacing / 2 - basePointRadius);
     const violinScale = 0.45;
     const stripScale = 0.18;
@@ -4175,30 +4124,8 @@
     };
     let seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
     let sortedIndices = buildSortedIndices(seedBase);
-    let collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
+    let collisionDistance = Math.max(0.5, pointRadiusValue * spacingProfile.collisionGapFactor);
     let maxCount = getMaxOverlapCount(sortedIndices, collisionDistance);
-    if(!(Number.isFinite(maxHalfWidthOverride) && maxHalfWidthOverride > 0)){
-      const expandedHalfWidth = expandSwarmHalfWidthForSmallSamples({
-        sampleSize,
-        currentHalfWidth: globalMaxHalfWidth,
-        overlapCount: maxCount,
-        collisionDistance,
-        axisBoundary,
-        pointRadius: pointRadiusValue
-      });
-      if(Number.isFinite(expandedHalfWidth) && expandedHalfWidth > globalMaxHalfWidth){
-        if(debugEnabled){
-          console.debug('Debug: computeSwarmOffsets small-sample width boost',{
-            sampleSize,
-            overlapCount: maxCount,
-            previousHalfWidth: globalMaxHalfWidth,
-            expandedHalfWidth,
-            widthScaleMode
-          });
-        }
-        globalMaxHalfWidth = expandedHalfWidth;
-      }
-    }
     if(debugEnabled && maxCount > 1){
       console.debug('Debug: computeSwarmOffsets overlap scan',{
         orientation,
@@ -4216,11 +4143,11 @@
 
     if(maxCount > 1 && allowRadiusAdjustment){
       const initialRadius = pointRadiusValue;
-      const minRadius = Math.max(0.15, basePointRadius * 0.45);
+      const minRadius = Math.max(0.08, basePointRadius * minRadiusScale);
       const effectiveCount = (Number.isFinite(radiusCountExponent) && radiusCountExponent > 0 && radiusCountExponent !== 1)
         ? (maxCount <= 1 ? maxCount : (1 + Math.pow(maxCount - 1, radiusCountExponent)))
         : maxCount;
-      const maxAllowedRadius = (globalMaxHalfWidth * 2) / ((Math.max(1, effectiveCount) - 1) * PREFERRED_GAP_FACTOR);
+      const maxAllowedRadius = (globalMaxHalfWidth * 2) / ((Math.max(1, effectiveCount) - 1) * spacingProfile.collisionGapFactor);
       if(Number.isFinite(maxAllowedRadius) && maxAllowedRadius < pointRadiusValue){
         const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
         if(adjusted < pointRadiusValue){
@@ -4233,7 +4160,7 @@
       if(pointRadiusValue !== initialRadius){
         seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
         sortedIndices = buildSortedIndices(seedBase);
-        collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
+        collisionDistance = Math.max(0.5, pointRadiusValue * spacingProfile.collisionGapFactor);
         maxCount = getMaxOverlapCount(sortedIndices, collisionDistance);
         if(debugEnabled && maxCount > 1){
           console.debug('Debug: computeSwarmOffsets overlap scan adjusted',{
@@ -4760,6 +4687,33 @@
       }
     }
     if(placementFailed && enforceNonOverlap){
+      if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
+        const minEnforcedRadius = Math.max(0.08, enforceBaseRadius * minRadiusScale);
+        if(pointRadiusValue > minEnforcedRadius + 0.02){
+          const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.85);
+          if(nextRadius < pointRadiusValue - 0.0001){
+            if(debugEnabled){
+              console.debug('Debug: computeSwarmOffsets enforce radius shrink',{
+                orientation,
+                sampleSize,
+                depth: enforceDepth,
+                previousRadius: pointRadiusValue,
+                nextRadius,
+                minEnforcedRadius
+              });
+            }
+            return computeSwarmOffsets(points, Object.assign({}, options, {
+              pointRadius: nextRadius,
+              maxHalfWidth: globalMaxHalfWidth,
+              enforceNonOverlap: true,
+              __enforceDepth: enforceDepth + 1,
+              __enforceLowHalfWidth: enforceLowHalfWidth,
+              __enforceHighHalfWidth: enforceHighHalfWidth,
+              __enforceBaseRadius: enforceBaseRadius
+            }));
+          }
+        }
+      }
       let maxAllowedHalfWidth = axisBoundary > 0
         ? axisBoundary
         : Math.max(globalMaxHalfWidth, basePointRadius * 1.05 + collisionDistance * Math.max(2, maxCount));
@@ -4793,33 +4747,6 @@
             __enforceLowHalfWidth: globalMaxHalfWidth,
             __enforceHighHalfWidth: Number.isFinite(enforceHighHalfWidth) ? enforceHighHalfWidth : null
           }));
-        }
-      }
-      if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
-        const minEnforcedRadius = Math.max(0.15, enforceBaseRadius * 0.35);
-        if(pointRadiusValue > minEnforcedRadius + 0.02){
-          const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.92);
-          if(nextRadius < pointRadiusValue - 0.0001){
-            if(debugEnabled){
-              console.debug('Debug: computeSwarmOffsets enforce radius shrink',{
-                orientation,
-                sampleSize,
-                depth: enforceDepth,
-                previousRadius: pointRadiusValue,
-                nextRadius,
-                minEnforcedRadius
-              });
-            }
-            return computeSwarmOffsets(points, Object.assign({}, options, {
-              pointRadius: nextRadius,
-              maxHalfWidth: globalMaxHalfWidth,
-              enforceNonOverlap: true,
-              __enforceDepth: enforceDepth + 1,
-              __enforceLowHalfWidth: enforceLowHalfWidth,
-              __enforceHighHalfWidth: enforceHighHalfWidth,
-              __enforceBaseRadius: enforceBaseRadius
-            }));
-          }
         }
       }
       if(debugEnabled){
@@ -4916,6 +4843,33 @@
     if(enforceNonOverlap){
       const overlapsRemain = hasPairOverlap();
       if(overlapsRemain){
+        if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
+          const minEnforcedRadius = Math.max(0.08, enforceBaseRadius * minRadiusScale);
+          if(pointRadiusValue > minEnforcedRadius + 0.02){
+            const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.85);
+            if(nextRadius < pointRadiusValue - 0.0001){
+              if(debugEnabled){
+                console.debug('Debug: computeSwarmOffsets enforce overlap radius shrink',{
+                  orientation,
+                  sampleSize,
+                  depth: enforceDepth,
+                  previousRadius: pointRadiusValue,
+                  nextRadius,
+                  minEnforcedRadius
+                });
+              }
+              return computeSwarmOffsets(points, Object.assign({}, options, {
+                pointRadius: nextRadius,
+                maxHalfWidth: globalMaxHalfWidth,
+                enforceNonOverlap: true,
+                __enforceDepth: enforceDepth + 1,
+                __enforceLowHalfWidth: enforceLowHalfWidth,
+                __enforceHighHalfWidth: enforceHighHalfWidth,
+                __enforceBaseRadius: enforceBaseRadius
+              }));
+            }
+          }
+        }
         let maxAllowedHalfWidth = axisBoundary > 0
           ? axisBoundary
           : Math.max(globalMaxHalfWidth, basePointRadius * 1.05 + collisionDistance * Math.max(2, maxCount));
@@ -4948,33 +4902,6 @@
               __enforceLowHalfWidth: globalMaxHalfWidth,
               __enforceHighHalfWidth: Number.isFinite(enforceHighHalfWidth) ? enforceHighHalfWidth : null
             }));
-          }
-        }
-        if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
-          const minEnforcedRadius = Math.max(0.15, enforceBaseRadius * 0.35);
-          if(pointRadiusValue > minEnforcedRadius + 0.02){
-            const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.92);
-            if(nextRadius < pointRadiusValue - 0.0001){
-              if(debugEnabled){
-                console.debug('Debug: computeSwarmOffsets enforce overlap radius shrink',{
-                  orientation,
-                  sampleSize,
-                  depth: enforceDepth,
-                  previousRadius: pointRadiusValue,
-                  nextRadius,
-                  minEnforcedRadius
-                });
-              }
-              return computeSwarmOffsets(points, Object.assign({}, options, {
-                pointRadius: nextRadius,
-                maxHalfWidth: globalMaxHalfWidth,
-                enforceNonOverlap: true,
-                __enforceDepth: enforceDepth + 1,
-                __enforceLowHalfWidth: enforceLowHalfWidth,
-                __enforceHighHalfWidth: enforceHighHalfWidth,
-                __enforceBaseRadius: enforceBaseRadius
-              }));
-            }
           }
         }
         if(debugEnabled){
@@ -5029,7 +4956,7 @@
       }
     }
     if(debugEnabled){
-      console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entryCount, maxBinSize: maxCount, adjustedRadius: pointRadiusValue, densityDistance, basePointRadius });
+      console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entryCount, maxBinSize: maxCount, adjustedRadius: pointRadiusValue, densityDistance, basePointRadius, collisionGapFactor: spacingProfile.collisionGapFactor, densityGapFactor: spacingProfile.densityGapFactor });
     }
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
   }
@@ -20546,19 +20473,7 @@ Technical analysis record (advanced)
         if(selectedIndex == null || selectedCount <= 1 || !selectedValues || !selectedPointCoords){
           return null;
         }
-        const useTightStripSpacing = selectedCount < 20;
-        const inferredStripHalfWidth = useTightStripSpacing
-          ? computeStripSmallSampleHalfWidth({
-              sampleSize: selectedCount,
-              localBand: referenceBand,
-              pointRadius,
-              overlapCount: selectedOverlapCount,
-              debugEnabled
-            })
-          : null;
-        const resolvedHalfWidth = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
-          ? inferredStripHalfWidth
-          : referenceHalfWidth;
+        const resolvedHalfWidth = referenceHalfWidth;
         const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
           axisSpacing: referenceBand,
           pointRadius,
@@ -20568,7 +20483,7 @@ Technical analysis record (advanced)
           maxHalfWidth: resolvedHalfWidth,
           hardMaxHalfWidth: resolvedHalfWidth,
           allowRadiusAdjustment: true,
-          enforceNonOverlap: useTightStripSpacing,
+          enforceNonOverlap: true,
           radiusCountExponent: 0.85,
           debug: debugEnabled
         });
@@ -20582,7 +20497,7 @@ Technical analysis record (advanced)
             traceIndex: selectedIndex,
             pointCount: selectedCount,
             overlapCount: selectedOverlapCount,
-            tight: useTightStripSpacing,
+            strict: true,
             halfWidthCap: resolvedHalfWidth,
             referenceHalfWidth,
             referenceBand,
@@ -20590,9 +20505,18 @@ Technical analysis record (advanced)
             baseRadius: pointRadius
           });
         }
-        return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
+        return {
+          radius: Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null,
+          halfWidthCap: resolvedHalfWidth
+        };
       };
-      const stripAutoSizeRadius = await computeStripAutoSizeRadius();
+      const stripAutoSizeProfile = await computeStripAutoSizeRadius();
+      const stripAutoSizeRadius = Number.isFinite(Number(stripAutoSizeProfile?.radius))
+        ? Number(stripAutoSizeProfile.radius)
+        : null;
+      const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
+        ? Number(stripAutoSizeProfile.halfWidthCap)
+        : null;
       if(token !== state.drawToken){
         return null;
       }
@@ -21003,24 +20927,17 @@ Technical analysis record (advanced)
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
         const explicitMaxHalfWidth = Number(maxHalfWidth);
         const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
-        const useTightStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual' && sampleCount < 20;
-        const overlapDistance = Math.max(0.5, (Number(spacingRadius) || 0) * 2.1);
-        const estimatedOverlapCount = useTightStripSpacing
-          ? estimateSwarmOverlapCount(pointCoords, overlapDistance)
-          : 0;
-        const inferredStripHalfWidth = useTightStripSpacing && !(Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0)
-          ? computeStripSmallSampleHalfWidth({
-              sampleSize: sampleCount,
-              localBand,
-              pointRadius: spacingRadius,
-              overlapCount: estimatedOverlapCount,
-              debugEnabled
-            })
+        const useStrictStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual';
+        const defaultStrictHalfWidth = useStrictStripSpacing
+          ? Math.max(
+              STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
+              Math.max(0.1, Number(spacingRadius) || 0) * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
+            )
           : null;
         const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
-          : inferredStripHalfWidth;
-        const hardStripHalfWidthCap = useTightStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
+          : defaultStrictHalfWidth;
+        const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
         const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
@@ -21033,7 +20950,7 @@ Technical analysis record (advanced)
           hardMaxHalfWidth: hardStripHalfWidthCap,
           allowRadiusAdjustment: allowAdjustment,
           skipBucketCentering: false,
-          enforceNonOverlap: useTightStripSpacing,
+          enforceNonOverlap: useStrictStripSpacing,
           radiusCountExponent,
           debug: debugEnabled
         });
@@ -21068,7 +20985,9 @@ Technical analysis record (advanced)
           : (traceStyle && Number.isFinite(Number(traceStyle.strokeWidth))
             ? Number(traceStyle.strokeWidth)
             : borderWidthRaw);
-        const effectiveStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
+        const rawStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
+        const strokeWidthCap = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
+        const effectiveStrokeWidth = Math.max(0, Math.min(rawStrokeWidth, strokeWidthCap));
         const effectiveStroke = effectiveStrokeWidth > 0 && traceStrokeColor && traceStrokeColor !== 'none'
           ? traceStrokeColor
           : 'none';
@@ -21102,7 +21021,7 @@ Technical analysis record (advanced)
             }
             pts[idx] = { x: cx + offset, y: pointCoords[idx] };
           }
-          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), {
+          const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
             fill: effectiveFill,
             fillOpacity: effectiveOpacity,
             stroke: effectiveStroke,
@@ -21554,6 +21473,9 @@ Technical analysis record (advanced)
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
             ? stripAutoSizeRadius
             : null;
+          const overrideHalfWidth = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0
+            ? stripAutoSizeHalfWidth
+            : null;
           const swarmResult = await renderSwarmPointsVertical({
             valueList,
             cx,
@@ -21570,6 +21492,7 @@ Technical analysis record (advanced)
             debugLabel: 'individual',
             mean,
             widthScaleMode: 'density',
+            maxHalfWidth: overrideHalfWidth,
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
@@ -21986,24 +21909,17 @@ Technical analysis record (advanced)
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
         const explicitMaxHalfWidth = Number(maxHalfWidth);
         const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
-        const useTightStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual' && sampleCount < 20;
-        const overlapDistance = Math.max(0.5, (Number(spacingRadius) || 0) * 2.1);
-        const estimatedOverlapCount = useTightStripSpacing
-          ? estimateSwarmOverlapCount(pointCoords, overlapDistance)
-          : 0;
-        const inferredStripHalfWidth = useTightStripSpacing && !(Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0)
-          ? computeStripSmallSampleHalfWidth({
-              sampleSize: sampleCount,
-              localBand,
-              pointRadius: spacingRadius,
-              overlapCount: estimatedOverlapCount,
-              debugEnabled
-            })
+        const useStrictStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual';
+        const defaultStrictHalfWidth = useStrictStripSpacing
+          ? Math.max(
+              STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
+              Math.max(0.1, Number(spacingRadius) || 0) * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
+            )
           : null;
         const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
-          : inferredStripHalfWidth;
-        const hardStripHalfWidthCap = useTightStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
+          : defaultStrictHalfWidth;
+        const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
         const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
@@ -22016,7 +21932,7 @@ Technical analysis record (advanced)
           hardMaxHalfWidth: hardStripHalfWidthCap,
           allowRadiusAdjustment: allowAdjustment,
           skipBucketCentering: false,
-          enforceNonOverlap: useTightStripSpacing,
+          enforceNonOverlap: useStrictStripSpacing,
           radiusCountExponent,
           debug: debugEnabled
         });
@@ -22051,7 +21967,9 @@ Technical analysis record (advanced)
           : (traceStyleH && Number.isFinite(Number(traceStyleH.strokeWidth))
             ? Number(traceStyleH.strokeWidth)
             : borderWidthRaw);
-        const effectiveStrokeWidthH = chartStyle.scaleStrokeWidth(traceStrokeWidthRawH, styleScaleInfo, { context: 'box-point-border', min: 0 });
+        const rawStrokeWidthH = chartStyle.scaleStrokeWidth(traceStrokeWidthRawH, styleScaleInfo, { context: 'box-point-border', min: 0 });
+        const strokeWidthCapH = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
+        const effectiveStrokeWidthH = Math.max(0, Math.min(rawStrokeWidthH, strokeWidthCapH));
         const effectiveStroke = effectiveStrokeWidthH > 0 && traceStrokeColorH && traceStrokeColorH !== 'none'
           ? traceStrokeColorH
           : 'none';
@@ -22085,7 +22003,7 @@ Technical analysis record (advanced)
             }
             pts[idx] = { x: pointCoords[idx], y: cy + offset };
           }
-          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), {
+          const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
             fill: effectiveFill,
             fillOpacity: effectiveOpacity,
             stroke: effectiveStroke,
@@ -22311,19 +22229,7 @@ Technical analysis record (advanced)
         if(selectedIndex == null || selectedCount <= 1 || !selectedValues || !selectedPointCoords){
           return null;
         }
-        const useTightStripSpacing = selectedCount < 20;
-        const inferredStripHalfWidth = useTightStripSpacing
-          ? computeStripSmallSampleHalfWidth({
-              sampleSize: selectedCount,
-              localBand: referenceBand,
-              pointRadius,
-              overlapCount: selectedOverlapCount,
-              debugEnabled
-            })
-          : null;
-        const resolvedHalfWidth = Number.isFinite(inferredStripHalfWidth) && inferredStripHalfWidth > 0
-          ? inferredStripHalfWidth
-          : referenceHalfWidth;
+        const resolvedHalfWidth = referenceHalfWidth;
         const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
           axisSpacing: referenceBand,
           pointRadius,
@@ -22333,7 +22239,7 @@ Technical analysis record (advanced)
           maxHalfWidth: resolvedHalfWidth,
           hardMaxHalfWidth: resolvedHalfWidth,
           allowRadiusAdjustment: true,
-          enforceNonOverlap: useTightStripSpacing,
+          enforceNonOverlap: true,
           radiusCountExponent: 0.85,
           debug: debugEnabled
         });
@@ -22347,7 +22253,7 @@ Technical analysis record (advanced)
             traceIndex: selectedIndex,
             pointCount: selectedCount,
             overlapCount: selectedOverlapCount,
-            tight: useTightStripSpacing,
+            strict: true,
             halfWidthCap: resolvedHalfWidth,
             referenceHalfWidth,
             referenceBand,
@@ -22355,9 +22261,18 @@ Technical analysis record (advanced)
             baseRadius: pointRadius
           });
         }
-        return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
+        return {
+          radius: Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null,
+          halfWidthCap: resolvedHalfWidth
+        };
       };
-      const stripAutoSizeRadius = await computeStripAutoSizeRadius();
+      const stripAutoSizeProfile = await computeStripAutoSizeRadius();
+      const stripAutoSizeRadius = Number.isFinite(Number(stripAutoSizeProfile?.radius))
+        ? Number(stripAutoSizeProfile.radius)
+        : null;
+      const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
+        ? Number(stripAutoSizeProfile.halfWidthCap)
+        : null;
       const categoryCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
@@ -22934,6 +22849,9 @@ Technical analysis record (advanced)
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
             ? stripAutoSizeRadius
             : null;
+          const overrideHalfHeight = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0
+            ? stripAutoSizeHalfWidth
+            : null;
           const swarmResult = await renderSwarmPointsHorizontal({
             valueList,
             cy,
@@ -22950,6 +22868,7 @@ Technical analysis record (advanced)
             debugLabel: 'individual',
             mean,
             widthScaleMode: 'density',
+            maxHalfWidth: overrideHalfHeight,
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
@@ -24602,7 +24521,7 @@ Technical analysis record (advanced)
 	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
 	    computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
-      computeStripSmallSampleHalfWidth:config=>computeStripSmallSampleHalfWidth(config),
+      computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
