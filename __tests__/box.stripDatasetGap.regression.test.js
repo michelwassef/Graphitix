@@ -50,7 +50,7 @@ describe('Box strip inter-dataset spacing regression', () => {
     hooks = window.Components?.box?.__testHooks;
   });
 
-  test('side-by-side strip traces keep 20% gap by shrinking radius and cloud width', () => {
+  test('side-by-side strip traces keep 70% gap by shrinking radius and cloud width', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmOffsets).toBe('function');
     expect(typeof hooks.computeStripHalfExtentLimit).toBe('function');
@@ -87,7 +87,7 @@ describe('Box strip inter-dataset spacing regression', () => {
 
     const halfExtentLimit = hooks.computeStripHalfExtentLimit({
       minCenterPitch,
-      gapFactor: 0.20,
+      gapFactor: 0.70,
       minGapPx: 4
     });
     expect(Number.isFinite(halfExtentLimit)).toBe(true);
@@ -128,7 +128,7 @@ describe('Box strip inter-dataset spacing regression', () => {
         minCenterPitch,
         effectiveRadius: constrainedRadius,
         maxOffsetUsed: Number(swarm?.maxOffsetUsed),
-        gapFactor: 0.20,
+        gapFactor: 0.70,
         minGapPx: 4
       });
       const halfExtent = constrainedRadius + (Number(swarm?.maxOffsetUsed) || 0) * spreadScale;
@@ -139,7 +139,7 @@ describe('Box strip inter-dataset spacing regression', () => {
 
     expect(widestHalfExtent).toBeLessThanOrEqual(Number(halfExtentLimit) + 1e-6);
     const achievedGap = minCenterPitch - 2 * widestHalfExtent;
-    const requiredGapByFactor = 0.2 * (2 * widestHalfExtent);
+    const requiredGapByFactor = 0.7 * (2 * widestHalfExtent);
     const requiredGap = Math.max(requiredGapByFactor, 4);
     expect(achievedGap).toBeGreaterThanOrEqual(requiredGap - 1e-6);
   });
