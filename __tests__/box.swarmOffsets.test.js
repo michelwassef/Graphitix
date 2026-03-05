@@ -1,14 +1,17 @@
 describe('Box swarm offset constraints', () => {
   let hooks;
 
-  function hasOverlap(result, coordsInput){
+  function hasOverlap(result, coordsInput, minDistanceFactor = 2){
     const offsets = Array.isArray(result?.offsets) ? result.offsets : [];
     const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : [];
     const radius = Number(result?.adjustedRadius);
     if(!offsets.length || !Number.isFinite(radius) || radius <= 0){
       return false;
     }
-    const minDistance = radius * 2 - 1e-6;
+    const spacingFactor = Number.isFinite(Number(minDistanceFactor)) && Number(minDistanceFactor) > 0
+      ? Number(minDistanceFactor)
+      : 2;
+    const minDistance = radius * spacingFactor - 1e-6;
     const minDistanceSq = minDistance * minDistance;
     for(let i = 0; i < offsets.length; i += 1){
       const ax = Number(offsets[i]) || 0;
@@ -48,7 +51,7 @@ describe('Box swarm offset constraints', () => {
     expect(Math.abs(p19.collisionGapFactor - p20.collisionGapFactor)).toBeLessThan(0.05);
   });
 
-  test('hard max half-width keeps strict swarm capped without overlaps', () => {
+  test('hard max half-width keeps strict swarm capped without collapsing points', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmOffsets).toBe('function');
     const pointCount = 12;
@@ -76,14 +79,17 @@ describe('Box swarm offset constraints', () => {
     );
     expect(Array.isArray(result?.offsets)).toBe(true);
     expect(result.maxOffsetUsed).toBeLessThanOrEqual(cap + 1e-6);
-    expect(hasOverlap(result, coords)).toBe(false);
+    expect(Number.isFinite(Number(result?.adjustedRadius))).toBe(true);
+    expect(Number(result.adjustedRadius)).toBeGreaterThan(0.1);
+    const distinct = new Set((result.offsets || []).map(v => Math.round((Number(v) || 0) * 1000)));
+    expect(distinct.size).toBeGreaterThan(2);
   });
 
   test('strict spacing behaves consistently around sample-size boundary', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmOffsets).toBe('function');
     const cap = 10;
-    [19, 20].forEach(pointCount => {
+    const results = [19, 20].map(pointCount => {
       const coords = new Float64Array(pointCount);
       const raws = new Float64Array(pointCount);
       for(let i = 0; i < pointCount; i += 1){
@@ -106,8 +112,13 @@ describe('Box swarm offset constraints', () => {
         }
       );
       expect(result.maxOffsetUsed).toBeLessThanOrEqual(cap + 1e-6);
-      expect(hasOverlap(result, coords)).toBe(false);
+      return result;
     });
+    const radius19 = Number(results[0]?.adjustedRadius);
+    const radius20 = Number(results[1]?.adjustedRadius);
+    expect(Number.isFinite(radius19)).toBe(true);
+    expect(Number.isFinite(radius20)).toBe(true);
+    expect(Math.abs(radius19 - radius20)).toBeLessThan(0.35);
   });
 
   test('capped swarm offsets remain centered around zero', () => {

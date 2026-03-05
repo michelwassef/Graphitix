@@ -3940,11 +3940,14 @@
     const densityGapFactor = 2.05;
     const overlapGapMin = 1.35;
     const overlapGapFactor = densityGapFactor - (densityGapFactor - overlapGapMin) * compression;
+    const strictGapMax = 1.85;
+    const strictGapMin = 0.9;
+    const strictGapFactor = strictGapMax - (strictGapMax - strictGapMin) * compression;
     const collisionGapFactor = enforceNonOverlap
-      ? Math.max(2, overlapGapFactor)
+      ? strictGapFactor
       : overlapGapFactor;
     const minRadiusScale = enforceNonOverlap
-      ? Math.max(0.02, 0.08 - 0.06 * compression)
+      ? (0.12 + (0.26 - 0.12) * (1 - compression))
       : 0.45;
     return {
       densityGapFactor,
@@ -4016,7 +4019,7 @@
     const enforceBaseRadius = Number.isFinite(enforceBaseRadiusRaw) && enforceBaseRadiusRaw > 0
       ? enforceBaseRadiusRaw
       : basePointRadius;
-    const ENFORCE_MAX_DEPTH = 24;
+    const ENFORCE_MAX_DEPTH = 12;
     const ENFORCE_WIDTH_TOLERANCE = 0.25;
     const radiusCountExponent = Number(options?.radiusCountExponent);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -4690,7 +4693,7 @@
       if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
         const minEnforcedRadius = Math.max(0.08, enforceBaseRadius * minRadiusScale);
         if(pointRadiusValue > minEnforcedRadius + 0.02){
-          const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.85);
+          const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.92);
           if(nextRadius < pointRadiusValue - 0.0001){
             if(debugEnabled){
               console.debug('Debug: computeSwarmOffsets enforce radius shrink',{
@@ -4846,7 +4849,7 @@
         if(allowRadiusAdjustment && enforceDepth < ENFORCE_MAX_DEPTH){
           const minEnforcedRadius = Math.max(0.08, enforceBaseRadius * minRadiusScale);
           if(pointRadiusValue > minEnforcedRadius + 0.02){
-            const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.85);
+            const nextRadius = Math.max(minEnforcedRadius, pointRadiusValue * 0.92);
             if(nextRadius < pointRadiusValue - 0.0001){
               if(debugEnabled){
                 console.debug('Debug: computeSwarmOffsets enforce overlap radius shrink',{
@@ -20491,6 +20494,11 @@ Technical analysis record (advanced)
           return null;
         }
         const adjusted = Number(swarm?.adjustedRadius);
+        const sampleCompression = Math.max(0, Math.min(1, Math.log10(selectedCount + 1) / 3));
+        const minResolvedRadius = Math.max(0.2, pointRadius * (0.12 + (0.26 - 0.12) * (1 - sampleCompression)));
+        const resolvedRadius = Number.isFinite(adjusted) && adjusted > 0
+          ? Math.max(minResolvedRadius, adjusted)
+          : null;
         if(debugEnabled){
           console.debug('Debug: box strip auto size base',{
             orientation: 'vertical',
@@ -20501,12 +20509,14 @@ Technical analysis record (advanced)
             halfWidthCap: resolvedHalfWidth,
             referenceHalfWidth,
             referenceBand,
-            adjustedRadius: Number.isFinite(adjusted) ? adjusted : null,
+            adjustedRadiusRaw: Number.isFinite(adjusted) ? adjusted : null,
+            adjustedRadius: resolvedRadius,
+            minResolvedRadius,
             baseRadius: pointRadius
           });
         }
         return {
-          radius: Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null,
+          radius: resolvedRadius,
           halfWidthCap: resolvedHalfWidth
         };
       };
@@ -20517,6 +20527,13 @@ Technical analysis record (advanced)
       const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
         ? Number(stripAutoSizeProfile.halfWidthCap)
         : null;
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip auto size resolved',{
+          orientation: 'vertical',
+          radius: stripAutoSizeRadius,
+          halfWidthCap: stripAutoSizeHalfWidth
+        });
+      }
       if(token !== state.drawToken){
         return null;
       }
@@ -20994,6 +21011,23 @@ Technical analysis record (advanced)
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+        const useBatchPath = pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+        if(debugEnabled && debugLabel === 'individual'){
+          console.debug('Debug: box strip point render resolved',{
+            orientation: 'vertical',
+            traceIndex,
+            pointCount,
+            useBatchPath,
+            baseRadius: fallbackRadius,
+            overrideRadius: resolvedRadius,
+            effectiveRadius,
+            maxHalfWidth: resolvedMaxHalfWidth,
+            hardMaxHalfWidth: hardStripHalfWidthCap,
+            allowRadiusAdjustment: allowAdjustment,
+            swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
+            strokeWidth: effectiveStrokeWidth
+          });
+        }
         const clampOffset = (offset, rawValue) => {
           if(!violinBounds){
             return offset;
@@ -21011,7 +21045,7 @@ Technical analysis record (advanced)
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
+        if(useBatchPath){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
             const offset = clampOffset(swarm.offsets[idx] || 0, rawValues[idx]);
@@ -21976,6 +22010,23 @@ Technical analysis record (advanced)
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
+        const useBatchPath = pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+        if(debugEnabled && debugLabel === 'individual'){
+          console.debug('Debug: box strip point render resolved',{
+            orientation: 'horizontal',
+            traceIndex,
+            pointCount,
+            useBatchPath,
+            baseRadius: fallbackRadius,
+            overrideRadius: resolvedRadius,
+            effectiveRadius,
+            maxHalfWidth: resolvedMaxHalfWidth,
+            hardMaxHalfWidth: hardStripHalfWidthCap,
+            allowRadiusAdjustment: allowAdjustment,
+            swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
+            strokeWidth: effectiveStrokeWidthH
+          });
+        }
         const clampOffset = (offset, rawValue) => {
           if(!violinBounds){
             return offset;
@@ -21993,7 +22044,7 @@ Technical analysis record (advanced)
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
+        if(useBatchPath){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
             const offset = clampOffset(swarm.offsets[idx] || 0, rawValues[idx]);
@@ -22247,6 +22298,11 @@ Technical analysis record (advanced)
           return null;
         }
         const adjusted = Number(swarm?.adjustedRadius);
+        const sampleCompression = Math.max(0, Math.min(1, Math.log10(selectedCount + 1) / 3));
+        const minResolvedRadius = Math.max(0.2, pointRadius * (0.12 + (0.26 - 0.12) * (1 - sampleCompression)));
+        const resolvedRadius = Number.isFinite(adjusted) && adjusted > 0
+          ? Math.max(minResolvedRadius, adjusted)
+          : null;
         if(debugEnabled){
           console.debug('Debug: box strip auto size base',{
             orientation: 'horizontal',
@@ -22257,12 +22313,14 @@ Technical analysis record (advanced)
             halfWidthCap: resolvedHalfWidth,
             referenceHalfWidth,
             referenceBand,
-            adjustedRadius: Number.isFinite(adjusted) ? adjusted : null,
+            adjustedRadiusRaw: Number.isFinite(adjusted) ? adjusted : null,
+            adjustedRadius: resolvedRadius,
+            minResolvedRadius,
             baseRadius: pointRadius
           });
         }
         return {
-          radius: Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null,
+          radius: resolvedRadius,
           halfWidthCap: resolvedHalfWidth
         };
       };
@@ -22273,6 +22331,13 @@ Technical analysis record (advanced)
       const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
         ? Number(stripAutoSizeProfile.halfWidthCap)
         : null;
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip auto size resolved',{
+          orientation: 'horizontal',
+          radius: stripAutoSizeRadius,
+          halfWidthCap: stripAutoSizeHalfWidth
+        });
+      }
       const categoryCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
