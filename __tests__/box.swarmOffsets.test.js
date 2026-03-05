@@ -153,4 +153,71 @@ describe('Box swarm offset constraints', () => {
     expect(Math.abs(mean)).toBeLessThan(0.5);
   });
 
+  test('strip spread scale keeps full spread when pitch is sufficient', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.computeStripSpreadScale).toBe('function');
+    const scale = hooks.computeStripSpreadScale({
+      minCenterPitch: 40,
+      effectiveRadius: 2,
+      maxOffsetUsed: 8,
+      gapFactor: 0.10
+    });
+    expect(scale).toBeCloseTo(1, 6);
+  });
+
+  test('strip spread scale compresses when pitch is tight', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.computeStripSpreadScale).toBe('function');
+    const scale = hooks.computeStripSpreadScale({
+      minCenterPitch: 20,
+      effectiveRadius: 2,
+      maxOffsetUsed: 8,
+      gapFactor: 0.10
+    });
+    expect(scale).toBeGreaterThan(0);
+    expect(scale).toBeLessThan(1);
+  });
+
+  test('pitch boundary can force narrower clouds with smaller radius', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.computeStripHalfExtentLimit).toBe('function');
+    expect(typeof hooks.computeSwarmOffsets).toBe('function');
+    const pointCount = 120;
+    const coords = new Float64Array(pointCount);
+    const raws = new Float64Array(pointCount);
+    for(let i = 0; i < pointCount; i += 1){
+      coords[i] = 30;
+      raws[i] = 30;
+    }
+    const pointRadius = 4;
+    const halfExtentLimit = hooks.computeStripHalfExtentLimit({
+      minCenterPitch: 20,
+      gapFactor: 0.10,
+      minGapPx: 4
+    });
+    expect(Number.isFinite(halfExtentLimit)).toBe(true);
+    expect(halfExtentLimit).toBeGreaterThan(0);
+    const maxHalfWidth = Math.max(0, Number(halfExtentLimit) - pointRadius);
+    const result = hooks.computeSwarmOffsets(
+      { coords, raws },
+      {
+        axisSpacing: 60,
+        pointRadius,
+        sampleSize: pointCount,
+        orientation: 'vertical',
+        widthScaleMode: 'density',
+        maxHalfWidth,
+        hardMaxHalfWidth: maxHalfWidth,
+        allowRadiusAdjustment: true,
+        skipBucketCentering: false,
+        enforceNonOverlap: true,
+        radiusCountExponent: 0.85
+      }
+    );
+    expect(Number.isFinite(Number(result?.adjustedRadius))).toBe(true);
+    expect(Number(result.adjustedRadius)).toBeLessThanOrEqual(pointRadius);
+    const combinedHalfExtent = (Number(result?.maxOffsetUsed) || 0) + (Number(result?.adjustedRadius) || 0);
+    expect(combinedHalfExtent).toBeLessThanOrEqual(Number(halfExtentLimit) + 1e-6);
+  });
+
 });

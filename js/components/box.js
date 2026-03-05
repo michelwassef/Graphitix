@@ -82,6 +82,8 @@
   const X_DATASET_SPACING_STEP = 0.05;
   const STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR = 2.6;
   const STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN = 6;
+  const STRIP_INTER_DATASET_GAP_FACTOR = 0.70;
+  const STRIP_INTER_DATASET_MIN_GAP_PX = 4;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
@@ -3929,6 +3931,51 @@
       console.debug('Debug: computeSampleSpreadFactor',{ sampleSize: n, sqrtScaled, factor });
     }
     return factor;
+  }
+
+  function computeStripSpreadScale(config){
+    const minCenterPitch = Number(config?.minCenterPitch);
+    const effectiveRadius = Number(config?.effectiveRadius);
+    const maxOffsetUsed = Number(config?.maxOffsetUsed);
+    const gapFactorRaw = Number(config?.gapFactor);
+    const gapFactor = Number.isFinite(gapFactorRaw) && gapFactorRaw >= 0 ? gapFactorRaw : 0;
+    const minGapPxRaw = Number(config?.minGapPx);
+    const minGapPx = Number.isFinite(minGapPxRaw) && minGapPxRaw > 0 ? minGapPxRaw : 0;
+    if(!Number.isFinite(minCenterPitch) || minCenterPitch <= 0){
+      return 1;
+    }
+    if(!Number.isFinite(effectiveRadius) || effectiveRadius < 0){
+      return 1;
+    }
+    const ratioLimitedHalfExtent = minCenterPitch / (2 + 2 * gapFactor);
+    const pixelLimitedHalfExtent = (minCenterPitch - minGapPx) / 2;
+    const maxHalfExtent = Math.min(ratioLimitedHalfExtent, pixelLimitedHalfExtent);
+    const maxOffsetAllowed = maxHalfExtent - effectiveRadius;
+    if(!Number.isFinite(maxOffsetAllowed)){
+      return 1;
+    }
+    if(maxOffsetAllowed <= 0){
+      return 0;
+    }
+    if(!Number.isFinite(maxOffsetUsed) || maxOffsetUsed <= 0){
+      return 1;
+    }
+    return Math.max(0, Math.min(1, maxOffsetAllowed / maxOffsetUsed));
+  }
+
+  function computeStripHalfExtentLimit(config){
+    const minCenterPitch = Number(config?.minCenterPitch);
+    const gapFactorRaw = Number(config?.gapFactor);
+    const gapFactor = Number.isFinite(gapFactorRaw) && gapFactorRaw >= 0 ? gapFactorRaw : 0;
+    const minGapPxRaw = Number(config?.minGapPx);
+    const minGapPx = Number.isFinite(minGapPxRaw) && minGapPxRaw > 0 ? minGapPxRaw : 0;
+    if(!Number.isFinite(minCenterPitch) || minCenterPitch <= 0){
+      return null;
+    }
+    const ratioLimitedHalfExtent = minCenterPitch / (2 + 2 * gapFactor);
+    const pixelLimitedHalfExtent = (minCenterPitch - minGapPx) / 2;
+    const limit = Math.min(ratioLimitedHalfExtent, pixelLimitedHalfExtent);
+    return Number.isFinite(limit) && limit > 0 ? limit : null;
   }
 
   function computeSwarmSpacingProfile(config){
@@ -20434,6 +20481,34 @@ Technical analysis record (advanced)
         const x = marginLocal.left + categoryIdx * (bandW + datasetGapPx) + bandW / 2;
         return x;
       };
+      const computeMinTraceCenterPitch = () => {
+        if(!Array.isArray(traces) || traces.length < 2){
+          return null;
+        }
+        const centers = new Array(traces.length);
+        for(let i = 0; i < traces.length; i++){
+          centers[i] = Number(xCenter(traces[i], i));
+        }
+        centers.sort((a, b) => a - b);
+        let minPitch = Infinity;
+        for(let i = 1; i < centers.length; i++){
+          const delta = centers[i] - centers[i - 1];
+          if(Number.isFinite(delta) && delta > 0 && delta < minPitch){
+            minPitch = delta;
+          }
+        }
+        return Number.isFinite(minPitch) ? minPitch : null;
+      };
+      const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip center pitch',{
+          orientation: 'vertical',
+          minCenterPitch: stripMinCenterPitch,
+          gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+          minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
+          traceCount: traces.length
+        });
+      }
       const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
@@ -20557,11 +20632,36 @@ Technical analysis record (advanced)
       const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
         ? Number(stripAutoSizeProfile.halfWidthCap)
         : null;
+      const stripPitchHalfExtentLimit = graphTypeRaw === 'strip'
+        ? computeStripHalfExtentLimit({
+            minCenterPitch: stripMinCenterPitch,
+            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX
+          })
+        : null;
+      let stripPitchScale = 1;
+      if(graphTypeRaw === 'strip'
+        && Number.isFinite(stripPitchHalfExtentLimit) && stripPitchHalfExtentLimit > 0
+        && Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0
+        && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0){
+        const baselineHalfExtent = stripAutoSizeRadius + stripAutoSizeHalfWidth;
+        if(Number.isFinite(baselineHalfExtent) && baselineHalfExtent > stripPitchHalfExtentLimit){
+          stripPitchScale = Math.max(0.1, stripPitchHalfExtentLimit / baselineHalfExtent);
+        }
+      }
+      const stripAutoSizeRadiusConstrained = Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0
+        ? stripAutoSizeRadius * stripPitchScale
+        : stripAutoSizeRadius;
+      const stripAutoSizeHalfWidthConstrained = Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0
+        ? stripAutoSizeHalfWidth * stripPitchScale
+        : stripAutoSizeHalfWidth;
       if(debugEnabled && graphTypeRaw === 'strip'){
         console.debug('Debug: box strip auto size resolved',{
           orientation: 'vertical',
-          radius: stripAutoSizeRadius,
-          halfWidthCap: stripAutoSizeHalfWidth
+          radius: stripAutoSizeRadiusConstrained,
+          halfWidthCap: stripAutoSizeHalfWidthConstrained,
+          stripPitchHalfExtentLimit,
+          stripPitchScale
         });
       }
       if(token !== state.drawToken){
@@ -20951,6 +21051,9 @@ Technical analysis record (advanced)
           pointRadiusOverride = null,
           autoSize = false,
           allowRadiusAdjustment = null,
+          minCenterPitch = null,
+          interDatasetGapFactor = 0,
+          minInterDatasetGapPx = 0,
           disableBatchPath = false,
           drawToken = null
         } = params || {};
@@ -20982,9 +21085,26 @@ Technical analysis record (advanced)
               Math.max(0.1, Number(spacingRadius) || 0) * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
             )
           : null;
-        const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
           : defaultStrictHalfWidth;
+        const pitchHalfExtentLimit = useStrictStripSpacing
+          ? computeStripHalfExtentLimit({
+              minCenterPitch,
+              gapFactor: interDatasetGapFactor,
+              minGapPx: minInterDatasetGapPx
+            })
+          : null;
+        if(useStrictStripSpacing && Number.isFinite(pitchHalfExtentLimit) && pitchHalfExtentLimit > 0){
+          const pitchMaxHalfWidth = pitchHalfExtentLimit - Math.max(0, spacingRadius);
+          if(Number.isFinite(pitchMaxHalfWidth)){
+            if(resolvedMaxHalfWidth == null || !Number.isFinite(resolvedMaxHalfWidth) || resolvedMaxHalfWidth <= 0){
+              resolvedMaxHalfWidth = Math.max(0, pitchMaxHalfWidth);
+            }else{
+              resolvedMaxHalfWidth = Math.max(0, Math.min(resolvedMaxHalfWidth, pitchMaxHalfWidth));
+            }
+          }
+        }
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
@@ -21042,6 +21162,15 @@ Technical analysis record (advanced)
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+        const spreadScale = useStrictStripSpacing
+          ? computeStripSpreadScale({
+              minCenterPitch,
+              effectiveRadius,
+              maxOffsetUsed: Number(swarm?.maxOffsetUsed),
+              gapFactor: interDatasetGapFactor,
+              minGapPx: minInterDatasetGapPx
+            })
+          : 1;
         const useBatchPath = !disableBatchPath
           && pointCount > BOX_POINT_BATCH_THRESHOLD
           && BATCHABLE_POINT_SHAPES.has(effectiveShape);
@@ -21056,9 +21185,14 @@ Technical analysis record (advanced)
             effectiveRadius,
             maxHalfWidth: resolvedMaxHalfWidth,
             hardMaxHalfWidth: hardStripHalfWidthCap,
+            pitchHalfExtentLimit,
             allowRadiusAdjustment: allowAdjustment,
             swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
-            strokeWidth: effectiveStrokeWidth
+            strokeWidth: effectiveStrokeWidth,
+            minCenterPitch: Number.isFinite(Number(minCenterPitch)) ? Number(minCenterPitch) : null,
+            interDatasetGapFactor: Number.isFinite(Number(interDatasetGapFactor)) ? Number(interDatasetGapFactor) : null,
+            minInterDatasetGapPx: Number.isFinite(Number(minInterDatasetGapPx)) ? Number(minInterDatasetGapPx) : null,
+            spreadScale
           });
         }
         const clampOffset = (offset, rawValue) => {
@@ -21081,7 +21215,8 @@ Technical analysis record (advanced)
         if(useBatchPath){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
-            const offset = clampOffset(swarm.offsets[idx] || 0, rawValues[idx]);
+            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
+            const offset = clampOffset(rawOffset, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
@@ -21109,7 +21244,7 @@ Technical analysis record (advanced)
         }else{
           const frag = document.createDocumentFragment();
           for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = swarm.offsets[idx] || 0;
+            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
             const offset = clampOffset(rawOffset, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
@@ -21536,12 +21671,12 @@ Technical analysis record (advanced)
           }
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = summary.max;
-          const useGlobalAutoSize = stripAutoSizeRadius != null;
+          const useGlobalAutoSize = stripAutoSizeRadiusConstrained != null;
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
-            ? stripAutoSizeRadius
+            ? stripAutoSizeRadiusConstrained
             : null;
-          const overrideHalfWidth = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0
-            ? stripAutoSizeHalfWidth
+          const overrideHalfWidth = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidthConstrained) && stripAutoSizeHalfWidthConstrained > 0
+            ? stripAutoSizeHalfWidthConstrained
             : null;
           const swarmResult = await renderSwarmPointsVertical({
             valueList,
@@ -21563,6 +21698,9 @@ Technical analysis record (advanced)
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
+            minCenterPitch: stripMinCenterPitch,
+            interDatasetGapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+            minInterDatasetGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
             disableBatchPath: true,
             drawToken: token
           });
@@ -21954,6 +22092,9 @@ Technical analysis record (advanced)
           pointRadiusOverride = null,
           autoSize = false,
           allowRadiusAdjustment = null,
+          minCenterPitch = null,
+          interDatasetGapFactor = 0,
+          minInterDatasetGapPx = 0,
           disableBatchPath = false,
           drawToken = null
         } = params || {};
@@ -21985,9 +22126,26 @@ Technical analysis record (advanced)
               Math.max(0.1, Number(spacingRadius) || 0) * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
             )
           : null;
-        const resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
           : defaultStrictHalfWidth;
+        const pitchHalfExtentLimit = useStrictStripSpacing
+          ? computeStripHalfExtentLimit({
+              minCenterPitch,
+              gapFactor: interDatasetGapFactor,
+              minGapPx: minInterDatasetGapPx
+            })
+          : null;
+        if(useStrictStripSpacing && Number.isFinite(pitchHalfExtentLimit) && pitchHalfExtentLimit > 0){
+          const pitchMaxHalfWidth = pitchHalfExtentLimit - Math.max(0, spacingRadius);
+          if(Number.isFinite(pitchMaxHalfWidth)){
+            if(resolvedMaxHalfWidth == null || !Number.isFinite(resolvedMaxHalfWidth) || resolvedMaxHalfWidth <= 0){
+              resolvedMaxHalfWidth = Math.max(0, pitchMaxHalfWidth);
+            }else{
+              resolvedMaxHalfWidth = Math.max(0, Math.min(resolvedMaxHalfWidth, pitchMaxHalfWidth));
+            }
+          }
+        }
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
@@ -22045,6 +22203,15 @@ Technical analysis record (advanced)
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
+        const spreadScale = useStrictStripSpacing
+          ? computeStripSpreadScale({
+              minCenterPitch,
+              effectiveRadius,
+              maxOffsetUsed: Number(swarm?.maxOffsetUsed),
+              gapFactor: interDatasetGapFactor,
+              minGapPx: minInterDatasetGapPx
+            })
+          : 1;
         const useBatchPath = !disableBatchPath
           && pointCount > BOX_POINT_BATCH_THRESHOLD
           && BATCHABLE_POINT_SHAPES.has(effectiveShape);
@@ -22059,9 +22226,14 @@ Technical analysis record (advanced)
             effectiveRadius,
             maxHalfWidth: resolvedMaxHalfWidth,
             hardMaxHalfWidth: hardStripHalfWidthCap,
+            pitchHalfExtentLimit,
             allowRadiusAdjustment: allowAdjustment,
             swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
-            strokeWidth: effectiveStrokeWidthH
+            strokeWidth: effectiveStrokeWidthH,
+            minCenterPitch: Number.isFinite(Number(minCenterPitch)) ? Number(minCenterPitch) : null,
+            interDatasetGapFactor: Number.isFinite(Number(interDatasetGapFactor)) ? Number(interDatasetGapFactor) : null,
+            minInterDatasetGapPx: Number.isFinite(Number(minInterDatasetGapPx)) ? Number(minInterDatasetGapPx) : null,
+            spreadScale
           });
         }
         const clampOffset = (offset, rawValue) => {
@@ -22084,7 +22256,8 @@ Technical analysis record (advanced)
         if(useBatchPath){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
-            const offset = clampOffset(swarm.offsets[idx] || 0, rawValues[idx]);
+            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
+            const offset = clampOffset(rawOffset, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
@@ -22112,7 +22285,7 @@ Technical analysis record (advanced)
         }else{
           const frag = document.createDocumentFragment();
           for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = swarm.offsets[idx] || 0;
+            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
             const offset = clampOffset(rawOffset, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
@@ -22376,13 +22549,8 @@ Technical analysis record (advanced)
       const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
         ? Number(stripAutoSizeProfile.halfWidthCap)
         : null;
-      if(debugEnabled && graphTypeRaw === 'strip'){
-        console.debug('Debug: box strip auto size resolved',{
-          orientation: 'horizontal',
-          radius: stripAutoSizeRadius,
-          halfWidthCap: stripAutoSizeHalfWidth
-        });
-      }
+      let stripAutoSizeRadiusConstrained = stripAutoSizeRadius;
+      let stripAutoSizeHalfWidthConstrained = stripAutoSizeHalfWidth;
       const categoryCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
@@ -22400,6 +22568,68 @@ Technical analysis record (advanced)
         // account for vertical gap between bands
         return marginLocal.top + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
       };
+      const computeMinTraceCenterPitch = () => {
+        if(!Array.isArray(traces) || traces.length < 2){
+          return null;
+        }
+        const centers = new Array(traces.length);
+        for(let i = 0; i < traces.length; i++){
+          centers[i] = Number(categoryCenter(traces[i], i));
+        }
+        centers.sort((a, b) => a - b);
+        let minPitch = Infinity;
+        for(let i = 1; i < centers.length; i++){
+          const delta = centers[i] - centers[i - 1];
+          if(Number.isFinite(delta) && delta > 0 && delta < minPitch){
+            minPitch = delta;
+          }
+        }
+        return Number.isFinite(minPitch) ? minPitch : null;
+      };
+      const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip center pitch',{
+          orientation: 'horizontal',
+          minCenterPitch: stripMinCenterPitch,
+          gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+          minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
+          traceCount: traces.length
+        });
+      }
+      const stripPitchHalfExtentLimit = graphTypeRaw === 'strip'
+        ? computeStripHalfExtentLimit({
+            minCenterPitch: stripMinCenterPitch,
+            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX
+          })
+        : null;
+      let stripPitchScale = 1;
+      if(graphTypeRaw === 'strip'
+        && Number.isFinite(stripPitchHalfExtentLimit) && stripPitchHalfExtentLimit > 0
+        && Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0
+        && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0){
+        const baselineHalfExtent = stripAutoSizeRadius + stripAutoSizeHalfWidth;
+        if(Number.isFinite(baselineHalfExtent) && baselineHalfExtent > stripPitchHalfExtentLimit){
+          stripPitchScale = Math.max(0.1, stripPitchHalfExtentLimit / baselineHalfExtent);
+        }
+      }
+      if(Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0){
+        stripAutoSizeRadiusConstrained = stripAutoSizeRadius * stripPitchScale;
+      }
+      if(Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0){
+        stripAutoSizeHalfWidthConstrained = stripAutoSizeHalfWidth * stripPitchScale;
+      }
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip auto size resolved',{
+          orientation: 'horizontal',
+          radiusBase: stripAutoSizeRadius,
+          halfWidthCapBase: stripAutoSizeHalfWidth,
+          radius: stripAutoSizeRadiusConstrained,
+          halfWidthCap: stripAutoSizeHalfWidthConstrained,
+          stripPitchHalfExtentLimit,
+          stripPitchScale
+        });
+      }
       const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
       let stackOffsets = null;
       if(showGrid){
@@ -22955,12 +23185,12 @@ Technical analysis record (advanced)
           }
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = summary.max;
-          const useGlobalAutoSize = stripAutoSizeRadius != null;
+          const useGlobalAutoSize = stripAutoSizeRadiusConstrained != null;
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
-            ? stripAutoSizeRadius
+            ? stripAutoSizeRadiusConstrained
             : null;
-          const overrideHalfHeight = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0
-            ? stripAutoSizeHalfWidth
+          const overrideHalfHeight = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidthConstrained) && stripAutoSizeHalfWidthConstrained > 0
+            ? stripAutoSizeHalfWidthConstrained
             : null;
           const swarmResult = await renderSwarmPointsHorizontal({
             valueList,
@@ -22982,6 +23212,9 @@ Technical analysis record (advanced)
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
+            minCenterPitch: stripMinCenterPitch,
+            interDatasetGapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+            minInterDatasetGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
             disableBatchPath: true,
             drawToken: token
           });
@@ -24633,6 +24866,8 @@ Technical analysis record (advanced)
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
 	    computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
+      computeStripSpreadScale:config=>computeStripSpreadScale(config),
+      computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
