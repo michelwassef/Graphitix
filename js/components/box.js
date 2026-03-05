@@ -4781,6 +4781,7 @@
         });
       }
       return computeSwarmOffsets(points, Object.assign({}, options, {
+        pointRadius: pointRadiusValue,
         enforceNonOverlap: false,
         __enforceDepth: null,
         __enforceLowHalfWidth: null,
@@ -4936,6 +4937,7 @@
           });
         }
         return computeSwarmOffsets(points, Object.assign({}, options, {
+          pointRadius: pointRadiusValue,
           enforceNonOverlap: false,
           __enforceDepth: null,
           __enforceLowHalfWidth: null,
