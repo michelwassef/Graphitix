@@ -572,9 +572,14 @@
     const parsedMaxWidth = Number(opts.maxWidth);
     const parsedMaxHeight = Number(opts.maxHeight);
     const helperMaxWidth = Number.isFinite(helperSizing?.maxWidth) && helperSizing.maxWidth > 0;
+    const helperMaxHeight = Number.isFinite(helperSizing?.maxHeight) && helperSizing.maxHeight > 0;
     const hasExplicitMaxWidth = Number.isFinite(parsedMaxWidth) && parsedMaxWidth > 0;
+    const hasExplicitMaxHeight = Number.isFinite(parsedMaxHeight) && parsedMaxHeight > 0;
     const allowUnlimitedOverride = opts.allowUnlimitedWidth === true;
     const allowUnlimitedWidth = allowUnlimitedOverride || (!hasExplicitMaxWidth && opts.allowUnlimitedWidth !== false);
+    const allowUnlimitedHeightOverride = opts.allowUnlimitedHeight === true;
+    const allowUnlimitedHeight = allowUnlimitedHeightOverride
+      || (!hasExplicitMaxHeight && opts.allowUnlimitedHeight !== false && allowUnlimitedWidth);
     let MAX_W;
     if(allowUnlimitedWidth){
       MAX_W = Number.POSITIVE_INFINITY;
@@ -597,19 +602,32 @@
       MAX_W = Math.max(MAX_W, defaultWidth);
       MAX_W = Math.min(MAX_W, Math.max(defaultWidth, maxFromDefaultWidth));
     }
-    let MAX_H = Number.isFinite(parsedMaxHeight) && parsedMaxHeight > 0 ? parsedMaxHeight : Number(data.resizerMaxHeight);
-    if(!Number.isFinite(MAX_H) || MAX_H <= 0){
-      MAX_H = maxFromDefaultHeight;
+    let MAX_H;
+    if(allowUnlimitedHeight){
+      MAX_H = Number.POSITIVE_INFINITY;
+      console.debug('Debug: attachResizableBox unlimited height enabled', {
+        container: containerLabel,
+        helperMaxHeight,
+        hasExplicitMaxHeight,
+        ignoringHelperMaxHeight: helperMaxHeight,
+        allowUnlimitedHeightOverride
+      }); // Debug: trace unlimited height flag
+    }else{
+      MAX_H = hasExplicitMaxHeight ? parsedMaxHeight : Number(data.resizerMaxHeight);
+      if(!Number.isFinite(MAX_H) || MAX_H <= 0){
+        MAX_H = maxFromDefaultHeight;
+      }
+      MAX_H = Math.max(MAX_H, defaultHeight);
+      MAX_H = Math.min(MAX_H, Math.max(defaultHeight, maxFromDefaultHeight));
     }
-    MAX_H = Math.max(MAX_H, defaultHeight);
-    MAX_H = Math.min(MAX_H, Math.max(defaultHeight, maxFromDefaultHeight));
     data.resizerDefaultWidth = String(defaultWidth);
     data.resizerDefaultHeight = String(defaultHeight);
     data.resizerMinWidth = String(MIN_W);
     data.resizerMinHeight = String(MIN_H);
     data.resizerUnlimitedWidth = allowUnlimitedWidth ? 'true' : 'false';
+    data.resizerUnlimitedHeight = allowUnlimitedHeight ? 'true' : 'false';
     data.resizerMaxWidth = Number.isFinite(MAX_W) ? String(MAX_W) : 'Infinity';
-    data.resizerMaxHeight = String(MAX_H);
+    data.resizerMaxHeight = Number.isFinite(MAX_H) ? String(MAX_H) : 'Infinity';
     data.resizerResized = data.resizerResized || 'false';
     const parsedZoomMin = Number(opts.zoomMin);
     const parsedZoomMax = Number(opts.zoomMax);
@@ -747,7 +765,6 @@
       if(!zoomSetup){
         return;
       }
-      const zoomScale = resolveZoomScale();
       if(zoomSetup.viewport){
         zoomSetup.viewport.style.flex = '';
         zoomSetup.viewport.style.width = '';
@@ -761,7 +778,10 @@
         zoomSetup.content.style.height = '';
         zoomSetup.content.style.minWidth = '';
         zoomSetup.content.style.minHeight = '';
-        zoomSetup.content.style.setProperty('--resizer-content-zoom', String(zoomScale));
+        // Keep the zoom wrapper visually neutral: zoom is applied by resizing the
+        // svgbox itself while chartStyle uses resizerZoomLevel to keep style
+        // properties (font size/strokes) stable like a magnifier.
+        zoomSetup.content.style.setProperty('--resizer-content-zoom', '1');
       }
     }
 
@@ -1043,6 +1063,13 @@
       syncZoomPresentation(baseWidth, baseHeight);
       applyZoomBoundsStyles();
       syncZoomControls();
+      if((changed || options.forceLayout === true) && typeof opts.onResize === 'function'){
+        try {
+          opts.onResize('zoom');
+        } catch (resizeErr){
+          console.error('resizer onResize zoom error', resizeErr);
+        }
+      }
       if(changed || options.logUnchanged){
         logZoom(changed ? 'applied' : 'unchanged', {
           reason,
@@ -1085,6 +1112,7 @@
         aspectRatio,
         aspectLocked,
         allowUnlimitedWidth,
+        allowUnlimitedHeight,
         zoomLevel
       })
     };
@@ -1718,15 +1746,17 @@
       }
     }
     const svgDataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
-    const unlimitedWidth = !!(svgDataset && (svgDataset.resizerUnlimitedWidth === 'true' || svgDataset.resizerMaxWidth === 'Infinity' || svgDataset.resizerMaxWidth === 'none'));
+    const isUnlimitedToken = value => typeof value === 'string' && /^(infinity|none)$/i.test(value.trim());
+    const unlimitedWidth = !!(svgDataset && (svgDataset.resizerUnlimitedWidth === 'true' || isUnlimitedToken(svgDataset.resizerMaxWidth)));
+    const unlimitedHeight = !!(svgDataset && (svgDataset.resizerUnlimitedHeight === 'true' || isUnlimitedToken(svgDataset.resizerMaxHeight)));
     const storedTableWidth = svgDataset ? Number(svgDataset.resizerTableWidth) : NaN;
     const isManualResize = svgDataset ? svgDataset.resizerResized === 'true' : false;
     const zoomScale = svgDataset ? (parsePositive(svgDataset.resizerZoomLevel || svgDataset.resizerZoom) || 1) : 1;
     const toDisplayDimension = (value) => (Number.isFinite(value) ? value * zoomScale : NaN);
     const datasetMinWidthRaw = svgDataset ? parsePositive(svgDataset.resizerMinWidth) : NaN;
-    const datasetMaxWidthRaw = svgDataset ? parsePositive(svgDataset.resizerMaxWidth) : NaN;
+    const datasetMaxWidthRaw = (svgDataset && !unlimitedWidth) ? parsePositive(svgDataset.resizerMaxWidth) : NaN;
     const datasetMinHeightRaw = svgDataset ? parsePositive(svgDataset.resizerMinHeight) : NaN;
-    const datasetMaxHeightRaw = svgDataset ? parsePositive(svgDataset.resizerMaxHeight) : NaN;
+    const datasetMaxHeightRaw = (svgDataset && !unlimitedHeight) ? parsePositive(svgDataset.resizerMaxHeight) : NaN;
     const datasetDefaultWidthRaw = svgDataset ? parsePositive(svgDataset.resizerDefaultWidth) : NaN;
     const datasetDefaultHeightRaw = svgDataset ? parsePositive(svgDataset.resizerDefaultHeight) : NaN;
     const datasetMinWidth = toDisplayDimension(datasetMinWidthRaw);

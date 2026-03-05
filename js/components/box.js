@@ -261,7 +261,7 @@
     { value:'median-iqr', label:'Median with interquartile range' },
     { value:'none', label:'No line or error bar' }
   ]);
-  const INDIVIDUAL_SUMMARY_DEFAULT = 'mean-point';
+  const INDIVIDUAL_SUMMARY_DEFAULT = 'median-point';
   const INDIVIDUAL_SUMMARY_SET = new Set(INDIVIDUAL_SUMMARY_OPTIONS.map(opt=>opt.value));
 
   function normalizeIndividualSummaryValue(rawValue){
@@ -5444,15 +5444,31 @@
     if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
       bbox = { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height };
     }
-    // Lock horizontal viewport extents to preserve datapoint x-spacing regardless of significance geometry.
-    const minX = 0;
-    const viewW = Math.max(1, baseViewport.width);
-    const minY = Math.min(0, bbox.y - padding);
-    const viewH = Math.max(
-      1,
-      baseViewport.height,
-      bbox.y + bbox.height + padding - minY
-    );
+    let minX = Math.min(0, bbox.x - padding);
+    let maxX = Math.max(baseViewport.width, bbox.x + bbox.width + padding);
+    let minY = Math.min(0, bbox.y - padding);
+    let maxY = Math.max(baseViewport.height, bbox.y + bbox.height + padding);
+    let viewW = Math.max(1, maxX - minX);
+    let viewH = Math.max(1, maxY - minY);
+    const baseRatio = (Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0)
+      ? (baseViewport.width / baseViewport.height)
+      : 1;
+    if(Number.isFinite(baseRatio) && baseRatio > 0 && Number.isFinite(viewW) && Number.isFinite(viewH) && viewW > 0 && viewH > 0){
+      const currentRatio = viewW / viewH;
+      if(currentRatio > baseRatio){
+        const targetHeight = viewW / baseRatio;
+        const extra = Math.max(0, targetHeight - viewH);
+        minY -= extra / 2;
+        maxY += extra / 2;
+      }else if(currentRatio < baseRatio){
+        const targetWidth = viewH * baseRatio;
+        const extra = Math.max(0, targetWidth - viewW);
+        minX -= extra / 2;
+        maxX += extra / 2;
+      }
+      viewW = Math.max(1, maxX - minX);
+      viewH = Math.max(1, maxY - minY);
+    }
     svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
     svg.setAttribute('width', '100%');
     svg.setAttribute('height', '100%');
