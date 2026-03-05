@@ -3957,6 +3957,26 @@
     };
   }
 
+  function computeStripRadiusCapForLargeSamples(sampleSize, baseRadius){
+    const count = Number(sampleSize) || 0;
+    const radius = Number(baseRadius);
+    if(!Number.isFinite(radius) || radius <= 0){
+      return null;
+    }
+    if(!Number.isFinite(count) || count <= 300){
+      return null;
+    }
+    const startLog = Math.log10(300);
+    const endLog = Math.log10(10000);
+    const countLog = Math.log10(Math.max(301, count));
+    const normRaw = (countLog - startLog) / (endLog - startLog);
+    const norm = Math.max(0, Math.min(1, normRaw));
+    const capScaleMax = 0.35;
+    const capScaleMin = 0.14;
+    const capScale = capScaleMax - (capScaleMax - capScaleMin) * norm;
+    return Math.max(0.2, radius * capScale);
+  }
+
   function estimateSwarmOverlapCount(coordsInput, distance){
     const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
     if(!coords || !coords.length || !Number.isFinite(distance) || distance <= 0){
@@ -20496,8 +20516,15 @@ Technical analysis record (advanced)
         const adjusted = Number(swarm?.adjustedRadius);
         const sampleCompression = Math.max(0, Math.min(1, Math.log10(selectedCount + 1) / 3));
         const minResolvedRadius = Math.max(0.2, pointRadius * (0.12 + (0.26 - 0.12) * (1 - sampleCompression)));
-        const resolvedRadius = Number.isFinite(adjusted) && adjusted > 0
-          ? Math.max(minResolvedRadius, adjusted)
+        const countRadiusCap = computeStripRadiusCapForLargeSamples(selectedCount, pointRadius);
+        const rawResolvedRadius = Number.isFinite(adjusted) && adjusted > 0
+          ? adjusted
+          : null;
+        const cappedRadius = Number.isFinite(rawResolvedRadius) && Number.isFinite(countRadiusCap)
+          ? Math.min(rawResolvedRadius, countRadiusCap)
+          : rawResolvedRadius;
+        const resolvedRadius = Number.isFinite(cappedRadius) && cappedRadius > 0
+          ? Math.max(minResolvedRadius, cappedRadius)
           : null;
         if(debugEnabled){
           console.debug('Debug: box strip auto size base',{
@@ -20511,6 +20538,7 @@ Technical analysis record (advanced)
             referenceBand,
             adjustedRadiusRaw: Number.isFinite(adjusted) ? adjusted : null,
             adjustedRadius: resolvedRadius,
+            countRadiusCap,
             minResolvedRadius,
             baseRadius: pointRadius
           });
@@ -20921,6 +20949,7 @@ Technical analysis record (advanced)
           pointRadiusOverride = null,
           autoSize = false,
           allowRadiusAdjustment = null,
+          disableBatchPath = false,
           drawToken = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
@@ -21011,7 +21040,9 @@ Technical analysis record (advanced)
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
-        const useBatchPath = pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+        const useBatchPath = !disableBatchPath
+          && pointCount > BOX_POINT_BATCH_THRESHOLD
+          && BATCHABLE_POINT_SHAPES.has(effectiveShape);
         if(debugEnabled && debugLabel === 'individual'){
           console.debug('Debug: box strip point render resolved',{
             orientation: 'vertical',
@@ -21530,6 +21561,7 @@ Technical analysis record (advanced)
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
+            disableBatchPath: true,
             drawToken: token
           });
           if(!swarmResult){
@@ -21920,6 +21952,7 @@ Technical analysis record (advanced)
           pointRadiusOverride = null,
           autoSize = false,
           allowRadiusAdjustment = null,
+          disableBatchPath = false,
           drawToken = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
@@ -22010,7 +22043,9 @@ Technical analysis record (advanced)
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
-        const useBatchPath = pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+        const useBatchPath = !disableBatchPath
+          && pointCount > BOX_POINT_BATCH_THRESHOLD
+          && BATCHABLE_POINT_SHAPES.has(effectiveShape);
         if(debugEnabled && debugLabel === 'individual'){
           console.debug('Debug: box strip point render resolved',{
             orientation: 'horizontal',
@@ -22300,8 +22335,15 @@ Technical analysis record (advanced)
         const adjusted = Number(swarm?.adjustedRadius);
         const sampleCompression = Math.max(0, Math.min(1, Math.log10(selectedCount + 1) / 3));
         const minResolvedRadius = Math.max(0.2, pointRadius * (0.12 + (0.26 - 0.12) * (1 - sampleCompression)));
-        const resolvedRadius = Number.isFinite(adjusted) && adjusted > 0
-          ? Math.max(minResolvedRadius, adjusted)
+        const countRadiusCap = computeStripRadiusCapForLargeSamples(selectedCount, pointRadius);
+        const rawResolvedRadius = Number.isFinite(adjusted) && adjusted > 0
+          ? adjusted
+          : null;
+        const cappedRadius = Number.isFinite(rawResolvedRadius) && Number.isFinite(countRadiusCap)
+          ? Math.min(rawResolvedRadius, countRadiusCap)
+          : rawResolvedRadius;
+        const resolvedRadius = Number.isFinite(cappedRadius) && cappedRadius > 0
+          ? Math.max(minResolvedRadius, cappedRadius)
           : null;
         if(debugEnabled){
           console.debug('Debug: box strip auto size base',{
@@ -22315,6 +22357,7 @@ Technical analysis record (advanced)
             referenceBand,
             adjustedRadiusRaw: Number.isFinite(adjusted) ? adjusted : null,
             adjustedRadius: resolvedRadius,
+            countRadiusCap,
             minResolvedRadius,
             baseRadius: pointRadius
           });
@@ -22937,6 +22980,7 @@ Technical analysis record (advanced)
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
+            disableBatchPath: true,
             drawToken: token
           });
           if(!swarmResult){

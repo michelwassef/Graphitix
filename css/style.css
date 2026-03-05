@@ -2469,7 +2469,7 @@ select {
 }
 .workspace-toolbar__button:hover{
     background:var(--ui-btn-bg-hover);
-    border-color:#6c7bb1;
+    border-color:transparent;
 }
 .workspace-toolbar__button:active{
     background:#dbe4f2;
