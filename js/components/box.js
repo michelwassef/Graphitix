@@ -6901,7 +6901,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR } };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -15287,6 +15287,10 @@
 
   function persistTabState(reason){
     try{
+      if(state.applyingPayload){
+        console.debug('Debug: box persistTabState skipped during payload apply', { reason: reason || 'stats-controls-change' });
+        return;
+      }
       const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
       if(sess && typeof sess.persistActiveTabState === 'function'){
         sess.persistActiveTabState(undefined, { reason: reason || 'stats-controls-change' });
@@ -16706,6 +16710,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsLastReport = null;
   }
 
+  function resetStatsComputationState(options = {}){
+    const placeholder = Object.prototype.hasOwnProperty.call(options, 'placeholder')
+      ? options.placeholder
+      : 'Statistics will appear after calculation.';
+    state.statsContext = null;
+    state.statsContextSignature = null;
+    state.statsContextVersion = 0;
+    state.statsLastRunVersion = 0;
+    state.statsComputationPending = false;
+    state.pendingAutoShowSignificance = false;
+    state.suppressNextStatsSvgReapply = false;
+    if(options.clearOutputs !== false){
+      clearStatsOutputs(placeholder);
+    }
+    setStatsStatus('');
+    updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+    updateSignificanceControlState({ statsReady: false });
+  }
+
   function buildStatsAnalysisSpec(extra){
     const selectedColumns=Array.from(state.selectedCols || []).sort((a,b)=>a-b);
     return {
@@ -16904,17 +16927,8 @@ Technical analysis record (advanced)
   function primeStatsComputation(traces, svg, helpers){
     const hasTraces = Array.isArray(traces) && traces.length > 0;
     if(!hasTraces){
-      state.statsContext = null;
-      state.statsContextSignature = null;
-      state.statsContextVersion = 0;
-      state.statsLastRunVersion = 0;
-      state.statsComputationPending = false;
       state.assumptionDiagnostics = null;
-      state.suppressNextStatsSvgReapply = false;
-      clearStatsOutputs('Add data to enable statistics.');
-      setStatsStatus('');
-      updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
-      updateSignificanceControlState({ statsReady: false });
+      resetStatsComputationState({ placeholder: 'Add data to enable statistics.' });
       return;
     }
     const previousContext = state.statsContext;
@@ -17612,12 +17626,7 @@ Technical analysis record (advanced)
     const hasContext = ctx && Array.isArray(ctx.traces) && ctx.traces.length > 0;
     if(!hasContext){
       console.debug('Debug: box stats context refresh skipped',{ reason, hasContext: !!ctx });
-      if(!ctx){
-        state.suppressNextStatsSvgReapply = false;
-        clearStatsOutputs('Statistics will appear after calculation.');
-        setStatsStatus('');
-        updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
-      }
+      resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
       return false;
     }
     const mergedHelpers = {
@@ -19586,8 +19595,7 @@ Technical analysis record (advanced)
       renderStatsControls([]);
       els.boxColorPerBox.innerHTML='';
       global.document.getElementById('boxPlot').innerHTML='';
-      global.document.getElementById('statsResults').innerHTML='';
-      global.document.getElementById('statsTable').innerHTML='';
+      resetStatsComputationState({ placeholder: 'Add data to enable statistics.' });
       return;
     }
     const colorPrimeSample = [];
@@ -23958,11 +23966,37 @@ Technical analysis record (advanced)
       : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
     payload.data = emptyData;
     payload.exclusions = [];
-    if(payload.config){
-      payload.config.stats = payload.config.stats || {};
-      payload.config.stats.selectedColumns = [];
-      payload.config.stats.pairsText = '';
-    }
+    payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+    payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
+      ? payload.config.stats
+      : {};
+    payload.config.stats.test = 'parametric';
+    payload.config.stats.paired = false;
+    payload.config.stats.mode = 'all';
+    payload.config.stats.oneSampleNullValue = 0;
+    payload.config.stats.referenceIndex = 0;
+    payload.config.stats.pairsText = '';
+    payload.config.stats.postHoc = 'standard';
+    payload.config.stats.correction = DEFAULT_CORRECTION;
+    payload.config.stats.alpha = ASSUMPTION_ALPHA;
+    payload.config.stats.ciLevel = 0.95;
+    payload.config.stats.alternative = 'two-sided';
+    payload.config.stats.normalityMethod = 'shapiro-wilk';
+    payload.config.stats.seed = 1337;
+    payload.config.stats.resamplingMode = 'auto';
+    payload.config.stats.monteCarloIterations = 10000;
+    payload.config.stats.outlierMode = 'none';
+    payload.config.stats.outlierAlpha = 0.05;
+    payload.config.stats.outlierQ = 0.01;
+    payload.config.stats.effectParametric = EFFECT_SIZE_PARAM_OPTIONS[0].value;
+    payload.config.stats.effectNonParametric = EFFECT_SIZE_NONPARAM_OPTIONS[0].value;
+    payload.config.stats.parametricVariant = 'classic';
+    payload.config.stats.groupedAnalysis = 'twoWayAnova';
+    payload.config.stats.selectedColumns = [];
+    payload.config.stats.assumptions = null;
+    payload.config.stats.resultsHtml = null;
+    payload.config.stats.lastRunVersion = 0;
+    payload.config.stats.contextSignature = null;
     return payload;
   };
   box.save = async function(){
@@ -24052,6 +24086,7 @@ Technical analysis record (advanced)
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
+    state.applyingPayload = true;
     try{
     const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
     console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
@@ -24524,29 +24559,46 @@ Technical analysis record (advanced)
         legend: c.labelPositions.legend || null
       };
     }
-    // Restore previously computed statistics results (if present in payload)
+    // Restore previously computed statistics results (if present in payload).
+    // If stats metadata is missing, aggressively reset execution state so a new tab
+    // cannot inherit "Recalculate statistics" from another tab.
     try{
+      let restoredComputedStats = false;
       if(c.stats && typeof c.stats === 'object'){
         const savedHtml = c.stats.resultsHtml;
-        const savedVersion = Number.isFinite(Number(c.stats.lastRunVersion)) ? Number(c.stats.lastRunVersion) : 0;
+        const savedVersionRaw = Number(c.stats.lastRunVersion);
+        const savedVersion = Number.isFinite(savedVersionRaw) && savedVersionRaw > 0 ? savedVersionRaw : 0;
         const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
-        if(els.statsResults && savedHtml != null){
-          try{ els.statsResults.innerHTML = savedHtml; }catch(e){ els.statsResults.textContent = String(savedHtml || ''); }
+        if(els.statsResults){
+          if(savedHtml != null){
+            try{
+              els.statsResults.innerHTML = savedHtml;
+            }catch(e){
+              els.statsResults.textContent = String(savedHtml || '');
+            }
+          }else{
+            els.statsResults.innerHTML = '';
+          }
         }
         state.statsLastRunVersion = savedVersion;
-        state.statsContextVersion = Number.isFinite(Number(savedVersion)) ? Number(savedVersion) : state.statsContextVersion || 0;
+        state.statsContextVersion = savedVersion;
         state.statsContextSignature = savedSig;
         state.statsContext = null;
         state.statsComputationPending = false;
         const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
-        if(state.statsLastRunVersion === state.statsContextVersion && hasResults){
+        if(savedVersion > 0 && hasResults){
           setStatsStatus('Statistics up to date.');
           updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
           updateSignificanceControlState({ statsReady: true });
+          restoredComputedStats = true;
         }
+      }
+      if(!restoredComputedStats){
+        resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
       }
     }catch(err){
       console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });
+      resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
     }
     if(!suppressDraw){
       state.scheduleDraw();
@@ -24557,6 +24609,7 @@ Technical analysis record (advanced)
       resolveOverlay('payload-error');
       throw err;
     }finally{
+      state.applyingPayload = false;
       if(scheduleBackup){
         state.scheduleDraw = scheduleBackup;
       }
@@ -24817,27 +24870,35 @@ Technical analysis record (advanced)
 
   box.captureRenderCache = function captureRenderCache(){
     const plotCache = detachChildren(els.plotDiv);
+    const controlsCache = detachChildren(els.statsControls);
     const resultsCache = detachChildren(els.statsResults);
     const tableCache = detachChildren(els.statsTable);
-    const total = (plotCache?.count || 0) + (resultsCache?.count || 0) + (tableCache?.count || 0);
+    const total = (plotCache?.count || 0) + (controlsCache?.count || 0) + (resultsCache?.count || 0) + (tableCache?.count || 0);
     console.debug('Debug: box render cache captured', {
       plotNodes: plotCache?.count || 0,
+      controlsNodes: controlsCache?.count || 0,
       resultsNodes: resultsCache?.count || 0,
       tableNodes: tableCache?.count || 0,
       total
     });
-    return { plot: plotCache, statsResults: resultsCache, statsTable: tableCache };
+    return { plot: plotCache, statsControls: controlsCache, statsResults: resultsCache, statsTable: tableCache };
   };
 
   box.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
+    if(!Object.prototype.hasOwnProperty.call(cache, 'statsControls')){
+      console.debug('Debug: box render cache restore skipped', { reason: 'missing-stats-controls-cache' });
+      return false;
+    }
     const restoredPlot = restoreChildren(els.plotDiv, cache.plot);
+    const restoredControls = restoreChildren(els.statsControls, cache.statsControls);
     const restoredResults = restoreChildren(els.statsResults, cache.statsResults);
     const restoredTable = restoreChildren(els.statsTable, cache.statsTable);
-    const restored = restoredPlot || restoredResults || restoredTable;
+    const restored = restoredPlot || restoredControls || restoredResults || restoredTable;
     console.debug('Debug: box render cache restored', {
       restored,
       plot: restoredPlot,
+      controls: restoredControls,
       results: restoredResults,
       table: restoredTable
     });

@@ -192,6 +192,80 @@
     }
   }
 
+  function deepFreezeValue(value, seen = new WeakSet()) {
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+    if (seen.has(value)) {
+      return value;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(entry => deepFreezeValue(entry, seen));
+    } else {
+      Object.keys(value).forEach(key => {
+        deepFreezeValue(value[key], seen);
+      });
+    }
+    try {
+      Object.freeze(value);
+    } catch (err) {
+      console.error('domControls deepFreezeValue failed', { err });
+    }
+    return value;
+  }
+
+  function cacheWorkspaceDefaultPayload(type, payload, cloneFn) {
+    if (!type || !payload || typeof payload !== 'object') {
+      return null;
+    }
+    const normalized = normalizeDefaultPayloadForType(type, cloneValue(payload, cloneFn));
+    moduleState.workspaceDefaults[type] = deepFreezeValue(normalized);
+    return moduleState.workspaceDefaults[type];
+  }
+
+  function cacheWorkspaceDefaultLayout(type, layout, cloneFn) {
+    if (!type || !layout || typeof layout !== 'object') {
+      return null;
+    }
+    moduleState.workspaceLayoutDefaults[type] = deepFreezeValue(cloneValue(layout, cloneFn));
+    return moduleState.workspaceLayoutDefaults[type];
+  }
+
+  function enrichDefaultPayloadCandidate(type, config, payload, cloneFn) {
+    if (!payload || typeof payload !== 'object') {
+      return payload;
+    }
+    const templateGetter = (typeof config?.captureEmptyPayloadTemplate === 'function')
+      ? config.captureEmptyPayloadTemplate
+      : null;
+    if (!templateGetter) {
+      return payload;
+    }
+    try {
+      const template = templateGetter();
+      if (!template || typeof template !== 'object') {
+        return payload;
+      }
+      const payloadConfigKeyCount = Object.keys(payload?.config || {}).length;
+      const templateConfigKeyCount = Object.keys(template?.config || {}).length;
+      const enriched = mergePayloadWithDefaults(payload, template, cloneFn);
+      const enrichedConfigKeyCount = Object.keys(enriched?.config || {}).length;
+      if (enrichedConfigKeyCount > payloadConfigKeyCount || templateConfigKeyCount > payloadConfigKeyCount) {
+        console.debug('Debug: ensureDefaultPayload enriched candidate from empty template', {
+          type,
+          payloadConfigKeyCount,
+          templateConfigKeyCount,
+          enrichedConfigKeyCount
+        });
+      }
+      return enriched || payload;
+    } catch (err) {
+      console.error('ensureDefaultPayload template enrichment error', { type, err });
+      return payload;
+    }
+  }
+
   function mergePayloadWithDefaultsRecursive(defaultValue, payloadValue, cloneFn) {
     if (payloadValue === undefined) {
       return cloneValue(defaultValue, cloneFn);
@@ -258,16 +332,17 @@
   };
 
   namespace.ensureDefaultPayload = function ensureDefaultPayload(session, type, config) {
-    const cloneFn = session?.fastClonePayload || session?.clonePayload;
+    const cloneRaw = session?.fastClonePayload || session?.clonePayload;
+    const cloneFn = typeof cloneRaw === 'function'
+      ? value => cloneRaw.call(session, value)
+      : null;
     if (moduleState.workspaceDefaults[type]) {
       try {
-        const cachedClone = typeof cloneFn === 'function'
-          ? cloneFn.call(session, moduleState.workspaceDefaults[type])
-          : JSON.parse(JSON.stringify(moduleState.workspaceDefaults[type]));
+        const cachedClone = cloneValue(moduleState.workspaceDefaults[type], cloneFn);
         return normalizeDefaultPayloadForType(type, cachedClone);
       } catch (err) {
         console.error('ensureDefaultPayload cached clone error', { type, err });
-        return normalizeDefaultPayloadForType(type, moduleState.workspaceDefaults[type]);
+        return normalizeDefaultPayloadForType(type, cloneValue(moduleState.workspaceDefaults[type], null));
       }
     }
     if (!session || typeof cloneFn !== 'function' || !config) {
@@ -301,12 +376,13 @@
       return null;
     };
     try {
-      const payload = resolveEmptyPayload();
+      let payload = resolveEmptyPayload();
       if (!payload) {
         console.debug('Debug: ensureDefaultPayload payload unavailable', { type });
         return null;
       }
-      moduleState.workspaceDefaults[type] = normalizeDefaultPayloadForType(type, cloneFn.call(session, payload));
+      payload = enrichDefaultPayloadCandidate(type, config, payload, cloneFn);
+      cacheWorkspaceDefaultPayload(type, payload, cloneFn);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
       const layoutGetter = (typeof config.getDefaultLayoutState === 'function')
         ? config.getDefaultLayoutState
@@ -314,7 +390,7 @@
       if (layoutGetter) {
         try {
           const layout = layoutGetter();
-          moduleState.workspaceLayoutDefaults[type] = cloneFn.call(session, layout);
+          cacheWorkspaceDefaultLayout(type, layout, cloneFn);
           console.debug('Debug: workspace layout default captured', {
             type,
             hasLayout: !!moduleState.workspaceLayoutDefaults[type]
@@ -324,13 +400,11 @@
         }
       }
       try {
-        const clonedDefault = typeof cloneFn === 'function'
-          ? cloneFn.call(session, moduleState.workspaceDefaults[type])
-          : JSON.parse(JSON.stringify(moduleState.workspaceDefaults[type]));
+        const clonedDefault = cloneValue(moduleState.workspaceDefaults[type], cloneFn);
         return normalizeDefaultPayloadForType(type, clonedDefault);
       } catch (cloneErr) {
         console.error('ensureDefaultPayload return clone error', { type, err: cloneErr });
-        return moduleState.workspaceDefaults[type];
+        return normalizeDefaultPayloadForType(type, cloneValue(moduleState.workspaceDefaults[type], null));
       }
     } catch (err) {
       console.error('ensureDefaultPayload error', { type, err });
@@ -347,11 +421,14 @@
       console.debug('Debug: setWorkspaceDefaultPayload skipped', { type, reason: 'invalid-payload' });
       return false;
     }
-    const cloneFn = session?.fastClonePayload || session?.clonePayload;
+    const cloneRaw = session?.fastClonePayload || session?.clonePayload;
+    const cloneFn = typeof cloneRaw === 'function'
+      ? value => cloneRaw.call(session, value)
+      : null;
     let cloned = null;
     if (typeof cloneFn === 'function') {
       try {
-        cloned = cloneFn.call(session, payload);
+        cloned = cloneFn(payload);
       } catch (err) {
         console.error('setWorkspaceDefaultPayload clone via session failed', { type, err });
       }
@@ -364,7 +441,7 @@
         return false;
       }
     }
-    moduleState.workspaceDefaults[type] = normalizeDefaultPayloadForType(type, cloned);
+    cacheWorkspaceDefaultPayload(type, cloned, cloneFn);
     console.debug('Debug: workspace default payload overridden', {
       type,
       hasPayload: !!moduleState.workspaceDefaults[type]
@@ -532,7 +609,10 @@
         if (!payload && typeof config.createEmptyPayload === 'function') {
           try {
             const emptyPayload = config.createEmptyPayload();
-            moduleState.workspaceDefaults[tab.type] = moduleState.workspaceDefaults[tab.type] || normalizeDefaultPayloadForType(tab.type, cloneFn?.(emptyPayload) || emptyPayload);
+            if (!moduleState.workspaceDefaults[tab.type]) {
+              const enriched = enrichDefaultPayloadCandidate(tab.type, config, emptyPayload, cloneFn);
+              cacheWorkspaceDefaultPayload(tab.type, enriched, cloneFn);
+            }
             payload = cloneFn?.(emptyPayload) || emptyPayload;
             console.debug('Debug: workspace payload rebuilt from empty template', { tabId: tab.id, type: tab.type });
           } catch (err) {
@@ -550,7 +630,7 @@
           try {
             defaultLayout = config.getDefaultLayoutState();
             if (defaultLayout) {
-              moduleState.workspaceLayoutDefaults[tab.type] = cloneFn?.(defaultLayout) || defaultLayout;
+              cacheWorkspaceDefaultLayout(tab.type, defaultLayout, cloneFn);
             }
           } catch (err) {
             console.error('workspace layout default fallback error', { type: tab.type, err });
