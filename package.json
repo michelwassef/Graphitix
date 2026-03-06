@@ -5,7 +5,13 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
-    "bench": "node scripts/run-benchmarks.js"
+    "bench": "node scripts/run-benchmarks.js",
+    "e2e:serve": "node scripts/e2e-server.cjs --port 4173",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "debug:browser:chromium": "playwright open --browser=chromium http://127.0.0.1:4173/index.html",
+    "debug:browser:firefox": "playwright open --browser=firefox http://127.0.0.1:4173/index.html"
   },
   "keywords": [],
   "author": "",
@@ -13,7 +19,8 @@
   "type": "commonjs",
   "devDependencies": {
     "jest": "^30.1.3",
-    "jest-environment-jsdom": "^30.1.2"
+    "jest-environment-jsdom": "^30.1.2",
+    "@playwright/test": "^1.52.0"
   },
   "dependencies": {
     "puppeteer-core": "^22.13.1"
