@@ -377,6 +377,9 @@
 
   function px(n){ return Math.round(n) + 'px'; }
 
+  // Zoom is intentionally "display-only": it scales the svgbox footprint on screen
+  // without entering the manual geometry redraw path. Manual drag handles remain the
+  // only mechanism that changes chart geometry.
   const RESIZER_ZOOM_MIN = 0.5;
   const RESIZER_ZOOM_MAX = 3;
   const RESIZER_ZOOM_STEP = 0.1;
@@ -765,12 +768,13 @@
       if(!zoomSetup){
         return;
       }
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
       if(zoomSetup.viewport){
-        zoomSetup.viewport.style.flex = '';
-        zoomSetup.viewport.style.width = '';
-        zoomSetup.viewport.style.height = '';
-        zoomSetup.viewport.style.minWidth = '';
-        zoomSetup.viewport.style.minHeight = '';
+        zoomSetup.viewport.style.flex = '1 1 auto';
+        zoomSetup.viewport.style.width = '100%';
+        zoomSetup.viewport.style.height = '100%';
+        zoomSetup.viewport.style.minWidth = '0';
+        zoomSetup.viewport.style.minHeight = '0';
       }
       if(zoomSetup.content){
         zoomSetup.content.style.flex = '';
@@ -778,10 +782,10 @@
         zoomSetup.content.style.height = '';
         zoomSetup.content.style.minWidth = '';
         zoomSetup.content.style.minHeight = '';
-        // Keep the zoom wrapper visually neutral: zoom is applied by resizing the
-        // svgbox itself while chartStyle uses resizerZoomLevel to keep style
-        // properties (font size/strokes) stable like a magnifier.
-        zoomSetup.content.style.setProperty('--resizer-content-zoom', '1');
+        // Keep chart geometry anchored at base dimensions; only visual footprint
+        // changes via wrapper transform. This is what keeps zoom independent from
+        // manual geometry resize.
+        zoomSetup.content.style.setProperty('--resizer-content-zoom', String(zoomScale));
       }
     }
 
@@ -1030,6 +1034,34 @@
       }
     }
 
+    function applyDisplayOnlyZoomResize(baseWidth, baseHeight, options = {}){
+      const reason = options.reason || 'zoom';
+      const changed = options.changed === true;
+      const forceLayout = options.forceLayout === true;
+      const shouldApplySize = changed || forceLayout || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON;
+      if(!shouldApplySize){
+        return null;
+      }
+      // Give ResizeObserver enough time to settle after css size updates so zoom does
+      // not bounce into resize redraw callbacks.
+      const observerSuppressMs = Number.isFinite(options.suppressObserverMs) ? options.suppressObserverMs : 450;
+      suppressObserverResize(observerSuppressMs);
+      container.style.flex = '0 0 auto';
+      if(changed || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON){
+        container.dataset.resizerResized = 'true';
+      }
+      const nextDisplayWidth = toDisplayDimension(baseWidth);
+      const nextDisplayHeight = toDisplayDimension(baseHeight);
+      return applyResize({
+        axis: 'both',
+        width: nextDisplayWidth,
+        height: nextDisplayHeight,
+        fallbackWidth: nextDisplayWidth,
+        fallbackHeight: nextDisplayHeight,
+        reason: `zoom-${reason}`
+      });
+    }
+
     function applyZoomLevel(nextLevel, options = {}){
       const reason = options.reason || 'zoom';
       const previousZoom = resolveZoomScale();
@@ -1041,30 +1073,19 @@
       zoomLevel = normalized;
       data.resizerZoom = String(zoomLevel);
       data.resizerZoomLevel = String(zoomLevel);
-      const shouldApplySize = changed || options.forceLayout === true || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON;
-      let applied = null;
-      if(shouldApplySize){
-        suppressObserverResize(options.suppressObserverMs);
-        container.style.flex = '0 0 auto';
-        if(changed || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON){
-          container.dataset.resizerResized = 'true';
-        }
-        const nextDisplayWidth = toDisplayDimension(baseWidth);
-        const nextDisplayHeight = toDisplayDimension(baseHeight);
-        applied = applyResize({
-          axis: 'both',
-          width: nextDisplayWidth,
-          height: nextDisplayHeight,
-          fallbackWidth: nextDisplayWidth,
-          fallbackHeight: nextDisplayHeight,
-          reason: `zoom-${reason}`
-        });
-      }
+      const applied = applyDisplayOnlyZoomResize(baseWidth, baseHeight, {
+        reason,
+        changed,
+        forceLayout: options.forceLayout === true,
+        suppressObserverMs: options.suppressObserverMs
+      });
       syncZoomPresentation(baseWidth, baseHeight);
       applyZoomBoundsStyles();
       syncZoomControls();
       if((changed || options.forceLayout === true) && typeof opts.onResize === 'function'){
         try {
+          // This callback is layout-sync only; componentLayout suppresses redraw work
+          // for the "zoom" phase so zoom remains a pure magnifier.
           opts.onResize('zoom');
         } catch (resizeErr){
           console.error('resizer onResize zoom error', resizeErr);

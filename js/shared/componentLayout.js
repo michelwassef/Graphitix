@@ -365,11 +365,28 @@
       })();
 
       const userResizeOptions = config?.resizableBoxOptions || {};
+      const isDisplayOnlyZoomPhase = phase => phase === 'zoom';
       const onResize = phase => {
-        console.debug('Debug: componentLayout resizable onResize', { component: componentName, phase });
-        const flags = evaluateScheduleFlags({ source: 'resize', phase });
-        syncPanels({ skipSchedule: flags.skipSchedule, source: 'resize', phase });
-        if(typeof Shared.axisControls?.refreshActivePanel === 'function'){
+        const zoomDisplayOnly = isDisplayOnlyZoomPhase(phase);
+        // Zoom must behave like a pure magnifier: keep geometry/layout data stable
+        // and avoid triggering component draw callbacks that recompute chart geometry.
+        // Manual drag resize phases continue to use the normal redraw pipeline.
+        console.debug('Debug: componentLayout resizable onResize', {
+          component: componentName,
+          phase,
+          zoomDisplayOnly
+        });
+        const flags = evaluateScheduleFlags({
+          source: 'resize',
+          phase,
+          skipSchedule: zoomDisplayOnly
+        });
+        syncPanels({
+          skipSchedule: flags.skipSchedule || zoomDisplayOnly,
+          source: 'resize',
+          phase
+        });
+        if(!zoomDisplayOnly && typeof Shared.axisControls?.refreshActivePanel === 'function'){
           try{
             Shared.axisControls.refreshActivePanel({
               scopeId: componentName,
@@ -381,7 +398,7 @@
             console.error('Shared.componentLayout axisControls refresh error', err);
           }
         }
-        if(flags.suppressResizeCallback){
+        if(flags.suppressResizeCallback || zoomDisplayOnly){
           return;
         }
         if(typeof userResizeOptions.onResize === 'function'){
