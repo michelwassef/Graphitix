@@ -423,11 +423,15 @@
     confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85, pattern: 'solid' }),
     prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92, pattern: 'solid' })
   });
+  function normalizeLineOverlaySeriesKey(value){
+    return String(value == null ? '' : value).trim();
+  }
   function cloneLineOverlayStyleDefaults(){
     return {
       trend: { ...LINE_OVERLAY_STYLE_DEFAULTS.trend },
       confidence: { ...LINE_OVERLAY_STYLE_DEFAULTS.confidence },
-      prediction: { ...LINE_OVERLAY_STYLE_DEFAULTS.prediction }
+      prediction: { ...LINE_OVERLAY_STYLE_DEFAULTS.prediction },
+      bySeries: {}
     };
   }
   function sanitizeLineOverlayKey(key){
@@ -478,26 +482,62 @@
       return defaults;
     }
     Object.keys(defaults).forEach(key => {
+      if(key === 'bySeries'){
+        return;
+      }
       defaults[key] = sanitizeLineOverlayStyleEntry(value[key], key) || defaults[key];
     });
+    const sourceBySeries = value.bySeries && typeof value.bySeries === 'object'
+      ? value.bySeries
+      : {};
+    const bySeries = {};
+    Object.keys(sourceBySeries).forEach(rawSeriesKey => {
+      const seriesKey = normalizeLineOverlaySeriesKey(rawSeriesKey);
+      if(!seriesKey){
+        return;
+      }
+      const sourceEntry = sourceBySeries[rawSeriesKey];
+      if(!sourceEntry || typeof sourceEntry !== 'object'){
+        return;
+      }
+      const nextEntry = {};
+      ['trend', 'confidence', 'prediction'].forEach(overlayKey => {
+        const style = sanitizeLineOverlayStyleEntry(sourceEntry[overlayKey], overlayKey);
+        if(style){
+          nextEntry[overlayKey] = style;
+        }
+      });
+      if(Object.keys(nextEntry).length){
+        bySeries[seriesKey] = nextEntry;
+      }
+    });
+    defaults.bySeries = bySeries;
     return defaults;
   }
   let lineOverlayStyles = cloneLineOverlayStyleDefaults();
   let lineOverlayToolbarScope = 'global';
-  function getLineOverlayStyle(key){
+  function getLineOverlayStyle(key, seriesKey){
     const safeKey = sanitizeLineOverlayKey(key);
     if(!safeKey){
       return null;
     }
+    const safeSeriesKey = normalizeLineOverlaySeriesKey(seriesKey);
+    if(safeSeriesKey){
+      const scoped = sanitizeLineOverlayStyleEntry(lineOverlayStyles?.bySeries?.[safeSeriesKey]?.[safeKey], safeKey);
+      if(scoped){
+        return scoped;
+      }
+    }
     return sanitizeLineOverlayStyleEntry(lineOverlayStyles?.[safeKey], safeKey)
       || sanitizeLineOverlayStyleEntry(LINE_OVERLAY_STYLE_DEFAULTS[safeKey], safeKey);
   }
-  function updateLineOverlayStyle(key, patch){
+  function updateLineOverlayStyle(key, patch, seriesKey){
     const safeKey = sanitizeLineOverlayKey(key);
     if(!safeKey){
       return;
     }
-    const previous = getLineOverlayStyle(safeKey) || sanitizeLineOverlayStyleEntry(null, safeKey);
+    const safeSeriesKey = normalizeLineOverlaySeriesKey(seriesKey);
+    const previous = getLineOverlayStyle(safeKey, safeSeriesKey) || sanitizeLineOverlayStyleEntry(null, safeKey);
     const merged = sanitizeLineOverlayStyleEntry(Object.assign({}, previous || {}, patch || {}), safeKey);
     if(!merged){
       return;
@@ -505,31 +545,91 @@
     lineOverlayStyles = lineOverlayStyles && typeof lineOverlayStyles === 'object'
       ? lineOverlayStyles
       : cloneLineOverlayStyleDefaults();
+    if(safeSeriesKey){
+      if(!lineOverlayStyles.bySeries || typeof lineOverlayStyles.bySeries !== 'object'){
+        lineOverlayStyles.bySeries = {};
+      }
+      const previousSeriesEntry = lineOverlayStyles.bySeries[safeSeriesKey] && typeof lineOverlayStyles.bySeries[safeSeriesKey] === 'object'
+        ? lineOverlayStyles.bySeries[safeSeriesKey]
+        : {};
+      lineOverlayStyles.bySeries[safeSeriesKey] = Object.assign({}, previousSeriesEntry, { [safeKey]: merged });
+      return;
+    }
     lineOverlayStyles[safeKey] = merged;
   }
-  function normalizeLineOverlayToolbarScope(value){
-    const normalized = String(value == null ? '' : value).trim().toLowerCase();
-    if(normalized === 'global'){
+  function parseLineOverlayToolbarScope(value){
+    const raw = String(value == null ? '' : value).trim();
+    if(!raw){
+      return { mode: 'global', overlayKey: null, seriesKey: '' };
+    }
+    if(raw.toLowerCase() === 'global'){
+      return { mode: 'global', overlayKey: null, seriesKey: '' };
+    }
+    const tokenIndex = raw.indexOf('::');
+    if(tokenIndex > 0){
+      const overlayKey = sanitizeLineOverlayKey(raw.slice(0, tokenIndex));
+      let decodedSeries = raw.slice(tokenIndex + 2);
+      try{
+        decodedSeries = decodeURIComponent(decodedSeries);
+      }catch(err){}
+      const seriesKey = normalizeLineOverlaySeriesKey(decodedSeries);
+      if(overlayKey && seriesKey){
+        return { mode: 'series', overlayKey, seriesKey };
+      }
+      if(overlayKey){
+        return { mode: 'overlay', overlayKey, seriesKey: '' };
+      }
+      return { mode: 'global', overlayKey: null, seriesKey: '' };
+    }
+    const overlayKey = sanitizeLineOverlayKey(raw);
+    if(overlayKey){
+      return { mode: 'overlay', overlayKey, seriesKey: '' };
+    }
+    return { mode: 'global', overlayKey: null, seriesKey: '' };
+  }
+  function buildLineOverlaySeriesScopeValue(overlayKey, seriesKey){
+    const safeKey = sanitizeLineOverlayKey(overlayKey);
+    const safeSeriesKey = normalizeLineOverlaySeriesKey(seriesKey);
+    if(!safeKey){
       return 'global';
     }
-    return sanitizeLineOverlayKey(normalized) || 'global';
-  }
-  function getLineOverlayScopeKeys(scopeKey){
-    const normalized = normalizeLineOverlayToolbarScope(scopeKey);
-    if(normalized === 'global'){
-      return ['trend', 'confidence', 'prediction'];
+    if(!safeSeriesKey){
+      return safeKey;
     }
-    const safeKey = sanitizeLineOverlayKey(normalized);
-    return safeKey ? [safeKey] : ['trend'];
+    return `${safeKey}::${encodeURIComponent(safeSeriesKey)}`;
+  }
+  function normalizeLineOverlayToolbarScope(value){
+    const parsed = parseLineOverlayToolbarScope(value);
+    if(parsed.mode === 'global'){
+      return 'global';
+    }
+    if(parsed.mode === 'series'){
+      return buildLineOverlaySeriesScopeValue(parsed.overlayKey, parsed.seriesKey);
+    }
+    return sanitizeLineOverlayKey(parsed.overlayKey) || 'global';
+  }
+  function getLineOverlayScopeTargets(scopeKey){
+    const parsed = parseLineOverlayToolbarScope(scopeKey);
+    if(parsed.mode === 'global'){
+      return [
+        { key: 'trend', seriesKey: '' },
+        { key: 'confidence', seriesKey: '' },
+        { key: 'prediction', seriesKey: '' }
+      ];
+    }
+    if(parsed.mode === 'series'){
+      return [{ key: parsed.overlayKey, seriesKey: parsed.seriesKey }];
+    }
+    return [{ key: parsed.overlayKey || 'trend', seriesKey: '' }];
   }
   function getLineOverlayPreviewStyle(scopeKey){
-    const keys = getLineOverlayScopeKeys(scopeKey);
-    const firstKey = keys.length ? keys[0] : 'trend';
-    return getLineOverlayStyle(firstKey);
+    const targets = getLineOverlayScopeTargets(scopeKey);
+    const firstTarget = targets.length ? targets[0] : { key: 'trend', seriesKey: '' };
+    return getLineOverlayStyle(firstTarget.key, firstTarget.seriesKey);
   }
   function getLineOverlayToolbarLabels(scopeKey){
-    const safeScope = normalizeLineOverlayToolbarScope(scopeKey);
-    if(safeScope === 'global'){
+    const parsed = parseLineOverlayToolbarScope(scopeKey);
+    if(parsed.mode === 'global'){
       return {
         colorLabel: 'Color',
         thicknessLabel: 'Thickness',
@@ -537,7 +637,7 @@
         transparencyLabel: 'Transparency'
       };
     }
-    if(safeScope === 'trend'){
+    if(parsed.overlayKey === 'trend'){
       return {
         colorLabel: 'Line',
         thicknessLabel: 'Line width',
@@ -553,17 +653,17 @@
     };
   }
   function getLineOverlaySummary(scopeKey){
-    const safeScope = normalizeLineOverlayToolbarScope(scopeKey);
-    if(safeScope === 'global'){
+    const parsed = parseLineOverlayToolbarScope(scopeKey);
+    if(parsed.mode === 'global'){
       return 'Global';
     }
-    if(safeScope === 'confidence'){
-      return 'Confidence interval';
+    const label = parsed.overlayKey === 'confidence'
+      ? 'Confidence interval'
+      : (parsed.overlayKey === 'prediction' ? 'Prediction interval' : 'Trend line');
+    if(parsed.mode === 'series'){
+      return `${label}: ${parsed.seriesKey}`;
     }
-    if(safeScope === 'prediction'){
-      return 'Prediction interval';
-    }
-    return 'Trend line';
+    return label;
   }
   let line3dLastSeriesCount = null;
   const lineModeCache = {
@@ -3218,6 +3318,26 @@
         lineOverlayToolbarScope = hasClickedOverlayScope
           ? normalizeLineOverlayToolbarScope(clickedOverlayScopeRaw)
           : normalizeLineOverlayToolbarScope(lineOverlayToolbarScope);
+        const overlaySeriesKeys = orderedSeriesKeys().filter(name => {
+          const normalized = normalizeLineOverlaySeriesKey(name);
+          return !!normalized;
+        });
+        const overlayScopeOptions = (() => {
+          const options = [{ value: 'global', label: 'Global' }];
+          const appendOverlayOptions = (overlayKey, label) => {
+            options.push({ value: overlayKey, label });
+            overlaySeriesKeys.forEach(seriesName => {
+              options.push({
+                value: buildLineOverlaySeriesScopeValue(overlayKey, seriesName),
+                label: `${label}: ${seriesName}`
+              });
+            });
+          };
+          appendOverlayOptions('trend', 'Trend line');
+          appendOverlayOptions('confidence', 'Confidence interval');
+          appendOverlayOptions('prediction', 'Prediction interval');
+          return options;
+        })();
         const toColorInputValue = value => {
           const normalized = String(value || '').trim().toLowerCase();
           if(/^#([0-9a-f]{6})$/.test(normalized)){
@@ -3251,12 +3371,7 @@
           scopeLabel.textContent = 'Scope';
           const scopeSelect = doc.createElement('select');
           scopeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
-          [
-            { value: 'global', label: 'Global' },
-            { value: 'trend', label: 'Trend line' },
-            { value: 'confidence', label: 'Confidence interval' },
-            { value: 'prediction', label: 'Prediction interval' }
-          ].forEach(option => {
+          overlayScopeOptions.forEach(option => {
             const opt = doc.createElement('option');
             opt.value = option.value;
             opt.textContent = option.label;
@@ -3339,8 +3454,10 @@
           panel.appendChild(thicknessInput);
           const resolveScope = () => normalizeLineOverlayToolbarScope(scopeSelect.value || lineOverlayToolbarScope);
           const applyOverlayPatch = patch => {
-            const keys = getLineOverlayScopeKeys(resolveScope());
-            keys.forEach(key => updateLineOverlayStyle(key, patch));
+            const targets = getLineOverlayScopeTargets(resolveScope());
+            targets.forEach(targetEntry => {
+              updateLineOverlayStyle(targetEntry.key, patch, targetEntry.seriesKey);
+            });
             scheduleLineDraw();
           };
           const syncStyleChip = () => {
@@ -3351,6 +3468,20 @@
             styleChip.dataset.noBorder = thickness <= 0 ? '1' : '0';
           };
           const syncOverlayInputs = () => {
+            const normalizedScope = normalizeLineOverlayToolbarScope(scopeSelect.value || lineOverlayToolbarScope);
+            const fallbackScope = (() => {
+              const parsed = parseLineOverlayToolbarScope(normalizedScope);
+              if(parsed.mode === 'series'){
+                return parsed.overlayKey || 'global';
+              }
+              if(parsed.mode === 'overlay'){
+                return parsed.overlayKey || 'global';
+              }
+              return 'global';
+            })();
+            const hasExactOption = Array.from(scopeSelect.options || []).some(opt => opt.value === normalizedScope && !opt.disabled);
+            const nextScope = hasExactOption ? normalizedScope : fallbackScope;
+            scopeSelect.value = nextScope;
             const scope = resolveScope();
             lineOverlayToolbarScope = scope;
             const labels = getLineOverlayToolbarLabels(scope);
@@ -3369,7 +3500,7 @@
             transparencyValue.textContent = `${Math.round(transparency)}%`;
             syncStyleChip();
           };
-          scopeSelect.value = lineOverlayToolbarScope;
+          scopeSelect.value = normalizeLineOverlayToolbarScope(lineOverlayToolbarScope);
           scopeSelect.addEventListener('change', () => {
             syncOverlayInputs();
           });
@@ -3453,7 +3584,7 @@
     return;
   }
 
-  function registerLineOverlayControlElement(element, overlayKey){
+  function registerLineOverlayControlElement(element, overlayKey, seriesName){
     if(!element){
       return;
     }
@@ -3461,12 +3592,20 @@
     if(!safeKey){
       return;
     }
-    element.dataset.lineOverlay = safeKey;
+    const safeSeriesKey = normalizeLineOverlaySeriesKey(seriesName || element?.dataset?.series);
+    const scopeValue = safeSeriesKey
+      ? buildLineOverlaySeriesScopeValue(safeKey, safeSeriesKey)
+      : safeKey;
+    element.dataset.lineOverlay = scopeValue;
+    if(safeSeriesKey){
+      element.dataset.series = safeSeriesKey;
+    }
     element.style.cursor = 'pointer';
     if(!element.__lineOverlayToolbarClickHandler){
       const handler = evt => {
         try{ evt.stopPropagation(); }catch(e){}
-        lineOverlayToolbarScope = safeKey;
+        const clickedScope = normalizeLineOverlayToolbarScope(element.dataset.lineOverlay || scopeValue || safeKey);
+        lineOverlayToolbarScope = clickedScope;
         showLinePointFormatControls(element);
       };
       element.addEventListener('click', handler);
@@ -9580,8 +9719,8 @@
           || lineLabelColors[s.name]
           || fill
           || color;
-        const confidenceStyle = getLineOverlayStyle('confidence');
-        const predictionStyle = getLineOverlayStyle('prediction');
+        const confidenceStyle = getLineOverlayStyle('confidence', s.name);
+        const predictionStyle = getLineOverlayStyle('prediction', s.name);
         if(showIntervals && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
           intervalLayer.setAttribute('data-layer',`interval-${i}`);
@@ -9639,9 +9778,9 @@
               confEl.setAttribute('stroke','none');
             }
             confEl.dataset.band='confidence';
-            confEl.dataset.lineOverlay='confidence';
+            confEl.dataset.series = s.name || '';
             intervalLayer.appendChild(confEl);
-            registerLineOverlayControlElement(confEl, 'confidence');
+            registerLineOverlayControlElement(confEl, 'confidence', s.name);
           }
           if(predictionPath){
             const predEl=document.createElementNS(NS,'path');
@@ -9664,15 +9803,15 @@
               predEl.setAttribute('stroke','none');
             }
             predEl.dataset.band='prediction';
-            predEl.dataset.lineOverlay='prediction';
+            predEl.dataset.series = s.name || '';
             intervalLayer.appendChild(predEl);
-            registerLineOverlayControlElement(predEl, 'prediction');
+            registerLineOverlayControlElement(predEl, 'prediction', s.name);
           }
           console.debug('Debug: line interval shading rendered',{ series: s.name, hasConfidence: !!confidencePath, hasPrediction: !!predictionPath });
         }
         let trendPathEl=null;
         if(showTrendLine && s.regression){
-          const trendStyle = getLineOverlayStyle('trend');
+          const trendStyle = getLineOverlayStyle('trend', s.name);
           const domainMinX = Number.isFinite(s.regression?.domain?.minX) ? s.regression.domain.minX : xMin;
           const domainMaxX = Number.isFinite(s.regression?.domain?.maxX) ? s.regression.domain.maxX : xMax;
           const sampleCount = String(s.regression?.mode || '').toLowerCase() === 'linear' ? 60 : 160;
@@ -9725,9 +9864,8 @@
             }
             trendPathEl.setAttribute('vector-effect','non-scaling-stroke');
             trendPathEl.dataset.series = s.name || '';
-            trendPathEl.dataset.lineOverlay='trend';
             svg.appendChild(trendPathEl);
-            registerLineOverlayControlElement(trendPathEl, 'trend');
+            registerLineOverlayControlElement(trendPathEl, 'trend', s.name);
           }
         }
         const segments=[];
