@@ -3104,15 +3104,26 @@ select {
 .workspace-toolbar__range{
     display:flex;
     align-items:center;
-    gap:8px;
+    gap:4px;
 }
 .workspace-toolbar__range input[type="range"]{
     accent-color:#111827;
+    width:96px;
+    min-width:96px;
+    max-width:96px;
+    flex:0 0 96px;
 }
 .workspace-toolbar__range output{
-    min-width:28px;
+    min-width:30px;
     text-align:right;
     font-variant-numeric:tabular-nums;
+}
+.workspace-toolbar__range .workspace-toolbar__input-value{
+    min-width:30px;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+    margin-left:0 !important;
+    margin-right:0 !important;
 }
 .workspace-toolbar__section--form .workspace-toolbar__caption{
     align-self:flex-start;
@@ -4778,10 +4789,10 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .additional-line-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
 .additional-line-controls-panel__color-input{height:24px;width:24px;padding:0;cursor:pointer;display:block;margin:0 auto}
-.additional-line-controls-panel__field--transparency{min-width:170px;align-items:stretch}
-.additional-line-controls-panel__range{display:flex;align-items:center;gap:8px;min-width:170px}
-.additional-line-controls-panel__transparency-input{flex:1 1 auto;min-width:120px;accent-color:#1f2937}
-.additional-line-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
+.additional-line-controls-panel__field--transparency{min-width:130px;align-items:stretch}
+.additional-line-controls-panel__range{display:flex;align-items:center;gap:4px;min-width:130px}
+.additional-line-controls-panel__transparency-input{flex:0 0 96px;width:96px;min-width:96px;max-width:96px;accent-color:#1f2937}
+.additional-line-controls-panel__range-value{min-width:30px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
 .additional-line-controls-panel__field--style{min-width:90px}
 .additional-line-controls-panel__field--symbol-border{min-width:max-content}
 
@@ -4798,14 +4809,14 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .grid-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .grid-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
 .grid-controls-panel__color-input{height:24px;width:24px;padding:0;cursor:pointer;display:block;margin:0 auto}
-.grid-controls-panel__field--transparency{min-width:170px;align-items:stretch}
+.grid-controls-panel__field--transparency{min-width:130px;align-items:stretch}
 .grid-controls-panel__field--toggle{min-width:112px;align-items:flex-start}
 .grid-controls-panel__field--style{min-width:90px}
 .grid-controls-panel__checkbox-chip{display:inline-flex;align-items:center;gap:6px}
 .grid-controls-panel__checkbox{margin:0}
-.grid-controls-panel__range{display:flex;align-items:center;gap:8px;min-width:170px}
-.grid-controls-panel__transparency-input{flex:1 1 auto;min-width:120px;accent-color:#1f2937}
-.grid-controls-panel__range-value{min-width:34px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
+.grid-controls-panel__range{display:flex;align-items:center;gap:4px;min-width:130px}
+.grid-controls-panel__transparency-input{flex:0 0 96px;width:96px;min-width:96px;max-width:96px;accent-color:#1f2937}
+.grid-controls-panel__range-value{min-width:30px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
 [data-grid-control="1"]{cursor:pointer}
 
 /* UI harmonization: shared typography and control primitives across advanced panels */
