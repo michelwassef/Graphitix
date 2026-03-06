@@ -434,7 +434,7 @@
 
     const panelTitle = doc.createElement('div');
     panelTitle.className = 'additional-line-controls-panel__title significance-controls-panel__title';
-    panelTitle.textContent = 'Significance bars';
+    panelTitle.textContent = 'Significance bars, p-value format';
     panelEl.appendChild(panelTitle);
 
     const row = doc.createElement('div');
