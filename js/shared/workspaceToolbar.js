@@ -1578,14 +1578,10 @@
       }
     ];
 
-    const saveMenuItems = (key) => [
-      {
-        id: `save${capitalize(key)}Graph`,
-        label: 'Save (.graph)',
-        dataset: { fileAction: 'save' },
-        ariaLabel: 'Save to a .graph archive'
-      }
-    ];
+    const directSaveButton = (id) => button(id, 'Save', 'save', {
+      ariaLabel: 'Save to a .graph archive',
+      dataset: { fileAction: 'save' }
+    });
 
     const buildMatchStylesSection = () => ({
       type: 'buttons',
@@ -1610,7 +1606,7 @@
             ariaLabel: 'File actions',
             buttons: [
               button('openVenn', 'Open', 'open', { menuItems: openMenuItems('Venn') }),
-              button('saveVenn', 'Save', 'save', { menuItems: saveMenuItems('Venn') }),
+              directSaveButton('saveVenn'),
               button('saveAsVenn', 'Save As', 'saveAs'),
               button('sample', 'Load Example', 'example')
             ]
@@ -1630,7 +1626,7 @@
             buttons: [
               button('openBox', 'Open', 'open', { menuItems: openMenuItems('Box') }),
               button('boxImport', 'Import', 'import'),
-              button('saveBox', 'Save', 'save', { menuItems: saveMenuItems('Box') }),
+              directSaveButton('saveBox'),
               button('saveAsBox', 'Save As', 'saveAs'),
               button('boxLoadExample', 'Load Example', 'example')
             ]
@@ -1651,7 +1647,7 @@
             buttons: [
               button('openScatter', 'Open', 'open', { menuItems: openMenuItems('Scatter') }),
               button('scatterImport', 'Import', 'import'),
-              button('saveScatter', 'Save', 'save', { menuItems: saveMenuItems('Scatter') }),
+              directSaveButton('saveScatter'),
               button('saveAsScatter', 'Save As', 'saveAs'),
               button('scatterLoadExample', 'Load Example', 'example')
             ]
@@ -1672,7 +1668,7 @@
             buttons: [
               button('openPca', 'Open', 'open', { menuItems: openMenuItems('Pca') }),
               button('pcaImport', 'Import', 'import'),
-              button('savePca', 'Save', 'save', { menuItems: saveMenuItems('Pca') }),
+              directSaveButton('savePca'),
               button('saveAsPca', 'Save As', 'saveAs'),
               button('pcaLoadExample', 'Load Example', 'example')
             ]
@@ -1693,7 +1689,7 @@
             buttons: [
               button('openLine', 'Open', 'open', { menuItems: openMenuItems('Line') }),
               button('lineImport', 'Import', 'import'),
-              button('saveLine', 'Save', 'save', { menuItems: saveMenuItems('Line') }),
+              directSaveButton('saveLine'),
               button('saveAsLine', 'Save As', 'saveAs'),
               button('lineLoadExample', 'Load Example', 'example')
             ]
@@ -1714,7 +1710,7 @@
             buttons: [
               button('openHeatmap', 'Open', 'open', { menuItems: openMenuItems('Heatmap') }),
               button('heatmapImport', 'Import', 'import'),
-              button('saveHeatmap', 'Save', 'save', { menuItems: saveMenuItems('Heatmap') }),
+              directSaveButton('saveHeatmap'),
               button('saveAsHeatmap', 'Save As', 'saveAs'),
               button('heatmapLoadExample', 'Load Example', 'example')
             ]
@@ -1735,7 +1731,7 @@
             buttons: [
               button('openSurface', 'Open', 'open', { menuItems: openMenuItems('Surface') }),
               button('surfaceImport', 'Import', 'import'),
-              button('saveSurface', 'Save', 'save', { menuItems: saveMenuItems('Surface') }),
+              directSaveButton('saveSurface'),
               button('saveAsSurface', 'Save As', 'saveAs'),
               button('surfaceLoadExample', 'Load Example', 'example')
             ]
@@ -1756,7 +1752,7 @@
             buttons: [
               button('openRoc', 'Open', 'open', { menuItems: openMenuItems('Roc') }),
               button('rocImport', 'Import', 'import'),
-              button('saveRoc', 'Save', 'save', { menuItems: saveMenuItems('Roc') }),
+              directSaveButton('saveRoc'),
               button('saveAsRoc', 'Save As', 'saveAs'),
               button('rocLoadExample', 'Load Example', 'example')
             ]
@@ -1776,7 +1772,7 @@
             buttons: [
               button('openSurvival', 'Open', 'open', { menuItems: openMenuItems('Survival') }),
               button('survivalImport', 'Import', 'import'),
-              button('saveSurvival', 'Save', 'save', { menuItems: saveMenuItems('Survival') }),
+              directSaveButton('saveSurvival'),
               button('saveAsSurvival', 'Save As', 'saveAs'),
               button('survivalLoadExample', 'Load Example', 'example')
             ]
@@ -1796,7 +1792,7 @@
             buttons: [
               button('openHist', 'Open', 'open', { menuItems: openMenuItems('Hist') }),
               button('histImport', 'Import', 'import'),
-              button('saveHist', 'Save', 'save', { menuItems: saveMenuItems('Hist') }),
+              directSaveButton('saveHist'),
               button('saveAsHist', 'Save As', 'saveAs'),
               button('histLoadExample', 'Load Example', 'example')
             ]
@@ -1817,7 +1813,7 @@
             buttons: [
               button('openPie', 'Open', 'open', { menuItems: openMenuItems('Pie') }),
               button('pieImport', 'Import', 'import'),
-              button('savePie', 'Save', 'save', { menuItems: saveMenuItems('Pie') }),
+              directSaveButton('savePie'),
               button('saveAsPie', 'Save As', 'saveAs'),
               button('pieLoadExample', 'Load Example', 'example')
             ]

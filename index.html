@@ -22,16 +22,8 @@
           <h2 class="welcome-panel__title">What would you like to visualize?</h2>
           <p class="welcome-panel__body">Pick a visualization below to open its workspace. You can add more tabs later and reuse the data you have already prepared.</p>
           <div class="welcome-panel__actions">
-            <div class="workspace-toolbar__menu welcome-panel__menu" data-menu-id="welcome-open">
-              <button
-                type="button"
-                class="workspace-toolbar__button workspace-toolbar__button--menu"
-                id="welcomeOpenButton"
-                aria-haspopup="true"
-                aria-expanded="false"
-                data-menu-id="welcome-open"
-                aria-controls="welcomeOpenMenu"
-              >
+            <div class="welcome-panel__menu">
+              <button type="button" class="workspace-toolbar__button" id="welcomeOpenButton" aria-label="Open file">
                 <span class="workspace-toolbar__icon">
                   <svg focusable="false" data-icon="toolbar" viewBox="0 0 24 24" aria-hidden="true">
                     <path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z" />
@@ -39,9 +31,6 @@
                 </span>
                 <span class="workspace-toolbar__label">Open file</span>
               </button>
-              <div class="workspace-toolbar__menu-list" role="menu" id="welcomeOpenMenu">
-                <button type="button" class="workspace-toolbar__menu-item" role="menuitem" id="welcomeOpenGraph">Open (.graph)</button>
-              </div>
             </div>
             <input type="file" id="welcomeGraphFileInput" accept=".graph,.json,.session" class="idx-inline-001" />
           </div>
@@ -2075,6 +2064,28 @@
           <button id="saveScopeCurrentTab" type="button" class="btn">Current tab only</button>
           <button id="saveScopeAllTabs" type="button" class="btn">All tabs</button>
           <button id="saveScopeCancel" type="button" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div id="welcomeOpenModePrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeOpenModeTitle" tabindex="-1">
+      <div class="workspace-modal__panel">
+        <h3 id="welcomeOpenModeTitle" class="workspace-modal__title">How should this file be opened?</h3>
+        <p id="welcomeOpenModeMessage" class="workspace-modal__message">You already have tabs open. Add file tabs to your current workspace, or replace the current tabs.</p>
+        <div class="workspace-modal__actions">
+          <button id="welcomeOpenModeAdd" type="button" class="btn">Add tabs</button>
+          <button id="welcomeOpenModeReplace" type="button" class="btn">Replace current tabs</button>
+          <button id="welcomeOpenModeCancel" type="button" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div id="welcomeReplaceUnsavedPrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeReplaceUnsavedTitle" tabindex="-1">
+      <div class="workspace-modal__panel">
+        <h3 id="welcomeReplaceUnsavedTitle" class="workspace-modal__title">Save before replacing?</h3>
+        <p id="welcomeReplaceUnsavedMessage" class="workspace-modal__message">Current workspace has unsaved changes. Save it before replacing tabs?</p>
+        <div class="workspace-modal__actions">
+          <button id="welcomeReplaceUnsavedSave" type="button" class="btn">Save workspace</button>
+          <button id="welcomeReplaceUnsavedDiscard" type="button" class="btn">Replace without saving</button>
+          <button id="welcomeReplaceUnsavedCancel" type="button" class="btn btn-secondary">Cancel</button>
         </div>
       </div>
     </div>

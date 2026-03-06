@@ -164,6 +164,19 @@
       && !!dom?.saveScopeCancel;
   }
 
+  function isSaveScope(value) {
+    return value === 'workspace' || value === 'tab';
+  }
+
+  function resolveDefaultSaveScope(context) {
+    const storedScope = context?.workspaceState?.sessionFileScope;
+    if (isSaveScope(storedScope)) {
+      return storedScope;
+    }
+    const graphTabs = getGraphTabsFromWorkspaceState(context?.workspaceState);
+    return graphTabs.length <= 1 ? 'tab' : 'workspace';
+  }
+
   function fallbackScopePrompt() {
     if (typeof window.confirm !== 'function') {
       return 'workspace';
@@ -235,19 +248,68 @@
     if (!canLoadFile(context)) {
       throw new Error('Session load unavailable: missing applySessionData context.');
     }
-    const { session, withSessionContext, hideDuplicatePrompt, renderTabs, activateTab, showGraphSelection } = context;
+    const { session, withSessionContext, hideDuplicatePrompt, renderTabs, activateTab, showGraphSelection, workspaceState } = context;
     const sessionPayload = parsed?.session;
     if (!sessionPayload || !Array.isArray(sessionPayload.tabs)) {
       throw new Error('Invalid parsed archive payload: missing tabs.');
     }
+    const loadMode = meta.loadMode === 'append' ? 'append' : 'replace';
     const requestedScope = sessionPayload.scope === 'workspace' || sessionPayload.scope === 'tab'
       ? sessionPayload.scope
       : null;
-    const fileScope = requestedScope || (sessionPayload.tabs.length > 1 ? 'workspace' : (sessionPayload.tabs.length === 1 ? 'tab' : null));
-    const fileName = meta.fileName || '';
+    const parsedScope = requestedScope || (sessionPayload.tabs.length > 1 ? 'workspace' : (sessionPayload.tabs.length === 1 ? 'tab' : null));
+
+    let payloadToApply = sessionPayload;
+    let fileScope = parsedScope;
+    let fileHandle = meta.fileHandle || null;
+    let fileName = meta.fileName || '';
+    let existingTabCount = 0;
+    let addedTabCount = sessionPayload.tabs.length;
+
+    if (loadMode === 'append') {
+      const existingPayload = session.buildSessionPayload(withSessionContext({
+        reason: meta.reason || 'graph-load-append-existing'
+      }));
+      const existingTabs = Array.isArray(existingPayload?.tabs) ? existingPayload.tabs : [];
+      existingTabCount = existingTabs.length;
+      const incomingTabs = Array.isArray(sessionPayload.tabs) ? sessionPayload.tabs : [];
+      const incomingActiveIndex = Number.isFinite(sessionPayload?.activeIndex)
+        && sessionPayload.activeIndex >= 0
+        && sessionPayload.activeIndex < incomingTabs.length
+        ? sessionPayload.activeIndex
+        : 0;
+      addedTabCount = incomingTabs.length;
+      const mergedTabs = [];
+      existingTabs.forEach(tab => {
+        mergedTabs.push({
+          title: tab?.title || 'Workspace',
+          type: tab?.type || tab?.payload?.type || null,
+          payload: cloneWithSession(session, tab?.payload || null),
+          layout: cloneWithSession(session, tab?.layout || null)
+        });
+      });
+      incomingTabs.forEach(tab => {
+        mergedTabs.push({
+          title: tab?.title || 'Workspace',
+          type: tab?.type || tab?.payload?.type || null,
+          payload: cloneWithSession(session, tab?.payload || null),
+          layout: cloneWithSession(session, tab?.layout || null)
+        });
+      });
+      payloadToApply = {
+        ...sessionPayload,
+        activeIndex: existingTabs.length + incomingActiveIndex,
+        tabs: mergedTabs,
+        scope: 'workspace'
+      };
+      fileScope = 'workspace';
+      fileHandle = null;
+      fileName = '';
+    }
+
     const loadOptions = withSessionContext({
       reason: meta.reason || 'graph-load',
-      fileHandle: meta.fileHandle || null,
+      fileHandle,
       fileName,
       fileScope,
       hideDuplicatePrompt,
@@ -255,12 +317,31 @@
       activateTab,
       showGraphSelection
     });
-    session.applySessionData(sessionPayload, loadOptions);
+    session.applySessionData(payloadToApply, loadOptions);
+    if (loadMode === 'append') {
+      if (workspaceState) {
+        workspaceState.sessionFileHandle = null;
+        workspaceState.sessionFileName = ensureGraphFileName(context, '', 'workspace.graph');
+        workspaceState.sessionFileScope = 'workspace';
+      }
+      if (existingTabCount > 0 && typeof session.markSessionDirty === 'function') {
+        session.markSessionDirty('graph-load-append', { existingTabCount, addedTabCount });
+      }
+    }
+    debug(context, 'applyParsedSession.complete', {
+      loadMode,
+      scope: fileScope,
+      existingTabCount,
+      addedTabCount,
+      tabCount: payloadToApply.tabs.length
+    });
     return {
       status: 'loaded',
       scope: fileScope,
-      tabCount: sessionPayload.tabs.length,
-      source: parsed?.source || 'unknown'
+      tabCount: payloadToApply.tabs.length,
+      source: parsed?.source || 'unknown',
+      loadMode,
+      addedTabCount
     };
   }
 
@@ -364,14 +445,25 @@
   };
 
   namespace.handleSessionSaveClick = async function handleSessionSaveClick(context, options = {}) {
-    const requestedScope = options.scope === 'workspace' || options.scope === 'tab'
-      ? options.scope
-      : null;
-    const scope = requestedScope || await showSaveScopePrompt(context, options);
-    if (!scope) {
-      debug(context, 'handleSessionSaveClick.cancelled');
-      return { status: 'cancelled', reason: 'scope-cancelled' };
+    const requestedScope = isSaveScope(options.scope) ? options.scope : null;
+    let scope = requestedScope;
+
+    if (!scope && options.promptForScope === true) {
+      scope = await showSaveScopePrompt(context, options);
+      if (!scope) {
+        debug(context, 'handleSessionSaveClick.cancelled');
+        return { status: 'cancelled', reason: 'scope-cancelled' };
+      }
     }
+
+    if (!scope) {
+      scope = resolveDefaultSaveScope(context);
+      debug(context, 'handleSessionSaveClick.defaultScope', {
+        scope,
+        source: isSaveScope(context?.workspaceState?.sessionFileScope) ? 'stored' : 'tab-count'
+      });
+    }
+
     return namespace.saveWorkspaceArchiveWithScope(context, {
       ...options,
       scope

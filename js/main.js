@@ -327,7 +327,13 @@
   const getSessionActionsContext = () => tabsManager.getSessionActionsContext();
 
   async function handleSessionSaveClick(options) {
-    await MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), options || {});
+    const rawOptions = (options && typeof options === 'object' && typeof options.preventDefault !== 'function')
+      ? options
+      : {};
+    await MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), {
+      ...rawOptions,
+      promptForScope: rawOptions.promptForScope === false ? false : true
+    });
   }
 
   async function handleSessionLoadClick(options) {
@@ -336,6 +342,196 @@
 
   function handleSessionInputChange(event) {
     MainSessionActions.handleSessionInputChange(getSessionActionsContext(), event);
+  }
+
+  function getOpenWorkspaceGraphTabCount() {
+    if (!Array.isArray(workspaceState?.tabs)) {
+      return 0;
+    }
+    return workspaceState.tabs.filter(tab => tab && !tab.isWelcome && typeof tab.type === 'string' && tab.type.length > 0).length;
+  }
+
+  function hasWelcomeOpenModePrompt() {
+    return !!dom?.welcomeOpenModePrompt
+      && !!dom?.welcomeOpenModeAdd
+      && !!dom?.welcomeOpenModeReplace
+      && !!dom?.welcomeOpenModeCancel;
+  }
+
+  function fallbackWelcomeOpenModePrompt() {
+    if (typeof window.confirm !== 'function') {
+      return 'replace';
+    }
+    const addToCurrent = window.confirm('Add tabs from the opened file to your current tabs? Click "Cancel" to choose replace.');
+    if (addToCurrent) {
+      return 'append';
+    }
+    const replaceCurrent = window.confirm('Replace current tabs with the opened file? Click "Cancel" to abort opening.');
+    return replaceCurrent ? 'replace' : null;
+  }
+
+  function showWelcomeOpenModePrompt(options = {}) {
+    if (!hasWelcomeOpenModePrompt()) {
+      return Promise.resolve(fallbackWelcomeOpenModePrompt());
+    }
+    const prompt = dom.welcomeOpenModePrompt;
+    const title = dom.welcomeOpenModeTitle;
+    const message = dom.welcomeOpenModeMessage;
+    const addBtn = dom.welcomeOpenModeAdd;
+    const replaceBtn = dom.welcomeOpenModeReplace;
+    const cancelBtn = dom.welcomeOpenModeCancel;
+    if (title) {
+      title.textContent = options.title || 'How should this file be opened?';
+    }
+    if (message) {
+      message.textContent = options.message || 'You already have tabs open. Add file tabs to your current workspace, or replace the current tabs.';
+    }
+    return new Promise(resolve => {
+      let settled = false;
+      const cleanup = () => {
+        prompt.setAttribute('hidden', 'hidden');
+        prompt.removeEventListener('keydown', onKeyDown);
+        addBtn.removeEventListener('click', onAdd);
+        replaceBtn.removeEventListener('click', onReplace);
+        cancelBtn.removeEventListener('click', onCancel);
+      };
+      const finish = mode => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(mode || null);
+      };
+      const onAdd = () => finish('append');
+      const onReplace = () => finish('replace');
+      const onCancel = () => finish(null);
+      const onKeyDown = event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          finish(null);
+        }
+      };
+      addBtn.addEventListener('click', onAdd);
+      replaceBtn.addEventListener('click', onReplace);
+      cancelBtn.addEventListener('click', onCancel);
+      prompt.addEventListener('keydown', onKeyDown);
+      prompt.removeAttribute('hidden');
+      prompt.focus?.();
+    });
+  }
+
+  function hasWelcomeReplaceUnsavedPrompt() {
+    return !!dom?.welcomeReplaceUnsavedPrompt
+      && !!dom?.welcomeReplaceUnsavedSave
+      && !!dom?.welcomeReplaceUnsavedDiscard
+      && !!dom?.welcomeReplaceUnsavedCancel;
+  }
+
+  function fallbackWelcomeReplaceUnsavedPrompt() {
+    if (typeof window.confirm !== 'function') {
+      return 'cancel';
+    }
+    const shouldSave = window.confirm('Current workspace has unsaved changes. Save before replacing?');
+    if (shouldSave) {
+      return 'save';
+    }
+    const replaceWithoutSaving = window.confirm('Replace current tabs without saving? Click "Cancel" to abort.');
+    return replaceWithoutSaving ? 'discard' : 'cancel';
+  }
+
+  function showWelcomeReplaceUnsavedPrompt(options = {}) {
+    if (!hasWelcomeReplaceUnsavedPrompt()) {
+      return Promise.resolve(fallbackWelcomeReplaceUnsavedPrompt());
+    }
+    const prompt = dom.welcomeReplaceUnsavedPrompt;
+    const title = dom.welcomeReplaceUnsavedTitle;
+    const message = dom.welcomeReplaceUnsavedMessage;
+    const saveBtn = dom.welcomeReplaceUnsavedSave;
+    const discardBtn = dom.welcomeReplaceUnsavedDiscard;
+    const cancelBtn = dom.welcomeReplaceUnsavedCancel;
+    if (title) {
+      title.textContent = options.title || 'Save before replacing?';
+    }
+    if (message) {
+      message.textContent = options.message || 'Current workspace has unsaved changes. Save it before replacing tabs?';
+    }
+    return new Promise(resolve => {
+      let settled = false;
+      const cleanup = () => {
+        prompt.setAttribute('hidden', 'hidden');
+        prompt.removeEventListener('keydown', onKeyDown);
+        saveBtn.removeEventListener('click', onSave);
+        discardBtn.removeEventListener('click', onDiscard);
+        cancelBtn.removeEventListener('click', onCancel);
+      };
+      const finish = mode => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(mode || 'cancel');
+      };
+      const onSave = () => finish('save');
+      const onDiscard = () => finish('discard');
+      const onCancel = () => finish('cancel');
+      const onKeyDown = event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          finish('cancel');
+        }
+      };
+      saveBtn.addEventListener('click', onSave);
+      discardBtn.addEventListener('click', onDiscard);
+      cancelBtn.addEventListener('click', onCancel);
+      prompt.addEventListener('keydown', onKeyDown);
+      prompt.removeAttribute('hidden');
+      prompt.focus?.();
+    });
+  }
+
+  async function prepareWelcomeGraphLoadPlan() {
+    const tabCount = getOpenWorkspaceGraphTabCount();
+    let loadMode = 'replace';
+    if (tabCount > 0) {
+      loadMode = await showWelcomeOpenModePrompt({
+        message: 'You already have tabs open. Add file tabs to your current workspace, or replace the current tabs.'
+      });
+      debug('Debug: welcome open mode decision', { tabCount, loadMode: loadMode || null });
+      if (!loadMode) {
+        return { proceed: false, loadMode: null };
+      }
+    }
+    if (loadMode !== 'replace') {
+      return { proceed: true, loadMode };
+    }
+    const context = getSessionActionsContext();
+    if (!MainSessionActions.shouldWarnBeforeUnload(context)) {
+      return { proceed: true, loadMode };
+    }
+    const unsavedChoice = await showWelcomeReplaceUnsavedPrompt({
+      message: 'Current workspace has unsaved changes. Save it before replacing tabs?'
+    });
+    debug('Debug: welcome replace unsaved decision', { unsavedChoice: unsavedChoice || null });
+    if (unsavedChoice === 'cancel') {
+      return { proceed: false, loadMode: null };
+    }
+    if (unsavedChoice === 'save') {
+      const forcePicker = !workspaceState?.sessionFileHandle;
+      const saveResult = await handleSessionSaveClick({
+        reason: 'welcome-open-before-replace-save',
+        scope: 'workspace',
+        promptForScope: false,
+        forcePicker
+      });
+      const saveStatus = saveResult?.status || null;
+      if (saveStatus !== 'saved' && saveStatus !== 'downloaded') {
+        debug('Debug: welcome replace pre-save cancelled', { saveStatus });
+        return { proceed: false, loadMode: null };
+      }
+    }
+    return { proceed: true, loadMode };
   }
 
   async function importGraphFileFromWelcome(file, meta = {}) {
@@ -347,10 +543,12 @@
       await MainSessionActions.loadWorkspaceFile(getSessionActionsContext(), file, {
         reason: 'welcome-graph-load',
         fileHandle: meta.fileHandle || null,
-        fileName: meta.fileName || file.name || ''
+        fileName: meta.fileName || file.name || '',
+        loadMode: meta.loadMode === 'append' ? 'append' : 'replace'
       });
       debug('Debug: welcome graph imported', {
-        fileName: meta.fileName || file.name || null
+        fileName: meta.fileName || file.name || null,
+        loadMode: meta.loadMode === 'append' ? 'append' : 'replace'
       });
       return true;
     } catch (err) {
@@ -385,13 +583,6 @@
   async function handleWelcomeGraphOpen() {
     const context = getSessionActionsContext();
     const shared = context.Shared;
-    const shouldConfirm = MainSessionActions.shouldWarnBeforeUnload(context);
-    if (shouldConfirm && typeof window.confirm === 'function') {
-      const proceed = window.confirm('This will replace your current workspace tabs. Continue without saving first?');
-      if (!proceed) {
-        return;
-      }
-    }
     if (!shared?.fileIO || typeof shared.fileIO.openGraphFile !== 'function') {
       console.warn('Welcome graph picker unavailable: missing Shared.fileIO.openGraphFile');
       if (dom?.welcomeGraphInput) {
@@ -409,9 +600,14 @@
         setFileHandle: handle => { pendingHandle = handle || null; },
         setFileName: name => { pendingName = name || ''; },
         loadFromFile: async selectedFile => {
+          const loadPlan = await prepareWelcomeGraphLoadPlan();
+          if (!loadPlan.proceed) {
+            return;
+          }
           await importGraphFileFromWelcome(selectedFile, {
             fileHandle: pendingHandle,
-            fileName: selectedFile?.name || pendingName
+            fileName: selectedFile?.name || pendingName,
+            loadMode: loadPlan.loadMode || 'replace'
           });
         },
         triggerInput: () => {
@@ -429,25 +625,24 @@
     }
   }
 
-  function handleWelcomeGraphInputChange(event) {
+  async function handleWelcomeGraphInputChange(event) {
     const input = event?.target;
     const file = input?.files && input.files[0];
     if (!file) {
       debug('Debug: welcome graph input change without file');
       return;
     }
-    const context = getSessionActionsContext();
-    const shouldConfirm = MainSessionActions.shouldWarnBeforeUnload(context);
-    if (shouldConfirm && typeof window.confirm === 'function') {
-      const proceed = window.confirm('This will replace your current workspace tabs. Continue without saving first?');
-      if (!proceed) {
-        if (event?.target) {
-          event.target.value = '';
-        }
-        return;
+    const loadPlan = await prepareWelcomeGraphLoadPlan();
+    if (!loadPlan.proceed) {
+      if (input) {
+        input.value = '';
       }
+      return;
     }
-    void importGraphFileFromWelcome(file, { fileName: file.name }).catch(err => {
+    void importGraphFileFromWelcome(file, {
+      fileName: file.name,
+      loadMode: loadPlan.loadMode || 'replace'
+    }).catch(err => {
       console.error('welcome graph input import error', err);
     }).finally(() => {
       if (input) {
@@ -469,7 +664,7 @@
       return null;
     }
     const id = idOwner.id;
-    if (id === 'welcomeOpenGraph') {
+    if (id === 'welcomeOpenButton' || id === 'welcomeOpenGraph') {
       return { action: 'open-welcome', element: idOwner };
     }
     if (/^open[A-Z].*Graph$/.test(id)) {
@@ -548,7 +743,7 @@
       }
       return;
     }
-    const welcomeGraphItem = findClosestInteractive(target, '#welcomeOpenGraph');
+    const welcomeGraphItem = findClosestInteractive(target, '#welcomeOpenButton, #welcomeOpenGraph');
     if (welcomeGraphItem) {
       event.preventDefault();
       void handleWelcomeGraphOpen();
@@ -590,4 +785,3 @@
   window.addEventListener('resize', () => MainPreviews.hideTabPreviewTooltip('resize'));
 
 })();
-
