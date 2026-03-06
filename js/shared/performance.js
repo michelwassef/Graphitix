@@ -175,6 +175,7 @@
     const label = fn.name || 'anonymous';
     let timeoutId = null;
     let animationFrameId = null;
+    let animationFrameQueued = false;
     let pendingArgs = null;
     let pendingContext = null;
     
@@ -189,6 +190,7 @@
         }
         animationFrameId = null;
       }
+      animationFrameQueued = false;
       pendingArgs = null;
       pendingContext = null;
     }
@@ -211,20 +213,28 @@
     }
     
     return function debounced() {
-      cancelPending();
-      
-      const scheduledAt = now();
-      logDebug('Debug: Performance.debounce scheduling callback', { label, strategy, scheduledAt });
-      
       pendingContext = this;
       pendingArgs = arguments;
-      
+
+      const scheduledAt = now();
+      logDebug('Debug: Performance.debounce scheduling callback', { label, strategy, scheduledAt });
+
       if (strategy === 'animationFrame' && typeof global.requestAnimationFrame === 'function') {
+        if (animationFrameQueued) {
+          return;
+        }
+        animationFrameQueued = true;
         animationFrameId = global.requestAnimationFrame(function() {
           animationFrameId = null;
-          execute();
+          Promise.resolve().then(function() {
+            animationFrameQueued = false;
+            execute();
+          });
         });
       } else {
+        if (timeoutId !== null) {
+          global.clearTimeout(timeoutId);
+        }
         timeoutId = global.setTimeout(function() {
           timeoutId = null;
           execute();
@@ -344,7 +354,7 @@
       };
     }
     
-    let lastCall = 0;
+    let lastCall = null;
     let lastResult;
     const label = fn.name || 'anonymous';
     
@@ -358,7 +368,7 @@
       const context = this;
       const args = arguments;
       
-      if (nowTime - lastCall >= limit) {
+      if (lastCall === null || nowTime - lastCall >= limit) {
         lastCall = nowTime;
         logDebug('Debug: Performance.throttle executing', { label, timestamp: nowTime });
         lastResult = fn.apply(context, args);

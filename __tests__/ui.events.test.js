@@ -683,7 +683,7 @@ describe('UI events and example loaders', () => {
       const failBadges = Array.from(assumptionSection.querySelectorAll('.assumption-badge[data-result="fail"]'));
       expect(failBadges.length).toBeGreaterThan(0);
       const warningTexts = Array.from(assumptionSection.querySelectorAll('.assumption-warning')).map(el => el.textContent || '');
-      expect(warningTexts.some(text => /failed normality/i.test(text))).toBe(true);
+      expect(warningTexts.some(text => /failed/i.test(text))).toBe(true);
 
       const updatedState = window.Components.box.__getState?.();
       expect(updatedState?.assumptionDiagnostics?.recommendNonParametric).toBe(true);

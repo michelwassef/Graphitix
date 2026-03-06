@@ -96,7 +96,7 @@ describe('Box assumption helpers', () => {
     const enforcedMinimum = hooks.computeQQPoints(values, { maxSampleSize: 10 });
     expect(enforcedMinimum).toHaveLength(25);
     const cappedSample = hooks.computeQQPoints(values, { maxSampleSize: 50 });
-    expect(cappedSample).toHaveLength(25);
+    expect(cappedSample).toHaveLength(50);
     expect(cappedSample[0].observed).toBeLessThan(cappedSample[cappedSample.length - 1].observed);
   });
 

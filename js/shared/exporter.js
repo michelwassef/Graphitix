@@ -3474,7 +3474,10 @@
     try {
       const defaultFont = getDefaultFontFamily();
       if (svgNode.setAttribute) {
-        if (!svgNode.getAttribute('xmlns')) {
+        // SVG nodes created with createElementNS already serialize with xmlns.
+        // Only inject xmlns when the node is not in the SVG namespace.
+        const hasSvgNamespace = svgNode.namespaceURI === 'http://www.w3.org/2000/svg';
+        if (!hasSvgNamespace && !svgNode.getAttribute('xmlns')) {
           svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
           counters.namespaceAdded += 1;
         }

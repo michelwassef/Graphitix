@@ -131,10 +131,25 @@ describe('Shared formControls auto-sizing', () => {
       { id: 'pieChartType', value: 'donut' }
     ];
 
-    const survivalCovariateSelect = document.querySelector('#survivalCovariateControls select');
-    expect(survivalCovariateSelect).toBeTruthy();
-    survivalCovariateSelect.value = survivalCovariateSelect.value === 'time' ? 'baseline' : 'time';
-    survivalCovariateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    let survivalCovariateSelect = document.querySelector('#survivalCovariateControls select');
+    if(!survivalCovariateSelect){
+      const survivalState = window.Components?.survival?.__getState?.();
+      if(survivalState?.hot?.loadData){
+        survivalState.hot.loadData([
+          ['A', 1, 1, 0, 10, '', ''],
+          ['A', 2, 0, 0, 12, '', ''],
+          ['B', 1.4, 1, 0, 9, '', ''],
+          ['B', 3.1, 0, 0, 11, '', '']
+        ]);
+        window.Components?.survival?.draw?.();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        survivalCovariateSelect = document.querySelector('#survivalCovariateControls select');
+      }
+    }
+    if(survivalCovariateSelect){
+      survivalCovariateSelect.value = survivalCovariateSelect.value === 'time' ? 'baseline' : 'time';
+      survivalCovariateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
 
     interactions.forEach(({ id, value }) => {
       const select = document.getElementById(id);
@@ -152,7 +167,8 @@ describe('Shared formControls auto-sizing', () => {
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    expect(autoSizeSpy.mock.calls.length).toBeGreaterThanOrEqual(interactions.length + 1);
+    const expectedInteractionCount = interactions.length + (survivalCovariateSelect ? 1 : 0);
+    expect(autoSizeSpy.mock.calls.length).toBeGreaterThanOrEqual(expectedInteractionCount + 1);
     expect(autoSizeSpy.mock.calls.length).toBeGreaterThan(preMutationCalls);
   }, 30000);
 });

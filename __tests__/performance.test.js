@@ -47,7 +47,7 @@ describe('Performance Optimization Framework', () => {
       expect(mockFn).toHaveBeenCalledTimes(1);
     });
 
-    it('should debounce function calls with animationFrame strategy', () => {
+    it('should debounce function calls with animationFrame strategy', async () => {
       // Mock requestAnimationFrame and cancelAnimationFrame BEFORE creating debounced function
       global.requestAnimationFrame = jest.fn((cb) => {
         cb();
@@ -62,12 +62,13 @@ describe('Performance Optimization Framework', () => {
       debounced();
       debounced();
 
+      await Promise.resolve();
       expect(mockFn).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('Performance.debounceFrame', () => {
-    it('should use animation frame strategy by default', () => {
+    it('should use animation frame strategy by default', async () => {
       // Mock requestAnimationFrame
       global.requestAnimationFrame = jest.fn((cb) => {
         cb();
@@ -78,6 +79,7 @@ describe('Performance Optimization Framework', () => {
       const debounced = Shared.Performance.debounceFrame(mockFn);
 
       debounced();
+      await Promise.resolve();
       expect(mockFn).toHaveBeenCalledTimes(1);
     });
   });
