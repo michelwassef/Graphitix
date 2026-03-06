@@ -3063,7 +3063,15 @@
       } catch(highlightErr){
         console.error('axisControls registerAxisElement highlight error', highlightErr);
       }
-      const resolveResizeTarget = () => resolveAxisResizeTarget(element, config);
+      let cachedResizeTarget = null;
+      const resolveResizeTarget = () => {
+        const target = resolveAxisResizeTarget(element, config);
+        if(target){
+          cachedResizeTarget = target;
+          return target;
+        }
+        return cachedResizeTarget;
+      };
       const fallbackGetAxisLength = axisName => {
         const target = resolveResizeTarget();
         const size = resolveResizeTargetGraphSize(target);
