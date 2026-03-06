@@ -318,6 +318,7 @@
   let lineLast2dShowFrame = false;
   let lineLast2dShowTrendLine = false;
   let lineLast2dShowIntervals = false;
+  let lineLast2dShowPredictionIntervals = false;
   let lineLast2dShowDiagnostics = false;
   const lineUndoManager = Shared.undoManager || null;
   function isLine3dMode(){
@@ -419,9 +420,9 @@
   let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
   let lineSeriesStyles = {};
   const LINE_OVERLAY_STYLE_DEFAULTS = Object.freeze({
-    trend: Object.freeze({ color: '#d00', thickness: 1, transparency: 0, pattern: 'dashed' }),
-    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85, pattern: 'solid' }),
-    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92, pattern: 'solid' })
+    trend: Object.freeze({ color: 'auto', thickness: 1, transparency: 0, pattern: 'dashed' }),
+    confidence: Object.freeze({ color: 'auto', thickness: 0, transparency: 85, pattern: 'solid' }),
+    prediction: Object.freeze({ color: 'auto', thickness: 0, transparency: 92, pattern: 'solid' })
   });
   function normalizeLineOverlaySeriesKey(value){
     return String(value == null ? '' : value).trim();
@@ -448,9 +449,12 @@
     }
     const fallback = LINE_OVERLAY_STYLE_DEFAULTS[safeKey] || LINE_OVERLAY_STYLE_DEFAULTS.trend;
     const next = entry && typeof entry === 'object' ? entry : {};
-    const color = typeof next.color === 'string' && next.color.trim()
+    const rawColor = typeof next.color === 'string' && next.color.trim()
       ? next.color.trim()
       : fallback.color;
+    const color = String(rawColor || '').trim().toLowerCase() === 'auto'
+      ? 'auto'
+      : (String(rawColor || '').trim() || 'auto');
     const thicknessRaw = Number(next.thickness);
     const thickness = Number.isFinite(thicknessRaw)
       ? Math.max(0, thicknessRaw)
@@ -475,6 +479,30 @@
       return `${Math.max(1, Math.round(thickness))} ${Math.max(2, Math.round(thickness * 2.2))}`;
     }
     return '';
+  }
+  function resolveLineOverlayStrokeColor(styleColor, seriesColor, fallbackColor){
+    const raw = String(styleColor == null ? '' : styleColor).trim();
+    if(!raw || raw.toLowerCase() === 'auto'){
+      const fromSeries = String(seriesColor == null ? '' : seriesColor).trim();
+      if(fromSeries){
+        return fromSeries;
+      }
+      const fromFallback = String(fallbackColor == null ? '' : fallbackColor).trim();
+      if(fromFallback){
+        return fromFallback;
+      }
+      return '#000000';
+    }
+    return raw;
+  }
+  function isLineConfidenceIntervalEnabled(){
+    return !!refs.showIntervals?.checked;
+  }
+  function isLinePredictionIntervalEnabled(){
+    return !!refs.showPredictionIntervals?.checked;
+  }
+  function isLineAnyIntervalEnabled(){
+    return isLineConfidenceIntervalEnabled() || isLinePredictionIntervalEnabled();
   }
   function sanitizeLineOverlayStylesMap(value){
     const defaults = cloneLineOverlayStyleDefaults();
@@ -1808,7 +1836,7 @@
   }
 
   function handleLineStatsUnavailable(statsOptions, placeholder){
-    const advisorOptions = statsOptions || { showIntervals: !!refs.showIntervals?.checked, showDiagnostics: !!refs.showDiagnostics?.checked };
+    const advisorOptions = statsOptions || { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: !!refs.showDiagnostics?.checked };
     renderLineStatsAdvisor([], advisorOptions);
     primeLineStatsContext(null, { placeholder: placeholder || lineStatsEmptyPlaceholder });
   }
@@ -1864,7 +1892,7 @@
       ...context,
       statsOptions: {
         ...context.statsOptions,
-        showIntervals: !!refs.showIntervals?.checked,
+        showIntervals: isLineAnyIntervalEnabled(),
         showDiagnostics: !!refs.showDiagnostics?.checked
       },
       controls: {
@@ -3356,7 +3384,8 @@
           Array.from(activeSet).forEach(pushOrdered);
           return ordered;
         })();
-        const overlayIntervalsEnabled = !!refs.showIntervals?.checked;
+        const overlayConfidenceEnabled = isLineConfidenceIntervalEnabled();
+        const overlayPredictionEnabled = isLinePredictionIntervalEnabled();
         const overlayScopeOptions = (() => {
           const options = [{ value: 'global', label: 'Global' }];
           const appendOverlayOptions = (overlayKey, label) => {
@@ -3369,8 +3398,10 @@
             });
           };
           appendOverlayOptions('trend', 'Trend line');
-          if(overlayIntervalsEnabled){
+          if(overlayConfidenceEnabled){
             appendOverlayOptions('confidence', 'Confidence interval');
+          }
+          if(overlayPredictionEnabled){
             appendOverlayOptions('prediction', 'Prediction interval');
           }
           return options;
@@ -3385,6 +3416,17 @@
             return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
           }
           return '#000000';
+        };
+        const resolveOverlayPreviewColorForScope = (scope, style) => {
+          const parsed = parseLineOverlayToolbarScope(scope);
+          const scopedSeriesKey = parsed.mode === 'series'
+            ? normalizeLineOverlaySeriesKey(parsed.seriesKey)
+            : normalizeLineOverlaySeriesKey(seriesKey || target?.dataset?.series);
+          const seriesContext = scopedSeriesKey
+            ? { scope: 'series', scopeValue: 'series', scopeDataset: scopedSeriesKey, target }
+            : { scope: 'global', scopeValue: 'global', scopeDataset: '', target };
+          const lineColor = getPathColor(seriesContext);
+          return resolveLineOverlayStrokeColor(style?.color, lineColor, strokeInput?.value || '#000000');
         };
         const ensureInlineOverlayPanel = () => {
           if(!toolbarHost || !toolbarHost.querySelectorAll){
@@ -3532,7 +3574,7 @@
             patternLabel.textContent = labels.patternLabel || 'Line pattern';
             transparencyLabel.textContent = labels.transparencyLabel || 'Line transparency';
             const previewStyle = getLineOverlayPreviewStyle(scope) || getLineOverlayStyle('trend') || {};
-            colorInput.value = toColorInputValue(previewStyle.color);
+            colorInput.value = toColorInputValue(resolveOverlayPreviewColorForScope(scope, previewStyle));
             thicknessInput.value = String(Math.max(0, Number(previewStyle.thickness) || 0));
             const patternValue = String(previewStyle.pattern || 'solid').toLowerCase();
             patternSelect.value = (patternValue === 'dashed' || patternValue === 'dotted' || patternValue === 'solid')
@@ -3799,7 +3841,7 @@
       seriesCount: arr.length,
       statsMethod: refs.statType?.value || 'pearson',
       regressionMode: refs.regressionMode?.value || 'linear',
-      showIntervals: options?.showIntervals ?? !!refs.showIntervals?.checked,
+      showIntervals: options?.showIntervals ?? isLineAnyIntervalEnabled(),
       showDiagnostics: options?.showDiagnostics ?? !!refs.showDiagnostics?.checked,
       forecastOptions: options?.forecast || null
     };
@@ -4183,6 +4225,9 @@
           if(refs.showIntervals){
             refs.showIntervals.checked=!!recommendation.showIntervals;
           }
+          if(refs.showPredictionIntervals){
+            refs.showPredictionIntervals.checked=!!recommendation.showIntervals;
+          }
           if(refs.showDiagnostics){
             refs.showDiagnostics.checked=!!recommendation.showDiagnostics;
           }
@@ -4328,6 +4373,9 @@
         }
         if(refs.showIntervals){
           refs.showIntervals.checked=!!recommendation.showIntervals;
+        }
+        if(refs.showPredictionIntervals){
+          refs.showPredictionIntervals.checked=!!recommendation.showIntervals;
         }
         if(refs.showDiagnostics){
           refs.showDiagnostics.checked=!!recommendation.showDiagnostics;
@@ -5706,6 +5754,7 @@
       lineLast2dShowFrame = !!refs.showFrame?.checked;
       lineLast2dShowTrendLine = !!refs.showTrendLine?.checked;
       lineLast2dShowIntervals = !!refs.showIntervals?.checked;
+      lineLast2dShowPredictionIntervals = !!refs.showPredictionIntervals?.checked;
       lineLast2dShowDiagnostics = !!refs.showDiagnostics?.checked;
     }
     lineViewState.viewMode = '3d';
@@ -5760,6 +5809,12 @@
       refs.showIntervals.disabled = true;
       if(refs.showIntervals.checked){
         refs.showIntervals.checked = false;
+      }
+    }
+    if(refs.showPredictionIntervals){
+      refs.showPredictionIntervals.disabled = true;
+      if(refs.showPredictionIntervals.checked){
+        refs.showPredictionIntervals.checked = false;
       }
     }
     if(refs.showDiagnostics){
@@ -5840,6 +5895,10 @@
     if(refs.showIntervals){
       refs.showIntervals.disabled = false;
       refs.showIntervals.checked = !!lineLast2dShowIntervals;
+    }
+    if(refs.showPredictionIntervals){
+      refs.showPredictionIntervals.disabled = false;
+      refs.showPredictionIntervals.checked = !!lineLast2dShowPredictionIntervals;
     }
     if(refs.showDiagnostics){
       refs.showDiagnostics.disabled = false;
@@ -6839,7 +6898,9 @@
         logPlusOneX:!!lineLogPlusOneX,
         logPlusOneY:!!lineLogPlusOneY,
         showTrendLine: !!refs.showTrendLine?.checked,
-        showIntervals:refs.showIntervals?.checked,
+        showIntervals:isLineAnyIntervalEnabled(),
+        showConfidenceIntervals: isLineConfidenceIntervalEnabled(),
+        showPredictionIntervals: isLinePredictionIntervalEnabled(),
         showDiagnostics:refs.showDiagnostics?.checked,
         overlayStyles: sanitizeLineOverlayStylesMap(lineOverlayStyles),
         xMin:refs.xMin?.value,
@@ -6898,7 +6959,9 @@
             regressionMode: refs.regressionMode?.value || null
           },
           statsOptions: {
-            showIntervals: !!refs.showIntervals?.checked,
+            showIntervals: isLineAnyIntervalEnabled(),
+            showConfidenceIntervals: isLineConfidenceIntervalEnabled(),
+            showPredictionIntervals: isLinePredictionIntervalEnabled(),
             showDiagnostics: !!refs.showDiagnostics?.checked,
             forecast: {
               horizon: refs.forecastHorizon?.value ?? null,
@@ -6999,7 +7062,8 @@
     lineLast2dLogY = !!c.logY;
     lineLast2dShowFrame = !!c.showFrame;
     lineLast2dShowTrendLine = !!c.showTrendLine;
-    lineLast2dShowIntervals = !!c.showIntervals;
+    lineLast2dShowIntervals = !!(c.showConfidenceIntervals ?? c.showIntervals);
+    lineLast2dShowPredictionIntervals = !!(c.showPredictionIntervals ?? c.showIntervals);
     lineLast2dShowDiagnostics = !!c.showDiagnostics;
     if(typeof c.equalAxes === 'boolean'){
       lineViewState.equalAxes = c.equalAxes;
@@ -7076,6 +7140,10 @@
           refs.showIntervals.disabled = true;
           refs.showIntervals.checked = false;
         }
+        if(refs.showPredictionIntervals){
+          refs.showPredictionIntervals.disabled = true;
+          refs.showPredictionIntervals.checked = false;
+        }
         if(refs.showDiagnostics){
           refs.showDiagnostics.disabled = true;
           refs.showDiagnostics.checked = false;
@@ -7105,6 +7173,9 @@
         }
         if(refs.showIntervals){
           refs.showIntervals.disabled = false;
+        }
+        if(refs.showPredictionIntervals){
+          refs.showPredictionIntervals.disabled = false;
         }
         if(refs.showDiagnostics){
           refs.showDiagnostics.disabled = false;
@@ -7215,7 +7286,8 @@
     lineLogPlusOneX=!!c.logPlusOneX;
     lineLogPlusOneY=!!c.logPlusOneY;
     if(refs.showTrendLine) refs.showTrendLine.checked=!!c.showTrendLine;
-    if(refs.showIntervals) refs.showIntervals.checked=!!c.showIntervals;
+    if(refs.showIntervals) refs.showIntervals.checked=!!(c.showConfidenceIntervals ?? c.showIntervals);
+    if(refs.showPredictionIntervals) refs.showPredictionIntervals.checked=!!(c.showPredictionIntervals ?? c.showIntervals);
     if(refs.showDiagnostics) refs.showDiagnostics.checked=!!c.showDiagnostics;
     if(refs.xMin) refs.xMin.value=c.xMin||'';
     if(refs.xMax) refs.xMax.value=c.xMax||'';
@@ -7295,6 +7367,10 @@
         refs.showIntervals.checked = false;
         refs.showIntervals.disabled = true;
       }
+      if(refs.showPredictionIntervals){
+        refs.showPredictionIntervals.checked = false;
+        refs.showPredictionIntervals.disabled = true;
+      }
       if(refs.showDiagnostics){
         refs.showDiagnostics.checked = false;
         refs.showDiagnostics.disabled = true;
@@ -7330,6 +7406,9 @@
       }
       if(refs.showIntervals){
         refs.showIntervals.disabled = false;
+      }
+      if(refs.showPredictionIntervals){
+        refs.showPredictionIntervals.disabled = false;
       }
       if(refs.showDiagnostics){
         refs.showDiagnostics.disabled = false;
@@ -8515,12 +8594,14 @@
         console.debug('Debug: line manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
       }
       const showTrendLine=!!refs.showTrendLine?.checked;
-      const showIntervals=!!refs.showIntervals?.checked;
+      const showConfidenceIntervals = isLineConfidenceIntervalEnabled();
+      const showPredictionIntervals = isLinePredictionIntervalEnabled();
+      const showIntervals = showConfidenceIntervals || showPredictionIntervals;
       const showDiagnostics=!!refs.showDiagnostics?.checked;
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
       const regressionAlpha = 0.05;
       const forecastOptions = resolveForecastOptions();
-      console.debug('Debug: line regression configuration',{ showTrendLine, showIntervals, showDiagnostics, regressionMode: regressionModeCurrent, forecastOptions });
+      console.debug('Debug: line regression configuration',{ showTrendLine, showIntervals, showConfidenceIntervals, showPredictionIntervals, showDiagnostics, regressionMode: regressionModeCurrent, forecastOptions });
       const xMinManual=parseFloat(refs.xMin?.value);
       const xMaxManual=parseFloat(refs.xMax?.value);
       const yMinManual=parseFloat(refs.yMin?.value);
@@ -8530,7 +8611,7 @@
       const originYInput=parseFloat(refs.originY?.value);
       const data=lineHot.getData();
       const regressionCache=new Map();
-      const statsContext={ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions };
+      const statsContext={ showIntervals, showConfidenceIntervals, showPredictionIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions };
       if(!Array.isArray(data) || !data.length){
         resetLineRenderState('no-data-matrix');
         handleLineStatsUnavailable(statsContext, lineStatsEmptyPlaceholder);
@@ -9764,7 +9845,7 @@
           || color;
         const confidenceStyle = getLineOverlayStyle('confidence', s.name);
         const predictionStyle = getLineOverlayStyle('prediction', s.name);
-        if(showIntervals && s.regression?.intervals?.samples?.length){
+        if((showConfidenceIntervals || showPredictionIntervals) && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
           intervalLayer.setAttribute('data-layer',`interval-${i}`);
           svg.appendChild(intervalLayer);
@@ -9799,16 +9880,17 @@
           };
           const confidencePath=buildIntervalPath('ciLow','ciHigh');
           const predictionPath=buildIntervalPath('piLow','piHigh');
-          const bandColor = confidenceStyle?.color || predictionStyle?.color || color;
-          if(confidencePath){
+          const confidenceColor = resolveLineOverlayStrokeColor(confidenceStyle?.color, seriesLineColor, color);
+          const predictionColor = resolveLineOverlayStrokeColor(predictionStyle?.color, seriesLineColor, color);
+          if(showConfidenceIntervals && confidencePath){
             const confEl=document.createElementNS(NS,'path');
             confEl.setAttribute('d',confidencePath);
-            confEl.setAttribute('fill',bandColor);
+            confEl.setAttribute('fill',confidenceColor);
             const confidenceOpacity = 1 - ((confidenceStyle?.transparency ?? 85) / 100);
             confEl.setAttribute('fill-opacity',String(Math.min(1, Math.max(0, confidenceOpacity))));
             const confidenceThickness = Number(confidenceStyle?.thickness);
             if(Number.isFinite(confidenceThickness) && confidenceThickness > 0){
-              confEl.setAttribute('stroke',bandColor);
+              confEl.setAttribute('stroke',confidenceColor);
               confEl.setAttribute('stroke-width',String(confidenceThickness));
               confEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, confidenceOpacity))));
               const confidenceDash = lineOverlayPatternToDasharray(confidenceStyle?.pattern, confidenceThickness);
@@ -9825,15 +9907,15 @@
             intervalLayer.appendChild(confEl);
             registerLineOverlayControlElement(confEl, 'confidence', s.name);
           }
-          if(predictionPath){
+          if(showPredictionIntervals && predictionPath){
             const predEl=document.createElementNS(NS,'path');
             predEl.setAttribute('d',predictionPath);
-            predEl.setAttribute('fill',bandColor);
+            predEl.setAttribute('fill',predictionColor);
             const predictionOpacity = 1 - ((predictionStyle?.transparency ?? 92) / 100);
             predEl.setAttribute('fill-opacity',String(Math.min(1, Math.max(0, predictionOpacity))));
             const predictionThickness = Number(predictionStyle?.thickness);
             if(Number.isFinite(predictionThickness) && predictionThickness > 0){
-              predEl.setAttribute('stroke',bandColor);
+              predEl.setAttribute('stroke',predictionColor);
               predEl.setAttribute('stroke-width',String(predictionThickness));
               predEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, predictionOpacity))));
               const predictionDash = lineOverlayPatternToDasharray(predictionStyle?.pattern, predictionThickness);
@@ -9850,7 +9932,13 @@
             intervalLayer.appendChild(predEl);
             registerLineOverlayControlElement(predEl, 'prediction', s.name);
           }
-          console.debug('Debug: line interval shading rendered',{ series: s.name, hasConfidence: !!confidencePath, hasPrediction: !!predictionPath });
+          console.debug('Debug: line interval shading rendered',{
+            series: s.name,
+            showConfidenceIntervals,
+            showPredictionIntervals,
+            hasConfidence: !!confidencePath,
+            hasPrediction: !!predictionPath
+          });
         }
         let trendPathEl=null;
         if(showTrendLine && s.regression){
@@ -9896,7 +9984,7 @@
             trendPathEl = document.createElementNS(NS,'path');
             trendPathEl.setAttribute('d',trendCommands.join(' '));
             trendPathEl.setAttribute('fill','none');
-            trendPathEl.setAttribute('stroke',trendStyle?.color || color);
+            trendPathEl.setAttribute('stroke',resolveLineOverlayStrokeColor(trendStyle?.color, seriesLineColor, color));
             trendPathEl.setAttribute('stroke-width',String(trendStrokeWidth));
             trendPathEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, trendOpacity))));
             const trendDash = lineOverlayPatternToDasharray(trendStyle?.pattern, trendStrokeWidth);
@@ -10561,6 +10649,7 @@
     refs.regressionMode=document.getElementById('lineRegressionMode');
     refs.showTrendLine=document.getElementById('lineShowTrendLine');
     refs.showIntervals=document.getElementById('lineShowIntervals');
+    refs.showPredictionIntervals=document.getElementById('lineShowPredictionIntervals');
     refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
     refs.showLegend=document.getElementById('lineShowLegend');
     if(refs.showLegend){
@@ -10569,7 +10658,7 @@
         lineLegendControl=legendHost;
       }
     }
-    renderLineStatsAdvisor([], { showIntervals: !!refs.showIntervals?.checked, showDiagnostics: !!refs.showDiagnostics?.checked });
+    renderLineStatsAdvisor([], { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: !!refs.showDiagnostics?.checked });
     clearLineStatsOutputs(lineStatsEmptyPlaceholder);
     setLineStatsStatus('');
     updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
@@ -11789,6 +11878,11 @@
     refs.showIntervals?.addEventListener('change',e=>{
       console.debug('Debug: line showIntervals change',{checked:e.target.checked});
       requestLineStatsContextRefresh('intervals-toggle');
+      scheduleLineDraw();
+    });
+    refs.showPredictionIntervals?.addEventListener('change',e=>{
+      console.debug('Debug: line showPredictionIntervals change',{checked:e.target.checked});
+      requestLineStatsContextRefresh('prediction-intervals-toggle');
       scheduleLineDraw();
     });
     refs.showDiagnostics?.addEventListener('change',e=>{
