@@ -285,6 +285,7 @@
       cfg.backgroundColor,
       isDark ? '#000000' : '#ffffff'
     );
+    lineOverlayStyles = sanitizeLineOverlayStylesMap(cfg.overlayStyles);
   }
 
   function appendLine3dBackground(svg, width, height){
@@ -315,6 +316,7 @@
   let lineLast2dLogX = false;
   let lineLast2dLogY = false;
   let lineLast2dShowFrame = false;
+  let lineLast2dShowTrendLine = false;
   let lineLast2dShowIntervals = false;
   let lineLast2dShowDiagnostics = false;
   const lineUndoManager = Shared.undoManager || null;
@@ -416,6 +418,153 @@
   let lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
   let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
   let lineSeriesStyles = {};
+  const LINE_OVERLAY_STYLE_DEFAULTS = Object.freeze({
+    trend: Object.freeze({ color: '#d00', thickness: 1, transparency: 0, pattern: 'dashed' }),
+    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85, pattern: 'solid' }),
+    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92, pattern: 'solid' })
+  });
+  function cloneLineOverlayStyleDefaults(){
+    return {
+      trend: { ...LINE_OVERLAY_STYLE_DEFAULTS.trend },
+      confidence: { ...LINE_OVERLAY_STYLE_DEFAULTS.confidence },
+      prediction: { ...LINE_OVERLAY_STYLE_DEFAULTS.prediction }
+    };
+  }
+  function sanitizeLineOverlayKey(key){
+    const normalized = String(key || '').trim().toLowerCase();
+    if(normalized === 'trend' || normalized === 'confidence' || normalized === 'prediction'){
+      return normalized;
+    }
+    return null;
+  }
+  function sanitizeLineOverlayStyleEntry(entry, key){
+    const safeKey = sanitizeLineOverlayKey(key);
+    if(!safeKey){
+      return null;
+    }
+    const fallback = LINE_OVERLAY_STYLE_DEFAULTS[safeKey] || LINE_OVERLAY_STYLE_DEFAULTS.trend;
+    const next = entry && typeof entry === 'object' ? entry : {};
+    const color = typeof next.color === 'string' && next.color.trim()
+      ? next.color.trim()
+      : fallback.color;
+    const thicknessRaw = Number(next.thickness);
+    const thickness = Number.isFinite(thicknessRaw)
+      ? Math.max(0, thicknessRaw)
+      : fallback.thickness;
+    const transparencyRaw = Number(next.transparency);
+    const transparency = Number.isFinite(transparencyRaw)
+      ? Math.min(100, Math.max(0, transparencyRaw))
+      : fallback.transparency;
+    const patternRaw = String(next.pattern || next.linePattern || fallback.pattern || 'solid').toLowerCase();
+    const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid' || patternRaw === 'continuous')
+      ? (patternRaw === 'continuous' ? 'solid' : patternRaw)
+      : 'solid';
+    return { color, thickness, transparency, pattern };
+  }
+  function lineOverlayPatternToDasharray(pattern, width){
+    const normalized = String(pattern || 'solid').toLowerCase();
+    const thickness = Number.isFinite(Number(width)) ? Math.max(0.5, Number(width)) : 1;
+    if(normalized === 'dashed'){
+      return `${Math.max(2, Math.round(thickness * 4))} ${Math.max(2, Math.round(thickness * 2.4))}`;
+    }
+    if(normalized === 'dotted'){
+      return `${Math.max(1, Math.round(thickness))} ${Math.max(2, Math.round(thickness * 2.2))}`;
+    }
+    return '';
+  }
+  function sanitizeLineOverlayStylesMap(value){
+    const defaults = cloneLineOverlayStyleDefaults();
+    if(!value || typeof value !== 'object'){
+      return defaults;
+    }
+    Object.keys(defaults).forEach(key => {
+      defaults[key] = sanitizeLineOverlayStyleEntry(value[key], key) || defaults[key];
+    });
+    return defaults;
+  }
+  let lineOverlayStyles = cloneLineOverlayStyleDefaults();
+  let lineOverlayToolbarScope = 'global';
+  function getLineOverlayStyle(key){
+    const safeKey = sanitizeLineOverlayKey(key);
+    if(!safeKey){
+      return null;
+    }
+    return sanitizeLineOverlayStyleEntry(lineOverlayStyles?.[safeKey], safeKey)
+      || sanitizeLineOverlayStyleEntry(LINE_OVERLAY_STYLE_DEFAULTS[safeKey], safeKey);
+  }
+  function updateLineOverlayStyle(key, patch){
+    const safeKey = sanitizeLineOverlayKey(key);
+    if(!safeKey){
+      return;
+    }
+    const previous = getLineOverlayStyle(safeKey) || sanitizeLineOverlayStyleEntry(null, safeKey);
+    const merged = sanitizeLineOverlayStyleEntry(Object.assign({}, previous || {}, patch || {}), safeKey);
+    if(!merged){
+      return;
+    }
+    lineOverlayStyles = lineOverlayStyles && typeof lineOverlayStyles === 'object'
+      ? lineOverlayStyles
+      : cloneLineOverlayStyleDefaults();
+    lineOverlayStyles[safeKey] = merged;
+  }
+  function normalizeLineOverlayToolbarScope(value){
+    const normalized = String(value == null ? '' : value).trim().toLowerCase();
+    if(normalized === 'global'){
+      return 'global';
+    }
+    return sanitizeLineOverlayKey(normalized) || 'global';
+  }
+  function getLineOverlayScopeKeys(scopeKey){
+    const normalized = normalizeLineOverlayToolbarScope(scopeKey);
+    if(normalized === 'global'){
+      return ['trend', 'confidence', 'prediction'];
+    }
+    const safeKey = sanitizeLineOverlayKey(normalized);
+    return safeKey ? [safeKey] : ['trend'];
+  }
+  function getLineOverlayPreviewStyle(scopeKey){
+    const keys = getLineOverlayScopeKeys(scopeKey);
+    const firstKey = keys.length ? keys[0] : 'trend';
+    return getLineOverlayStyle(firstKey);
+  }
+  function getLineOverlayToolbarLabels(scopeKey){
+    const safeScope = normalizeLineOverlayToolbarScope(scopeKey);
+    if(safeScope === 'global'){
+      return {
+        colorLabel: 'Color',
+        thicknessLabel: 'Thickness',
+        patternLabel: 'Line pattern',
+        transparencyLabel: 'Transparency'
+      };
+    }
+    if(safeScope === 'trend'){
+      return {
+        colorLabel: 'Line',
+        thicknessLabel: 'Line width',
+        patternLabel: 'Line pattern',
+        transparencyLabel: 'Line transparency'
+      };
+    }
+    return {
+      colorLabel: 'Fill',
+      thicknessLabel: 'Border thickness',
+      patternLabel: 'Line pattern',
+      transparencyLabel: 'Fill transparency'
+    };
+  }
+  function getLineOverlaySummary(scopeKey){
+    const safeScope = normalizeLineOverlayToolbarScope(scopeKey);
+    if(safeScope === 'global'){
+      return 'Global';
+    }
+    if(safeScope === 'confidence'){
+      return 'Confidence interval';
+    }
+    if(safeScope === 'prediction'){
+      return 'Prediction interval';
+    }
+    return 'Trend line';
+  }
   let line3dLastSeriesCount = null;
   const lineModeCache = {
     twoD: null,
@@ -3063,12 +3212,231 @@
               }
             }
           });
-          toolbarHost.style.display = 'grid';
-          toolbarHost.style.gridAutoFlow = 'column';
-          toolbarHost.style.gridAutoColumns = 'max-content';
-          toolbarHost.style.columnGap = '10px';
-          toolbarHost.style.alignItems = 'flex-start';
         }
+        const clickedOverlayScopeRaw = target?.dataset?.lineOverlay;
+        const hasClickedOverlayScope = typeof clickedOverlayScopeRaw === 'string' && clickedOverlayScopeRaw.trim() !== '';
+        lineOverlayToolbarScope = hasClickedOverlayScope
+          ? normalizeLineOverlayToolbarScope(clickedOverlayScopeRaw)
+          : normalizeLineOverlayToolbarScope(lineOverlayToolbarScope);
+        const toColorInputValue = value => {
+          const normalized = String(value || '').trim().toLowerCase();
+          if(/^#([0-9a-f]{6})$/.test(normalized)){
+            return normalized;
+          }
+          if(/^#([0-9a-f]{3})$/.test(normalized)){
+            const hex = normalized.slice(1);
+            return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+          }
+          return '#000000';
+        };
+        const ensureInlineOverlayPanel = () => {
+          if(!toolbarHost || !toolbarHost.querySelectorAll){
+            return null;
+          }
+          toolbarHost.querySelectorAll('.line-overlay-inline-panel').forEach(node => node.remove());
+          const panel = doc.createElement('div');
+          panel.className = 'additional-line-controls-panel line-overlay-inline-panel';
+          panel.dataset.lineOverlayPanel = '1';
+          const title = doc.createElement('div');
+          title.className = 'additional-line-controls-panel__title';
+          title.textContent = 'Overlay';
+          panel.appendChild(title);
+          const row = doc.createElement('div');
+          row.className = 'additional-line-controls-panel__row';
+          panel.appendChild(row);
+          const scopeField = doc.createElement('label');
+          scopeField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--scope';
+          const scopeLabel = doc.createElement('span');
+          scopeLabel.className = 'additional-line-controls-panel__field-label';
+          scopeLabel.textContent = 'Scope';
+          const scopeSelect = doc.createElement('select');
+          scopeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
+          [
+            { value: 'global', label: 'Global' },
+            { value: 'trend', label: 'Trend line' },
+            { value: 'confidence', label: 'Confidence interval' },
+            { value: 'prediction', label: 'Prediction interval' }
+          ].forEach(option => {
+            const opt = doc.createElement('option');
+            opt.value = option.value;
+            opt.textContent = option.label;
+            scopeSelect.appendChild(opt);
+          });
+          scopeField.appendChild(scopeLabel);
+          scopeField.appendChild(scopeSelect);
+          row.appendChild(scopeField);
+          const styleField = doc.createElement('label');
+          styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style';
+          const styleLabel = doc.createElement('span');
+          styleLabel.className = 'additional-line-controls-panel__field-label';
+          styleLabel.textContent = 'Line';
+          const styleControl = doc.createElement('div');
+          styleControl.className = 'shared-border-style-control';
+          const styleChip = doc.createElement('button');
+          styleChip.type = 'button';
+          styleChip.className = 'shared-border-style-chip';
+          styleChip.title = 'Click to edit color. Use mouse wheel to adjust line thickness.';
+          const styleChipPreview = doc.createElement('span');
+          styleChipPreview.className = 'shared-border-style-chip-preview';
+          const styleChipValue = doc.createElement('span');
+          styleChipValue.className = 'shared-border-style-chip-value';
+          styleChip.appendChild(styleChipPreview);
+          styleChip.appendChild(styleChipValue);
+          const colorInput = doc.createElement('input');
+          colorInput.type = 'color';
+          colorInput.className = 'shared-border-style-input additional-line-controls-panel__color-input';
+          styleControl.appendChild(styleChip);
+          styleControl.appendChild(colorInput);
+          styleField.appendChild(styleLabel);
+          styleField.appendChild(styleControl);
+          row.appendChild(styleField);
+          const patternField = doc.createElement('label');
+          patternField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern';
+          const patternLabel = doc.createElement('span');
+          patternLabel.className = 'additional-line-controls-panel__field-label';
+          patternLabel.textContent = 'Line pattern';
+          const patternSelect = doc.createElement('select');
+          patternSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
+          [
+            { value: 'solid', label: 'Continuous' },
+            { value: 'dashed', label: 'Dashed' },
+            { value: 'dotted', label: 'Dotted' }
+          ].forEach(option => {
+            const opt = doc.createElement('option');
+            opt.value = option.value;
+            opt.textContent = option.label;
+            patternSelect.appendChild(opt);
+          });
+          patternField.appendChild(patternLabel);
+          patternField.appendChild(patternSelect);
+          row.appendChild(patternField);
+          const transparencyField = doc.createElement('label');
+          transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
+          const transparencyLabel = doc.createElement('span');
+          transparencyLabel.className = 'additional-line-controls-panel__field-label';
+          transparencyLabel.textContent = 'Line transparency';
+          const transparencyWrap = doc.createElement('div');
+          transparencyWrap.className = 'additional-line-controls-panel__range';
+          const transparencyInput = doc.createElement('input');
+          transparencyInput.type = 'range';
+          transparencyInput.min = '0';
+          transparencyInput.max = '100';
+          transparencyInput.step = '1';
+          transparencyInput.className = 'additional-line-controls-panel__transparency-input';
+          const transparencyValue = doc.createElement('span');
+          transparencyValue.className = 'additional-line-controls-panel__range-value';
+          transparencyWrap.appendChild(transparencyInput);
+          transparencyWrap.appendChild(transparencyValue);
+          transparencyField.appendChild(transparencyLabel);
+          transparencyField.appendChild(transparencyWrap);
+          row.appendChild(transparencyField);
+          const thicknessInput = doc.createElement('input');
+          thicknessInput.type = 'number';
+          thicknessInput.min = '0';
+          thicknessInput.step = '0.5';
+          thicknessInput.value = '0';
+          thicknessInput.hidden = true;
+          panel.appendChild(thicknessInput);
+          const resolveScope = () => normalizeLineOverlayToolbarScope(scopeSelect.value || lineOverlayToolbarScope);
+          const applyOverlayPatch = patch => {
+            const keys = getLineOverlayScopeKeys(resolveScope());
+            keys.forEach(key => updateLineOverlayStyle(key, patch));
+            scheduleLineDraw();
+          };
+          const syncStyleChip = () => {
+            const color = toColorInputValue(colorInput.value);
+            const thickness = Math.max(0, Number(thicknessInput.value) || 0);
+            styleChipPreview.style.background = color;
+            styleChipValue.textContent = `${Math.round(thickness * 10) / 10}px`;
+            styleChip.dataset.noBorder = thickness <= 0 ? '1' : '0';
+          };
+          const syncOverlayInputs = () => {
+            const scope = resolveScope();
+            lineOverlayToolbarScope = scope;
+            const labels = getLineOverlayToolbarLabels(scope);
+            styleLabel.textContent = labels.colorLabel || 'Line';
+            patternLabel.textContent = labels.patternLabel || 'Line pattern';
+            transparencyLabel.textContent = labels.transparencyLabel || 'Line transparency';
+            const previewStyle = getLineOverlayPreviewStyle(scope) || getLineOverlayStyle('trend') || {};
+            colorInput.value = toColorInputValue(previewStyle.color);
+            thicknessInput.value = String(Math.max(0, Number(previewStyle.thickness) || 0));
+            const patternValue = String(previewStyle.pattern || 'solid').toLowerCase();
+            patternSelect.value = (patternValue === 'dashed' || patternValue === 'dotted' || patternValue === 'solid')
+              ? patternValue
+              : 'solid';
+            const transparency = Math.min(100, Math.max(0, Number(previewStyle.transparency) || 0));
+            transparencyInput.value = String(Math.round(transparency));
+            transparencyValue.textContent = `${Math.round(transparency)}%`;
+            syncStyleChip();
+          };
+          scopeSelect.value = lineOverlayToolbarScope;
+          scopeSelect.addEventListener('change', () => {
+            syncOverlayInputs();
+          });
+          colorInput.addEventListener('input', () => {
+            applyOverlayPatch({ color: colorInput.value });
+            syncOverlayInputs();
+          });
+          colorInput.addEventListener('change', () => {
+            applyOverlayPatch({ color: colorInput.value });
+            syncOverlayInputs();
+          });
+          patternSelect.addEventListener('change', () => {
+            applyOverlayPatch({ pattern: patternSelect.value });
+            syncOverlayInputs();
+          });
+          transparencyInput.addEventListener('input', () => {
+            const bounded = Math.min(100, Math.max(0, Number(transparencyInput.value) || 0));
+            applyOverlayPatch({ transparency: bounded });
+            transparencyValue.textContent = `${Math.round(bounded)}%`;
+            syncStyleChip();
+          });
+          transparencyInput.addEventListener('change', () => {
+            const bounded = Math.min(100, Math.max(0, Number(transparencyInput.value) || 0));
+            applyOverlayPatch({ transparency: bounded });
+            syncOverlayInputs();
+          });
+          styleChip.addEventListener('wheel', evt => {
+            evt.preventDefault();
+            const current = Math.max(0, Number(thicknessInput.value) || 0);
+            const delta = evt.deltaY < 0 ? 0.5 : -0.5;
+            const next = Math.max(0, current + delta);
+            thicknessInput.value = String(next);
+            applyOverlayPatch({ thickness: next });
+            syncOverlayInputs();
+          }, { passive: false });
+          styleChip.addEventListener('click', evt => {
+            evt.preventDefault();
+            evt.stopPropagation();
+            if(typeof Shared.openColorPicker === 'function'){
+              Shared.openColorPicker({
+                anchor: styleChip,
+                color: colorInput.value,
+                element: colorInput,
+                onInput(value){
+                  colorInput.value = toColorInputValue(value);
+                  colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+                },
+                onChange(value){
+                  colorInput.value = toColorInputValue(value);
+                  colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+              });
+              return;
+            }
+            colorInput.click();
+          });
+          syncOverlayInputs();
+          toolbarHost.appendChild(panel);
+          return panel;
+        };
+        ensureInlineOverlayPanel();
+        toolbarHost.classList.add('font-toolbar-host--line-dual');
+        toolbarHost.style.display = 'grid';
+        toolbarHost.style.gridAutoFlow = 'column';
+        toolbarHost.style.gridAutoColumns = 'max-content';
+        toolbarHost.style.columnGap = '10px';
+        toolbarHost.style.alignItems = 'flex-start';
         if(markerScopeSelect){
           markerScopeSelect.addEventListener('change', () => {
             setLineScope(markerScopeSelect.value, {
@@ -3083,6 +3451,27 @@
       return;
     }
     return;
+  }
+
+  function registerLineOverlayControlElement(element, overlayKey){
+    if(!element){
+      return;
+    }
+    const safeKey = sanitizeLineOverlayKey(overlayKey);
+    if(!safeKey){
+      return;
+    }
+    element.dataset.lineOverlay = safeKey;
+    element.style.cursor = 'pointer';
+    if(!element.__lineOverlayToolbarClickHandler){
+      const handler = evt => {
+        try{ evt.stopPropagation(); }catch(e){}
+        lineOverlayToolbarScope = safeKey;
+        showLinePointFormatControls(element);
+      };
+      element.addEventListener('click', handler);
+      element.__lineOverlayToolbarClickHandler = handler;
+    }
   }
 
   console.debug('Debug: line replicates initialized', {
@@ -5133,6 +5522,7 @@
       lineLast2dLogX = !!refs.logX?.checked;
       lineLast2dLogY = !!refs.logY?.checked;
       lineLast2dShowFrame = !!refs.showFrame?.checked;
+      lineLast2dShowTrendLine = !!refs.showTrendLine?.checked;
       lineLast2dShowIntervals = !!refs.showIntervals?.checked;
       lineLast2dShowDiagnostics = !!refs.showDiagnostics?.checked;
     }
@@ -5177,6 +5567,12 @@
     }
     if(refs.regressionMode){
       refs.regressionMode.disabled = true;
+    }
+    if(refs.showTrendLine){
+      refs.showTrendLine.disabled = true;
+      if(refs.showTrendLine.checked){
+        refs.showTrendLine.checked = false;
+      }
     }
     if(refs.showIntervals){
       refs.showIntervals.disabled = true;
@@ -5254,6 +5650,10 @@
     }
     if(refs.regressionMode){
       refs.regressionMode.disabled = false;
+    }
+    if(refs.showTrendLine){
+      refs.showTrendLine.disabled = false;
+      refs.showTrendLine.checked = !!lineLast2dShowTrendLine;
     }
     if(refs.showIntervals){
       refs.showIntervals.disabled = false;
@@ -6256,8 +6656,10 @@
         logY:refs.logY?.checked,
         logPlusOneX:!!lineLogPlusOneX,
         logPlusOneY:!!lineLogPlusOneY,
+        showTrendLine: !!refs.showTrendLine?.checked,
         showIntervals:refs.showIntervals?.checked,
         showDiagnostics:refs.showDiagnostics?.checked,
+        overlayStyles: sanitizeLineOverlayStylesMap(lineOverlayStyles),
         xMin:refs.xMin?.value,
         xMax:refs.xMax?.value,
         yMin:refs.yMin?.value,
@@ -6414,6 +6816,7 @@
     lineLast2dLogX = !!c.logX;
     lineLast2dLogY = !!c.logY;
     lineLast2dShowFrame = !!c.showFrame;
+    lineLast2dShowTrendLine = !!c.showTrendLine;
     lineLast2dShowIntervals = !!c.showIntervals;
     lineLast2dShowDiagnostics = !!c.showDiagnostics;
     if(typeof c.equalAxes === 'boolean'){
@@ -6483,6 +6886,10 @@
         if(refs.regressionMode){
           refs.regressionMode.disabled = true;
         }
+        if(refs.showTrendLine){
+          refs.showTrendLine.disabled = true;
+          refs.showTrendLine.checked = false;
+        }
         if(refs.showIntervals){
           refs.showIntervals.disabled = true;
           refs.showIntervals.checked = false;
@@ -6510,6 +6917,9 @@
         }
         if(refs.regressionMode){
           refs.regressionMode.disabled = false;
+        }
+        if(refs.showTrendLine){
+          refs.showTrendLine.disabled = false;
         }
         if(refs.showIntervals){
           refs.showIntervals.disabled = false;
@@ -6613,6 +7023,7 @@
     lineDisplayMode = restoredDisplayMode;
     lineLabelColors=c.labelColors||{};
     lineSeriesStyles=c.seriesStyles||{};
+    lineOverlayStyles=sanitizeLineOverlayStylesMap(c.overlayStyles);
     if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
     setLineGridStyle(c.gridStyle, c.axis?.strokeWidth);
     if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
@@ -6621,6 +7032,7 @@
     if(refs.logY) refs.logY.checked=!!c.logY;
     lineLogPlusOneX=!!c.logPlusOneX;
     lineLogPlusOneY=!!c.logPlusOneY;
+    if(refs.showTrendLine) refs.showTrendLine.checked=!!c.showTrendLine;
     if(refs.showIntervals) refs.showIntervals.checked=!!c.showIntervals;
     if(refs.showDiagnostics) refs.showDiagnostics.checked=!!c.showDiagnostics;
     if(refs.xMin) refs.xMin.value=c.xMin||'';
@@ -6693,6 +7105,10 @@
       if(refs.regressionMode){
         refs.regressionMode.disabled = true;
       }
+      if(refs.showTrendLine){
+        refs.showTrendLine.checked = false;
+        refs.showTrendLine.disabled = true;
+      }
       if(refs.showIntervals){
         refs.showIntervals.checked = false;
         refs.showIntervals.disabled = true;
@@ -6726,6 +7142,9 @@
       }
       if(refs.regressionMode){
         refs.regressionMode.disabled = false;
+      }
+      if(refs.showTrendLine){
+        refs.showTrendLine.disabled = false;
       }
       if(refs.showIntervals){
         refs.showIntervals.disabled = false;
@@ -7913,12 +8332,13 @@
       if(logY && storedManualIntervalY){
         console.debug('Debug: line manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
       }
+      const showTrendLine=!!refs.showTrendLine?.checked;
       const showIntervals=!!refs.showIntervals?.checked;
       const showDiagnostics=!!refs.showDiagnostics?.checked;
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
       const regressionAlpha = 0.05;
       const forecastOptions = resolveForecastOptions();
-      console.debug('Debug: line regression configuration',{ showIntervals, showDiagnostics, regressionMode: regressionModeCurrent, forecastOptions });
+      console.debug('Debug: line regression configuration',{ showTrendLine, showIntervals, showDiagnostics, regressionMode: regressionModeCurrent, forecastOptions });
       const xMinManual=parseFloat(refs.xMin?.value);
       const xMaxManual=parseFloat(refs.xMax?.value);
       const yMinManual=parseFloat(refs.yMin?.value);
@@ -9160,6 +9580,8 @@
           || lineLabelColors[s.name]
           || fill
           || color;
+        const confidenceStyle = getLineOverlayStyle('confidence');
+        const predictionStyle = getLineOverlayStyle('prediction');
         if(showIntervals && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
           intervalLayer.setAttribute('data-layer',`interval-${i}`);
@@ -9195,25 +9617,118 @@
           };
           const confidencePath=buildIntervalPath('ciLow','ciHigh');
           const predictionPath=buildIntervalPath('piLow','piHigh');
+          const bandColor = confidenceStyle?.color || predictionStyle?.color || color;
           if(confidencePath){
             const confEl=document.createElementNS(NS,'path');
             confEl.setAttribute('d',confidencePath);
-            confEl.setAttribute('fill',color);
-            confEl.setAttribute('fill-opacity','0.16');
-            confEl.setAttribute('stroke','none');
+            confEl.setAttribute('fill',bandColor);
+            const confidenceOpacity = 1 - ((confidenceStyle?.transparency ?? 85) / 100);
+            confEl.setAttribute('fill-opacity',String(Math.min(1, Math.max(0, confidenceOpacity))));
+            const confidenceThickness = Number(confidenceStyle?.thickness);
+            if(Number.isFinite(confidenceThickness) && confidenceThickness > 0){
+              confEl.setAttribute('stroke',bandColor);
+              confEl.setAttribute('stroke-width',String(confidenceThickness));
+              confEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, confidenceOpacity))));
+              const confidenceDash = lineOverlayPatternToDasharray(confidenceStyle?.pattern, confidenceThickness);
+              if(confidenceDash){
+                confEl.setAttribute('stroke-dasharray', confidenceDash);
+              }else{
+                confEl.removeAttribute('stroke-dasharray');
+              }
+            }else{
+              confEl.setAttribute('stroke','none');
+            }
             confEl.dataset.band='confidence';
+            confEl.dataset.lineOverlay='confidence';
             intervalLayer.appendChild(confEl);
+            registerLineOverlayControlElement(confEl, 'confidence');
           }
           if(predictionPath){
             const predEl=document.createElementNS(NS,'path');
             predEl.setAttribute('d',predictionPath);
-            predEl.setAttribute('fill',color);
-            predEl.setAttribute('fill-opacity','0.08');
-            predEl.setAttribute('stroke','none');
+            predEl.setAttribute('fill',bandColor);
+            const predictionOpacity = 1 - ((predictionStyle?.transparency ?? 92) / 100);
+            predEl.setAttribute('fill-opacity',String(Math.min(1, Math.max(0, predictionOpacity))));
+            const predictionThickness = Number(predictionStyle?.thickness);
+            if(Number.isFinite(predictionThickness) && predictionThickness > 0){
+              predEl.setAttribute('stroke',bandColor);
+              predEl.setAttribute('stroke-width',String(predictionThickness));
+              predEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, predictionOpacity))));
+              const predictionDash = lineOverlayPatternToDasharray(predictionStyle?.pattern, predictionThickness);
+              if(predictionDash){
+                predEl.setAttribute('stroke-dasharray', predictionDash);
+              }else{
+                predEl.removeAttribute('stroke-dasharray');
+              }
+            }else{
+              predEl.setAttribute('stroke','none');
+            }
             predEl.dataset.band='prediction';
+            predEl.dataset.lineOverlay='prediction';
             intervalLayer.appendChild(predEl);
+            registerLineOverlayControlElement(predEl, 'prediction');
           }
           console.debug('Debug: line interval shading rendered',{ series: s.name, hasConfidence: !!confidencePath, hasPrediction: !!predictionPath });
+        }
+        let trendPathEl=null;
+        if(showTrendLine && s.regression){
+          const trendStyle = getLineOverlayStyle('trend');
+          const domainMinX = Number.isFinite(s.regression?.domain?.minX) ? s.regression.domain.minX : xMin;
+          const domainMaxX = Number.isFinite(s.regression?.domain?.maxX) ? s.regression.domain.maxX : xMax;
+          const sampleCount = String(s.regression?.mode || '').toLowerCase() === 'linear' ? 60 : 160;
+          const trendSamplesRaw = Array.isArray(s.regression?.curveSamples) && s.regression.curveSamples.length
+            ? s.regression.curveSamples.slice()
+            : (typeof regressionTools.sampleCurve === 'function'
+              ? regressionTools.sampleCurve(s.regression, { minX: domainMinX, maxX: domainMaxX, sampleCount })
+              : (Array.isArray(s.regression?.intervals?.samples)
+                ? s.regression.intervals.samples.map(sample => ({ x: sample?.x, y: sample?.y }))
+                : []));
+          const trendSamples = trendSamplesRaw
+            .filter(sample => Number.isFinite(sample?.x) && Number.isFinite(sample?.y))
+            .sort((a,b)=>(a?.x ?? 0)-(b?.x ?? 0));
+          const trendCommands = [];
+          trendSamples.forEach(sample => {
+            const xRaw = sample.x;
+            const yRaw = sample.y;
+            if(xRaw < xMin || xRaw > xMax || yRaw < yMin || yRaw > yMax){
+              return;
+            }
+            if(logX && xRaw <= 0){
+              return;
+            }
+            if(logY && yRaw <= 0){
+              return;
+            }
+            const xVal = logX ? Math.log10(xRaw) : xRaw;
+            const yVal = logY ? Math.log10(yRaw) : yRaw;
+            if(!Number.isFinite(xVal) || !Number.isFinite(yVal)){
+              return;
+            }
+            trendCommands.push(`${trendCommands.length ? 'L' : 'M'}${x2px(xVal)},${y2px(yVal)}`);
+          });
+          if(trendCommands.length > 1){
+            const rawTrendThickness = Number(trendStyle?.thickness);
+            const trendThickness = Number.isFinite(rawTrendThickness) ? Math.max(0, rawTrendThickness) : 1;
+            const trendStrokeWidth = chartStyle.scaleStrokeWidth(trendThickness, styleScaleInfo, { context: 'line-trend', min: 0 });
+            const trendOpacity = 1 - ((trendStyle?.transparency ?? 0) / 100);
+            trendPathEl = document.createElementNS(NS,'path');
+            trendPathEl.setAttribute('d',trendCommands.join(' '));
+            trendPathEl.setAttribute('fill','none');
+            trendPathEl.setAttribute('stroke',trendStyle?.color || color);
+            trendPathEl.setAttribute('stroke-width',String(trendStrokeWidth));
+            trendPathEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, trendOpacity))));
+            const trendDash = lineOverlayPatternToDasharray(trendStyle?.pattern, trendStrokeWidth);
+            if(trendDash){
+              trendPathEl.setAttribute('stroke-dasharray', trendDash);
+            }else{
+              trendPathEl.removeAttribute('stroke-dasharray');
+            }
+            trendPathEl.setAttribute('vector-effect','non-scaling-stroke');
+            trendPathEl.dataset.series = s.name || '';
+            trendPathEl.dataset.lineOverlay='trend';
+            svg.appendChild(trendPathEl);
+            registerLineOverlayControlElement(trendPathEl, 'trend');
+          }
         }
         const segments=[];
         let currentSegment=null;
@@ -9404,7 +9919,7 @@
             }
           }
         }
-        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,forecastPath:forecastPathEl,areaPath:areaPathEl});
+        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,trendPath:trendPathEl,forecastPath:forecastPathEl,areaPath:areaPathEl});
       });
       console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
       const toggleSeriesVisibility=index=>{
@@ -9416,6 +9931,9 @@
         target.mGroup.style.display=nextDisplay;
         if(target.errorGroup){
           target.errorGroup.style.display=nextDisplay;
+        }
+        if(target.trendPath){
+          target.trendPath.style.display=nextDisplay;
         }
         if(target.forecastPath){
           target.forecastPath.style.display=nextDisplay;
@@ -9860,6 +10378,7 @@
     refs.statsButton=document.getElementById('lineComputeStats');
     refs.statsStatus=document.getElementById('lineStatsStatus');
     refs.regressionMode=document.getElementById('lineRegressionMode');
+    refs.showTrendLine=document.getElementById('lineShowTrendLine');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
     refs.showLegend=document.getElementById('lineShowLegend');
@@ -11072,6 +11591,18 @@
     }
     refs.statType?.addEventListener('change',()=>{
       requestLineStatsContextRefresh('stat-type-change');
+      scheduleLineDraw();
+    });
+    refs.showTrendLine?.addEventListener('change',e=>{
+      const checked = !!e.target.checked;
+      console.debug('Debug: line showTrendLine change',{ checked });
+      if(!checked){
+        try{
+          if(additionalLineControls && typeof additionalLineControls.close === 'function'){
+            additionalLineControls.close('line-trendline-toggle-off');
+          }
+        }catch(err){}
+      }
       scheduleLineDraw();
     });
     refs.showIntervals?.addEventListener('change',e=>{
