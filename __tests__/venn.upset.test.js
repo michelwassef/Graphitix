@@ -359,6 +359,160 @@ describe('Venn UpSet integration', () => {
     svgBox.getBoundingClientRect = originalGetRect;
   });
 
+  test('UpSet horizontal grid lines align to y-axis and skip x-axis baseline', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const gridColorInput = document.getElementById('upsetGridColor');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(gridColorInput).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC', 'SetD'],
+      ['GeneShared', '', '', 'GeneShared'],
+      ['GeneA', '', '', ''],
+      ['', 'GeneB', '', ''],
+      ['', '', 'GeneC', ''],
+      ['', '', '', 'GeneD']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+
+    const axisLines = Array.from(stage.querySelectorAll('line[data-axis-control="1"]'));
+    expect(axisLines.length).toBeGreaterThanOrEqual(2);
+    const yAxis = axisLines.find(line => {
+      const x1 = Number(line.getAttribute('x1'));
+      const x2 = Number(line.getAttribute('x2'));
+      return Number.isFinite(x1) && Number.isFinite(x2) && Math.abs(x1 - x2) < 1e-6;
+    });
+    const xAxis = axisLines.find(line => {
+      const y1 = Number(line.getAttribute('y1'));
+      const y2 = Number(line.getAttribute('y2'));
+      return Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y1 - y2) < 1e-6;
+    });
+    expect(yAxis).toBeTruthy();
+    expect(xAxis).toBeTruthy();
+    const axisX = Number(yAxis.getAttribute('x1'));
+    const axisY = Number(xAxis.getAttribute('y1'));
+    const expectedGridColor = (gridColorInput.value || '').toLowerCase();
+
+    const gridLines = Array.from(stage.querySelectorAll('line')).filter(line => {
+      if ((line.getAttribute('stroke') || '').toLowerCase() !== expectedGridColor) {
+        return false;
+      }
+      const y1 = Number(line.getAttribute('y1'));
+      const y2 = Number(line.getAttribute('y2'));
+      return Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y1 - y2) < 1e-6;
+    });
+    expect(gridLines.length).toBeGreaterThan(0);
+    const groupedByY = new Map();
+    gridLines.forEach(line => {
+      const x1 = Number(line.getAttribute('x1'));
+      const y = Number(line.getAttribute('y1'));
+      expect(Math.abs(y - axisY)).toBeGreaterThan(0.51);
+      expect(x1).toBeGreaterThanOrEqual(axisX - 0.51);
+      const key = y.toFixed(3);
+      if (!groupedByY.has(key)) {
+        groupedByY.set(key, []);
+      }
+      groupedByY.get(key).push(line);
+    });
+    expect(groupedByY.size).toBeGreaterThan(0);
+    groupedByY.forEach(linesAtY => {
+      const hasAxisAnchoredSegment = linesAtY.some(line => {
+        const x1 = Number(line.getAttribute('x1'));
+        return Number.isFinite(x1) && Math.abs(x1 - axisX) < 0.51;
+      });
+      expect(hasAxisAnchoredSegment).toBe(true);
+    });
+
+    const bars = Array.from(stage.querySelectorAll('rect[data-upset-trace-kind="intersectionBars"]')).filter(bar => {
+      const width = Number(bar.getAttribute('width'));
+      const height = Number(bar.getAttribute('height'));
+      return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    });
+    expect(bars.length).toBeGreaterThan(0);
+    gridLines.forEach(line => {
+      const y = Number(line.getAttribute('y1'));
+      const x1 = Number(line.getAttribute('x1'));
+      const x2 = Number(line.getAttribute('x2'));
+      const segStart = Math.min(x1, x2);
+      const segEnd = Math.max(x1, x2);
+      bars.forEach(bar => {
+        const barX = Number(bar.getAttribute('x'));
+        const barY = Number(bar.getAttribute('y'));
+        const barW = Number(bar.getAttribute('width'));
+        const barH = Number(bar.getAttribute('height'));
+        const barBottomY = barY + barH;
+        const inBarInteriorY = y > (barY + 0.5) && y < (barBottomY - 0.5);
+        if (!inBarInteriorY) {
+          return;
+        }
+        const overlapStart = Math.max(segStart, barX);
+        const overlapEnd = Math.min(segEnd, barX + barW);
+        expect(overlapEnd - overlapStart).toBeLessThanOrEqual(0.5);
+      });
+    });
+  });
+
+  test('UpSet x/y axes render in foreground above intersection bars', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(venn).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    const hot = hooks.state.ui.hot;
+    hot.loadData([
+      ['SetA', 'SetB', 'SetC'],
+      ['GeneShared', '', 'GeneShared'],
+      ['GeneA', '', ''],
+      ['', 'GeneB', ''],
+      ['', '', 'GeneC']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+
+    const firstBar = stage.querySelector('rect[data-upset-trace-kind="intersectionBars"]');
+    expect(firstBar).toBeTruthy();
+
+    const axisLines = Array.from(stage.querySelectorAll('line[data-axis-control="1"]'));
+    expect(axisLines.length).toBeGreaterThanOrEqual(2);
+    const yAxis = axisLines.find(line => {
+      const x1 = Number(line.getAttribute('x1'));
+      const x2 = Number(line.getAttribute('x2'));
+      return Number.isFinite(x1) && Number.isFinite(x2) && Math.abs(x1 - x2) < 1e-6;
+    });
+    const xAxis = axisLines.find(line => {
+      const y1 = Number(line.getAttribute('y1'));
+      const y2 = Number(line.getAttribute('y2'));
+      return Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y1 - y2) < 1e-6;
+    });
+    expect(yAxis).toBeTruthy();
+    expect(xAxis).toBeTruthy();
+
+    const compareYAxis = firstBar.compareDocumentPosition(yAxis);
+    const compareXAxis = firstBar.compareDocumentPosition(xAxis);
+    expect((compareYAxis & window.Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    expect((compareXAxis & window.Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+  });
+
   test('UpSet global trace color applies after a prior trace-level color edit', async () => {
     await activateWorkspace('venn');
     const plotType = document.getElementById('vennPlotType');

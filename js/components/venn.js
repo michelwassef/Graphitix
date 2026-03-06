@@ -4521,16 +4521,31 @@
     const tickLabels = tickValues.map(v => formatCount(v));
     const maxTickLabelWidth = Math.max(...tickLabels.map(lbl => measure(lbl, countFont)), 0);
     const axisX = Math.max(pad + 6, matrixX - (tickLength + tickLabelGap + maxTickLabelWidth + 6));
+    const intersectionLayout = intersections.map((entry, idx) => {
+      const columnCenter = matrixX + columnWidth * (idx + 0.5);
+      const barWidth = Math.max(4, columnWidth * 0.6);
+      const barHeight = (entry.size / maxIntersection) * barChartHeight;
+      const barX = columnCenter - barWidth / 2;
+      const barY = barBottom - barHeight;
+      return {
+        entry,
+        columnCenter,
+        barWidth,
+        barHeight,
+        barX,
+        barY
+      };
+    });
 
-    const yAxisLine = makeEl('line', {
+    const yAxisLineAttrs = {
       x1: axisX,
       y1: barTop,
       x2: axisX,
       y2: barBottom,
       stroke: axisColor,
       'stroke-width': axisWidth
-    });
-    const xAxisLine = makeEl('line', {
+    };
+    const xAxisLineAttrs = {
       x1: axisX,
       y1: barBottom,
       x2: matrixX + matrixWidth,
@@ -4538,11 +4553,7 @@
       stroke: axisColor,
       'stroke-width': axisWidth,
       'stroke-linecap': 'square'
-    });
-    if (axisControls && typeof axisControls.registerAxisElement === 'function') {
-      axisControls.registerAxisElement(yAxisLine, createUpSetAxisControlConfig('y'));
-      axisControls.registerAxisElement(xAxisLine, createUpSetAxisControlConfig('x'));
-    }
+    };
 
     tickValues.forEach((value, idx) => {
       const y = barBottom - (value / maxIntersection) * barChartHeight;
@@ -4554,14 +4565,66 @@
         stroke: axisColor,
         'stroke-width': axisWidth
       });
-      if (settings.showGrid && settings.gridColor) {
-        makeEl('line', {
-          x1: matrixX,
-          y1: y,
-          x2: matrixX + matrixWidth,
-          y2: y,
-          stroke: settings.gridColor,
-          'stroke-width': 1
+      const drawHorizontalGridLine = settings.showGrid
+        && settings.gridColor
+        && y < (barBottom - 0.5);
+      if (drawHorizontalGridLine) {
+        const gridStartX = axisX;
+        const gridEndX = matrixX + matrixWidth;
+        const occlusionPadding = Math.max(0.5, axisWidth * 0.5);
+        const occlusionRanges = intersectionLayout
+          .filter(layout => y >= (layout.barY - occlusionPadding) && y <= (barBottom + occlusionPadding))
+          .map(layout => {
+            const start = Math.max(gridStartX, layout.barX - occlusionPadding);
+            const end = Math.min(gridEndX, layout.barX + layout.barWidth + occlusionPadding);
+            return [start, end];
+          })
+          .filter(range => (range[1] - range[0]) > 0.5)
+          .sort((a, b) => a[0] - b[0]);
+        let cursorX = gridStartX;
+        let segmentCount = 0;
+        occlusionRanges.forEach(([rangeStart, rangeEnd]) => {
+          if (rangeStart > (cursorX + 0.5)) {
+            makeEl('line', {
+              x1: cursorX,
+              y1: y,
+              x2: rangeStart,
+              y2: y,
+              stroke: settings.gridColor,
+              'stroke-width': 1
+            });
+            segmentCount += 1;
+          }
+          if (rangeEnd > cursorX) {
+            cursorX = rangeEnd;
+          }
+        });
+        if (cursorX < (gridEndX - 0.5)) {
+          makeEl('line', {
+            x1: cursorX,
+            y1: y,
+            x2: gridEndX,
+            y2: y,
+            stroke: settings.gridColor,
+            'stroke-width': 1
+          });
+          segmentCount += 1;
+        }
+        if (!segmentCount) {
+          debugLog('upset horizontal grid fully occluded', {
+            tickIndex: idx,
+            value,
+            y,
+            occlusionCount: occlusionRanges.length
+          });
+        }
+      } else if (settings.showGrid && settings.gridColor) {
+        debugLog('upset horizontal grid line skipped', {
+          reason: 'overlaps-x-axis',
+          tickIndex: idx,
+          value,
+          y,
+          axisY: barBottom
         });
       }
       const tickText = makeEl('text', {
@@ -4590,12 +4653,8 @@
     axisLabel.textContent = 'Intersection Size';
     axisLabel.setAttribute('transform', `rotate(-90 ${axisLabelX} ${intersectionAxisLabelY})`);
 
-    intersections.forEach((entry, idx) => {
-      const columnCenter = matrixX + columnWidth * (idx + 0.5);
-      const barWidth = Math.max(4, columnWidth * 0.6);
-      const barHeight = (entry.size / maxIntersection) * barChartHeight;
-      const barX = columnCenter - barWidth / 2;
-      const barY = barBottom - barHeight;
+    intersectionLayout.forEach(layout => {
+      const { entry, columnCenter, barWidth, barHeight, barX, barY } = layout;
       const canSelectEntry = !!(regionOptions && regionOptions.has(entry.code));
       const intersectionStyle = getUpSetTraceStyle('intersectionBars', entry.code, {
         fill: settings.barColor,
@@ -4874,6 +4933,19 @@
       fill: textColor
     });
     setAxisLabel.textContent = 'Set Size';
+
+    // Keep intersection axes in the foreground so bars/dots never hide them.
+    const yAxisLine = makeEl('line', yAxisLineAttrs);
+    const xAxisLine = makeEl('line', xAxisLineAttrs);
+    if (axisControls && typeof axisControls.registerAxisElement === 'function') {
+      axisControls.registerAxisElement(yAxisLine, createUpSetAxisControlConfig('y'));
+      axisControls.registerAxisElement(xAxisLine, createUpSetAxisControlConfig('x'));
+    }
+    debugLog('upset axes rendered in foreground', {
+      axisX,
+      axisY: barBottom,
+      axisWidth
+    });
 
     ensureUpSetFontBindings(stage);
     ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-plot' });
