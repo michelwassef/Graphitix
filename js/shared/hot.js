@@ -1817,6 +1817,10 @@
     })();
     const hasGlobalUndo = !!(undoManager && typeof undoManager.record === 'function');
     const UNDO_STACK_LIMIT = 60;
+    const DEFAULT_LOAD_DATA_UNDO_MAX_CELLS = 12000;
+    const loadDataUndoMaxCells = Number.isFinite(overrides?.loadDataUndoMaxCells)
+      ? Math.max(0, Number(overrides.loadDataUndoMaxCells))
+      : DEFAULT_LOAD_DATA_UNDO_MAX_CELLS;
     let undoStack = [];
     let undoPointer = -1;
     let undoLockDepth = 0;
@@ -1835,6 +1839,93 @@
       }
     };
 
+    const cloneMatrix = (matrix)=>{
+      if(!Array.isArray(matrix)){
+        return [];
+      }
+      const cloned = new Array(matrix.length);
+      for(let r = 0; r < matrix.length; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        cloned[r] = row.slice();
+      }
+      return cloned;
+    };
+
+    const normalizeExclusionIndices = (indices)=>{
+      if(!Array.isArray(indices)){
+        return [];
+      }
+      return indices
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value >= 0)
+        .sort((a, b)=>a - b);
+    };
+
+    const normalizeExclusionCells = (cells)=>{
+      if(!Array.isArray(cells)){
+        return [];
+      }
+      const normalized = [];
+      for(let i = 0; i < cells.length; i++){
+        const cell = cells[i];
+        const row = Number(cell?.row ?? cell?.[0]);
+        const col = Number(cell?.col ?? cell?.[1]);
+        if(!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0){
+          continue;
+        }
+        normalized.push({ row, col });
+      }
+      normalized.sort((a, b)=>{
+        if(a.row !== b.row){
+          return a.row - b.row;
+        }
+        return a.col - b.col;
+      });
+      return normalized;
+    };
+
+    const cloneExclusionState = (state)=>{
+      const normalized = state && typeof state === 'object' ? state : {};
+      return {
+        rows: normalizeExclusionIndices(normalized.rows),
+        cols: normalizeExclusionIndices(normalized.cols),
+        cells: normalizeExclusionCells(normalized.cells)
+      };
+    };
+
+    const normalizeLoadDataOptions = (options)=>{
+      const normalized = {
+        source: 'loadData',
+        recordUndo: false,
+        skipUndo: false,
+        undoLabel: null,
+        maxUndoCells: loadDataUndoMaxCells
+      };
+      if(typeof options === 'string' && options.trim()){
+        normalized.source = options.trim();
+        return normalized;
+      }
+      if(!options || typeof options !== 'object'){
+        return normalized;
+      }
+      if(typeof options.source === 'string' && options.source.trim()){
+        normalized.source = options.source.trim();
+      }
+      if(options.recordUndo === true){
+        normalized.recordUndo = true;
+      }
+      if(options.skipUndo === true){
+        normalized.skipUndo = true;
+      }
+      if(typeof options.undoLabel === 'string' && options.undoLabel.trim()){
+        normalized.undoLabel = options.undoLabel.trim();
+      }
+      if(Number.isFinite(options.maxUndoCells)){
+        normalized.maxUndoCells = Math.max(0, Number(options.maxUndoCells));
+      }
+      return normalized;
+    };
+
     const dedupePhysicalChanges = (changes)=>{
       const seen = new Map();
       (Array.isArray(changes) ? changes : []).forEach(change=>{
@@ -1845,6 +1936,98 @@
         seen.set(key, change);
       });
       return Array.from(seen.values());
+    };
+
+    const areMatricesEqual = (left, right)=>{
+      if(left === right){
+        return true;
+      }
+      if(!Array.isArray(left) || !Array.isArray(right)){
+        return false;
+      }
+      if(left.length !== right.length){
+        return false;
+      }
+      for(let r = 0; r < left.length; r++){
+        const leftRow = Array.isArray(left[r]) ? left[r] : [];
+        const rightRow = Array.isArray(right[r]) ? right[r] : [];
+        if(leftRow.length !== rightRow.length){
+          return false;
+        }
+        for(let c = 0; c < leftRow.length; c++){
+          if(!valuesMatchForChange(leftRow[c], rightRow[c])){
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+
+    const areExclusionStatesEqual = (left, right)=>{
+      const a = cloneExclusionState(left);
+      const b = cloneExclusionState(right);
+      if(a.rows.length !== b.rows.length || a.cols.length !== b.cols.length || a.cells.length !== b.cells.length){
+        return false;
+      }
+      for(let i = 0; i < a.rows.length; i++){
+        if(a.rows[i] !== b.rows[i]){
+          return false;
+        }
+      }
+      for(let i = 0; i < a.cols.length; i++){
+        if(a.cols[i] !== b.cols[i]){
+          return false;
+        }
+      }
+      for(let i = 0; i < a.cells.length; i++){
+        if(a.cells[i].row !== b.cells[i].row || a.cells[i].col !== b.cells[i].col){
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const areLoadDataSnapshotsEqual = (beforeSnapshot, afterSnapshot)=>{
+      if(!beforeSnapshot || !afterSnapshot){
+        return false;
+      }
+      if(beforeSnapshot.kind !== 'full' || afterSnapshot.kind !== 'full'){
+        return false;
+      }
+      if(beforeSnapshot.rowCount !== afterSnapshot.rowCount || beforeSnapshot.colCount !== afterSnapshot.colCount){
+        return false;
+      }
+      if(!areMatricesEqual(beforeSnapshot.data, afterSnapshot.data)){
+        return false;
+      }
+      return areExclusionStatesEqual(beforeSnapshot.exclusions, afterSnapshot.exclusions);
+    };
+
+    const captureLoadDataUndoSnapshot = (maxCells)=>{
+      const snapshotLimit = Number.isFinite(maxCells)
+        ? Math.max(0, Number(maxCells))
+        : loadDataUndoMaxCells;
+      const matrix = dataHandle.current;
+      const shape = getMatrixShape(matrix);
+      const totalCells = Math.max(0, shape.rows * Math.max(shape.cols, colCount));
+      if(snapshotLimit > 0 && totalCells > snapshotLimit){
+        return {
+          kind: 'degraded',
+          rowCount,
+          colCount,
+          rows: shape.rows,
+          cols: Math.max(shape.cols, colCount),
+          totalCells,
+          maxCells: snapshotLimit
+        };
+      }
+      return {
+        kind: 'full',
+        rowCount,
+        colCount,
+        data: cloneMatrix(matrix),
+        exclusions: cloneExclusionState(exclusionController.exportState())
+      };
     };
 
     const applyPhysicalChanges = (physicalChanges, direction, changeSource)=>{
@@ -2016,6 +2199,106 @@
         return;
       }
       pushUndoStep(`table:${debugLabel}:${changeLabel || (source || 'change')}`, physical);
+    };
+
+    const applyLoadDataMatrix = (nextData, options = {})=>{
+      const source = typeof options.source === 'string' && options.source ? options.source : 'loadData';
+      const hasForcedRows = Number.isFinite(options.forceRowCount);
+      const hasForcedCols = Number.isFinite(options.forceColCount);
+      const hasForcedDims = hasForcedRows || hasForcedCols;
+      const explicitExclusions = options.exclusionsState;
+      const existingExclusions = explicitExclusions
+        ? null
+        : (preserveExclusionsOnLoad ? exclusionController.exportState() : null);
+      let incoming = Array.isArray(nextData) ? nextData : null;
+      if(incoming && shrinkOnLoadData && !hasForcedDims){
+        const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+        const shape = getMatrixShape(incoming);
+        const filledShape = getMatrixFilledShape(incoming);
+        const trimmedShape = {
+          rows: Math.max(0, Math.min(shape.rows, filledShape.rows)),
+          cols: Math.max(0, Math.min(shape.cols, filledShape.cols))
+        };
+        if(trimmedShape.rows < shape.rows || trimmedShape.cols < shape.cols){
+          incoming = trimMatrixToShape(incoming, trimmedShape);
+          if(debugEnabled){
+            console.debug('Debug: Shared.hot loadData trimmed', {
+              debugLabel,
+              previousRows: shape.rows,
+              previousCols: shape.cols,
+              trimmedRows: trimmedShape.rows,
+              trimmedCols: trimmedShape.cols
+            });
+          }
+        }
+        const nextRows = Math.max(baseRowCount, trimmedShape.rows);
+        const nextCols = Math.max(baseColCount, trimmedShape.cols, MIN_INPUT_COLS);
+        if(nextRows !== rowCount || nextCols !== colCount){
+          if(debugEnabled){
+            console.debug('Debug: Shared.hot loadData resized', {
+              debugLabel,
+              previousRows: rowCount,
+              previousCols: colCount,
+              nextRows,
+              nextCols,
+              incomingRows: shape.rows,
+              incomingCols: shape.cols,
+              trimmedRows: trimmedShape.rows,
+              trimmedCols: trimmedShape.cols
+            });
+          }
+          rowCount = nextRows;
+          colCount = nextCols;
+        }
+      }
+      if(hasForcedRows){
+        rowCount = Math.max(0, Number(options.forceRowCount) || 0);
+      }
+      if(hasForcedCols){
+        colCount = Math.max(MIN_INPUT_COLS, Number(options.forceColCount) || MIN_INPUT_COLS);
+      }
+      data = incoming ? ensureDims(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
+      dataHandle.current = data;
+      colHeaders = resolveColHeaders(colCount);
+      if(explicitExclusions && typeof explicitExclusions === 'object'){
+        exclusionController.importState(cloneExclusionState(explicitExclusions));
+      }else if(existingExclusions){
+        exclusionController.importState(existingExclusions);
+      }else{
+        exclusionController.clearAll(true);
+      }
+      syncRowData(instance.gridApi);
+      rebuildColumns(instance.gridApi);
+      recordCall('loadData', {
+        containerId: container?.id || null,
+        source,
+        rows: data.length,
+        firstRow: trimRow(Array.isArray(data[0]) ? data[0] : null)
+      });
+      fireHook('afterLoadData');
+      if(scheduleOnLoadData){
+        triggerSchedule('afterLoadData', { source });
+      }
+      pendingViewportRestore = null;
+      scrollViewportToTop();
+      setLastRange({ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } });
+      renderAg(instance.gridApi);
+      return true;
+    };
+
+    const applyLoadDataUndoSnapshot = (snapshot, source)=>{
+      if(!snapshot || snapshot.kind !== 'full'){
+        return false;
+      }
+      return withUndoLock('loadDataSnapshot', ()=>applyLoadDataMatrix(
+        cloneMatrix(snapshot.data),
+        {
+          source: typeof source === 'string' && source ? source : 'UndoRedo.loadData',
+          forceRowCount: snapshot.rowCount,
+          forceColCount: snapshot.colCount,
+          exclusionsState: snapshot.exclusions
+        }
+      )) !== false;
     };
 
     const buildClipboardTextFromRange = (range)=>{
@@ -4332,72 +4615,74 @@
         triggerSchedule('afterChange', { source: changeSource });
         renderAg(instance.gridApi);
       },
-      loadData(nextData){
-        const existingExclusions = preserveExclusionsOnLoad ? exclusionController.exportState() : null;
-        let incoming = Array.isArray(nextData) ? nextData : null;
-        if(incoming && shrinkOnLoadData){
-          const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
-          const shape = getMatrixShape(incoming);
-          const filledShape = getMatrixFilledShape(incoming);
-          const trimmedShape = {
-            rows: Math.max(0, Math.min(shape.rows, filledShape.rows)),
-            cols: Math.max(0, Math.min(shape.cols, filledShape.cols))
-          };
-          if(trimmedShape.rows < shape.rows || trimmedShape.cols < shape.cols){
-            incoming = trimMatrixToShape(incoming, trimmedShape);
-            if(debugEnabled){
-              console.debug('Debug: Shared.hot loadData trimmed', {
-                debugLabel,
-                previousRows: shape.rows,
-                previousCols: shape.cols,
-                trimmedRows: trimmedShape.rows,
-                trimmedCols: trimmedShape.cols
-              });
-            }
-          }
-          const nextRows = Math.max(baseRowCount, trimmedShape.rows);
-          const nextCols = Math.max(baseColCount, trimmedShape.cols, MIN_INPUT_COLS);
-          if(nextRows !== rowCount || nextCols !== colCount){
-            if(debugEnabled){
-              console.debug('Debug: Shared.hot loadData resized', {
-                debugLabel,
-                previousRows: rowCount,
-                previousCols: colCount,
-                nextRows,
-                nextCols,
-                incomingRows: shape.rows,
-                incomingCols: shape.cols,
-                trimmedRows: trimmedShape.rows,
-                trimmedCols: trimmedShape.cols
-              });
-            }
-            rowCount = nextRows;
-            colCount = nextCols;
+      loadData(nextData, loadOptions){
+        const options = normalizeLoadDataOptions(loadOptions);
+        const isUndoSource = typeof options.source === 'string' && options.source.startsWith('UndoRedo.');
+        const shouldRecordUndo = !!(
+          options.recordUndo
+          && !options.skipUndo
+          && !isUndoSource
+          && hasGlobalUndo
+          && undoLockDepth === 0
+        );
+        let beforeSnapshot = null;
+        if(shouldRecordUndo){
+          beforeSnapshot = captureLoadDataUndoSnapshot(options.maxUndoCells);
+          if(beforeSnapshot.kind !== 'full' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot loadData undo snapshot skipped (before)', {
+              debugLabel,
+              source: options.source,
+              kind: beforeSnapshot.kind || 'unknown',
+              totalCells: beforeSnapshot.totalCells || null,
+              maxCells: beforeSnapshot.maxCells || null
+            });
           }
         }
-        data = incoming ? ensureDims(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
-        dataHandle.current = data;
-        colHeaders = resolveColHeaders(colCount);
-        if(existingExclusions){
-          exclusionController.importState(existingExclusions);
-        }else{
-          exclusionController.clearAll(true);
+
+        applyLoadDataMatrix(nextData, { source: options.source });
+
+        if(!shouldRecordUndo || !beforeSnapshot || beforeSnapshot.kind !== 'full'){
+          return;
         }
-        syncRowData(instance.gridApi);
-        rebuildColumns(instance.gridApi);
-        recordCall('loadData', {
-          containerId: container?.id || null,
-          rows: data.length,
-          firstRow: trimRow(Array.isArray(data[0]) ? data[0] : null)
+
+        const afterSnapshot = captureLoadDataUndoSnapshot(options.maxUndoCells);
+        if(afterSnapshot.kind !== 'full'){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot loadData undo snapshot skipped (after)', {
+              debugLabel,
+              source: options.source,
+              kind: afterSnapshot.kind || 'unknown',
+              totalCells: afterSnapshot.totalCells || null,
+              maxCells: afterSnapshot.maxCells || null
+            });
+          }
+          return;
+        }
+        if(areLoadDataSnapshotsEqual(beforeSnapshot, afterSnapshot)){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot loadData undo skipped (no changes)', {
+              debugLabel,
+              source: options.source
+            });
+          }
+          return;
+        }
+
+        undoManager.record({
+          label: options.undoLabel || `table:${debugLabel}:${options.source || 'loadData'}`,
+          scope: undoScope,
+          undo: ()=>applyLoadDataUndoSnapshot(beforeSnapshot, 'UndoRedo.undo.loadData'),
+          redo: ()=>applyLoadDataUndoSnapshot(afterSnapshot, 'UndoRedo.redo.loadData')
         });
-        fireHook('afterLoadData');
-        if(scheduleOnLoadData){
-          triggerSchedule('afterLoadData', { source: 'loadData' });
+
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot loadData undo recorded', {
+            debugLabel,
+            source: options.source,
+            rowCount: afterSnapshot.rowCount,
+            colCount: afterSnapshot.colCount
+          });
         }
-        pendingViewportRestore = null;
-        scrollViewportToTop();
-        setLastRange({ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } });
-        renderAg(instance.gridApi);
       },
       alter(action, index, amount, source){
         data = dataHandle.current;

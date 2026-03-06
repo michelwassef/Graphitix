@@ -36,7 +36,13 @@ describe('Shared.hot AG Grid binding', () => {
 
     require('../js/vendor.js');
     require('../js/shared/agGridAdapter.js');
+    require('../js/shared/undo.js');
     require('../js/shared/hot.js');
+
+    const manager = global.window?.Shared?.undoManager;
+    if(manager && typeof manager.clear === 'function'){
+      manager.clear();
+    }
   });
 
   afterEach(() => {
@@ -161,5 +167,49 @@ describe('Shared.hot AG Grid binding', () => {
       'unit-test'
     );
     expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
+  });
+
+  test('loadData with recordUndo can be undone and redone', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotUndo';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-undo',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ]
+      }
+    );
+
+    hot.loadData(
+      [
+        ['X', 'Y'],
+        ['Z', 'W']
+      ],
+      {
+        source: 'example-load',
+        recordUndo: true,
+        undoLabel: 'table:test-ag-grid-undo:example-load'
+      }
+    );
+
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+    expect(hot.getDataAtCell(1, 1)).toBe('W');
+
+    const manager = Shared.undoManager;
+    expect(manager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('A');
+    expect(hot.getDataAtCell(1, 1)).toBe('D');
+
+    expect(manager.redo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+    expect(hot.getDataAtCell(1, 1)).toBe('W');
   });
 });

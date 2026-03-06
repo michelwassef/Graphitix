@@ -1811,7 +1811,11 @@
     if(exampleBtn){
       exampleBtn.addEventListener('click',()=>{
         markHistOverlayPending('example-data');
-        state.hot.loadData(example);
+        state.hot.loadData(example, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:hist:example-load'
+        });
         console.log('hist example loaded');
         state.scheduleDraw();
       });

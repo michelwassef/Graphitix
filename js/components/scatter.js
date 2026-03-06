@@ -9597,7 +9597,11 @@
           dataset = scatterExamples[type] || scatterExamples.scatter;
         }
         markScatterOverlayPending('example-data');
-        scatterHot.loadData(dataset);
+        scatterHot.loadData(dataset, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:scatter:example-load'
+        });
         if(groupedModeActive){
           ensureScatterHeaderTitles(scatterHot, {
             graphType: 'scatter',

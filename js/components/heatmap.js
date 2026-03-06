@@ -1712,7 +1712,11 @@
         return;
       }
       markHeatmapOverlayPending('example-data');
-      state.hot.loadData(example);
+      state.hot.loadData(example, {
+        source: 'example-load',
+        recordUndo: true,
+        undoLabel: 'table:heatmap:example-load'
+      });
       console.log('heatmap example loaded');
       state.scheduleDraw({ force: true, reason: 'example-load' });
     });

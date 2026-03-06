@@ -9965,12 +9965,20 @@
         state.grouped.replicatesPerGroup = 3;
         updateTableFormatUI();
         applyTableFormatToHot();
-        hot.loadData(exampleGrouped);
+        hot.loadData(exampleGrouped, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:box:example-load'
+        });
         normalizeBoxGroupedHeaderRow(hot, { forceGrouped: true });
         updateGroupedHeaders(hot);
         boxLog('boxplot grouped example loaded');
       }else{
-        hot.loadData(exampleSingle);
+        hot.loadData(exampleSingle, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:box:example-load'
+        });
         boxLog('boxplot example loaded');
       }
       state.axisSettings = createDefaultAxisSettings();

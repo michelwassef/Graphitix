@@ -4820,7 +4820,11 @@
             ];
         const hot = ensurePcaHotForActiveTab();
         markPcaOverlayPending('example-data');
-        hot?.loadData?.(pcaExample);
+        hot?.loadData?.(pcaExample, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:pca:example-load'
+        });
         console.log('pca example loaded');
         debugLog('Debug: pca example dataset applied (transposed labels)', { rows: pcaExample.length, cols: pcaExample[0]?.length });
         pcaState.grouped = {

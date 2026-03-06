@@ -1175,6 +1175,28 @@
     return panel.querySelector('[data-color-scheme-fieldset="1"]');
   }
 
+  function findGraphSelectionFieldset(panel){
+    if(!panel || !panel.children) return null;
+    const children = Array.from(panel.children);
+    for(let i = 0; i < children.length; i += 1){
+      const fieldset = children[i];
+      if(!fieldset || fieldset.tagName !== 'FIELDSET') continue;
+      if(fieldset.dataset?.graphSelectionFieldset === '1'){
+        return fieldset;
+      }
+      if(typeof fieldset.querySelector !== 'function'){
+        continue;
+      }
+      if(fieldset.querySelector('select[id$="GraphType"],select[id$="PlotType"],select[id$="ChartType"]')){
+        return fieldset;
+      }
+      if(fieldset.querySelector('#lineDisplayMode,#lineViewMode,#pcaMethod,#pcaViewMode')){
+        return fieldset;
+      }
+    }
+    return null;
+  }
+
   function readActiveSchemeForType(type){
     const active = getActiveTab();
     if(!active || active.type !== type || !active.payload) return state.preferredByType[type] || DEFAULT_SCHEME_ID;
@@ -1281,7 +1303,18 @@
     fieldset.appendChild(row);
     fieldset.appendChild(hint);
 
-    panel.insertBefore(fieldset, panel.firstChild || null);
+    const graphFieldset = findGraphSelectionFieldset(panel);
+    if(graphFieldset && graphFieldset.parentNode === panel){
+      if(graphFieldset.nextSibling){
+        panel.insertBefore(fieldset, graphFieldset.nextSibling);
+      }else{
+        panel.appendChild(fieldset);
+      }
+      debugLog('Debug: colorSchemes inserted after graph selector', { type });
+    }else{
+      panel.insertBefore(fieldset, panel.firstChild || null);
+      debugLog('Debug: colorSchemes inserted at panel start', { type });
+    }
 
     if(Shared.formControls && typeof Shared.formControls.autoSizeSelect === 'function'){
       Shared.formControls.autoSizeSelect(select);

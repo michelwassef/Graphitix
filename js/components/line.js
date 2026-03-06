@@ -10762,7 +10762,11 @@
         markLineOverlayPending('example-data');
         enterLine3dMode({ skipDraw: true });
         if(lineHot && Array.isArray(example?.data)){
-          lineHot.loadData(example.data);
+          lineHot.loadData(example.data, {
+            source: 'example-load',
+            recordUndo: true,
+            undoLabel: 'table:line:example-load'
+          });
         }
         lineSeriesGroupLabels = example.groupLabels.slice();
         lineGroupShapes = example.groupShapes.slice().map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
@@ -10785,10 +10789,17 @@
         groupShapes: example.groupShapes
       });
       if(lineHot && Array.isArray(example?.data)){
-        lineHot.loadData(example.data);
+        lineHot.loadData(example.data, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:line:example-load'
+        });
         setTimeout(()=>{
           try{
-            lineHot.loadData(example.data);
+            lineHot.loadData(example.data, {
+              source: 'example-load-sync',
+              skipUndo: true
+            });
           }catch(err){
             console.error('line example reload failed', err);
           }

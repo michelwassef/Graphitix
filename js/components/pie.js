@@ -608,7 +608,15 @@
     expectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',expectedColumn.value); state.scheduleDraw();});
 
     const example=[ ['Quarter','Observed','Expected'], ['Q1',120,100], ['Q2',90,100], ['Q3',60,80], ['Q4',130,120] ];
-    document.getElementById('pieLoadExample').addEventListener('click',()=>{ state.hot.loadData(example); console.log('pie example loaded with expected values'); state.scheduleDraw(); });
+    document.getElementById('pieLoadExample').addEventListener('click',()=>{
+      state.hot.loadData(example, {
+        source: 'example-load',
+        recordUndo: true,
+        undoLabel: 'table:pie:example-load'
+      });
+      console.log('pie example loaded with expected values');
+      state.scheduleDraw();
+    });
     const pieImportBtn=document.getElementById('pieImport');
     const pieFileInput=document.getElementById('pieFile');
     pieImportBtn.addEventListener('click',()=>{ pieFileInput.value=''; pieFileInput.click(); });

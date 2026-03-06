@@ -1518,7 +1518,11 @@
       }
       const overlayReason = 'example-data';
       markRocOverlayPending(overlayReason);
-      state.hot.loadData(example);
+      state.hot.loadData(example, {
+        source: 'example-load',
+        recordUndo: true,
+        undoLabel: 'table:roc:example-load'
+      });
       console.debug('Debug: ROC example loaded');
       state.scheduleDraw?.();
     });

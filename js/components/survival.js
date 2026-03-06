@@ -4261,7 +4261,11 @@
     ];
     refs.loadExampleBtn?.addEventListener('click', () => {
       if(state.hot){
-        state.hot.loadData(example);
+        state.hot.loadData(example, {
+          source: 'example-load',
+          recordUndo: true,
+          undoLabel: 'table:survival:example-load'
+        });
       }
       logDebug('example loaded', { rows: example.length, firstRow: example[0] });
       if(state.scheduleDraw){

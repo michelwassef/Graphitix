@@ -1615,7 +1615,11 @@
         const example = buildExampleDataset();
         if(state.hot && typeof state.hot.loadData === 'function'){
           markSurfaceOverlayPending('example-data');
-          state.hot.loadData(example);
+          state.hot.loadData(example, {
+            source: 'example-load',
+            recordUndo: true,
+            undoLabel: 'table:surface:example-load'
+          });
           debugLog('Debug: surface example dataset loaded', { rows: example.length });
           updateAxisOptions();
           state.scheduleDraw();

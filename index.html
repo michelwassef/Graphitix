@@ -128,10 +128,10 @@
             <div class="row idx-inline-004" id="vennExportControls"></div>
           </div>
           <div class="config-options">
-            <fieldset>
-              <legend>Plot</legend>
+            <fieldset data-graph-selection-fieldset="1">
+              <legend>Graph</legend>
               <div class="control">
-                <label for="vennPlotType">Diagram</label>
+                <label for="vennPlotType">Graph type</label>
                 <select id="vennPlotType">
                   <option value="venn" selected>Venn Diagram</option>
                   <option value="upset">UpSet Plot</option>
@@ -392,11 +392,11 @@
             </div>
           </div>
           <div class="config-options">
-            <fieldset>
+            <fieldset data-graph-selection-fieldset="1">
               <legend>Graph</legend>
               <div class="control-row">
                 <div class="control">
-                  <label>Type</label>
+                  <label>Graph type</label>
                   <select id="boxGraphType">
                     <option value="box">Box Plot</option>
                     <option value="notched">Notched Box Plot</option>
@@ -519,7 +519,7 @@
                 <label class="idx-inline-023">Y max <input type="number" id="boxYMax" /></label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -597,19 +597,19 @@
             </div>
           </div>
           <div class="config-panel">
-            <fieldset class="config-panel__fieldset">
+            <fieldset class="config-panel__fieldset" data-graph-selection-fieldset="1">
               <legend>Graph</legend>
               <div class="config-panel__line config-panel__line--separated">
                 <label class="config-panel__item config-panel__item--select-auto">
-                  <span class="config-panel__label">Type</span>
+                  <span class="config-panel__label">Graph type</span>
                   <select id="scatterGraphType">
                     <option value="scatter">Scatter plot</option>
                     <option value="volcano">Volcano plot</option>
-                    <option value="ma">Ma plot</option>
+                    <option value="ma">MA plot</option>
                   </select>
                 </label>
                 <label class="config-panel__item config-panel__item--select-auto idx-inline-001" id="scatterViewControls">
-                  <span class="config-panel__label">Plot view</span>
+                  <span class="config-panel__label">Graph view</span>
                   <select id="scatterViewMode">
                     <option value="2d">2D</option>
                     <option value="bubble">Bubble</option>
@@ -738,7 +738,7 @@
                 </label>
               </div>
             </fieldset>
-            <fieldset class="config-panel__fieldset">
+            <fieldset class="config-panel__fieldset" data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="config-panel__line">
                 <label class="config-panel__item config-panel__item--range">
@@ -904,7 +904,7 @@
             </div>
           </div>
           <div class="config-options">
-            <fieldset>
+            <fieldset data-graph-selection-fieldset="1">
               <legend>Method</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023">
@@ -950,7 +950,7 @@
               <legend>View</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023">
-                  Plot View
+                  Graph view
                   <select id="pcaViewMode">
                     <option value="2d">2D</option>
                     <option value="3d">3D</option>
@@ -1028,7 +1028,7 @@
                 </label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -1243,7 +1243,7 @@
             </div>
           </div>
           <div class="config-options">
-            <fieldset>
+            <fieldset data-graph-selection-fieldset="1">
               <legend>Display</legend>
               <div class="control">
                 <label class="idx-inline-023">
@@ -1338,7 +1338,7 @@
                 </div>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -1709,11 +1709,11 @@
             </div>
           </div>
           <div class="config-options">
-            <fieldset>
-              <legend>Options</legend>
+            <fieldset data-graph-selection-fieldset="1">
+              <legend>Graph</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023">
-                  Graph Type
+                  Graph type
                   <select id="rocGraphType">
                     <option value="roc">ROC</option>
                     <option value="pr">Precision-Recall</option>
@@ -1738,7 +1738,7 @@
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -1820,7 +1820,7 @@
                 </label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -1926,7 +1926,7 @@
                 <label class="idx-inline-023"><input type="checkbox" id="histShowCdf" /> Show CDF</label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -1970,17 +1970,22 @@
             <div class="row idx-inline-004" id="pieExportControls"></div>
           </div>
           <div class="config-options">
-            <fieldset>
-              <legend>Options</legend>
+            <fieldset data-graph-selection-fieldset="1">
+              <legend>Graph</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023">
-                  Chart Type
+                  Graph type
                   <select id="pieChartType">
                     <option value="pie">Pie</option>
                     <option value="donut">Donut</option>
                     <option value="stacked">Stacked Bar</option>
                   </select>
                 </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Options</legend>
+              <div class="control idx-inline-031">
                 <label class="idx-inline-023"><input type="checkbox" id="pieShowPercents" /> Show Percentages</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pieShowFrame" /> Show Frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
@@ -1994,7 +1999,7 @@
                 </label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
