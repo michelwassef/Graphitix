@@ -1932,10 +1932,10 @@
     axisLengthPreserveToggleInput = doc.createElement('input');
     axisLengthPreserveToggleInput.type = 'checkbox';
     axisLengthPreserveToggleInput.className = 'axis-controls-panel__checkbox';
-    axisLengthPreserveToggleInput.setAttribute('aria-label', 'preserrve ratio');
+    axisLengthPreserveToggleInput.setAttribute('aria-label', 'preserve ratio');
     axisLengthPreserveToggleInput.setAttribute('data-undo-ignore', '1');
     const axisLengthPreserveText = doc.createElement('span');
-    axisLengthPreserveText.textContent = 'preserrve ratio';
+    axisLengthPreserveText.textContent = 'preserve ratio';
     axisLengthPreserveLabel.appendChild(axisLengthPreserveToggleInput);
     axisLengthPreserveLabel.appendChild(axisLengthPreserveText);
     axisLengthRow.appendChild(axisLengthPreserveLabel);
