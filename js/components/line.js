@@ -3318,10 +3318,45 @@
         lineOverlayToolbarScope = hasClickedOverlayScope
           ? normalizeLineOverlayToolbarScope(clickedOverlayScopeRaw)
           : normalizeLineOverlayToolbarScope(lineOverlayToolbarScope);
-        const overlaySeriesKeys = orderedSeriesKeys().filter(name => {
-          const normalized = normalizeLineOverlaySeriesKey(name);
-          return !!normalized;
-        });
+        const overlaySeriesKeys = (() => {
+          const activeSet = new Set();
+          const addActive = value => {
+            const normalized = normalizeLineOverlaySeriesKey(value);
+            if(normalized){
+              activeSet.add(normalized);
+            }
+          };
+          if(Array.isArray(lineLastRegressionSummaries)){
+            lineLastRegressionSummaries.forEach(entry => addActive(entry?.name));
+          }
+          const plotHost = refs.plot || doc.getElementById('linePlot');
+          if(plotHost && typeof plotHost.querySelectorAll === 'function'){
+            plotHost.querySelectorAll('[data-series]').forEach(node => {
+              addActive(node?.getAttribute?.('data-series') || node?.dataset?.series);
+            });
+          }
+          addActive(seriesKey);
+          if(activeSet.size === 0){
+            orderedSeriesKeys().forEach(addActive);
+          }
+          const ordered = [];
+          const pushOrdered = value => {
+            const normalized = normalizeLineOverlaySeriesKey(value);
+            if(!normalized || !activeSet.has(normalized)){
+              return;
+            }
+            if(ordered.includes(normalized)){
+              return;
+            }
+            ordered.push(normalized);
+          };
+          if(Array.isArray(lineSeriesGroupLabels)){
+            lineSeriesGroupLabels.forEach(pushOrdered);
+          }
+          Array.from(activeSet).forEach(pushOrdered);
+          return ordered;
+        })();
+        const overlayIntervalsEnabled = !!refs.showIntervals?.checked;
         const overlayScopeOptions = (() => {
           const options = [{ value: 'global', label: 'Global' }];
           const appendOverlayOptions = (overlayKey, label) => {
@@ -3334,8 +3369,10 @@
             });
           };
           appendOverlayOptions('trend', 'Trend line');
-          appendOverlayOptions('confidence', 'Confidence interval');
-          appendOverlayOptions('prediction', 'Prediction interval');
+          if(overlayIntervalsEnabled){
+            appendOverlayOptions('confidence', 'Confidence interval');
+            appendOverlayOptions('prediction', 'Prediction interval');
+          }
           return options;
         })();
         const toColorInputValue = value => {
@@ -3480,7 +3517,13 @@
               return 'global';
             })();
             const hasExactOption = Array.from(scopeSelect.options || []).some(opt => opt.value === normalizedScope && !opt.disabled);
-            const nextScope = hasExactOption ? normalizedScope : fallbackScope;
+            const hasFallbackOption = Array.from(scopeSelect.options || []).some(opt => opt.value === fallbackScope && !opt.disabled);
+            const firstEnabledOption = Array.from(scopeSelect.options || []).find(opt => !opt.disabled);
+            const nextScope = hasExactOption
+              ? normalizedScope
+              : (hasFallbackOption
+                ? fallbackScope
+                : (firstEnabledOption?.value || 'global'));
             scopeSelect.value = nextScope;
             const scope = resolveScope();
             lineOverlayToolbarScope = scope;
