@@ -308,6 +308,56 @@
     return mergePayloadWithDefaultsRecursive(defaults, payload, cloneFn);
   }
 
+  function resolveWorkspaceConfigForType(type) {
+    if (!type) {
+      return null;
+    }
+    const registry = Main?.components?.registry;
+    if (!registry || typeof registry !== 'object') {
+      return null;
+    }
+    return registry[type] || null;
+  }
+
+  function captureBaselineDefaultPayload(type, config, cloneFn) {
+    if (!config || typeof config.createEmptyPayload !== 'function') {
+      return null;
+    }
+    try {
+      const baseline = config.createEmptyPayload();
+      return cloneValue(baseline, cloneFn);
+    } catch (err) {
+      console.error('captureBaselineDefaultPayload error', { type, err });
+      return null;
+    }
+  }
+
+  function sanitizeDefaultPayloadVolatileState(type, payload, baseline, cloneFn) {
+    if (!payload || typeof payload !== 'object' || !baseline || typeof baseline !== 'object') {
+      return payload;
+    }
+    const next = cloneValue(payload, cloneFn) || payload;
+    const nextConfig = isPlainObject(next.config) ? next.config : {};
+    next.config = nextConfig;
+    const baselineConfig = isPlainObject(baseline.config) ? baseline.config : {};
+    const baselineStats = isPlainObject(baselineConfig.stats) ? baselineConfig.stats : null;
+    if (baselineStats) {
+      nextConfig.stats = cloneValue(baselineStats, cloneFn);
+    } else if (Object.prototype.hasOwnProperty.call(nextConfig, 'stats')) {
+      delete nextConfig.stats;
+    }
+    if (Object.prototype.hasOwnProperty.call(baseline, 'stats')) {
+      next.stats = cloneValue(baseline.stats, cloneFn);
+    } else if (Object.prototype.hasOwnProperty.call(next, 'stats')) {
+      delete next.stats;
+    }
+    console.debug('Debug: sanitizeDefaultPayloadVolatileState applied', {
+      type,
+      hasBaselineStats: !!baselineStats
+    });
+    return next;
+  }
+
   namespace.mergePayloadWithDefaults = function mergePayloadWithDefaultsForWorkspace(type, payload, defaults, options = {}) {
     const cloneFn = options.cloneFn;
     const merged = mergePayloadWithDefaults(payload, defaults, cloneFn);
@@ -339,10 +389,15 @@
     if (moduleState.workspaceDefaults[type]) {
       try {
         const cachedClone = cloneValue(moduleState.workspaceDefaults[type], cloneFn);
-        return normalizeDefaultPayloadForType(type, cachedClone);
+        const baseline = captureBaselineDefaultPayload(type, config, cloneFn);
+        const sanitizedCached = sanitizeDefaultPayloadVolatileState(type, cachedClone, baseline, cloneFn);
+        return normalizeDefaultPayloadForType(type, sanitizedCached);
       } catch (err) {
         console.error('ensureDefaultPayload cached clone error', { type, err });
-        return normalizeDefaultPayloadForType(type, cloneValue(moduleState.workspaceDefaults[type], null));
+        const fallbackClone = cloneValue(moduleState.workspaceDefaults[type], null);
+        const baseline = captureBaselineDefaultPayload(type, config, null);
+        const sanitizedFallback = sanitizeDefaultPayloadVolatileState(type, fallbackClone, baseline, null);
+        return normalizeDefaultPayloadForType(type, sanitizedFallback);
       }
     }
     if (!session || typeof cloneFn !== 'function' || !config) {
@@ -355,14 +410,46 @@
       return null;
     }
     const resolveEmptyPayload = () => {
+      let templatePayload = null;
+      if (typeof config.captureEmptyPayloadTemplate === 'function') {
+        try {
+          templatePayload = config.captureEmptyPayloadTemplate();
+          console.debug('Debug: ensureDefaultPayload using captureEmptyPayloadTemplate', { type, hasPayload: !!templatePayload });
+        } catch (err) {
+          console.error('ensureDefaultPayload captureEmptyPayloadTemplate error', { type, err });
+          templatePayload = null;
+        }
+      }
+      let emptyPayload = null;
       if (typeof config.createEmptyPayload === 'function') {
         try {
-          const emptyPayload = config.createEmptyPayload();
+          emptyPayload = config.createEmptyPayload();
           console.debug('Debug: ensureDefaultPayload using createEmptyPayload', { type, hasPayload: !!emptyPayload });
-          return emptyPayload;
         } catch (err) {
           console.error('ensureDefaultPayload empty payload error', { type, err });
+          emptyPayload = null;
         }
+      }
+      if (templatePayload && emptyPayload) {
+        try {
+          // Structural isolation guard: empty payload values are authoritative.
+          // Template payloads only fill missing structure.
+          const merged = mergePayloadWithDefaults(emptyPayload, templatePayload, cloneFn);
+          console.debug('Debug: ensureDefaultPayload merged template with empty payload', {
+            type,
+            hasMerged: !!merged
+          });
+          return merged;
+        } catch (err) {
+          console.error('ensureDefaultPayload template-empty merge error', { type, err });
+          return templatePayload || emptyPayload;
+        }
+      }
+      if (templatePayload) {
+        return templatePayload;
+      }
+      if (emptyPayload) {
+        return emptyPayload;
       }
       if (typeof config.getPayload === 'function') {
         try {
@@ -441,6 +528,9 @@
         return false;
       }
     }
+    const config = resolveWorkspaceConfigForType(type);
+    const baseline = captureBaselineDefaultPayload(type, config, cloneFn);
+    cloned = sanitizeDefaultPayloadVolatileState(type, cloned, baseline, cloneFn);
     cacheWorkspaceDefaultPayload(type, cloned, cloneFn);
     console.debug('Debug: workspace default payload overridden', {
       type,

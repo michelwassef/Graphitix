@@ -10197,6 +10197,42 @@
         }
       }
 
+      function resolveScatterSelectDefaultValue(select, fallback){
+        if(!select){
+          return fallback;
+        }
+        const options = Array.from(select.options || []);
+        const defaultOption = options.find(option => option.defaultSelected);
+        if(defaultOption){
+          return String(defaultOption.value);
+        }
+        const fromAttribute = select.getAttribute && select.getAttribute('value')
+          ? String(select.getAttribute('value'))
+          : '';
+        if(fromAttribute && options.some(option => String(option.value) === fromAttribute)){
+          return fromAttribute;
+        }
+        if(options.length){
+          return String(options[0].value);
+        }
+        return fallback;
+      }
+
+      function resetScatterStatsRuntimeState(options = {}){
+        const placeholder = Object.prototype.hasOwnProperty.call(options, 'placeholder')
+          ? options.placeholder
+          : scatterStatsPlaceholder;
+        scatterState.statsContext = null;
+        scatterState.statsContextSignature = null;
+        scatterState.statsContextVersion = 0;
+        scatterState.statsLastRunVersion = 0;
+        scatterState.statsComputationPending = false;
+        clearScatterStatsOutputs(placeholder);
+        setScatterStatsStatus('');
+        updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+        syncScatterRegressionOptionVisibility();
+      }
+
       function scatterHasComputedStats(){
         const context = scatterState.statsContext;
         if(!context || context.graphType!=='scatter'){
@@ -10811,15 +10847,7 @@
 
       function primeScatterStatsContext(context,options={}){
         if(!context || (context.graphType==='scatter' && (!Array.isArray(context.points) || !context.points.length))){
-          scatterState.statsContext=null;
-          scatterState.statsContextSignature=null;
-          scatterState.statsContextVersion=0;
-          scatterState.statsLastRunVersion=0;
-          scatterState.statsComputationPending=false;
-          clearScatterStatsOutputs(options.placeholder || 'Add data to enable statistics.');
-          setScatterStatsStatus('');
-          updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
-          syncScatterRegressionOptionVisibility();
+          resetScatterStatsRuntimeState({ placeholder: options.placeholder || 'Add data to enable statistics.' });
           return;
         }
         const signature=buildScatterStatsSignature(context);
@@ -10860,10 +10888,7 @@
       function requestScatterStatsContextRefresh(reason){
         const ctx=scatterState.statsContext;
         if(!ctx){
-          clearScatterStatsOutputs(scatterStatsPlaceholder);
-          setScatterStatsStatus('');
-          updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
-          syncScatterRegressionOptionVisibility();
+          resetScatterStatsRuntimeState({ placeholder: scatterStatsPlaceholder });
           console.debug('Debug: scatter stats context refresh skipped',{ reason, hasContext:false });
           return false;
         }
@@ -18807,6 +18832,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         syncScatterActiveDataViewFromHot(scatterHot, 'payload-load');
       }
         const c=obj.config||{};
+        const defaultStatType = normalizeScatterAssociationSelection(resolveScatterSelectDefaultValue(scatterStatType, 'auto'));
+        if(scatterStatType){
+          scatterStatType.value = defaultStatType;
+        }
         applyScatterThemeConfig(c);
         if(c.notes && typeof c.notes === 'object'){
           notesState.text = c.notes.text == null ? '' : String(c.notes.text);
@@ -19019,6 +19048,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         // Restore previously computed statistics results (if present in payload)
         try{
+          let restoredComputedStats = false;
           if(c.stats && typeof c.stats === 'object'){
             const savedHtml = c.stats.resultsHtml;
             const savedVersion = Number.isFinite(Number(c.stats.lastRunVersion)) ? Number(c.stats.lastRunVersion) : 0;
@@ -19035,7 +19065,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
             }
             // restore control values if present
-            if(savedStatType && scatterStatType){ scatterStatType.value = savedStatType; }
+            if(savedStatType && scatterStatType){ scatterStatType.value = normalizeScatterAssociationSelection(savedStatType); }
             if(savedRegressionMode && scatterRegressionMode){ scatterRegressionMode.value = savedRegressionMode; }
             if(savedFitMethod && scatterFitMethod){ scatterFitMethod.value = savedFitMethod; }
             if(savedFitSpec){ applyScatterFitSpecControls(savedFitSpec); }
@@ -19054,10 +19084,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               setScatterStatsStatus('Statistics up to date.');
               updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
               syncScatterRegressionOptionVisibility();
+              restoredComputedStats = true;
             }
+          }
+          if(!restoredComputedStats){
+            resetScatterStatsRuntimeState({ placeholder: scatterStatsPlaceholder });
           }
         }catch(err){
           console.debug('Debug: scatter restore stats failed', { err: err?.message || String(err) });
+          resetScatterStatsRuntimeState({ placeholder: scatterStatsPlaceholder });
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
@@ -19202,7 +19237,34 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       payload.data = emptyData;
       payload.exclusions = [];
       payload.series = Array.isArray(payload.series) ? [] : [];
-      payload.stats = null;
+      const defaultRegressionMode = resolveScatterSelectDefaultValue(scatterRegressionMode, 'linear');
+      const defaultFitMethod = normalizeScatterFitMethod(resolveScatterSelectDefaultValue(scatterFitMethod, 'ols'));
+      const defaultStatType = normalizeScatterAssociationSelection(resolveScatterSelectDefaultValue(scatterStatType, 'auto'));
+      payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+      payload.config.regression = payload.config.regression && typeof payload.config.regression === 'object'
+        ? payload.config.regression
+        : {};
+      payload.config.regression.mode = defaultRegressionMode;
+      payload.config.regression.method = defaultFitMethod;
+      payload.config.regression.fitSpec = buildScatterFitSpec();
+      payload.config.regression.summary = null;
+      payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
+        ? payload.config.stats
+        : {};
+      payload.config.stats.resultsHtml = null;
+      payload.config.stats.lastRunVersion = 0;
+      payload.config.stats.contextSignature = null;
+      payload.config.stats.contextVersion = 0;
+      payload.config.stats.statType = defaultStatType;
+      payload.config.stats.regressionMode = defaultRegressionMode;
+      payload.config.stats.fitMethod = defaultFitMethod;
+      payload.config.stats.fitSpec = buildScatterFitSpec();
+      payload.config.stats.showCI = !!(scatterShowCI ? scatterShowCI.defaultChecked : false);
+      payload.config.stats.showPI = !!(scatterShowPI ? scatterShowPI.defaultChecked : false);
+      payload.config.stats.showDiagnostics = !!(scatterShowDiagnostics ? scatterShowDiagnostics.defaultChecked : false);
+      if(Object.prototype.hasOwnProperty.call(payload, 'stats')){
+        delete payload.stats;
+      }
       return payload;
     };
     scatter.serialize = serializeSvg;
