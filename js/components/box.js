@@ -6903,7 +6903,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -15318,24 +15318,14 @@
   controls.appendChild(conditionsWrap);
 
   const optionWrap = document.createElement('div');
-  // Arrange controls in 2-column layout
-  optionWrap.style.display = 'flex';
-  optionWrap.style.flexDirection = 'row';
-  optionWrap.style.gap = '20px';
-  optionWrap.style.marginBottom = '12px';
+  optionWrap.className = 'box-stats-options';
 
   // Create left and right column containers
   const leftColumn = document.createElement('div');
-  leftColumn.style.display = 'flex';
-  leftColumn.style.flexDirection = 'column';
-  leftColumn.style.gap = '10px';
-  leftColumn.style.flex = '1';
+  leftColumn.className = 'box-stats-options__column box-stats-options__column--primary';
 
   const rightColumn = document.createElement('div');
-  rightColumn.style.display = 'flex';
-  rightColumn.style.flexDirection = 'column';
-  rightColumn.style.gap = '10px';
-  rightColumn.style.flex = '1';
+  rightColumn.className = 'box-stats-options__column box-stats-options__column--secondary';
 
   function persistTabState(reason){
     try{
@@ -15352,11 +15342,9 @@
     }
   }
 
-  function appendInline(labelEl, inputEl, isRightColumn){
+  function appendInline(labelEl, inputEl, isRightColumn, targetContainer){
     const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.gap = '8px';
-    row.style.alignItems = 'center';
+    row.className = 'box-stats-options__row';
     // Set uniform width for all labels
     try{ labelEl.style.minWidth = '140px'; }catch(e){}
     // Set uniform width for all input/select elements
@@ -15368,8 +15356,10 @@
     }catch(e){}
     row.appendChild(labelEl);
     row.appendChild(inputEl);
-    // Add to appropriate column
-    if(isRightColumn){
+    const destination = targetContainer || (isRightColumn ? rightColumn : leftColumn);
+    if(destination){
+      destination.appendChild(row);
+    }else if(isRightColumn){
       rightColumn.appendChild(row);
     }else{
       leftColumn.appendChild(row);
@@ -15573,6 +15563,24 @@
   });
   appendInline(alphaLabel, alphaInput, true);
 
+  const advancedDetails=document.createElement('details');
+  advancedDetails.className='box-stats-advanced';
+  advancedDetails.open=!!state.statsAdvancedOpen;
+  advancedDetails.addEventListener('toggle',()=>{
+    state.statsAdvancedOpen=advancedDetails.open;
+    if(window.Shared && typeof window.Shared.isDebugEnabled==='function' && window.Shared.isDebugEnabled()){
+      console.debug('Debug: box stats advanced toggled',{ open: state.statsAdvancedOpen });
+    }
+    persistTabState('stats-advanced-toggle');
+  });
+  const advancedSummary=document.createElement('summary');
+  advancedSummary.textContent='Advanced parameters';
+  advancedDetails.appendChild(advancedSummary);
+  const advancedBody=document.createElement('div');
+  advancedBody.className='box-stats-advanced__body';
+  advancedDetails.appendChild(advancedBody);
+  rightColumn.appendChild(advancedDetails);
+
   const ciLabel=document.createElement('label');
   ciLabel.textContent='CI level:';
   const ciInput=document.createElement('input');
@@ -15590,7 +15598,7 @@
     persistTabState('stats-cilevel-change');
     state.scheduleDraw();
   });
-  appendInline(ciLabel, ciInput, true);
+  appendInline(ciLabel, ciInput, true, advancedBody);
 
   const alternativeLabel=document.createElement('label');
   alternativeLabel.textContent='Hypothesis:';
@@ -15615,7 +15623,7 @@
     persistTabState('stats-alternative-change');
     state.scheduleDraw();
   });
-  appendInline(alternativeLabel, alternativeSel, true);
+  appendInline(alternativeLabel, alternativeSel, true, advancedBody);
 
   const normalityLabel=document.createElement('label');
   normalityLabel.textContent='Normality test:';
@@ -15641,7 +15649,7 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  appendInline(normalityLabel, normalitySel, true);
+  appendInline(normalityLabel, normalitySel, true, advancedBody);
 
   const resamplingLabel=document.createElement('label');
   resamplingLabel.textContent='Rank P values:';
@@ -15668,7 +15676,7 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  appendInline(resamplingLabel, resamplingSel, true);
+  appendInline(resamplingLabel, resamplingSel, true, advancedBody);
 
   const iterationsLabel=document.createElement('label');
   iterationsLabel.textContent='MC iterations:';
@@ -15688,7 +15696,7 @@
     persistTabState('stats-montecarlo-change');
     state.scheduleDraw();
   });
-  appendInline(iterationsLabel, iterationsInput, true);
+  appendInline(iterationsLabel, iterationsInput, true, advancedBody);
 
   const seedLabel=document.createElement('label');
   seedLabel.textContent='Seed:';
@@ -15705,7 +15713,7 @@
     persistTabState('stats-seed-change');
     state.scheduleDraw();
   });
-  appendInline(seedLabel, seedInput, true);
+  appendInline(seedLabel, seedInput, true, advancedBody);
 
   const outlierLabel=document.createElement('label');
   outlierLabel.textContent='Outlier workflow:';
@@ -15731,7 +15739,7 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  appendInline(outlierLabel, outlierSel, true);
+  appendInline(outlierLabel, outlierSel, true, advancedBody);
 
   const outlierParamLabel=document.createElement('label');
   outlierParamLabel.textContent=state.statsOutlierMode==='rout' ? 'ROUT q:' : 'Outlier α:';
@@ -15760,7 +15768,7 @@
     persistTabState('stats-outlier-param-change');
     state.scheduleDraw();
   });
-  appendInline(outlierParamLabel, outlierParamInput, true);
+  appendInline(outlierParamLabel, outlierParamInput, true, advancedBody);
 
   const paramEffectLabel=document.createElement('label');
   paramEffectLabel.textContent='Effect size (parametric):';
@@ -15781,7 +15789,7 @@
     persistTabState('stats-param-effect-change');
     state.scheduleDraw();
   });
-  appendInline(paramEffectLabel, paramEffectSel, true);
+  appendInline(paramEffectLabel, paramEffectSel, true, advancedBody);
 
   const nonParamEffectLabel=document.createElement('label');
   nonParamEffectLabel.textContent='Effect size (non-parametric):';
@@ -15802,7 +15810,7 @@
     persistTabState('stats-nonparam-effect-change');
     state.scheduleDraw();
   });
-  appendInline(nonParamEffectLabel, nonParamEffectSel, true);
+  appendInline(nonParamEffectLabel, nonParamEffectSel, true, advancedBody);
 
   const postHocHelp=document.getElementById('statsPostHocHelp');
   if(postHocHelp){
@@ -17054,6 +17062,7 @@ Technical analysis record (advanced)
       statsRef: state.statsRef,
       statsCustomPairs: Array.isArray(state.statsCustomPairs) ? state.statsCustomPairs : [],
       statsAlpha: state.statsAlpha,
+      statsAdvancedOpen: !!state.statsAdvancedOpen,
       statsCiLevel: state.statsCiLevel,
       statsAlternative: state.statsAlternative,
       statsNormalityMethod: state.statsNormalityMethod,
@@ -23942,6 +23951,7 @@ Technical analysis record (advanced)
           postHoc: state.statsPostHoc,
           correction: state.statsCorrection,
           alpha: state.statsAlpha,
+          advancedOpen: !!state.statsAdvancedOpen,
           ciLevel: state.statsCiLevel,
           alternative: state.statsAlternative,
           normalityMethod: state.statsNormalityMethod,
@@ -24034,6 +24044,7 @@ Technical analysis record (advanced)
     payload.config.stats.postHoc = 'standard';
     payload.config.stats.correction = DEFAULT_CORRECTION;
     payload.config.stats.alpha = ASSUMPTION_ALPHA;
+    payload.config.stats.advancedOpen = false;
     payload.config.stats.ciLevel = 0.95;
     payload.config.stats.alternative = 'two-sided';
     payload.config.stats.normalityMethod = 'shapiro-wilk';
@@ -24515,6 +24526,7 @@ Technical analysis record (advanced)
     state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
     state.statsOneSampleValue=sanitizeOneSampleNullValue(statsConfig.oneSampleNullValue ?? state.statsOneSampleValue);
     state.statsAlpha=sanitizeStatsAlpha(statsConfig.alpha ?? state.statsAlpha, ASSUMPTION_ALPHA);
+    state.statsAdvancedOpen=!!statsConfig.advancedOpen;
     state.statsCiLevel=sanitizeStatsCiLevel(statsConfig.ciLevel ?? state.statsCiLevel, 0.95);
     state.statsAlternative=sanitizeStatsAlternative(statsConfig.alternative ?? state.statsAlternative);
     state.statsNormalityMethod=sanitizeNormalityMethod(statsConfig.normalityMethod ?? state.statsNormalityMethod);

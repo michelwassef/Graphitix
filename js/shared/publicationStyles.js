@@ -781,17 +781,7 @@
     const hint = global.document.createElement('div');
     hint.className = 'idx-inline-048';
 
-    const anchor = resolveInsertAnchor(panel);
-    if(anchor && anchor.parentNode === panel && anchor.dataset?.colorSchemeFieldset === '1'){
-      // Insert after the color scheme fieldset.
-      if(anchor.nextSibling){
-        panel.insertBefore(fieldset, anchor.nextSibling);
-      }else{
-        panel.appendChild(fieldset);
-      }
-    }else{
-      panel.insertBefore(fieldset, panel.firstChild || null);
-    }
+    panel.appendChild(fieldset);
 
     if(Shared.formControls && typeof Shared.formControls.autoSizeSelect === 'function'){
       Shared.formControls.autoSizeSelect(select);

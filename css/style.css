@@ -3643,6 +3643,18 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-conditions-item input{accent-color:#2563eb;cursor:pointer}
 .stats-conditions-item label{cursor:pointer;font-size:13px;color:#1e293b}
 .stats-conditions-section select{min-width:160px}
+#statsPanel .box-stats-options{display:flex;align-items:flex-start;gap:20px;margin-bottom:12px}
+#statsPanel .box-stats-options__column{display:flex;flex:1;min-width:0;flex-direction:column;gap:10px}
+#statsPanel .box-stats-options__row{display:flex;align-items:center;gap:8px}
+#statsPanel .box-stats-advanced{margin-top:2px;border:1px solid #ddd;border-radius:var(--ui-rounded-radius);background:#fff;padding:0;overflow:hidden}
+#statsPanel .box-stats-advanced>summary{cursor:pointer;list-style:none;padding:8px 10px;background:#f4f7fb;font-size:11px;font-weight:700;letter-spacing:.05em;color:#1d2735}
+#statsPanel .box-stats-advanced>summary::-webkit-details-marker{display:none}
+#statsPanel .box-stats-advanced>summary::before{content:"\25B8";display:inline-block;margin-right:6px;transition:transform .15s ease}
+#statsPanel .box-stats-advanced[open]>summary::before{transform:rotate(90deg)}
+#statsPanel .box-stats-advanced__body{display:flex;flex-direction:column;gap:10px;padding:10px 0 0}
+@media (max-width: 1120px){
+    #statsPanel .box-stats-options{flex-direction:column;gap:10px}
+}
 #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
 .svgbox{background:#ffffff;border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);padding:40px 14px 14px;margin:0 0 8px;box-shadow:none;position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:var(--graph-default-width,640px);height:auto;max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto;aspect-ratio:var(--graph-aspect-ratio,1)}
 .venn-loading-host{position:relative}
