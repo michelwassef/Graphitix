@@ -954,6 +954,73 @@ describe('UI events and example loaders', () => {
     expect(document.getElementById('scatterShowErrorBars')?.checked).toBe(true);
   }, 20000);
 
+  test('Scatter Plot: grouped replicates can show individual values without horizontal jitter and hide the toggle when X replicates are enabled', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork(20);
+
+    const scatterComponent = window.Components?.scatter;
+    expect(scatterComponent).toBeTruthy();
+    const hot = scatterComponent?.__ensureHotForActiveTab?.();
+    expect(hot).toBeTruthy();
+
+    const formatSelect = document.getElementById('scatterTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+
+    const replicatesInput = document.getElementById('scatterReplicates');
+    expect(replicatesInput).toBeTruthy();
+    replicatesInput.value = '3';
+    replicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+
+    hot.loadData([
+      ['Labels', 'X title', 'Rep 1', 'Rep 2', 'Rep 3', 'Rep 1', 'Rep 2', 'Rep 3'],
+      ['A', 1, 10, 11, 12, 20, 21, 22],
+      ['B', 2, 13, 14, 15, 24, 25, 26],
+      ['', '', '', '', '', '', '', '']
+    ]);
+    await flushAsyncWork(80);
+
+    const groupedReplicateToggle = document.getElementById('scatterShowGroupedReplicates');
+    const groupedReplicateToggleRow = document.getElementById('scatterShowGroupedReplicatesRow');
+    expect(groupedReplicateToggle).toBeTruthy();
+    expect(groupedReplicateToggleRow).toBeTruthy();
+    expect(groupedReplicateToggle.disabled).toBe(false);
+    expect(groupedReplicateToggleRow.style.display).not.toBe('none');
+
+    const getPointLayer = () => document.querySelector('#scatterPlot svg [data-layer="points"]');
+    const baseLayer = getPointLayer();
+    expect(baseLayer).toBeTruthy();
+    const basePointCount = baseLayer.querySelectorAll('*').length;
+    expect(basePointCount).toBeGreaterThan(0);
+
+    groupedReplicateToggle.checked = true;
+    groupedReplicateToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(80);
+
+    const expandedLayer = getPointLayer();
+    expect(expandedLayer).toBeTruthy();
+    const expandedPointCount = expandedLayer.querySelectorAll('*').length;
+    expect(expandedPointCount).toBeGreaterThan(basePointCount);
+
+    const cxValues = Array.from(expandedLayer.querySelectorAll('[cx]'))
+      .map(node => Number(node.getAttribute('cx')))
+      .filter(value => Number.isFinite(value));
+    const uniqueX = new Set(cxValues.map(value => value.toFixed(3)));
+    expect(uniqueX.size).toBe(2);
+
+    const xRepToggle = document.getElementById('scatterGroupedXReplicates');
+    expect(xRepToggle).toBeTruthy();
+    xRepToggle.checked = true;
+    xRepToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(60);
+
+    expect(groupedReplicateToggleRow.style.display).toBe('none');
+    expect(groupedReplicateToggle.disabled).toBe(true);
+  }, 20000);
+
   test('Scatter Plot: grouped X replicates support horizontal error bars and grouped example headers', async () => {
     await activateWorkspace('scatter');
     await flushAsyncWork(20);
