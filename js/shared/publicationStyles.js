@@ -780,8 +780,6 @@
 
     const hint = global.document.createElement('div');
     hint.className = 'idx-inline-048';
-    hint.textContent = 'Applies a publication preset to the current graph only.';
-    fieldset.appendChild(hint);
 
     const anchor = resolveInsertAnchor(panel);
     if(anchor && anchor.parentNode === panel && anchor.dataset?.colorSchemeFieldset === '1'){

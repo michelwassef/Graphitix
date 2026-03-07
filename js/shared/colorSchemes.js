@@ -1298,7 +1298,6 @@
 
     const hint = doc.createElement('div');
     hint.className = 'idx-inline-048';
-    hint.textContent = 'Applies to this tab only. New tabs of this graph type inherit this palette.';
 
     fieldset.appendChild(row);
     fieldset.appendChild(hint);
