@@ -5086,6 +5086,8 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__range-value{min-width:30px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
 .additional-line-controls-panel__field--style{min-width:90px}
 .additional-line-controls-panel__field--symbol-border{min-width:max-content}
+.additional-line-controls-panel__field--scatter-grouped-controls{min-width:220px;align-items:flex-start;text-align:left}
+.scatter-grouped-mode-select{min-width:180px}
 
 /* Grid controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.grid-controls-panel{position:static;margin:0;max-width:100%}

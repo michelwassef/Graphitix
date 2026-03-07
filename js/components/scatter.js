@@ -554,6 +554,7 @@
     host.style.removeProperty('align-items');
   }
   function clearScatterSymbolPanel(host){
+    syncScatterSymbolToolbarDotToggles = null;
     if(!host || !host.querySelectorAll){ return; }
     host.querySelectorAll('.workspace-toolbar__panel--symbol').forEach(node => node.remove());
     host.querySelectorAll('.scatter-point-controls.workspace-toolbar__form--single').forEach(node => {
@@ -564,6 +565,103 @@
         node.parentNode.removeChild(node);
       }
     });
+  }
+  function mountScatterSymbolToolbarGroupedControls(toolbarState){
+    const doc = global.document;
+    const wrap = toolbarState?.wrap;
+    if(!doc || !wrap){
+      syncScatterSymbolToolbarDotToggles = null;
+      return;
+    }
+    const showErrorBarsInput = doc.getElementById('scatterShowErrorBars');
+    const showGroupedReplicatesInput = doc.getElementById('scatterShowGroupedReplicates');
+    const showGroupedReplicatesRow = doc.getElementById('scatterShowGroupedReplicatesRow');
+    if(!showErrorBarsInput && !showGroupedReplicatesInput){
+      syncScatterSymbolToolbarDotToggles = null;
+      return;
+    }
+    wrap.querySelectorAll('[data-scatter-symbol-grouped-controls="1"]').forEach(node => node.remove());
+    const field = doc.createElement('div');
+    field.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--scatter-grouped-controls';
+    field.dataset.scatterSymbolGroupedControls = '1';
+    const title = doc.createElement('span');
+    title.className = 'additional-line-controls-panel__field-label';
+    title.textContent = 'Grouped mode';
+    field.appendChild(title);
+    const modeSelect = doc.createElement('select');
+    modeSelect.className = 'workspace-toolbar__select additional-line-controls-panel__input additional-line-controls-panel__input--select scatter-grouped-mode-select';
+    modeSelect.setAttribute('data-undo-ignore', '1');
+    const optionIndividual = doc.createElement('option');
+    optionIndividual.value = 'individual';
+    optionIndividual.textContent = 'Show individual values';
+    const optionErrorBars = doc.createElement('option');
+    optionErrorBars.value = 'errorbars';
+    optionErrorBars.textContent = 'Show mean + error bars';
+    modeSelect.appendChild(optionIndividual);
+    modeSelect.appendChild(optionErrorBars);
+    let isApplying = false;
+    const applySelection = nextValue => {
+      if(isApplying){
+        return;
+      }
+      const desired = String(nextValue || '').toLowerCase() === 'errorbars' ? 'errorbars' : 'individual';
+      isApplying = true;
+      try{
+        if(desired === 'individual'){
+          if(showErrorBarsInput && showErrorBarsInput.checked){
+            showErrorBarsInput.checked = false;
+            showErrorBarsInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          if(showGroupedReplicatesInput && !showGroupedReplicatesInput.checked){
+            showGroupedReplicatesInput.checked = true;
+            showGroupedReplicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }else{
+          if(showGroupedReplicatesInput && showGroupedReplicatesInput.checked){
+            showGroupedReplicatesInput.checked = false;
+            showGroupedReplicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          if(showErrorBarsInput && !showErrorBarsInput.checked){
+            showErrorBarsInput.checked = true;
+            showErrorBarsInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }finally{
+        isApplying = false;
+      }
+    };
+    modeSelect.addEventListener('change', () => {
+      applySelection(modeSelect.value);
+    });
+    field.appendChild(modeSelect);
+    wrap.appendChild(field);
+    const sync = () => {
+      const isScatter = scatterCurrentGraphType === 'scatter';
+      const individualVisible = isScatter && !!showGroupedReplicatesInput && (!showGroupedReplicatesRow || showGroupedReplicatesRow.style.display !== 'none');
+      const errorBarsVisible = isScatter && !!showErrorBarsInput;
+      const individualEnabled = individualVisible && !showGroupedReplicatesInput?.disabled;
+      const errorBarsEnabled = errorBarsVisible && !showErrorBarsInput?.disabled;
+      optionIndividual.hidden = !individualVisible;
+      optionErrorBars.hidden = !errorBarsVisible;
+      optionIndividual.disabled = !individualEnabled;
+      optionErrorBars.disabled = !errorBarsEnabled;
+      const hasVisible = individualVisible || errorBarsVisible;
+      modeSelect.disabled = !hasVisible || (!individualEnabled && !errorBarsEnabled);
+      if(!scatterGroupedModeDefaultApplied && individualEnabled){
+        applySelection('individual');
+        scatterGroupedModeDefaultApplied = true;
+      }
+      const selectedValue = showGroupedReplicatesInput?.checked
+        ? 'individual'
+        : (showErrorBarsInput?.checked ? 'errorbars' : (individualVisible ? 'individual' : 'errorbars'));
+      if(modeSelect.value !== selectedValue){
+        modeSelect.value = selectedValue;
+      }
+      field.hidden = !hasVisible;
+      field.setAttribute('aria-hidden', hasVisible ? 'false' : 'true');
+    };
+    syncScatterSymbolToolbarDotToggles = sync;
+    sync();
   }
   function isScatterTrendLineEnabled(){
     const doc = global.document;
@@ -4429,6 +4527,7 @@
   function showScatterFormatControls(target){
     const doc = global.document;
     if(!doc){ return; }
+    syncScatterSymbolToolbarDotToggles = null;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const scatterFillInput = doc.getElementById('scatterFill');
@@ -4537,6 +4636,9 @@
         anchorId: 'scatterFontHost',
         scopeId: 'scatter',
         formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls scatter-point-controls',
+        onClose(){
+          syncScatterSymbolToolbarDotToggles = null;
+        },
         scope: {
           label: 'Scope',
           options: scatterScopeOptions,
@@ -4728,6 +4830,7 @@
           }
         }
       });
+      mountScatterSymbolToolbarGroupedControls(symbolToolbarState);
       const toolbarHost = symbolToolbarState?.host || null;
       if(toolbarHost && scatterCurrentGraphType === 'scatter'){
         const overlayState = showScatterOverlayFormatControls({
@@ -5360,6 +5463,7 @@
     opacityWrap.appendChild(opacityInput);
     opacityWrap.appendChild(opacityValue);
     wrap.appendChild(makeInput('Transparency', opacityWrap));
+    mountScatterSymbolToolbarGroupedControls({ wrap });
 
     toolbarHost.appendChild(wrap);
     toolbarHost.style.display = 'block';
@@ -5380,6 +5484,7 @@
           if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
           toolbarHost.classList.remove('font-toolbar-host--visible');
           toolbarHost.style.display = 'none';
+          syncScatterSymbolToolbarDotToggles = null;
           try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
           const d = toolbarHost.closest('.workspace-toolbar__dock');
           if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
@@ -6070,6 +6175,8 @@
 
   let scheduleDrawScatter = () => {};
   let scheduleDrawScatterRaw = () => {};
+  let syncScatterSymbolToolbarDotToggles = null;
+  let scatterGroupedModeDefaultApplied = false;
   let scatterAutoDrawManager = null;
   let scatterLayout = null;
   let scatterLayoutWasHidden = true;
@@ -9920,6 +10027,22 @@
       const scatterDensityPalette=$('#scatterDensityPalette');
       const scatterDensityPaletteRow=$('#scatterDensityPaletteRow');
       const scatterColorModeRow=$('#scatterColorModeRow');
+      const scatterDotsBaseRow = scatterDotSize?.closest('.config-panel__line') || null;
+      const scatterDotsGroupedRow = scatterShowErrorBars?.closest('.config-panel__line') || null;
+      const scatterDotsFieldset = scatterDotsBaseRow?.closest('fieldset') || scatterDotsGroupedRow?.closest('fieldset') || null;
+      const scatterColorModeLine = scatterColorModeRow?.closest('.config-panel__line')
+        || scatterColorMode?.closest('.config-panel__line')
+        || scatterDensityPalette?.closest('.config-panel__line')
+        || null;
+      if(scatterShowErrorBars){
+        scatterShowErrorBars.checked = false;
+        scatterShowErrorBars.defaultChecked = false;
+      }
+      if(scatterShowGroupedReplicates){
+        scatterShowGroupedReplicates.checked = true;
+        scatterShowGroupedReplicates.defaultChecked = true;
+      }
+      scatterGroupedModeDefaultApplied = !!scatterShowGroupedReplicates?.checked;
       let scatterColorModeApplied = 'solid';
       let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
       const scatterShowCI = $('#scatterShowCI');
@@ -9928,6 +10051,41 @@
       let scatterShowDiagnostics=$('#scatterShowDiagnostics');
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
+      function syncScatterControlPanelDotLayout(){
+        if(scatterDotsBaseRow){
+          scatterDotsBaseRow.hidden = true;
+          scatterDotsBaseRow.setAttribute('aria-hidden', 'true');
+        }
+        if(scatterDotsGroupedRow){
+          scatterDotsGroupedRow.hidden = true;
+          scatterDotsGroupedRow.setAttribute('aria-hidden', 'true');
+        }
+        const colorSchemeFieldset = document.querySelector('#scatterPage .config-panel [data-color-scheme-fieldset="1"]');
+        if(colorSchemeFieldset && scatterColorModeLine && scatterColorModeLine.parentNode !== colorSchemeFieldset){
+          colorSchemeFieldset.appendChild(scatterColorModeLine);
+        }
+        if(scatterDotsFieldset){
+          const hasVisibleLines = Array.from(scatterDotsFieldset.querySelectorAll('.config-panel__line')).some(line => (
+            !!line
+            && !line.hidden
+            && String(line.style.display || '').trim().toLowerCase() !== 'none'
+          ));
+          scatterDotsFieldset.style.display = hasVisibleLines ? '' : 'none';
+          scatterDotsFieldset.setAttribute('aria-hidden', hasVisibleLines ? 'false' : 'true');
+        }
+      }
+      syncScatterControlPanelDotLayout();
+      let scatterDotLayoutSyncAttempts = 0;
+      const ensureScatterControlPanelDotLayout = () => {
+        syncScatterControlPanelDotLayout();
+        const hasColorSchemeFieldset = !!document.querySelector('#scatterPage .config-panel [data-color-scheme-fieldset="1"]');
+        if(hasColorSchemeFieldset || scatterDotLayoutSyncAttempts >= 20){
+          return;
+        }
+        scatterDotLayoutSyncAttempts += 1;
+        setTimeout(ensureScatterControlPanelDotLayout, 80);
+      };
+      setTimeout(ensureScatterControlPanelDotLayout, 0);
       if(scatterFontSize?.dataset){
         scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
         console.debug('Debug: scatter font size base initialized',{ value: scatterFontSize.value }); // Debug: initial base
@@ -10196,6 +10354,9 @@
           const enabled = errorBarsAvailable && !!scatterShowErrorBars?.checked;
           scatterErrorBarWidth.disabled = !enabled;
         }
+        if(typeof syncScatterSymbolToolbarDotToggles === 'function'){
+          syncScatterSymbolToolbarDotToggles();
+        }
       }
 
       function syncScatterGroupedReplicatePointControls(modeOverride){
@@ -10208,6 +10369,9 @@
         }
         if(scatterShowGroupedReplicates){
           scatterShowGroupedReplicates.disabled = !allowGroupedReplicatePoints;
+        }
+        if(typeof syncScatterSymbolToolbarDotToggles === 'function'){
+          syncScatterSymbolToolbarDotToggles();
         }
       }
 
@@ -19282,11 +19446,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(scatterTableFormatSelect){
           scatterTableFormatSelect.value = desiredTableFormat;
         }
-        if(scatterShowErrorBars && typeof c.showErrorBars === 'boolean'){
-          scatterShowErrorBars.checked = c.showErrorBars;
+        if(scatterShowErrorBars){
+          scatterShowErrorBars.checked = typeof c.showErrorBars === 'boolean' ? c.showErrorBars : false;
         }
-        if(scatterShowGroupedReplicates && typeof c.showGroupedReplicatePoints === 'boolean'){
-          scatterShowGroupedReplicates.checked = c.showGroupedReplicatePoints;
+        if(scatterShowGroupedReplicates){
+          scatterShowGroupedReplicates.checked = typeof c.showGroupedReplicatePoints === 'boolean' ? c.showGroupedReplicatePoints : true;
+        }
+        if(scatterShowGroupedReplicates?.checked && scatterShowErrorBars){
+          scatterShowErrorBars.checked = false;
         }
         if(scatterErrorBarWidth && c.errorBarWidth !== undefined && c.errorBarWidth !== null){
           scatterErrorBarWidth.value = String(c.errorBarWidth);
@@ -19584,6 +19751,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       payload.config.stats.showCI = !!(scatterShowCI ? scatterShowCI.defaultChecked : false);
       payload.config.stats.showPI = !!(scatterShowPI ? scatterShowPI.defaultChecked : false);
       payload.config.stats.showDiagnostics = !!(scatterShowDiagnostics ? scatterShowDiagnostics.defaultChecked : false);
+      payload.config.showErrorBars = false;
+      payload.config.showGroupedReplicatePoints = true;
       if(Object.prototype.hasOwnProperty.call(payload, 'stats')){
         delete payload.stats;
       }
