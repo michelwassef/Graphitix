@@ -3727,6 +3727,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-options legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
 .config-panel__line,
 .config-options .control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
+.config-panel__line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
 .config-panel__line:first-of-type,
 .config-options .control:first-of-type{margin-top:0}
 .config-options .control-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
@@ -3738,6 +3739,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .workspace-toolbar,
 .axis-controls-panel,
 .significance-controls-panel{
+  --graph-control-font-size:12px;
   --shared-checkbox-chip-border:#b4bccb;
   --shared-checkbox-chip-bg:#f9fafc;
   --shared-checkbox-chip-text:#1e2633;
@@ -3751,18 +3753,23 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel__item--swatch{flex:0 0 auto}
 .config-panel__item--select-auto{flex:0 0 auto}
 .config-panel__label,
-.config-options .control label{font-size:11px;font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
+.config-options .control label,
+.config-panel .config-panel__line label{font-size:var(--graph-control-font-size,12px);font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
 .config-options .control label.color-picker{width:auto;min-width:0}
 .config-panel__range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
 .config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
-.config-panel__checkbox,
+.config-options .config-panel__checkbox,
 .config-options .control label:has(> input[type=checkbox]),
-.config-options .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.config-options .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:var(--graph-control-font-size,12px);font-weight:400;color:#111b2c;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.config-panel .config-panel__checkbox,
+.config-panel .config-panel__line label:has(> input[type=checkbox]),
+.config-panel .config-panel__line label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:var(--graph-control-font-size,12px);font-weight:400;color:#111b2c;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
 .config-panel__checkbox input[type=checkbox],
 .config-options .control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .config-panel__checkbox--inline{margin-left:auto}
-.config-panel__checkbox--disabled{opacity:0.48;filter:grayscale(60%);background:#f3f5f7;border-color:#d6dde5;color:#6b7785;cursor:not-allowed;pointer-events:none}
+.config-panel__checkbox--disabled{opacity:0.48;filter:grayscale(60%);color:#6b7785;cursor:not-allowed;pointer-events:none}
 .config-panel__checkbox--disabled input[type=checkbox]{cursor:not-allowed}
+.svgbox .config-panel__checkbox{display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);text-transform:none;letter-spacing:.04em;white-space:nowrap}
 .config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
 .config-options .color-pickers label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1c2534}
 .config-options .control input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px)}
@@ -4146,7 +4153,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #vennPage #analysisResults,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
 #vennPage #stringNetwork{width:100%;overflow:visible}
 #vennPage #stringNetwork svg{width:100%;max-width:100%;height:auto;display:block;position:relative;overflow:visible}
-#vennPage .venn-inline-checkbox{display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer}
+#vennPage .venn-inline-checkbox{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:11px;font-weight:400;color:#111b2c;letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer}
 #vennPage .venn-inline-checkbox input{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 #vennPage .upset-only{display:none}
 #vennPage[data-plot="upset"] .upset-only{display:block}
@@ -4415,7 +4422,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #histPage #histTablePanel{flex:1 1 33%;min-width:150px}
 #histPage #histGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #histGraphPanel .hist-dist-list{display:flex;flex-direction:column;gap:6px;width:100%;}
-#histGraphPanel .hist-dist-option{display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer;line-height:1.4;}
+#histGraphPanel .hist-dist-option{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:11px;font-weight:400;color:#111b2c;letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer;line-height:1.4;}
 #histGraphPanel .hist-dist-option input[type="checkbox"]{margin:0;width:16px;height:16px;accent-color:#0b63d1;}
 #histGraphPanel .hist-dist-swatch{width:12px;height:12px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);}
 #histGraphPanel .hist-overlay{mix-blend-mode:multiply;pointer-events:none;}
@@ -5405,6 +5412,7 @@ input[type="number"],
 .idx-inline-046 { font-size: 13px; }
 .idx-inline-047 { gap: 8px; align-items: center; }
 .idx-inline-048 { font-size: 12px; color: #555; margin-top: 6px; }
+
 .idx-inline-049 { flex-direction: column; gap: 6px; align-items: flex-start; }
 .idx-inline-050 { margin-bottom: 8px; }
 .idx-inline-051 { flex-direction: column; align-items: flex-start; gap: 6px; }

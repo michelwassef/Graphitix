@@ -1422,6 +1422,12 @@
     }
     appendRow(`X: ${formatScatterTooltipNumber(data.x)}`);
     appendRow(`Y: ${formatScatterTooltipNumber(data.y)}`);
+    if(data.isGroupedReplicatePoint){
+      const replicateSuffix = Number.isInteger(data.groupedReplicateIndex)
+        ? ` #${data.groupedReplicateIndex}`
+        : '';
+      appendRow(`Grouped replicate${replicateSuffix}`);
+    }
     if(data.z !== undefined){
       appendRow(`Z: ${formatScatterTooltipNumber(data.z)}`);
     }
@@ -9907,6 +9913,8 @@
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterShowPlotStats=$('#scatterShowPlotStats'), scatterAlpha=$('#scatterAlpha');
       const scatterShowErrorBars=$('#scatterShowErrorBars');
+      const scatterShowGroupedReplicates=$('#scatterShowGroupedReplicates');
+      const scatterShowGroupedReplicatesRow=$('#scatterShowGroupedReplicatesRow');
       const scatterErrorBarWidth=$('#scatterErrorBarWidth');
       const scatterColorMode=$('#scatterColorMode');
       const scatterDensityPalette=$('#scatterDensityPalette');
@@ -10174,6 +10182,7 @@
           scatterGroupedXReplicatesInput.checked = !!scatterGroupedXReplicates;
         }
         syncScatterErrorBarControls(mode);
+        syncScatterGroupedReplicatePointControls(mode);
       }
 
       function syncScatterErrorBarControls(modeOverride){
@@ -10186,6 +10195,19 @@
         if(scatterErrorBarWidth){
           const enabled = errorBarsAvailable && !!scatterShowErrorBars?.checked;
           scatterErrorBarWidth.disabled = !enabled;
+        }
+      }
+
+      function syncScatterGroupedReplicatePointControls(modeOverride){
+        const mode = normalizeScatterTableFormat(modeOverride || getScatterReplicateMode());
+        const groupedActive = mode === SCATTER_TABLE_FORMAT_GROUPED && scatterCurrentGraphType === 'scatter';
+        const allowGroupedReplicatePoints = groupedActive && !scatterGroupedXReplicates;
+        if(scatterShowGroupedReplicatesRow){
+          scatterShowGroupedReplicatesRow.style.display = allowGroupedReplicatePoints ? '' : 'none';
+          scatterShowGroupedReplicatesRow.setAttribute('aria-hidden', allowGroupedReplicatePoints ? 'false' : 'true');
+        }
+        if(scatterShowGroupedReplicates){
+          scatterShowGroupedReplicates.disabled = !allowGroupedReplicatePoints;
         }
       }
 
@@ -13671,6 +13693,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleDrawScatter();
         });
       }
+      if(scatterShowGroupedReplicates){
+        scatterShowGroupedReplicates.addEventListener('change', () => {
+          syncScatterGroupedReplicatePointControls();
+          persistTabState('scatter-grouped-replicates-toggle');
+          scheduleDrawScatter();
+        });
+      }
       if(scatterErrorBarWidth){
         scatterErrorBarWidth.addEventListener('input', () => {
           syncScatterErrorBarControls();
@@ -14616,6 +14645,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let skippedRows=0;
         let significantCount=0;
         let maMissingPCount=0;
+        const showGroupedReplicatePoints = groupedScatterActive
+          && !scatterGroupedXReplicates
+          && !!scatterShowGroupedReplicates?.checked;
         const hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
         const scatter3dCandidates = [];
         let scatter3dEligible = graphType === 'scatter' && hasZColumn;
@@ -14706,8 +14738,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 const hasSpread = replicateCount > 1 && Number.isFinite(stdev) && stdev > 0;
                 const lower = hasSpread ? (mean - stdev) : null;
                 const upper = hasSpread ? (mean + stdev) : null;
-                const yMinCandidate = hasSpread && Number.isFinite(lower) ? lower : mean;
-                const yMaxCandidate = hasSpread && Number.isFinite(upper) ? upper : mean;
+                const repMin = repValues.reduce((min, value) => value < min ? value : min, Number.POSITIVE_INFINITY);
+                const repMax = repValues.reduce((max, value) => value > max ? value : max, Number.NEGATIVE_INFINITY);
+                const yMinCandidate = showGroupedReplicatePoints
+                  ? (Number.isFinite(repMin) ? repMin : mean)
+                  : (hasSpread && Number.isFinite(lower) ? lower : mean);
+                const yMaxCandidate = showGroupedReplicatePoints
+                  ? (Number.isFinite(repMax) ? repMax : mean)
+                  : (hasSpread && Number.isFinite(upper) ? upper : mean);
                 const groupLabel = (group.label && String(group.label).trim()) || `Series ${group.index + 1}`;
                 const pointName = lab || groupLabel;
                 points.push({
@@ -14727,8 +14765,25 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                   xReplicateCount,
                   xStdev: hasXSpread ? xStdev : 0,
                   xLower,
-                  xUpper
+                  xUpper,
+                  isGroupedReplicatePoint: false
                 });
+                if(showGroupedReplicatePoints){
+                  for(let repIdx = 0; repIdx < replicateCount; repIdx += 1){
+                    const replicateValue = repValues[repIdx];
+                    points.push({
+                      x: xv,
+                      y: replicateValue,
+                      label: groupLabel,
+                      series: groupLabel,
+                      pointName: lab || `${groupLabel} replicate ${repIdx + 1}`,
+                      rowIndex: physicalRow,
+                      isManualLabel: false,
+                      replicateIndex: repIdx + 1,
+                      isGroupedReplicatePoint: true
+                    });
+                  }
+                }
                 if(labelSet){
                   labelSet.add(groupLabel);
                 }
@@ -17077,7 +17132,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(!marker){
             continue;
           }
-          if(showGroupedErrorBars){
+          if(showGroupedErrorBars && !p?.isGroupedReplicatePoint){
             const yReplicateCount = Number.isInteger(p?.replicateCount)
               ? p.replicateCount
               : (Array.isArray(p?.replicates) ? p.replicates.length : 0);
@@ -17207,7 +17262,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             replicates: Array.isArray(p.replicates) ? p.replicates : undefined,
             stdev: Number.isFinite(p.stdev) ? p.stdev : undefined,
             xReplicates: Array.isArray(p.xReplicates) ? p.xReplicates : undefined,
-            xStdev: Number.isFinite(p.xStdev) ? p.xStdev : undefined
+            xStdev: Number.isFinite(p.xStdev) ? p.xStdev : undefined,
+            groupedReplicateIndex: Number.isInteger(p.replicateIndex) ? p.replicateIndex : undefined,
+            isGroupedReplicatePoint: !!p.isGroupedReplicatePoint
           });
           frag.appendChild(marker);
           pointIndex++;
@@ -18067,7 +18124,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           });
         }
         if(scatterCurrentGraphType==='scatter'){
-          const statsPoints=points.map(p=>({
+          const statsSourcePoints = groupedScatterActive
+            ? points.filter(point => !point?.isGroupedReplicatePoint)
+            : points;
+          const statsPoints=statsSourcePoints.map(p=>({
             label:p.label,
             series:p.series || p.label || '',
             pointName:p.pointName || p.label || '',
@@ -18911,6 +18971,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             xReplicates: !!scatterGroupedXReplicates,
             groupLabels: Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [],
             showErrorBars: scatterShowErrorBars ? !!scatterShowErrorBars.checked : false,
+            showGroupedReplicatePoints: scatterShowGroupedReplicates ? !!scatterShowGroupedReplicates.checked : false,
             errorBarWidth: scatterErrorBarWidth ? scatterErrorBarWidth.value : undefined,
             log2fcThreshold:scatterLog2FCThreshold?.value || '',
             negLogPThreshold:scatterNegLogPThreshold?.value || '',
@@ -19223,6 +19284,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         if(scatterShowErrorBars && typeof c.showErrorBars === 'boolean'){
           scatterShowErrorBars.checked = c.showErrorBars;
+        }
+        if(scatterShowGroupedReplicates && typeof c.showGroupedReplicatePoints === 'boolean'){
+          scatterShowGroupedReplicates.checked = c.showGroupedReplicatePoints;
         }
         if(scatterErrorBarWidth && c.errorBarWidth !== undefined && c.errorBarWidth !== null){
           scatterErrorBarWidth.value = String(c.errorBarWidth);

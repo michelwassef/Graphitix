@@ -3384,8 +3384,10 @@
           Array.from(activeSet).forEach(pushOrdered);
           return ordered;
         })();
+        const overlayTrendEnabled = !!refs.showTrendLine?.checked;
         const overlayConfidenceEnabled = isLineConfidenceIntervalEnabled();
         const overlayPredictionEnabled = isLinePredictionIntervalEnabled();
+        const hasOverlayEnabled = overlayTrendEnabled || overlayConfidenceEnabled || overlayPredictionEnabled;
         const overlayScopeOptions = (() => {
           const options = [{ value: 'global', label: 'Global' }];
           const appendOverlayOptions = (overlayKey, label) => {
@@ -3397,7 +3399,9 @@
               });
             });
           };
-          appendOverlayOptions('trend', 'Trend line');
+          if(overlayTrendEnabled){
+            appendOverlayOptions('trend', 'Trend line');
+          }
           if(overlayConfidenceEnabled){
             appendOverlayOptions('confidence', 'Confidence interval');
           }
@@ -3428,11 +3432,17 @@
           const lineColor = getPathColor(seriesContext);
           return resolveLineOverlayStrokeColor(style?.color, lineColor, strokeInput?.value || '#000000');
         };
+        const clearInlineOverlayPanel = () => {
+          if(!toolbarHost || !toolbarHost.querySelectorAll){
+            return;
+          }
+          toolbarHost.querySelectorAll('.line-overlay-inline-panel').forEach(node => node.remove());
+        };
         const ensureInlineOverlayPanel = () => {
           if(!toolbarHost || !toolbarHost.querySelectorAll){
             return null;
           }
-          toolbarHost.querySelectorAll('.line-overlay-inline-panel').forEach(node => node.remove());
+          clearInlineOverlayPanel();
           const panel = doc.createElement('div');
           panel.className = 'additional-line-controls-panel line-overlay-inline-panel';
           panel.dataset.lineOverlayPanel = '1';
@@ -3646,13 +3656,16 @@
           toolbarHost.appendChild(panel);
           return panel;
         };
-        ensureInlineOverlayPanel();
-        toolbarHost.classList.add('font-toolbar-host--line-dual');
-        toolbarHost.style.display = 'grid';
-        toolbarHost.style.gridAutoFlow = 'column';
-        toolbarHost.style.gridAutoColumns = 'max-content';
-        toolbarHost.style.columnGap = '10px';
-        toolbarHost.style.alignItems = 'flex-start';
+        clearInlineOverlayPanel();
+        if(hasOverlayEnabled){
+          ensureInlineOverlayPanel();
+          toolbarHost.classList.add('font-toolbar-host--line-dual');
+          toolbarHost.style.display = 'grid';
+          toolbarHost.style.gridAutoFlow = 'column';
+          toolbarHost.style.gridAutoColumns = 'max-content';
+          toolbarHost.style.columnGap = '10px';
+          toolbarHost.style.alignItems = 'flex-start';
+        }
         if(markerScopeSelect){
           markerScopeSelect.addEventListener('change', () => {
             setLineScope(markerScopeSelect.value, {
