@@ -10041,7 +10041,12 @@
   }
 
   pca.__testHooks = Object.assign({}, pca.__testHooks, {
-    benchmarkLoad: opts => benchmarkPcaLoad(opts)
+    benchmarkLoad: opts => benchmarkPcaLoad(opts),
+    getPerformance: () => ({
+      performance: cloneSimple(pcaState.performance),
+      lastAutoDrawEvaluation: cloneSimple(pcaState.lastAutoDrawEvaluation),
+      lastDataShape: cloneSimple(pcaState.lastDataShape)
+    })
   });
 
 })(window);

@@ -347,6 +347,7 @@
     drawPending: false,
     lastDataShape: { rows: 0, cols: 0 },
     lastAutoDrawEvaluation: null,
+    performance: { loadData: null, draw: null, evaluation: null },
     lastRenderModel: null,
     lastViewOptions: null,
     lastStats: null,
@@ -363,6 +364,31 @@
     },
     labelPositions: { title: null }
   };
+
+  function ensureHeatmapPerformanceState(){
+    if(state.performance && typeof state.performance === 'object'){
+      return state.performance;
+    }
+    state.performance = { loadData: null, draw: null, evaluation: null };
+    return state.performance;
+  }
+
+  function recordHeatmapPerformance(section, data){
+    if(!section){
+      return;
+    }
+    const perfState = ensureHeatmapPerformanceState();
+    const previous = perfState[section] || {};
+    const payload = { timestamp: Date.now(), ...(data || {}) };
+    if(section === 'draw' && typeof previous.totalMs === 'number' && typeof payload.totalMs === 'number'){
+      payload.totalMs = Math.max(previous.totalMs, payload.totalMs);
+    }
+    perfState[section] = payload;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: heatmap performance mark', { section, payload });
+    }
+  }
+
   const heatmapOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'heatmap',
     message: 'Rendering heatmap...',
@@ -1055,11 +1081,28 @@
   function evaluateAutoDrawThresholds(meta = {}){
     const hot = state.hot;
     const perfStart = nowMs();
-    if(!hot){
-      return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
-    }
     let totalRows = Number(meta?.shape?.rows);
     let totalCols = Number(meta?.shape?.cols);
+    let cellEstimate = 0;
+    let thresholdExceeded = false;
+    const finalize = (result, overrides = {}) => {
+      const payload = {
+        source: meta?.source || null,
+        rows: overrides.rows ?? totalRows,
+        cols: overrides.cols ?? totalCols,
+        cellEstimate: overrides.cellEstimate ?? cellEstimate,
+        thresholdExceeded: overrides.thresholdExceeded ?? thresholdExceeded,
+        totalMs: nowMs() - perfStart
+      };
+      recordHeatmapPerformance('evaluation', payload);
+      return result;
+    };
+    if(!hot){
+      return finalize({ autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null }, {
+        rows: Number.isFinite(totalRows) ? totalRows : 0,
+        cols: Number.isFinite(totalCols) ? totalCols : 0
+      });
+    }
     if(!Number.isFinite(totalRows) || totalRows < 0){
       if(typeof hot.countSourceRows === 'function'){
         totalRows = hot.countSourceRows();
@@ -1094,8 +1137,8 @@
         totalCols = filled.cols;
       }
     }
-    const cellEstimate = Math.max(0, totalRows) * Math.max(1, totalCols);
-    const thresholdExceeded = totalRows >= HEATMAP_AUTO_DRAW_ROW_THRESHOLD
+    cellEstimate = Math.max(0, totalRows) * Math.max(1, totalCols);
+    thresholdExceeded = totalRows >= HEATMAP_AUTO_DRAW_ROW_THRESHOLD
       || totalCols >= HEATMAP_AUTO_DRAW_COL_THRESHOLD
       || cellEstimate >= HEATMAP_AUTO_DRAW_CELL_THRESHOLD;
     state.lastAutoDrawEvaluation = {
@@ -1115,11 +1158,11 @@
         cols: totalCols,
         preserveReason: true
       });
-      return {
+      return finalize({
         autoDrawEnabled: state.autoDrawEnabled,
         disabledNow: !!toggleResult?.disabledNow,
         reason: 'threshold'
-      };
+      });
     }
     const needsUnlock = !thresholdExceeded
       && state.autoDrawReason?.type === 'threshold'
@@ -1129,7 +1172,7 @@
     if(previouslyLocked || needsUnlock){
       setAutoDrawEnabled(true, { reason: 'threshold-cleared', preserveReason: false });
     }
-    return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
+    return finalize({ autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null });
   }
 
   function scheduleDrawHeatmap(options){
@@ -1298,6 +1341,41 @@
       }
       return instance;
     };
+    const patchHeatmapLoadDataPerformance = (hot) => {
+      if(!hot || typeof hot.loadData !== 'function' || hot.__heatmapPerfPatched){
+        return hot;
+      }
+      const originalLoadData = hot.loadData;
+      hot.loadData = function patchedHeatmapLoadData(){
+        const dataset = arguments[0];
+        let rows = 0;
+        let cols = 0;
+        if(Array.isArray(dataset)){
+          rows = dataset.length;
+          cols = Array.isArray(dataset[0]) ? dataset[0].length : 0;
+          updateHeatmapDataShape({ rows, cols });
+        }
+        const start = nowMs();
+        const result = originalLoadData.apply(this, arguments);
+        const afterLoad = nowMs();
+        evaluateAutoDrawThresholds(
+          rows || cols
+            ? { source: 'load-data', shape: { rows, cols } }
+            : { source: 'load-data' }
+        );
+        const afterEvaluation = nowMs();
+        recordHeatmapPerformance('loadData', {
+          rows,
+          cols,
+          totalMs: afterEvaluation - start,
+          hotMs: afterLoad - start,
+          evaluationMs: afterEvaluation - afterLoad
+        });
+        return result;
+      };
+      hot.__heatmapPerfPatched = true;
+      return hot;
+    };
     const ensureHeatmapHotForActiveTab = () => {
       let wrapper = document.getElementById('heatmapHotWrapper');
       let baseContainer = document.getElementById('heatmapHot');
@@ -1324,6 +1402,7 @@
           });
           syncHeatmapActiveDataViewFromHot(state.hot, 'ensure-active-tab');
           global.__LAST_HEATMAP_HOT__ = state.hot;
+          patchHeatmapLoadDataPerformance(state.hot);
         }
         return state.hot;
       }
@@ -1349,6 +1428,7 @@
         });
         syncHeatmapActiveDataViewFromHot(state.hot, 'ensure-active-tab');
         global.__LAST_HEATMAP_HOT__ = state.hot;
+        patchHeatmapLoadDataPerformance(state.hot);
       }
       return state.hot;
     };
@@ -5488,9 +5568,32 @@
   function draw(){
     const drawOpts = pendingDrawOptions || {};
     pendingDrawOptions = {};
+    const perfStart = nowMs();
+    let prepareEnd = perfStart;
+    let renderStart = perfStart;
+    const finalizeDrawPerformance = (meta = {}) => {
+      const effectivePrepareEnd = Number.isFinite(prepareEnd) ? prepareEnd : nowMs();
+      const effectiveRenderStart = Number.isFinite(renderStart) ? renderStart : effectivePrepareEnd;
+      const totalMs = nowMs() - perfStart;
+      const prepareMs = Math.max(0, effectivePrepareEnd - perfStart);
+      const renderMs = Math.max(0, totalMs - Math.max(0, effectiveRenderStart - perfStart));
+      recordHeatmapPerformance('draw', {
+        totalMs,
+        prepareMs,
+        renderMs,
+        viewOnly: !!drawOpts.viewOnly,
+        reason: drawOpts.reason || null,
+        status: meta.status || 'complete',
+        view: meta.view || null,
+        rows: Number.isFinite(meta.rows) ? meta.rows : undefined,
+        cols: Number.isFinite(meta.cols) ? meta.cols : undefined,
+        error: meta.error || null
+      });
+    };
     try{
       if(!state.hot || !state.svg){
         console.debug('Debug: heatmap draw skipped - missing hot or svg');
+        finalizeDrawPerformance({ status: 'skipped', error: 'missing-hot-or-svg' });
         return;
       }
       const drawToken = (state.drawToken || 0) + 1;
@@ -5504,16 +5607,31 @@
           const applied = renderModelWithView(state.lastRenderModel, viewOptions);
           if(applied){
             refreshStatsForView(viewOptions);
-          debugLog('Debug: heatmap view-only redraw applied', { reason: drawOpts.reason });
-          return;
-        }
+            prepareEnd = nowMs();
+            debugLog('Debug: heatmap view-only redraw applied', { reason: drawOpts.reason });
+            finalizeDrawPerformance({
+              status: 'complete',
+              view: settings.view,
+              rows: state.lastDataShape?.rows,
+              cols: state.lastDataShape?.cols
+            });
+            return;
+          }
           debugLog('Debug: heatmap view-only redraw fallback triggered');
         }else{
           debugLog('Debug: heatmap view-only redraw skipped - no cached render');
         }
+        prepareEnd = nowMs();
+        finalizeDrawPerformance({
+          status: 'skipped',
+          view: settings.view,
+          rows: state.lastDataShape?.rows,
+          cols: state.lastDataShape?.cols
+        });
         return;
       }
       const processed = prepareProcessedData(settings);
+      prepareEnd = nowMs();
       if(!processed.ok){
         clearCachedRenderState();
         const reason = processed.reason;
@@ -5527,15 +5645,48 @@
           renderEmpty('All columns were removed after adjustments. Check normalization and centering settings.');
           updateStats({ type: 'empty', message: 'All columns were removed after adjustments.' });
         }
+        finalizeDrawPerformance({
+          status: 'complete',
+          view: settings.view,
+          rows: state.lastDataShape?.rows,
+          cols: state.lastDataShape?.cols
+        });
         return;
       }
-      if(settings.view === 'values'){
-        return renderValuesHeatmap(processed, settings, drawToken);
-      }else{
-        return renderCorrelationHeatmap(processed, settings, drawToken);
+      renderStart = nowMs();
+      const renderResult = settings.view === 'values'
+        ? renderValuesHeatmap(processed, settings, drawToken)
+        : renderCorrelationHeatmap(processed, settings, drawToken);
+      if(renderResult && typeof renderResult.then === 'function'){
+        return renderResult.then((value) => {
+          finalizeDrawPerformance({
+            status: 'complete',
+            view: settings.view,
+            rows: processed.rowCount,
+            cols: processed.columnCount
+          });
+          return value;
+        }).catch((err) => {
+          finalizeDrawPerformance({
+            status: 'error',
+            view: settings.view,
+            rows: processed.rowCount,
+            cols: processed.columnCount,
+            error: err?.message || String(err)
+          });
+          throw err;
+        });
       }
+      finalizeDrawPerformance({
+        status: 'complete',
+        view: settings.view,
+        rows: processed.rowCount,
+        cols: processed.columnCount
+      });
+      return renderResult;
     }catch(err){
       console.error('heatmap draw error', err);
+      finalizeDrawPerformance({ status: 'error', error: err?.message || String(err) });
     }
   }
   function getConfig(){
@@ -6247,7 +6398,12 @@
   }
 
   heatmap.__testHooks = Object.assign({}, heatmap.__testHooks, {
-    benchmarkLoad: opts => benchmarkHeatmapLoad(opts)
+    benchmarkLoad: opts => benchmarkHeatmapLoad(opts),
+    getPerformance: () => ({
+      performance: cloneSimple(state.performance),
+      lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
+      lastDataShape: cloneSimple(state.lastDataShape)
+    })
   });
 
 })(window);

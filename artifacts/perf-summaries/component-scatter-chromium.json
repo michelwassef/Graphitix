@@ -1,0 +1,3651 @@
+{
+  "browser": "chromium",
+  "component": "scatter",
+  "page": "scatterPage",
+  "exampleLoaded": true,
+  "timingsMs": {
+    "openMs": 158,
+    "exampleMs": 1482,
+    "exerciseMs": 6245
+  },
+  "totals": {
+    "logEntries": 3663,
+    "warnings": 3,
+    "errors": 0,
+    "ignoredErrors": 0,
+    "critical": 0
+  },
+  "perf": {
+    "beforeExercise": {
+      "componentType": "scatter",
+      "capturedAt": 1772884576873,
+      "componentHook": null,
+      "sharedPerformance": {
+        "totalEntries": 13,
+        "relevantEntries": [
+          {
+            "id": 2,
+            "label": "scatter.data.collect",
+            "duration": 0.09999990463256836,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 0,
+              "skippedRows": 99
+            }
+          },
+          {
+            "id": 3,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 0,
+              "created": 0,
+              "pruned": 0,
+              "total": 0
+            }
+          },
+          {
+            "id": 1,
+            "label": "scatter.draw",
+            "duration": 14.899999976158142,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 1
+            }
+          },
+          {
+            "id": 5,
+            "label": "scatter.data.collect",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 0,
+              "skippedRows": 99
+            }
+          },
+          {
+            "id": 6,
+            "label": "scatter.labels.colors",
+            "duration": 0.09999990463256836,
+            "meta": {
+              "component": "scatter",
+              "labels": 0,
+              "created": 0,
+              "pruned": 0,
+              "total": 0,
+              "skipped": true
+            }
+          },
+          {
+            "id": 4,
+            "label": "scatter.draw",
+            "duration": 9.300000071525574,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 2
+            }
+          },
+          {
+            "id": 8,
+            "label": "scatter.data.collect",
+            "duration": 0.20000004768371582,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 9,
+            "label": "scatter.labels.colors",
+            "duration": 0.20000004768371582,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 3,
+              "pruned": 0,
+              "total": 3
+            }
+          },
+          {
+            "id": 10,
+            "label": "scatter.svg.draw",
+            "duration": 2.299999952316284,
+            "meta": {
+              "component": "scatter",
+              "token": 3,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 11,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 3,
+              "points": 8
+            }
+          },
+          {
+            "id": 12,
+            "label": "scatter.legend.render",
+            "duration": 5.800000071525574,
+            "meta": {
+              "component": "scatter",
+              "token": 3,
+              "entries": 3
+            }
+          },
+          {
+            "id": 13,
+            "label": "scatter.viewport.sync",
+            "duration": 5.600000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 3
+            }
+          },
+          {
+            "id": 7,
+            "label": "scatter.draw",
+            "duration": 98.20000004768372,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 3
+            }
+          }
+        ],
+        "maxEntryId": 13,
+        "componentReport": [
+          {
+            "key": "scatter.draw",
+            "count": 3,
+            "totalMs": 122.4,
+            "avgMs": 40.8,
+            "p50Ms": 14.9,
+            "p95Ms": 89.87,
+            "maxMs": 98.2,
+            "minMs": 9.3
+          },
+          {
+            "key": "scatter.legend.render",
+            "count": 1,
+            "totalMs": 5.8,
+            "avgMs": 5.8,
+            "p50Ms": 5.8,
+            "p95Ms": 5.8,
+            "maxMs": 5.8,
+            "minMs": 5.8
+          },
+          {
+            "key": "scatter.viewport.sync",
+            "count": 1,
+            "totalMs": 5.6,
+            "avgMs": 5.6,
+            "p50Ms": 5.6,
+            "p95Ms": 5.6,
+            "maxMs": 5.6,
+            "minMs": 5.6
+          },
+          {
+            "key": "scatter.svg.draw",
+            "count": 1,
+            "totalMs": 2.3,
+            "avgMs": 2.3,
+            "p50Ms": 2.3,
+            "p95Ms": 2.3,
+            "maxMs": 2.3,
+            "minMs": 2.3
+          },
+          {
+            "key": "scatter.data.collect",
+            "count": 3,
+            "totalMs": 0.3,
+            "avgMs": 0.1,
+            "p50Ms": 0.1,
+            "p95Ms": 0.19,
+            "maxMs": 0.2,
+            "minMs": 0
+          },
+          {
+            "key": "scatter.labels.colors",
+            "count": 3,
+            "totalMs": 0.3,
+            "avgMs": 0.1,
+            "p50Ms": 0.1,
+            "p95Ms": 0.19,
+            "maxMs": 0.2,
+            "minMs": 0
+          },
+          {
+            "key": "scatter.svg.attach",
+            "count": 1,
+            "totalMs": 0,
+            "avgMs": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "minMs": 0
+          }
+        ],
+        "hotReport": []
+      }
+    },
+    "afterExercise": {
+      "componentType": "scatter",
+      "capturedAt": 1772884583126,
+      "componentHook": null,
+      "sharedPerformance": {
+        "totalEntries": 154,
+        "relevantEntries": [
+          {
+            "id": 36,
+            "label": "scatter.svg.draw",
+            "duration": 1.100000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 7,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 37,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 7,
+              "points": 8
+            }
+          },
+          {
+            "id": 38,
+            "label": "scatter.legend.render",
+            "duration": 4.400000095367432,
+            "meta": {
+              "component": "scatter",
+              "token": 7,
+              "entries": 3
+            }
+          },
+          {
+            "id": 39,
+            "label": "scatter.viewport.sync",
+            "duration": 2.600000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 7
+            }
+          },
+          {
+            "id": 34,
+            "label": "scatter.draw",
+            "duration": 72.20000004768372,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 7
+            }
+          },
+          {
+            "id": 41,
+            "label": "scatter.data.collect",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 42,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 43,
+            "label": "scatter.svg.draw",
+            "duration": 1.600000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 8,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 44,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 8,
+              "points": 8
+            }
+          },
+          {
+            "id": 45,
+            "label": "scatter.legend.render",
+            "duration": 6.299999952316284,
+            "meta": {
+              "component": "scatter",
+              "token": 8,
+              "entries": 3
+            }
+          },
+          {
+            "id": 46,
+            "label": "scatter.viewport.sync",
+            "duration": 3.0999999046325684,
+            "meta": {
+              "component": "scatter",
+              "token": 8
+            }
+          },
+          {
+            "id": 40,
+            "label": "scatter.draw",
+            "duration": 80.10000002384186,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 8
+            }
+          },
+          {
+            "id": 48,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 49,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 50,
+            "label": "scatter.svg.draw",
+            "duration": 0.7999999523162842,
+            "meta": {
+              "component": "scatter",
+              "token": 9,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 51,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 9,
+              "points": 8
+            }
+          },
+          {
+            "id": 52,
+            "label": "scatter.legend.render",
+            "duration": 3.5,
+            "meta": {
+              "component": "scatter",
+              "token": 9,
+              "entries": 3
+            }
+          },
+          {
+            "id": 53,
+            "label": "scatter.viewport.sync",
+            "duration": 2.600000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 9
+            }
+          },
+          {
+            "id": 47,
+            "label": "scatter.draw",
+            "duration": 52.199999928474426,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 9
+            }
+          },
+          {
+            "id": 55,
+            "label": "scatter.data.collect",
+            "duration": 0.19999992847442627,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 56,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 54,
+            "label": "scatter.draw",
+            "duration": 12.899999976158142,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 10
+            }
+          },
+          {
+            "id": 58,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 59,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 60,
+            "label": "scatter.svg.draw",
+            "duration": 1.399999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 11,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 61,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 11,
+              "points": 8
+            }
+          },
+          {
+            "id": 62,
+            "label": "scatter.legend.render",
+            "duration": 6.199999928474426,
+            "meta": {
+              "component": "scatter",
+              "token": 11,
+              "entries": 3
+            }
+          },
+          {
+            "id": 63,
+            "label": "scatter.viewport.sync",
+            "duration": 2.899999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 11
+            }
+          },
+          {
+            "id": 57,
+            "label": "scatter.draw",
+            "duration": 101.39999997615814,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 11
+            }
+          },
+          {
+            "id": 65,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 66,
+            "label": "scatter.labels.colors",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3
+            }
+          },
+          {
+            "id": 67,
+            "label": "scatter.svg.draw",
+            "duration": 0.8999999761581421,
+            "meta": {
+              "component": "scatter",
+              "token": 12,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 68,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 12,
+              "points": 8
+            }
+          },
+          {
+            "id": 69,
+            "label": "scatter.legend.render",
+            "duration": 4.100000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 12,
+              "entries": 3
+            }
+          },
+          {
+            "id": 70,
+            "label": "scatter.viewport.sync",
+            "duration": 3.200000047683716,
+            "meta": {
+              "component": "scatter",
+              "token": 12
+            }
+          },
+          {
+            "id": 64,
+            "label": "scatter.draw",
+            "duration": 65.80000007152557,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 12
+            }
+          },
+          {
+            "id": 72,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 73,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3
+            }
+          },
+          {
+            "id": 74,
+            "label": "scatter.svg.draw",
+            "duration": 0.8999999761581421,
+            "meta": {
+              "component": "scatter",
+              "token": 13,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 75,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 13,
+              "points": 8
+            }
+          },
+          {
+            "id": 76,
+            "label": "scatter.legend.render",
+            "duration": 4.399999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 13,
+              "entries": 3
+            }
+          },
+          {
+            "id": 77,
+            "label": "scatter.viewport.sync",
+            "duration": 3.899999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 13
+            }
+          },
+          {
+            "id": 71,
+            "label": "scatter.draw",
+            "duration": 64.5,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 13
+            }
+          },
+          {
+            "id": 79,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 80,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 81,
+            "label": "scatter.svg.draw",
+            "duration": 1.5,
+            "meta": {
+              "component": "scatter",
+              "token": 14,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 82,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 14,
+              "points": 8
+            }
+          },
+          {
+            "id": 83,
+            "label": "scatter.legend.render",
+            "duration": 5.299999952316284,
+            "meta": {
+              "component": "scatter",
+              "token": 14,
+              "entries": 3
+            }
+          },
+          {
+            "id": 84,
+            "label": "scatter.viewport.sync",
+            "duration": 2.4000000953674316,
+            "meta": {
+              "component": "scatter",
+              "token": 14
+            }
+          },
+          {
+            "id": 78,
+            "label": "scatter.draw",
+            "duration": 70,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 14
+            }
+          },
+          {
+            "id": 86,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 87,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 88,
+            "label": "scatter.svg.draw",
+            "duration": 0.8999999761581421,
+            "meta": {
+              "component": "scatter",
+              "token": 15,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 89,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 15,
+              "points": 8
+            }
+          },
+          {
+            "id": 90,
+            "label": "scatter.legend.render",
+            "duration": 4.600000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 15,
+              "entries": 3
+            }
+          },
+          {
+            "id": 91,
+            "label": "scatter.viewport.sync",
+            "duration": 2.399999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 15
+            }
+          },
+          {
+            "id": 85,
+            "label": "scatter.draw",
+            "duration": 66.19999992847443,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 15
+            }
+          },
+          {
+            "id": 93,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 94,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 95,
+            "label": "scatter.svg.draw",
+            "duration": 0.7999999523162842,
+            "meta": {
+              "component": "scatter",
+              "token": 16,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 96,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 16,
+              "points": 8
+            }
+          },
+          {
+            "id": 97,
+            "label": "scatter.legend.render",
+            "duration": 3.5,
+            "meta": {
+              "component": "scatter",
+              "token": 16,
+              "entries": 3
+            }
+          },
+          {
+            "id": 98,
+            "label": "scatter.viewport.sync",
+            "duration": 1.6999999284744263,
+            "meta": {
+              "component": "scatter",
+              "token": 16
+            }
+          },
+          {
+            "id": 92,
+            "label": "scatter.draw",
+            "duration": 53,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 16
+            }
+          },
+          {
+            "id": 100,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 101,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 102,
+            "label": "scatter.svg.draw",
+            "duration": 0.8999999761581421,
+            "meta": {
+              "component": "scatter",
+              "token": 17,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 103,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 17,
+              "points": 8
+            }
+          },
+          {
+            "id": 104,
+            "label": "scatter.legend.render",
+            "duration": 4,
+            "meta": {
+              "component": "scatter",
+              "token": 17,
+              "entries": 3
+            }
+          },
+          {
+            "id": 105,
+            "label": "scatter.viewport.sync",
+            "duration": 1.6999999284744263,
+            "meta": {
+              "component": "scatter",
+              "token": 17
+            }
+          },
+          {
+            "id": 99,
+            "label": "scatter.draw",
+            "duration": 61.299999952316284,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 17
+            }
+          },
+          {
+            "id": 107,
+            "label": "scatter.data.collect",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 108,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 109,
+            "label": "scatter.svg.draw",
+            "duration": 0.7999999523162842,
+            "meta": {
+              "component": "scatter",
+              "token": 18,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 110,
+            "label": "scatter.svg.attach",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "token": 18,
+              "points": 8
+            }
+          },
+          {
+            "id": 111,
+            "label": "scatter.legend.render",
+            "duration": 3.399999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 18,
+              "entries": 3
+            }
+          },
+          {
+            "id": 112,
+            "label": "scatter.viewport.sync",
+            "duration": 1.7999999523162842,
+            "meta": {
+              "component": "scatter",
+              "token": 18
+            }
+          },
+          {
+            "id": 106,
+            "label": "scatter.draw",
+            "duration": 60.700000047683716,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 18
+            }
+          },
+          {
+            "id": 114,
+            "label": "scatter.data.collect",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 115,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 116,
+            "label": "scatter.svg.draw",
+            "duration": 0.8999999761581421,
+            "meta": {
+              "component": "scatter",
+              "token": 19,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 117,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 19,
+              "points": 8
+            }
+          },
+          {
+            "id": 118,
+            "label": "scatter.legend.render",
+            "duration": 3.700000047683716,
+            "meta": {
+              "component": "scatter",
+              "token": 19,
+              "entries": 3
+            }
+          },
+          {
+            "id": 119,
+            "label": "scatter.viewport.sync",
+            "duration": 1.7000000476837158,
+            "meta": {
+              "component": "scatter",
+              "token": 19
+            }
+          },
+          {
+            "id": 113,
+            "label": "scatter.draw",
+            "duration": 53.59999990463257,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 19
+            }
+          },
+          {
+            "id": 121,
+            "label": "scatter.data.collect",
+            "duration": 0.20000004768371582,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 122,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 123,
+            "label": "scatter.svg.draw",
+            "duration": 2.3000000715255737,
+            "meta": {
+              "component": "scatter",
+              "token": 20,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 124,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 20,
+              "points": 8
+            }
+          },
+          {
+            "id": 125,
+            "label": "scatter.legend.render",
+            "duration": 8.200000047683716,
+            "meta": {
+              "component": "scatter",
+              "token": 20,
+              "entries": 3
+            }
+          },
+          {
+            "id": 126,
+            "label": "scatter.viewport.sync",
+            "duration": 4.800000071525574,
+            "meta": {
+              "component": "scatter",
+              "token": 20
+            }
+          },
+          {
+            "id": 120,
+            "label": "scatter.draw",
+            "duration": 128.29999995231628,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 20
+            }
+          },
+          {
+            "id": 128,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 129,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 130,
+            "label": "scatter.svg.draw",
+            "duration": 0.8999999761581421,
+            "meta": {
+              "component": "scatter",
+              "token": 21,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 131,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 21,
+              "points": 8
+            }
+          },
+          {
+            "id": 132,
+            "label": "scatter.legend.render",
+            "duration": 3.799999952316284,
+            "meta": {
+              "component": "scatter",
+              "token": 21,
+              "entries": 3
+            }
+          },
+          {
+            "id": 133,
+            "label": "scatter.viewport.sync",
+            "duration": 1.8000000715255737,
+            "meta": {
+              "component": "scatter",
+              "token": 21
+            }
+          },
+          {
+            "id": 127,
+            "label": "scatter.draw",
+            "duration": 54.700000047683716,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 21
+            }
+          },
+          {
+            "id": 135,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 136,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 137,
+            "label": "scatter.svg.draw",
+            "duration": 0.7999999523162842,
+            "meta": {
+              "component": "scatter",
+              "token": 22,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 138,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 22,
+              "points": 8
+            }
+          },
+          {
+            "id": 139,
+            "label": "scatter.legend.render",
+            "duration": 3.899999976158142,
+            "meta": {
+              "component": "scatter",
+              "token": 22,
+              "entries": 3
+            }
+          },
+          {
+            "id": 140,
+            "label": "scatter.viewport.sync",
+            "duration": 1.8000000715255737,
+            "meta": {
+              "component": "scatter",
+              "token": 22
+            }
+          },
+          {
+            "id": 134,
+            "label": "scatter.draw",
+            "duration": 57.199999928474426,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 22
+            }
+          },
+          {
+            "id": 142,
+            "label": "scatter.data.collect",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 143,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 144,
+            "label": "scatter.svg.draw",
+            "duration": 0.7000000476837158,
+            "meta": {
+              "component": "scatter",
+              "token": 23,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 145,
+            "label": "scatter.svg.attach",
+            "duration": 0.09999990463256836,
+            "meta": {
+              "component": "scatter",
+              "token": 23,
+              "points": 8
+            }
+          },
+          {
+            "id": 146,
+            "label": "scatter.legend.render",
+            "duration": 3.700000047683716,
+            "meta": {
+              "component": "scatter",
+              "token": 23,
+              "entries": 3
+            }
+          },
+          {
+            "id": 147,
+            "label": "scatter.viewport.sync",
+            "duration": 2.100000023841858,
+            "meta": {
+              "component": "scatter",
+              "token": 23
+            }
+          },
+          {
+            "id": 141,
+            "label": "scatter.draw",
+            "duration": 62.299999952316284,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 23
+            }
+          },
+          {
+            "id": 149,
+            "label": "scatter.data.collect",
+            "duration": 0.10000002384185791,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 8,
+              "skippedRows": 91
+            }
+          },
+          {
+            "id": 150,
+            "label": "scatter.labels.colors",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "labels": 3,
+              "created": 0,
+              "pruned": 0,
+              "total": 3,
+              "skipped": true
+            }
+          },
+          {
+            "id": 151,
+            "label": "scatter.svg.draw",
+            "duration": 0.7000000476837158,
+            "meta": {
+              "component": "scatter",
+              "token": 24,
+              "points": 8,
+              "density": false
+            }
+          },
+          {
+            "id": 152,
+            "label": "scatter.svg.attach",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "token": 24,
+              "points": 8
+            }
+          },
+          {
+            "id": 153,
+            "label": "scatter.legend.render",
+            "duration": 3.700000047683716,
+            "meta": {
+              "component": "scatter",
+              "token": 24,
+              "entries": 3
+            }
+          },
+          {
+            "id": 154,
+            "label": "scatter.viewport.sync",
+            "duration": 2,
+            "meta": {
+              "component": "scatter",
+              "token": 24
+            }
+          },
+          {
+            "id": 148,
+            "label": "scatter.draw",
+            "duration": 57.799999952316284,
+            "meta": {
+              "component": "scatter",
+              "reasons": [],
+              "token": 24
+            }
+          }
+        ],
+        "maxEntryId": 154,
+        "componentReport": [
+          {
+            "key": "scatter.draw",
+            "count": 24,
+            "totalMs": 1500,
+            "avgMs": 62.5,
+            "p50Ms": 61.8,
+            "p95Ms": 100.92,
+            "maxMs": 128.3,
+            "minMs": 9.3
+          },
+          {
+            "key": "scatter.legend.render",
+            "count": 21,
+            "totalMs": 95.7,
+            "avgMs": 4.557,
+            "p50Ms": 4.1,
+            "p95Ms": 6.3,
+            "maxMs": 8.2,
+            "minMs": 2.1
+          },
+          {
+            "key": "scatter.viewport.sync",
+            "count": 21,
+            "totalMs": 57.3,
+            "avgMs": 2.729,
+            "p50Ms": 2.6,
+            "p95Ms": 4.8,
+            "maxMs": 5.6,
+            "minMs": 1.7
+          },
+          {
+            "key": "scatter.svg.draw",
+            "count": 21,
+            "totalMs": 23.8,
+            "avgMs": 1.133,
+            "p50Ms": 0.9,
+            "p95Ms": 2.3,
+            "maxMs": 2.3,
+            "minMs": 0.7
+          },
+          {
+            "key": "scatter.data.collect",
+            "count": 24,
+            "totalMs": 2.2,
+            "avgMs": 0.092,
+            "p50Ms": 0.1,
+            "p95Ms": 0.2,
+            "maxMs": 0.2,
+            "minMs": 0
+          },
+          {
+            "key": "scatter.labels.colors",
+            "count": 22,
+            "totalMs": 0.6,
+            "avgMs": 0.027,
+            "p50Ms": 0,
+            "p95Ms": 0.1,
+            "maxMs": 0.2,
+            "minMs": 0
+          },
+          {
+            "key": "scatter.svg.attach",
+            "count": 21,
+            "totalMs": 0.4,
+            "avgMs": 0.019,
+            "p50Ms": 0,
+            "p95Ms": 0.1,
+            "maxMs": 0.1,
+            "minMs": 0
+          }
+        ],
+        "hotReport": []
+      }
+    },
+    "exercise": {
+      "steps": [
+        {
+          "step": "cycle-selects",
+          "durationMs": 2451,
+          "actionResult": {
+            "visible": 11,
+            "attempted": 4,
+            "changed": 4,
+            "durationMs": 2451
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [
+              {
+                "key": "scatter.draw",
+                "deltaCount": 10,
+                "deltaTotalMs": 652.5,
+                "latestAvgMs": 59.608,
+                "latestP95Ms": 99.48
+              },
+              {
+                "key": "scatter.legend.render",
+                "deltaCount": 9,
+                "deltaTotalMs": 42.1,
+                "latestAvgMs": 4.79,
+                "latestP95Ms": 6.255
+              },
+              {
+                "key": "scatter.viewport.sync",
+                "deltaCount": 9,
+                "deltaTotalMs": 27.5,
+                "latestAvgMs": 3.31,
+                "latestP95Ms": 4.835
+              },
+              {
+                "key": "scatter.svg.draw",
+                "deltaCount": 9,
+                "deltaTotalMs": 10.3,
+                "latestAvgMs": 1.26,
+                "latestP95Ms": 1.985
+              },
+              {
+                "key": "scatter.data.collect",
+                "deltaCount": 10,
+                "deltaTotalMs": 1,
+                "latestAvgMs": 0.1,
+                "latestP95Ms": 0.2
+              },
+              {
+                "key": "scatter.labels.colors",
+                "deltaCount": 8,
+                "deltaTotalMs": 0.3,
+                "latestAvgMs": 0.055,
+                "latestP95Ms": 0.15
+              },
+              {
+                "key": "scatter.svg.attach",
+                "deltaCount": 9,
+                "deltaTotalMs": 0.2,
+                "latestAvgMs": 0.02,
+                "latestP95Ms": 0.1
+              }
+            ],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "toggle-checkboxes",
+          "durationMs": 490,
+          "actionResult": {
+            "visible": 39,
+            "attempted": 5,
+            "toggled": 1,
+            "durationMs": 490
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [
+              {
+                "key": "scatter.draw",
+                "deltaCount": 1,
+                "deltaTotalMs": 70,
+                "latestAvgMs": 60.35,
+                "latestP95Ms": 99.32
+              },
+              {
+                "key": "scatter.legend.render",
+                "deltaCount": 1,
+                "deltaTotalMs": 5.3,
+                "latestAvgMs": 4.836,
+                "latestP95Ms": 6.25
+              },
+              {
+                "key": "scatter.viewport.sync",
+                "deltaCount": 1,
+                "deltaTotalMs": 2.4,
+                "latestAvgMs": 3.227,
+                "latestP95Ms": 4.75
+              },
+              {
+                "key": "scatter.svg.draw",
+                "deltaCount": 1,
+                "deltaTotalMs": 1.5,
+                "latestAvgMs": 1.282,
+                "latestP95Ms": 1.95
+              },
+              {
+                "key": "scatter.data.collect",
+                "deltaCount": 1,
+                "deltaTotalMs": 0.1,
+                "latestAvgMs": 0.1,
+                "latestP95Ms": 0.2
+              },
+              {
+                "key": "scatter.labels.colors",
+                "deltaCount": 1,
+                "deltaTotalMs": 0,
+                "latestAvgMs": 0.05,
+                "latestP95Ms": 0.145
+              },
+              {
+                "key": "scatter.svg.attach",
+                "deltaCount": 1,
+                "deltaTotalMs": 0,
+                "latestAvgMs": 0.018,
+                "latestP95Ms": 0.1
+              }
+            ],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "click-analysis-buttons",
+          "durationMs": 442,
+          "actionResult": {
+            "visible": 23,
+            "clicked": 1,
+            "clickedLabels": [
+              "Guide me"
+            ],
+            "durationMs": 442
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "drag-panel-resizer",
+          "durationMs": 1746,
+          "actionResult": {
+            "present": true,
+            "moved": true,
+            "durationMs": 1746
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [
+              {
+                "key": "scatter.draw",
+                "deltaCount": 10,
+                "deltaTotalMs": 655.1,
+                "latestAvgMs": 62.5,
+                "latestP95Ms": 100.92
+              },
+              {
+                "key": "scatter.legend.render",
+                "deltaCount": 10,
+                "deltaTotalMs": 42.5,
+                "latestAvgMs": 4.557,
+                "latestP95Ms": 6.3
+              },
+              {
+                "key": "scatter.viewport.sync",
+                "deltaCount": 10,
+                "deltaTotalMs": 21.8,
+                "latestAvgMs": 2.729,
+                "latestP95Ms": 4.8
+              },
+              {
+                "key": "scatter.svg.draw",
+                "deltaCount": 10,
+                "deltaTotalMs": 9.7,
+                "latestAvgMs": 1.133,
+                "latestP95Ms": 2.3
+              },
+              {
+                "key": "scatter.data.collect",
+                "deltaCount": 10,
+                "deltaTotalMs": 0.8,
+                "latestAvgMs": 0.092,
+                "latestP95Ms": 0.2
+              },
+              {
+                "key": "scatter.svg.attach",
+                "deltaCount": 10,
+                "deltaTotalMs": 0.2,
+                "latestAvgMs": 0.019,
+                "latestP95Ms": 0.1
+              },
+              {
+                "key": "scatter.labels.colors",
+                "deltaCount": 10,
+                "deltaTotalMs": 0,
+                "latestAvgMs": 0.027,
+                "latestP95Ms": 0.1
+              }
+            ],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "adjust-zoom",
+          "durationMs": 536,
+          "actionResult": {
+            "zoomInClicks": 2,
+            "zoomOutClicks": 1,
+            "durationMs": 536
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        }
+      ],
+      "before": {
+        "componentType": "scatter",
+        "capturedAt": 1772884576883,
+        "componentHook": null,
+        "sharedPerformance": {
+          "totalEntries": 13,
+          "relevantEntries": [
+            {
+              "id": 2,
+              "label": "scatter.data.collect",
+              "duration": 0.09999990463256836,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 0,
+                "skippedRows": 99
+              }
+            },
+            {
+              "id": 3,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 0,
+                "created": 0,
+                "pruned": 0,
+                "total": 0
+              }
+            },
+            {
+              "id": 1,
+              "label": "scatter.draw",
+              "duration": 14.899999976158142,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 1
+              }
+            },
+            {
+              "id": 5,
+              "label": "scatter.data.collect",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 0,
+                "skippedRows": 99
+              }
+            },
+            {
+              "id": 6,
+              "label": "scatter.labels.colors",
+              "duration": 0.09999990463256836,
+              "meta": {
+                "component": "scatter",
+                "labels": 0,
+                "created": 0,
+                "pruned": 0,
+                "total": 0,
+                "skipped": true
+              }
+            },
+            {
+              "id": 4,
+              "label": "scatter.draw",
+              "duration": 9.300000071525574,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 2
+              }
+            },
+            {
+              "id": 8,
+              "label": "scatter.data.collect",
+              "duration": 0.20000004768371582,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 9,
+              "label": "scatter.labels.colors",
+              "duration": 0.20000004768371582,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 3,
+                "pruned": 0,
+                "total": 3
+              }
+            },
+            {
+              "id": 10,
+              "label": "scatter.svg.draw",
+              "duration": 2.299999952316284,
+              "meta": {
+                "component": "scatter",
+                "token": 3,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 11,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 3,
+                "points": 8
+              }
+            },
+            {
+              "id": 12,
+              "label": "scatter.legend.render",
+              "duration": 5.800000071525574,
+              "meta": {
+                "component": "scatter",
+                "token": 3,
+                "entries": 3
+              }
+            },
+            {
+              "id": 13,
+              "label": "scatter.viewport.sync",
+              "duration": 5.600000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 3
+              }
+            },
+            {
+              "id": 7,
+              "label": "scatter.draw",
+              "duration": 98.20000004768372,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 3
+              }
+            }
+          ],
+          "maxEntryId": 13,
+          "componentReport": [
+            {
+              "key": "scatter.draw",
+              "count": 3,
+              "totalMs": 122.4,
+              "avgMs": 40.8,
+              "p50Ms": 14.9,
+              "p95Ms": 89.87,
+              "maxMs": 98.2,
+              "minMs": 9.3
+            },
+            {
+              "key": "scatter.legend.render",
+              "count": 1,
+              "totalMs": 5.8,
+              "avgMs": 5.8,
+              "p50Ms": 5.8,
+              "p95Ms": 5.8,
+              "maxMs": 5.8,
+              "minMs": 5.8
+            },
+            {
+              "key": "scatter.viewport.sync",
+              "count": 1,
+              "totalMs": 5.6,
+              "avgMs": 5.6,
+              "p50Ms": 5.6,
+              "p95Ms": 5.6,
+              "maxMs": 5.6,
+              "minMs": 5.6
+            },
+            {
+              "key": "scatter.svg.draw",
+              "count": 1,
+              "totalMs": 2.3,
+              "avgMs": 2.3,
+              "p50Ms": 2.3,
+              "p95Ms": 2.3,
+              "maxMs": 2.3,
+              "minMs": 2.3
+            },
+            {
+              "key": "scatter.data.collect",
+              "count": 3,
+              "totalMs": 0.3,
+              "avgMs": 0.1,
+              "p50Ms": 0.1,
+              "p95Ms": 0.19,
+              "maxMs": 0.2,
+              "minMs": 0
+            },
+            {
+              "key": "scatter.labels.colors",
+              "count": 3,
+              "totalMs": 0.3,
+              "avgMs": 0.1,
+              "p50Ms": 0.1,
+              "p95Ms": 0.19,
+              "maxMs": 0.2,
+              "minMs": 0
+            },
+            {
+              "key": "scatter.svg.attach",
+              "count": 1,
+              "totalMs": 0,
+              "avgMs": 0,
+              "p50Ms": 0,
+              "p95Ms": 0,
+              "maxMs": 0,
+              "minMs": 0
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      "after": {
+        "componentType": "scatter",
+        "capturedAt": 1772884583095,
+        "componentHook": null,
+        "sharedPerformance": {
+          "totalEntries": 154,
+          "relevantEntries": [
+            {
+              "id": 36,
+              "label": "scatter.svg.draw",
+              "duration": 1.100000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 7,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 37,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 7,
+                "points": 8
+              }
+            },
+            {
+              "id": 38,
+              "label": "scatter.legend.render",
+              "duration": 4.400000095367432,
+              "meta": {
+                "component": "scatter",
+                "token": 7,
+                "entries": 3
+              }
+            },
+            {
+              "id": 39,
+              "label": "scatter.viewport.sync",
+              "duration": 2.600000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 7
+              }
+            },
+            {
+              "id": 34,
+              "label": "scatter.draw",
+              "duration": 72.20000004768372,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 7
+              }
+            },
+            {
+              "id": 41,
+              "label": "scatter.data.collect",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 42,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 43,
+              "label": "scatter.svg.draw",
+              "duration": 1.600000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 8,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 44,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 8,
+                "points": 8
+              }
+            },
+            {
+              "id": 45,
+              "label": "scatter.legend.render",
+              "duration": 6.299999952316284,
+              "meta": {
+                "component": "scatter",
+                "token": 8,
+                "entries": 3
+              }
+            },
+            {
+              "id": 46,
+              "label": "scatter.viewport.sync",
+              "duration": 3.0999999046325684,
+              "meta": {
+                "component": "scatter",
+                "token": 8
+              }
+            },
+            {
+              "id": 40,
+              "label": "scatter.draw",
+              "duration": 80.10000002384186,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 8
+              }
+            },
+            {
+              "id": 48,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 49,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 50,
+              "label": "scatter.svg.draw",
+              "duration": 0.7999999523162842,
+              "meta": {
+                "component": "scatter",
+                "token": 9,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 51,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 9,
+                "points": 8
+              }
+            },
+            {
+              "id": 52,
+              "label": "scatter.legend.render",
+              "duration": 3.5,
+              "meta": {
+                "component": "scatter",
+                "token": 9,
+                "entries": 3
+              }
+            },
+            {
+              "id": 53,
+              "label": "scatter.viewport.sync",
+              "duration": 2.600000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 9
+              }
+            },
+            {
+              "id": 47,
+              "label": "scatter.draw",
+              "duration": 52.199999928474426,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 9
+              }
+            },
+            {
+              "id": 55,
+              "label": "scatter.data.collect",
+              "duration": 0.19999992847442627,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 56,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 54,
+              "label": "scatter.draw",
+              "duration": 12.899999976158142,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 10
+              }
+            },
+            {
+              "id": 58,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 59,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 60,
+              "label": "scatter.svg.draw",
+              "duration": 1.399999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 11,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 61,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 11,
+                "points": 8
+              }
+            },
+            {
+              "id": 62,
+              "label": "scatter.legend.render",
+              "duration": 6.199999928474426,
+              "meta": {
+                "component": "scatter",
+                "token": 11,
+                "entries": 3
+              }
+            },
+            {
+              "id": 63,
+              "label": "scatter.viewport.sync",
+              "duration": 2.899999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 11
+              }
+            },
+            {
+              "id": 57,
+              "label": "scatter.draw",
+              "duration": 101.39999997615814,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 11
+              }
+            },
+            {
+              "id": 65,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 66,
+              "label": "scatter.labels.colors",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3
+              }
+            },
+            {
+              "id": 67,
+              "label": "scatter.svg.draw",
+              "duration": 0.8999999761581421,
+              "meta": {
+                "component": "scatter",
+                "token": 12,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 68,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 12,
+                "points": 8
+              }
+            },
+            {
+              "id": 69,
+              "label": "scatter.legend.render",
+              "duration": 4.100000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 12,
+                "entries": 3
+              }
+            },
+            {
+              "id": 70,
+              "label": "scatter.viewport.sync",
+              "duration": 3.200000047683716,
+              "meta": {
+                "component": "scatter",
+                "token": 12
+              }
+            },
+            {
+              "id": 64,
+              "label": "scatter.draw",
+              "duration": 65.80000007152557,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 12
+              }
+            },
+            {
+              "id": 72,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 73,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3
+              }
+            },
+            {
+              "id": 74,
+              "label": "scatter.svg.draw",
+              "duration": 0.8999999761581421,
+              "meta": {
+                "component": "scatter",
+                "token": 13,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 75,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 13,
+                "points": 8
+              }
+            },
+            {
+              "id": 76,
+              "label": "scatter.legend.render",
+              "duration": 4.399999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 13,
+                "entries": 3
+              }
+            },
+            {
+              "id": 77,
+              "label": "scatter.viewport.sync",
+              "duration": 3.899999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 13
+              }
+            },
+            {
+              "id": 71,
+              "label": "scatter.draw",
+              "duration": 64.5,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 13
+              }
+            },
+            {
+              "id": 79,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 80,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 81,
+              "label": "scatter.svg.draw",
+              "duration": 1.5,
+              "meta": {
+                "component": "scatter",
+                "token": 14,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 82,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 14,
+                "points": 8
+              }
+            },
+            {
+              "id": 83,
+              "label": "scatter.legend.render",
+              "duration": 5.299999952316284,
+              "meta": {
+                "component": "scatter",
+                "token": 14,
+                "entries": 3
+              }
+            },
+            {
+              "id": 84,
+              "label": "scatter.viewport.sync",
+              "duration": 2.4000000953674316,
+              "meta": {
+                "component": "scatter",
+                "token": 14
+              }
+            },
+            {
+              "id": 78,
+              "label": "scatter.draw",
+              "duration": 70,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 14
+              }
+            },
+            {
+              "id": 86,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 87,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 88,
+              "label": "scatter.svg.draw",
+              "duration": 0.8999999761581421,
+              "meta": {
+                "component": "scatter",
+                "token": 15,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 89,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 15,
+                "points": 8
+              }
+            },
+            {
+              "id": 90,
+              "label": "scatter.legend.render",
+              "duration": 4.600000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 15,
+                "entries": 3
+              }
+            },
+            {
+              "id": 91,
+              "label": "scatter.viewport.sync",
+              "duration": 2.399999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 15
+              }
+            },
+            {
+              "id": 85,
+              "label": "scatter.draw",
+              "duration": 66.19999992847443,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 15
+              }
+            },
+            {
+              "id": 93,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 94,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 95,
+              "label": "scatter.svg.draw",
+              "duration": 0.7999999523162842,
+              "meta": {
+                "component": "scatter",
+                "token": 16,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 96,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 16,
+                "points": 8
+              }
+            },
+            {
+              "id": 97,
+              "label": "scatter.legend.render",
+              "duration": 3.5,
+              "meta": {
+                "component": "scatter",
+                "token": 16,
+                "entries": 3
+              }
+            },
+            {
+              "id": 98,
+              "label": "scatter.viewport.sync",
+              "duration": 1.6999999284744263,
+              "meta": {
+                "component": "scatter",
+                "token": 16
+              }
+            },
+            {
+              "id": 92,
+              "label": "scatter.draw",
+              "duration": 53,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 16
+              }
+            },
+            {
+              "id": 100,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 101,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 102,
+              "label": "scatter.svg.draw",
+              "duration": 0.8999999761581421,
+              "meta": {
+                "component": "scatter",
+                "token": 17,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 103,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 17,
+                "points": 8
+              }
+            },
+            {
+              "id": 104,
+              "label": "scatter.legend.render",
+              "duration": 4,
+              "meta": {
+                "component": "scatter",
+                "token": 17,
+                "entries": 3
+              }
+            },
+            {
+              "id": 105,
+              "label": "scatter.viewport.sync",
+              "duration": 1.6999999284744263,
+              "meta": {
+                "component": "scatter",
+                "token": 17
+              }
+            },
+            {
+              "id": 99,
+              "label": "scatter.draw",
+              "duration": 61.299999952316284,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 17
+              }
+            },
+            {
+              "id": 107,
+              "label": "scatter.data.collect",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 108,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 109,
+              "label": "scatter.svg.draw",
+              "duration": 0.7999999523162842,
+              "meta": {
+                "component": "scatter",
+                "token": 18,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 110,
+              "label": "scatter.svg.attach",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "token": 18,
+                "points": 8
+              }
+            },
+            {
+              "id": 111,
+              "label": "scatter.legend.render",
+              "duration": 3.399999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 18,
+                "entries": 3
+              }
+            },
+            {
+              "id": 112,
+              "label": "scatter.viewport.sync",
+              "duration": 1.7999999523162842,
+              "meta": {
+                "component": "scatter",
+                "token": 18
+              }
+            },
+            {
+              "id": 106,
+              "label": "scatter.draw",
+              "duration": 60.700000047683716,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 18
+              }
+            },
+            {
+              "id": 114,
+              "label": "scatter.data.collect",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 115,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 116,
+              "label": "scatter.svg.draw",
+              "duration": 0.8999999761581421,
+              "meta": {
+                "component": "scatter",
+                "token": 19,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 117,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 19,
+                "points": 8
+              }
+            },
+            {
+              "id": 118,
+              "label": "scatter.legend.render",
+              "duration": 3.700000047683716,
+              "meta": {
+                "component": "scatter",
+                "token": 19,
+                "entries": 3
+              }
+            },
+            {
+              "id": 119,
+              "label": "scatter.viewport.sync",
+              "duration": 1.7000000476837158,
+              "meta": {
+                "component": "scatter",
+                "token": 19
+              }
+            },
+            {
+              "id": 113,
+              "label": "scatter.draw",
+              "duration": 53.59999990463257,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 19
+              }
+            },
+            {
+              "id": 121,
+              "label": "scatter.data.collect",
+              "duration": 0.20000004768371582,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 122,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 123,
+              "label": "scatter.svg.draw",
+              "duration": 2.3000000715255737,
+              "meta": {
+                "component": "scatter",
+                "token": 20,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 124,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 20,
+                "points": 8
+              }
+            },
+            {
+              "id": 125,
+              "label": "scatter.legend.render",
+              "duration": 8.200000047683716,
+              "meta": {
+                "component": "scatter",
+                "token": 20,
+                "entries": 3
+              }
+            },
+            {
+              "id": 126,
+              "label": "scatter.viewport.sync",
+              "duration": 4.800000071525574,
+              "meta": {
+                "component": "scatter",
+                "token": 20
+              }
+            },
+            {
+              "id": 120,
+              "label": "scatter.draw",
+              "duration": 128.29999995231628,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 20
+              }
+            },
+            {
+              "id": 128,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 129,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 130,
+              "label": "scatter.svg.draw",
+              "duration": 0.8999999761581421,
+              "meta": {
+                "component": "scatter",
+                "token": 21,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 131,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 21,
+                "points": 8
+              }
+            },
+            {
+              "id": 132,
+              "label": "scatter.legend.render",
+              "duration": 3.799999952316284,
+              "meta": {
+                "component": "scatter",
+                "token": 21,
+                "entries": 3
+              }
+            },
+            {
+              "id": 133,
+              "label": "scatter.viewport.sync",
+              "duration": 1.8000000715255737,
+              "meta": {
+                "component": "scatter",
+                "token": 21
+              }
+            },
+            {
+              "id": 127,
+              "label": "scatter.draw",
+              "duration": 54.700000047683716,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 21
+              }
+            },
+            {
+              "id": 135,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 136,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 137,
+              "label": "scatter.svg.draw",
+              "duration": 0.7999999523162842,
+              "meta": {
+                "component": "scatter",
+                "token": 22,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 138,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 22,
+                "points": 8
+              }
+            },
+            {
+              "id": 139,
+              "label": "scatter.legend.render",
+              "duration": 3.899999976158142,
+              "meta": {
+                "component": "scatter",
+                "token": 22,
+                "entries": 3
+              }
+            },
+            {
+              "id": 140,
+              "label": "scatter.viewport.sync",
+              "duration": 1.8000000715255737,
+              "meta": {
+                "component": "scatter",
+                "token": 22
+              }
+            },
+            {
+              "id": 134,
+              "label": "scatter.draw",
+              "duration": 57.199999928474426,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 22
+              }
+            },
+            {
+              "id": 142,
+              "label": "scatter.data.collect",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 143,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 144,
+              "label": "scatter.svg.draw",
+              "duration": 0.7000000476837158,
+              "meta": {
+                "component": "scatter",
+                "token": 23,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 145,
+              "label": "scatter.svg.attach",
+              "duration": 0.09999990463256836,
+              "meta": {
+                "component": "scatter",
+                "token": 23,
+                "points": 8
+              }
+            },
+            {
+              "id": 146,
+              "label": "scatter.legend.render",
+              "duration": 3.700000047683716,
+              "meta": {
+                "component": "scatter",
+                "token": 23,
+                "entries": 3
+              }
+            },
+            {
+              "id": 147,
+              "label": "scatter.viewport.sync",
+              "duration": 2.100000023841858,
+              "meta": {
+                "component": "scatter",
+                "token": 23
+              }
+            },
+            {
+              "id": 141,
+              "label": "scatter.draw",
+              "duration": 62.299999952316284,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 23
+              }
+            },
+            {
+              "id": 149,
+              "label": "scatter.data.collect",
+              "duration": 0.10000002384185791,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 8,
+                "skippedRows": 91
+              }
+            },
+            {
+              "id": 150,
+              "label": "scatter.labels.colors",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "labels": 3,
+                "created": 0,
+                "pruned": 0,
+                "total": 3,
+                "skipped": true
+              }
+            },
+            {
+              "id": 151,
+              "label": "scatter.svg.draw",
+              "duration": 0.7000000476837158,
+              "meta": {
+                "component": "scatter",
+                "token": 24,
+                "points": 8,
+                "density": false
+              }
+            },
+            {
+              "id": 152,
+              "label": "scatter.svg.attach",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "token": 24,
+                "points": 8
+              }
+            },
+            {
+              "id": 153,
+              "label": "scatter.legend.render",
+              "duration": 3.700000047683716,
+              "meta": {
+                "component": "scatter",
+                "token": 24,
+                "entries": 3
+              }
+            },
+            {
+              "id": 154,
+              "label": "scatter.viewport.sync",
+              "duration": 2,
+              "meta": {
+                "component": "scatter",
+                "token": 24
+              }
+            },
+            {
+              "id": 148,
+              "label": "scatter.draw",
+              "duration": 57.799999952316284,
+              "meta": {
+                "component": "scatter",
+                "reasons": [],
+                "token": 24
+              }
+            }
+          ],
+          "maxEntryId": 154,
+          "componentReport": [
+            {
+              "key": "scatter.draw",
+              "count": 24,
+              "totalMs": 1500,
+              "avgMs": 62.5,
+              "p50Ms": 61.8,
+              "p95Ms": 100.92,
+              "maxMs": 128.3,
+              "minMs": 9.3
+            },
+            {
+              "key": "scatter.legend.render",
+              "count": 21,
+              "totalMs": 95.7,
+              "avgMs": 4.557,
+              "p50Ms": 4.1,
+              "p95Ms": 6.3,
+              "maxMs": 8.2,
+              "minMs": 2.1
+            },
+            {
+              "key": "scatter.viewport.sync",
+              "count": 21,
+              "totalMs": 57.3,
+              "avgMs": 2.729,
+              "p50Ms": 2.6,
+              "p95Ms": 4.8,
+              "maxMs": 5.6,
+              "minMs": 1.7
+            },
+            {
+              "key": "scatter.svg.draw",
+              "count": 21,
+              "totalMs": 23.8,
+              "avgMs": 1.133,
+              "p50Ms": 0.9,
+              "p95Ms": 2.3,
+              "maxMs": 2.3,
+              "minMs": 0.7
+            },
+            {
+              "key": "scatter.data.collect",
+              "count": 24,
+              "totalMs": 2.2,
+              "avgMs": 0.092,
+              "p50Ms": 0.1,
+              "p95Ms": 0.2,
+              "maxMs": 0.2,
+              "minMs": 0
+            },
+            {
+              "key": "scatter.labels.colors",
+              "count": 22,
+              "totalMs": 0.6,
+              "avgMs": 0.027,
+              "p50Ms": 0,
+              "p95Ms": 0.1,
+              "maxMs": 0.2,
+              "minMs": 0
+            },
+            {
+              "key": "scatter.svg.attach",
+              "count": 21,
+              "totalMs": 0.4,
+              "avgMs": 0.019,
+              "p50Ms": 0,
+              "p95Ms": 0.1,
+              "maxMs": 0.1,
+              "minMs": 0
+            }
+          ],
+          "hotReport": []
+        }
+      }
+    },
+    "slowestSteps": [
+      {
+        "step": "cycle-selects",
+        "durationMs": 2451,
+        "actionResult": {
+          "visible": 11,
+          "attempted": 4,
+          "changed": 4,
+          "durationMs": 2451
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [
+            {
+              "key": "scatter.draw",
+              "deltaCount": 10,
+              "deltaTotalMs": 652.5,
+              "latestAvgMs": 59.608,
+              "latestP95Ms": 99.48
+            },
+            {
+              "key": "scatter.legend.render",
+              "deltaCount": 9,
+              "deltaTotalMs": 42.1,
+              "latestAvgMs": 4.79,
+              "latestP95Ms": 6.255
+            },
+            {
+              "key": "scatter.viewport.sync",
+              "deltaCount": 9,
+              "deltaTotalMs": 27.5,
+              "latestAvgMs": 3.31,
+              "latestP95Ms": 4.835
+            },
+            {
+              "key": "scatter.svg.draw",
+              "deltaCount": 9,
+              "deltaTotalMs": 10.3,
+              "latestAvgMs": 1.26,
+              "latestP95Ms": 1.985
+            },
+            {
+              "key": "scatter.data.collect",
+              "deltaCount": 10,
+              "deltaTotalMs": 1,
+              "latestAvgMs": 0.1,
+              "latestP95Ms": 0.2
+            },
+            {
+              "key": "scatter.labels.colors",
+              "deltaCount": 8,
+              "deltaTotalMs": 0.3,
+              "latestAvgMs": 0.055,
+              "latestP95Ms": 0.15
+            },
+            {
+              "key": "scatter.svg.attach",
+              "deltaCount": 9,
+              "deltaTotalMs": 0.2,
+              "latestAvgMs": 0.02,
+              "latestP95Ms": 0.1
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "drag-panel-resizer",
+        "durationMs": 1746,
+        "actionResult": {
+          "present": true,
+          "moved": true,
+          "durationMs": 1746
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [
+            {
+              "key": "scatter.draw",
+              "deltaCount": 10,
+              "deltaTotalMs": 655.1,
+              "latestAvgMs": 62.5,
+              "latestP95Ms": 100.92
+            },
+            {
+              "key": "scatter.legend.render",
+              "deltaCount": 10,
+              "deltaTotalMs": 42.5,
+              "latestAvgMs": 4.557,
+              "latestP95Ms": 6.3
+            },
+            {
+              "key": "scatter.viewport.sync",
+              "deltaCount": 10,
+              "deltaTotalMs": 21.8,
+              "latestAvgMs": 2.729,
+              "latestP95Ms": 4.8
+            },
+            {
+              "key": "scatter.svg.draw",
+              "deltaCount": 10,
+              "deltaTotalMs": 9.7,
+              "latestAvgMs": 1.133,
+              "latestP95Ms": 2.3
+            },
+            {
+              "key": "scatter.data.collect",
+              "deltaCount": 10,
+              "deltaTotalMs": 0.8,
+              "latestAvgMs": 0.092,
+              "latestP95Ms": 0.2
+            },
+            {
+              "key": "scatter.svg.attach",
+              "deltaCount": 10,
+              "deltaTotalMs": 0.2,
+              "latestAvgMs": 0.019,
+              "latestP95Ms": 0.1
+            },
+            {
+              "key": "scatter.labels.colors",
+              "deltaCount": 10,
+              "deltaTotalMs": 0,
+              "latestAvgMs": 0.027,
+              "latestP95Ms": 0.1
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "adjust-zoom",
+        "durationMs": 536,
+        "actionResult": {
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 536
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "toggle-checkboxes",
+        "durationMs": 490,
+        "actionResult": {
+          "visible": 39,
+          "attempted": 5,
+          "toggled": 1,
+          "durationMs": 490
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [
+            {
+              "key": "scatter.draw",
+              "deltaCount": 1,
+              "deltaTotalMs": 70,
+              "latestAvgMs": 60.35,
+              "latestP95Ms": 99.32
+            },
+            {
+              "key": "scatter.legend.render",
+              "deltaCount": 1,
+              "deltaTotalMs": 5.3,
+              "latestAvgMs": 4.836,
+              "latestP95Ms": 6.25
+            },
+            {
+              "key": "scatter.viewport.sync",
+              "deltaCount": 1,
+              "deltaTotalMs": 2.4,
+              "latestAvgMs": 3.227,
+              "latestP95Ms": 4.75
+            },
+            {
+              "key": "scatter.svg.draw",
+              "deltaCount": 1,
+              "deltaTotalMs": 1.5,
+              "latestAvgMs": 1.282,
+              "latestP95Ms": 1.95
+            },
+            {
+              "key": "scatter.data.collect",
+              "deltaCount": 1,
+              "deltaTotalMs": 0.1,
+              "latestAvgMs": 0.1,
+              "latestP95Ms": 0.2
+            },
+            {
+              "key": "scatter.labels.colors",
+              "deltaCount": 1,
+              "deltaTotalMs": 0,
+              "latestAvgMs": 0.05,
+              "latestP95Ms": 0.145
+            },
+            {
+              "key": "scatter.svg.attach",
+              "deltaCount": 1,
+              "deltaTotalMs": 0,
+              "latestAvgMs": 0.018,
+              "latestP95Ms": 0.1
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "click-analysis-buttons",
+        "durationMs": 442,
+        "actionResult": {
+          "visible": 23,
+          "clicked": 1,
+          "clickedLabels": [
+            "Guide me"
+          ],
+          "durationMs": 442
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    ]
+  },
+  "criticalEntries": []
+}

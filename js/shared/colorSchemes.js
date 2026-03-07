@@ -1303,6 +1303,41 @@
     fieldset.appendChild(row);
     fieldset.appendChild(hint);
 
+    if(type === 'box'){
+      const modeRow = doc.createElement('div');
+      modeRow.className = 'control config-panel__line';
+
+      const modeLabel = doc.createElement('span');
+      modeLabel.className = 'config-panel__label';
+      modeLabel.textContent = 'Colors';
+      modeRow.appendChild(modeLabel);
+
+      const modeWrap = doc.createElement('span');
+      modeWrap.className = 'box-colors__mode';
+
+      const unifiedLabel = doc.createElement('label');
+      const unifiedInput = doc.createElement('input');
+      unifiedInput.type = 'radio';
+      unifiedInput.name = 'boxColorMode';
+      unifiedInput.id = 'boxColorUnified';
+      unifiedInput.checked = true;
+      unifiedLabel.appendChild(unifiedInput);
+      unifiedLabel.appendChild(doc.createTextNode(' Unified'));
+
+      const individualLabel = doc.createElement('label');
+      const individualInput = doc.createElement('input');
+      individualInput.type = 'radio';
+      individualInput.name = 'boxColorMode';
+      individualInput.id = 'boxColorIndividual';
+      individualLabel.appendChild(individualInput);
+      individualLabel.appendChild(doc.createTextNode(' Individual'));
+
+      modeWrap.appendChild(unifiedLabel);
+      modeWrap.appendChild(individualLabel);
+      modeRow.appendChild(modeWrap);
+      fieldset.appendChild(modeRow);
+    }
+
     const graphFieldset = findGraphSelectionFieldset(panel);
     if(graphFieldset && graphFieldset.parentNode === panel){
       if(graphFieldset.nextSibling){

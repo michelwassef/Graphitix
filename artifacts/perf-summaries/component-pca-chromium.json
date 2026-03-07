@@ -1,0 +1,507 @@
+{
+  "browser": "chromium",
+  "component": "pca",
+  "page": "pcaPage",
+  "exampleLoaded": true,
+  "timingsMs": {
+    "openMs": 619,
+    "exampleMs": 990,
+    "exerciseMs": 14173
+  },
+  "totals": {
+    "logEntries": 7319,
+    "warnings": 3,
+    "errors": 0,
+    "ignoredErrors": 0,
+    "critical": 0
+  },
+  "perf": {
+    "beforeExercise": {
+      "componentType": "pca",
+      "capturedAt": 1772884586328,
+      "componentHook": {
+        "performance": {
+          "loadData": {
+            "timestamp": 1772884585512,
+            "rows": 6,
+            "cols": 9,
+            "totalMs": 102.10000002384186,
+            "hotMs": 101.5,
+            "evaluationMs": 0.6000000238418579
+          },
+          "draw": {
+            "timestamp": 1772884585714,
+            "method": "pca",
+            "totalMs": 151.90000009536743,
+            "parseMs": 4.700000047683716,
+            "computeMs": 0.5999999046325684,
+            "renderMs": 146.40000009536743,
+            "samples": 8,
+            "features": 4,
+            "fastMode": false,
+            "points": 8,
+            "loadingsRendered": 4,
+            "loadingsTotal": 4,
+            "loadingsTruncated": false,
+            "viewOnly": false,
+            "cacheReused": false,
+            "reason": "example-load"
+          },
+          "evaluation": {
+            "timestamp": 1772884585530,
+            "source": null,
+            "rows": 6,
+            "cols": 9,
+            "featureEstimate": 5,
+            "cellEstimate": 54,
+            "thresholdExceeded": false,
+            "totalMs": 0.10000002384185791
+          }
+        },
+        "lastAutoDrawEvaluation": {
+          "totalRows": 6,
+          "totalCols": 9,
+          "featureEstimate": 5,
+          "cellEstimate": 54,
+          "thresholdExceeded": false
+        },
+        "lastDataShape": {
+          "rows": 6,
+          "cols": 9
+        }
+      },
+      "sharedPerformance": {
+        "totalEntries": 0,
+        "relevantEntries": [],
+        "maxEntryId": 0,
+        "componentReport": [],
+        "hotReport": []
+      }
+    },
+    "afterExercise": {
+      "componentType": "pca",
+      "capturedAt": 1772884600507,
+      "componentHook": {
+        "performance": {
+          "loadData": {
+            "timestamp": 1772884585512,
+            "rows": 6,
+            "cols": 9,
+            "totalMs": 102.10000002384186,
+            "hotMs": 101.5,
+            "evaluationMs": 0.6000000238418579
+          },
+          "draw": {
+            "timestamp": 1772884599708,
+            "method": "pca",
+            "totalMs": 201.60000002384186,
+            "parseMs": 9.5,
+            "computeMs": 0,
+            "renderMs": 95,
+            "samples": 8,
+            "features": 4,
+            "fastMode": false,
+            "points": 8,
+            "loadingsRendered": 4,
+            "loadingsTotal": 4,
+            "loadingsTruncated": false,
+            "viewOnly": false,
+            "cacheReused": false,
+            "reason": null
+          },
+          "evaluation": {
+            "timestamp": 1772884599587,
+            "source": null,
+            "rows": 6,
+            "cols": 9,
+            "featureEstimate": 5,
+            "cellEstimate": 54,
+            "thresholdExceeded": false,
+            "totalMs": 3
+          }
+        },
+        "lastAutoDrawEvaluation": {
+          "totalRows": 6,
+          "totalCols": 9,
+          "featureEstimate": 5,
+          "cellEstimate": 54,
+          "thresholdExceeded": false
+        },
+        "lastDataShape": {
+          "rows": 6,
+          "cols": 9
+        }
+      },
+      "sharedPerformance": {
+        "totalEntries": 0,
+        "relevantEntries": [],
+        "maxEntryId": 0,
+        "componentReport": [],
+        "hotReport": []
+      }
+    },
+    "exercise": {
+      "steps": [
+        {
+          "step": "cycle-selects",
+          "durationMs": 1468,
+          "actionResult": {
+            "visible": 7,
+            "attempted": 2,
+            "changed": 2,
+            "durationMs": 1468
+          },
+          "perfDelta": {
+            "hook": {
+              "evaluation": {
+                "totalMs": 0.1,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 0,
+                "rows": 6,
+                "cols": 9,
+                "reason": null
+              },
+              "draw": {
+                "totalMs": 151.9,
+                "parseMs": 6,
+                "computeMs": 0.1,
+                "renderMs": 98.8,
+                "rows": 0,
+                "cols": 0,
+                "reason": "method-change"
+              }
+            },
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "toggle-checkboxes",
+          "durationMs": 6320,
+          "actionResult": {
+            "visible": 12,
+            "attempted": 2,
+            "toggled": 2,
+            "durationMs": 6320
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "click-analysis-buttons",
+          "durationMs": 245,
+          "actionResult": {
+            "visible": 21,
+            "clicked": 0,
+            "clickedLabels": [],
+            "durationMs": 245
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "drag-panel-resizer",
+          "durationMs": 5209,
+          "actionResult": {
+            "present": true,
+            "moved": true,
+            "durationMs": 5209
+          },
+          "perfDelta": {
+            "hook": {
+              "evaluation": {
+                "totalMs": 3,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 0,
+                "rows": 6,
+                "cols": 9,
+                "reason": null
+              },
+              "draw": {
+                "totalMs": 201.6,
+                "parseMs": 9.5,
+                "computeMs": 0,
+                "renderMs": 95,
+                "rows": 0,
+                "cols": 0,
+                "reason": null
+              }
+            },
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "adjust-zoom",
+          "durationMs": 512,
+          "actionResult": {
+            "zoomInClicks": 2,
+            "zoomOutClicks": 1,
+            "durationMs": 512
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        }
+      ],
+      "before": {
+        "componentType": "pca",
+        "capturedAt": 1772884586334,
+        "componentHook": {
+          "performance": {
+            "loadData": {
+              "timestamp": 1772884585512,
+              "rows": 6,
+              "cols": 9,
+              "totalMs": 102.10000002384186,
+              "hotMs": 101.5,
+              "evaluationMs": 0.6000000238418579
+            },
+            "draw": {
+              "timestamp": 1772884585714,
+              "method": "pca",
+              "totalMs": 151.90000009536743,
+              "parseMs": 4.700000047683716,
+              "computeMs": 0.5999999046325684,
+              "renderMs": 146.40000009536743,
+              "samples": 8,
+              "features": 4,
+              "fastMode": false,
+              "points": 8,
+              "loadingsRendered": 4,
+              "loadingsTotal": 4,
+              "loadingsTruncated": false,
+              "viewOnly": false,
+              "cacheReused": false,
+              "reason": "example-load"
+            },
+            "evaluation": {
+              "timestamp": 1772884585530,
+              "source": null,
+              "rows": 6,
+              "cols": 9,
+              "featureEstimate": 5,
+              "cellEstimate": 54,
+              "thresholdExceeded": false,
+              "totalMs": 0.10000002384185791
+            }
+          },
+          "lastAutoDrawEvaluation": {
+            "totalRows": 6,
+            "totalCols": 9,
+            "featureEstimate": 5,
+            "cellEstimate": 54,
+            "thresholdExceeded": false
+          },
+          "lastDataShape": {
+            "rows": 6,
+            "cols": 9
+          }
+        },
+        "sharedPerformance": {
+          "totalEntries": 0,
+          "relevantEntries": [],
+          "maxEntryId": 0,
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      "after": {
+        "componentType": "pca",
+        "capturedAt": 1772884600502,
+        "componentHook": {
+          "performance": {
+            "loadData": {
+              "timestamp": 1772884585512,
+              "rows": 6,
+              "cols": 9,
+              "totalMs": 102.10000002384186,
+              "hotMs": 101.5,
+              "evaluationMs": 0.6000000238418579
+            },
+            "draw": {
+              "timestamp": 1772884599708,
+              "method": "pca",
+              "totalMs": 201.60000002384186,
+              "parseMs": 9.5,
+              "computeMs": 0,
+              "renderMs": 95,
+              "samples": 8,
+              "features": 4,
+              "fastMode": false,
+              "points": 8,
+              "loadingsRendered": 4,
+              "loadingsTotal": 4,
+              "loadingsTruncated": false,
+              "viewOnly": false,
+              "cacheReused": false,
+              "reason": null
+            },
+            "evaluation": {
+              "timestamp": 1772884599587,
+              "source": null,
+              "rows": 6,
+              "cols": 9,
+              "featureEstimate": 5,
+              "cellEstimate": 54,
+              "thresholdExceeded": false,
+              "totalMs": 3
+            }
+          },
+          "lastAutoDrawEvaluation": {
+            "totalRows": 6,
+            "totalCols": 9,
+            "featureEstimate": 5,
+            "cellEstimate": 54,
+            "thresholdExceeded": false
+          },
+          "lastDataShape": {
+            "rows": 6,
+            "cols": 9
+          }
+        },
+        "sharedPerformance": {
+          "totalEntries": 0,
+          "relevantEntries": [],
+          "maxEntryId": 0,
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    },
+    "slowestSteps": [
+      {
+        "step": "toggle-checkboxes",
+        "durationMs": 6320,
+        "actionResult": {
+          "visible": 12,
+          "attempted": 2,
+          "toggled": 2,
+          "durationMs": 6320
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "drag-panel-resizer",
+        "durationMs": 5209,
+        "actionResult": {
+          "present": true,
+          "moved": true,
+          "durationMs": 5209
+        },
+        "perfDelta": {
+          "hook": {
+            "evaluation": {
+              "totalMs": 3,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 0,
+              "rows": 6,
+              "cols": 9,
+              "reason": null
+            },
+            "draw": {
+              "totalMs": 201.6,
+              "parseMs": 9.5,
+              "computeMs": 0,
+              "renderMs": 95,
+              "rows": 0,
+              "cols": 0,
+              "reason": null
+            }
+          },
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "cycle-selects",
+        "durationMs": 1468,
+        "actionResult": {
+          "visible": 7,
+          "attempted": 2,
+          "changed": 2,
+          "durationMs": 1468
+        },
+        "perfDelta": {
+          "hook": {
+            "evaluation": {
+              "totalMs": 0.1,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 0,
+              "rows": 6,
+              "cols": 9,
+              "reason": null
+            },
+            "draw": {
+              "totalMs": 151.9,
+              "parseMs": 6,
+              "computeMs": 0.1,
+              "renderMs": 98.8,
+              "rows": 0,
+              "cols": 0,
+              "reason": "method-change"
+            }
+          },
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "adjust-zoom",
+        "durationMs": 512,
+        "actionResult": {
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 512
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "click-analysis-buttons",
+        "durationMs": 245,
+        "actionResult": {
+          "visible": 21,
+          "clicked": 0,
+          "clickedLabels": [],
+          "durationMs": 245
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    ]
+  },
+  "criticalEntries": []
+}

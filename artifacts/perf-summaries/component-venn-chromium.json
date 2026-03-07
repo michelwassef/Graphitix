@@ -1,0 +1,231 @@
+{
+  "browser": "chromium",
+  "component": "venn",
+  "page": "vennPage",
+  "exampleLoaded": true,
+  "timingsMs": {
+    "openMs": 328,
+    "exampleMs": 956,
+    "exerciseMs": 8261
+  },
+  "totals": {
+    "logEntries": 2790,
+    "warnings": 3,
+    "errors": 0,
+    "ignoredErrors": 0,
+    "critical": 0
+  },
+  "perf": {
+    "beforeExercise": {
+      "componentType": "venn",
+      "capturedAt": 1772884552491,
+      "componentHook": null,
+      "sharedPerformance": {
+        "totalEntries": 0,
+        "relevantEntries": [],
+        "maxEntryId": 0,
+        "componentReport": [],
+        "hotReport": []
+      }
+    },
+    "afterExercise": {
+      "componentType": "venn",
+      "capturedAt": 1772884560759,
+      "componentHook": null,
+      "sharedPerformance": {
+        "totalEntries": 0,
+        "relevantEntries": [],
+        "maxEntryId": 0,
+        "componentReport": [],
+        "hotReport": []
+      }
+    },
+    "exercise": {
+      "steps": [
+        {
+          "step": "cycle-selects",
+          "durationMs": 1227,
+          "actionResult": {
+            "visible": 5,
+            "attempted": 4,
+            "changed": 3,
+            "durationMs": 1226
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "toggle-checkboxes",
+          "durationMs": 2749,
+          "actionResult": {
+            "visible": 33,
+            "attempted": 5,
+            "toggled": 5,
+            "durationMs": 2749
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "click-analysis-buttons",
+          "durationMs": 488,
+          "actionResult": {
+            "visible": 20,
+            "clicked": 0,
+            "clickedLabels": [],
+            "durationMs": 487
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "drag-panel-resizer",
+          "durationMs": 2795,
+          "actionResult": {
+            "present": true,
+            "moved": true,
+            "durationMs": 2795
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "adjust-zoom",
+          "durationMs": 568,
+          "actionResult": {
+            "zoomInClicks": 2,
+            "zoomOutClicks": 1,
+            "durationMs": 568
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        }
+      ],
+      "before": {
+        "componentType": "venn",
+        "capturedAt": 1772884552506,
+        "componentHook": null,
+        "sharedPerformance": {
+          "totalEntries": 0,
+          "relevantEntries": [],
+          "maxEntryId": 0,
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      "after": {
+        "componentType": "venn",
+        "capturedAt": 1772884560756,
+        "componentHook": null,
+        "sharedPerformance": {
+          "totalEntries": 0,
+          "relevantEntries": [],
+          "maxEntryId": 0,
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    },
+    "slowestSteps": [
+      {
+        "step": "drag-panel-resizer",
+        "durationMs": 2795,
+        "actionResult": {
+          "present": true,
+          "moved": true,
+          "durationMs": 2795
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "toggle-checkboxes",
+        "durationMs": 2749,
+        "actionResult": {
+          "visible": 33,
+          "attempted": 5,
+          "toggled": 5,
+          "durationMs": 2749
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "cycle-selects",
+        "durationMs": 1227,
+        "actionResult": {
+          "visible": 5,
+          "attempted": 4,
+          "changed": 3,
+          "durationMs": 1226
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "adjust-zoom",
+        "durationMs": 568,
+        "actionResult": {
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 568
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "click-analysis-buttons",
+        "durationMs": 488,
+        "actionResult": {
+          "visible": 20,
+          "clicked": 0,
+          "clickedLabels": [],
+          "durationMs": 487
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    ]
+  },
+  "criticalEntries": []
+}

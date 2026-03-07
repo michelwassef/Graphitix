@@ -7648,13 +7648,31 @@
         : NaN;
       return { fStatistic, pValue, df1, df2 };
     };
-    const buildScatterGroupedComparisonReport = groupedSeriesStats => {
-      const groups = (Array.isArray(groupedSeriesStats) ? groupedSeriesStats : [])
+    const resolveScatterComparisonAlpha = options => {
+      const explicitAlpha = Number(options?.alpha);
+      if(Number.isFinite(explicitAlpha) && explicitAlpha > 0 && explicitAlpha < 1){
+        return explicitAlpha;
+      }
+      const confidenceLevel = Number(options?.confidenceLevel);
+      if(Number.isFinite(confidenceLevel) && confidenceLevel > 0 && confidenceLevel < 100){
+        return 1 - (confidenceLevel / 100);
+      }
+      return 0.05;
+    };
+    const normalizeScatterGroupedComparisonInput = groupedSeriesStats => {
+      return (Array.isArray(groupedSeriesStats) ? groupedSeriesStats : [])
         .map((entry, index) => ({
           label: (entry?.label != null && String(entry.label).trim() !== '') ? String(entry.label).trim() : `Series ${index + 1}`,
-          points: Array.isArray(entry?.points) ? entry.points.filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y)).map(pt => ({ x: Number(pt.x), y: Number(pt.y) })) : []
+          points: Array.isArray(entry?.points)
+            ? entry.points
+              .filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y))
+              .map(pt => ({ x: Number(pt.x), y: Number(pt.y) }))
+            : []
         }))
         .filter(entry => entry.points.length >= 3);
+    };
+    const computeScatterGroupedLinearModelComparison = groupedSeriesStats => {
+      const groups = normalizeScatterGroupedComparisonInput(groupedSeriesStats);
       if(groups.length < 2){
         return null;
       }
@@ -7662,13 +7680,13 @@
       if(separateFits.some(fit => !fit || !Number.isFinite(fit.metrics?.sse))){
         return null;
       }
-      const allPoints = groups.flatMap(group => group.points.map(pt => ({ ...pt, __group: group.label })));
+      const allPoints = groups.flatMap(group => group.points.map(pt => ({ ...pt })));
       const commonFit = fitScatterLinearLikeRegression(allPoints, { mode: 'linear', method: 'ols', fitSpec: {} });
       if(!commonFit || !Number.isFinite(commonFit.metrics?.sse)){
         return null;
       }
       const nTotal = allPoints.length;
-      const g = groups.length;
+      const groupCount = groups.length;
       const means = groups.map(group => {
         const xMean = group.points.reduce((sum, pt) => sum + pt.x, 0) / group.points.length;
         const yMean = group.points.reduce((sum, pt) => sum + pt.y, 0) / group.points.length;
@@ -7695,17 +7713,75 @@
         });
       });
       const separateSse = separateFits.reduce((sum, fit) => sum + Number(fit.metrics?.sse || 0), 0);
-      const separateDf = nTotal - (2 * g);
-      const parallelDf = nTotal - (g + 1);
+      const separateDf = nTotal - (2 * groupCount);
+      const parallelDf = nTotal - (groupCount + 1);
       const commonDf = nTotal - 2;
       const slopesTest = computeScatterExtraSumSquaresF(parallelSse, parallelDf, separateSse, separateDf);
       const interceptTest = computeScatterExtraSumSquaresF(commonFit.metrics.sse, commonDf, parallelSse, parallelDf);
       const commonLineTest = computeScatterExtraSumSquaresF(commonFit.metrics.sse, commonDf, separateSse, separateDf);
       const modelMetrics = {
         common: computeScatterAicMetrics(commonFit.metrics.sse, nTotal, 2),
-        parallel: computeScatterAicMetrics(parallelSse, nTotal, g + 1),
-        separate: computeScatterAicMetrics(separateSse, nTotal, 2 * g)
+        parallel: computeScatterAicMetrics(parallelSse, nTotal, groupCount + 1),
+        separate: computeScatterAicMetrics(separateSse, nTotal, 2 * groupCount)
       };
+      return {
+        groups,
+        nTotal,
+        groupCount,
+        slopesTest,
+        interceptTest,
+        commonLineTest,
+        modelMetrics
+      };
+    };
+    const computeScatterHolmAdjustedPValues = pValues => {
+      const values = Array.isArray(pValues) ? pValues : [];
+      const resolved = new Array(values.length).fill(NaN);
+      const valid = values
+        .map((value, index) => ({ index, p: Number(value) }))
+        .filter(entry => Number.isFinite(entry.p) && entry.p >= 0 && entry.p <= 1)
+        .sort((a, b) => a.p - b.p);
+      if(!valid.length){
+        return resolved;
+      }
+      let runningMax = 0;
+      const m = valid.length;
+      valid.forEach((entry, rank) => {
+        const scaled = Math.min(1, (m - rank) * entry.p);
+        runningMax = Math.max(runningMax, scaled);
+        resolved[entry.index] = runningMax;
+      });
+      return resolved;
+    };
+    const classifyScatterGroupedLineDifference = (slopesP, interceptP, alpha) => {
+      const threshold = Number.isFinite(alpha) ? alpha : 0.05;
+      if(Number.isFinite(slopesP) && slopesP < threshold){
+        return {
+          code: 'different-slopes',
+          text: `Slopes differ (P = ${formatP(slopesP)}).`
+        };
+      }
+      if(Number.isFinite(interceptP) && interceptP < threshold){
+        return {
+          code: 'different-intercepts',
+          text: `Slopes are not detectably different; intercepts differ (P = ${formatP(interceptP)}).`
+        };
+      }
+      return {
+        code: 'not-different',
+        text: 'No statistically significant line difference detected.'
+      };
+    };
+    const buildScatterGroupedComparisonReport = (groupedSeriesStats, options = {}) => {
+      const alpha = resolveScatterComparisonAlpha(options);
+      const overall = computeScatterGroupedLinearModelComparison(groupedSeriesStats);
+      if(!overall){
+        return null;
+      }
+      const slopesDecisionP = Number(overall?.slopesTest?.pValue);
+      const canEvaluateIntercepts = Number.isFinite(slopesDecisionP) ? !(slopesDecisionP < alpha) : true;
+      const interceptDecisionP = canEvaluateIntercepts ? Number(overall?.interceptTest?.pValue) : NaN;
+      const overallDecision = classifyScatterGroupedLineDifference(slopesDecisionP, interceptDecisionP, alpha);
       const rows = [];
       const addTestRows = (prefix, test) => {
         if(!test){
@@ -7714,21 +7790,94 @@
         rows.push({ metric: `${prefix} F`, value: formatMetricValue(test.fStatistic, 4) });
         rows.push({ metric: `${prefix} p`, value: formatP(test.pValue) });
       };
-      addTestRows('[Group comparison] Equal slopes (parallel-lines test)', slopesTest);
-      addTestRows('[Group comparison] Equal intercepts given common slope', interceptTest);
-      addTestRows('[Group comparison] One common line for all groups', commonLineTest);
-      rows.push({ metric: '[Group comparison] AICc common line', value: formatMetricValue(modelMetrics.common.aicc, 4) });
-      rows.push({ metric: '[Group comparison] AICc parallel lines', value: formatMetricValue(modelMetrics.parallel.aicc, 4) });
-      rows.push({ metric: '[Group comparison] AICc separate lines', value: formatMetricValue(modelMetrics.separate.aicc, 4) });
+      rows.push({ metric: '[GraphPad-style] Decision threshold (alpha)', value: formatMetricValue(alpha, 4) });
+      addTestRows('[Step 1] Equal slopes across groups', overall.slopesTest);
+      if(canEvaluateIntercepts){
+        addTestRows('[Step 2] Equal intercepts given equal slopes', overall.interceptTest);
+      }else{
+        rows.push({ metric: '[Step 2] Equal intercepts', value: 'Skipped because slopes were significantly different.' });
+      }
+      addTestRows('[Overall] One common line for all groups', overall.commonLineTest);
+      rows.push({ metric: '[GraphPad-style] Overall interpretation', value: overallDecision.text });
+      rows.push({ metric: '[Group comparison] AICc common line', value: formatMetricValue(overall.modelMetrics.common.aicc, 4) });
+      rows.push({ metric: '[Group comparison] AICc parallel lines', value: formatMetricValue(overall.modelMetrics.parallel.aicc, 4) });
+      rows.push({ metric: '[Group comparison] AICc separate lines', value: formatMetricValue(overall.modelMetrics.separate.aicc, 4) });
       const preferred = [
-        ['Common line', modelMetrics.common.aicc],
-        ['Parallel lines', modelMetrics.parallel.aicc],
-        ['Separate lines', modelMetrics.separate.aicc]
+        ['Common line', overall.modelMetrics.common.aicc],
+        ['Parallel lines', overall.modelMetrics.parallel.aicc],
+        ['Separate lines', overall.modelMetrics.separate.aicc]
       ].filter(entry => Number.isFinite(entry[1])).sort((a, b) => a[1] - b[1])[0];
       if(preferred){
         rows.push({ metric: '[Group comparison] Preferred model by AICc', value: preferred[0] });
       }
-      return rows.length ? rows : null;
+      const pairwise = [];
+      for(let left = 0; left < overall.groups.length; left += 1){
+        for(let right = left + 1; right < overall.groups.length; right += 1){
+          const comparison = computeScatterGroupedLinearModelComparison([overall.groups[left], overall.groups[right]]);
+          if(!comparison){
+            continue;
+          }
+          pairwise.push({
+            leftLabel: overall.groups[left].label,
+            rightLabel: overall.groups[right].label,
+            pairLabel: `${overall.groups[left].label} vs ${overall.groups[right].label}`,
+            slopesTest: comparison.slopesTest || null,
+            interceptTest: comparison.interceptTest || null,
+            commonLineTest: comparison.commonLineTest || null
+          });
+        }
+      }
+      const slopeAdjusted = computeScatterHolmAdjustedPValues(pairwise.map(entry => entry?.slopesTest?.pValue));
+      const interceptAdjusted = new Array(pairwise.length).fill(NaN);
+      const interceptCandidates = [];
+      pairwise.forEach((entry, index) => {
+        const slopeRaw = Number(entry?.slopesTest?.pValue);
+        const slopeAdj = Number(slopeAdjusted[index]);
+        const slopeDecisionP = Number.isFinite(slopeAdj) ? slopeAdj : slopeRaw;
+        const slopeDifferent = Number.isFinite(slopeDecisionP) && slopeDecisionP < alpha;
+        if(!slopeDifferent){
+          interceptCandidates.push({ index, p: Number(entry?.interceptTest?.pValue) });
+        }
+      });
+      const interceptSubsetAdjusted = computeScatterHolmAdjustedPValues(interceptCandidates.map(entry => entry.p));
+      interceptCandidates.forEach((entry, idx) => {
+        interceptAdjusted[entry.index] = interceptSubsetAdjusted[idx];
+      });
+      const pairwiseRows = pairwise.map((entry, index) => {
+        const slopeRaw = Number(entry?.slopesTest?.pValue);
+        const slopeAdj = Number(slopeAdjusted[index]);
+        const slopeDecisionP = Number.isFinite(slopeAdj) ? slopeAdj : slopeRaw;
+        const slopeDifferent = Number.isFinite(slopeDecisionP) && slopeDecisionP < alpha;
+        const interceptRawP = Number(entry?.interceptTest?.pValue);
+        const interceptAdjP = Number(interceptAdjusted[index]);
+        const interceptDecisionP = (!slopeDifferent && Number.isFinite(interceptAdjP)) ? interceptAdjP : (!slopeDifferent ? interceptRawP : NaN);
+        const decision = classifyScatterGroupedLineDifference(slopeDecisionP, interceptDecisionP, alpha);
+        return {
+          pair: entry.pairLabel,
+          slopesP: formatP(slopeRaw),
+          slopesAdjP: Number.isFinite(slopeAdj) ? formatP(slopeAdj) : '—',
+          interceptsP: slopeDifferent ? 'Skipped (slopes differ)' : formatP(interceptRawP),
+          interceptsAdjP: slopeDifferent ? 'Skipped' : (Number.isFinite(interceptAdjP) ? formatP(interceptAdjP) : '—'),
+          overallP: formatP(Number(entry?.commonLineTest?.pValue)),
+          conclusion: decision.text,
+          decisionCode: decision.code
+        };
+      });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        scatterDebug('Debug: scatter grouped GraphPad-style line comparison computed', {
+          groupCount: overall.groupCount,
+          pairCount: pairwiseRows.length,
+          alpha,
+          overallDecision: overallDecision.code
+        });
+      }
+      return {
+        alpha,
+        overall,
+        overallDecision,
+        rows,
+        pairwiseRows
+      };
     };
 
 
@@ -11546,6 +11695,18 @@
             parameters: fitSpec?.parameters || null
           },
           globalFit,
+          groupedLinearComparison: stats?.groupedLinearComparison
+            ? {
+                alpha: Number(stats.groupedLinearComparison?.alpha),
+                overallDecision: stats.groupedLinearComparison?.overallDecision?.code || null,
+                significantPairs: Array.isArray(stats.groupedLinearComparison?.pairwiseRows)
+                  ? stats.groupedLinearComparison.pairwiseRows
+                    .filter(entry => entry?.decisionCode === 'different-slopes' || entry?.decisionCode === 'different-intercepts')
+                    .map(entry => entry?.pair)
+                    .filter(Boolean)
+                  : []
+              }
+            : null,
           overlays: {
             showLine: !!settings?.showLineMaster,
             showCI: !!settings?.showCI,
@@ -11607,6 +11768,12 @@
             methodsParts.push('Common versus separate curve families were compared using information criteria and extra sum-of-squares F tests where applicable.');
           }
         }
+        if(stats?.groupedLinearComparison){
+          methodsParts.push('Linear grouped datasets were compared using a GraphPad-style sequence: slopes first, then intercepts only when slopes were not significantly different.');
+          if(Number.isFinite(Number(stats.groupedLinearComparison.alpha))){
+            methodsParts.push(`Grouped line-comparison decisions used alpha = ${formatMetricValue(Number(stats.groupedLinearComparison.alpha), 4)}.`);
+          }
+        }
 
         if(!stats?.grouped){
           if(Number.isFinite(stats?.r)){
@@ -11650,6 +11817,19 @@
             if(commonTest && Number.isFinite(commonTest.pValue)){
               resultsParts.push(`Common versus separate curves: F = ${formatMetricValue(commonTest.fStatistic, 4)}, P = ${formatP(commonTest.pValue)}.`);
             }
+          }
+          const groupedLinearComparison = stats?.groupedLinearComparison || null;
+          if(groupedLinearComparison?.overallDecision?.text){
+            resultsParts.push(`GraphPad-style grouped linear comparison: ${groupedLinearComparison.overallDecision.text}`);
+          }
+          const significantPairs = Array.isArray(groupedLinearComparison?.pairwiseRows)
+            ? groupedLinearComparison.pairwiseRows
+              .filter(entry => entry?.decisionCode === 'different-slopes' || entry?.decisionCode === 'different-intercepts')
+              .map(entry => entry?.pair)
+              .filter(Boolean)
+            : [];
+          if(significantPairs.length){
+            resultsParts.push(`Pairwise differences after Holm correction: ${significantPairs.join('; ')}.`);
           }
         }
 
@@ -11842,16 +12022,51 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               },
               append:true
             });
-          }else{
-            const groupedComparisonRows = buildScatterGroupedComparisonReport(groupedSeriesStats);
-            if(Array.isArray(groupedComparisonRows) && groupedComparisonRows.length){
+          }
+          const groupedComparisonReport = stats?.groupedLinearComparison
+            || (
+              String(regressionModeValue || '').trim().toLowerCase() === 'linear'
+                ? buildScatterGroupedComparisonReport(
+                    Array.isArray(stats?.groupedSeriesStatsSeparate) && stats.groupedSeriesStatsSeparate.length
+                      ? stats.groupedSeriesStatsSeparate
+                      : groupedSeriesStats,
+                    { confidenceLevel: settings?.fitSpec?.confidenceLevel }
+                  )
+                : null
+            );
+          if(groupedComparisonReport && !stats?.groupedLinearComparison){
+            stats = {
+              ...stats,
+              groupedLinearComparison: groupedComparisonReport
+            };
+          }
+          const groupedComparisonRows = Array.isArray(groupedComparisonReport?.rows) ? groupedComparisonReport.rows : [];
+          if(groupedComparisonRows.length){
+            renderStatsCard(scatterStatsResults,{
+              caption:'Compare linear regressions (GraphPad-style)',
+              columns:[
+                { key:'metric', label:'Metric', align:'left' },
+                { key:'value', label:'Value', align:'right' }
+              ],
+              rows:groupedComparisonRows,
+              options:{
+                fileName:'scatter-grouped-linear-comparison',
+                contextLabel:'scatter-grouped-linear-comparison'
+              },
+              append:true
+            });
+          }else if(!Array.isArray(groupedGlobalFitRows) || !groupedGlobalFitRows.length){
+            const fallbackRows = buildScatterGroupedComparisonReport(groupedSeriesStats, {
+              confidenceLevel: settings?.fitSpec?.confidenceLevel
+            });
+            if(Array.isArray(fallbackRows?.rows) && fallbackRows.rows.length){
               renderStatsCard(scatterStatsResults,{
                 caption:'Comparison of fitted lines',
                 columns:[
                   { key:'metric', label:'Metric', align:'left' },
                   { key:'value', label:'Value', align:'right' }
                 ],
-                rows:groupedComparisonRows,
+                rows:fallbackRows.rows,
                 options:{
                   fileName:'scatter-grouped-comparison',
                   contextLabel:'scatter-grouped-comparison'
@@ -11859,6 +12074,43 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 append:true
               });
             }
+          }
+          const pairwiseComparisonRows = Array.isArray(groupedComparisonReport?.pairwiseRows) ? groupedComparisonReport.pairwiseRows : [];
+          if(pairwiseComparisonRows.length){
+            renderStatsCard(scatterStatsResults,{
+              caption:'Pairwise line comparisons (Holm-adjusted)',
+              columns:[
+                { key:'pair', label:'Pair', align:'left' },
+                { key:'slopesP', label:'Slope p', align:'right' },
+                { key:'slopesAdjP', label:'Slope p (Holm)', align:'right' },
+                { key:'interceptsP', label:'Intercept p*', align:'right' },
+                { key:'interceptsAdjP', label:'Intercept p* (Holm)', align:'right' },
+                { key:'overallP', label:'Any-difference p', align:'right' },
+                { key:'conclusion', label:'Conclusion', align:'left' }
+              ],
+              rows:pairwiseComparisonRows,
+              options:{
+                fileName:'scatter-grouped-pairwise-line-comparison',
+                contextLabel:'scatter-grouped-pairwise-line-comparison'
+              },
+              append:true
+            });
+            renderStatsCard(scatterStatsResults,{
+              caption:'Pairwise comparison notes',
+              columns:[
+                { key:'metric', label:'Metric', align:'left' },
+                { key:'value', label:'Value', align:'left' }
+              ],
+              rows:[
+                { metric:'Interpretation order', value:'GraphPad-style: test slope first; only evaluate intercept when slope is not significantly different.' },
+                { metric:'*Intercept p', value:'Computed only when slope was not significant for that pair after Holm adjustment.' }
+              ],
+              options:{
+                fileName:'scatter-grouped-pairwise-notes',
+                contextLabel:'scatter-grouped-pairwise-notes'
+              },
+              append:true
+            });
           }
           scatterLastRegressionSummary = {
             grouped: true,
@@ -12043,6 +12295,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               const groupedSeriesStats = Array.isArray(groupedGlobalFit?.activeSeriesStats) && groupedGlobalFit.activeSeriesStats.length
                 ? groupedGlobalFit.activeSeriesStats
                 : groupedSeriesStatsSeparate;
+              const groupedLinearComparison = String(regressionModeValue || '').trim().toLowerCase() === 'linear'
+                ? buildScatterGroupedComparisonReport(groupedSeriesStatsSeparate, {
+                    confidenceLevel: fitSpec?.confidenceLevel
+                  })
+                : null;
               const methodLabel = groupedSeriesStats
                 .map(entry => entry?.stats?.method)
                 .find(value => typeof value === 'string' && value.trim())
@@ -12052,6 +12309,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 groupedSeriesStats,
                 groupedSeriesStatsSeparate,
                 groupedGlobalFit,
+                groupedLinearComparison,
                 grouped: true,
                 pointCount: context.points.length,
                 regression: null

@@ -1,0 +1,531 @@
+{
+  "browser": "chromium",
+  "component": "heatmap",
+  "page": "heatmapPage",
+  "exampleLoaded": true,
+  "timingsMs": {
+    "openMs": 430,
+    "exampleMs": 1206,
+    "exerciseMs": 17572
+  },
+  "totals": {
+    "logEntries": 24026,
+    "warnings": 3,
+    "errors": 0,
+    "ignoredErrors": 0,
+    "critical": 0
+  },
+  "perf": {
+    "beforeExercise": {
+      "componentType": "heatmap",
+      "capturedAt": 1772884613464,
+      "componentHook": {
+        "performance": {
+          "loadData": {
+            "timestamp": 1772884612368,
+            "rows": 6,
+            "cols": 8,
+            "totalMs": 70.30000007152557,
+            "hotMs": 70.10000002384186,
+            "evaluationMs": 0.20000004768371582
+          },
+          "draw": {
+            "timestamp": 1772884612821,
+            "totalMs": 445.2999999523163,
+            "prepareMs": 4,
+            "renderMs": 441.2999999523163,
+            "viewOnly": false,
+            "reason": "example-load",
+            "status": "complete",
+            "view": "corr-columns",
+            "error": null
+          },
+          "evaluation": {
+            "timestamp": 1772884612368,
+            "source": null,
+            "rows": 6,
+            "cols": 8,
+            "cellEstimate": 48,
+            "thresholdExceeded": false,
+            "totalMs": 0.10000002384185791
+          }
+        },
+        "lastAutoDrawEvaluation": {
+          "totalRows": 6,
+          "totalCols": 8,
+          "cellEstimate": 48,
+          "thresholdExceeded": false,
+          "totalMs": 0.10000002384185791
+        },
+        "lastDataShape": {
+          "rows": 6,
+          "cols": 8
+        }
+      },
+      "sharedPerformance": {
+        "totalEntries": 0,
+        "relevantEntries": [],
+        "maxEntryId": 0,
+        "componentReport": [],
+        "hotReport": []
+      }
+    },
+    "afterExercise": {
+      "componentType": "heatmap",
+      "capturedAt": 1772884631040,
+      "componentHook": {
+        "performance": {
+          "loadData": {
+            "timestamp": 1772884614870,
+            "rows": 100,
+            "cols": 12,
+            "totalMs": 65.20000004768372,
+            "hotMs": 65.20000004768372,
+            "evaluationMs": 0
+          },
+          "draw": {
+            "timestamp": 1772884630291,
+            "totalMs": 486.8000000715256,
+            "prepareMs": 2,
+            "renderMs": 200.10000002384186,
+            "viewOnly": false,
+            "reason": null,
+            "status": "complete",
+            "view": "corr-columns",
+            "error": null
+          },
+          "evaluation": {
+            "timestamp": 1772884630076,
+            "source": null,
+            "rows": 6,
+            "cols": 8,
+            "cellEstimate": 48,
+            "thresholdExceeded": false,
+            "totalMs": 0
+          }
+        },
+        "lastAutoDrawEvaluation": {
+          "totalRows": 6,
+          "totalCols": 8,
+          "cellEstimate": 48,
+          "thresholdExceeded": false,
+          "totalMs": 0
+        },
+        "lastDataShape": {
+          "rows": 6,
+          "cols": 8
+        }
+      },
+      "sharedPerformance": {
+        "totalEntries": 0,
+        "relevantEntries": [],
+        "maxEntryId": 0,
+        "componentReport": [],
+        "hotReport": []
+      }
+    },
+    "exercise": {
+      "steps": [
+        {
+          "step": "cycle-selects",
+          "durationMs": 3020,
+          "actionResult": {
+            "visible": 7,
+            "attempted": 4,
+            "changed": 3,
+            "durationMs": 3020
+          },
+          "perfDelta": {
+            "hook": {
+              "loadData": {
+                "totalMs": 65.2,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 0,
+                "rows": 100,
+                "cols": 12,
+                "reason": null
+              },
+              "evaluation": {
+                "totalMs": 0,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 0,
+                "rows": 6,
+                "cols": 8,
+                "reason": null
+              },
+              "draw": {
+                "totalMs": 445.3,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 271.3,
+                "rows": 0,
+                "cols": 0,
+                "reason": null
+              }
+            },
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "toggle-checkboxes",
+          "durationMs": 3598,
+          "actionResult": {
+            "visible": 18,
+            "attempted": 5,
+            "toggled": 5,
+            "durationMs": 3598
+          },
+          "perfDelta": {
+            "hook": {
+              "evaluation": {
+                "totalMs": 0,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 0,
+                "rows": 6,
+                "cols": 8,
+                "reason": null
+              },
+              "draw": {
+                "totalMs": 486.8,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 262.3,
+                "rows": 6,
+                "cols": 8,
+                "reason": "toggle-heatmapShowValues"
+              }
+            },
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "click-analysis-buttons",
+          "durationMs": 236,
+          "actionResult": {
+            "visible": 18,
+            "clicked": 0,
+            "clickedLabels": [],
+            "durationMs": 236
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "drag-panel-resizer",
+          "durationMs": 9606,
+          "actionResult": {
+            "present": true,
+            "moved": true,
+            "durationMs": 9606
+          },
+          "perfDelta": {
+            "hook": {
+              "evaluation": {
+                "totalMs": 0,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 0,
+                "rows": 6,
+                "cols": 8,
+                "reason": null
+              },
+              "draw": {
+                "totalMs": 486.8,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 200.1,
+                "rows": 0,
+                "cols": 0,
+                "reason": null
+              }
+            },
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        },
+        {
+          "step": "adjust-zoom",
+          "durationMs": 460,
+          "actionResult": {
+            "zoomInClicks": 2,
+            "zoomOutClicks": 1,
+            "durationMs": 460
+          },
+          "perfDelta": {
+            "hook": {},
+            "sharedEntries": [],
+            "componentReport": [],
+            "hotReport": []
+          }
+        }
+      ],
+      "before": {
+        "componentType": "heatmap",
+        "capturedAt": 1772884613467,
+        "componentHook": {
+          "performance": {
+            "loadData": {
+              "timestamp": 1772884612368,
+              "rows": 6,
+              "cols": 8,
+              "totalMs": 70.30000007152557,
+              "hotMs": 70.10000002384186,
+              "evaluationMs": 0.20000004768371582
+            },
+            "draw": {
+              "timestamp": 1772884612821,
+              "totalMs": 445.2999999523163,
+              "prepareMs": 4,
+              "renderMs": 441.2999999523163,
+              "viewOnly": false,
+              "reason": "example-load",
+              "status": "complete",
+              "view": "corr-columns",
+              "error": null
+            },
+            "evaluation": {
+              "timestamp": 1772884612368,
+              "source": null,
+              "rows": 6,
+              "cols": 8,
+              "cellEstimate": 48,
+              "thresholdExceeded": false,
+              "totalMs": 0.10000002384185791
+            }
+          },
+          "lastAutoDrawEvaluation": {
+            "totalRows": 6,
+            "totalCols": 8,
+            "cellEstimate": 48,
+            "thresholdExceeded": false,
+            "totalMs": 0.10000002384185791
+          },
+          "lastDataShape": {
+            "rows": 6,
+            "cols": 8
+          }
+        },
+        "sharedPerformance": {
+          "totalEntries": 0,
+          "relevantEntries": [],
+          "maxEntryId": 0,
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      "after": {
+        "componentType": "heatmap",
+        "capturedAt": 1772884631032,
+        "componentHook": {
+          "performance": {
+            "loadData": {
+              "timestamp": 1772884614870,
+              "rows": 100,
+              "cols": 12,
+              "totalMs": 65.20000004768372,
+              "hotMs": 65.20000004768372,
+              "evaluationMs": 0
+            },
+            "draw": {
+              "timestamp": 1772884630291,
+              "totalMs": 486.8000000715256,
+              "prepareMs": 2,
+              "renderMs": 200.10000002384186,
+              "viewOnly": false,
+              "reason": null,
+              "status": "complete",
+              "view": "corr-columns",
+              "error": null
+            },
+            "evaluation": {
+              "timestamp": 1772884630076,
+              "source": null,
+              "rows": 6,
+              "cols": 8,
+              "cellEstimate": 48,
+              "thresholdExceeded": false,
+              "totalMs": 0
+            }
+          },
+          "lastAutoDrawEvaluation": {
+            "totalRows": 6,
+            "totalCols": 8,
+            "cellEstimate": 48,
+            "thresholdExceeded": false,
+            "totalMs": 0
+          },
+          "lastDataShape": {
+            "rows": 6,
+            "cols": 8
+          }
+        },
+        "sharedPerformance": {
+          "totalEntries": 0,
+          "relevantEntries": [],
+          "maxEntryId": 0,
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    },
+    "slowestSteps": [
+      {
+        "step": "drag-panel-resizer",
+        "durationMs": 9606,
+        "actionResult": {
+          "present": true,
+          "moved": true,
+          "durationMs": 9606
+        },
+        "perfDelta": {
+          "hook": {
+            "evaluation": {
+              "totalMs": 0,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 0,
+              "rows": 6,
+              "cols": 8,
+              "reason": null
+            },
+            "draw": {
+              "totalMs": 486.8,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 200.1,
+              "rows": 0,
+              "cols": 0,
+              "reason": null
+            }
+          },
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "toggle-checkboxes",
+        "durationMs": 3598,
+        "actionResult": {
+          "visible": 18,
+          "attempted": 5,
+          "toggled": 5,
+          "durationMs": 3598
+        },
+        "perfDelta": {
+          "hook": {
+            "evaluation": {
+              "totalMs": 0,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 0,
+              "rows": 6,
+              "cols": 8,
+              "reason": null
+            },
+            "draw": {
+              "totalMs": 486.8,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 262.3,
+              "rows": 6,
+              "cols": 8,
+              "reason": "toggle-heatmapShowValues"
+            }
+          },
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "cycle-selects",
+        "durationMs": 3020,
+        "actionResult": {
+          "visible": 7,
+          "attempted": 4,
+          "changed": 3,
+          "durationMs": 3020
+        },
+        "perfDelta": {
+          "hook": {
+            "loadData": {
+              "totalMs": 65.2,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 0,
+              "rows": 100,
+              "cols": 12,
+              "reason": null
+            },
+            "evaluation": {
+              "totalMs": 0,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 0,
+              "rows": 6,
+              "cols": 8,
+              "reason": null
+            },
+            "draw": {
+              "totalMs": 445.3,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 271.3,
+              "rows": 0,
+              "cols": 0,
+              "reason": null
+            }
+          },
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "adjust-zoom",
+        "durationMs": 460,
+        "actionResult": {
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 460
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "click-analysis-buttons",
+        "durationMs": 236,
+        "actionResult": {
+          "visible": 18,
+          "clicked": 0,
+          "clickedLabels": [],
+          "durationMs": 236
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      }
+    ]
+  },
+  "criticalEntries": []
+}

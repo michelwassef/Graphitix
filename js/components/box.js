@@ -70,6 +70,8 @@
   // PART: UTILS
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
+  const DEFAULT_UNIFIED_SYMBOL_FILL = '#000000';
+  const DEFAULT_UNIFIED_SYMBOL_BORDER = 'none';
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const DEFAULT_AXIS_COLOR='#000000';
   const DEFAULT_GRID_COLOR='#dddddd';
@@ -8459,6 +8461,42 @@
     return String(candidate);
   }
 
+  function ensureBoxColorModeControls(){
+    if(!els.boxColorUnified){
+      els.boxColorUnified = global.$('#boxColorUnified');
+    }
+    if(!els.boxColorIndividual){
+      els.boxColorIndividual = global.$('#boxColorIndividual');
+    }
+  }
+
+  function getBoxColorMode(){
+    ensureBoxColorModeControls();
+    if(els?.boxColorUnified?.checked){
+      return 'unified';
+    }
+    if(els?.boxColorIndividual?.checked){
+      return 'individual';
+    }
+    return 'individual';
+  }
+
+  function getBoxFillColorValue(){
+    const candidate = els?.boxFill?.value;
+    if(typeof candidate === 'string' && candidate.trim()){
+      return candidate;
+    }
+    return state.lastDefaultFill || '#4472c4';
+  }
+
+  function getBoxBorderColorValue(){
+    const candidate = els?.boxBorder?.value;
+    if(typeof candidate === 'string' && candidate.trim()){
+      return candidate;
+    }
+    return shadeColor(getBoxFillColorValue(), -30);
+  }
+
 	  function normalizeSignificanceWhiskerMode(value){
 	    if(typeof value !== 'string'){ return DEFAULT_SIGNIFICANCE_WHISKER_MODE; }
 	    const trimmed = value.trim().toLowerCase();
@@ -9519,8 +9557,10 @@
     }
     state.tableFormat = normalized;
     console.debug('Debug: setTableFormat',{ mode: normalized });
-    if(normalized === 'grouped' && els.boxColorUnified?.checked && !opts.skipColorSwitch){
-      els.boxColorIndividual.checked = true;
+    if(normalized === 'grouped' && getBoxColorMode()==='unified' && !opts.skipColorSwitch){
+      if(els.boxColorIndividual){
+        els.boxColorIndividual.checked = true;
+      }
       toggleColorMode();
       console.debug('Debug: auto color mode switch for grouped');
     }
@@ -10075,16 +10115,23 @@
 
   // PART: UI
   function toggleColorMode(){
-    const mode=els.boxColorUnified.checked?'unified':'individual';
-    els.boxUnifiedColors.style.display=mode==='unified'?'':'none';
-    if(mode==='unified'){ els.boxColorPerBox.innerHTML=''; }
+    const mode = getBoxColorMode();
+    if(els.boxUnifiedColors){
+      els.boxUnifiedColors.style.display = mode==='unified' ? '' : 'none';
+    }
+    if(mode==='unified' && els.boxColorPerBox){
+      els.boxColorPerBox.innerHTML='';
+    }
     boxLog('box color mode toggled',mode);
     state.scheduleDraw();
   }
   function updateBoxColorPickers(labels, options){
     const opts = options || {};
     const grouped = !!opts.grouped;
-    if(els.boxColorUnified.checked){ els.boxColorPerBox.innerHTML=''; return; }
+    if(!els.boxColorPerBox){
+      return;
+    }
+    if(getBoxColorMode()==='unified'){ els.boxColorPerBox.innerHTML=''; return; }
     els.boxColorPerBox.innerHTML='';
     labels.forEach((lab,i)=>{
       const colorIndex=i;
@@ -10145,8 +10192,13 @@
         state.scheduleDraw();
       });
     }
-    els.boxColorUnified.addEventListener('change',toggleColorMode);
-    els.boxColorIndividual.addEventListener('change',toggleColorMode);
+    ensureBoxColorModeControls();
+    if(els.boxColorUnified){
+      els.boxColorUnified.addEventListener('change',toggleColorMode);
+    }
+    if(els.boxColorIndividual){
+      els.boxColorIndividual.addEventListener('change',toggleColorMode);
+    }
     toggleColorMode();
     const applyViolinBandwidthChange = value => {
       const violinState = ensureViolinState();
@@ -19137,9 +19189,9 @@ Technical analysis record (advanced)
       node.appendChild(title);
     };
     const violinState = ensureViolinState();
-    const colorMode = els.boxColorUnified.checked ? 'unified' : 'individual';
-    const defaultFill = els.boxFill.value;
-    const defaultBorder = els.boxBorder.value;
+    const colorMode = getBoxColorMode();
+    const defaultFill = getBoxFillColorValue();
+    const defaultBorder = getBoxBorderColorValue();
     const borderWidthRaw = Number(getBoxBorderWidthValue());
     const errorBarWidthInput = Number(getBoxErrorBarWidthValue());
     const errorBarWidthRaw = Number.isFinite(errorBarWidthInput) ? errorBarWidthInput : borderWidthRaw;
@@ -19330,8 +19382,9 @@ Technical analysis record (advanced)
         const borderResolved = styleOverride && styleOverride.border ? styleOverride.border : borderColor;
         return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
       }
-      const fillColor = defaultFill;
-      const borderColor = defaultBorder;
+      const useUnifiedSymbolDefaults = isIndividualValues;
+      const fillColor = useUnifiedSymbolDefaults ? DEFAULT_UNIFIED_SYMBOL_FILL : defaultFill;
+      const borderColor = useUnifiedSymbolDefaults ? DEFAULT_UNIFIED_SYMBOL_BORDER : defaultBorder;
       if(isGroupedMode && trace?.groupName){
         if(!groupColorAssignments.has(trace.groupName)){
           groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
@@ -19593,7 +19646,9 @@ Technical analysis record (advanced)
     if(!traces.length){
       state.lastAxisLabels = [];
       renderStatsControls([]);
-      els.boxColorPerBox.innerHTML='';
+      if(els.boxColorPerBox){
+        els.boxColorPerBox.innerHTML='';
+      }
       global.document.getElementById('boxPlot').innerHTML='';
       resetStatsComputationState({ placeholder: 'Add data to enable statistics.' });
       return;
@@ -19619,9 +19674,9 @@ Technical analysis record (advanced)
     const colorPickerLabels = isGroupedMode ? groupedGroups : traceLabels;
     console.debug('Debug: box color picker labels resolved',{ isGroupedMode, labelCount: colorPickerLabels.length, labels: colorPickerLabels });
     state.lastAxisLabels = Array.isArray(axisLabels) ? axisLabels.slice() : [];
-    if(els.boxColorIndividual.checked){
+    if(getBoxColorMode()==='individual'){
       updateBoxColorPickers(colorPickerLabels, { grouped: isGroupedMode });
-    }else{
+    }else if(els.boxColorPerBox){
       els.boxColorPerBox.innerHTML='';
     }
     renderStatsControls(traces);
@@ -23788,9 +23843,9 @@ Technical analysis record (advanced)
       config: {
         title:state.titleText,
         yLabel:state.yLabelText,
-        colorMode:els.boxColorUnified.checked?'unified':'individual',
-        fill:els.boxFill.value,
-        border:els.boxBorder.value,
+        colorMode:getBoxColorMode(),
+        fill:getBoxFillColorValue(),
+        border:getBoxBorderColorValue(),
         borderWidth:getBoxBorderWidthValue(),
         errorBarWidth:getBoxErrorBarWidthValue(),
         fontSize:els.boxFontSize.value,
@@ -24143,8 +24198,14 @@ Technical analysis record (advanced)
     importFontStyles('box', c.fontStyles || null);
     state.titleText=c.title||state.titleText;
     state.yLabelText=c.yLabel||state.yLabelText;
-    els.boxFill.value=c.fill||els.boxFill.value;
-    els.boxBorder.value=c.border||els.boxBorder.value;
+    if(els.boxFill){
+      els.boxFill.value = c.fill || els.boxFill.value;
+    }else if(typeof c.fill === 'string' && c.fill.trim()){
+      state.lastDefaultFill = c.fill.trim();
+    }
+    if(els.boxBorder){
+      els.boxBorder.value = c.border || els.boxBorder.value;
+    }
     if(els.boxBorderWidth){
       els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
     }
@@ -24296,7 +24357,13 @@ Technical analysis record (advanced)
     }else{
       state.summaryGlobalStyle = { color: DEFAULT_SUMMARY_OVERLAY_COLOR };
     }
-    if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
+    if(els.boxColorIndividual && els.boxColorUnified){
+      if(c.colorMode==='individual'){
+        els.boxColorIndividual.checked=true;
+      }else{
+        els.boxColorUnified.checked=true;
+      }
+    }
     toggleColorMode();
     const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
     let restoredGroupedLabels = [];
@@ -24548,7 +24615,11 @@ Technical analysis record (advanced)
         }).map(entry => entry.label)
       : labels;
     console.debug('Debug: box restore color labels',{ tableFormat: state.tableFormat, labelCount: colorPickerRestoreLabels.length });
-    if(els.boxColorIndividual.checked){ updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' }); } else { els.boxColorPerBox.innerHTML=''; }
+    if(getBoxColorMode()==='individual'){
+      updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' });
+    }else if(els.boxColorPerBox){
+      els.boxColorPerBox.innerHTML='';
+    }
     ensureBoxLegendControlPlacement();
     // Restore label positions if saved
     if(c.labelPositions){

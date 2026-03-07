@@ -1,0 +1,326 @@
+{
+  "browser": "chromium",
+  "report": [
+    {
+      "component": "venn",
+      "page": "vennPage",
+      "exampleLoaded": true,
+      "openMs": 389,
+      "exampleMs": 998,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "box",
+      "page": "boxPage",
+      "exampleLoaded": true,
+      "openMs": 231,
+      "exampleMs": 1512,
+      "perf": {
+        "componentReport": [
+          {
+            "key": "box.draw",
+            "count": 3,
+            "totalMs": 152.2,
+            "avgMs": 50.733,
+            "p50Ms": 24.2,
+            "p95Ms": 100.07,
+            "maxMs": 108.5,
+            "minMs": 19.5
+          },
+          {
+            "key": "box.data.collect",
+            "count": 3,
+            "totalMs": 7.2,
+            "avgMs": 2.4,
+            "p50Ms": 2.3,
+            "p95Ms": 3.29,
+            "maxMs": 3.4,
+            "minMs": 1.5
+          }
+        ],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "scatter",
+      "page": "scatterPage",
+      "exampleLoaded": true,
+      "openMs": 287,
+      "exampleMs": 1395,
+      "perf": {
+        "componentReport": [
+          {
+            "key": "scatter.draw",
+            "count": 3,
+            "totalMs": 125.2,
+            "avgMs": 41.733,
+            "p50Ms": 15.8,
+            "p95Ms": 90.86,
+            "maxMs": 99.2,
+            "minMs": 10.2
+          },
+          {
+            "key": "scatter.legend.render",
+            "count": 1,
+            "totalMs": 6.9,
+            "avgMs": 6.9,
+            "p50Ms": 6.9,
+            "p95Ms": 6.9,
+            "maxMs": 6.9,
+            "minMs": 6.9
+          },
+          {
+            "key": "scatter.viewport.sync",
+            "count": 1,
+            "totalMs": 4.9,
+            "avgMs": 4.9,
+            "p50Ms": 4.9,
+            "p95Ms": 4.9,
+            "maxMs": 4.9,
+            "minMs": 4.9
+          },
+          {
+            "key": "scatter.svg.draw",
+            "count": 1,
+            "totalMs": 2.5,
+            "avgMs": 2.5,
+            "p50Ms": 2.5,
+            "p95Ms": 2.5,
+            "maxMs": 2.5,
+            "minMs": 2.5
+          },
+          {
+            "key": "scatter.data.collect",
+            "count": 3,
+            "totalMs": 0.4,
+            "avgMs": 0.133,
+            "p50Ms": 0.1,
+            "p95Ms": 0.19,
+            "maxMs": 0.2,
+            "minMs": 0.1
+          },
+          {
+            "key": "scatter.labels.colors",
+            "count": 3,
+            "totalMs": 0.4,
+            "avgMs": 0.133,
+            "p50Ms": 0.1,
+            "p95Ms": 0.19,
+            "maxMs": 0.2,
+            "minMs": 0.1
+          },
+          {
+            "key": "scatter.svg.attach",
+            "count": 1,
+            "totalMs": 0,
+            "avgMs": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "minMs": 0
+          }
+        ],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "pca",
+      "page": "pcaPage",
+      "exampleLoaded": true,
+      "openMs": 794,
+      "exampleMs": 1134,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": {
+          "performance": {
+            "loadData": {
+              "timestamp": 1772884536202,
+              "rows": 6,
+              "cols": 9,
+              "totalMs": 82.60000002384186,
+              "hotMs": 82.20000004768372,
+              "evaluationMs": 0.3999999761581421
+            },
+            "draw": {
+              "timestamp": 1772884536455,
+              "method": "pca",
+              "totalMs": 184.70000004768372,
+              "parseMs": 8.400000095367432,
+              "computeMs": 0.6999999284744263,
+              "renderMs": 175.20000004768372,
+              "samples": 8,
+              "features": 4,
+              "fastMode": false,
+              "points": 8,
+              "loadingsRendered": 4,
+              "loadingsTotal": 4,
+              "loadingsTruncated": false,
+              "viewOnly": false,
+              "cacheReused": false,
+              "reason": "example-load"
+            },
+            "evaluation": {
+              "timestamp": 1772884536226,
+              "source": null,
+              "rows": 6,
+              "cols": 9,
+              "featureEstimate": 5,
+              "cellEstimate": 54,
+              "thresholdExceeded": false,
+              "totalMs": 0.10000002384185791
+            }
+          },
+          "lastAutoDrawEvaluation": {
+            "totalRows": 6,
+            "totalCols": 9,
+            "featureEstimate": 5,
+            "cellEstimate": 54,
+            "thresholdExceeded": false
+          },
+          "lastDataShape": {
+            "rows": 6,
+            "cols": 9
+          }
+        }
+      }
+    },
+    {
+      "component": "line",
+      "page": "linePage",
+      "exampleLoaded": true,
+      "openMs": 242,
+      "exampleMs": 1479,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "heatmap",
+      "page": "heatmapPage",
+      "exampleLoaded": true,
+      "openMs": 548,
+      "exampleMs": 850,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": {
+          "performance": {
+            "loadData": {
+              "timestamp": 1772884540093,
+              "rows": 6,
+              "cols": 8,
+              "totalMs": 122.79999995231628,
+              "hotMs": 122.70000004768372,
+              "evaluationMs": 0.09999990463256836
+            },
+            "draw": {
+              "timestamp": 1772884540486,
+              "totalMs": 364.10000002384186,
+              "prepareMs": 5.700000047683716,
+              "renderMs": 358.39999997615814,
+              "viewOnly": false,
+              "reason": "example-load",
+              "status": "complete",
+              "view": "corr-columns",
+              "error": null
+            },
+            "evaluation": {
+              "timestamp": 1772884540093,
+              "source": null,
+              "rows": 6,
+              "cols": 8,
+              "cellEstimate": 48,
+              "thresholdExceeded": false,
+              "totalMs": 0
+            }
+          },
+          "lastAutoDrawEvaluation": {
+            "totalRows": 6,
+            "totalCols": 8,
+            "cellEstimate": 48,
+            "thresholdExceeded": false,
+            "totalMs": 0
+          },
+          "lastDataShape": {
+            "rows": 6,
+            "cols": 8
+          }
+        }
+      }
+    },
+    {
+      "component": "surface",
+      "page": "surfacePage",
+      "exampleLoaded": true,
+      "openMs": 576,
+      "exampleMs": 1023,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "roc",
+      "page": "rocPage",
+      "exampleLoaded": true,
+      "openMs": 491,
+      "exampleMs": 939,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "survival",
+      "page": "survivalPage",
+      "exampleLoaded": true,
+      "openMs": 406,
+      "exampleMs": 957,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "hist",
+      "page": "histPage",
+      "exampleLoaded": true,
+      "openMs": 597,
+      "exampleMs": 934,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    },
+    {
+      "component": "pie",
+      "page": "piePage",
+      "exampleLoaded": true,
+      "openMs": 585,
+      "exampleMs": 827,
+      "perf": {
+        "componentReport": [],
+        "hotReport": [],
+        "componentHook": null
+      }
+    }
+  ],
+  "totals": {
+    "logEntries": 5143,
+    "critical": 0
+  },
+  "criticalEntries": []
+}
