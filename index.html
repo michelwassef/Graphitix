@@ -425,21 +425,6 @@
                   <option value="stacked">Stacked</option>
                 </select>
               </div>
-              <div class="control idx-inline-022" id="boxLegacySignificanceControls" hidden aria-hidden="true">
-                <label class="idx-inline-023" id="boxShowCapsLabel" style="display:none">
-                  <input type="checkbox" id="boxShowCaps" checked /> Show whisker caps
-                </label>
-                <label class="idx-inline-024">
-                  <input type="checkbox" id="boxShowSignificance" /> Show pairwise comparisons
-                </label>
-                <label id="boxSignificanceLabelCtl" class="idx-inline-024">
-                  Label
-                  <select id="boxSignificanceLabelMode">
-                    <option value="stars" selected>Stars (*, ns)</option>
-                    <option value="p">P-value</option>
-                  </select>
-                </label>
-              </div>
               <div class="control idx-inline-025" id="boxIndividualSummaryCtl">
                 <label>Summary Overlay</label>
                 <select id="boxIndividualSummary">
@@ -469,6 +454,21 @@
                 <input type="range" id="boxViolinSamples" min="8" max="512" step="8" value="80" />
                 <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" class="idx-inline-027" />
                 <output id="boxViolinSamplesVal" class="idx-inline-029">80</output>
+              </div>
+              <div class="control idx-inline-022" id="boxLegacySignificanceControls" hidden aria-hidden="true">
+                <label class="idx-inline-023" id="boxShowCapsLabel" style="display:none">
+                  <input type="checkbox" id="boxShowCaps" checked /> Show whisker caps
+                </label>
+                <label class="idx-inline-024">
+                  <input type="checkbox" id="boxShowSignificance" /> Show pairwise comparisons
+                </label>
+                <label id="boxSignificanceLabelCtl" class="idx-inline-024">
+                  Label
+                  <select id="boxSignificanceLabelMode">
+                    <option value="stars" selected>Stars (*, ns)</option>
+                    <option value="p">P-value</option>
+                  </select>
+                </label>
               </div>
             </fieldset>
             <fieldset>
