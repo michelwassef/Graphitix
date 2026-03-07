@@ -58,7 +58,7 @@
     elements.tablePanel = resolveElement({ selector: selectors.tablePanel, label: 'tablePanel', documentRef, componentName });
     elements.graphPanel = resolveElement({ selector: selectors.graphPanel, label: 'graphPanel', documentRef, componentName });
     elements.configPanel = resolveElement({
-      selector: selectors.configPanel || (() => elements.graphPanel?.querySelector('.config-options')),
+      selector: selectors.configPanel || (() => elements.graphPanel?.querySelector('.config-panel') || elements.graphPanel?.querySelector('.config-options')),
       label: 'configPanel',
       documentRef,
       componentName

@@ -4485,7 +4485,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   flex:0 0 auto;
   align-self:stretch;
   padding-left:10px;
-  border-left:1px solid #cbd5e1;
+  border-left:none;
+  background-image:linear-gradient(#cbd5e1,#cbd5e1);
+  background-repeat:no-repeat;
+  background-position:left center;
+  background-size:1px calc(100% - 12px);
 }
 .font-toolbar-host--line-dual .grid-controls-panel,
 .font-toolbar-host--box-dual .grid-controls-panel,
@@ -4501,7 +4505,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host--scatter-dual>.grid-controls-panel:not(:first-child),
 .font-toolbar-host--grid-dual>.grid-controls-panel:not(:first-child){
   padding-left:10px;
-  border-left:1px solid #cbd5e1;
+  border-left:none;
+  background-image:linear-gradient(#cbd5e1,#cbd5e1);
+  background-repeat:no-repeat;
+  background-position:left center;
+  background-size:1px calc(100% - 12px);
 }
 .font-toolbar-host--scatter-dual .grid-controls-panel{
   order:1;
@@ -4511,7 +4519,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 }
 .font-toolbar-host--significance-dual>.font-controls-panel:not(:first-child){
   padding-left:10px;
-  border-left:1px solid #cbd5e1;
+  border-left:none;
+  background-image:linear-gradient(#cbd5e1,#cbd5e1);
+  background-repeat:no-repeat;
+  background-position:left center;
+  background-size:1px calc(100% - 12px);
 }
 .axis-controls-panel{display:flex;align-items:flex-start;padding:0 8px;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:56px}

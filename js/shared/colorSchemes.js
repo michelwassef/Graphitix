@@ -172,17 +172,17 @@
   });
 
   const TYPE_TO_PAGE = Object.freeze({
-    venn: { pageId: 'vennPage', panelSelector: '.config-options' },
-    box: { pageId: 'boxPage', panelSelector: '.config-options' },
+    venn: { pageId: 'vennPage', panelSelector: '.config-panel' },
+    box: { pageId: 'boxPage', panelSelector: '.config-panel' },
     scatter: { pageId: 'scatterPage', panelSelector: '.config-panel' },
-    pca: { pageId: 'pcaPage', panelSelector: '.config-options' },
-    line: { pageId: 'linePage', panelSelector: '.config-options' },
-    heatmap: { pageId: 'heatmapPage', panelSelector: '.config-options' },
-    surface: { pageId: 'surfacePage', panelSelector: '.config-options' },
-    roc: { pageId: 'rocPage', panelSelector: '.config-options' },
-    survival: { pageId: 'survivalPage', panelSelector: '.config-options' },
-    hist: { pageId: 'histPage', panelSelector: '.config-options' },
-    pie: { pageId: 'piePage', panelSelector: '.config-options' }
+    pca: { pageId: 'pcaPage', panelSelector: '.config-panel' },
+    line: { pageId: 'linePage', panelSelector: '.config-panel' },
+    heatmap: { pageId: 'heatmapPage', panelSelector: '.config-panel' },
+    surface: { pageId: 'surfacePage', panelSelector: '.config-panel' },
+    roc: { pageId: 'rocPage', panelSelector: '.config-panel' },
+    survival: { pageId: 'survivalPage', panelSelector: '.config-panel' },
+    hist: { pageId: 'histPage', panelSelector: '.config-panel' },
+    pie: { pageId: 'piePage', panelSelector: '.config-panel' }
   });
 
   const state = {
