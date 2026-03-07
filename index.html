@@ -403,7 +403,7 @@
                     <option value="outliers">Outliers</option>
                   </select>
                 </div>
-                <div class="control" id="boxWhiskerRuleCtl">
+              <div class="control" id="boxWhiskerRuleCtl" style="display:none">
                   <label for="boxWhiskerRule">Whisker Rule</label>
                   <select id="boxWhiskerRule">
                     <option value="iqr15">1.5×IQR (Tukey)</option>
@@ -417,7 +417,7 @@
                   </label>
                 </div>
               </div>
-              <div class="control idx-inline-001" id="boxLayoutModeCtl">
+              <div class="control idx-inline-001" id="boxLayoutModeCtl" style="display:none">
                 <label>View</label>
                 <select id="boxLayoutMode">
                   <option value="interleaved" selected>Interleaved</option>
@@ -425,8 +425,8 @@
                   <option value="stacked">Stacked</option>
                 </select>
               </div>
-              <div class="control idx-inline-022">
-                <label class="idx-inline-023">
+              <div class="control idx-inline-022" id="boxLegacySignificanceControls" hidden aria-hidden="true">
+                <label class="idx-inline-023" id="boxShowCapsLabel" style="display:none">
                   <input type="checkbox" id="boxShowCaps" checked /> Show Whisker Caps
                 </label>
                 <label class="idx-inline-024">
@@ -448,14 +448,14 @@
                   <option value="none">None</option>
                 </select>
               </div>
-              <div class="control idx-inline-025" id="boxErrorModeCtl">
+              <div class="control idx-inline-025" id="boxErrorModeCtl" style="display:none">
                 <label class="idx-inline-023">Error Bars</label>
                 <select id="boxErrorMode">
                   <option value="both">Bidirectional</option>
                   <option value="upper">Upper Only</option>
                 </select>
               </div>
-              <div class="control idx-inline-026" id="boxViolinBandwidthCtl">
+              <div class="control idx-inline-026" id="boxViolinBandwidthCtl" style="display:none">
                 <label>Violin Bandwidth</label>
                 <input type="range" id="boxViolinBandwidth" min="0.05" max="5" step="0.05" value="1" />
                 <input type="number" id="boxViolinBandwidthValue" min="0.01" step="0.01" value="1" class="idx-inline-027" />
@@ -464,7 +464,7 @@
                   <input type="checkbox" id="boxViolinBandwidthAuto" checked /> Auto
                 </label>
               </div>
-              <div class="control idx-inline-026" id="boxViolinSamplesCtl">
+              <div class="control idx-inline-026" id="boxViolinSamplesCtl" style="display:none">
                 <label>Density Samples</label>
                 <input type="range" id="boxViolinSamples" min="8" max="512" step="8" value="80" />
                 <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" class="idx-inline-027" />
