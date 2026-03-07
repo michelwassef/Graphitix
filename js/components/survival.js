@@ -972,7 +972,7 @@
     refs.graphPanel = $('#survivalGraphPanel');
     refs.panelResizer = $('#survivalPanelResizer');
     refs.svgBox = refs.graphPanel?.querySelector('.svgbox') || null;
-    refs.configPanel = refs.graphPanel?.querySelector('.config-options') || null;
+    refs.configPanel = refs.graphPanel?.querySelector('.config-panel') || null;
     refs.plotDiv = $('#survivalPlot');
     refs.hotWrapper = $('#survivalHotWrapper');
     refs.hotContainer = $('#survivalHot');

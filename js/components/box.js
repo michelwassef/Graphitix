@@ -8292,7 +8292,7 @@
     els.graphPanel = global.document.getElementById('boxGraphPanel');
     els.panelResizer = global.document.getElementById('boxPanelResizer');
     els.svgBox = els.graphPanel?.querySelector('.svgbox');
-    els.configPanel = els.graphPanel?.querySelector('.config-options');
+    els.configPanel = els.graphPanel?.querySelector('.config-panel');
     els.renderRow = global.document.getElementById('boxRenderRow');
     els.renderButton = global.document.getElementById('boxRenderButton');
     els.autoDrawNotice = global.document.getElementById('boxAutoDrawNotice');

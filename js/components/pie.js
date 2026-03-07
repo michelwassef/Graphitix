@@ -1703,7 +1703,7 @@
       if(svgBox){
         stack = document.createElement('div');
         stack.className = 'pie-plot-stack';
-        const configOptions = diagramArea.querySelector('.config-options');
+        const configOptions = diagramArea.querySelector('.config-panel');
         if(configOptions){
           diagramArea.insertBefore(stack, configOptions);
         }else{

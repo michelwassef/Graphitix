@@ -973,7 +973,7 @@
     refs.graphPanel = document.getElementById('rocGraphPanel');
     refs.panelResizer = document.getElementById('rocPanelResizer');
     refs.svgBox = refs.graphPanel?.querySelector('.svgbox');
-    refs.configPanel = refs.graphPanel?.querySelector('.config-options');
+    refs.configPanel = refs.graphPanel?.querySelector('.config-panel');
     refs.hotContainer = document.getElementById('rocHot');
     refs.hotWrapper = document.getElementById('rocHotWrapper');
     refs.plotDiv = document.getElementById('rocPlot');

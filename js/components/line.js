@@ -10640,7 +10640,7 @@
     refs.panelResizer=document.getElementById('linePanelResizer');
     refs.svgBox=refs.graphPanel?.querySelector('.svgbox');
     lineSvgBoxRef = refs.svgBox;
-    refs.configPanel=refs.graphPanel?.querySelector('.config-options');
+    refs.configPanel=refs.graphPanel?.querySelector('.config-panel');
     refs.renderRow=document.getElementById('lineRenderRow');
     refs.renderButton=document.getElementById('lineRenderButton');
     refs.autoDrawNotice=document.getElementById('lineAutoDrawNotice');

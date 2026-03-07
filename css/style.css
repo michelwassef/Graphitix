@@ -3718,24 +3718,24 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:0}
 input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .diagram-area{display:flex;gap:12px;align-items:flex-start;flex-wrap:nowrap}
 .config-panel,
-.config-options{background:#fbfcff;border:1.5px solid #dfe4ec;border-radius:var(--ui-rounded-radius);padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:var(--config-panel-min-width,140px);font-family:var(--ui-font-family);color:#1d2532;box-shadow:none;--config-panel-number-width:48px;--config-panel-range-min-width:120px;--config-panel-select-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E")}
+.config-panel{background:#fbfcff;border:1.5px solid #dfe4ec;border-radius:var(--ui-rounded-radius);padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:var(--config-panel-min-width,140px);font-family:var(--ui-font-family);color:#1d2532;box-shadow:none;--config-panel-number-width:48px;--config-panel-range-min-width:120px;--config-panel-select-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E")}
 .config-panel__fieldset,
-.config-options fieldset{border:1px solid #b9c2d0;background:#fffffff6;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
+.config-panel fieldset{border:1px solid #b9c2d0;background:#fffffff6;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
 .config-panel__fieldset+.config-panel__fieldset,
-.config-options fieldset+fieldset{margin-top:4px}
+.config-panel fieldset+fieldset{margin-top:4px}
 .config-panel__fieldset legend,
-.config-options legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
+.config-panel legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
 .config-panel__line,
-.config-options .control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
+.config-panel .control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
 .config-panel__line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
 .config-panel__line:first-of-type,
-.config-options .control:first-of-type{margin-top:0}
-.config-options .control-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
-.config-options .control-row>.control{margin-top:0;flex:0 1 auto}
+.config-panel .control:first-of-type{margin-top:0}
+.config-panel .control-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.config-panel .control-row>.control{margin-top:0;flex:0 1 auto}
 .config-panel__line--split{column-gap:12px;row-gap:6px}
 .config-panel__line--checkboxes{gap:6px 10px}
 .config-panel,
-.config-options,
+.config-panel,
 .workspace-toolbar,
 .axis-controls-panel,
 .significance-controls-panel{
@@ -3753,27 +3753,27 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel__item--swatch{flex:0 0 auto}
 .config-panel__item--select-auto{flex:0 0 auto}
 .config-panel__label,
-.config-options .control label,
+.config-panel .control label,
 .config-panel .config-panel__line label{font-size:var(--graph-control-font-size,12px);font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
-.config-options .control label.color-picker{width:auto;min-width:0}
+.config-panel .control label.color-picker{width:auto;min-width:0}
 .config-panel__range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
 .config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
-.config-options .config-panel__checkbox,
-.config-options .control label:has(> input[type=checkbox]),
-.config-options .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:var(--graph-control-font-size,12px);font-weight:400;color:#111b2c;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.config-panel .config-panel__checkbox,
+.config-panel .control label:has(> input[type=checkbox]),
+.config-panel .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:var(--graph-control-font-size,12px);font-weight:400;color:#111b2c;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
 .config-panel .config-panel__checkbox,
 .config-panel .config-panel__line label:has(> input[type=checkbox]),
 .config-panel .config-panel__line label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:var(--graph-control-font-size,12px);font-weight:400;color:#111b2c;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
 .config-panel__checkbox input[type=checkbox],
-.config-options .control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
+.config-panel .control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .config-panel__checkbox--inline{margin-left:auto}
 .config-panel__checkbox--disabled{opacity:0.48;filter:grayscale(60%);color:#6b7785;cursor:not-allowed;pointer-events:none}
 .config-panel__checkbox--disabled input[type=checkbox]{cursor:not-allowed}
 .svgbox .config-panel__checkbox{display:inline-flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);padding:var(--shared-checkbox-chip-padding,4px 8px);border:1px solid var(--shared-checkbox-chip-border,#b4bccb);background:var(--shared-checkbox-chip-bg,#f9fafc);font-size:11px;font-weight:400;color:var(--shared-checkbox-chip-text,#1e2633);text-transform:none;letter-spacing:.04em;white-space:nowrap}
-.config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
-.config-options .color-pickers label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1c2534}
-.config-options .control input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px)}
-.config-options .control output{width:auto;min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
+.config-panel .color-pickers{display:flex;flex-direction:column;gap:8px}
+.config-panel .color-pickers label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1c2534}
+.config-panel .control input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px)}
+.config-panel .control output{width:auto;min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
 
 /* Box Plot: keep the Colors section compact and less "boxed" */
 #boxPage .box-colors__row{flex-wrap:nowrap;gap:12px}
@@ -4076,42 +4076,42 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
     font-size:12px;
     color:#444;
 }
-#heatmapGraphPanel .config-options{display:inline-grid;grid-template-columns:max-content;row-gap:16px;align-self:flex-start;justify-items:stretch;max-width:100%}
-#heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:12px;color:#1c2534;width:100%}
-#heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%;font-size:12px;color:#1c2534}
-#heatmapGraphPanel .config-options .heatmap-control-block select{width:100%}
-#heatmapGraphPanel .config-options .heatmap-control-row{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;width:100%}
-#heatmapGraphPanel .config-options .heatmap-control-grow{flex:1 1 220px;min-width:200px}
-#heatmapGraphPanel .config-options .heatmap-view-panel{width:auto;max-width:100%}
-#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-list{width:auto;max-width:100%}
-#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-row{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;width:auto;max-width:100%}
-#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-block{width:auto}
-#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-block select{width:auto;min-width:fit-content}
-#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-grow{flex:0 1 auto;min-width:0}
-#heatmapGraphPanel .config-options .heatmap-control-inline{flex:0 0 auto}
-#heatmapGraphPanel .config-options .heatmap-inline-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#1c2534}
-#heatmapGraphPanel .config-options .heatmap-inline-group>input[type=checkbox],
-#heatmapGraphPanel .config-options .heatmap-inline-group>input[type=radio]{margin:0}
-#heatmapGraphPanel .config-options .heatmap-inline-group:has(> input[type=checkbox]):not(:has(input[type=number],input[type=range],select)),
-#heatmapGraphPanel .config-options .heatmap-inline-group:has(> input[type=radio]):not(:has(input[type=number],input[type=range],select)){display:inline-flex;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;letter-spacing:.04em;text-transform:none;cursor:pointer;color:#1e2633}
-#heatmapGraphPanel .config-options .heatmap-inline-group>span{white-space:nowrap}
-#heatmapGraphPanel .config-options .heatmap-inline-group input[type=number]{width:70px}
-#heatmapGraphPanel .config-options .heatmap-inline-group .heatmap-count-field{width:60px}
-#heatmapGraphPanel .config-options .heatmap-size-input{width:80px}
-#heatmapGraphPanel .config-options .heatmap-inline-group input[type=range]{flex:1 1 auto;min-width:120px}
-#heatmapGraphPanel .config-options .heatmap-inline-group output{min-width:32px;text-align:right}
-#heatmapGraphPanel .config-options .heatmap-color-pickers{display:flex;flex-direction:column;gap:8px}
-#heatmapGraphPanel .config-options .heatmap-color-pickers .color-picker{font-size:13px}
-#heatmapGraphPanel .config-options .heatmap-hint{font-size:11px;color:#666}
-#heatmapGraphPanel .config-options .heatmap-subgroup{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%}
-#heatmapGraphPanel .config-options .heatmap-subgroup-options{margin-left:24px;gap:12px}
-#heatmapGraphPanel .config-options .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}
+#heatmapGraphPanel .config-panel{display:inline-grid;grid-template-columns:max-content;row-gap:16px;align-self:flex-start;justify-items:stretch;max-width:100%}
+#heatmapGraphPanel .config-panel .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:12px;color:#1c2534;width:100%}
+#heatmapGraphPanel .config-panel .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%;font-size:12px;color:#1c2534}
+#heatmapGraphPanel .config-panel .heatmap-control-block select{width:100%}
+#heatmapGraphPanel .config-panel .heatmap-control-row{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;width:100%}
+#heatmapGraphPanel .config-panel .heatmap-control-grow{flex:1 1 220px;min-width:200px}
+#heatmapGraphPanel .config-panel .heatmap-view-panel{width:auto;max-width:100%}
+#heatmapGraphPanel .config-panel .heatmap-view-panel .heatmap-control-list{width:auto;max-width:100%}
+#heatmapGraphPanel .config-panel .heatmap-view-panel .heatmap-control-row{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;width:auto;max-width:100%}
+#heatmapGraphPanel .config-panel .heatmap-view-panel .heatmap-control-block{width:auto}
+#heatmapGraphPanel .config-panel .heatmap-view-panel .heatmap-control-block select{width:auto;min-width:fit-content}
+#heatmapGraphPanel .config-panel .heatmap-view-panel .heatmap-control-grow{flex:0 1 auto;min-width:0}
+#heatmapGraphPanel .config-panel .heatmap-control-inline{flex:0 0 auto}
+#heatmapGraphPanel .config-panel .heatmap-inline-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#1c2534}
+#heatmapGraphPanel .config-panel .heatmap-inline-group>input[type=checkbox],
+#heatmapGraphPanel .config-panel .heatmap-inline-group>input[type=radio]{margin:0}
+#heatmapGraphPanel .config-panel .heatmap-inline-group:has(> input[type=checkbox]):not(:has(input[type=number],input[type=range],select)),
+#heatmapGraphPanel .config-panel .heatmap-inline-group:has(> input[type=radio]):not(:has(input[type=number],input[type=range],select)){display:inline-flex;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;letter-spacing:.04em;text-transform:none;cursor:pointer;color:#1e2633}
+#heatmapGraphPanel .config-panel .heatmap-inline-group>span{white-space:nowrap}
+#heatmapGraphPanel .config-panel .heatmap-inline-group input[type=number]{width:70px}
+#heatmapGraphPanel .config-panel .heatmap-inline-group .heatmap-count-field{width:60px}
+#heatmapGraphPanel .config-panel .heatmap-size-input{width:80px}
+#heatmapGraphPanel .config-panel .heatmap-inline-group input[type=range]{flex:1 1 auto;min-width:120px}
+#heatmapGraphPanel .config-panel .heatmap-inline-group output{min-width:32px;text-align:right}
+#heatmapGraphPanel .config-panel .heatmap-color-pickers{display:flex;flex-direction:column;gap:8px}
+#heatmapGraphPanel .config-panel .heatmap-color-pickers .color-picker{font-size:13px}
+#heatmapGraphPanel .config-panel .heatmap-hint{font-size:11px;color:#666}
+#heatmapGraphPanel .config-panel .heatmap-subgroup{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%}
+#heatmapGraphPanel .config-panel .heatmap-subgroup-options{margin-left:24px;gap:12px}
+#heatmapGraphPanel .config-panel .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}
 #heatmapGraphPanel .heatmap-layout-colors-row{display:flex;flex-direction:column;gap:12px;align-items:stretch;flex-wrap:nowrap;width:auto;max-width:100%}
 #heatmapGraphPanel .heatmap-layout-colors-row fieldset{flex:0 0 auto;min-width:0;width:auto;max-width:100%}
 #heatmapGraphPanel .heatmap-layout-colors-row .heatmap-layout-panel,
 #heatmapGraphPanel .heatmap-layout-colors-row .heatmap-colors-panel{flex:0 0 auto;min-width:0;width:auto;max-width:100%}
 #heatmapGraphPanel .heatmap-layout-colors-row .heatmap-color-pickers{height:auto}
-#heatmapGraphPanel .config-options .heatmap-metric-select{min-width:180px}
+#heatmapGraphPanel .config-panel .heatmap-metric-select{min-width:180px}
 .color-picker input[type=color]{flex:0 0 var(--color-swatch-size,20px)}
 details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-radius);padding:8px}
 .shared-notes{width:100%;margin-top:6px;border:1px solid #ddd;background:#fff;padding:0}
@@ -4148,7 +4148,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #vennPage #vennGraphPanel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;max-width:none}
 #vennPage .venn-inline-controls{align-items:center;gap:12px;flex-wrap:wrap}
 #vennPage .diagram-area .svgbox{flex:0 0 auto;min-width:0}
-#vennPage .diagram-area .config-options{flex:0 0 auto}
+#vennPage .diagram-area .config-panel{flex:0 0 auto}
 #vennPage .panel{display:flex;flex-direction:column;min-width:0}
 #vennPage #analysisResults,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
 #vennPage #stringNetwork{width:100%;overflow:visible}
@@ -4189,7 +4189,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #boxPage #boxTablePanel,#pcaPage #pcaTablePanel,#linePage #lineTablePanel,#scatterPage #scatterTablePanel{overflow-y:auto;overflow-x:hidden}
 #boxPage #boxGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #boxPage .diagram-area .svgbox{flex:0 0 auto}
-#boxPage .diagram-area .config-options{flex:0 0 auto}
+#boxPage .diagram-area .config-panel{flex:0 0 auto}
 #boxWhiskerRuleCtl .whisker-custom-input{display:flex;align-items:center;gap:6px;font-size:11px;color:#111b29;white-space:nowrap}
 #boxWhiskerRuleCtl .whisker-custom-input input[type=number]{width:60px;max-width:64px;flex:0 0 auto}
 #boxPage .panel{display:flex;flex-direction:column;min-width:0}
@@ -4239,12 +4239,12 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .config-panel__fieldset input[type=number],
 .config-panel__fieldset select,
 .config-panel__fieldset input[type=text],
-.config-options input[type=number],
-.config-options select,
-.config-options input[type=text],
-.config-options fieldset input[type=number],
-.config-options fieldset select,
-.config-options fieldset input[type=text]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7)}
+.config-panel input[type=number],
+.config-panel select,
+.config-panel input[type=text],
+.config-panel fieldset input[type=number],
+.config-panel fieldset select,
+.config-panel fieldset input[type=text]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7)}
 .workspace-page select{
     height:26px;
     padding:2px 24px 2px 8px;
@@ -4267,38 +4267,38 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 }
 .config-panel input[type=number],
 .config-panel__fieldset input[type=number],
-.config-options input[type=number],
-.config-options fieldset input[type=number]{width:var(--config-panel-number-width,96px);max-width:var(--config-panel-number-width,96px);flex:0 0 var(--config-panel-number-width,96px);padding-right:0;padding-left:8px}
+.config-panel input[type=number],
+.config-panel fieldset input[type=number]{width:var(--config-panel-number-width,96px);max-width:var(--config-panel-number-width,96px);flex:0 0 var(--config-panel-number-width,96px);padding-right:0;padding-left:8px}
 .config-panel select,
 .config-panel__fieldset select,
-.config-options select,
-.config-options fieldset select{appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
+.config-panel select,
+.config-panel fieldset select{appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
 .config-panel__item--select-auto select{min-width:fit-content;width:auto}
 .config-panel__warning{margin-top:8px;padding:6px 8px;border-radius:4px;border:1px solid #f3c1c1;background:#fff4f4;color:#7a1f1f;font-size:11px;line-height:1.4}
 .config-panel input[type=color],
 .config-panel__fieldset input[type=color],
-.config-options input[type=color],
-.config-options fieldset input[type=color]{height:26px;width:46px;border:1px solid #8d97a6;border-radius:0;padding:0;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.05)}
+.config-panel input[type=color],
+.config-panel fieldset input[type=color]{height:26px;width:46px;border:1px solid #8d97a6;border-radius:0;padding:0;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.05)}
 .config-panel input[type=range],
 .config-panel__fieldset input[type=range],
-.config-options input[type=range],
-.config-options fieldset input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px);border:none;outline:none}
+.config-panel input[type=range],
+.config-panel fieldset input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px);border:none;outline:none}
 .config-panel output,
 .config-panel__fieldset output,
-.config-options output,
-.config-options fieldset output{width:auto}
+.config-panel output,
+.config-panel fieldset output{width:auto}
 .config-panel input:not([type=range]):focus,
 .config-panel select:focus,
 .config-panel__fieldset input:not([type=range]):focus,
 .config-panel__fieldset select:focus,
-.config-options input:not([type=range]):focus,
-.config-options select:focus,
-.config-options fieldset input:not([type=range]):focus,
-.config-options fieldset select:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
+.config-panel input:not([type=range]):focus,
+.config-panel select:focus,
+.config-panel fieldset input:not([type=range]):focus,
+.config-panel fieldset select:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
 .config-panel input[type=range]:focus,
 .config-panel__fieldset input[type=range]:focus,
-.config-options input[type=range]:focus,
-.config-options fieldset input[type=range]:focus{outline:none;box-shadow:none}
+.config-panel input[type=range]:focus,
+.config-panel fieldset input[type=range]:focus{outline:none;box-shadow:none}
 #scatterStats .config-panel__fieldset{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532}
 #scatterStats .config-panel__line{gap:8px 12px;margin-top:6px}
 #scatterStats .config-panel__line:first-of-type{margin-top:0}
@@ -4314,7 +4314,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .diagram-area .svgbox{flex:0 0 auto}
 #pcaPage .diagram-area .pca-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #pcaPage .pca-plot-stack .svgbox{flex:0 0 auto}
-#pcaPage .diagram-area .config-options{flex:0 1 360px;max-width:360px}
+#pcaPage .diagram-area .config-panel{flex:0 1 360px;max-width:360px}
 #pcaPage .panel{display:flex;flex-direction:column;min-width:0}
 #pcaPage #pcaPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 #pcaPage .svgbox{background:#ffffff}
@@ -4325,7 +4325,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #surfacePage #surfaceTablePanel{flex:1 1 33%;min-width:180px}
 #surfacePage #surfaceGraphPanel{flex:2 1 67%;min-width:0;max-width:none;display:flex;flex-direction:column;gap:12px;align-items:stretch}
 #surfacePage #surfaceHotWrapper{flex:1 1 auto;min-height:0}
-#surfacePage .diagram-area .config-options{flex:0 1 320px;min-width:220px}
+#surfacePage .diagram-area .config-panel{flex:0 1 320px;min-width:220px}
 #surfacePage .surface-message{position:absolute;top:12px;left:12px;right:12px;bottom:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#3b4758;background:rgba(255,255,255,0.86);border:1px dashed #b6c2d3;border-radius:4px;padding:12px;pointer-events:none}
 #surfacePage .surface-message[hidden]{display:none}
 #surfacePage .surface-stats .stats-summary{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#3b4758}
@@ -4335,7 +4335,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #surfacePage .surface-legend text{fill:#1f2a3d;font-size:11px;dominant-baseline:middle}
 #surfacePage .stats-summary span{display:flex;justify-content:space-between}
 #surfacePage .stats-summary span strong{font-weight:600}
-@media (max-width:1000px){#surfacePage .wrap{flex-direction:column}#surfacePage .panel-resizer{display:none}#surfacePage .diagram-area{flex-direction:column}#surfacePage .diagram-area .config-options{flex:1 1 auto;max-width:none}}
+@media (max-width:1000px){#surfacePage .wrap{flex-direction:column}#surfacePage .panel-resizer{display:none}#surfacePage .diagram-area{flex-direction:column}#surfacePage .diagram-area .config-panel{flex:1 1 auto;max-width:none}}
 #pcaPage .stats-panel{margin-top:8px;display:flex;flex-direction:column;gap:12px}
 #pcaPage .stats-summary{font-size:13px;color:#3b4758;line-height:1.5;display:flex;flex-direction:column;gap:4px}
 #pcaPage .stats-table-message{font-size:13px;color:#6b7280}
@@ -4372,7 +4372,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #linePage #lineTablePanel{flex:1 1 33%;min-width:150px}
 #linePage #lineGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #linePage .diagram-area .svgbox{flex:0 0 auto}
-#linePage .diagram-area .config-options{flex:0 0 auto}
+#linePage .diagram-area .config-panel{flex:0 0 auto}
 #linePage .panel{display:flex;flex-direction:column;min-width:0}
 #linePage #linePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 #linePage .line-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
@@ -4387,7 +4387,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #heatmapPage .diagram-area .heatmap-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #heatmapPage .heatmap-plot-stack .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .svgbox{flex:0 0 auto}
-#heatmapPage .diagram-area .config-options{flex:0 0 auto}
+#heatmapPage .diagram-area .config-panel{flex:0 0 auto}
 #heatmapPage .heatmap-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #heatmapPage .heatmap-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
 #heatmapPage .heatmap-lower-panels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:16px}
@@ -4405,7 +4405,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #rocPage #rocTablePanel{flex:1 1 33%;min-width:150px}
 #rocPage #rocGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #rocPage .diagram-area .svgbox{flex:0 0 auto}
-#rocPage .diagram-area .config-options{flex:0 0 auto}
+#rocPage .diagram-area .config-panel{flex:0 0 auto}
 #rocPage .panel{display:flex;flex-direction:column;min-width:0}
 #rocPage #rocPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 @media (max-width:1000px){#rocPage .wrap{grid-template-columns:1fr}}
@@ -4413,7 +4413,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #survivalPage #survivalTablePanel{flex:1 1 33%;min-width:150px}
 #survivalPage #survivalGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #survivalPage .diagram-area .svgbox{flex:0 0 auto}
-#survivalPage .diagram-area .config-options{flex:0 0 auto}
+#survivalPage .diagram-area .config-panel{flex:0 0 auto}
 #survivalPage .panel{display:flex;flex-direction:column;min-width:0}
 #survivalPage .stats-toggle-row{gap:12px;margin-bottom:8px}
 #survivalPage #survivalPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -4427,7 +4427,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #histGraphPanel .hist-dist-swatch{width:12px;height:12px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);}
 #histGraphPanel .hist-overlay{mix-blend-mode:multiply;pointer-events:none;}
 #histPage .diagram-area .svgbox{flex:0 0 auto}
-#histPage .diagram-area .config-options{flex:0 0 auto}
+#histPage .diagram-area .config-panel{flex:0 0 auto}
 #histPage .panel{display:flex;flex-direction:column;min-width:0}
 #histPage #histPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 @media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
@@ -4435,7 +4435,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #piePage #pieTablePanel{flex:1 1 33%;min-width:150px}
 #piePage #pieGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #piePage .diagram-area .svgbox{flex:0 0 auto}
-#piePage .diagram-area .config-options{flex:0 1 280px;min-width:220px}
+#piePage .diagram-area .config-panel{flex:0 1 280px;min-width:220px}
 #piePage .panel{display:flex;flex-direction:column;min-width:0}
 #piePage #piePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 @media (max-width:1000px){#piePage .wrap{grid-template-columns:1fr}}
@@ -5288,7 +5288,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     .style-sync-targets,
     .style-sync-options,
     .config-panel,
-    .config-options,
+    .config-panel,
     .config-panel__warning,
     .stats-advisor,
     .stats-advisor__question,
@@ -5330,8 +5330,8 @@ select,
 .style-sync-field select,
 .config-panel select,
 .config-panel__fieldset select,
-.config-options select,
-.config-options fieldset select,
+.config-panel select,
+.config-panel fieldset select,
 .workspace-toolbar__input select,
 .font-controls-panel__select,
 .font-controls-panel__combo,
@@ -5362,10 +5362,10 @@ input[type="number"],
 .config-panel input[type="number"],
 .config-panel__fieldset input[type="text"],
 .config-panel__fieldset input[type="number"],
-.config-options input[type="text"],
-.config-options input[type="number"],
-.config-options fieldset input[type="text"],
-.config-options fieldset input[type="number"],
+.config-panel input[type="text"],
+.config-panel input[type="number"],
+.config-panel fieldset input[type="text"],
+.config-panel fieldset input[type="number"],
 .workspace-toolbar__input input[type="text"],
 .workspace-toolbar__input input[type="number"],
 .axis-controls-panel__input,
@@ -5435,8 +5435,8 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-options input[type=color],
-    .config-options fieldset input[type=color],
+    .config-panel input[type=color],
+    .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
     .workspace-toolbar__input--color input[type=color],
@@ -5466,8 +5466,8 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-options input[type=color],
-    .config-options fieldset input[type=color],
+    .config-panel input[type=color],
+    .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
     .workspace-toolbar__input--color input[type=color],
@@ -5486,8 +5486,8 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-options input[type=color],
-    .config-options fieldset input[type=color],
+    .config-panel input[type=color],
+    .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
     .workspace-toolbar__input--color input[type=color],
@@ -5501,8 +5501,8 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-options input[type=color],
-    .config-options fieldset input[type=color],
+    .config-panel input[type=color],
+    .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
     .workspace-toolbar__input--color input[type=color],
@@ -5520,8 +5520,8 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-options input[type=color],
-    .config-options fieldset input[type=color],
+    .config-panel input[type=color],
+    .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
     .workspace-toolbar__input--color input[type=color],

@@ -6364,7 +6364,7 @@
       if(svgBox){
         stack = global.document.createElement('div');
         stack.className = 'venn-plot-stack';
-        const configOptions = diagramArea.querySelector('.config-options');
+        const configOptions = diagramArea.querySelector('.config-panel');
         if(configOptions){
           diagramArea.insertBefore(stack, configOptions);
         }else{

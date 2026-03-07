@@ -8820,7 +8820,7 @@
       const scatterPanelResizer=document.getElementById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
-      const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
+      const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
       scatterRenderRowEl=document.getElementById('scatterRenderRow');
       scatterRenderButtonEl=document.getElementById('scatterRenderButton');
       scatterAutoDrawNoticeEl=document.getElementById('scatterAutoDrawNotice');
@@ -9228,7 +9228,7 @@
         selectors: {
           tablePanel: '#scatterTablePanel',
           graphPanel: '#scatterGraphPanel',
-          configPanel: () => scatterGraphPanel?.querySelector('.config-panel') || scatterGraphPanel?.querySelector('.config-options'),
+          configPanel: () => scatterGraphPanel?.querySelector('.config-panel') || scatterGraphPanel?.querySelector('.config-panel'),
           panelResizer: '#scatterPanelResizer',
           hotWrapper: '#scatterHotWrapper',
           hotContainer: '#scatterHot',

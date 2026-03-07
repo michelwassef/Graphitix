@@ -4379,7 +4379,7 @@
       const pcaPanelResizer=document.getElementById('pcaPanelResizer');
       const pcaPlotDiv=document.getElementById('pcaPlot');
       let pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
-      const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-options');
+      const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-panel');
       bindPcaPlotContextMenuSuppression(pcaSvgBox);
         const pcaEls = {
           tableFormat: document.getElementById('pcaTableFormat'),
