@@ -174,7 +174,7 @@
           }
           const byAttr = Number(target.getAttribute('stroke-width'));
           if(Number.isFinite(byAttr)){ return byAttr; }
-          return Number(refs.borderWidth?.value) || 1;
+          return Number(state.borderWidth) || DEFAULT_ROC_BORDER_WIDTH;
         },
         getPattern: ctx => {
           if(ctx?.scope === 'series' && seriesKey){
@@ -372,7 +372,7 @@
 
     const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5';
     // initialize from state if present
-    try{ const existingWidthFromState = seriesKey ? state.labelStrokeWidth[seriesKey] : undefined; const existingWidthAttr = Number(target.getAttribute('stroke-width')); const initialWidth = (typeof existingWidthFromState !== 'undefined') ? existingWidthFromState : (Number.isFinite(existingWidthAttr) ? existingWidthAttr : (refs.borderWidth?.value || 1)); widthInput.value = String(initialWidth); }catch(e){}
+    try{ const existingWidthFromState = seriesKey ? state.labelStrokeWidth[seriesKey] : undefined; const existingWidthAttr = Number(target.getAttribute('stroke-width')); const initialWidth = (typeof existingWidthFromState !== 'undefined') ? existingWidthFromState : (Number.isFinite(existingWidthAttr) ? existingWidthAttr : (state.borderWidth || DEFAULT_ROC_BORDER_WIDTH)); widthInput.value = String(initialWidth); }catch(e){}
     widthInput.addEventListener('input', ()=>{ const next=Number(widthInput.value); if(!Number.isFinite(next)) return; try{ target.setAttribute('stroke-width', String(next)); }catch(e){} // persist per-series or apply globally
       if(scopeSelect.value==='series' && seriesKey){ state.labelStrokeWidth[seriesKey] = next; } else { Object.keys(state.labelColors).forEach(k=>state.labelStrokeWidth[k]=next); }
       state.scheduleDraw?.(); });
@@ -507,9 +507,12 @@
     };
   }
 
+  const DEFAULT_ROC_BORDER_WIDTH = 2;
+
   const state = {
     hot: null,
     scheduleDraw: null,
+    borderWidth: DEFAULT_ROC_BORDER_WIDTH,
     labelColors: {},
     labelStrokeWidth: {},
     labelOpacity: {},
@@ -982,7 +985,6 @@
     refs.renderRow = document.getElementById('rocRenderRow');
     refs.renderButton = document.getElementById('rocRenderButton');
     refs.autoDrawNotice = document.getElementById('rocAutoDrawNotice');
-    refs.borderWidth = document.getElementById('rocBorderWidth');
     refs.showGrid = document.getElementById('rocShowGrid');
     refs.showFrame = document.getElementById('rocShowFrame');
     refs.fontSize = document.getElementById('rocFontSize');
@@ -1974,7 +1976,7 @@
     if(state.titleText == null){
       state.titleText = graphType === 'pr' ? 'Precision-Recall curve' : 'ROC curve';
     }
-    const borderWidthRaw = Number(refs.borderWidth?.value) || 2;
+    const borderWidthRaw = Number(state.borderWidth) || DEFAULT_ROC_BORDER_WIDTH;
     const showGrid = !!refs.showGrid?.checked;
     const showFrame = !!refs.showFrame?.checked;
     console.debug('Debug: roc showFrame state',{showFrame});
@@ -2802,7 +2804,7 @@
       data: state.hot?.getData() || [],
       exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
-        borderWidth: refs.borderWidth?.value,
+        borderWidth: state.borderWidth,
         showGrid: !!refs.showGrid?.checked,
         gridStyle: getGridStyle(getAxisStrokeWidthBase()),
         showFrame: !!refs.showFrame?.checked,
@@ -2911,7 +2913,12 @@
       notesState.control.setOpen(notesState.open);
     }
     importFontStyles('roc', config.fontStyles || null);
-    if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
+    const loadedBorderWidth = Number(config.borderWidth);
+    if(Number.isFinite(loadedBorderWidth) && loadedBorderWidth >= 0){
+      state.borderWidth = loadedBorderWidth;
+    }else{
+      state.borderWidth = DEFAULT_ROC_BORDER_WIDTH;
+    }
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
     setGridStyle(config.gridStyle, config.axis?.strokeWidth);
     if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
@@ -3100,7 +3107,6 @@
       });
       updateFontSizeLabel();
     }
-    refs.borderWidth?.addEventListener('input', () => state.scheduleDraw?.());
     refs.showGrid?.addEventListener('change', () => state.scheduleDraw?.());
     refs.showFrame?.addEventListener('change', () => { console.debug('Debug: roc showFrame change',{checked:refs.showFrame.checked}); state.scheduleDraw?.(); });
     if(refs.showLegend){

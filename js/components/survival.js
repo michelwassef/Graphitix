@@ -1510,16 +1510,24 @@
   }
 
   function updateGroupColorPickers(groupNames){
-    if(!refs.labelColorsDiv || !refs.labelColorsFieldset){
-      return;
-    }
-    refs.labelColorsDiv.innerHTML = '';
     const activeNames = Array.isArray(groupNames) ? groupNames : [];
+    if(refs.labelColorsDiv){
+      refs.labelColorsDiv.innerHTML = '';
+    }
     Object.keys(state.labelColors).forEach(name => {
       if(!activeNames.includes(name)){
         delete state.labelColors[name];
       }
     });
+    if(!refs.labelColorsDiv || !refs.labelColorsFieldset){
+      activeNames.forEach((name, index) => {
+        if(!state.labelColors[name]){
+          state.labelColors[name] = DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+        }
+      });
+      logDebug('group colors synced without control panel', { count: activeNames.length });
+      return;
+    }
     activeNames.forEach((name, index) => {
       if(!state.labelColors[name]){
         state.labelColors[name] = DEFAULT_COLORS[index % DEFAULT_COLORS.length];

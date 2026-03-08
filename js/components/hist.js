@@ -248,6 +248,10 @@
     return Object.keys(selections).filter(key => selections[key]);
   }
 
+  const HIST_DEFAULT_FILL = '#377eb8';
+  const HIST_DEFAULT_BORDER = '#000000';
+  const HIST_DEFAULT_BORDER_WIDTH = 1;
+
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -256,6 +260,9 @@
     titleText: 'Histogram',
     xLabelText: 'Value',
     yLabelText: 'Count',
+    barFill: HIST_DEFAULT_FILL,
+    barBorder: HIST_DEFAULT_BORDER,
+    barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
     svgBox: null,
     layout: null,
     minSvgWidth: 0,
@@ -975,18 +982,10 @@
     if(!doc) return;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
-      const histFillInput = doc.getElementById('histFill');
-      const histBorderInput = doc.getElementById('histBorder');
-      const histBorderWidthInput = doc.getElementById('histBorderWidth');
       const resolveBars = () => {
         const root = state.svgBox || doc;
         const nodes = Array.from(root.querySelectorAll('#histSvg [data-hist-bar="1"], #histSvg .hist-bar'));
         return nodes.length ? nodes : (target ? [target] : []);
-      };
-      const dispatchInputValue = (inputEl, value) => {
-        if(!inputEl){ return; }
-        inputEl.value = value;
-        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
       };
       const barScopeLabel = (() => {
         const fromSeries = typeof target?.getAttribute === 'function' ? target.getAttribute('data-series') : '';
@@ -1014,31 +1013,35 @@
           showShapePicker: false,
           shapeOptions: [{ value: 'square', label: 'Square' }],
           getColor(){
-            return histFillInput?.value || target?.getAttribute?.('fill') || '#d95f02';
+            return state.barFill || target?.getAttribute?.('fill') || HIST_DEFAULT_FILL;
           },
           getShape(){
             return 'square';
           },
           onColorInput(value){
+            state.barFill = value || HIST_DEFAULT_FILL;
             resolveBars().forEach(node => node.setAttribute('fill', value));
           },
           onColorChange(value){
-            dispatchInputValue(histFillInput, value);
+            state.barFill = value || HIST_DEFAULT_FILL;
+            state.scheduleDraw?.();
           }
         },
         border: {
           label: 'Border',
           getColor(){
-            return histBorderInput?.value || target?.getAttribute?.('stroke') || '#000000';
+            return state.barBorder || target?.getAttribute?.('stroke') || HIST_DEFAULT_BORDER;
           },
           onColorInput(value){
+            state.barBorder = value || HIST_DEFAULT_BORDER;
             resolveBars().forEach(node => node.setAttribute('stroke', value));
           },
           onColorChange(value){
-            dispatchInputValue(histBorderInput, value);
+            state.barBorder = value || HIST_DEFAULT_BORDER;
+            state.scheduleDraw?.();
           },
           getWidth(){
-            const inputWidth = Number(histBorderWidthInput?.value);
+            const inputWidth = Number(state.barBorderWidth);
             if(Number.isFinite(inputWidth)){ return inputWidth; }
             const nodeWidth = Number(target?.getAttribute?.('stroke-width'));
             return Number.isFinite(nodeWidth) ? nodeWidth : 0;
@@ -1046,7 +1049,17 @@
           onWidthChange(value){
             const numeric = Number(value);
             const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
-            dispatchInputValue(histBorderWidthInput, String(normalized));
+            state.barBorderWidth = normalized;
+            resolveBars().forEach(node => {
+              if(normalized > 0){
+                node.setAttribute('stroke', state.barBorder || HIST_DEFAULT_BORDER);
+                node.setAttribute('stroke-width', String(normalized));
+              }else{
+                node.removeAttribute('stroke');
+                node.removeAttribute('stroke-width');
+              }
+            });
+            state.scheduleDraw?.();
           }
         },
         size: {
@@ -1088,14 +1101,10 @@
       return lbl;
     };
 
-    const histFillInput = doc.getElementById('histFill');
-    const histBorderInput = doc.getElementById('histBorder');
-    const histBorderWidthInput = doc.getElementById('histBorderWidth');
-
     // Fill color
     const fillColor = doc.createElement('input'); fillColor.type='color';
-    try{ fillColor.value = histFillInput?.value || '#d95f02'; }catch(e){}
-    fillColor.addEventListener('input', ()=>{ const v = fillColor.value; if(histFillInput){ histFillInput.value = v; histFillInput.dispatchEvent(new Event('input',{bubbles:true})); } });
+    try{ fillColor.value = state.barFill || HIST_DEFAULT_FILL; }catch(e){}
+    fillColor.addEventListener('input', ()=>{ state.barFill = fillColor.value || HIST_DEFAULT_FILL; state.scheduleDraw?.(); });
     fillColor.className = 'hist-fill-color';
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(fillColor); }catch(e){}
@@ -1104,8 +1113,8 @@
 
     // Border color
     const borderColor = doc.createElement('input'); borderColor.type='color';
-    try{ borderColor.value = histBorderInput?.value || '#000000'; }catch(e){}
-    borderColor.addEventListener('input', ()=>{ const v = borderColor.value; if(histBorderInput){ histBorderInput.value = v; histBorderInput.dispatchEvent(new Event('input',{bubbles:true})); } });
+    try{ borderColor.value = state.barBorder || HIST_DEFAULT_BORDER; }catch(e){}
+    borderColor.addEventListener('input', ()=>{ state.barBorder = borderColor.value || HIST_DEFAULT_BORDER; state.scheduleDraw?.(); });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(borderColor); }catch(e){}
     }
@@ -1113,8 +1122,8 @@
 
     // Border width
     const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5';
-    try{ if(histBorderWidthInput && Number.isFinite(Number(histBorderWidthInput.value))){ widthInput.value = String(histBorderWidthInput.value); } }catch(e){}
-    widthInput.addEventListener('input', ()=>{ const v = widthInput.value; if(histBorderWidthInput){ histBorderWidthInput.value = v; histBorderWidthInput.dispatchEvent(new Event('input',{bubbles:true})); } });
+    try{ if(Number.isFinite(Number(state.barBorderWidth))){ widthInput.value = String(state.barBorderWidth); } }catch(e){}
+    widthInput.addEventListener('input', ()=>{ const numeric = Number(widthInput.value); state.barBorderWidth = Number.isFinite(numeric) ? Math.max(0, numeric) : 0; state.scheduleDraw?.(); });
     wrap.appendChild(makeInput('Thickness', widthInput));
 
     toolbarHost.appendChild(wrap);
@@ -1726,7 +1735,7 @@
   }
 
   function initControls(){
-    const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
+    const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
       console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
@@ -1794,7 +1803,7 @@
       });
       state.distributionInputs.showCdf=histShowCdfInput;
     }
-    [histFill,histBorder,histBorderWidth,histBins,histShowGrid,histLogY].forEach(el=>el.addEventListener('input',()=>state.scheduleDraw()));
+    [histBins,histShowGrid,histLogY].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
     histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{
       if(histFontSize.dataset){
@@ -1911,9 +1920,9 @@
         title:state.titleText,
         xLabel:state.xLabelText,
         yLabel:state.yLabelText,
-        fill:$('#histFill').value,
-        border:$('#histBorder').value,
-        borderWidth:$('#histBorderWidth').value,
+        fill:state.barFill,
+        border:state.barBorder,
+        borderWidth:state.barBorderWidth,
         bins:$('#histBins').value,
         showGrid:$('#histShowGrid').checked,
         gridStyle:getGridStyle(axisSettings.strokeWidth),
@@ -2019,12 +2028,12 @@
       state.titleText = config.title || state.titleText;
       state.xLabelText = config.xLabel || state.xLabelText;
       state.yLabelText = config.yLabel || state.yLabelText;
-      const histFillInput = document.getElementById('histFill');
-      if(histFillInput){ histFillInput.value = config.fill || histFillInput.value; }
-      const histBorderInput = document.getElementById('histBorder');
-      if(histBorderInput){ histBorderInput.value = config.border || histBorderInput.value; }
-      const histBorderWidthInput = document.getElementById('histBorderWidth');
-      if(histBorderWidthInput){ histBorderWidthInput.value = config.borderWidth || histBorderWidthInput.value; }
+      state.barFill = (typeof config.fill === 'string' && config.fill.trim()) ? config.fill : HIST_DEFAULT_FILL;
+      state.barBorder = (typeof config.border === 'string' && config.border.trim()) ? config.border : HIST_DEFAULT_BORDER;
+      const loadedBorderWidth = Number(config.borderWidth);
+      state.barBorderWidth = Number.isFinite(loadedBorderWidth) && loadedBorderWidth >= 0
+        ? loadedBorderWidth
+        : HIST_DEFAULT_BORDER_WIDTH;
       const histBinsInput = document.getElementById('histBins');
       if(histBinsInput){ histBinsInput.value = config.bins || histBinsInput.value; }
       const histShowGridInput = document.getElementById('histShowGrid');
@@ -2465,7 +2474,7 @@
 
   function draw(){
     // Reuse existing global draw implementation if present? Implement local logic mirroring legacy drawHistogram
-    const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize');
+    const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize');
     ensureAxisSettings();
     const data=state.hot.getDataAtCol(0);
     const labelRaw=data[0];
@@ -2554,7 +2563,7 @@
     const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
       ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
       : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
-    const borderWidthRaw=Number(histBorderWidth.value)||0;
+    const borderWidthRaw=Number(state.barBorderWidth)||0;
     const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
     console.debug('Debug: hist style scaling applied',{
       borderWidthRaw,
@@ -2839,7 +2848,8 @@
     console.debug('Debug: hist font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
     console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
-    const fill=histFill.value; const borderColor=histBorder.value;
+    const fill=state.barFill || HIST_DEFAULT_FILL;
+    const borderColor=state.barBorder || HIST_DEFAULT_BORDER;
     counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill,'class':'hist-bar','data-hist-bar':'1'}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
     if(distributionFits.length && (includePdf || includeCdf)){
       const overlayGroup = add('g',{ 'class':'hist-overlay-group' });
