@@ -258,7 +258,7 @@
   }
   let lineTitleText = 'Line graph';
   let lineXLabelText = 'X';
-  let lineYLabelText = 'Y';
+  let lineYLabelText = 'Y title';
   let lineZLabelText = 'Z';
   let lineLabelColors = {};
   let lineLabelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
@@ -5337,7 +5337,7 @@
     return {
       xIndex,
       xLabel: xLabelRaw || 'X',
-      yLabel: yLabelRaw || 'Y',
+      yLabel: yLabelRaw || 'Y title',
       zLabel: zLabelRaw || 'Z'
     };
   }
@@ -5352,7 +5352,7 @@
     const colCount = typeof hotInstance.countCols === 'function'
       ? hotInstance.countCols()
       : headerRow.length;
-    const defaultLabel = axisKey === 'y' ? 'Y' : (axisKey === 'z' ? 'Z' : 'X');
+    const defaultLabel = axisKey === 'y' ? 'Y title' : (axisKey === 'z' ? 'Z' : 'X');
     const trimmed = value != null ? String(value).trim() : '';
     const resolved = trimmed || defaultLabel;
     if(!headerRow.length){
@@ -8336,7 +8336,7 @@
             return;
           }
           const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
-          const defaultLabel = axisKey === 'y' ? 'Y' : (axisKey === 'z' ? 'Z' : 'X');
+          const defaultLabel = axisKey === 'y' ? 'Y title' : (axisKey === 'z' ? 'Z' : 'X');
           const applyAxisLabel = (value) => {
             const trimmed = value != null ? String(value).trim() : '';
             const resolved = trimmed || defaultLabel;

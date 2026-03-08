@@ -4224,16 +4224,17 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #scatterPage .diagram-area .svgbox{flex:0 0 auto}
 #scatterPage .diagram-area .config-panel{flex:0 0 auto}
-#boxPage .diagram-area .box-plot-stack,#scatterPage .diagram-area .scatter-plot-stack,#surfacePage .diagram-area .surface-plot-stack,#rocPage .diagram-area .roc-plot-stack,#histPage .diagram-area .hist-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#boxPage .diagram-area .box-plot-stack,#scatterPage .diagram-area .scatter-plot-stack,#surfacePage .diagram-area .surface-plot-stack,#rocPage .diagram-area .roc-plot-stack,#survivalPage .diagram-area .survival-plot-stack,#histPage .diagram-area .hist-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #boxPage .diagram-area .box-plot-stack{flex:0 0 auto;min-width:0}
 #scatterPage .diagram-area .scatter-plot-stack{flex:0 0 auto;min-width:0}
 #linePage .diagram-area .line-plot-stack{flex:0 0 auto;min-width:0}
 #rocPage .diagram-area .roc-plot-stack{flex:0 0 auto;min-width:0}
+#survivalPage .diagram-area .survival-plot-stack{flex:0 0 auto;min-width:0}
 #histPage .diagram-area .hist-plot-stack{flex:0 0 auto;min-width:0}
 #surfacePage .diagram-area .surface-plot-stack{flex:0 0 auto;min-width:0}
 #heatmapPage .diagram-area .heatmap-plot-stack{flex:0 0 auto;min-width:0}
 #pcaPage .diagram-area .pca-plot-stack{flex:0 0 auto;min-width:0}
-#boxPage .box-plot-stack .svgbox,#scatterPage .scatter-plot-stack .svgbox,#surfacePage .surface-plot-stack .svgbox,#rocPage .roc-plot-stack .svgbox,#histPage .hist-plot-stack .svgbox,#linePage .line-plot-stack .svgbox{flex:0 0 auto;min-width:0}
+#boxPage .box-plot-stack .svgbox,#scatterPage .scatter-plot-stack .svgbox,#surfacePage .surface-plot-stack .svgbox,#rocPage .roc-plot-stack .svgbox,#survivalPage .survival-plot-stack .svgbox,#histPage .hist-plot-stack .svgbox,#linePage .line-plot-stack .svgbox{flex:0 0 auto;min-width:0}
 .config-panel input[type=number],
 .config-panel select,
 .config-panel input[type=text],
@@ -4469,7 +4470,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 @media (max-width:1000px){#heatmapPage .wrap{grid-template-columns:1fr}}
 #boxPage .box-render-row,#scatterPage .scatter-render-row,#surfacePage .surface-render-row,#rocPage .roc-render-row,#histPage .hist-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #boxPage .box-auto-draw-notice,#scatterPage .scatter-auto-draw-notice,#surfacePage .surface-auto-draw-notice,#rocPage .roc-auto-draw-notice,#histPage .hist-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
-#boxPage .box-plot-stack,#scatterPage .scatter-plot-stack,#surfacePage .surface-plot-stack,#rocPage .roc-plot-stack,#histPage .hist-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#boxPage .box-plot-stack,#scatterPage .scatter-plot-stack,#surfacePage .surface-plot-stack,#rocPage .roc-plot-stack,#survivalPage .survival-plot-stack,#histPage .hist-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #rocPage .wrap{display:flex;align-items:stretch;gap:0}
 #rocPage #rocTablePanel{flex:1 1 33%;min-width:150px}
 #rocPage #rocGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
@@ -4733,7 +4734,21 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-controls-panel__input{line-height:18px;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease;min-width:0;width:100%;height:22px}
 .font-controls-panel__select{padding:2px 24px 2px 8px;font-size:12px;line-height:20px;border:1px solid #8d97a6;background:#fdfefe;color:#111b29;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:26px;min-width:0;width:100%;border-radius:0;appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center}
 .font-controls-panel__field--scope .font-controls-panel__select{width:auto;min-width:0;max-width:120px}
-.font-controls-panel__input--number{appearance:auto;width:100%;max-width:120px}
+.font-controls-panel__input--number{
+    appearance:textfield;
+    -moz-appearance:textfield;
+    width:100%;
+    max-width:120px;
+}
+.font-controls-panel__input--number::-webkit-outer-spin-button,
+.font-controls-panel__input--number::-webkit-inner-spin-button{
+    -webkit-appearance:none;
+    appearance:none;
+    margin:0;
+    width:0;
+    min-width:0;
+    background-image:none;
+}
 .font-controls-panel__input--combo{width:100%;padding-right:24px;flex:1 1 auto;min-width:0;border:none;background:transparent;box-shadow:none;height:100%}
 .font-controls-panel__input--combo::-webkit-calendar-picker-indicator{display:none !important}
 .font-controls-panel__input--combo::-webkit-list-button{display:none !important}
@@ -4797,14 +4812,12 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__input--number::-webkit-outer-spin-button{margin:0;-webkit-appearance:none;width:0;min-width:0}
 .font-controls-panel__input--number::-webkit-inner-spin-button{
     margin:0;
-    opacity:1;
     -webkit-appearance:none;
-    width:18px;
-    min-width:18px;
-    background-repeat:no-repeat;
-    background-position:center;
-    background-size:12px 20px;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='14' viewBox='0 0 8 14'%3E%3Cpath fill='%236b7280' d='M4 2 1 6h6zM4 12l3-4H1z'/%3E%3C/svg%3E");
+    appearance:none;
+    opacity:0;
+    width:0;
+    min-width:0;
+    background-image:none;
 }
 .font-controls-panel__color-input{height:34px;width:100%;padding:0;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease;max-width:120px}
 

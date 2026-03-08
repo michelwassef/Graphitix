@@ -1145,7 +1145,21 @@
       tab.payload = cloneValue(nextPayload);
     }
 
-    if(typeof domControls.applyWorkspacePayload === 'function'){
+    let appliedViaWorkspaceFastPath = false;
+    if(typeof workspace.applyColorSchemePayload === 'function'){
+      try{
+        const fastResult = workspace.applyColorSchemePayload(cloneValue(nextPayload), {
+          reason: `color-scheme-${type}`,
+          source: 'color-scheme',
+          viewOnly: true
+        });
+        appliedViaWorkspaceFastPath = fastResult !== false;
+      }catch(err){
+        console.error('colorSchemes workspace fast-path error', { type, err });
+      }
+    }
+
+    if(!appliedViaWorkspaceFastPath && typeof domControls.applyWorkspacePayload === 'function'){
       domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), { reason: `color-scheme-${type}` });
     }
 

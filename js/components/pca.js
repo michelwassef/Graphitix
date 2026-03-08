@@ -1145,6 +1145,7 @@
         : (typeof payload === 'string' ? { reason: payload } : {});
       const reason = meta.reason || 'hot-change';
       const source = meta.source || null;
+      const invalidate = typeof meta.invalidate === 'string' ? meta.invalidate : 'data';
       const options = { ...meta, reason };
       const shouldSuppressPending = reason === 'afterLoadData'
         || source === 'loadData'
@@ -1154,7 +1155,11 @@
       if(!Object.prototype.hasOwnProperty.call(options, 'markPending') && shouldSuppressPending){
         options.markPending = false;
       }
-      markPcaDataDirty(reason);
+      if(invalidate === 'data'){
+        markPcaDataDirty(reason);
+      }else{
+        markPcaViewDirty(reason);
+      }
       scheduleDrawPca(options);
     };
     pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
@@ -6584,14 +6589,10 @@
           if(cached.statsSnapshot){
             lastPcaStats = cached.statsSnapshot;
           }
-          if(parseEnd === null && Number.isFinite(cached.parseEnd)){
-            parseEnd = cached.parseEnd;
-          }
-          if(Number.isFinite(cached.computeStart)){
-            computeStart = cached.computeStart;
-          }
-          if(Number.isFinite(cached.computeEnd)){
-            computeEnd = cached.computeEnd;
+          if(viewOnly){
+            parseEnd = totalStart;
+            computeStart = totalStart;
+            computeEnd = totalStart;
           }
         }
       } else {
@@ -9560,11 +9561,14 @@
           markPcaOverlayPending(overlayReason);
         }
         const skipDraw = meta?.skipDraw === true;
-        let scheduleBackup = null;
-        if(skipDraw){
-          scheduleBackup = scheduleDrawPca;
+        const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+        const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
+        const scheduleOriginal = typeof scheduleDrawPca === 'function' ? scheduleDrawPca : null;
+        const shouldSuspendSchedule = !!(scheduleOriginal && (skipDraw || !skipDataLoad));
+        if(shouldSuspendSchedule){
           scheduleDrawPca = () => {};
         }
+        try{
         const hot = ensurePcaHotForActiveTab();
         const rawDataMatrix = Array.isArray(obj.data) ? obj.data : [];
         const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
@@ -9590,7 +9594,8 @@
         const matrixData = dataManager?.getActiveView?.()?.data;
         const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
         const exclusionsToApply = obj.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
-        if(pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
+        if(!skipDataLoad && pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
+          markPcaDataDirty(meta?.reason || 'payload-load');
           pcaHotInstance.loadData(dataToLoad);
           if(exclusionsToApply){
             pcaHotInstance.applyExclusions?.(exclusionsToApply);
@@ -9764,14 +9769,28 @@
             legend: c.labelPositions.legend || null
           };
         }
-        if(!skipDraw){
-          scheduleDrawPca();
+        if(styleOnly){
+          markPcaViewDirty(meta?.reason || 'pca-style-payload');
         }
-        if(scheduleBackup){
-          scheduleDrawPca = scheduleBackup;
+        if(!skipDraw && scheduleOriginal){
+          if(styleOnly){
+            scheduleOriginal({
+              viewOnly: true,
+              reason: meta?.reason || 'pca-style-payload'
+            });
+          }else{
+            scheduleOriginal({
+              reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
+            });
+          }
         }
         debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataToLoad.length });
         return true;
+        }finally{
+          if(shouldSuspendSchedule && scheduleOriginal){
+            scheduleDrawPca = scheduleOriginal;
+          }
+        }
       }
 
     function initNotes(){
@@ -9866,7 +9885,7 @@
       if(nextOpts.force){
         markPcaOverlayPending(overlayReason);
         forcePcaOverlay(overlayReason, { message: 'Rendering PCA view...' });
-      }else{
+      }else if(!nextOpts.viewOnly){
         queuePcaOverlay(overlayReason);
       }
       const runSchedule = () => schedulePcaBase(nextOpts);
@@ -9896,6 +9915,13 @@
       if(!applyPcaPayload(payload, { source: 'payload', ...options })){
         console.warn('pca payload application failed', { source: 'payload' });
       }
+    };
+    pca.applyColorSchemePayload = function applyPcaColorSchemePayload(payload, options = {}){
+      return applyPcaPayload(payload, {
+        source: 'color-scheme',
+        colorSchemeOnly: true,
+        ...options
+      });
     };
     pca.getPayload = getPcaGraphPayload;
     pca.captureEmptyPayloadTemplate = function capturePcaEmptyPayloadTemplate(){

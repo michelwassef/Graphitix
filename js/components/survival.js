@@ -4214,7 +4214,7 @@
   }
 
   function initNotes(){
-    const stack = global.document.querySelector('#survivalGraphPanel .diagram-area')
+    const stack = global.document.querySelector('#survivalGraphPanel .survival-plot-stack')
       || global.document.querySelector('#survivalGraphPanel');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){

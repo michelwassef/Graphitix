@@ -3156,11 +3156,13 @@
     sizeComboRow.className = 'font-controls-panel__combo-row';
 
     sizeInput = doc.createElement('input');
-    sizeInput.type = 'number';
+    sizeInput.type = 'text';
     sizeInput.min = '5';
     sizeInput.max = '96';
     sizeInput.step = '0.5';
     sizeInput.placeholder = '14';
+    sizeInput.setAttribute('inputmode', 'decimal');
+    sizeInput.setAttribute('autocomplete', 'off');
     sizeInput.className = 'font-controls-panel__input font-controls-panel__input--combo font-controls-panel__input--number font-controls-panel__input--size';
     sizeInput.setAttribute('aria-label', 'Font size');
     sizeInput.setAttribute('aria-haspopup', 'listbox');

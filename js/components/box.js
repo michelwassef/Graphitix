@@ -786,12 +786,12 @@
     const next = Object.assign({}, previous, patch);
     state.summaryStyles[traceIndexValue] = next;
     if(typeof state.scheduleDraw === 'function'){
-      try{ state.scheduleDraw(); }catch(err){ console.warn('persistBoxSummaryStyle scheduleDraw error', err); }
+      try{ scheduleBoxViewRefresh('summary-style-change'); }catch(err){ console.warn('persistBoxSummaryStyle scheduleDraw error', err); }
     }
     try{
       recordBoxChange(`box:summary-style:${traceIndexValue}`, previous, next, value => {
         state.summaryStyles[traceIndexValue] = value || null;
-        if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+        if(typeof state.scheduleDraw === 'function') scheduleBoxViewRefresh('summary-style-undo');
       });
     }catch(err){ console.warn('persistBoxSummaryStyle error', err); }
   }
@@ -805,7 +805,7 @@
     try{
       recordBoxChange(`box:shape-style:${traceIndexValue}`, previous, next, value => {
         state.traceShapeStyles[traceIndexValue] = value || null;
-        if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+        if(typeof state.scheduleDraw === 'function') scheduleBoxViewRefresh('shape-style-undo');
       });
     }catch(err){ console.warn('persistTraceShapeStyle error', err); }
   }
@@ -819,12 +819,12 @@
     state.traceShapeStyles = nextStyles;
     state.traceShapeGlobalStyle = Object.assign({}, state.traceShapeGlobalStyle || {}, patch);
     if(typeof state.scheduleDraw === 'function'){
-      try{ state.scheduleDraw(); }catch(err){ console.warn('applyTraceShapeGlobalStyle scheduleDraw error', err); }
+      try{ scheduleBoxViewRefresh('shape-style-global-change'); }catch(err){ console.warn('applyTraceShapeGlobalStyle scheduleDraw error', err); }
     }
     try{
       recordBoxChange('box:shape-style:global', previous, nextStyles, value => {
         state.traceShapeStyles = value || {};
-        if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+        if(typeof state.scheduleDraw === 'function') scheduleBoxViewRefresh('shape-style-global-undo');
       });
     }catch(err){ console.warn('applyTraceShapeGlobalStyle error', err); }
   }
@@ -1013,7 +1013,7 @@
           : {};
         state.pointStyles[traceIndex] = Object.assign({}, prev, patch);
         if(typeof state.scheduleDraw === 'function'){
-          state.scheduleDraw();
+          scheduleBoxViewRefresh('point-style-trace-change');
         }
       };
       const applyGlobalPatch = patch => {
@@ -1023,7 +1023,7 @@
         });
         state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
         if(typeof state.scheduleDraw === 'function'){
-          state.scheduleDraw();
+          scheduleBoxViewRefresh('point-style-global-change');
         }
       };
       const resolvePointStyle = ctx => {
@@ -1465,7 +1465,7 @@
               () => resolveTracePointNodes(traceIndex)
             );
           }else if(typeof state.scheduleDraw === 'function'){
-            state.scheduleDraw();
+            scheduleBoxViewRefresh('point-style-trace-undo');
           }
         });
       }catch(err){ console.warn('persistTraceStyle error', err); }
@@ -1485,7 +1485,7 @@
       if(shouldApplyPointStyleDirectly()){
         applyPointStateToDom();
       }else if(typeof state.scheduleDraw === 'function'){
-        try{ state.scheduleDraw(); }catch(e){ console.warn('applyPointStyleGlobal scheduleDraw error', e); }
+        try{ scheduleBoxViewRefresh('point-style-global-change'); }catch(e){ console.warn('applyPointStyleGlobal scheduleDraw error', e); }
       }
       try{
         recordBoxChange('box:point-style:global', previous, {
@@ -1497,7 +1497,7 @@
           if(shouldApplyPointStyleDirectly()){
             applyPointStateToDom();
           }else if(typeof state.scheduleDraw === 'function'){
-            state.scheduleDraw();
+            scheduleBoxViewRefresh('point-style-global-undo');
           }
         });
       }catch(err){ console.warn('applyPointStyleGlobal error', err); }
@@ -1679,12 +1679,12 @@
     const schedulePointSizeRelayout = typeof Shared.debounceFrame === 'function'
       ? Shared.debounceFrame(() => {
           if(typeof state.scheduleDraw === 'function'){
-            state.scheduleDraw();
+            scheduleBoxViewRefresh('point-size-change');
           }
         })
       : () => {
           if(typeof state.scheduleDraw === 'function'){
-            state.scheduleDraw();
+            scheduleBoxViewRefresh('point-size-change');
           }
         };
 
@@ -1876,7 +1876,7 @@
         state.summaryStyles[key] = Object.assign({}, state.summaryStyles[key] || {}, patch);
       });
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('summary-style-global-change');
       }
     };
     additionalLineControls.show({
@@ -2171,7 +2171,7 @@
               state.fillColors[selectedColorIndex] = value;
             }
             applyScopePatch({ fill: value }, scopeValue);
-            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+            if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-fill-change'); }
           }
         },
         border: {
@@ -2201,7 +2201,7 @@
               state.borderColors[selectedColorIndex] = value;
             }
             applyScopePatch({ border: value }, scopeValue);
-            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+            if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-border-color-change'); }
           },
           getWidth(ctx){
             const scopeValue = resolveScope(ctx);
@@ -2219,7 +2219,7 @@
             const scopeValue = resolveScope(ctx);
             resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('stroke-width', String(normalized)));
             applyScopePatch({ thickness: normalized }, scopeValue);
-            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+            if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-border-width-change'); }
           }
         },
         size: {
@@ -2254,7 +2254,7 @@
               scheduleBoxGlobalOpacityApply(opacity);
             }
             applyScopePatch({ opacity }, scopeValue);
-            if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+            if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-transparency-change'); }
           }
         }
       });
@@ -2433,7 +2433,7 @@
             state.fillColors[colorIndex] = next;
           }
         }
-        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+        if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-fill-change'); }
       }
     });
     const fillLabel = makeInput('Fill', fillInput);
@@ -2462,7 +2462,7 @@
             state.borderColors[colorIndex] = next;
           }
         }
-        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+        if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-border-color-change'); }
       }
     });
     const borderLabel = makeInput('Border', borderInput);
@@ -2491,7 +2491,7 @@
       }else if(traceIndex != null){
         persistTraceShapeStyle(traceIndex, { thickness: normalized });
       }
-      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+      if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-border-width-change'); }
     });
     wrap.appendChild(makeInput('Thickness', thicknessInput));
 
@@ -2546,7 +2546,7 @@
       }else if(traceIndex != null){
         persistTraceShapeStyle(traceIndex, { opacity: normalized });
       }
-      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+      if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-transparency-change'); }
     });
     const opacityWrap = doc.createElement('div');
     opacityWrap.style.display = 'inline-flex';
@@ -6910,6 +6910,8 @@
   }
   // Local state and element cache
 	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+  state.dataDirty = true;
+  state.cachedDrawInput = null;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7377,7 +7379,7 @@
     settings[axis].notation = normalized;
     console.debug('Debug: box axis notation updated',{ axis, notation: normalized });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-notation-${axis}`);
     }
   }
 
@@ -7406,7 +7408,7 @@
     settings[axis].minorTicks = nextValue;
     console.debug('Debug: box minor ticks updated',{ axis, enabled: nextValue, flipAxes: state.flipAxes });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-minor-ticks-${axis}`);
     }
   }
 
@@ -7426,7 +7428,7 @@
     settings[axis].minorTickSubdivisions = nextValue;
     console.debug('Debug: box minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-minor-subdivisions-${axis}`);
     }
   }
 
@@ -7456,7 +7458,7 @@
       settings[axis].tickInterval = null;
       console.debug('Debug: box axis tick interval blocked for categorical axis',{ axis, flipAxes: state.flipAxes, attempted: value });
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+        scheduleBoxViewRefresh(`axis-ticks-${axis}`);
       }
       return;
     }
@@ -7472,7 +7474,7 @@
     }
     console.debug('Debug: box axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-ticks-${axis}`);
     }
   }
 
@@ -7490,7 +7492,7 @@
     settings.x.datasetSpacing = nextValue;
     boxDebug('Debug: box x dataset spacing updated',{ value: nextValue, requested: value });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('axis-dataset-spacing');
     }
   }
 
@@ -7510,7 +7512,7 @@
     }
     console.debug('Debug: box axis stroke width updated',{ strokeWidth: settings.strokeWidth });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('axis-stroke-width');
     }
   }
 
@@ -7527,7 +7529,7 @@
     settings.y.brokenAxis.enabled = !!enabled;
     console.debug('Debug: box broken axis enabled updated',{ axis, enabled: settings.y.brokenAxis.enabled });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-broken-${axis}`);
     }
   }
 
@@ -7556,7 +7558,7 @@
     }));
     console.debug('Debug: box broken axis segments updated',{ axis, segments: settings.y.brokenAxis.segments });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-broken-segments-${axis}`);
     }
   }
 
@@ -7586,7 +7588,7 @@
       count: settings[axis].additionalTicks.length
     });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh(`axis-additional-ticks-${axis}`);
     }
   }
 
@@ -7686,7 +7688,7 @@
     }
     console.debug('Debug: box axis color updated',{ color: settings.color });
     if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('axis-color');
     }
   }
 
@@ -7705,14 +7707,14 @@
           els.boxShowGrid.checked = !!value;
         }
         if(typeof state.scheduleDraw === 'function'){
-          state.scheduleDraw();
+          scheduleBoxViewRefresh('grid-visible');
         }
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
         if(typeof state.scheduleDraw === 'function'){
-          state.scheduleDraw();
+          scheduleBoxViewRefresh('grid-style');
         }
       },
       defaults: createDefaultGridStyle(fallbackThickness)
@@ -8254,7 +8256,7 @@
       applyBoxLogScaleValidationFailure(validation, context);
       console.warn('box log scale disabled', { context, reason: validation.reason, value: validation.value });
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('log-scale-validation-failure');
       }
       return false;
     }
@@ -8803,6 +8805,16 @@
     }
   }
 
+  function scheduleBoxViewRefresh(reason){
+    if(typeof state.scheduleDraw !== 'function'){
+      return;
+    }
+    state.scheduleDraw({
+      viewOnly: true,
+      reason: reason || 'box-view-refresh'
+    });
+  }
+
   function ensureSignificanceLabelFontEventListener(){
     if(boxSignificanceFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
       return;
@@ -8869,9 +8881,7 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: box significance thickness updated',{ thickness: style.thickness });
     }
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleBoxViewRefresh('significance-thickness');
     refreshSignificanceAnnotations('thickness');
   }
 
@@ -8882,9 +8892,7 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: box significance color updated',{ color: style.color });
     }
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleBoxViewRefresh('significance-color');
     refreshSignificanceAnnotations('color');
   }
 
@@ -8894,9 +8902,7 @@
 	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
 	      console.debug('Debug: box significance whiskers updated',{ showWhiskers: style.showWhiskers });
 	    }
-	    if(typeof state.scheduleDraw === 'function'){
-	      state.scheduleDraw();
-	    }
+	    scheduleBoxViewRefresh('significance-whiskers');
 	    refreshSignificanceAnnotations('whiskers');
 	  }
 
@@ -8906,9 +8912,7 @@
 	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
 	      console.debug('Debug: box significance whisker mode updated',{ whiskerMode: style.whiskerMode });
 	    }
-	    if(typeof state.scheduleDraw === 'function'){
-	      state.scheduleDraw();
-	    }
+	    scheduleBoxViewRefresh('significance-whisker-mode');
 	    refreshSignificanceAnnotations('whisker-mode');
 	  }
 
@@ -8918,9 +8922,7 @@
 	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
 	      console.debug('Debug: box significance p scientific updated',{ pScientific: style.pScientific });
 	    }
-	    if(typeof state.scheduleDraw === 'function'){
-	      state.scheduleDraw();
-	    }
+	    scheduleBoxViewRefresh('significance-p-scientific');
 	    refreshSignificanceAnnotations('p-scientific');
 	  }
 
@@ -8930,9 +8932,7 @@
 	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
 	      console.debug('Debug: box significance p decimals updated',{ pDecimals: style.pDecimals });
 	    }
-	    if(typeof state.scheduleDraw === 'function'){
-	      state.scheduleDraw();
-	    }
+	    scheduleBoxViewRefresh('significance-p-decimals');
 	    refreshSignificanceAnnotations('p-decimals');
 	  }
 
@@ -9719,7 +9719,7 @@
     }
     const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
     let boxScheduleProxyCount = 0;
-    const scheduleBoxDrawProxy = () => {
+    const scheduleBoxDrawProxy = (payload) => {
       boxScheduleProxyCount += 1;
       if(boxScheduleProxyCount <= 5){
         console.debug('Debug: box scheduleDraw proxy invoked', { count: boxScheduleProxyCount }); // Debug: table change trigger
@@ -9727,8 +9727,16 @@
           console.debug('Debug: box scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
+      const meta = payload && typeof payload === 'object'
+        ? payload
+        : (typeof payload === 'string' ? { reason: payload } : {});
+      const invalidate = typeof meta.invalidate === 'string' ? meta.invalidate : 'data';
+      if(invalidate === 'data'){
+        state.dataDirty = true;
+        state.cachedDrawInput = null;
+      }
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+        state.scheduleDraw(meta);
       }
     };
 
@@ -10426,14 +10434,14 @@
         console.debug('Debug: box font size input manual set',{ value: els.boxFontSize.value }); // Debug: manual slider update
       }
       chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('font-size-change');
     });
-    els.boxShowGrid.addEventListener('change',()=>{ boxLog('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
-    els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
+    els.boxShowGrid.addEventListener('change',()=>{ boxLog('boxShowGrid changed', els.boxShowGrid.checked); scheduleBoxViewRefresh('grid-toggle'); });
+    els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); scheduleBoxViewRefresh('frame-toggle'); });
     els.boxShowLegend?.addEventListener('change',()=>{
       console.debug('Debug: box showLegend change',{checked:els.boxShowLegend.checked});
       ensureBoxLegendControlPlacement();
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('legend-toggle');
     });
     els.boxLogScale.addEventListener('change',()=>{
       const enabling=!!els.boxLogScale.checked;
@@ -10584,20 +10592,20 @@
         const summaryValue = normalizeIndividualSummaryValue(els.boxIndividualSummary.value);
         state.individualSummary = summaryValue;
         console.debug('Debug: box individual summary change',{ summaryValue });
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('individual-summary-change');
       });
     }
-    els.boxPointMode.addEventListener('change',()=>{ boxLog('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
-    els.boxShowCaps.addEventListener('change',()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); state.scheduleDraw(); });
+    els.boxPointMode.addEventListener('change',()=>{ boxLog('boxPointMode changed', els.boxPointMode.value); scheduleBoxViewRefresh('point-mode-change'); });
+    els.boxShowCaps.addEventListener('change',()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); scheduleBoxViewRefresh('show-caps-change'); });
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
       els.boxShowSignificance.addEventListener('change',()=>{
         state.showSignificanceBars = !!els.boxShowSignificance.checked;
         console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('show-significance-change');
       });
     }
-    els.boxErrorMode.addEventListener('change',()=>{ boxLog('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
+    els.boxErrorMode.addEventListener('change',()=>{ boxLog('boxErrorMode changed', els.boxErrorMode.value); scheduleBoxViewRefresh('error-mode-change'); });
     const handleBoxAxisLimitInput=(event)=>{
       const target=event?.target;
       if(target===els.boxYMin){
@@ -10606,7 +10614,7 @@
           if(boxDebugEnabled()){
             console.debug('Debug: box log scale validation deferred',{ context: 'axis-min-input', value: target.value });
           }
-          state.scheduleDraw();
+          scheduleBoxViewRefresh('axis-min-input');
           return;
         }
         if(!revalidateActiveBoxLogScale('axis-min-input')){
@@ -10618,7 +10626,7 @@
           if(boxDebugEnabled()){
             console.debug('Debug: box log scale validation deferred',{ context: 'axis-max-input', value: target.value });
           }
-          state.scheduleDraw();
+          scheduleBoxViewRefresh('axis-max-input');
           return;
         }
         if(!revalidateActiveBoxLogScale('axis-max-input')){
@@ -10631,7 +10639,7 @@
           clearBoxLogWarning();
         }
       }
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('axis-limit-change');
     };
     els.boxYMin.addEventListener('input',handleBoxAxisLimitInput);
     els.boxYMax.addEventListener('input',handleBoxAxisLimitInput);
@@ -10642,29 +10650,29 @@
       els.boxFlipAxes.addEventListener('change',()=>{
         state.flipAxes = !!els.boxFlipAxes.checked;
         console.debug('Debug: box flipAxes toggled',{ flipAxes: state.flipAxes }); // Debug: flip axis change trace
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('flip-axes-change');
       });
     }
     updateGraphTypeControls();
     if(els.boxFill){
-      els.boxFill.addEventListener('input',()=>{ boxLog('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
+      els.boxFill.addEventListener('input',()=>{ boxLog('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; scheduleBoxViewRefresh('fill-change'); });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxFill control');
     }
     if(els.boxBorder){
-      els.boxBorder.addEventListener('input',()=>{ boxLog('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
+      els.boxBorder.addEventListener('input',()=>{ boxLog('boxBorder changed', els.boxBorder.value); scheduleBoxViewRefresh('border-color-change'); });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxBorder control');
     }
     if(els.boxBorderWidth){
-      els.boxBorderWidth.addEventListener('input',()=>{ boxLog('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
+      els.boxBorderWidth.addEventListener('input',()=>{ boxLog('boxBorderWidth changed', els.boxBorderWidth.value); scheduleBoxViewRefresh('border-width-change'); });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxBorderWidth control');
     }
     if(els.boxErrorBarWidth){
       els.boxErrorBarWidth.addEventListener('input',()=>{
         console.debug('Debug: boxErrorBarWidth changed',{ value: els.boxErrorBarWidth.value });
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('error-bar-width-change');
       });
     }
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
@@ -19311,8 +19319,9 @@ Technical analysis record (advanced)
 
   // PART: DRAW
 
-  async function draw(){
+  async function draw(drawOpts = {}){
     const token = ++state.drawToken;
+    const viewOnly = !!drawOpts?.viewOnly;
     const perfApi = Shared.Performance;
     const drawPerf = perfApi?.start('box.draw', { component: 'box', token });
     let drawOutcome = 'success';
@@ -19320,7 +19329,7 @@ Technical analysis record (advanced)
     let nCols = 0;
     let traceCount = 0;
     try{
-    boxLog('boxplot draw start',{token});
+    boxLog('boxplot draw start',{token, viewOnly, reason: drawOpts?.reason || null});
     hideBoxTooltip('draw-start');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     ensureWhiskerState();
@@ -19575,224 +19584,277 @@ Technical analysis record (advanced)
     let groupedReplicates = 1;
     let groupedHeaderEntries = [];
     let groupedConditionLabels = [];
-    const hot = state.ensureHotForActiveTab?.() || state.hot;
-    if(!hot){
-      if(Shared.isDebugEnabled?.()){
-        console.debug('Debug: box draw skipped (hot unavailable)', { token });
-      }
-      return;
-    }
-    const analysis = hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
-    const dataMatrix = analysis.data || [];
-    nCols = analysis.colCount || hot.countCols?.() || (dataMatrix[0]?.length || 0);
-    nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
-    if(isGroupedMode){
-      groupedReplicates = getBoxGroupedReplicateCount();
-      const groupedDataStartRow = getBoxDataStartRow({ forceGrouped: true });
-      const usedValueCols = getBoxUsedValueColumnCount(dataMatrix, { headerRows: groupedDataStartRow });
-      const effectiveCols = Math.max(groupedReplicates * 2, usedValueCols || 0);
-      groupedHeaderEntries = getBoxGroupedHeaderEntries(hot, {
-        replicates: groupedReplicates,
-        colCount: effectiveCols || nCols,
-        dataMatrix,
-        minGroupCount: getBoxGroupedGroupCount(effectiveCols || nCols, groupedReplicates)
+    const cachedDrawInput = state.cachedDrawInput;
+    const canUseCachedDrawInput = !!(
+      viewOnly
+      && !state.dataDirty
+      && cachedDrawInput
+      && cachedDrawInput.tableFormat === state.tableFormat
+      && cachedDrawInput.layoutMode === layoutMode
+    );
+    if(canUseCachedDrawInput){
+      nRows = Number(cachedDrawInput.nRows) || 0;
+      nCols = Number(cachedDrawInput.nCols) || 0;
+      groupedReplicates = Number(cachedDrawInput.groupedReplicates) || 1;
+      groupedGroups = Array.isArray(cachedDrawInput.groupedGroups) ? cachedDrawInput.groupedGroups.slice() : [];
+      groupedHeaderEntries = Array.isArray(cachedDrawInput.groupedHeaderEntries)
+        ? cachedDrawInput.groupedHeaderEntries.map(entry => ({ ...entry }))
+        : [];
+      groupedConditionLabels = Array.isArray(cachedDrawInput.groupedConditionLabels)
+        ? cachedDrawInput.groupedConditionLabels.slice()
+        : [];
+      axisLabels = Array.isArray(cachedDrawInput.axisLabels) ? cachedDrawInput.axisLabels.slice() : [];
+      axisGroupIndices = Array.isArray(cachedDrawInput.axisGroupIndices) ? cachedDrawInput.axisGroupIndices.slice() : [];
+      traceLabels = Array.isArray(cachedDrawInput.traceLabels) ? cachedDrawInput.traceLabels.slice() : [];
+      const cachedTraces = Array.isArray(cachedDrawInput.traces) ? cachedDrawInput.traces : [];
+      cachedTraces.forEach(trace => {
+        traces.push({
+          ...trace,
+          rawY: Array.isArray(trace?.rawY) ? trace.rawY.slice() : []
+        });
       });
-      groupedGroups = groupedHeaderEntries.map(entry => entry.label || `Group ${entry.groupIndex + 1}`);
-      groupedConditionLabels = getBoxGroupedConditionLabels(hot, {
-        replicates: groupedReplicates,
-        colCount: effectiveCols || nCols,
-        dataMatrix,
-        groupEntries: groupedHeaderEntries,
-        minGroupCount: groupedHeaderEntries.length,
-        fillDefaults: true
+      console.debug('Debug: box data collect skipped (view cache)', {
+        traces: traces.length,
+        labels: axisLabels.length,
+        reason: drawOpts?.reason || null
       });
-    }
-    console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
-    if(!isGroupedMode){
-      const collectPerf = perfApi?.start('box.data.collect', {
-        component: 'box',
-        mode: 'single',
-        rows: nRows,
-        cols: nCols,
-        token
-      });
-      let collectFinalized = false;
-      const finalizeCollect = (meta) => {
-        if(collectPerf && !collectFinalized){
-          collectFinalized = true;
-          perfApi.end(collectPerf, { component: 'box', mode: 'single', token, ...meta });
-        }
-      };
-      const dataStartRow = getBoxDataStartRow({ forceGrouped: false });
-      if(state.colOrder.length !== nCols){
-        state.colOrder = Array.from({ length: nCols }, (_, i) => i);
-      }
-      state.colOrder = state.colOrder.filter(index=>index < nCols);
-      if(!state.colOrder.length){
-        state.colOrder = Array.from({ length: nCols }, (_, i) => i);
-      }
-      for(let orderIdx = 0; orderIdx < state.colOrder.length; orderIdx++){
-        const i = state.colOrder[orderIdx];
-        if(i >= nCols){
-          continue;
-        }
-        if(analysis.isColumnExcluded?.(i)){
-          console.debug('Debug: box column skipped due to exclusion',{ column: i });
-          continue;
-        }
-        const headerCell = dataMatrix?.[0]?.[i];
-        const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
-        const col = [];
-        console.time(`boxColCollect_${i}_${token}`);
-        for(let r = dataStartRow; r < nRows; r++){
-          const rawValue = dataMatrix?.[r]?.[i];
-          if(rawValue === null || typeof rawValue === 'undefined'){
-            continue;
-          }
-          const v = parseFloat(rawValue);
-          if(!isNaN(v)) col.push(v);
-          if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
-            console.debug('boxplot collect progress',{ component: 'box', col: i, row: r, token });
-          }
-        }
-        console.timeEnd(`boxColCollect_${i}_${token}`);
-        boxLog('boxplot collected column',{ index: i, values: col.length });
-        if(token !== state.drawToken){
-          finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
-          drawOutcome = 'cancelled';
-          boxLog('boxplot draw cancelled after collect',{ token });
-          return;
-        }
-        if(col.length){
-          const categoryIndex = axisLabels.length;
-          axisLabels.push(label);
-          axisGroupIndices.push(null);
-          traceLabels.push(label);
-          traces.push({ name: label, rawY: col, categoryName: label, categoryIndex, columnIndex: i });
-        }
-      }
-      if(!axisLabels.length && traceLabels.length){
-        axisLabels = traceLabels.slice();
-        axisGroupIndices = traceLabels.map(() => null);
-      }
-      finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
     }else{
-      const collectPerf = perfApi?.start('box.data.collect', {
-        component: 'box',
-        mode: 'grouped',
-        rows: nRows,
-        cols: nCols,
-        token
-      });
-      let collectFinalized = false;
-      const finalizeCollect = (meta) => {
-        if(collectPerf && !collectFinalized){
-          collectFinalized = true;
-          perfApi.end(collectPerf, { component: 'box', mode: 'grouped', token, ...meta });
+      const hot = state.ensureHotForActiveTab?.() || state.hot;
+      if(!hot){
+        if(Shared.isDebugEnabled?.()){
+          console.debug('Debug: box draw skipped (hot unavailable)', { token });
         }
-      };
-      const dataStartRow = getBoxDataStartRow({ forceGrouped: true });
-      state.colOrder = Array.from({ length: nCols }, (_, i) => i);
-      const replicateEntries = [];
-      const groupEntries = groupedGroups.map((groupName, gIdx)=>({ groupName, groupIndex: gIdx, replicates: [] }));
-      const conditionLabels = Array.from({ length: groupedReplicates }, (_, idx) =>
-        normalizeBoxGroupedConditionLabel(groupedConditionLabels[idx], idx, { fillDefault: true })
-      );
-      for(let repIdx = 0; repIdx < groupedReplicates; repIdx++){
-        const replicateBucket = [];
-        for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
-          const groupName = groupedGroups[gIdx];
-          const colIndex = getBoxGroupedSeriesStartCol(gIdx, { replicates: groupedReplicates }) + repIdx;
-          if(colIndex >= nCols){
-            console.debug('Debug: grouped column missing',{ colIndex, gIdx, repIdx, nCols });
+        return;
+      }
+      const analysis = hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
+      const dataMatrix = analysis.data || [];
+      nCols = analysis.colCount || hot.countCols?.() || (dataMatrix[0]?.length || 0);
+      nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
+      if(isGroupedMode){
+        groupedReplicates = getBoxGroupedReplicateCount();
+        const groupedDataStartRow = getBoxDataStartRow({ forceGrouped: true });
+        const usedValueCols = getBoxUsedValueColumnCount(dataMatrix, { headerRows: groupedDataStartRow });
+        const effectiveCols = Math.max(groupedReplicates * 2, usedValueCols || 0);
+        groupedHeaderEntries = getBoxGroupedHeaderEntries(hot, {
+          replicates: groupedReplicates,
+          colCount: effectiveCols || nCols,
+          dataMatrix,
+          minGroupCount: getBoxGroupedGroupCount(effectiveCols || nCols, groupedReplicates)
+        });
+        groupedGroups = groupedHeaderEntries.map(entry => entry.label || `Group ${entry.groupIndex + 1}`);
+        groupedConditionLabels = getBoxGroupedConditionLabels(hot, {
+          replicates: groupedReplicates,
+          colCount: effectiveCols || nCols,
+          dataMatrix,
+          groupEntries: groupedHeaderEntries,
+          minGroupCount: groupedHeaderEntries.length,
+          fillDefaults: true
+        });
+      }
+      console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
+      if(!isGroupedMode){
+        const collectPerf = perfApi?.start('box.data.collect', {
+          component: 'box',
+          mode: 'single',
+          rows: nRows,
+          cols: nCols,
+          token
+        });
+        let collectFinalized = false;
+        const finalizeCollect = (meta) => {
+          if(collectPerf && !collectFinalized){
+            collectFinalized = true;
+            perfApi.end(collectPerf, { component: 'box', mode: 'single', token, ...meta });
+          }
+        };
+        const dataStartRow = getBoxDataStartRow({ forceGrouped: false });
+        if(state.colOrder.length !== nCols){
+          state.colOrder = Array.from({ length: nCols }, (_, i) => i);
+        }
+        state.colOrder = state.colOrder.filter(index=>index < nCols);
+        if(!state.colOrder.length){
+          state.colOrder = Array.from({ length: nCols }, (_, i) => i);
+        }
+        for(let orderIdx = 0; orderIdx < state.colOrder.length; orderIdx++){
+          const i = state.colOrder[orderIdx];
+          if(i >= nCols){
             continue;
           }
-          if(analysis.isColumnExcluded?.(colIndex)){
-            console.debug('Debug: grouped column excluded',{ colIndex, gIdx, repIdx });
+          if(analysis.isColumnExcluded?.(i)){
+            console.debug('Debug: box column skipped due to exclusion',{ column: i });
             continue;
           }
-          const values = [];
-          console.time(`boxColCollect_${colIndex}_${token}`);
+          const headerCell = dataMatrix?.[0]?.[i];
+          const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
+          const col = [];
+          console.time(`boxColCollect_${i}_${token}`);
           for(let r = dataStartRow; r < nRows; r++){
-            const rawValue = dataMatrix?.[r]?.[colIndex];
+            const rawValue = dataMatrix?.[r]?.[i];
             if(rawValue === null || typeof rawValue === 'undefined'){
               continue;
             }
             const v = parseFloat(rawValue);
-            if(!isNaN(v)) values.push(v);
+            if(!isNaN(v)) col.push(v);
             if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
-              console.debug('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
+              console.debug('boxplot collect progress',{ component: 'box', col: i, row: r, token });
             }
           }
-          console.timeEnd(`boxColCollect_${colIndex}_${token}`);
-          boxLog('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
+          console.timeEnd(`boxColCollect_${i}_${token}`);
+          boxLog('boxplot collected column',{ index: i, values: col.length });
           if(token !== state.drawToken){
             finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
             drawOutcome = 'cancelled';
-            boxLog('boxplot draw cancelled after grouped collect',{ token });
+            boxLog('boxplot draw cancelled after collect',{ token });
             return;
           }
-          if(values.length){
-            const entry = { groupName, groupIndex: gIdx, rawY: values, columnIndex: colIndex, replicateIndex: repIdx };
-            replicateBucket.push(entry);
-            groupEntries[gIdx].replicates.push(entry);
+          if(col.length){
+            const categoryIndex = axisLabels.length;
+            axisLabels.push(label);
+            axisGroupIndices.push(null);
+            traceLabels.push(label);
+            traces.push({ name: label, rawY: col, categoryName: label, categoryIndex, columnIndex: i });
           }
         }
-        if(!replicateBucket.length){
-          console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx });
-          continue;
+        if(!axisLabels.length && traceLabels.length){
+          axisLabels = traceLabels.slice();
+          axisGroupIndices = traceLabels.map(() => null);
         }
-        const finalCategoryName = conditionLabels[repIdx] || `Condition ${repIdx + 1}`;
-        replicateBucket.forEach(entry => { entry.replicateName = finalCategoryName; });
-        replicateEntries.push({ name: finalCategoryName, replicateIndex: repIdx, traces: replicateBucket });
-      }
-      if(layoutMode === 'separated'){
-        groupEntries.forEach(groupEntry => {
-          groupEntry.replicates.forEach(entry => {
-            const replicateLabel = entry.replicateName || `Category ${axisLabels.length + 1}`;
-            const categoryIndex = axisLabels.length;
-            axisLabels.push(replicateLabel);
-            axisGroupIndices.push(Number.isFinite(entry.groupIndex) ? entry.groupIndex : null);
-            const trace = {
-              name: replicateLabel,
-              rawY: entry.rawY,
-              groupName: entry.groupName,
-              groupIndex: entry.groupIndex,
-              categoryName: replicateLabel,
-              categoryIndex,
-              replicateIndex: entry.replicateIndex,
-              columnIndex: entry.columnIndex
-            };
-            traces.push(trace);
-            traceLabels.push(replicateLabel);
-          });
-        });
+        finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
       }else{
-        axisLabels = replicateEntries.map(rep => rep.name);
-        axisGroupIndices = replicateEntries.map(() => null);
-        replicateEntries.forEach((rep, catIdx) => {
-          rep.traces.forEach(entry => {
-            const label = `${entry.groupName} – ${rep.name}`;
-            const trace = {
-              name: label,
-              rawY: entry.rawY,
-              groupName: entry.groupName,
-              groupIndex: entry.groupIndex,
-              categoryName: rep.name,
-              categoryIndex: catIdx,
-              replicateIndex: entry.replicateIndex,
-              columnIndex: entry.columnIndex
-            };
-            traces.push(trace);
-            traceLabels.push(label);
-          });
+        const collectPerf = perfApi?.start('box.data.collect', {
+          component: 'box',
+          mode: 'grouped',
+          rows: nRows,
+          cols: nCols,
+          token
         });
+        let collectFinalized = false;
+        const finalizeCollect = (meta) => {
+          if(collectPerf && !collectFinalized){
+            collectFinalized = true;
+            perfApi.end(collectPerf, { component: 'box', mode: 'grouped', token, ...meta });
+          }
+        };
+        const dataStartRow = getBoxDataStartRow({ forceGrouped: true });
+        state.colOrder = Array.from({ length: nCols }, (_, i) => i);
+        const replicateEntries = [];
+        const groupEntries = groupedGroups.map((groupName, gIdx)=>({ groupName, groupIndex: gIdx, replicates: [] }));
+        const conditionLabels = Array.from({ length: groupedReplicates }, (_, idx) =>
+          normalizeBoxGroupedConditionLabel(groupedConditionLabels[idx], idx, { fillDefault: true })
+        );
+        for(let repIdx = 0; repIdx < groupedReplicates; repIdx++){
+          const replicateBucket = [];
+          for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
+            const groupName = groupedGroups[gIdx];
+            const colIndex = getBoxGroupedSeriesStartCol(gIdx, { replicates: groupedReplicates }) + repIdx;
+            if(colIndex >= nCols){
+              console.debug('Debug: grouped column missing',{ colIndex, gIdx, repIdx, nCols });
+              continue;
+            }
+            if(analysis.isColumnExcluded?.(colIndex)){
+              console.debug('Debug: grouped column excluded',{ colIndex, gIdx, repIdx });
+              continue;
+            }
+            const values = [];
+            console.time(`boxColCollect_${colIndex}_${token}`);
+            for(let r = dataStartRow; r < nRows; r++){
+              const rawValue = dataMatrix?.[r]?.[colIndex];
+              if(rawValue === null || typeof rawValue === 'undefined'){
+                continue;
+              }
+              const v = parseFloat(rawValue);
+              if(!isNaN(v)) values.push(v);
+              if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
+              }
+            }
+            console.timeEnd(`boxColCollect_${colIndex}_${token}`);
+            boxLog('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
+            if(token !== state.drawToken){
+              finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
+              drawOutcome = 'cancelled';
+              boxLog('boxplot draw cancelled after grouped collect',{ token });
+              return;
+            }
+            if(values.length){
+              const entry = { groupName, groupIndex: gIdx, rawY: values, columnIndex: colIndex, replicateIndex: repIdx };
+              replicateBucket.push(entry);
+              groupEntries[gIdx].replicates.push(entry);
+            }
+          }
+          if(!replicateBucket.length){
+            console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx });
+            continue;
+          }
+          const finalCategoryName = conditionLabels[repIdx] || `Condition ${repIdx + 1}`;
+          replicateBucket.forEach(entry => { entry.replicateName = finalCategoryName; });
+          replicateEntries.push({ name: finalCategoryName, replicateIndex: repIdx, traces: replicateBucket });
+        }
+        if(layoutMode === 'separated'){
+          groupEntries.forEach(groupEntry => {
+            groupEntry.replicates.forEach(entry => {
+              const replicateLabel = entry.replicateName || `Category ${axisLabels.length + 1}`;
+              const categoryIndex = axisLabels.length;
+              axisLabels.push(replicateLabel);
+              axisGroupIndices.push(Number.isFinite(entry.groupIndex) ? entry.groupIndex : null);
+              const trace = {
+                name: replicateLabel,
+                rawY: entry.rawY,
+                groupName: entry.groupName,
+                groupIndex: entry.groupIndex,
+                categoryName: replicateLabel,
+                categoryIndex,
+                replicateIndex: entry.replicateIndex,
+                columnIndex: entry.columnIndex
+              };
+              traces.push(trace);
+              traceLabels.push(replicateLabel);
+            });
+          });
+        }else{
+          axisLabels = replicateEntries.map(rep => rep.name);
+          axisGroupIndices = replicateEntries.map(() => null);
+          replicateEntries.forEach((rep, catIdx) => {
+            rep.traces.forEach(entry => {
+              const label = `${entry.groupName} – ${rep.name}`;
+              const trace = {
+                name: label,
+                rawY: entry.rawY,
+                groupName: entry.groupName,
+                groupIndex: entry.groupIndex,
+                categoryName: rep.name,
+                categoryIndex: catIdx,
+                replicateIndex: entry.replicateIndex,
+                columnIndex: entry.columnIndex
+              };
+              traces.push(trace);
+              traceLabels.push(label);
+            });
+          });
+        }
+        if(!axisLabels.length && traceLabels.length){
+          axisLabels = traceLabels.slice();
+          axisGroupIndices = traceLabels.map(() => null);
+        }
+        finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
       }
-      if(!axisLabels.length && traceLabels.length){
-        axisLabels = traceLabels.slice();
-        axisGroupIndices = traceLabels.map(() => null);
-      }
-      finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'success' });
+      state.cachedDrawInput = {
+        tableFormat: state.tableFormat,
+        layoutMode,
+        nRows,
+        nCols,
+        groupedReplicates,
+        groupedGroups: groupedGroups.slice(),
+        groupedHeaderEntries: groupedHeaderEntries.map(entry => ({ ...entry })),
+        groupedConditionLabels: groupedConditionLabels.slice(),
+        axisLabels: axisLabels.slice(),
+        axisGroupIndices: axisGroupIndices.slice(),
+        traceLabels: traceLabels.slice(),
+        traces: traces.map(trace => ({
+          ...trace,
+          rawY: Array.isArray(trace?.rawY) ? trace.rawY.slice() : []
+        }))
+      };
     }
     if(token !== state.drawToken){
       boxLog('boxplot draw cancelled before traces ready',{ token });
@@ -21338,7 +21400,7 @@ Technical analysis record (advanced)
         if(yText.textContent !== nextValue){
           yText.textContent = nextValue;
         }
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('y-label-change');
       };
       makeEditable(yText, txt => {
         const previous = state.yLabelText != null ? String(state.yLabelText) : '';
@@ -23149,7 +23211,7 @@ Technical analysis record (advanced)
         if(xLabel.textContent !== nextValue){
           xLabel.textContent = nextValue;
         }
-        state.scheduleDraw();
+        scheduleBoxViewRefresh('x-label-change');
       };
       makeEditable(xLabel, txt => {
         const previous = state.yLabelText != null ? String(state.yLabelText) : '';
@@ -23964,7 +24026,7 @@ Technical analysis record (advanced)
       if(titleText.textContent !== nextValue){
         titleText.textContent = nextValue;
       }
-      state.scheduleDraw();
+      scheduleBoxViewRefresh('title-change');
     };
     makeEditable(titleText, txt => {
       const previous = state.titleText != null ? String(state.titleText) : '';
@@ -24099,6 +24161,9 @@ Technical analysis record (advanced)
       drawOutcome = 'error';
       throw err;
     }finally{
+      if(drawOutcome === 'success'){
+        state.dataDirty = false;
+      }
       if(perfApi && drawPerf){
         perfApi.end(drawPerf, {
           component: 'box',
@@ -24454,9 +24519,11 @@ Technical analysis record (advanced)
       return false;
     }
     const suppressDraw = meta?.skipDraw === true;
-    let scheduleBackup = null;
-    if(suppressDraw && typeof state.scheduleDraw === 'function'){
-      scheduleBackup = state.scheduleDraw;
+    const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+    const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
+    const scheduleOriginal = typeof state.scheduleDraw === 'function' ? state.scheduleDraw : null;
+    const shouldSuspendSchedule = !!(scheduleOriginal && (suppressDraw || !skipDataLoad));
+    if(shouldSuspendSchedule){
       state.scheduleDraw = () => {};
     }
     state.applyingPayload = true;
@@ -24491,7 +24558,9 @@ Technical analysis record (advanced)
     const matrixData = dataManager?.getActiveView?.()?.data;
     const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
     const exclusionsToApply = obj.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
-    if(state.hot && typeof state.hot.loadData === 'function'){
+    if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
+      state.dataDirty = true;
+      state.cachedDrawInput = null;
       state.hot.loadData(dataToLoad);
       if(exclusionsToApply){
         state.hot.applyExclusions?.(exclusionsToApply);
@@ -24991,8 +25060,17 @@ Technical analysis record (advanced)
       console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });
       resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
     }
-    if(!suppressDraw){
-      state.scheduleDraw();
+    if(!suppressDraw && scheduleOriginal){
+      if(styleOnly){
+        scheduleOriginal({
+          viewOnly: true,
+          reason: meta?.reason || 'box-style-payload'
+        });
+      }else{
+        scheduleOriginal({
+          reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
+        });
+      }
     }
     console.debug('Debug: box payload applied', { source: meta.source || 'unknown', rows: obj.data?.length || 0 });
     return true;
@@ -25001,16 +25079,17 @@ Technical analysis record (advanced)
       throw err;
     }finally{
       state.applyingPayload = false;
-      if(scheduleBackup){
-        state.scheduleDraw = scheduleBackup;
+      if(shouldSuspendSchedule && scheduleOriginal){
+        state.scheduleDraw = scheduleOriginal;
       }
     }
   }
 
-  function runBoxDrawCycle(){
+  function runBoxDrawCycle(options = {}){
+    const drawOptions = options || {};
     let status = 'complete';
     try{
-      const result = draw();
+      const result = draw(drawOptions);
       if(result && typeof result.then === 'function'){
         return result
           .then(() => {
@@ -25063,6 +25142,14 @@ Technical analysis record (advanced)
     if(!applyBoxPayload(payload, { source: 'payload', ...options })){
       console.warn('box payload application failed', { source: 'payload' });
     }
+  };
+
+  box.applyColorSchemePayload = function applyBoxColorSchemePayload(payload, options = {}){
+    return applyBoxPayload(payload, {
+      source: 'color-scheme',
+      colorSchemeOnly: true,
+      ...options
+    });
   };
 
   function initNotes(){
@@ -25183,7 +25270,7 @@ Technical analysis record (advanced)
       if(nextOpts.force){
         markBoxOverlayPending(overlayReason);
         forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
-      }else{
+      }else if(!nextOpts.viewOnly){
         queueBoxLoading(overlayReason);
       }
       const runSchedule = () => scheduleBoxDrawBase(nextOpts);
@@ -25224,13 +25311,13 @@ Technical analysis record (advanced)
     try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }
   };
 
-  box.draw = function(){
+  box.draw = function(options = {}){
     try{
       box.ensure();
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+        state.scheduleDraw(options || {});
       }else{
-        runBoxDrawCycle();
+        runBoxDrawCycle(options || {});
       }
     }catch(e){
       console.error('box.draw error', e);

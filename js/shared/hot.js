@@ -4020,13 +4020,67 @@
       applyVirtualizationState(instance?.gridApi, nextState, reason || 'update');
     };
 
+    const mergeScheduleInvalidation = (prevValue, nextValue)=>{
+      const prev = typeof prevValue === 'string' ? prevValue : '';
+      const next = typeof nextValue === 'string' ? nextValue : '';
+      if(prev === 'data' || next === 'data'){
+        return 'data';
+      }
+      if(prev === 'layout' || next === 'layout'){
+        return 'layout';
+      }
+      if(prev === 'style' || next === 'style'){
+        return 'style';
+      }
+      return next || prev || null;
+    };
+    const classifyScheduleInvalidation = (reason, payload)=>{
+      const currentReason = typeof reason === 'string' ? reason : '';
+      const source = typeof payload?.source === 'string' ? payload.source : '';
+      if(
+        currentReason === 'afterChange'
+        || currentReason === 'afterPaste'
+        || currentReason === 'afterLoadData'
+        || currentReason === 'afterCreateRow'
+        || currentReason === 'afterRemoveRow'
+        || currentReason === 'afterCreateCol'
+        || currentReason === 'afterRemoveCol'
+        || currentReason === 'exclusion-change'
+        || currentReason === 'autoGrowRows'
+        || currentReason === 'autoGrowCols'
+      ){
+        return 'data';
+      }
+      if(currentReason === 'afterColumnMove'){
+        return 'layout';
+      }
+      if(currentReason === 'updateSettings'){
+        if(source === 'columnMove' || source === 'afterColumnMove'){
+          return 'layout';
+        }
+        return 'data';
+      }
+      return null;
+    };
     const triggerSchedule = (reason, meta)=>{
       if(!scheduleFn){
         return;
       }
       const payload = Object.assign({ reason }, meta || {});
+      if(!payload.invalidate){
+        const inferredInvalidate = classifyScheduleInvalidation(reason, payload);
+        if(inferredInvalidate){
+          payload.invalidate = inferredInvalidate;
+        }
+      }
       if(batchDepth > 0){
-        pendingSchedulePayload = payload;
+        if(pendingSchedulePayload && typeof pendingSchedulePayload === 'object'){
+          pendingSchedulePayload = Object.assign({}, pendingSchedulePayload, payload, {
+            invalidate: mergeScheduleInvalidation(pendingSchedulePayload.invalidate, payload.invalidate)
+          });
+        }else{
+          pendingSchedulePayload = payload;
+        }
         return;
       }
       try{

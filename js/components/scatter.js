@@ -271,7 +271,9 @@
     lastDrawMeta: null,
     pendingDrawReasons: null,
     activeDrawReasons: null,
-    useDelegatedPointEvents: true
+    useDelegatedPointEvents: true,
+    dataDirty: true,
+    cachedCollect: null
   };
   let scatterColorSchemeId = 'scientific';
   let scatterTextColor = chartStyle.TEXT_COLOR || '#000000';
@@ -296,6 +298,17 @@
       cfg.backgroundColor,
       isDark ? '#000000' : '#ffffff'
     );
+  }
+
+  function scheduleScatterViewRefresh(reason, extraOptions){
+    if(typeof scheduleDrawScatter !== 'function'){
+      return;
+    }
+    const options = Object.assign({}, extraOptions || {}, {
+      viewOnly: true,
+      reason: reason || (extraOptions && extraOptions.reason) || 'scatter-view-refresh'
+    });
+    scheduleDrawScatter(options);
   }
 
   function appendScatter3dBackground(svg, width, height){
@@ -684,6 +697,27 @@
       console.error('scatter cloneSimple error', err);
       return null;
     }
+  }
+
+  function cloneScatterPoint(point){
+    if(!point || typeof point !== 'object'){
+      return point;
+    }
+    const clone = { ...point };
+    if(Array.isArray(point.replicates)){
+      clone.replicates = point.replicates.slice();
+    }
+    if(Array.isArray(point.xReplicates)){
+      clone.xReplicates = point.xReplicates.slice();
+    }
+    return clone;
+  }
+
+  function cloneScatterPoints(points){
+    if(!Array.isArray(points) || !points.length){
+      return [];
+    }
+    return points.map(point => cloneScatterPoint(point));
   }
 
   function ensureEmptyPayloadTemplate(){
@@ -1094,7 +1128,7 @@
           scatterDebug('Debug: scatter equal scale toggled', { enabled, previous });
           syncScatterAspectControls('equal-scale-toggle');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleDrawScatter({ reason: 'equal-scale-toggle' });
+            scheduleScatterViewRefresh('equal-scale-toggle');
           }
         };
         equalScaleCheckbox.addEventListener('change', onChange);
@@ -1124,7 +1158,7 @@
           scatterDebug('Debug: scatter equal length toggled', { enabled, previous });
           syncScatterAspectControls('equal-length-toggle');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleDrawScatter({ reason: 'equal-length-toggle' });
+            scheduleScatterViewRefresh('equal-length-toggle');
           }
         };
         equalLengthCheckbox.addEventListener('change', onChange);
@@ -1179,7 +1213,7 @@
           scatterDebug('Debug: scatter variance axis scaling toggled', { enabled, previous });
           syncScatterAspectControls('variance-axis-scale');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleDrawScatter({ reason: 'variance-axis-scale' });
+            scheduleScatterViewRefresh('variance-axis-scale');
           }
         };
         varianceCheckbox.addEventListener('change', onChange);
@@ -4498,26 +4532,26 @@
       getTransparency: ctx => getScatterOverlayPreviewStyle(resolveScope(ctx))?.transparency,
       onColorInput: (value, ctx) => {
         applyOverlayPatch(resolveScope(ctx), { color: value });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('overlay-color-input');
       },
       onColorChange: (value, ctx) => {
         applyOverlayPatch(resolveScope(ctx), { color: value });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('overlay-color-change');
       },
       onThicknessChange: (value, ctx) => {
         const numeric = Number(value);
         applyOverlayPatch(resolveScope(ctx), { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('overlay-thickness-change');
       },
       onPatternChange: (value, ctx) => {
         applyOverlayPatch(resolveScope(ctx), { pattern: value });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('overlay-pattern-change');
       },
       onTransparencyChange: (value, ctx) => {
         const numeric = Number(value);
         const bounded = Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
         applyOverlayPatch(resolveScope(ctx), { transparency: bounded });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('overlay-transparency-change');
       }
     };
     applyOverlayControlLabels(overlayConfig);
@@ -4572,13 +4606,13 @@
         const style = ensureLabelStyle();
         if(!style){ return; }
         Object.assign(style, patch);
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('label-style-change');
       };
       const applyGlobalStylePatch = (key, value) => {
         Object.keys(scatterLabelStyles).forEach(k => {
           scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { [key]: value });
         });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('label-style-global-change');
       };
       const knownScatterLabelKeys = () => {
         const keys = new Set();
@@ -4682,26 +4716,26 @@
           onColorInput(nextColor, ctx){
             if(ctx.scope === 'label' && scatterLabelKey){
               scatterLabelColors[scatterLabelKey] = nextColor;
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-color-input');
               return;
             }
             if(scatterFillInput){
               applyAndDispatch(scatterFillInput, nextColor);
             }
             Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = nextColor; });
-            scheduleDrawScatter();
+            scheduleScatterViewRefresh('fill-change');
           },
           onColorChange(nextColor, ctx){
             if(ctx.scope === 'label' && scatterLabelKey){
               scatterLabelColors[scatterLabelKey] = nextColor;
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-color-change');
               return;
             }
             if(scatterFillInput){
               applyAndDispatch(scatterFillInput, nextColor);
             }
             Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = nextColor; });
-            scheduleDrawScatter();
+            scheduleScatterViewRefresh('fill-change');
           },
           onShapeChange(nextShape, ctx){
             if(scatterCurrentGraphType !== 'scatter' || scatterState?.viewMode === 'bubble'){
@@ -4709,7 +4743,7 @@
             }
             if(ctx.scope === 'label' && scatterLabelKey){
               scatterLabelShapes[scatterLabelKey] = sanitizeCurrentShape(nextShape, 0);
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-shape-change');
               return;
             }
             const sanitized = sanitizeCurrentShape(nextShape, 0);
@@ -4722,7 +4756,7 @@
               }
             });
             if(changed){
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-shape-global-change');
             }
           }
         },
@@ -4745,7 +4779,7 @@
               Object.keys(scatterLabelStyles).forEach(k => {
                 scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: nextColor });
               });
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('border-color-change');
             }
           },
           onColorChange(nextColor, ctx){
@@ -4756,7 +4790,7 @@
               Object.keys(scatterLabelStyles).forEach(k => {
                 scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: nextColor });
               });
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('border-color-change');
             }
           },
           getWidth(ctx){
@@ -4997,20 +5031,20 @@
       const style = ensureLabelStyle();
       if(!style){ return; }
       Object.assign(style, patch);
-      scheduleDrawScatter();
+      scheduleScatterViewRefresh('label-style-change');
     };
     const applyGlobalStylePatch = (key, value) => {
       Object.keys(scatterLabelStyles).forEach(k => {
         scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { [key]: value });
       });
-      scheduleDrawScatter();
+      scheduleScatterViewRefresh('label-style-global-change');
     };
     const applyGlobalColor = value => {
       if(scatterFillInput){
         applyAndDispatch(scatterFillInput, value);
       }
       Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = value; });
-      scheduleDrawScatter();
+      scheduleScatterViewRefresh('fill-change');
     };
 
     const sanitizeCurrentShape = (shape, index = 0) => {
@@ -5192,7 +5226,7 @@
           onColorInput(nextColor){
             if(useLabelScope() && scatterLabelKey){
               scatterLabelColors[scatterLabelKey] = nextColor;
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-color-input');
             }else{
               applyGlobalColor(nextColor);
             }
@@ -5200,7 +5234,7 @@
           onColorChange(nextColor){
             if(useLabelScope() && scatterLabelKey){
               scatterLabelColors[scatterLabelKey] = nextColor;
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-color-change');
             }else{
               applyGlobalColor(nextColor);
             }
@@ -5211,7 +5245,7 @@
             }
             if(useLabelScope() && scatterLabelKey){
               scatterLabelShapes[scatterLabelKey] = sanitizeCurrentShape(nextShape, 0);
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-shape-change');
               return;
             }
             const sanitized = sanitizeCurrentShape(nextShape, 0);
@@ -5224,7 +5258,7 @@
               }
             });
             if(changed){
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('label-shape-global-change');
             }
           },
           onPickerOpen(payload){
@@ -5291,7 +5325,7 @@
         const nextColor = fallback.value;
         if(useLabelScope() && scatterLabelKey){
           scatterLabelColors[scatterLabelKey] = nextColor;
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('label-color-input');
         }else{
           applyGlobalColor(nextColor);
         }
@@ -5351,7 +5385,7 @@
         Object.keys(scatterLabelStyles).forEach(k => {
           scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: next });
         });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('border-color-change');
       }
       syncBorderChipUi();
     });
@@ -5660,9 +5694,7 @@
     if(settings[axis].notation === nextValue){ return; }
     settings[axis].notation = nextValue;
     console.debug('Debug: scatter axis notation updated',{ axis, notation: nextValue });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-notation-${axis}`);
   }
 
   function getScatterAxisTickInterval(axis){
@@ -5686,9 +5718,7 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     console.debug('Debug: scatter axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-ticks-${axis}`);
   }
 
   function getScatterAxisMinorTicksEnabled(axis){
@@ -5706,9 +5736,7 @@
     }
     settings[axis].minorTicks = nextValue;
     console.debug('Debug: scatter minor ticks updated',{ axis, enabled: nextValue });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-minor-ticks-${axis}`);
   }
 
   function getScatterAxisMinorTickSubdivisions(axis){
@@ -5726,9 +5754,7 @@
     }
     settings[axis].minorTickSubdivisions = nextValue;
     console.debug('Debug: scatter minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-minor-subdivisions-${axis}`);
   }
 
   function getScatterAxisAdditionalTicks(axis){
@@ -5756,9 +5782,7 @@
       axis,
       count: settings[axis].additionalTicks.length
     });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-additional-ticks-${axis}`);
   }
 
   function updateScatterAxisAdditionalTick(axis, index, entry){
@@ -5856,9 +5880,7 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     console.debug('Debug: scatter axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh('axis-stroke-width');
   }
 
   function getScatterAxisColor(){
@@ -5870,9 +5892,7 @@
     const settings = ensureScatterAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     console.debug('Debug: scatter axis color updated',{ color: settings.color });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh('axis-color');
   }
 
   function registerScatterGridControlTarget(target, options){
@@ -5889,12 +5909,12 @@
         if(scatterShowGrid){
           scatterShowGrid.checked = !!value;
         }
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('grid-visible');
       },
       getStyle: () => getScatterGridStyle(fallbackThickness),
       onStyleChange: style => {
         setScatterGridStyle(style, fallbackThickness);
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('grid-style');
       },
       defaults: createDefaultScatterGridStyle(fallbackThickness)
     });
@@ -5912,9 +5932,7 @@
     const previousValue = !!settings[axis].brokenAxis.enabled;
     settings[axis].brokenAxis.enabled = !!enabled;
     console.debug('Debug: scatter broken axis enabled updated',{ axis, enabled: settings[axis].brokenAxis.enabled });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-broken-${axis}`);
     return previousValue;
   }
 
@@ -5939,9 +5957,7 @@
              seg.start < seg.end;
     }).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }));
     console.debug('Debug: scatter broken axis segments updated',{ axis, segments: settings[axis].brokenAxis.segments });
-    if(typeof scheduleDrawScatter === 'function'){
-      scheduleDrawScatter();
-    }
+    scheduleScatterViewRefresh(`axis-broken-segments-${axis}`);
   }
 
   function applyScatterAxisSettings(settings){
@@ -9403,7 +9419,7 @@
         data[0][3] = 'Z title';
       }
       let scatterScheduleProxyCount = 0;
-      const scheduleDrawScatterProxy = () => {
+      const scheduleDrawScatterProxy = (payload) => {
         scatterScheduleProxyCount += 1;
         if(scatterScheduleProxyCount <= 5){
           console.debug('Debug: scatter scheduleDraw proxy invoked', { count: scatterScheduleProxyCount }); // Debug: table change trigger
@@ -9411,7 +9427,15 @@
             console.debug('Debug: scatter scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
           }
         }
-        scheduleDrawScatter();
+        const meta = payload && typeof payload === 'object'
+          ? payload
+          : (typeof payload === 'string' ? { reason: payload } : {});
+        const invalidate = typeof meta.invalidate === 'string' ? meta.invalidate : 'data';
+        if(invalidate === 'data'){
+          scatterState.dataDirty = true;
+          scatterState.cachedCollect = null;
+        }
+        scheduleDrawScatter(meta);
       };
 
         const createScatterTable = (container) => {
@@ -12641,7 +12665,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         updateScatterViewModeOptionVisibility();
         syncScatterAspectControls('view-mode-change');
         if(changed && !skipSchedule){
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('view-mode-change');
         }
         if(normalized === '3d'){
           ensureScatterHeaderTitles(scatterRefs.hot || scatterHot, {
@@ -12745,7 +12769,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(scatterDebugEnabled()){
           console.debug('Debug: scatter log axis auto-disabled',{ axis, context, reason: validation.reason, value: validation.value });
         }
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh(`log-validation-${axis}`);
       }
       function revalidateActiveScatterLogAxis(axis, context){
         const checkbox = axis === 'x' ? scatterLogX : scatterLogY;
@@ -13663,7 +13687,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 answers:{ ...answers }
               });
               persistTabState('stats-advisor-apply');
-              scheduleDrawScatter();
+              scheduleScatterViewRefresh('stats-advisor-apply');
               renderScatterStatsAdvisor(null, scatterAdvisorState.context);
               requestScatterStatsContextRefresh('stats-advisor-apply');
             });
@@ -13784,19 +13808,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           syncScatterColorModeUI(scatterColorModeApplied);
           console.debug('Debug: scatter color mode changed',{ value: scatterColorModeDesired });
           persistTabState('scatter-color-mode-change');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('color-mode-change');
         });
       }
       if(scatterDensityPalette){
         scatterDensityPalette.addEventListener('change',()=>{
           scatterDensityPalette.value = normalizeScatterDensityPalette(scatterDensityPalette.value);
           console.debug('Debug: scatter density palette changed',{ value: scatterDensityPalette.value });
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('density-palette-change');
         });
       }
-      scatterFill.addEventListener('input',()=>{scatterLog('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
-      scatterBorder.addEventListener('input',()=>{scatterLog('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
-      scatterBorderWidth.addEventListener('input',()=>{scatterLog('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
+      scatterFill.addEventListener('input',()=>{scatterLog('scatterFill changed', scatterFill.value); scheduleScatterViewRefresh('fill-change');});
+      scatterBorder.addEventListener('input',()=>{scatterLog('scatterBorder changed', scatterBorder.value); scheduleScatterViewRefresh('border-color-change');});
+      scatterBorderWidth.addEventListener('input',()=>{scatterLog('scatterBorderWidth changed', scatterBorderWidth.value); scheduleScatterViewRefresh('border-width-change');});
       scatterDotSize.addEventListener('input',()=>{
         const raw = Number(scatterDotSize.value);
         if(Number.isFinite(raw)){
@@ -13809,13 +13833,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterState.dotSizeOverrideRaw = null;
         }
         scatterLog('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('dot-size-change');
       });
       if(scatterShowErrorBars){
         scatterShowErrorBars.addEventListener('change', () => {
           syncScatterErrorBarControls();
           persistTabState('scatter-error-bars-toggle');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('error-bars-toggle');
         });
       }
       if(scatterShowGroupedReplicates){
@@ -13828,17 +13852,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       if(scatterErrorBarWidth){
         scatterErrorBarWidth.addEventListener('input', () => {
           syncScatterErrorBarControls();
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('error-bar-width-change');
         });
       }
-      scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; scatterLog('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
+      scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; scatterLog('scatterAlpha changed',scatterAlpha.value); scheduleScatterViewRefresh('alpha-change');});
       scatterFontSize.addEventListener('input',()=>{
         if(scatterFontSize.dataset){
           scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
           console.debug('Debug: scatter font size input manual set',{ value: scatterFontSize.value }); // Debug: manual slider update
         }
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
-        scheduleDrawScatter();
+        scheduleScatterViewRefresh('font-size-change');
       });
       [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI,scatterShowDiagnostics]
         .forEach(el=>el&&el.addEventListener('change',()=>{
@@ -13869,14 +13893,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               console.error('scatter diagnostics toggle rerender failed',renderErr);
             }
           }
-          scheduleDrawScatter();
+          if(el === scatterShowGrid){
+            scheduleScatterViewRefresh('grid-toggle');
+          }else{
+            scheduleScatterViewRefresh(`${el.id || 'control'}-change`);
+          }
         }));
       [scatterFitRangeMinX, scatterFitRangeMaxX, scatterConfidenceLevel, scatterInitialValuesJson, scatterParameterConstraintsJson, scatterGlobalFitJson]
         .forEach(el => el && el.addEventListener('change', () => {
           validateScatterFitSpecControls();
           requestScatterStatsContextRefresh(`${el.id || 'scatter-fit-spec'}-change`);
           persistTabState('scatter-fit-spec-change');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh(`${el.id || 'scatter-fit-spec'}-change`);
         }));
       [scatterInitialValuesJson, scatterParameterConstraintsJson, scatterGlobalFitJson]
         .forEach(el => el && el.addEventListener('input', () => {
@@ -13919,7 +13947,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             }catch(e){}
           }
           persistTabState('scatter-trendline-change');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('trendline-toggle');
         });
       }
       if(scatterShowCI){
@@ -13930,7 +13958,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
           persistTabState('scatter-interval-ci-change');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('interval-ci-toggle');
         });
       }
       if(scatterShowPI){
@@ -13941,7 +13969,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
           persistTabState('scatter-interval-pi-change');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('interval-pi-toggle');
         });
       }
       const handleScatterLogToggle=(axis,checkbox)=>{
@@ -13961,7 +13989,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                   }
                   clearScatterLogWarning();
                   console.debug('Debug: scatter log+1 enabled by user confirmation',{ axis });
-                  scheduleDrawScatter();
+                  scheduleScatterViewRefresh(`log-toggle-${axis}-plus-one`);
                   return;
                 }else{
                   checkbox.checked = false;
@@ -13995,7 +14023,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             clearScatterLogWarning();
           }
           console.debug('Debug: scatter log toggle change',{ id: checkbox.id, checked: checkbox.checked });
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh(`log-toggle-${axis}`);
         });
       };
       handleScatterLogToggle('x',scatterLogX);
@@ -14011,17 +14039,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
           requestScatterStatsContextRefresh('regression-mode-change');
           persistTabState('scatter-regression-mode-change');
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('regression-mode-change');
         });
       }
-      scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
+      scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle');});
       if(scatterShowLegend){
         scatterShowLegend.addEventListener('change',()=>{
           if(scatterLegendChangeInternal){
             return;
           }
           console.debug('Debug: scatter showLegend change',{checked:scatterShowLegend.checked});
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('legend-toggle');
         });
       }
       const scatterAxisInputs=[
@@ -14043,7 +14071,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             if(scatterDebugEnabled()){
               console.debug('Debug: scatter log axis validation deferred',{ axis, context, value: el.value });
             }
-            scheduleDrawScatter();
+            scheduleScatterViewRefresh(`${axis}-${context}`);
             return;
           }
           if(!revalidateActiveScatterLogAxis(axis,context)){
@@ -14052,7 +14080,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(!scatterLogX?.checked && !scatterLogY?.checked){
             clearScatterLogWarning();
           }
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh(`${axis}-${context}`);
         });
         el.addEventListener('change',()=>{
           if(!revalidateActiveScatterLogAxis(axis,`${context}-change`)){
@@ -14061,7 +14089,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(!scatterLogX?.checked && !scatterLogY?.checked){
             clearScatterLogWarning();
           }
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh(`${axis}-${context}-change`);
         });
       });
       syncScatterGraphTypeUI();
@@ -14473,7 +14501,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       let scatterYLabelText='Y';
       let scatterZLabelText='Z';
       let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null, legend: null };
-      async function drawScatter(){
+      async function drawScatter(drawOptions = {}){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
         const info = debugEnabled ? console.debug.bind(console) : () => {};
@@ -14489,6 +14517,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let nextCollectProgressRow = debugEnabled ? collectProgressInterval : Number.POSITIVE_INFINITY;
         const pointProgressInterval = 5000;
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
+        const viewOnly = !!drawOptions?.viewOnly;
         const token=++scatterDrawToken; // debug token for cancellation
         const perfApi = Shared.Performance;
         const drawReasons = scatterState.activeDrawReasons ? Array.from(scatterState.activeDrawReasons) : [];
@@ -14501,7 +14530,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             perfApi.end(drawPerf, meta);
           }
         };
-        info('drawScatter called',{token});
+        info('drawScatter called',{token, viewOnly, reason: drawOptions?.reason || null});
         try{
         let statsContextPayload=null;
         scatterState.rotationPending = false;
@@ -14689,6 +14718,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             excludeX: !!xExcluded,
             excludeY: !!yExcluded
           });
+          scatterState.cachedCollect = null;
           chartStyle.clearSvg(scatterSvg);
           const placeholder = groupedScatterActive
             ? 'Statistics unavailable until X and at least one grouped Y column are included.'
@@ -14696,68 +14726,29 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           primeScatterStatsContext(null,{ placeholder });
           return;
         }
-        const labelCol = extractColumn(layout.labelCol);
-        const xCol = extractColumn(layout.xCol);
-        const yCol = extractColumn(layout.yCol);
-        const extraCol = extractColumn(layout.extraCol);
-        const groupedXColumns = groupedScatterActive ? includedXCols.slice() : [];
-        const groupedYColumns = groupedScatterActive
-          ? layout.groups.map(group => ({
-              index: group.index,
-              label: group.label,
-              columns: includedYCols.filter(col => col >= group.startCol && col <= group.endCol)
-            })).filter(group => group.columns.length)
-          : [];
         const selectedRowSet = getScatterSelectedRowSet(scatterHot);
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
         const thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
         const useSelectionForThresholdLabels = thresholdLabelEnabled && (graphType === 'volcano' || graphType === 'ma');
-        info('scatter column lengths',{
-          label:labelCol.length,
-          x:xCol.length,
-          y:yCol.length,
-          extra:extraCol.length,
-          layout
-        });
-        const rawXLabelHeader = xCol[0];
-        const xLabelRaw = groupedScatterActive && layout.xReplicateCount > 1
-          ? inferScatterGroupBaseName(rawXLabelHeader, rawXLabelHeader || 'X')
-          : rawXLabelHeader;
-        const yLabelRaw = groupedScatterActive
-          ? (yCol[0] != null ? yCol[0] : '')
-          : yCol[0];
-        const extraLabelRaw=extraCol[0];
-        if(graphType==='volcano'){
-          scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
-          const basePLabel=(yLabelRaw&&String(yLabelRaw).trim())||'p-value';
-          scatterState.yLabelText=`-log10(${basePLabel})`;
-        }else if(graphType==='ma'){
-          scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'Mean Expression';
-          scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
-        }else{
-          scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
-          const normalizedYLabel = yLabelRaw && String(yLabelRaw).trim();
-          const yLooksLikeReplicate = /^rep(?:licate)?\s*\d+$/i.test(normalizedYLabel || '');
-          const yMatchesGroupedLabel = groupedScatterActive
-            && Array.isArray(groupedYColumns)
-            && groupedYColumns.some(group => {
-              const label = group?.label == null ? '' : String(group.label).trim();
-              return !!label && normalizedYLabel && label.toLowerCase() === normalizedYLabel.toLowerCase();
-            });
-          scatterState.yLabelText = (!groupedScatterActive || (!yLooksLikeReplicate && !yMatchesGroupedLabel))
-            ? (normalizedYLabel || 'Y')
-            : 'Y';
-          const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
-          scatterState.zLabelText = zHeader || 'Z';
-        }
-        scatterXLabelText = scatterState.xLabelText;
-        scatterYLabelText = scatterState.yLabelText;
-        scatterZLabelText = scatterState.zLabelText;
-        const maxLen=rowCount;
-        let points=[];
+        const tableFormatMode = getScatterReplicateMode();
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
-        const labelSet=shouldCollectLabelSet ? new Set() : null;
+        const showGroupedReplicatePoints = groupedScatterActive
+          && !scatterGroupedXReplicates
+          && !!scatterShowGroupedReplicates?.checked;
+        const hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
+        const cachedCollect = scatterState.cachedCollect;
+        const canReuseCollectCache = viewOnly
+          && !scatterState.dataDirty
+          && !!cachedCollect
+          && cachedCollect.graphType === graphType
+          && cachedCollect.tableFormat === tableFormatMode
+          && cachedCollect.groupedScatterActive === groupedScatterActive
+          && cachedCollect.showGroupedReplicatePoints === showGroupedReplicatePoints
+          && cachedCollect.hasZColumn === hasZColumn;
+        let points=[];
+        let labelSet=shouldCollectLabelSet ? new Set() : null;
+        let labelsUsed = [];
         let annotationRequests = [];
         let annotationLeaderPadding = 0;
         let annotationTextPadding = 0;
@@ -14770,11 +14761,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let skippedRows=0;
         let significantCount=0;
         let maMissingPCount=0;
-        const showGroupedReplicatePoints = groupedScatterActive
-          && !scatterGroupedXReplicates
-          && !!scatterShowGroupedReplicates?.checked;
-        const hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
-        const scatter3dCandidates = [];
+        let scatter3dCandidates = [];
         let scatter3dEligible = graphType === 'scatter' && hasZColumn;
         let scatter3dMissingZ = 0;
         let scatter3dInvalidZ = 0;
@@ -14785,11 +14772,100 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let bubbleMissingCount = 0;
         let bubbleMinRaw = Infinity;
         let bubbleMaxRaw = -Infinity;
-        const collectPerf = perfApi && typeof perfApi.start === 'function'
+        const maxLen = rowCount;
+        const collectPerf = !canReuseCollectCache && perfApi && typeof perfApi.start === 'function'
           ? perfApi.start('scatter.data.collect', { component: 'scatter', rows: maxLen })
           : null;
-        time(`scatterCollectPoints_${token}`);
-        for(let r=1;r<maxLen;r++){
+        if(canReuseCollectCache){
+          points = cloneScatterPoints(cachedCollect.points);
+          labelsUsed = Array.isArray(cachedCollect.labelsUsed) ? cachedCollect.labelsUsed.slice() : [];
+          labelSet = shouldCollectLabelSet ? new Set(labelsUsed) : null;
+          xMinRaw = Number(cachedCollect.xMinRaw);
+          xMaxRaw = Number(cachedCollect.xMaxRaw);
+          yMinRaw = Number(cachedCollect.yMinRaw);
+          yMaxRaw = Number(cachedCollect.yMaxRaw);
+          significantCount = Number(cachedCollect.significantCount) || 0;
+          maMissingPCount = Number(cachedCollect.maMissingPCount) || 0;
+          scatter3dCandidates = cloneScatterPoints(cachedCollect.scatter3dCandidates);
+          scatter3dEligible = !!cachedCollect.scatter3dEligible;
+          scatter3dMissingZ = Number(cachedCollect.scatter3dMissingZ) || 0;
+          scatter3dInvalidZ = Number(cachedCollect.scatter3dInvalidZ) || 0;
+          zMinRaw = Number(cachedCollect.zMinRaw);
+          zMaxRaw = Number(cachedCollect.zMaxRaw);
+          bubbleEligible = !!cachedCollect.bubbleEligible;
+          bubbleValidCount = Number(cachedCollect.bubbleValidCount) || 0;
+          bubbleInvalidCount = Number(cachedCollect.bubbleInvalidCount) || 0;
+          bubbleMissingCount = Number(cachedCollect.bubbleMissingCount) || 0;
+          bubbleMinRaw = Number(cachedCollect.bubbleMinRaw);
+          bubbleMaxRaw = Number(cachedCollect.bubbleMaxRaw);
+          scatterState.xLabelText = cachedCollect.xLabelText || scatterState.xLabelText;
+          scatterState.yLabelText = cachedCollect.yLabelText || scatterState.yLabelText;
+          scatterState.zLabelText = cachedCollect.zLabelText || scatterState.zLabelText;
+          scatterXLabelText = scatterState.xLabelText;
+          scatterYLabelText = scatterState.yLabelText;
+          scatterZLabelText = scatterState.zLabelText;
+          info('scatter data collect skipped (view cache)', {
+            token,
+            points: points.length,
+            labels: labelsUsed.length,
+            reason: drawOptions?.reason || null
+          });
+        }else{
+          const labelCol = extractColumn(layout.labelCol);
+          const xCol = extractColumn(layout.xCol);
+          const yCol = extractColumn(layout.yCol);
+          const extraCol = extractColumn(layout.extraCol);
+          const groupedXColumns = groupedScatterActive ? includedXCols.slice() : [];
+          const groupedYColumns = groupedScatterActive
+            ? layout.groups.map(group => ({
+                index: group.index,
+                label: group.label,
+                columns: includedYCols.filter(col => col >= group.startCol && col <= group.endCol)
+              })).filter(group => group.columns.length)
+            : [];
+          info('scatter column lengths',{
+            label:labelCol.length,
+            x:xCol.length,
+            y:yCol.length,
+            extra:extraCol.length,
+            layout
+          });
+          const rawXLabelHeader = xCol[0];
+          const xLabelRaw = groupedScatterActive && layout.xReplicateCount > 1
+            ? inferScatterGroupBaseName(rawXLabelHeader, rawXLabelHeader || 'X')
+            : rawXLabelHeader;
+          const yLabelRaw = groupedScatterActive
+            ? (yCol[0] != null ? yCol[0] : '')
+            : yCol[0];
+          const extraLabelRaw=extraCol[0];
+          if(graphType==='volcano'){
+            scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
+            const basePLabel=(yLabelRaw&&String(yLabelRaw).trim())||'p-value';
+            scatterState.yLabelText=`-log10(${basePLabel})`;
+          }else if(graphType==='ma'){
+            scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'Mean Expression';
+            scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
+          }else{
+            scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
+            const normalizedYLabel = yLabelRaw && String(yLabelRaw).trim();
+            const yLooksLikeReplicate = /^rep(?:licate)?\s*\d+$/i.test(normalizedYLabel || '');
+            const yMatchesGroupedLabel = groupedScatterActive
+              && Array.isArray(groupedYColumns)
+              && groupedYColumns.some(group => {
+                const label = group?.label == null ? '' : String(group.label).trim();
+                return !!label && normalizedYLabel && label.toLowerCase() === normalizedYLabel.toLowerCase();
+              });
+            scatterState.yLabelText = (!groupedScatterActive || (!yLooksLikeReplicate && !yMatchesGroupedLabel))
+              ? (normalizedYLabel || 'Y')
+              : 'Y';
+            const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
+            scatterState.zLabelText = zHeader || 'Z';
+          }
+          scatterXLabelText = scatterState.xLabelText;
+          scatterYLabelText = scatterState.yLabelText;
+          scatterZLabelText = scatterState.zLabelText;
+          time(`scatterCollectPoints_${token}`);
+          for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
           const lab=labelValue ? String(labelValue).trim() : '';
           const physicalRow = resolvePhysicalRow(r);
@@ -15080,7 +15156,42 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             max: bubbleMaxRaw
           });
         }
-        const labelsUsed=labelSet?Array.from(labelSet):[];
+        }
+        if(!canReuseCollectCache){
+          labelsUsed = labelSet ? Array.from(labelSet) : [];
+          scatterState.cachedCollect = {
+            graphType,
+            tableFormat: tableFormatMode,
+            groupedScatterActive,
+            showGroupedReplicatePoints,
+            hasZColumn,
+            xLabelText: scatterState.xLabelText || '',
+            yLabelText: scatterState.yLabelText || '',
+            zLabelText: scatterState.zLabelText || '',
+            points: cloneScatterPoints(points),
+            labelsUsed: labelsUsed.slice(),
+            xMinRaw,
+            xMaxRaw,
+            yMinRaw,
+            yMaxRaw,
+            significantCount,
+            maMissingPCount,
+            scatter3dCandidates: cloneScatterPoints(scatter3dCandidates),
+            scatter3dEligible,
+            scatter3dMissingZ,
+            scatter3dInvalidZ,
+            zMinRaw,
+            zMaxRaw,
+            bubbleEligible,
+            bubbleValidCount,
+            bubbleInvalidCount,
+            bubbleMissingCount,
+            bubbleMinRaw,
+            bubbleMaxRaw
+          };
+        }else if(!Array.isArray(labelsUsed) || !labelsUsed.length){
+          labelsUsed = labelSet ? Array.from(labelSet) : [];
+        }
         debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
         if(scatterCurrentGraphType!=='scatter'){
           renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
@@ -15383,7 +15494,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 }else{
                   return true;
                 }
-                scheduleDrawScatter();
+                scheduleScatterViewRefresh('legend-color-change');
                 return true;
               };
               const applyLegendShape=value=>{
@@ -15392,7 +15503,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                   return true;
                 }
                 scatterLabelShapes[labelKey]=sanitizedValue;
-                scheduleDrawScatter();
+                scheduleScatterViewRefresh('legend-shape-change');
                 return true;
               };
               let previousColor=currentColor;
@@ -15915,7 +16026,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 syncScatterAxisHeader(axisKey, resolved, { source: 'scatter-axis-inline' });
                 if(node.textContent !== resolved){ node.textContent = resolved; }
                 if(didChange){
-                  scheduleDrawScatter();
+                  scheduleScatterViewRefresh(`axis-label-${axisKey}-change`);
                 }
                 return resolved;
               };
@@ -16225,7 +16336,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             if(title3d.textContent!==nextValue){
               title3d.textContent=nextValue;
             }
-            scheduleDrawScatter();
+            scheduleScatterViewRefresh('title-change');
           };
           makeEditableLocal(title3d,txt=>{
             const previous=scatterTitleText!=null?String(scatterTitleText):'';
@@ -17654,7 +17765,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(xText.textContent!==nextValue){
             xText.textContent=nextValue;
           }
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('x-label-change');
         };
         makeEditableLocal(xText,txt=>{
           const previous=scatterXLabelText!=null?String(scatterXLabelText):'';
@@ -17938,7 +18049,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(yText.textContent!==nextValue){
             yText.textContent=nextValue;
           }
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('y-label-change');
         };
         makeEditableLocal(yText,txt=>{
           const previous=scatterYLabelText!=null?String(scatterYLabelText):'';
@@ -18220,7 +18331,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(titleText.textContent!==nextValue){
             titleText.textContent=nextValue;
           }
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('title-change');
         };
         makeEditableLocal(titleText,txt=>{
           const previous=scatterTitleText!=null?String(scatterTitleText):'';
@@ -18695,7 +18806,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterState.pendingDrawReasons = null;
         let status = 'complete';
         try{
-          await drawScatter();
+          await drawScatter(nextOpts);
+          if(status === 'complete'){
+            scatterState.dataDirty = false;
+          }
         }catch(err){
           status = 'error';
           throw err;
@@ -19236,11 +19350,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           markScatterOverlayPending(overlayReason);
         }
         const skipDraw = meta?.skipDraw === true;
-        let scheduleBackup = null;
-        if(skipDraw){
-          scheduleBackup = scheduleDrawScatter;
+        const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+        const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
+        const scheduleOriginal = typeof scheduleDrawScatter === 'function' ? scheduleDrawScatter : null;
+        const shouldSuspendSchedule = !!(scheduleOriginal && (skipDraw || !skipDataLoad));
+        if(shouldSuspendSchedule){
           scheduleDrawScatter = () => {};
         }
+      try{
       const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
       const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
       const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
@@ -19262,7 +19379,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       const activeViewData = manager?.getActiveView?.()?.data;
       const matrixToLoad = Array.isArray(activeViewData) ? activeViewData : dataMatrix;
-      if(scatterHot && typeof scatterHot.loadData === 'function'){
+      if(!skipDataLoad && scatterHot && typeof scatterHot.loadData === 'function'){
+        scatterState.dataDirty = true;
+        scatterState.cachedCollect = null;
         scatterHot.loadData(matrixToLoad);
         if(obj.exclusions){
           scatterHot.applyExclusions?.(obj.exclusions);
@@ -19546,16 +19665,27 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
-        if(!skipDraw){
-          scheduleDrawScatter();
-        }
-        if(scheduleBackup){
-          scheduleDrawScatter = scheduleBackup;
+        if(!skipDraw && scheduleOriginal){
+          if(styleOnly){
+            scheduleOriginal({
+              viewOnly: true,
+              reason: meta?.reason || 'scatter-style-payload'
+            });
+          }else{
+            scheduleOriginal({
+              reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
+            });
+          }
         }
         // No deferred reapply needed: stats context has been refreshed and versions set.
         scatterDebug('Debug: scatter payload applied', { source: meta.source || 'unknown', rows: dataMatrix.length });
         return true;
+      }finally{
+        if(shouldSuspendSchedule && scheduleOriginal){
+          scheduleDrawScatter = scheduleOriginal;
+        }
       }
+    }
 
     function initNotes(){
       const stack = global.document.querySelector('#scatterGraphPanel .scatter-plot-stack')
@@ -19651,6 +19781,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       if(!applyScatterPayload(payload, { source: 'payload', ...options })){
         console.warn('scatter payload application failed', { source: 'payload' });
       }
+    };
+
+    scatter.applyColorSchemePayload = function applyScatterColorSchemePayload(payload, options = {}){
+      return applyScatterPayload(payload, {
+        source: 'color-scheme',
+        colorSchemeOnly: true,
+        ...options
+      });
     };
     scatter.getPayload = getScatterGraphPayload;
     scatter.captureEmptyPayloadTemplate = function captureScatterEmptyPayloadTemplate(){
