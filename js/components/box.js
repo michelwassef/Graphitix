@@ -5402,6 +5402,7 @@
     if(!svg){
       return;
     }
+    const fillParent = options.fillParent !== false;
     const excludeSelector = typeof options.excludeSelector === 'string' && options.excludeSelector.trim()
       ? options.excludeSelector.trim()
       : BOX_VIEWPORT_EXCLUDE_SELECTOR;
@@ -5455,7 +5456,8 @@
     const baseRatio = (Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0)
       ? (baseViewport.width / baseViewport.height)
       : 1;
-    if(Number.isFinite(baseRatio) && baseRatio > 0 && Number.isFinite(viewW) && Number.isFinite(viewH) && viewW > 0 && viewH > 0){
+    const preserveBaseAspect = options.preserveBaseAspect !== false;
+    if(preserveBaseAspect && Number.isFinite(baseRatio) && baseRatio > 0 && Number.isFinite(viewW) && Number.isFinite(viewH) && viewW > 0 && viewH > 0){
       const currentRatio = viewW / viewH;
       if(currentRatio > baseRatio){
         const targetHeight = viewW / baseRatio;
@@ -5472,8 +5474,10 @@
       viewH = Math.max(1, maxY - minY);
     }
     svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
-    svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '100%');
+    if(fillParent){
+      svg.setAttribute('width', '100%');
+      svg.setAttribute('height', '100%');
+    }
     if(svg.style){
       svg.style.overflow = 'visible';
     }
@@ -5492,6 +5496,8 @@
         selector: excludeSelector,
         baseWidth: baseViewport.width,
         baseHeight: baseViewport.height,
+        fillParent,
+        preserveBaseAspect,
         viewBox: { minX, minY, viewW, viewH }
       });
     }
@@ -6903,7 +6909,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7947,6 +7953,104 @@
     }
     return reason => syncBoxAutoDrawNoticeWidth(reason || 'immediate');
   })();
+
+  function resolveBoxSvgBoxBaseSize(svgBox){
+    if(!svgBox){
+      return { width: NaN, height: NaN, zoomScale: 1 };
+    }
+    const dataset = svgBox.dataset || {};
+    const zoomCandidate = Number(dataset.resizerZoomLevel || dataset.resizerZoom);
+    const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+    const rect = svgBox.getBoundingClientRect?.() || null;
+    const rectWidth = Number(rect?.width);
+    const rectHeight = Number(rect?.height);
+    const styleWidth = Number(svgBox.style?.width?.replace?.('px', '') || NaN);
+    const styleHeight = Number(svgBox.style?.height?.replace?.('px', '') || NaN);
+    const baseWidthDataset = Number(dataset.resizerBaseWidth);
+    const baseHeightDataset = Number(dataset.resizerBaseHeight);
+    const width = Number.isFinite(baseWidthDataset) && baseWidthDataset > 0
+      ? baseWidthDataset
+      : (Number.isFinite(rectWidth) && rectWidth > 0
+        ? (rectWidth / zoomScale)
+        : (Number.isFinite(styleWidth) && styleWidth > 0 ? (styleWidth / zoomScale) : NaN));
+    const height = Number.isFinite(baseHeightDataset) && baseHeightDataset > 0
+      ? baseHeightDataset
+      : (Number.isFinite(rectHeight) && rectHeight > 0
+        ? (rectHeight / zoomScale)
+        : (Number.isFinite(styleHeight) && styleHeight > 0 ? (styleHeight / zoomScale) : NaN));
+    return { width, height, zoomScale };
+  }
+
+  function applyBoxSignificanceViewportExtension(nextExtensionPx, options = {}){
+    const debugLogging = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const nextExtension = Number.isFinite(Number(nextExtensionPx))
+      ? Math.max(0, Math.round(Number(nextExtensionPx)))
+      : 0;
+    const previousExtension = Number.isFinite(Number(state.significanceViewportExtensionPx))
+      ? Math.max(0, Math.round(Number(state.significanceViewportExtensionPx)))
+      : 0;
+    if(Math.abs(nextExtension - previousExtension) < 1){
+      state.significanceViewportExtensionPx = nextExtension;
+      return { changed: false, previousExtension, nextExtension, applied: false };
+    }
+    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
+    const delta = nextExtension - previousExtension;
+    let resizeApplied = null;
+    if(svgBox){
+      const currentSize = resolveBoxSvgBoxBaseSize(svgBox);
+      const targetWidth = Number.isFinite(currentSize.width) && currentSize.width > 0
+        ? currentSize.width
+        : Math.max(50, Math.round(svgBox.clientWidth || 50));
+      const targetHeightBase = Number.isFinite(currentSize.height) && currentSize.height > 0
+        ? currentSize.height
+        : Math.max(40, Math.round(svgBox.clientHeight || 40));
+      // Preserve the user-controlled geometry and apply only an additive vertical extension.
+      // Keep width stable for auto-extension so significance spacing does not consume
+      // horizontal room and hide the resize handle in constrained panels.
+      const baseHeightWithoutSignificance = Math.max(40, targetHeightBase - previousExtension);
+      const targetHeight = Math.max(40, baseHeightWithoutSignificance + nextExtension);
+      if(typeof Shared.applyResizableBoxSize === 'function'){
+        resizeApplied = Shared.applyResizableBoxSize(svgBox, {
+          axis: 'both',
+          width: targetWidth,
+          height: targetHeight,
+          updateDefaults: false,
+          updateAspectRatio: true,
+          preserveAspectLock: true,
+          forceExact: true,
+          reason: options.reason || 'box-significance-viewport'
+        });
+      }else if(svgBox.style){
+        svgBox.style.height = `${Math.round(targetHeight)}px`;
+        resizeApplied = { height: targetHeight };
+      }
+      if(debugLogging){
+        console.debug('Debug: box significance viewport extension applied', {
+          previousExtension,
+          nextExtension,
+          delta,
+          baseHeightWithoutSignificance,
+          targetHeight,
+          reason: options.reason || null,
+          resizeApplied: !!resizeApplied
+        });
+      }
+      scheduleBoxNoticeWidth(options.reason || 'significance-extension');
+    }else if(debugLogging){
+      console.debug('Debug: box significance viewport extension skipped (svgbox missing)', {
+        previousExtension,
+        nextExtension
+      });
+    }
+    state.significanceViewportExtensionPx = nextExtension;
+    return {
+      changed: true,
+      previousExtension,
+      nextExtension,
+      delta,
+      applied: !!resizeApplied
+    };
+  }
 
   function ensureBoxLegendControlPlacement(){
     if(!boxLegendControl || !els.svgBox){
@@ -19204,11 +19308,18 @@ Technical analysis record (advanced)
     const borderWidthRaw = Number(getBoxBorderWidthValue());
     const errorBarWidthInput = Number(getBoxErrorBarWidthValue());
     const errorBarWidthRaw = Number.isFinite(errorBarWidthInput) ? errorBarWidthInput : borderWidthRaw;
+    const showSignificance = !!state.showSignificanceBars;
     const containerRect = els.svgBox?.getBoundingClientRect?.();
+    const significanceExtensionForScale = showSignificance && Number.isFinite(Number(state.significanceViewportExtensionPx))
+      ? Math.max(0, Number(state.significanceViewportExtensionPx))
+      : 0;
+    const effectiveContainerHeightForScale = Number.isFinite(Number(containerRect?.height))
+      ? Math.max(40, Number(containerRect.height) - significanceExtensionForScale)
+      : containerRect?.height;
     const fontInfo = chartStyle.resolveScaledFontSize({
       rawSize: els.boxFontSize.value,
       width: containerRect?.width,
-      height: containerRect?.height,
+      height: effectiveContainerHeightForScale,
       svgBox: els.svgBox,
       input: els.boxFontSize
     });
@@ -19269,7 +19380,6 @@ Technical analysis record (advanced)
 	    let annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
 	    const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
 	    const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
-	    const showSignificance = !!state.showSignificanceBars;
     console.debug('Debug: box showSignificance flag',{ showSignificance });
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo, input: els.boxFontSize });
     console.debug('Debug: box font scaling applied',{
@@ -19279,7 +19389,9 @@ Technical analysis record (advanced)
       scaledFontPx: fs,
       scale: fontInfo.scaleInfo?.scale,
       containerWidth: containerRect?.width,
-      containerHeight: containerRect?.height
+      containerHeight: containerRect?.height,
+      effectiveContainerHeightForScale,
+      significanceExtensionForScale
     });
     console.debug('Debug: box style scaling applied',{
       borderWidthRaw,
@@ -19660,6 +19772,7 @@ Technical analysis record (advanced)
       }
       global.document.getElementById('boxPlot').innerHTML='';
       resetStatsComputationState({ placeholder: 'Add data to enable statistics.' });
+      applyBoxSignificanceViewportExtension(0, { reason: 'no-traces' });
       return;
     }
     const colorPrimeSample = [];
@@ -19696,6 +19809,7 @@ Technical analysis record (advanced)
         global.document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
         global.document.getElementById('statsResults').innerHTML='';
         global.document.getElementById('statsTable').innerHTML='';
+        applyBoxSignificanceViewportExtension(0, { reason: 'log-scale-invalid' });
         return;
       }
       if(logPlusOne){
@@ -19710,11 +19824,56 @@ Technical analysis record (advanced)
     while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
     const W = Math.max(50, Math.floor(els.plotDiv.clientWidth || 50));
     const H = Math.max(40, Math.floor(els.plotDiv.clientHeight || 40));
+    const storedSignificanceBaseHeight = Number(state.significanceBasePlotHeightPx);
+    const hasStoredSignificanceBaseHeight = Number.isFinite(storedSignificanceBaseHeight) && storedSignificanceBaseHeight > 0;
+    const previousSignificanceViewportExtension = Number.isFinite(Number(state.significanceViewportExtensionPx))
+      ? Math.max(0, Number(state.significanceViewportExtensionPx))
+      : 0;
+    let significanceBasePlotHeight = hasStoredSignificanceBaseHeight
+      ? storedSignificanceBaseHeight
+      : H;
+    if(!hasStoredSignificanceBaseHeight){
+      state.significanceBasePlotHeightPx = significanceBasePlotHeight;
+    }
+    let actualSignificanceViewportExtension = previousSignificanceViewportExtension;
+    if(showSignificance){
+      if(previousSignificanceViewportExtension > 0){
+        const inferredBaseFromCurrentGeometry = H - previousSignificanceViewportExtension;
+        if(Number.isFinite(inferredBaseFromCurrentGeometry) && inferredBaseFromCurrentGeometry > 0){
+          significanceBasePlotHeight = Math.max(40, inferredBaseFromCurrentGeometry);
+          state.significanceBasePlotHeightPx = significanceBasePlotHeight;
+        }
+      }else{
+        // Fallback for restored sessions where extension state is missing but
+        // geometry already includes significance space.
+        const inferredExtensionFromGeometry = Math.max(0, H - significanceBasePlotHeight);
+        if(inferredExtensionFromGeometry > 0.5){
+          actualSignificanceViewportExtension = inferredExtensionFromGeometry;
+        }
+      }
+    }
+    state.significanceViewportExtensionPx = actualSignificanceViewportExtension;
+    if(!showSignificance && actualSignificanceViewportExtension <= 0.5){
+      significanceBasePlotHeight = H;
+      state.significanceBasePlotHeightPx = H;
+    }
+    if(debugEnabled){
+      console.debug('Debug: box significance baseline height', {
+        showSignificance,
+        storedBase: hasStoredSignificanceBaseHeight ? storedSignificanceBaseHeight : null,
+        resolvedBase: significanceBasePlotHeight,
+        plotHeight: H,
+        previousExtension: previousSignificanceViewportExtension,
+        actualExtension: actualSignificanceViewportExtension
+      });
+    }
     els.plotDiv.style.position = 'relative';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('id', 'boxSvg');
     svg.setAttribute('width', String(W));
     svg.setAttribute('height', String(H));
+    svg.setAttribute('data-box-base-width', String(W));
+    svg.setAttribute('data-box-base-height', String(H));
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
     chartStyle.applySvgDefaults(svg);
@@ -20341,6 +20500,8 @@ Technical analysis record (advanced)
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
+      const existingViewportExtension = Math.max(0, H - significanceBasePlotHeight);
+      const baseCanvasHeight = Math.max(40, significanceBasePlotHeight);
       const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth);
       const annotationLabelClearance = showSignificance && maxLevelEstimate >= 0
         ? (annotationBracketSize + (annotationLabelFontSize || 12))
@@ -20354,24 +20515,54 @@ Technical analysis record (advanced)
       const titleGap = showSignificance && maxLevelEstimate >= 0
         ? Math.max(6, (fs || 12) * 0.45)
         : 0;
+      const significanceDownShiftTarget = showSignificance && maxLevelEstimate >= 0 && Number.isFinite(topExtra) && topExtra > 0
+        ? topExtra
+        : 0;
       const annotationMinY = (titleBand && titleGap) ? (titleBand + titleGap) : null;
+      const resolveBottomLayoutForVerticalShift = (plotWidth, baseBottom) => {
+        const safeBaseBottom = Number.isFinite(Number(baseBottom)) ? Number(baseBottom) : 0;
+        const nextBottomLayout = chartStyle.computeBottomLayout({
+          labels: labelTexts,
+          fontSize: fs,
+          plotWidth,
+          baseBottom: safeBaseBottom,
+          axisMetrics
+        });
+        const appliedDownShift = 0;
+        const unresolvedDownShift = significanceDownShiftTarget > 0
+          ? significanceDownShiftTarget
+          : 0;
+        if(significanceDownShiftTarget > 0 && debugEnabled){
+          console.debug('Debug: box significance vertical shift allocation',{
+            topExtra: significanceDownShiftTarget,
+            baseBottom: safeBaseBottom,
+            appliedDownShift,
+            unresolvedDownShift,
+            computedBottom: nextBottomLayout.bottom,
+            plotWidth
+          });
+        }
+        return {
+          bottomLayout: nextBottomLayout,
+          appliedDownShift,
+          unresolvedDownShift
+        };
+      };
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top += topExtra + titleBand + titleGap;
       marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
-      let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
-      let bottomLayout = chartStyle.computeBottomLayout({ labels: labelTexts, fontSize: fs, plotWidth: plotWLocal, baseBottom: marginLocal.bottom, axisMetrics });
+      let plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
+      let canvasHeightLocal = baseCanvasHeight;
+      let bottomLayoutResult = resolveBottomLayoutForVerticalShift(plotWLocal, marginLocal.bottom);
+      let bottomLayout = bottomLayoutResult.bottomLayout;
+      let unresolvedDownShift = bottomLayoutResult.unresolvedDownShift;
       marginLocal.bottom = bottomLayout.bottom;
+      canvasHeightLocal = baseCanvasHeight + unresolvedDownShift;
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
-      plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
+      plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
       const yIntervalSetting = getAxisTickInterval('y');
-      const resolveYTickTargetHeight = () => {
-        // Keep y tick targeting independent from significance top reservation so x spacing stays stable.
-        if(!(showSignificance && Number.isFinite(topExtra) && topExtra > 0)){
-          return plotHLocal;
-        }
-        return Math.max(20, plotHLocal + topExtra);
-      };
+      const resolveYTickTargetHeight = () => Math.max(20, plotHLocal);
       let yTickTarget = chartStyle.estimateTickCount(resolveYTickTargetHeight(), { axis: 'y', fallback: 6 });
       let yScale = buildAxisScale({
         dataMin: ymin,
@@ -20416,11 +20607,14 @@ Technical analysis record (advanced)
         const yTitleSafetyPad = Math.max(2, Math.round((axisMetrics.yTitleGap || 0) * 0.5));
         marginLocal.left = Math.max(marginLocal.left, yLabelGap + axisMetrics.axisTitleGap + fs + yTitleSafetyPad);
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
-        plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
-        bottomLayout = chartStyle.computeBottomLayout({ labels: labelTexts, fontSize: fs, plotWidth: plotWLocal, baseBottom: marginLocal.bottom, axisMetrics });
+        plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
+        bottomLayoutResult = resolveBottomLayoutForVerticalShift(plotWLocal, marginLocal.bottom);
+        bottomLayout = bottomLayoutResult.bottomLayout;
+        unresolvedDownShift = bottomLayoutResult.unresolvedDownShift;
         marginLocal.bottom = bottomLayout.bottom;
+        canvasHeightLocal = baseCanvasHeight + unresolvedDownShift;
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
-        plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
+        plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
         if(manualYScale){
           break;
         }
@@ -20432,7 +20626,20 @@ Technical analysis record (advanced)
         }
         yTickTarget = refinedTickTarget;
       }
-      console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget, manualTicks: !!manualYScale });
+      console.debug('Debug: box layout',{
+        margin: marginLocal,
+        plotW: plotWLocal,
+        plotH: plotHLocal,
+        rotate: bottomLayout.shouldRotate,
+        yTickTarget,
+        manualTicks: !!manualYScale,
+        significanceTopReserve: topExtra,
+        significanceDownShiftTarget,
+        significanceDownShiftUnresolved: unresolvedDownShift,
+        baseCanvasHeight,
+        existingViewportExtension,
+        canvasHeight: canvasHeightLocal
+      });
       const axisCount = Math.max(axisLabels.length, 1);
       // Add a small gap between adjacent category bands so datasets don't touch
       // each other. Compute a gap as a fraction of the raw band width and
@@ -22113,7 +22320,9 @@ Technical analysis record (advanced)
         annotationMaxByTrace,
         titleX: marginLocal.left + plotWUsed / 2,
         titleY: titleBand ? Math.max((fs || 12) * 1.25, titleBand * 0.55) : (marginLocal.top / 2),
-        annotationMinY
+        annotationMinY,
+        baseCanvasHeight,
+        canvasHeight: canvasHeightLocal
       };
     }
 
@@ -23628,6 +23837,7 @@ Technical analysis record (advanced)
 
     const orientationResult = isFlipped ? await renderHorizontal() : await renderVertical();
     if(!orientationResult){
+      applyBoxSignificanceViewportExtension(0, { reason: 'orientation-missing' });
       ensureBoxViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       state.layout?.syncPanels?.({ skipSchedule: true });
       syncBoxAutoDrawNoticeWidth('draw');
@@ -23636,6 +23846,61 @@ Technical analysis record (advanced)
     if(token !== state.drawToken){
       boxLog('boxplot draw cancelled before finalize',{ token });
       return;
+    }
+    const viewportWidth = Number.isFinite(orientationResult?.canvasWidth) && orientationResult.canvasWidth > 0
+      ? orientationResult.canvasWidth
+      : W;
+    const viewportHeight = Number.isFinite(orientationResult?.canvasHeight) && orientationResult.canvasHeight > 0
+      ? orientationResult.canvasHeight
+      : H;
+    const previousViewportExtension = Math.max(0, H - significanceBasePlotHeight);
+    const viewportBaseHeight = Number.isFinite(orientationResult?.baseCanvasHeight) && orientationResult.baseCanvasHeight > 0
+      ? orientationResult.baseCanvasHeight
+      : Math.max(40, significanceBasePlotHeight);
+    const requiredViewportExtension = Math.max(0, Math.ceil(viewportHeight - viewportBaseHeight));
+    const extensionUpdate = applyBoxSignificanceViewportExtension(requiredViewportExtension, { reason: 'draw-layout' });
+    const extensionChanged = !!extensionUpdate?.changed;
+    if(extensionChanged && boxDebugEnabled()){
+      console.debug('Debug: box significance viewport extension sync', {
+        previous: extensionUpdate.previousExtension,
+        next: extensionUpdate.nextExtension,
+        requiredViewportExtension,
+        viewportBaseHeight,
+        viewportHeight
+      });
+    }
+    const useFillParentViewport = !(viewportWidth > W + 0.5 || viewportHeight > H + 0.5);
+    svg.setAttribute('data-box-base-width', String(viewportWidth));
+    svg.setAttribute('data-box-base-height', String(viewportHeight));
+    const zoomViewport = els.svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
+    const zoomContent = els.svgBox?.querySelector?.('.resizer-zoom-content') || null;
+    if(useFillParentViewport){
+      if(els.plotDiv?.style){
+        els.plotDiv.style.removeProperty('overflow');
+      }
+      if(zoomViewport?.style){
+        zoomViewport.style.removeProperty('overflow');
+      }
+      if(zoomContent?.style){
+        zoomContent.style.removeProperty('overflow');
+      }
+    }else{
+      if(els.plotDiv?.style){
+        els.plotDiv.style.overflow = 'visible';
+      }
+      if(zoomViewport?.style){
+        zoomViewport.style.overflow = 'visible';
+      }
+      if(zoomContent?.style){
+        zoomContent.style.overflow = 'visible';
+      }
+    }
+    if(!useFillParentViewport){
+      svg.setAttribute('width', String(viewportWidth));
+      svg.setAttribute('height', String(viewportHeight));
+    }
+    if(extensionChanged){
+      state.scheduleDraw?.({ viewOnly: true, reason: 'significance-viewport-extension' });
     }
     const defaultTitleX = orientationResult.titleX;
     const defaultTitleY = orientationResult.titleY;
@@ -23783,7 +24048,15 @@ Technical analysis record (advanced)
       titleText.setAttribute('y', newY);
     }
     registerBoxGridControlTarget(svg, { fallbackThickness: axisStrokeBase });
-    ensureBoxViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
+    const disableViewportAspectNormalization = showSignificance
+      && Number.isFinite(Number(state.significanceViewportExtensionPx))
+      && Number(state.significanceViewportExtensionPx) > 0;
+    ensureBoxViewport(svg, {
+      padding: Math.max(fs || 14, 16),
+      debugLabel: 'box-graph',
+      fillParent: useFillParentViewport,
+      preserveBaseAspect: !disableViewportAspectNormalization
+    });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncBoxAutoDrawNoticeWidth('draw');
     traceCount = traces.length;
