@@ -577,7 +577,7 @@
                   </select>
                 </label>
                 <label class="config-panel__item config-panel__item--select-auto idx-inline-001" id="scatterViewControls">
-                  <span class="config-panel__label">Graph view</span>
+                  <span class="config-panel__label">View</span>
                   <select id="scatterViewMode">
                     <option value="2d">2D</option>
                     <option value="bubble">Bubble</option>
@@ -585,6 +585,16 @@
                   </select>
                 </label>
                 <label class="config-panel__checkbox config-panel__checkbox--inline"><input type="checkbox" id="scatterShowLegend" checked /> <span>Show legend</span></label>
+              </div>
+              <div class="scatter-graph-regression-options" id="scatterGraphRegressionOptionsGrid">
+                <div class="config-panel__line config-panel__line--checkboxes scatter-graph-regression-options-row">
+                  <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowLine" /> <span>Show trend line</span></label>
+                  <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPlotStats" /> <span>Show stats on plot</span></label>
+                </div>
+                <div class="config-panel__line config-panel__line--checkboxes scatter-graph-regression-options-row">
+                  <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowCI" /> <span>Confidence interval (CI)</span></label>
+                  <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPI" /> <span>Prediction interval (PI)</span></label>
+                </div>
               </div>
               <div class="config-panel__line config-panel__line--split idx-inline-001" id="scatterThresholdControls">
                 <label class="config-panel__item">
@@ -606,6 +616,9 @@
             <div id="scatterDotControlState" hidden aria-hidden="true">
               <input type="number" id="scatterDotSize" value="3" min="1" max="20" />
               <input type="color" id="scatterFill" value="#377eb8" />
+              <input type="color" id="scatterBorder" value="#000000" />
+              <input type="number" id="scatterBorderWidth" value="0" min="0" max="10" />
+              <input type="number" id="scatterErrorBarWidth" value="1" min="0" max="10" />
               <input type="range" id="scatterAlpha" min="0" max="1" step="0.05" value="0" />
               <output id="scatterAlphaVal">0</output>
               <input type="checkbox" id="scatterShowErrorBars" checked />
@@ -630,23 +643,6 @@
                 </label>
               </div>
             </div>
-            <fieldset class="config-panel__fieldset">
-              <legend>Border</legend>
-              <div class="config-panel__line config-panel__line--split">
-                <label class="config-panel__item config-panel__item--narrow">
-                  <span class="config-panel__label">Thickness</span>
-                  <input type="number" id="scatterBorderWidth" value="0" min="0" max="10" />
-                </label>
-                <label class="config-panel__item config-panel__item--swatch">
-                  <span class="config-panel__label">Color</span>
-                  <input type="color" id="scatterBorder" value="#000000" />
-                </label>
-                <label class="config-panel__item config-panel__item--narrow">
-                  <span class="config-panel__label">Error bar thickness</span>
-                  <input type="number" id="scatterErrorBarWidth" value="1" min="0" max="10" />
-                </label>
-              </div>
-            </fieldset>
             <fieldset class="config-panel__fieldset">
               <legend>Grid &amp; axis</legend>
               <div class="config-panel__line config-panel__line--checkboxes">
@@ -753,7 +749,7 @@
                 </select>
               </label>
             </div>
-            <div class="config-panel__line">
+            <div class="config-panel__line" id="scatterStatsAssociationRow">
               <label class="config-panel__item config-panel__item--wide">
                 <span class="config-panel__label">Association metric (optional)</span>
                 <select id="scatterStatType">
@@ -763,13 +759,7 @@
                   <option value="none">None (model fit only)</option>
                 </select>
               </label>
-            </div>
-            <div class="config-panel__line config-panel__line--checkboxes">
-              <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowLine" /> <span>Show trend line</span></label>
-              <label class="config-panel__checkbox idx-inline-038"><input type="checkbox" id="scatterShowCI" /> <span>Confidence interval (CI)</span></label>
-              <label class="config-panel__checkbox idx-inline-039"><input type="checkbox" id="scatterShowPI" /> <span>Prediction interval (PI)</span></label>
               <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowDiagnostics" /> <span>Show diagnostics summary</span></label>
-              <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPlotStats" /> <span>Show stats on plot</span></label>
             </div>
             <div id="scatterStatsActionRow" class="config-panel__line idx-inline-040">
               <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
@@ -1169,8 +1159,15 @@
           </div>
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
-              <legend>Display</legend>
-              <div class="control">
+              <legend>Graph</legend>
+              <div class="control line-graph-mode-view-row" id="lineGraphModeViewRow">
+                <label class="idx-inline-023">
+                  Mode
+                  <select id="lineDisplayMode">
+                    <option value="line" selected>Line</option>
+                    <option value="area">Area</option>
+                  </select>
+                </label>
                 <label class="idx-inline-023">
                   View
                   <select id="lineViewMode">
@@ -1179,14 +1176,20 @@
                   </select>
                 </label>
               </div>
-              <div class="control">
-                <label class="idx-inline-023">
-                  Mode
-                  <select id="lineDisplayMode">
-                    <option value="line" selected>Line</option>
-                    <option value="area">Area</option>
-                  </select>
-                </label>
+              <div class="line-graph-regression-options" id="lineGraphRegressionOptionsGrid">
+                <div class="control line-graph-regression-options-row">
+                  <label class="idx-inline-023">
+                    <input type="checkbox" id="lineShowTrendLine" /> Show Fitted Trend Line
+                  </label>
+                  <label class="idx-inline-023">
+                    <input type="checkbox" id="lineShowIntervals" /> Show Confidence Interval
+                  </label>
+                </div>
+                <div class="control line-graph-regression-options-row">
+                  <label class="idx-inline-023">
+                    <input type="checkbox" id="lineShowPredictionIntervals" /> Show Prediction Interval
+                  </label>
+                </div>
               </div>
             </fieldset>
             <fieldset>
@@ -1200,12 +1203,9 @@
                   <label class="idx-inline-023">Color</label>
                   <input type="color" id="lineBorder" value="#377eb8" />
                 </div>
-                <div class="idx-inline-042">
-                  <label class="idx-inline-023">Error Bar Thickness</label>
-                  <input type="number" id="lineErrorBarWidth" value="2" min="0" max="10" />
-                </div>
               </div>
             </fieldset>
+            <input type="number" id="lineErrorBarWidth" value="2" min="0" max="10" hidden />
             <fieldset>
               <legend>Grid & Axis</legend>
               <div class="control idx-inline-031">
@@ -1259,17 +1259,15 @@
           <fieldset>
             <legend>Statistics</legend>
             <div id="lineStatsAdvisor"></div>
-            <div class="control">
-              <label>
+            <div class="control line-stats-primary-row" id="lineStatsPrimaryRow">
+              <label class="idx-inline-023">
                 Method
                 <select id="lineStatType">
                   <option value="pearson">Parametric (Pearson)</option>
                   <option value="spearman">Non-Parametric (Spearman)</option>
                 </select>
               </label>
-            </div>
-            <div class="control">
-              <label>
+              <label class="idx-inline-023">
                 Regression
                 <select id="lineRegressionMode">
                   <option value="linear" selected>Linear</option>
@@ -1282,17 +1280,6 @@
                   <option value="arima">ARIMA</option>
                   <option value="holtWinters">Holt-Winters</option>
                 </select>
-              </label>
-            </div>
-            <div class="control idx-inline-045">
-              <label class="idx-inline-023">
-                <input type="checkbox" id="lineShowTrendLine" /> Show Fitted Trend Line
-              </label>
-              <label class="idx-inline-023">
-                <input type="checkbox" id="lineShowIntervals" /> Show Confidence Interval
-              </label>
-              <label class="idx-inline-023">
-                <input type="checkbox" id="lineShowPredictionIntervals" /> Show Prediction Interval
               </label>
               <label class="idx-inline-023">
                 <input type="checkbox" id="lineShowDiagnostics" /> Show Diagnostics Summary

@@ -266,6 +266,8 @@
   let lineTextColor = chartStyle.TEXT_COLOR || '#000000';
   let lineBackgroundColor = '#ffffff';
   let lineLegendControl = null;
+  let lineErrorBarToolbarPanel = null;
+  let lineErrorBarToolbarInput = null;
 
   function normalizeLineThemeColor(value, fallback){
     return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
@@ -2291,6 +2293,117 @@
     console.debug(label, payload);
   }
 
+  function clampLineErrorBarWidth(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 2;
+    }
+    return Math.min(10, Math.max(0, numeric));
+  }
+
+  function formatLineErrorBarWidth(value){
+    const rounded = Math.round(clampLineErrorBarWidth(value) * 100) / 100;
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  }
+
+  function syncLineErrorBarToolbarValue(){
+    if(!refs.errorBarWidth){
+      return;
+    }
+    const normalizedText = formatLineErrorBarWidth(refs.errorBarWidth.value);
+    if(refs.errorBarWidth.value !== normalizedText){
+      refs.errorBarWidth.value = normalizedText;
+    }
+    if(lineErrorBarToolbarInput && lineErrorBarToolbarInput.value !== normalizedText){
+      lineErrorBarToolbarInput.value = normalizedText;
+    }
+  }
+
+  function clearLineErrorBarToolbarControl(host){
+    const targetHost = host
+      || lineErrorBarToolbarPanel?.parentElement
+      || global.document?.querySelector?.('.font-toolbar-host[data-font-toolbar-scope="line"]')
+      || null;
+    if(targetHost?.querySelectorAll){
+      targetHost.querySelectorAll('.line-errorbar-inline-panel').forEach(node => node.remove());
+    }
+    lineErrorBarToolbarPanel = null;
+    lineErrorBarToolbarInput = null;
+  }
+
+  function syncLineErrorBarToolbarControl(host){
+    const targetHost = host
+      || lineErrorBarToolbarPanel?.parentElement
+      || global.document?.querySelector?.('.font-toolbar-host[data-font-toolbar-scope="line"]')
+      || null;
+    if(!targetHost){
+      return;
+    }
+    const shouldShow = isLineGroupedModeActive();
+    if(!shouldShow || !refs.errorBarWidth){
+      clearLineErrorBarToolbarControl(targetHost);
+      lineDebug('Debug: line error bar toolbar visibility updated', { visible: false, groupedMode: shouldShow });
+      return;
+    }
+    let panel = targetHost.querySelector('.line-errorbar-inline-panel');
+    if(!panel){
+      clearLineErrorBarToolbarControl(targetHost);
+      const doc = targetHost.ownerDocument || global.document;
+      if(!doc){
+        return;
+      }
+      panel = doc.createElement('div');
+      panel.className = 'additional-line-controls-panel line-errorbar-inline-panel';
+      panel.dataset.lineErrorBarToolbar = '1';
+      const title = doc.createElement('div');
+      title.className = 'additional-line-controls-panel__title';
+      title.textContent = 'Error bars';
+      panel.appendChild(title);
+      const row = doc.createElement('div');
+      row.className = 'additional-line-controls-panel__row';
+      panel.appendChild(row);
+      const field = doc.createElement('label');
+      field.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric';
+      const label = doc.createElement('span');
+      label.className = 'additional-line-controls-panel__field-label';
+      label.textContent = 'Error Bar Thickness';
+      const input = doc.createElement('input');
+      input.type = 'number';
+      input.min = refs.errorBarWidth.min || '0';
+      input.max = refs.errorBarWidth.max || '10';
+      input.step = refs.errorBarWidth.step || '0.25';
+      input.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small';
+      input.setAttribute('aria-label', 'Error bar thickness');
+      input.setAttribute('data-undo-ignore', '1');
+      const applyToolbarValue = () => {
+        if(!refs.errorBarWidth){
+          return;
+        }
+        const nextText = formatLineErrorBarWidth(input.value);
+        if(input.value !== nextText){
+          input.value = nextText;
+        }
+        refs.errorBarWidth.value = nextText;
+        refs.errorBarWidth.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      input.addEventListener('input', applyToolbarValue);
+      input.addEventListener('change', applyToolbarValue);
+      field.appendChild(label);
+      field.appendChild(input);
+      row.appendChild(field);
+      panel.appendChild(row);
+      targetHost.appendChild(panel);
+      lineErrorBarToolbarPanel = panel;
+      lineErrorBarToolbarInput = input;
+      lineDebug('Debug: line error bar toolbar control mounted', { groupedMode: shouldShow });
+    }else{
+      lineErrorBarToolbarPanel = panel;
+      lineErrorBarToolbarInput = panel.querySelector('input[type="number"]');
+    }
+    syncLineErrorBarToolbarValue();
+    lineDebug('Debug: line error bar toolbar visibility updated', { visible: true, groupedMode: shouldShow });
+  }
+
   function activateLineDataToolbar(reason){
     const now = Date.now();
     if(now - lineDataToolbarLastActivation < 80){
@@ -3261,6 +3374,7 @@
             if(additionalLineControls && typeof additionalLineControls.refresh === 'function'){
               additionalLineControls.refresh();
             }
+            syncLineErrorBarToolbarControl(toolbarHost);
           }catch(err){}
         };
         if(additionalLineControls && typeof additionalLineControls.show === 'function'){
@@ -3667,6 +3781,7 @@
           toolbarHost.style.columnGap = '10px';
           toolbarHost.style.alignItems = 'flex-start';
         }
+        syncLineErrorBarToolbarControl(toolbarHost);
         if(markerScopeSelect){
           markerScopeSelect.addEventListener('change', () => {
             setLineScope(markerScopeSelect.value, {
@@ -5067,6 +5182,7 @@
     if(mode === '3d'){
       renderLine3dList();
     }
+    syncLineErrorBarToolbarControl();
   }
 
   function updateLineGroupShapeSelect(index, shape){
@@ -7276,6 +7392,7 @@
       }else if(!refs.errorBarWidth.value){
         refs.errorBarWidth.value=refs.borderWidth?.value || '1';
       }
+      syncLineErrorBarToolbarValue();
     }
     if(refs.alpha){
       refs.alpha.value=c.alpha||0;
@@ -10696,6 +10813,7 @@
     refs.border=document.getElementById('lineBorder');
     refs.borderWidth=document.getElementById('lineBorderWidth');
     refs.errorBarWidth=document.getElementById('lineErrorBarWidth');
+    syncLineErrorBarToolbarValue();
     refs.dotSize=document.getElementById('lineDotSize');
     refs.displayMode=document.getElementById('lineDisplayMode');
     refs.alpha=document.getElementById('lineAlpha');
@@ -11749,6 +11867,7 @@
     refs.border?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.borderWidth?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.errorBarWidth?.addEventListener('input',()=>{
+      syncLineErrorBarToolbarValue();
       console.debug('Debug: line errorBarWidth change',{ value: refs.errorBarWidth.value });
       scheduleLineDraw();
     });

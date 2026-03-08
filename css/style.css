@@ -3937,12 +3937,12 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
     display:inline-flex;
     align-items:center;
     gap:6px;
-    padding:4px 8px;
-    border:1px solid #b4bccb;
-    background:#f9fafc;
-    font-size:11px;
+    padding:0;
+    border:0;
+    background:transparent;
+    font-size:var(--graph-control-font-size,12px);
     font-weight:400;
-    color:#1e2633;
+    color:#111b2c;
     letter-spacing:.04em;
     text-transform:none;
     cursor:pointer;
@@ -4304,6 +4304,74 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #scatterStats .config-panel__line{gap:8px 12px;margin-top:6px}
 #scatterStats .config-panel__line:first-of-type{margin-top:0}
 #scatterStats .config-panel__line--split{column-gap:16px;row-gap:10px}
+#scatterPage #scatterStatsAssociationRow{
+    display:flex;
+    flex-wrap:nowrap;
+    align-items:center;
+    gap:12px;
+}
+#scatterPage #scatterStatsAssociationRow .config-panel__checkbox{
+    margin:0;
+}
+#linePage #lineGraphRegressionOptionsGrid{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:4px;
+    margin-top:6px;
+    width:max-content;
+    max-width:100%;
+}
+#linePage #lineGraphRegressionOptionsGrid .line-graph-regression-options-row{
+    display:flex;
+    flex-wrap:nowrap;
+    align-items:center;
+    gap:14px;
+    margin-top:0;
+}
+#linePage #lineGraphRegressionOptionsGrid .idx-inline-023{
+    margin:0;
+}
+#linePage #lineGraphModeViewRow{
+    display:flex;
+    flex-wrap:nowrap;
+    align-items:center;
+    gap:14px;
+    margin-top:0;
+    width:max-content;
+    max-width:100%;
+}
+#linePage #lineGraphModeViewRow .idx-inline-023{
+    margin:0;
+}
+#linePage #lineStatsPrimaryRow{
+    display:flex;
+    flex-wrap:nowrap;
+    align-items:center;
+    gap:12px;
+}
+#linePage #lineStatsPrimaryRow .idx-inline-023{
+    margin:0;
+}
+#scatterPage #scatterGraphRegressionOptionsGrid{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:4px;
+    margin-top:6px;
+    width:max-content;
+    max-width:100%;
+}
+#scatterPage #scatterGraphRegressionOptionsGrid .scatter-graph-regression-options-row{
+    display:flex;
+    flex-wrap:nowrap;
+    align-items:center;
+    gap:14px;
+    margin-top:0;
+}
+#scatterPage #scatterGraphRegressionOptionsGrid .config-panel__checkbox{
+    margin:0;
+}
 #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
 #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 @media (max-width:1000px){#scatterPage .wrap{grid-template-columns:1fr}}

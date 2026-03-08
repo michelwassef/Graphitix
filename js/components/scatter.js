@@ -10041,7 +10041,9 @@
       let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
       const scatterShowCI = $('#scatterShowCI');
       const scatterShowPI = $('#scatterShowPI');
-      const scatterStatsRegressionOptionsRow=(scatterShowLine)?.closest('.config-panel__line--checkboxes')||null;
+      const scatterStatsRegressionOptionsRow=document.getElementById('scatterGraphRegressionOptionsGrid')
+        || (scatterShowLine)?.closest('.config-panel__line--checkboxes')
+        || null;
       let scatterShowDiagnostics=$('#scatterShowDiagnostics');
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
