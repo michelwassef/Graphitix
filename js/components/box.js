@@ -8064,6 +8064,37 @@
       });
     }
   }
+
+  function ensureBoxSignificanceControlPlacement(){
+    const controls = els.boxLegacySignificanceControls
+      || global.document?.getElementById?.('boxLegacySignificanceControls')
+      || null;
+    if(!controls){
+      return;
+    }
+    if(controls.hidden){
+      controls.hidden = false;
+    }
+    controls.removeAttribute?.('hidden');
+    controls.setAttribute?.('aria-hidden', 'false');
+    if(controls.style){
+      controls.style.display = 'flex';
+    }
+    const summaryCtl = els.boxIndividualSummaryCtl || global.document?.getElementById?.('boxIndividualSummaryCtl') || null;
+    if(!summaryCtl || !summaryCtl.parentNode || summaryCtl.parentNode !== controls.parentNode){
+      return;
+    }
+    const parent = summaryCtl.parentNode;
+    const anchor = summaryCtl.nextSibling;
+    if(anchor === controls){
+      return;
+    }
+    parent.insertBefore(controls, anchor);
+    if(boxDebugEnabled()){
+      console.debug('Debug: box significance controls placed below summary overlay');
+    }
+  }
+
   let boxLogWarningEl = null;
   const boxDebugEnabled = () => typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
 
@@ -8464,6 +8495,8 @@
     }
     els.boxIndividualSummaryCtl=global.$('#boxIndividualSummaryCtl');
     els.boxIndividualSummary=global.$('#boxIndividualSummary');
+    els.boxLegacySignificanceControls=global.$('#boxLegacySignificanceControls');
+    ensureBoxSignificanceControlPlacement();
     if(els.boxIndividualSummary){
       populateIndividualSummarySelect(els.boxIndividualSummary);
       const fallbackSummary = normalizeIndividualSummaryValue(state.individualSummary);
@@ -10480,6 +10513,7 @@
         }
         console.debug('Debug: box individual summary visibility',{ graphTypeValue, summaryVisible });
       }
+      ensureBoxSignificanceControlPlacement();
       if(els.boxLayoutModeCtl){
         const groupedActive = state.tableFormat === 'grouped';
         els.boxLayoutModeCtl.style.display = groupedActive ? '' : 'none';
@@ -24629,6 +24663,7 @@ Technical analysis record (advanced)
     if(els.boxIndividualSummaryCtl){
       els.boxIndividualSummaryCtl.style.display = graphTypeValue==='strip' ? '' : 'none';
     }
+    ensureBoxSignificanceControlPlacement();
     state.fillColors=c.colors||[];
     state.borderColors=c.borderColors||[];
     state.traceShapeStyles = cloneSimple(c.shapeStyles) || {};
