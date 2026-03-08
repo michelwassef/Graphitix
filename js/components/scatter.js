@@ -10028,13 +10028,6 @@
       const scatterDensityPalette=$('#scatterDensityPalette');
       const scatterDensityPaletteRow=$('#scatterDensityPaletteRow');
       const scatterColorModeRow=$('#scatterColorModeRow');
-      const scatterDotsBaseRow = scatterDotSize?.closest('.config-panel__line') || null;
-      const scatterDotsGroupedRow = scatterShowErrorBars?.closest('.config-panel__line') || null;
-      const scatterDotsFieldset = scatterDotsBaseRow?.closest('fieldset') || scatterDotsGroupedRow?.closest('fieldset') || null;
-      const scatterColorModeLine = scatterColorModeRow?.closest('.config-panel__line')
-        || scatterColorMode?.closest('.config-panel__line')
-        || scatterDensityPalette?.closest('.config-panel__line')
-        || null;
       if(scatterShowErrorBars){
         scatterShowErrorBars.checked = false;
         scatterShowErrorBars.defaultChecked = false;
@@ -10052,41 +10045,6 @@
       let scatterShowDiagnostics=$('#scatterShowDiagnostics');
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
-      function syncScatterControlPanelDotLayout(){
-        if(scatterDotsBaseRow){
-          scatterDotsBaseRow.hidden = true;
-          scatterDotsBaseRow.setAttribute('aria-hidden', 'true');
-        }
-        if(scatterDotsGroupedRow){
-          scatterDotsGroupedRow.hidden = true;
-          scatterDotsGroupedRow.setAttribute('aria-hidden', 'true');
-        }
-        const colorSchemeFieldset = document.querySelector('#scatterPage .config-panel [data-color-scheme-fieldset="1"]');
-        if(colorSchemeFieldset && scatterColorModeLine && scatterColorModeLine.parentNode !== colorSchemeFieldset){
-          colorSchemeFieldset.appendChild(scatterColorModeLine);
-        }
-        if(scatterDotsFieldset){
-          const hasVisibleLines = Array.from(scatterDotsFieldset.querySelectorAll('.config-panel__line')).some(line => (
-            !!line
-            && !line.hidden
-            && String(line.style.display || '').trim().toLowerCase() !== 'none'
-          ));
-          scatterDotsFieldset.style.display = hasVisibleLines ? '' : 'none';
-          scatterDotsFieldset.setAttribute('aria-hidden', hasVisibleLines ? 'false' : 'true');
-        }
-      }
-      syncScatterControlPanelDotLayout();
-      let scatterDotLayoutSyncAttempts = 0;
-      const ensureScatterControlPanelDotLayout = () => {
-        syncScatterControlPanelDotLayout();
-        const hasColorSchemeFieldset = !!document.querySelector('#scatterPage .config-panel [data-color-scheme-fieldset="1"]');
-        if(hasColorSchemeFieldset || scatterDotLayoutSyncAttempts >= 20){
-          return;
-        }
-        scatterDotLayoutSyncAttempts += 1;
-        setTimeout(ensureScatterControlPanelDotLayout, 80);
-      };
-      setTimeout(ensureScatterControlPanelDotLayout, 0);
       if(scatterFontSize?.dataset){
         scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
         console.debug('Debug: scatter font size base initialized',{ value: scatterFontSize.value }); // Debug: initial base

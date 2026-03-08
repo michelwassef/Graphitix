@@ -1336,6 +1336,16 @@
       modeRow.appendChild(modeWrap);
       fieldset.appendChild(modeRow);
     }
+    if(type === 'scatter'){
+      const colorModeRow = panel.querySelector('#scatterColorModeRow');
+      const colorModeLine = colorModeRow
+        ? (colorModeRow.closest('.config-panel__line') || colorModeRow.parentElement)
+        : null;
+      if(colorModeLine && colorModeLine.parentNode !== fieldset){
+        fieldset.insertBefore(colorModeLine, hint);
+        debugLog('Debug: colorSchemes attached scatter color mode row', { type });
+      }
+    }
 
     const graphFieldset = findGraphSelectionFieldset(panel);
     if(graphFieldset && graphFieldset.parentNode === panel){
