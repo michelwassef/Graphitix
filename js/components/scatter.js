@@ -596,7 +596,7 @@
     optionIndividual.textContent = 'Show individual values';
     const optionErrorBars = doc.createElement('option');
     optionErrorBars.value = 'errorbars';
-    optionErrorBars.textContent = 'Show error bars';
+    optionErrorBars.textContent = 'Show mean + error bars';
     modeSelect.appendChild(optionIndividual);
     modeSelect.appendChild(optionErrorBars);
     let isApplying = false;
