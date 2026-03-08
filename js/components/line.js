@@ -122,6 +122,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
   const LINE_DEFAULT_COLS = 6;
+  const LINE_DEFAULT_DOT_SIZE = 3;
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -3165,7 +3166,7 @@
             if(Number.isFinite(Number(dotSizeInput?.value))){
               return Number(dotSizeInput.value);
             }
-            return Number(target.getAttribute('r')) || 0;
+            return Number(target.getAttribute('r')) || LINE_DEFAULT_DOT_SIZE;
           },
           onChange(nextValue, ctx){
             const next = Math.max(0, Number(nextValue) || 0);
@@ -7634,7 +7635,7 @@
         lineTextColor,
         lineThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
       );
-      const dotSizeRaw = Number(refs.dotSize?.value) || 0;
+      const dotSizeRaw = Number(refs.dotSize?.value) || LINE_DEFAULT_DOT_SIZE;
       const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker-3d', min: 0 });
       const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series-3d', min: 0 });
       chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
@@ -8547,7 +8548,7 @@
       const axisStrokeWidthBase = getLineAxisStrokeWidth();
       const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis', min: 0, exact: true });
       const axisStroke = getLineAxisColor();
-      const dotSizeRaw=Number(refs.dotSize?.value)||0;
+      const dotSizeRaw=Number(refs.dotSize?.value)||LINE_DEFAULT_DOT_SIZE;
       const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker', min: 0 });
       const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series', min: 0 });
       const errorBarWidthPx=chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'line-errorbar', min: 0 });

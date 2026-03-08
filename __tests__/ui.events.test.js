@@ -951,7 +951,8 @@ describe('UI events and example loaders', () => {
 
     expect(document.getElementById('scatterTableFormat')?.value).toBe('grouped');
     expect(document.getElementById('scatterReplicates')?.value).toBe('3');
-    expect(document.getElementById('scatterShowErrorBars')?.checked).toBe(true);
+    expect(document.getElementById('scatterShowErrorBars')?.checked).toBe(false);
+    expect(document.getElementById('scatterShowGroupedReplicates')?.checked).toBe(true);
   }, 20000);
 
   test('Scatter Plot: grouped replicates can show individual values without horizontal jitter and hide the toggle when X replicates are enabled', async () => {
@@ -989,12 +990,22 @@ describe('UI events and example loaders', () => {
     expect(groupedReplicateToggleRow).toBeTruthy();
     expect(groupedReplicateToggle.disabled).toBe(false);
     expect(groupedReplicateToggleRow.style.display).not.toBe('none');
+    expect(groupedReplicateToggle.checked).toBe(true);
 
     const getPointLayer = () => document.querySelector('#scatterPlot svg [data-layer="points"]');
-    const baseLayer = getPointLayer();
-    expect(baseLayer).toBeTruthy();
-    const basePointCount = baseLayer.querySelectorAll('*').length;
-    expect(basePointCount).toBeGreaterThan(0);
+    const expandedLayerBase = getPointLayer();
+    expect(expandedLayerBase).toBeTruthy();
+    const expandedPointCountBase = expandedLayerBase.querySelectorAll('*').length;
+    expect(expandedPointCountBase).toBeGreaterThan(0);
+
+    groupedReplicateToggle.checked = false;
+    groupedReplicateToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(80);
+
+    const collapsedLayer = getPointLayer();
+    expect(collapsedLayer).toBeTruthy();
+    const collapsedPointCount = collapsedLayer.querySelectorAll('*').length;
+    expect(collapsedPointCount).toBeLessThan(expandedPointCountBase);
 
     groupedReplicateToggle.checked = true;
     groupedReplicateToggle.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1003,7 +1014,7 @@ describe('UI events and example loaders', () => {
     const expandedLayer = getPointLayer();
     expect(expandedLayer).toBeTruthy();
     const expandedPointCount = expandedLayer.querySelectorAll('*').length;
-    expect(expandedPointCount).toBeGreaterThan(basePointCount);
+    expect(expandedPointCount).toBeGreaterThan(collapsedPointCount);
 
     const cxValues = Array.from(expandedLayer.querySelectorAll('[cx]'))
       .map(node => Number(node.getAttribute('cx')))

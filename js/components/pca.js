@@ -223,6 +223,53 @@
   const PCA_GROUP_ROW_HEADER = 'Group';
   const PCA_SAMPLE_ROW_HEADER = 'Sample';
 
+  function resolvePcaMethodNameForUi(methodValue){
+    const normalized = String(methodValue || '').trim().toLowerCase();
+    if(normalized === 'mds' || normalized === 'tsne' || normalized === 'umap'){
+      return normalized;
+    }
+    return 'pca';
+  }
+
+  function applyPcaMethodUiPreActivation(config = {}){
+    const methodName = resolvePcaMethodNameForUi(config?.method);
+    const supports3d = methodName === 'pca' || methodName === 'mds';
+    const requestedView = String(config?.viewMode || DEFAULT_VIEW_MODE).trim().toLowerCase();
+    const viewMode = supports3d ? (requestedView === '3d' ? '3d' : '2d') : '2d';
+
+    const tsneControls = global.document?.getElementById?.('pcaTsneControls');
+    if(tsneControls){
+      const showTsne = methodName === 'tsne';
+      tsneControls.hidden = !showTsne;
+      tsneControls.style.display = showTsne ? '' : 'none';
+    }
+
+    const umapControls = global.document?.getElementById?.('pcaUmapControls');
+    if(umapControls){
+      const showUmap = methodName === 'umap';
+      umapControls.hidden = !showUmap;
+      umapControls.style.display = showUmap ? '' : 'none';
+    }
+
+    const viewModeSelect = global.document?.getElementById?.('pcaViewMode');
+    if(viewModeSelect && viewModeSelect.options){
+      Array.from(viewModeSelect.options).forEach(opt => {
+        if(opt && opt.value === '3d'){
+          opt.disabled = !supports3d;
+          opt.hidden = !supports3d;
+        }
+      });
+      viewModeSelect.value = viewMode;
+    }
+
+    const axis3dControl = global.document?.getElementById?.('pcaAxis3DControl');
+    if(axis3dControl){
+      const show3dAxis = viewMode === '3d';
+      axis3dControl.hidden = !show3dAxis;
+      axis3dControl.style.display = show3dAxis ? '' : 'none';
+    }
+  }
+
   function normalizePcaLabelHeader(value){
     return String(value ?? '').trim().toLowerCase();
   }
@@ -5046,6 +5093,7 @@
       const pcaAxis2DControls=document.getElementById('pcaAxis2DControls');
       const pcaAxis3DControl=document.getElementById('pcaAxis3DControl');
       if(pcaAxis3DControl){
+        pcaAxis3DControl.hidden = true;
         pcaAxis3DControl.style.display = 'none';
       }
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
@@ -5122,6 +5170,7 @@
       function applyAxisVisibility(viewMode){
         if(pcaAxis3DControl){
           const show3d = (viewMode || '').toLowerCase() === '3d' && pcaState.axisMeta.length >= 3;
+          pcaAxis3DControl.hidden = !show3d;
           pcaAxis3DControl.style.display = show3d ? '' : 'none';
         }
         if(pcaAxis2DControls){
@@ -5132,10 +5181,14 @@
         const methodName = (methodValue || '').toLowerCase();
         const supports3d = methodName === 'pca' || methodName === 'mds';
         if(pcaTsneControls){
-          pcaTsneControls.style.display = methodName === 'tsne' ? '' : 'none';
+          const showTsne = methodName === 'tsne';
+          pcaTsneControls.hidden = !showTsne;
+          pcaTsneControls.style.display = showTsne ? '' : 'none';
         }
         if(pcaUmapControls){
-          pcaUmapControls.style.display = methodName === 'umap' ? '' : 'none';
+          const showUmap = methodName === 'umap';
+          pcaUmapControls.hidden = !showUmap;
+          pcaUmapControls.style.display = showUmap ? '' : 'none';
         }
         if(pcaViewMode){
           const options = Array.from(pcaViewMode.options || []);
@@ -9892,7 +9945,9 @@
     };
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
-    pca.prepareForTab = function prepareForTab(){
+    pca.prepareForTab = function prepareForTab(tab){
+      const payloadConfig = tab && tab.payload && tab.payload.config ? tab.payload.config : null;
+      applyPcaMethodUiPreActivation(payloadConfig || {});
       const hot = ensurePcaHotForActiveTab();
       if(hot){
         ensurePcaDataViewsForHot(hot, {
