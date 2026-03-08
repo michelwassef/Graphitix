@@ -596,7 +596,7 @@
     optionIndividual.textContent = 'Show individual values';
     const optionErrorBars = doc.createElement('option');
     optionErrorBars.value = 'errorbars';
-    optionErrorBars.textContent = 'Show mean + error bars';
+    optionErrorBars.textContent = 'Show error bars';
     modeSelect.appendChild(optionIndividual);
     modeSelect.appendChild(optionErrorBars);
     let isApplying = false;
@@ -636,9 +636,10 @@
     field.appendChild(modeSelect);
     wrap.appendChild(field);
     const sync = () => {
-      const isScatter = scatterCurrentGraphType === 'scatter';
-      const individualVisible = isScatter && !!showGroupedReplicatesInput && (!showGroupedReplicatesRow || showGroupedReplicatesRow.style.display !== 'none');
-      const errorBarsVisible = isScatter && !!showErrorBarsInput;
+      const groupedModeActive = scatterCurrentGraphType === 'scatter'
+        && normalizeScatterTableFormat(scatterTableFormat) === SCATTER_TABLE_FORMAT_GROUPED;
+      const individualVisible = groupedModeActive && !!showGroupedReplicatesInput && (!showGroupedReplicatesRow || showGroupedReplicatesRow.style.display !== 'none');
+      const errorBarsVisible = groupedModeActive && !!showErrorBarsInput;
       const individualEnabled = individualVisible && !showGroupedReplicatesInput?.disabled;
       const errorBarsEnabled = errorBarsVisible && !showErrorBarsInput?.disabled;
       optionIndividual.hidden = !individualVisible;
