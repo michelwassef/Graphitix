@@ -311,6 +311,13 @@
     scheduleDrawScatter(options);
   }
 
+  function isScatterHeaderScheduleSource(source){
+    if(typeof source !== 'string'){
+      return false;
+    }
+    return source.startsWith('scatter-x-axis-') || source.startsWith('scatter-y-axis-');
+  }
+
   function appendScatter3dBackground(svg, width, height){
     if(!svg){
       return;
@@ -4104,7 +4111,7 @@
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: scatter context menu label toggle', { rowIndex, toggled });
       }
-      scheduleDrawScatter({ reason: 'point-context-menu' });
+      scheduleScatterViewRefresh('point-context-menu');
       hide('action-complete');
     });
 
@@ -9430,12 +9437,22 @@
         const meta = payload && typeof payload === 'object'
           ? payload
           : (typeof payload === 'string' ? { reason: payload } : {});
-        const invalidate = typeof meta.invalidate === 'string' ? meta.invalidate : 'data';
+        const headerOnlyChange = isScatterHeaderScheduleSource(meta.source);
+        const invalidate = typeof meta.invalidate === 'string'
+          ? meta.invalidate
+          : (headerOnlyChange ? 'layout' : 'data');
         if(invalidate === 'data'){
           scatterState.dataDirty = true;
           scatterState.cachedCollect = null;
         }
-        scheduleDrawScatter(meta);
+        const scheduleMeta = headerOnlyChange
+          ? Object.assign({}, meta, {
+              invalidate,
+              viewOnly: true,
+              reason: meta.reason || 'axis-header-sync'
+            })
+          : (meta.invalidate === invalidate ? meta : Object.assign({}, meta, { invalidate }));
+        scheduleDrawScatter(scheduleMeta);
       };
 
         const createScatterTable = (container) => {
@@ -9663,7 +9680,7 @@
                   }
                 }
                 storeScatterRowSelection(hotInstance, 'row-selection');
-                scheduleDrawScatter({ reason: 'row-selection' });
+                scheduleScatterViewRefresh('row-selection');
               };
               api.addEventListener('selectionChanged', handler);
               api.addEventListener('rowSelected', handler);
@@ -11244,7 +11261,7 @@
             setScatterStatsStatus('Statistics up to date.');
             updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
             if(typeof scheduleDrawScatter === 'function'){
-              scheduleDrawScatter({ reason:'scatter-stats-updated' });
+              scheduleScatterViewRefresh('scatter-stats-updated');
             }
           })
           .catch(err => {
@@ -13779,7 +13796,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           console.debug('Debug: scatter log2FC threshold input',{value:scatterLog2FCThreshold.value});
           scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('scatter-log2fc-input');
           persistTabState('scatter-log2fc-input');
         });
       }
@@ -13788,7 +13805,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           console.debug('Debug: scatter negLogP threshold input',{value:scatterNegLogPThreshold.value});
           scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('scatter-neglogp-input');
           persistTabState('scatter-neglogp-input');
         });
       }
@@ -13797,7 +13814,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
           scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
-          scheduleDrawScatter();
+          scheduleScatterViewRefresh('scatter-significant-labels-change');
           persistTabState('scatter-significant-labels-change');
         });
       }
@@ -14518,6 +14535,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const pointProgressInterval = 5000;
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const viewOnly = !!drawOptions?.viewOnly;
+        if(viewOnly && scatterState.dataDirty && !drawOptions?.force && !scatterAutoDrawState.autoDrawEnabled){
+          scatterDebug('Debug: scatter view-only draw skipped while data updates are pending', {
+            reason: drawOptions?.reason || null
+          });
+          return;
+        }
         const token=++scatterDrawToken; // debug token for cancellation
         const perfApi = Shared.Performance;
         const drawReasons = scatterState.activeDrawReasons ? Array.from(scatterState.activeDrawReasons) : [];
@@ -14753,6 +14776,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let annotationLeaderPadding = 0;
         let annotationTextPadding = 0;
         let annotationAxisPadding = 0;
+        let extraLabelRaw = '';
         let legendLayout=null;
         let legendRenderer=EMPTY_LEGEND_RENDERER;
         let legendGapPx=0;
@@ -14798,6 +14822,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           bubbleMissingCount = Number(cachedCollect.bubbleMissingCount) || 0;
           bubbleMinRaw = Number(cachedCollect.bubbleMinRaw);
           bubbleMaxRaw = Number(cachedCollect.bubbleMaxRaw);
+          extraLabelRaw = cachedCollect.extraLabelRaw || '';
           scatterState.xLabelText = cachedCollect.xLabelText || scatterState.xLabelText;
           scatterState.yLabelText = cachedCollect.yLabelText || scatterState.yLabelText;
           scatterState.zLabelText = cachedCollect.zLabelText || scatterState.zLabelText;
@@ -14837,7 +14862,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const yLabelRaw = groupedScatterActive
             ? (yCol[0] != null ? yCol[0] : '')
             : yCol[0];
-          const extraLabelRaw=extraCol[0];
+          extraLabelRaw = extraCol[0];
           if(graphType==='volcano'){
             scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
             const basePLabel=(yLabelRaw&&String(yLabelRaw).trim())||'p-value';
@@ -15072,7 +15097,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
               const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
-              points.push({x:log2fc,y:negLogP,label:'',pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
+              points.push({x:log2fc,y:negLogP,negLogP,label:'',pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant){
                 significantCount++;
               }
@@ -15105,7 +15130,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
               // Match volcano plot behavior - use empty label and let AG Grid selection handle labeling
               const labelValueFinal = '';
-              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
+              points.push({x:meanExpr,y:log2fcVal,negLogP,label:labelValueFinal,pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
@@ -15176,6 +15201,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             yMaxRaw,
             significantCount,
             maMissingPCount,
+            extraLabelRaw,
             scatter3dCandidates: cloneScatterPoints(scatter3dCandidates),
             scatter3dEligible,
             scatter3dMissingZ,
@@ -15289,6 +15315,54 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(Number.isFinite(yMaxRaw)) yMaxRaw = yMaxRaw + 1;
           debug('Debug: scatter log+1 transform applied to Y');
         }
+        if(graphType === 'scatter'){
+          const selectedRows = selectedRowSet && selectedRowSet.size ? selectedRowSet : null;
+          for(let i = 0; i < points.length; i += 1){
+            const point = points[i];
+            if(!point){
+              continue;
+            }
+            if(point.isGroupedReplicatePoint){
+              point.isManualLabel = false;
+              continue;
+            }
+            const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
+            point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
+          }
+        }else{
+          let refreshedSignificantCount = 0;
+          let refreshedMissingPCount = 0;
+          const selectedRows = selectedRowSet && selectedRowSet.size ? selectedRowSet : null;
+          for(let i = 0; i < points.length; i += 1){
+            const point = points[i];
+            if(!point){
+              continue;
+            }
+            const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
+            point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
+            const negLogPValue = Number.isFinite(Number(point.negLogP))
+              ? Number(point.negLogP)
+              : (graphType === 'volcano' ? Number(point.y) : NaN);
+            const foldChangeValue = graphType === 'volcano' ? Number(point.x) : Number(point.y);
+            const isSignificant = Number.isFinite(negLogPValue)
+              && Number.isFinite(foldChangeValue)
+              && Math.abs(foldChangeValue) >= log2fcThreshold
+              && negLogPValue >= negLogPThreshold;
+            point.isSignificant = isSignificant;
+            point.isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
+            if(isSignificant){
+              refreshedSignificantCount += 1;
+            }
+            if(graphType === 'ma' && !Number.isFinite(negLogPValue)){
+              refreshedMissingPCount += 1;
+            }
+          }
+          significantCount = refreshedSignificantCount;
+          if(graphType === 'ma'){
+            maMissingPCount = refreshedMissingPCount;
+          }
+        }
+
         let xMin=xMinRaw, xMax=xMaxRaw, yMin=yMinRaw, yMax=yMaxRaw;
         if(isFinite(xMinManual)) xMin=xMinManual;
         if(isFinite(xMaxManual)) xMax=xMaxManual;
@@ -15641,7 +15715,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         const existingScatterSvg = plotEl.querySelector('#scatterSvg');
         const reuse3dSvg = supports3d && effectiveViewMode === '3d' && existingScatterSvg && existingScatterSvg.dataset.viewMode === '3d';
-        if(!reuse3dSvg){
+        if(effectiveViewMode === '3d' && !reuse3dSvg){
           clearScatterPlot();
         }
         if(supports3d && effectiveViewMode === '3d'){
@@ -16369,7 +16443,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph' });
           return;
         }
-        clearScatterPlot();
+        const previousPlotChildren = Array.from(plotEl.childNodes || []);
         plotEl.style.aspectRatio='';
         plotEl.style.padding='';
         const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
@@ -16382,9 +16456,28 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
         svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
         svg.dataset.viewMode='2d';
+        svg.style.visibility='hidden';
+        svg.style.pointerEvents='none';
         chartStyle.applySvgDefaults(svg);
         svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
         plotEl.appendChild(svg);
+        const commitScatterSvg = () => {
+          svg.style.visibility='';
+          svg.style.pointerEvents='auto';
+          if(Array.isArray(previousPlotChildren) && previousPlotChildren.length){
+            for(let i = 0; i < previousPlotChildren.length; i += 1){
+              const node = previousPlotChildren[i];
+              if(!node || node === svg){
+                continue;
+              }
+              if(node.parentNode === plotEl){
+                try{
+                  plotEl.removeChild(node);
+                }catch(err){}
+              }
+            }
+          }
+        };
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg,{ scopeId: 'scatter' });
           debug('Debug: scatter fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
@@ -17867,7 +17960,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             
             // Force a redraw to ensure consistency
             if(typeof scheduleDrawScatter === 'function'){
-              scheduleDrawScatter({ reason: 'x-axis-undo-sync' });
+              scheduleScatterViewRefresh('x-axis-undo-sync');
             }
             
             scatterLog('Undo sync - Completed x-axis update');
@@ -17992,7 +18085,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               
               // Force a redraw to ensure the changes are reflected
               if(typeof scheduleDrawScatter === 'function'){
-                setTimeout(() => scheduleDrawScatter({ reason: 'x-axis-header-update' }), 100);
+                setTimeout(() => scheduleScatterViewRefresh('x-axis-header-update'), 100);
               }
               
             } catch(err) {
@@ -18151,7 +18244,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             
             // Force a redraw to ensure consistency
             if(typeof scheduleDrawScatter === 'function'){
-              scheduleDrawScatter({ reason: 'y-axis-undo-sync' });
+              scheduleScatterViewRefresh('y-axis-undo-sync');
             }
             
             scatterLog('Undo sync - Completed y-axis update');
@@ -18276,7 +18369,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               
               // Force a redraw to ensure the changes are reflected
               if(typeof scheduleDrawScatter === 'function'){
-                setTimeout(() => scheduleDrawScatter({ reason: 'y-axis-header-update' }), 100);
+                setTimeout(() => scheduleScatterViewRefresh('y-axis-header-update'), 100);
               }
               
             } catch(err) {
@@ -18752,6 +18845,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(perfApi && viewportPerf){
           perfApi.end(viewportPerf, { component: 'scatter', token });
         }
+        commitScatterSvg();
         scatterLayout?.syncPanels?.({ skipSchedule: true });
         syncScatterAutoDrawNoticeWidth('draw');
         info('scatter render complete with enhanced styles');
