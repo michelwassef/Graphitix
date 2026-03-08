@@ -161,6 +161,8 @@
   const SCATTER_ADAPTIVE_SIZE_MAX = 3;
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
+  const SCATTER_POINT_BATCH_THRESHOLD = 12000;
+  const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
 
   const SCATTER_SHAPE_OPTIONS = Shared.getShapePickerOptions
     ? Shared.getShapePickerOptions()
@@ -14309,7 +14311,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return summary;
       }
 
-      function createScatterMarkerElement(shape, options){
+  function createScatterMarkerElement(shape, options){
         const doc = global.document;
         if(!doc){ return null; }
         const normalized = SCATTER_SHAPE_VALUES.has(shape) ? shape : 'circle';
@@ -14429,6 +14431,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         circle.setAttribute('cy', String(cy));
         circle.setAttribute('r', String(radius));
         return applyCommonAttributes(circle);
+      }
+
+      function buildScatterCirclePathSegment(cx, cy, radius){
+        const r = Math.max(0, Number(radius) || 0);
+        if(!(r > 0)){
+          return '';
+        }
+        const safeCx = Number(cx) || 0;
+        const safeCy = Number(cy) || 0;
+        const diameter = r * 2;
+        return `M ${safeCx - r} ${safeCy} a ${r} ${r} 0 1 0 ${diameter} 0 a ${r} ${r} 0 1 0 ${-diameter} 0`;
       }
 
       function createBubbleRadiusScaler(points, baseRadius){
@@ -17423,15 +17436,34 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && scatterCurrentGraphType === 'scatter'
           && !!scatterShowErrorBars?.checked
           && errorBarWidthPx > 0;
+        const largePointMode = scatterState.viewMode === '2d' && points.length >= SCATTER_POINT_BATCH_THRESHOLD;
+        const useBatchedCircleRender = largePointMode && !isBubbleView && !showGroupedErrorBars;
+        const densityColorSteps = (largePointMode && scatterColorModeApplied === 'density')
+          ? SCATTER_DENSITY_LARGE_COLOR_STEPS
+          : 0;
+        const enablePointInteractivity = !largePointMode;
+        const batchedCircleBuckets = useBatchedCircleRender ? new Map() : null;
+        if(largePointMode){
+          debug('Debug: scatter large point render mode', {
+            pointCount: points.length,
+            useBatchedCircleRender,
+            densityColorSteps,
+            showGroupedErrorBars,
+            isBubbleView
+          });
+        }
         for(const p of points){
           const geom = pointGeometry[pointIndex] || null;
           const xv = geom ? geom.xv : (logX ? Math.log10(p.x) : p.x);
           const yv = geom ? geom.yv : (logY ? Math.log10(p.y) : p.y);
           const cxVal=geom ? geom.cx : x2px(xv);
           const cyVal=geom ? geom.cy : y2px(yv);
-          const densityRatio = densityInfo && densityInfo.max>0
+          const densityRatioRaw = densityInfo && densityInfo.max>0
             ? (densityInfo.values[pointIndex] || 0) / densityInfo.max
             : 0;
+          const densityRatio = densityColorSteps > 0
+            ? (Math.round(Math.min(1, Math.max(0, densityRatioRaw)) * densityColorSteps) / densityColorSteps)
+            : densityRatioRaw;
           const color=scatterCurrentGraphType==='scatter'
             ? (scatterColorModeApplied === 'density'
               ? (densityColorFor ? densityColorFor(densityRatio) : fill)
@@ -17448,19 +17480,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             ? resolveBubbleRadius(p)
             : (radiusOverride != null ? radiusOverride : dotSizePx);
           const markerBorderColor = styleOverride && styleOverride.borderColor ? styleOverride.borderColor : borderColor;
-          const marker = createScatterMarkerElement(markerShape, {
-            cx: cxVal,
-            cy: cyVal,
-            radius: markerRadius,
-            fill: color,
-            stroke: markerBorderWidth>0 ? markerBorderColor : null,
-            strokeWidth: markerBorderWidth>0 ? markerBorderWidth : 0,
-            fillOpacity: 1 - (markerAlpha != null ? markerAlpha : alpha),
-            strokeOpacity: 1 - (markerAlpha != null ? markerAlpha : alpha)
-          });
-          if(!marker){
-            continue;
-          }
+          const markerOpacity = 1 - (markerAlpha != null ? markerAlpha : alpha);
+          const canBatchCirclePoint = !!batchedCircleBuckets
+            && markerShape === 'circle'
+            && Number.isFinite(markerRadius)
+            && markerRadius > 0;
           if(showGroupedErrorBars && !p?.isGroupedReplicatePoint){
             const yReplicateCount = Number.isInteger(p?.replicateCount)
               ? p.replicateCount
@@ -17575,29 +17599,95 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               labelColor: null
             });
           }
-          attachScatterPointTooltip(marker, {
-            label: p.label || '',
-            pointName: p.pointName || '',
-            rowIndex: Number.isInteger(p.rowIndex) ? p.rowIndex : undefined,
-            isManualLabel: !!p.isManualLabel,
-            x: p.x,
-            y: p.y,
-            logXValue: logX ? xv : undefined,
-            logYValue: logY ? yv : undefined,
-            graphType: scatterCurrentGraphType,
-            isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined,
-            size: isBubbleView ? p.bubbleValue : undefined,
-            series: p.series || p.label || '',
-            replicates: Array.isArray(p.replicates) ? p.replicates : undefined,
-            stdev: Number.isFinite(p.stdev) ? p.stdev : undefined,
-            xReplicates: Array.isArray(p.xReplicates) ? p.xReplicates : undefined,
-            xStdev: Number.isFinite(p.xStdev) ? p.xStdev : undefined,
-            groupedReplicateIndex: Number.isInteger(p.replicateIndex) ? p.replicateIndex : undefined,
-            isGroupedReplicatePoint: !!p.isGroupedReplicatePoint
-          });
-          frag.appendChild(marker);
+          if(canBatchCirclePoint){
+            const strokeValue = markerBorderWidth>0 ? markerBorderColor : '';
+            const strokeWidthValue = markerBorderWidth>0 ? markerBorderWidth : 0;
+            const bucketKey = [
+              color,
+              markerOpacity,
+              strokeValue,
+              strokeWidthValue,
+              markerOpacity
+            ].join('|');
+            let bucket = batchedCircleBuckets.get(bucketKey);
+            if(!bucket){
+              bucket = {
+                fill: color,
+                fillOpacity: markerOpacity,
+                stroke: strokeValue,
+                strokeWidth: strokeWidthValue,
+                strokeOpacity: markerOpacity,
+                segments: []
+              };
+              batchedCircleBuckets.set(bucketKey, bucket);
+            }
+            const segment = buildScatterCirclePathSegment(cxVal, cyVal, markerRadius);
+            if(segment){
+              bucket.segments.push(segment);
+            }
+          }else{
+            const marker = createScatterMarkerElement(markerShape, {
+              cx: cxVal,
+              cy: cyVal,
+              radius: markerRadius,
+              fill: color,
+              stroke: markerBorderWidth>0 ? markerBorderColor : null,
+              strokeWidth: markerBorderWidth>0 ? markerBorderWidth : 0,
+              fillOpacity: markerOpacity,
+              strokeOpacity: markerOpacity
+            });
+            if(marker){
+              if(enablePointInteractivity){
+                attachScatterPointTooltip(marker, {
+                  label: p.label || '',
+                  pointName: p.pointName || '',
+                  rowIndex: Number.isInteger(p.rowIndex) ? p.rowIndex : undefined,
+                  isManualLabel: !!p.isManualLabel,
+                  x: p.x,
+                  y: p.y,
+                  logXValue: logX ? xv : undefined,
+                  logYValue: logY ? yv : undefined,
+                  graphType: scatterCurrentGraphType,
+                  isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined,
+                  size: isBubbleView ? p.bubbleValue : undefined,
+                  series: p.series || p.label || '',
+                  replicates: Array.isArray(p.replicates) ? p.replicates : undefined,
+                  stdev: Number.isFinite(p.stdev) ? p.stdev : undefined,
+                  xReplicates: Array.isArray(p.xReplicates) ? p.xReplicates : undefined,
+                  xStdev: Number.isFinite(p.xStdev) ? p.xStdev : undefined,
+                  groupedReplicateIndex: Number.isInteger(p.replicateIndex) ? p.replicateIndex : undefined,
+                  isGroupedReplicatePoint: !!p.isGroupedReplicatePoint
+                });
+              }
+              frag.appendChild(marker);
+            }
+          }
           pointIndex++;
           if(pointIndex >= nextPointProgress){info('scatter svg draw progress',{pointIndex,token});nextPointProgress += pointProgressInterval;}
+        }
+        if(batchedCircleBuckets && batchedCircleBuckets.size){
+          const doc = global.document;
+          batchedCircleBuckets.forEach(bucket => {
+            if(!bucket || !Array.isArray(bucket.segments) || !bucket.segments.length || !doc){
+              return;
+            }
+            const path = doc.createElementNS(NS, 'path');
+            path.setAttribute('d', bucket.segments.join(' '));
+            path.setAttribute('fill', bucket.fill || '#000000');
+            if(bucket.fillOpacity !== 1){
+              path.setAttribute('fill-opacity', String(bucket.fillOpacity));
+            }
+            if(bucket.stroke && bucket.strokeWidth > 0){
+              path.setAttribute('stroke', bucket.stroke);
+              path.setAttribute('stroke-width', String(bucket.strokeWidth));
+              if(bucket.strokeOpacity !== 1){
+                path.setAttribute('stroke-opacity', String(bucket.strokeOpacity));
+              }
+            }else{
+              path.setAttribute('stroke', 'none');
+            }
+            frag.appendChild(path);
+          });
         }
         if(perfApi && renderPerf){
           perfApi.end(renderPerf, {
@@ -17612,6 +17702,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           errorLayer.appendChild(errorBarFrag);
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
+        pointLayer.setAttribute('data-render-mode', useBatchedCircleRender ? 'batched-circles' : 'markers');
+        if(!enablePointInteractivity){
+          pointLayer.setAttribute('pointer-events', 'none');
+          hideScatterTooltip('point-interaction-disabled-large-dataset');
+        }
         const pointAttachPerf = perfApi?.start('scatter.svg.attach', {
           component: 'scatter',
           token,
@@ -17621,7 +17716,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(perfApi && pointAttachPerf){
           perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length });
         }
-        if(scatterState.useDelegatedPointEvents){
+        if(scatterState.useDelegatedPointEvents && enablePointInteractivity){
           ensureScatterPointDelegation(pointLayer);
         }
         const annotationPerf = annotationRequests.length

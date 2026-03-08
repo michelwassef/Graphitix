@@ -60,6 +60,19 @@ test.describe('Scatter manual mode view-only updates', () => {
       const hasCollect = entries.some(entry => String(entry?.label || '') === 'scatter.data.collect');
       return hasDraw && hasCollect;
     }, null, { timeout: 180000 });
+    await page.waitForFunction(() => {
+      return !!document.querySelector('#scatterPlot svg [data-layer="points"]');
+    }, null, { timeout: 120000 });
+
+    const largeRenderMeta = await page.evaluate(() => {
+      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      return {
+        renderMode: layer?.getAttribute?.('data-render-mode') || null,
+        nodeCount: layer ? layer.querySelectorAll('*').length : 0
+      };
+    });
+    expect(largeRenderMeta.renderMode, 'large scatter datasets should use batched point rendering').toBe('batched-circles');
+    expect(largeRenderMeta.nodeCount, 'batched point layer should stay compact on huge datasets').toBeLessThan(300);
 
     let beforeDraw = await collectCount(page, 'scatter.draw');
     let beforeCollect = await collectCount(page, 'scatter.data.collect');
