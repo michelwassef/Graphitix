@@ -869,6 +869,13 @@
                     <option value="umap">UMAP</option>
                   </select>
                 </label>
+                <label class="idx-inline-023">
+                  Graph view
+                  <select id="pcaViewMode">
+                    <option value="2d">2D</option>
+                    <option value="3d">3D</option>
+                  </select>
+                </label>
               </div>
               <div class="control idx-inline-041" id="pcaTsneControls" hidden style="display:none">
                 <label class="idx-inline-023">Perplexity
@@ -896,15 +903,6 @@
                 </label>
                 <label class="idx-inline-023">Epochs
                   <input type="number" id="pcaUmapEpochs" value="400" min="50" max="2000" step="50" />
-                </label>
-              </div>
-              <div class="control idx-inline-031">
-                <label class="idx-inline-023">
-                  Graph view
-                  <select id="pcaViewMode">
-                    <option value="2d">2D</option>
-                    <option value="3d">3D</option>
-                  </select>
                 </label>
               </div>
               <div class="control idx-inline-041" id="pcaAxis2DControls">
