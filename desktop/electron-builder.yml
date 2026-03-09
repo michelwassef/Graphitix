@@ -1,0 +1,35 @@
+appId: com.venn.desktop
+productName: Venn
+
+directories:
+  output: dist
+
+files:
+  - main.cjs
+  - preload.cjs
+  - app/**/*
+
+extraMetadata:
+  main: main.cjs
+
+win:
+  target:
+    - nsis
+
+mac:
+  target:
+    - dmg
+
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+portable:
+  artifactName: '${productName}-Portable-${version}.${ext}'
