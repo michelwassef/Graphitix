@@ -1093,12 +1093,22 @@
     return state.hot;
   }
 
-  function clearPlotArea(reason){
+  function clearPlotArea(reason, options = {}){
+    const noticeMessage = Object.prototype.hasOwnProperty.call(options, 'message')
+      ? options.message
+      : (Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.');
     if(refs.plotDiv){
-      while(refs.plotDiv.firstChild){
-        refs.plotDiv.removeChild(refs.plotDiv.firstChild);
+      if(typeof Shared.renderPlotNotice === 'function'){
+        Shared.renderPlotNotice(refs.plotDiv, noticeMessage, { resetAspect: true, show: true });
+      }else{
+        while(refs.plotDiv.firstChild){
+          refs.plotDiv.removeChild(refs.plotDiv.firstChild);
+        }
+        refs.plotDiv.style.display = 'block';
+        const notice = document.createElement('i');
+        notice.textContent = noticeMessage;
+        refs.plotDiv.appendChild(notice);
       }
-      refs.plotDiv.style.display = 'none';
     }
     if(refs.statsResults){
       refs.statsResults.textContent = '';

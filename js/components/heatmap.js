@@ -358,6 +358,7 @@
     suspendDataViewMaterialization: false,
     activeMaterializedViewId: null,
     textAspectMetrics: null,
+    emptyPlotNoticeEl: null,
     dendrogramSettings: {
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
@@ -4175,6 +4176,10 @@
   function renderEmpty(message){
     clearCachedRenderState();
     if(!state.svg) return;
+    if(state.emptyPlotNoticeEl && state.emptyPlotNoticeEl.parentNode){
+      state.emptyPlotNoticeEl.parentNode.removeChild(state.emptyPlotNoticeEl);
+    }
+    state.emptyPlotNoticeEl = null;
     while(state.svg.firstChild){
       state.svg.removeChild(state.svg.firstChild);
     }
@@ -4189,17 +4194,42 @@
       preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio')
     });
 
-    const text = global.document.createElementNS(NS, 'text');
-    text.setAttribute('x', '200');
-    text.setAttribute('y', '100');
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('dominant-baseline', 'middle');
-    text.setAttribute('font-size', '16');
-    text.setAttribute('fill', '#555');
-    text.textContent = message;
-    state.svg.appendChild(text);
-    markFontEditable(text, 'emptyMessage', 'heatmap-empty');
-    ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
+    const noticeMessage = message || (Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.');
+    const noticeHost = state.svg.parentElement || null;
+    if(noticeHost){
+      state.svg.style.display = 'none';
+      const notice = global.document.createElement('i');
+      notice.textContent = noticeMessage;
+      noticeHost.insertBefore(notice, state.svg.nextSibling);
+      state.emptyPlotNoticeEl = notice;
+    }else{
+      state.svg.style.display = '';
+      let text = null;
+      if(typeof Shared.renderPlotNotice === 'function'){
+        text = Shared.renderPlotNotice(state.svg, noticeMessage, {
+          clear: false,
+          resetAspect: false,
+          show: false,
+          svgX: 12,
+          svgY: 12,
+          svgFontSize: 16
+        });
+      }
+      if(!text){
+        text = global.document.createElementNS(NS, 'text');
+        text.setAttribute('x', '12');
+        text.setAttribute('y', '12');
+        text.setAttribute('text-anchor', 'start');
+        text.setAttribute('dominant-baseline', 'hanging');
+        text.setAttribute('font-size', '16');
+        text.setAttribute('font-style', 'italic');
+        text.setAttribute('fill', '#555');
+        text.textContent = noticeMessage;
+        state.svg.appendChild(text);
+      }
+      markFontEditable(text, 'emptyMessage', 'heatmap-empty');
+      ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
+    }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHeatmapAutoDrawNoticeWidth('draw');
   }
@@ -4409,7 +4439,7 @@
     const rowCount = orderedRowLabels.length;
     const columnCount = orderedColumnLabels.length;
     if(rowCount === 0 || columnCount === 0){
-      renderEmpty('Add numeric data to draw the heatmap.');
+      renderEmpty(Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null);
       return;
     }
     const doc = global.document;
@@ -5213,7 +5243,7 @@
     const labels = axis === 'columns' ? processed.columnLabels : processed.rowLabels;
     const items = buildAxisItems(processed.matrix, labels, axis);
     if(items.length < 2){
-      renderEmpty('Add at least two entries with numeric values to calculate correlations.');
+      renderEmpty(Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null);
       updateStats(null);
       return;
     }
@@ -5596,6 +5626,13 @@
         finalizeDrawPerformance({ status: 'skipped', error: 'missing-hot-or-svg' });
         return;
       }
+      if(state.emptyPlotNoticeEl && state.emptyPlotNoticeEl.parentNode){
+        state.emptyPlotNoticeEl.parentNode.removeChild(state.emptyPlotNoticeEl);
+      }
+      state.emptyPlotNoticeEl = null;
+      if(state.svg?.style){
+        state.svg.style.display = '';
+      }
       const drawToken = (state.drawToken || 0) + 1;
       state.drawToken = drawToken;
       const settings = resolveHeatmapEffectiveSettings(collectSettings());
@@ -5636,7 +5673,7 @@
         clearCachedRenderState();
         const reason = processed.reason;
         if(reason === 'no-data'){
-          renderEmpty('Add numeric data to draw the heatmap.');
+          renderEmpty(Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null);
           updateStats(null);
         }else if(reason === 'filtered-out'){
           renderEmpty('No rows passed the current filters. Adjust your thresholds to view data.');

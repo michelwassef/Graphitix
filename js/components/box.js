@@ -18994,7 +18994,7 @@ Technical analysis record (advanced)
         familyDescription:'This two-group analysis comprised a single prespecified comparison.'
       });
       renderTableModel({
-        caption:'Pairwise test summary',
+        caption:'Overall test summary',
         columns:[
           {key:'metric',label:'Metric',align:'left',index:0},
           {key:'value',label:'Value',align:'left',index:1}
@@ -19002,8 +19002,8 @@ Technical analysis record (advanced)
         rows:summaryRows,
         footnotes,
         options:{
-          fileName:'box-pairwise-summary',
-          contextLabel:'box-pairwise'
+          fileName:'box-overall-test',
+          contextLabel:'box-overall'
         }
       });
       const from=Math.min(indices[0],indices[1]);
@@ -20270,7 +20270,12 @@ Technical analysis record (advanced)
       if(els.boxColorPerBox){
         els.boxColorPerBox.innerHTML='';
       }
-      global.document.getElementById('boxPlot').innerHTML='';
+      const boxPlotEl = global.document.getElementById('boxPlot');
+      if(typeof Shared.renderPlotNotice === 'function'){
+        Shared.renderPlotNotice(boxPlotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+      }else if(boxPlotEl){
+        boxPlotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
+      }
       resetStatsComputationState({ placeholder: 'Add data to enable statistics.' });
       applyBoxSignificanceViewportExtension(0, { reason: 'no-traces' });
       return;

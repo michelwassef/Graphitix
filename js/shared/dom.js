@@ -1889,6 +1889,57 @@
     }
   }
 
+  const DEFAULT_EMPTY_PLOT_NOTICE = 'Add data to the input table to generate a plot.';
+
+  function getEmptyPlotNoticeMessage(message){
+    const raw = message == null ? '' : String(message).trim();
+    return raw || DEFAULT_EMPTY_PLOT_NOTICE;
+  }
+
+  function renderPlotNotice(target, message, options = {}){
+    if(!target || typeof target.appendChild !== 'function'){
+      return null;
+    }
+    const doc = target.ownerDocument || global.document;
+    if(!doc){
+      return null;
+    }
+    const clearChildren = options.clear !== false;
+    if(clearChildren && target.childNodes){
+      while(target.firstChild){
+        target.removeChild(target.firstChild);
+      }
+    }
+    if(target.style){
+      if(options.resetAspect !== false){
+        try{ target.style.aspectRatio = ''; }catch(err){}
+        try{ target.style.padding = ''; }catch(err){}
+      }
+      if(options.show !== false){
+        target.style.display = options.display || 'block';
+      }
+    }
+    const safeMessage = getEmptyPlotNoticeMessage(message);
+    const isSvg = target.namespaceURI === SVG_NS || String(target.tagName || '').toLowerCase() === 'svg';
+    if(isSvg){
+      const notice = doc.createElementNS(SVG_NS, 'text');
+      notice.setAttribute('x', String(Number.isFinite(options.svgX) ? options.svgX : 12));
+      notice.setAttribute('y', String(Number.isFinite(options.svgY) ? options.svgY : 12));
+      notice.setAttribute('text-anchor', 'start');
+      notice.setAttribute('dominant-baseline', 'hanging');
+      notice.setAttribute('font-size', String(Number.isFinite(options.svgFontSize) ? options.svgFontSize : 16));
+      notice.setAttribute('font-style', 'italic');
+      notice.setAttribute('fill', options.svgFill || '#555');
+      notice.textContent = safeMessage;
+      target.appendChild(notice);
+      return notice;
+    }
+    const notice = doc.createElement('i');
+    notice.textContent = safeMessage;
+    target.appendChild(notice);
+    return notice;
+  }
+
   Shared.makeEditable = makeEditable;
   Shared.enableLabelDrag = enableLabelDrag;
   Shared.enableLegendDrag = enableLegendDrag;
@@ -1898,6 +1949,9 @@
   Shared.graphViewport.ensure = ensureGraphViewport;
   Shared.graphViewport.createEnsurer = createGraphViewportEnsurer;
   Shared.serializeCleanSVG = serializeCleanSVG;
+  Shared.DEFAULT_EMPTY_PLOT_NOTICE = DEFAULT_EMPTY_PLOT_NOTICE;
+  Shared.getEmptyPlotNoticeMessage = getEmptyPlotNoticeMessage;
+  Shared.renderPlotNotice = renderPlotNotice;
 
   if (typeof global.makeEditable !== 'function') {
     global.makeEditable = makeEditable;

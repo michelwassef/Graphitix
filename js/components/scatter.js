@@ -368,10 +368,11 @@
     shapesValid: false
   };
   let scatterLabelStyles = {};
+  const SCATTER_OVERLAY_LINKABLE_KEYS = Object.freeze(new Set(['confidence', 'prediction']));
   const SCATTER_OVERLAY_STYLE_DEFAULTS = Object.freeze({
-    trend: Object.freeze({ color: '#d00', thickness: 1.5, transparency: 0, pattern: 'solid' }),
-    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85, pattern: 'solid' }),
-    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92, pattern: 'solid' })
+    trend: Object.freeze({ color: '#d00', thickness: 1.5, transparency: 0, pattern: 'solid', linkColorToTrend: false }),
+    confidence: Object.freeze({ color: '#d62728', thickness: 0, transparency: 85, pattern: 'solid', linkColorToTrend: true }),
+    prediction: Object.freeze({ color: '#d62728', thickness: 0, transparency: 92, pattern: 'solid', linkColorToTrend: true })
   });
   function cloneScatterOverlayStyleDefaults(){
     return {
@@ -409,7 +410,25 @@
     const pattern = (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid' || patternRaw === 'continuous')
       ? (patternRaw === 'continuous' ? 'solid' : patternRaw)
       : 'solid';
-    return { color, thickness, transparency, pattern };
+    const linkColorToTrend = SCATTER_OVERLAY_LINKABLE_KEYS.has(safeKey)
+      ? (() => {
+          if(Object.prototype.hasOwnProperty.call(next, 'linkColorToTrend')){
+            return !!next.linkColorToTrend;
+          }
+          const hasExplicitColor = Object.prototype.hasOwnProperty.call(next, 'color')
+            && typeof next.color === 'string'
+            && next.color.trim() !== '';
+          if(hasExplicitColor){
+            const explicitColor = next.color.trim().toLowerCase();
+            const fallbackColor = String(fallback.color || '').trim().toLowerCase();
+            if(explicitColor && fallbackColor && explicitColor !== fallbackColor){
+              return false;
+            }
+          }
+          return !!fallback.linkColorToTrend;
+        })()
+      : false;
+    return { color, thickness, transparency, pattern, linkColorToTrend };
   }
   function scatterOverlayPatternToDasharray(pattern, width){
     const normalized = String(pattern || 'solid').toLowerCase();
@@ -481,7 +500,7 @@
     const numeric = Number(value);
     return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
   }
-  function getScatterOverlayStyle(key){
+  function getScatterOverlayStoredStyle(key){
     const safeKey = sanitizeScatterOverlayKey(key);
     if(!safeKey){
       return null;
@@ -489,13 +508,34 @@
     return sanitizeScatterOverlayStyleEntry(scatterOverlayStyles?.[safeKey], safeKey)
       || sanitizeScatterOverlayStyleEntry(SCATTER_OVERLAY_STYLE_DEFAULTS[safeKey], safeKey);
   }
+  function getScatterOverlayStyle(key){
+    const safeKey = sanitizeScatterOverlayKey(key);
+    if(!safeKey){
+      return null;
+    }
+    const style = getScatterOverlayStoredStyle(safeKey);
+    if(!style){
+      return null;
+    }
+    if(SCATTER_OVERLAY_LINKABLE_KEYS.has(safeKey) && style.linkColorToTrend){
+      const trendStyle = getScatterOverlayStoredStyle('trend');
+      return { ...style, color: trendStyle?.color || style.color };
+    }
+    return style;
+  }
   function updateScatterOverlayStyle(key, patch){
     const safeKey = sanitizeScatterOverlayKey(key);
     if(!safeKey){
       return;
     }
-    const previous = getScatterOverlayStyle(safeKey) || sanitizeScatterOverlayStyleEntry(null, safeKey);
-    const merged = sanitizeScatterOverlayStyleEntry(Object.assign({}, previous || {}, patch || {}), safeKey);
+    const nextPatch = (patch && typeof patch === 'object')
+      ? { ...patch }
+      : {};
+    if(SCATTER_OVERLAY_LINKABLE_KEYS.has(safeKey) && Object.prototype.hasOwnProperty.call(nextPatch, 'color')){
+      nextPatch.linkColorToTrend = false;
+    }
+    const previous = getScatterOverlayStoredStyle(safeKey) || sanitizeScatterOverlayStyleEntry(null, safeKey);
+    const merged = sanitizeScatterOverlayStyleEntry(Object.assign({}, previous || {}, nextPatch), safeKey);
     if(!merged){
       return;
     }
@@ -10591,6 +10631,63 @@
           && scatterState.statsLastRunVersion===scatterState.statsContextVersion;
       }
 
+      function scatterStatsPanelHasRenderedResults(){
+        if(!scatterStatsResults || typeof scatterStatsResults.querySelector !== 'function'){
+          return false;
+        }
+        return !!scatterStatsResults.querySelector('.stats-table-card, .stats-report-panel, table');
+      }
+
+      function buildScatterStatsRenderSettings(){
+        const methodSelection = scatterStatType?.value || 'auto';
+        const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
+        const resolvedAssociationMethod = resolveScatterAssociationMethod(methodSelection, regressionModeValue);
+        const fitMethodValue = scatterFitMethod ? (scatterFitMethod.value || 'ols') : 'ols';
+        const fitSpec = buildScatterFitSpec();
+        const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
+        const showCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
+        const showPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
+        const showDiagnostics = !!scatterShowDiagnostics?.checked;
+        const controlSignature = getScatterStatsControlSignature();
+        return {
+          regressionModeValue,
+          fitMethodValue,
+          fitSpec,
+          showLineMaster,
+          showCI,
+          showPI,
+          showDiagnostics,
+          controlSignature,
+          associationSelection: methodSelection,
+          associationMethod: resolvedAssociationMethod
+        };
+      }
+
+      function restoreScatterStatsPanelFromContext(context, reason){
+        if(!context || !scatterStatsResults){
+          return false;
+        }
+        if(context.graphType === 'scatter'){
+          if(!context.precomputedStats){
+            return false;
+          }
+          const settings = buildScatterStatsRenderSettings();
+          applyScatterStatsResults(context, context.precomputedStats, settings);
+          scatterDebug('Debug: scatter stats panel restored from context', {
+            reason: reason || 'context-restore',
+            signature: scatterState.statsContextSignature || null,
+            grouped: !!context.precomputedStats?.grouped
+          });
+          return true;
+        }
+        renderScatterSignificanceSummary(context);
+        scatterDebug('Debug: scatter significance panel restored from context', {
+          reason: reason || 'context-restore',
+          graphType: context.graphType
+        });
+        return true;
+      }
+
       function syncScatterRegressionOptionVisibility(){
         if(!scatterStatsRegressionOptionsRow){
           return;
@@ -11211,6 +11308,7 @@
         }
         if(changed){
           if(hasPrecomputed){
+            restoreScatterStatsPanelFromContext(scatterState.statsContext, 'signature-change-precomputed');
             setScatterStatsStatus('Statistics up to date.');
             updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
           }else{
@@ -11219,6 +11317,9 @@
             updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
           }
         }else if(scatterState.statsLastRunVersion===scatterState.statsContextVersion){
+          if(hasPrecomputed && !scatterStatsPanelHasRenderedResults()){
+            restoreScatterStatsPanelFromContext(scatterState.statsContext, 'panel-empty-precomputed');
+          }
           setScatterStatsStatus('Statistics up to date.');
           updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
         }else if(!scatterState.statsComputationPending){
@@ -15286,6 +15387,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         };
         const renderScatterNotice=(message)=>{
+          if(typeof Shared.renderPlotNotice === 'function'){
+            Shared.renderPlotNotice(plotEl, message, { resetAspect: true, show: true });
+            return;
+          }
           plotEl.style.aspectRatio='';
           plotEl.style.padding='';
           clearScatterPlot();
@@ -15294,7 +15399,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           plotEl.appendChild(notice);
         };
         if(!points.length){
-          renderScatterNotice('No valid data points to plot.');
+          const emptyPlotNotice = Shared.getEmptyPlotNoticeMessage
+            ? Shared.getEmptyPlotNoticeMessage()
+            : 'Add data to the input table to generate a plot.';
+          renderScatterNotice(emptyPlotNotice);
           debug('Debug: scatter plot aborted due to empty dataset',{graphType});
           primeScatterStatsContext(null,{ placeholder:'Add data to enable statistics.' });
           return;
@@ -18882,6 +18990,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 debug('Debug: scatter regression trend omitted',{ showLine, label: entry?.label || null, hasModel: false });
                 return;
               }
+              const trendStyle = getScatterOverlayStyle('trend');
+              const trendColor = entry?.color || trendStyle?.color || '#d00';
               const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
               const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
               const intervalLayer = ((drawCI || drawPI) && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
@@ -18933,15 +19043,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 const predictionPath = drawPI ? buildIntervalPath('piLow','piHigh') : null;
                 const confidenceStyle = getScatterOverlayStyle('confidence');
                 const predictionStyle = getScatterOverlayStyle('prediction');
-                const bandColor = entry?.color || confidenceStyle?.color || predictionStyle?.color || '#d62728';
+                const confidenceColor = (confidenceStyle?.linkColorToTrend === true)
+                  ? trendColor
+                  : (confidenceStyle?.color || trendColor || '#d62728');
+                const predictionColor = (predictionStyle?.linkColorToTrend === true)
+                  ? trendColor
+                  : (predictionStyle?.color || trendColor || '#d62728');
                 if(confidencePath){
                   const confEl=document.createElementNS(NS,'path');
                   confEl.setAttribute('d',confidencePath);
-                  confEl.setAttribute('fill',bandColor);
+                  confEl.setAttribute('fill',confidenceColor);
                   confEl.setAttribute('fill-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
                   const confidenceThickness = Number(confidenceStyle?.thickness);
                   if(Number.isFinite(confidenceThickness) && confidenceThickness > 0){
-                    confEl.setAttribute('stroke',bandColor);
+                    confEl.setAttribute('stroke',confidenceColor);
                     confEl.setAttribute('stroke-width',String(confidenceThickness));
                     confEl.setAttribute('stroke-opacity',String(1 - ((confidenceStyle?.transparency ?? 85) / 100)));
                     const confidenceDash = scatterOverlayPatternToDasharray(confidenceStyle?.pattern, confidenceThickness);
@@ -18961,11 +19076,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 if(predictionPath){
                   const predEl=document.createElementNS(NS,'path');
                   predEl.setAttribute('d',predictionPath);
-                  predEl.setAttribute('fill',bandColor);
+                  predEl.setAttribute('fill',predictionColor);
                   predEl.setAttribute('fill-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
                   const predictionThickness = Number(predictionStyle?.thickness);
                   if(Number.isFinite(predictionThickness) && predictionThickness > 0){
-                    predEl.setAttribute('stroke',bandColor);
+                    predEl.setAttribute('stroke',predictionColor);
                     predEl.setAttribute('stroke-width',String(predictionThickness));
                     predEl.setAttribute('stroke-opacity',String(1 - ((predictionStyle?.transparency ?? 92) / 100)));
                     const predictionDash = scatterOverlayPatternToDasharray(predictionStyle?.pattern, predictionThickness);
@@ -19012,7 +19127,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 pathCommands.push(command);
               });
               if(pathCommands.length>1){
-                const trendStyle = getScatterOverlayStyle('trend');
                 const rawTrendThickness = Number(trendStyle?.thickness);
                 const trendThickness = Number.isFinite(rawTrendThickness) ? Math.max(0, rawTrendThickness) : 1.5;
                 const strokeWidth=chartStyle.scaleStrokeWidth(trendThickness, styleScaleInfo, { context: 'scatter-trend', min: 0 });
@@ -19020,7 +19134,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 const path=add('path',{
                   d:pathCommands.join(' '),
                   fill:'none',
-                  stroke: entry?.color || trendStyle?.color || '#d00',
+                  stroke: trendColor,
                   'stroke-width': strokeWidth,
                   'stroke-opacity': String(Math.min(1, Math.max(0, trendOpacity)))
                 });

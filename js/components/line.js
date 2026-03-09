@@ -1734,7 +1734,9 @@
     if(refs.plot){
       refs.plot.innerHTML = '';
       if(options.message){
-        if(options.allowHtml){
+        if(options.usePlotNotice && typeof Shared.renderPlotNotice === 'function'){
+          Shared.renderPlotNotice(refs.plot, options.message, { resetAspect: true, show: true });
+        }else if(options.allowHtml){
           refs.plot.innerHTML = options.message;
         }else{
           refs.plot.textContent = options.message;
@@ -7777,7 +7779,10 @@
 
       const matrix = lineHot.getData();
       if(!Array.isArray(matrix) || !matrix.length){
-        resetLineRenderState('line-3d-no-data-matrix');
+        resetLineRenderState('line-3d-no-data-matrix',{
+          message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
+          usePlotNotice: true
+        });
         handleLineStatsUnavailable(null, lineStatsEmptyPlaceholder);
         return;
       }
@@ -8744,7 +8749,10 @@
       const regressionCache=new Map();
       const statsContext={ showIntervals, showConfidenceIntervals, showPredictionIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions };
       if(!Array.isArray(data) || !data.length){
-        resetLineRenderState('no-data-matrix');
+        resetLineRenderState('no-data-matrix',{
+          message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
+          usePlotNotice: true
+        });
         handleLineStatsUnavailable(statsContext, lineStatsEmptyPlaceholder);
         return;
       }
@@ -8818,7 +8826,10 @@
         console.debug('Debug: line empty series filtered',{ totalSeries: series.length, renderedSeries: seriesWithData.length });
       }
       if(!seriesWithData.length){
-        resetLineRenderState('no-valid-series');
+        resetLineRenderState('no-valid-series',{
+          message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
+          usePlotNotice: true
+        });
         handleLineStatsUnavailable(statsContext, 'Not enough data for statistics.');
         return;
       }

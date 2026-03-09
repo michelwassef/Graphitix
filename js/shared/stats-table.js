@@ -499,6 +499,12 @@
     if (config?.className) {
       wrapper.classList.add(config.className);
     }
+    if(model.caption){
+      wrapper.setAttribute('data-stats-caption', model.caption);
+    }
+    if(config && Object.prototype.hasOwnProperty.call(config, 'advanced')){
+      wrapper.setAttribute('data-stats-advanced', config.advanced ? '1' : '0');
+    }
     if (model.caption) {
       const captionEl = doc.createElement('div');
       captionEl.className = 'stats-table-caption';

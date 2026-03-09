@@ -1092,7 +1092,11 @@
         }
       }
       if(!barHeaders.length||!segmentLabels.length){
-        plotEl.innerHTML='<i>No data</i>';
+        if(typeof Shared.renderPlotNotice === 'function'){
+          Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+        }else{
+          plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
+        }
         return;
       }
       ensurePieColors(segmentLabels);
@@ -1433,7 +1437,14 @@
       expected.push(e);
     }
     const seriesColumns=seriesColumnsRaw.filter(series=>series.values.some(v=>typeof v==='number' && isFinite(v) && v!==0));
-    if(!seriesColumns.length || !labels.length){ plotEl.innerHTML='<i>No data</i>'; return; }
+    if(!seriesColumns.length || !labels.length){
+      if(typeof Shared.renderPlotNotice === 'function'){
+        Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+      }else{
+        plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
+      }
+      return;
+    }
     ensurePieColors(labels);
     const palette2 = getDefaultPalette();
     const radialLegendEntries = showLegend ? labels.map((lab,i)=>({

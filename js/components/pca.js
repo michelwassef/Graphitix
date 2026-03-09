@@ -6694,7 +6694,11 @@
       }
 
       if (numericColIndices.length < 2) {
-        pcaPlotDiv.innerHTML = '<i>At least two condition columns required.</i>';
+        if(typeof Shared.renderPlotNotice === 'function'){
+          Shared.renderPlotNotice(pcaPlotDiv, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+        }else{
+          pcaPlotDiv.innerHTML = '<i>Add data to the input table to generate a plot.</i>';
+        }
         resetStatsPanel();
         updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
@@ -6709,14 +6713,22 @@
       });
 
       if (labels.length < 2) {
-        pcaPlotDiv.innerHTML = '<i>At least two conditions required.</i>';
+        if(typeof Shared.renderPlotNotice === 'function'){
+          Shared.renderPlotNotice(pcaPlotDiv, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+        }else{
+          pcaPlotDiv.innerHTML = '<i>Add data to the input table to generate a plot.</i>';
+        }
         resetStatsPanel();
         updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
       }
 
       if (featureLabels.length < 2 || !matrix[0] || matrix[0].length < 2) {
-        pcaPlotDiv.innerHTML = '<i>At least two variables required.</i>';
+        if(typeof Shared.renderPlotNotice === 'function'){
+          Shared.renderPlotNotice(pcaPlotDiv, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+        }else{
+          pcaPlotDiv.innerHTML = '<i>Add data to the input table to generate a plot.</i>';
+        }
         resetStatsPanel();
         updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;

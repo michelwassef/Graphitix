@@ -3006,7 +3006,11 @@
     logDebug('stat toggles resolved', { hazardRatiosEnabled, coxEnabled, coxAvailable: coxModelSummary.available });
     updateGroupColorPickers(summary.groupNames);
     if(!summary.series.length){
-      refs.plotDiv.innerHTML = '<i>No data</i>';
+      if(typeof Shared.renderPlotNotice === 'function'){
+        Shared.renderPlotNotice(refs.plotDiv, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+      }else{
+        refs.plotDiv.innerHTML = '<i>Add data to the input table to generate a plot.</i>';
+      }
       updateStats(summary);
       return;
     }

@@ -2481,7 +2481,15 @@
     state.xLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
     const values=[]; for(let i=1;i<data.length;i++){const v=parseFloat(data[i]); if(!isNaN(v)) values.push(v);}
     const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
-    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; updateHistStats(values, []); return; }
+    if(!values.length){
+      if(typeof Shared.renderPlotNotice === 'function'){
+        Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
+      }else{
+        plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
+      }
+      updateHistStats(values, []);
+      return;
+    }
     const distributionFits = prepareDistributionFits(values);
     const includePdf = !!state.distributionSettings.showPdf;
     const includeCdf = !!state.distributionSettings.showCdf;

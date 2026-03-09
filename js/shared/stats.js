@@ -1176,6 +1176,7 @@
       : 'Technical analysis record (advanced)';
     const panel = documentRef.createElement('details');
     panel.className = 'stats-report-panel';
+    panel.dataset.statsAdvanced = '1';
     const summary = documentRef.createElement('summary');
     summary.textContent = title;
     panel.appendChild(summary);
@@ -1220,6 +1221,718 @@
     }
     target.appendChild(panel);
   };
+
+  const SIGNIFICANCE_THRESHOLD_STORAGE_KEY = 'venn.stats.significanceThreshold';
+  const DEFAULT_SIGNIFICANCE_THRESHOLD = 0.05;
+  const STATS_PANEL_SELECTORS = [
+    '#statsResults',
+    '#scatterStatsResults',
+    '#lineStatsResults',
+    '#rocStatsResults',
+    '#histStatsResults',
+    '#pieStatsResults',
+    '#heatmapStatsContent',
+    '#pcaStatsResults',
+    '#surfaceStatsSummary',
+    '#survivalStatsSummary',
+    '#survivalStatsLogRank',
+    '#survivalStatsHazardRatios',
+    '#survivalStatsCox'
+  ];
+  const ADVANCED_KEYWORD_PATTERNS = [
+    /\bdiagnostic/i,
+    /\bcoefficient/i,
+    /\bparameter/i,
+    /\bresidual/i,
+    /\bforecast/i,
+    /\bseasonal/i,
+    /\btechnical\b/i,
+    /\breproducibility/i,
+    /\bpost[-\s]?hoc/i,
+    /\bhazard ratio/i,
+    /\bcox\b/i,
+    /\bconfidence interval/i,
+    /\binterval bounds/i,
+    /\bcurve comparison/i,
+    /\bpairwise/i,
+    /\bassumption/i,
+    /\beigen/i,
+    /\bloadings?\b/i
+  ];
+  const panelEnhancerState = new WeakMap();
+  const enhancedStatsPanels = new Set();
+  const TRACKED_STATS_PANEL_IDS = STATS_PANEL_SELECTORS
+    .filter(selector => typeof selector === 'string' && selector.startsWith('#'))
+    .map(selector => selector.slice(1))
+    .filter(Boolean);
+  const trackedStatsPanelIdSet = new Set(TRACKED_STATS_PANEL_IDS);
+  let panelsInstallAttempted = false;
+  let panelInstallRescanObserver = null;
+  let panelInstallRescanScheduled = false;
+
+  function statsReportingDebug(label, payload){
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug(`Debug: statsReporting.${label}`, payload || {});
+    }
+  }
+
+  function sanitizeSignificanceThreshold(value, fallback){
+    const fallbackValue = Number.isFinite(fallback) && fallback > 0 && fallback <= 1
+      ? fallback
+      : DEFAULT_SIGNIFICANCE_THRESHOLD;
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return fallbackValue;
+    }
+    if(numeric > 1){
+      return 1;
+    }
+    return numeric;
+  }
+
+  function formatThresholdLabel(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return String(DEFAULT_SIGNIFICANCE_THRESHOLD);
+    }
+    if(numeric >= 0.01){
+      return numeric.toFixed(3).replace(/0+$/,'').replace(/\.$/, '');
+    }
+    return numeric.toExponential(2);
+  }
+
+  function getStoredSignificanceThreshold(){
+    try{
+      if(global.localStorage){
+        const stored = global.localStorage.getItem(SIGNIFICANCE_THRESHOLD_STORAGE_KEY);
+        if(stored != null && stored !== ''){
+          return sanitizeSignificanceThreshold(stored, DEFAULT_SIGNIFICANCE_THRESHOLD);
+        }
+      }
+    }catch(err){
+      statsReportingDebug('readThresholdStorageError', { message: err?.message || String(err) });
+    }
+    return DEFAULT_SIGNIFICANCE_THRESHOLD;
+  }
+
+  let sharedSignificanceThreshold = getStoredSignificanceThreshold();
+
+  function persistSignificanceThreshold(value){
+    try{
+      if(global.localStorage){
+        global.localStorage.setItem(SIGNIFICANCE_THRESHOLD_STORAGE_KEY, String(value));
+      }
+    }catch(err){
+      statsReportingDebug('writeThresholdStorageError', { message: err?.message || String(err) });
+    }
+  }
+
+  function parsePValue(rawText, options){
+    const source = String(rawText == null ? '' : rawText)
+      .replace(/\u2212/g, '-')
+      .replace(/,/g, '')
+      .trim();
+    if(!source){
+      return null;
+    }
+    const explicitMatch = source.match(/\bp(?:\s*[-]?\s*value)?\b[^0-9<>=]*([<>]=?|=)\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/i);
+    if(explicitMatch){
+      const numeric = Number(explicitMatch[2]);
+      if(Number.isFinite(numeric)){
+        return { value: numeric, operator: explicitMatch[1] || '=' };
+      }
+    }
+    const compactMatch = source.match(/\bp(?:adj|adj\.|value|val)?\s*[:=]\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/i);
+    if(compactMatch){
+      const numeric = Number(compactMatch[1]);
+      if(Number.isFinite(numeric)){
+        return { value: numeric, operator: '=' };
+      }
+    }
+    if(options?.allowBare === true){
+      const bareMatch = source.match(/^([<>]=?|=)?\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)$/i);
+      if(bareMatch){
+        const numeric = Number(bareMatch[2]);
+        if(Number.isFinite(numeric)){
+          return { value: numeric, operator: bareMatch[1] || '=' };
+        }
+      }
+    }
+    return null;
+  }
+
+  function isPLabel(text){
+    const source = String(text || '').toLowerCase();
+    return /\b(?:p|p[-\s]?value|p[-\s]?val|adj(?:usted)?\s*p|padj|p\*)\b/.test(source);
+  }
+
+  function resolveSignificanceToken(pInfo, threshold){
+    if(!pInfo || !Number.isFinite(pInfo.value)){
+      return null;
+    }
+    const alpha = sanitizeSignificanceThreshold(threshold, DEFAULT_SIGNIFICANCE_THRESHOLD);
+    const operator = typeof pInfo.operator === 'string' ? pInfo.operator : '=';
+    const value = pInfo.value;
+    const isSignificant = (operator === '>' || operator === '>=') ? false : (value <= alpha);
+    if(!isSignificant){
+      return 'NS';
+    }
+    if(value <= alpha / 1000){
+      return '****';
+    }
+    if(value <= alpha / 100){
+      return '***';
+    }
+    if(value <= alpha / 10){
+      return '**';
+    }
+    return '*';
+  }
+
+  function renderSignificanceBadge(cell, pInfo, threshold){
+    if(!cell || typeof cell.querySelectorAll !== 'function'){
+      return false;
+    }
+    cell.querySelectorAll('.stats-significance-badge').forEach(node => {
+      try{
+        node.remove();
+      }catch(err){}
+    });
+    const token = resolveSignificanceToken(pInfo, threshold);
+    if(!token || !cell.ownerDocument || typeof cell.ownerDocument.createElement !== 'function'){
+      return false;
+    }
+    const badge = cell.ownerDocument.createElement('span');
+    badge.className = `stats-significance-badge ${token === 'NS' ? 'stats-significance-badge--ns' : 'stats-significance-badge--sig'}`;
+    badge.textContent = token;
+    const thresholdLabel = formatThresholdLabel(threshold);
+    badge.title = `Significance summary at p <= ${thresholdLabel}`;
+    cell.appendChild(badge);
+    return true;
+  }
+
+  function annotateTablePValues(table, threshold){
+    if(!table || typeof table.querySelectorAll !== 'function'){
+      return 0;
+    }
+    let headerCells = Array.from(table.querySelectorAll('thead tr th'));
+    if(!headerCells.length){
+      const firstRow = table.querySelector('tr');
+      if(firstRow && firstRow.querySelector('th')){
+        headerCells = Array.from(firstRow.querySelectorAll('th'));
+      }
+    }
+    const pColumnIndexes = [];
+    headerCells.forEach((cell, index) => {
+      if(isPLabel(cell?.textContent || '')){
+        pColumnIndexes.push(index);
+      }
+    });
+    let badgeCount = 0;
+    let bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    if(!bodyRows.length){
+      const allRows = Array.from(table.querySelectorAll('tr'));
+      if(allRows.length){
+        const firstRowCells = Array.from(allRows[0].cells || []);
+        const firstRowIsHeader = firstRowCells.some(cell => String(cell.tagName || '').toLowerCase() === 'th');
+        bodyRows = firstRowIsHeader ? allRows.slice(1) : allRows;
+      }
+    }
+    bodyRows.forEach(row => {
+      const cells = Array.from(row.cells || []);
+      if(!cells.length){
+        return;
+      }
+      const taggedCells = new Set();
+      pColumnIndexes.forEach(index => {
+        const candidate = cells[index];
+        if(!candidate){
+          return;
+        }
+        const parsed = parsePValue(candidate.textContent, { allowBare: true });
+        if(renderSignificanceBadge(candidate, parsed, threshold)){
+          badgeCount += 1;
+          taggedCells.add(candidate);
+        }
+      });
+      if(cells.length >= 2 && isPLabel(cells[0]?.textContent || '')){
+        const candidate = cells[cells.length - 1];
+        if(candidate && !taggedCells.has(candidate)){
+          const parsed = parsePValue(candidate.textContent, { allowBare: true });
+          if(renderSignificanceBadge(candidate, parsed, threshold)){
+            badgeCount += 1;
+            taggedCells.add(candidate);
+          }
+        }
+      }
+      cells.forEach(cell => {
+        if(taggedCells.has(cell)){
+          return;
+        }
+        const parsed = parsePValue(cell.textContent, { allowBare: false });
+        if(renderSignificanceBadge(cell, parsed, threshold)){
+          badgeCount += 1;
+          taggedCells.add(cell);
+        }
+      });
+    });
+    return badgeCount;
+  }
+
+  function readNodeCaption(node){
+    if(!node || node.nodeType !== 1){
+      return '';
+    }
+    const children = Array.from(node.children || []);
+    for(let index = 0; index < children.length; index += 1){
+      const child = children[index];
+      if(!child){
+        continue;
+      }
+      const tagName = String(child.tagName || '').toLowerCase();
+      const classList = child.classList || { contains: () => false };
+      if(
+        tagName === 'summary'
+        || classList.contains('stats-table-caption')
+        || classList.contains('stats-table-lead')
+        || classList.contains('loadings-card__title')
+        || classList.contains('variance-card__title')
+      ){
+        if(child.textContent){
+          return child.textContent.trim();
+        }
+      }
+    }
+    if(node.getAttribute){
+      const attrCaption = node.getAttribute('data-stats-caption');
+      if(attrCaption){
+        return String(attrCaption).trim();
+      }
+    }
+    if(node.id){
+      return String(node.id);
+    }
+    return '';
+  }
+
+  function isAdvancedNode(node){
+    if(!node || node.nodeType !== 1){
+      return false;
+    }
+    if(node.classList.contains('stats-assumption-container')){
+      return true;
+    }
+    if(node.getAttribute('data-stats-advanced') === '1'){
+      return true;
+    }
+    if(node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced')){
+      return true;
+    }
+    const caption = readNodeCaption(node);
+    if(!caption){
+      return false;
+    }
+    return ADVANCED_KEYWORD_PATTERNS.some(pattern => pattern.test(caption));
+  }
+
+  function findDirectChildByClass(parent, className){
+    if(!parent || !className){
+      return null;
+    }
+    const children = Array.from(parent.children || []);
+    for(let index = 0; index < children.length; index += 1){
+      const child = children[index];
+      if(child?.classList?.contains(className)){
+        return child;
+      }
+    }
+    return null;
+  }
+
+  function panelHasEnhanceableContent(target){
+    if(!target || typeof target.querySelector !== 'function'){
+      return false;
+    }
+    return !!target.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
+  }
+
+  function ensurePanelScaffold(target, state){
+    if(!target || !target.ownerDocument){
+      return null;
+    }
+    const documentRef = target.ownerDocument;
+    let controls = findDirectChildByClass(target, 'stats-significance-controls');
+    if(!controls){
+      controls = documentRef.createElement('div');
+      controls.className = 'stats-significance-controls';
+      controls.innerHTML = '<label class="stats-significance-controls__label">Significance threshold (p \u2264) <input type="number" class="stats-significance-controls__input" min="0.000001" max="1" step="0.0001" data-undo-ignore="1" /></label><span class="stats-significance-controls__hint">Applies when p-values are present.</span>';
+      target.insertBefore(controls, target.firstChild || null);
+      statsReportingDebug('createSignificanceControls', { id: target.id || null });
+    }
+    const thresholdInput = controls.querySelector('.stats-significance-controls__input');
+    if(thresholdInput){
+      thresholdInput.value = String(sharedSignificanceThreshold);
+      if(state.thresholdInputEl !== thresholdInput){
+        thresholdInput.addEventListener('change', () => {
+          reporting.setSignificanceThreshold(thresholdInput.value, { source: target.id || null });
+        });
+        thresholdInput.addEventListener('blur', () => {
+          thresholdInput.value = String(reporting.getSignificanceThreshold());
+        });
+        state.thresholdInputEl = thresholdInput;
+      }
+    }
+    let main = findDirectChildByClass(target, 'stats-results-main');
+    if(!main){
+      main = documentRef.createElement('div');
+      main.className = 'stats-results-main';
+      target.appendChild(main);
+    }
+    let advancedPanel = findDirectChildByClass(target, 'stats-results-advanced-panel');
+    if(!advancedPanel){
+      advancedPanel = documentRef.createElement('details');
+      advancedPanel.className = 'stats-results-advanced-panel';
+      advancedPanel.innerHTML = '<summary>Advanced statistics</summary><div class="stats-results-advanced-panel__body"></div>';
+      target.appendChild(advancedPanel);
+      statsReportingDebug('createAdvancedPanel', { id: target.id || null });
+    }
+    if(main.nextSibling !== advancedPanel){
+      target.insertBefore(advancedPanel, main.nextSibling);
+    }
+    const advancedBody = findDirectChildByClass(advancedPanel, 'stats-results-advanced-panel__body');
+    return {
+      controls,
+      thresholdInput,
+      hint: controls.querySelector('.stats-significance-controls__hint'),
+      main,
+      advancedPanel,
+      advancedBody
+    };
+  }
+
+  function redistributePanelNodes(target, scaffold){
+    if(!target || !scaffold?.main || !scaffold?.advancedBody){
+      return;
+    }
+    const candidates = [];
+    const pushCandidate = node => {
+      if(!node){
+        return;
+      }
+      if(node === scaffold.controls || node === scaffold.main || node === scaffold.advancedPanel){
+        return;
+      }
+      if(node.nodeType === 3){
+        if(!String(node.textContent || '').trim()){
+          return;
+        }
+        candidates.push(node);
+        return;
+      }
+      if(node.nodeType !== 1){
+        return;
+      }
+      candidates.push(node);
+    };
+    Array.from(target.childNodes).forEach(pushCandidate);
+    Array.from(scaffold.main.childNodes).forEach(pushCandidate);
+    Array.from(scaffold.advancedBody.childNodes).forEach(pushCandidate);
+    const unique = Array.from(new Set(candidates));
+    unique.forEach(node => {
+      const destination = isAdvancedNode(node) ? scaffold.advancedBody : scaffold.main;
+      destination.appendChild(node);
+    });
+    if(scaffold.main.childNodes.length === 0 && scaffold.advancedBody.childNodes.length){
+      const fallback = Array.from(scaffold.advancedBody.childNodes).find(node => node.nodeType === 1 && !node.classList?.contains('stats-report-panel'));
+      if(fallback){
+        scaffold.main.appendChild(fallback);
+      }
+    }
+    scaffold.advancedPanel.hidden = scaffold.advancedBody.childNodes.length === 0;
+    scaffold.advancedPanel.setAttribute('aria-hidden', scaffold.advancedPanel.hidden ? 'true' : 'false');
+  }
+
+  function applyPanelEnhancements(target, reason){
+    if(!target){
+      return;
+    }
+    const state = panelEnhancerState.get(target);
+    if(!state){
+      return;
+    }
+    if(state.applying){
+      return;
+    }
+    state.applying = true;
+    state.mutationSuspended = true;
+    try{
+      const hasMain = !!findDirectChildByClass(target, 'stats-results-main');
+      const hasAdvanced = !!findDirectChildByClass(target, 'stats-results-advanced-panel');
+      if(!hasMain && !hasAdvanced && !panelHasEnhanceableContent(target)){
+        return;
+      }
+      const scaffold = ensurePanelScaffold(target, state);
+      if(!scaffold){
+        return;
+      }
+      redistributePanelNodes(target, scaffold);
+      const threshold = reporting.getSignificanceThreshold();
+      let badgeCount = 0;
+      const tables = target.querySelectorAll('table');
+      tables.forEach(table => {
+        badgeCount += annotateTablePValues(table, threshold);
+      });
+      if(scaffold.hint){
+        scaffold.hint.textContent = badgeCount
+          ? `Legend: NS, *, **, ***, **** (p <= ${formatThresholdLabel(threshold)})`
+          : 'Applies when p-values are present.';
+      }
+      statsReportingDebug('enhancePanel', { id: target.id || null, reason: reason || 'manual', badgeCount, tables: tables.length });
+    }finally{
+      state.applying = false;
+      if(typeof global.setTimeout === 'function'){
+        global.setTimeout(() => {
+          state.mutationSuspended = false;
+        }, 0);
+      }else{
+        state.mutationSuspended = false;
+      }
+    }
+  }
+
+  function schedulePanelEnhancement(target, reason){
+    if(!target){
+      return;
+    }
+    let state = panelEnhancerState.get(target);
+    if(!state){
+      state = {
+        applying: false,
+        scheduled: false,
+        thresholdInputEl: null,
+        mutationSuspended: false,
+        observer: null
+      };
+      panelEnhancerState.set(target, state);
+    }
+    if(state.scheduled){
+      return;
+    }
+    state.scheduled = true;
+    const runner = () => {
+      state.scheduled = false;
+      applyPanelEnhancements(target, reason);
+    };
+    if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(runner);
+    }else{
+      global.setTimeout(runner, 0);
+    }
+  }
+
+  function observeStatsPanel(target){
+    if(!target || panelEnhancerState.get(target)?.observer){
+      return;
+    }
+    const state = panelEnhancerState.get(target) || {
+      applying: false,
+      scheduled: false,
+      thresholdInputEl: null,
+      mutationSuspended: false,
+      observer: null
+    };
+    if(typeof MutationObserver !== 'function'){
+      panelEnhancerState.set(target, state);
+      enhancedStatsPanels.add(target);
+      schedulePanelEnhancement(target, 'observe-init-no-observer');
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if(state.applying || state.mutationSuspended){
+        return;
+      }
+      schedulePanelEnhancement(target, 'mutation');
+    });
+    observer.observe(target, { childList: true, subtree: true, characterData: true });
+    state.observer = observer;
+    panelEnhancerState.set(target, state);
+    enhancedStatsPanels.add(target);
+    schedulePanelEnhancement(target, 'observe-init');
+  }
+
+  function resolveStatsPanelsFromSelectors(selectors){
+    const list = Array.isArray(selectors) ? selectors : STATS_PANEL_SELECTORS;
+    if(!global.document){
+      return [];
+    }
+    const found = [];
+    list.forEach(selector => {
+      if(typeof selector !== 'string' || !selector.trim()){
+        return;
+      }
+      if(selector.startsWith('#')){
+        const node = global.document.getElementById(selector.slice(1));
+        if(node){
+          found.push(node);
+        }
+        return;
+      }
+      const nodes = global.document.querySelectorAll(selector);
+      nodes.forEach(node => found.push(node));
+    });
+    return Array.from(new Set(found));
+  }
+
+  function refreshAllEnhancedPanels(reason){
+    enhancedStatsPanels.forEach(panel => {
+      if(!panel || !panel.isConnected){
+        return;
+      }
+      schedulePanelEnhancement(panel, reason || 'refresh');
+    });
+  }
+
+  function nodeTouchesTrackedStatsPanel(node){
+    if(!node || node.nodeType !== 1){
+      return false;
+    }
+    const element = node;
+    if(element.id && trackedStatsPanelIdSet.has(element.id)){
+      return true;
+    }
+    if(typeof element.querySelector === 'function'){
+      for(let index = 0; index < TRACKED_STATS_PANEL_IDS.length; index += 1){
+        const panelId = TRACKED_STATS_PANEL_IDS[index];
+        if(element.querySelector(`#${panelId}`)){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function mutationTouchesTrackedStatsPanel(mutations){
+    if(!Array.isArray(mutations) && !(mutations && typeof mutations.forEach === 'function')){
+      return false;
+    }
+    let touched = false;
+    mutations.forEach(mutation => {
+      if(touched || !mutation){
+        return;
+      }
+      const addedNodes = Array.from(mutation.addedNodes || []);
+      const removedNodes = Array.from(mutation.removedNodes || []);
+      for(let index = 0; index < addedNodes.length; index += 1){
+        if(nodeTouchesTrackedStatsPanel(addedNodes[index])){
+          touched = true;
+          return;
+        }
+      }
+      for(let index = 0; index < removedNodes.length; index += 1){
+        if(nodeTouchesTrackedStatsPanel(removedNodes[index])){
+          touched = true;
+          return;
+        }
+      }
+    });
+    return touched;
+  }
+
+  function schedulePanelInstallRescan(reason){
+    if(panelInstallRescanScheduled){
+      return;
+    }
+    panelInstallRescanScheduled = true;
+    const run = () => {
+      panelInstallRescanScheduled = false;
+      const panelCount = reporting.installEnhancedPanels();
+      statsReportingDebug('rescanInstallEnhancedPanels', { reason: reason || 'mutation', panelCount });
+    };
+    if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(run);
+      return;
+    }
+    if(typeof global.setTimeout === 'function'){
+      global.setTimeout(run, 0);
+      return;
+    }
+    run();
+  }
+
+  function ensurePanelInstallRescanObserver(){
+    if(panelInstallRescanObserver || typeof MutationObserver !== 'function' || !global.document){
+      return;
+    }
+    const root = global.document.body || global.document.documentElement;
+    if(!root){
+      return;
+    }
+    panelInstallRescanObserver = new MutationObserver(mutations => {
+      if(mutationTouchesTrackedStatsPanel(mutations)){
+        schedulePanelInstallRescan('tracked-panel-mutation');
+      }
+    });
+    panelInstallRescanObserver.observe(root, { childList: true, subtree: true });
+    statsReportingDebug('installRescanObserverReady', { trackedPanels: TRACKED_STATS_PANEL_IDS.length });
+  }
+
+  reporting.getSignificanceThreshold = function getSignificanceThreshold(){
+    return sharedSignificanceThreshold;
+  };
+
+  reporting.setSignificanceThreshold = function setSignificanceThreshold(value, options){
+    const previous = sharedSignificanceThreshold;
+    const next = sanitizeSignificanceThreshold(value, previous);
+    sharedSignificanceThreshold = next;
+    persistSignificanceThreshold(next);
+    if(previous !== next){
+      statsReportingDebug('setSignificanceThreshold', { previous, next, source: options?.source || null });
+      refreshAllEnhancedPanels('threshold-change');
+    }else{
+      refreshAllEnhancedPanels('threshold-sync');
+    }
+    return next;
+  };
+
+  reporting.getSignificanceToken = function getSignificanceToken(pValue, threshold){
+    const parsed = Number.isFinite(Number(pValue))
+      ? { value: Number(pValue), operator: '=' }
+      : null;
+    return resolveSignificanceToken(parsed, sanitizeSignificanceThreshold(threshold, sharedSignificanceThreshold));
+  };
+
+  reporting.refreshEnhancedPanels = function refreshEnhancedPanels(reason){
+    refreshAllEnhancedPanels(reason || 'manual');
+  };
+
+  reporting.installEnhancedPanels = function installEnhancedPanels(options){
+    if(!global.document){
+      return 0;
+    }
+    const panels = resolveStatsPanelsFromSelectors(options?.selectors || STATS_PANEL_SELECTORS);
+    panels.forEach(panel => observeStatsPanel(panel));
+    statsReportingDebug('installEnhancedPanels', { panelCount: panels.length });
+    return panels.length;
+  };
+
+  function autoInstallEnhancedPanels(){
+    if(panelsInstallAttempted){
+      ensurePanelInstallRescanObserver();
+      return;
+    }
+    panelsInstallAttempted = true;
+    reporting.installEnhancedPanels();
+    ensurePanelInstallRescanObserver();
+  }
+
+  if(global.document){
+    if(global.document.readyState === 'loading'){
+      global.document.addEventListener('DOMContentLoaded', autoInstallEnhancedPanels, { once: true });
+    }else{
+      autoInstallEnhancedPanels();
+    }
+  }
+
   stats.getCorrectionMeta = function(method){
     const methodKey = normalizeMethod(method);
     const cfg = METHOD_CONFIG[methodKey] || METHOD_CONFIG[DEFAULT_METHOD];
