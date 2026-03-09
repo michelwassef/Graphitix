@@ -275,7 +275,8 @@
     activeDrawReasons: null,
     useDelegatedPointEvents: true,
     dataDirty: true,
-    cachedCollect: null
+    cachedCollect: null,
+    cachedGeometry: null
   };
   let scatterColorSchemeId = 'scientific';
   let scatterTextColor = chartStyle.TEXT_COLOR || '#000000';
@@ -727,6 +728,34 @@
       return [];
     }
     return points.map(point => cloneScatterPoint(point));
+  }
+
+  function buildScatterRowSetSignature(rowSet){
+    if(!rowSet || typeof rowSet.size !== 'number' || rowSet.size <= 0){
+      return '0:0:0:0';
+    }
+    let hash = 2166136261;
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    rowSet.forEach(value => {
+      const n = Number(value);
+      if(!Number.isFinite(n)){
+        return;
+      }
+      if(n < min){
+        min = n;
+      }
+      if(n > max){
+        max = n;
+      }
+      hash ^= (n | 0);
+      hash = Math.imul(hash, 16777619);
+      hash >>>= 0;
+    });
+    if(!Number.isFinite(min) || !Number.isFinite(max)){
+      return `0:${rowSet.size}:0:0`;
+    }
+    return `${hash}:${rowSet.size}:${min}:${max}`;
   }
 
   function ensureEmptyPayloadTemplate(){
@@ -1400,6 +1429,68 @@
       const rawY = pt?.y ?? pt?.cy;
       const x = Math.min(Math.max((Number(rawX) || 0) - offsetX, 0), width - 1e-6);
       const y = Math.min(Math.max((Number(rawY) || 0) - offsetY, 0), height - 1e-6);
+      const gx = Math.min(gridX - 1, Math.max(0, Math.floor(x / cellW)));
+      const gy = Math.min(gridY - 1, Math.max(0, Math.floor(y / cellH)));
+      grid[gy * gridX + gx] += 1;
+      gxArr[i] = gx;
+      gyArr[i] = gy;
+    }
+    const values = new Float64Array(count);
+    let maxDensity = 0;
+    for(let idx = 0; idx < count; idx += 1){
+      const gx = gxArr[idx];
+      const gy = gyArr[idx];
+      let sum = 0;
+      let n = 0;
+      for(let dy = -1; dy <= 1; dy += 1){
+        const ny = gy + dy;
+        if(ny < 0 || ny >= gridY){
+          continue;
+        }
+        const row = ny * gridX;
+        for(let dx = -1; dx <= 1; dx += 1){
+          const nx = gx + dx;
+          if(nx < 0 || nx >= gridX){
+            continue;
+          }
+          sum += grid[row + nx];
+          n += 1;
+        }
+      }
+      const density = n ? sum / n : 0;
+      values[idx] = density;
+      if(density > maxDensity){
+        maxDensity = density;
+      }
+    }
+    return { values, max: maxDensity };
+  }
+
+  function computeScatterDensityValuesFromGeometry(cxValues, cyValues, size){
+    const width = Math.max(1, Number(size?.width) || 1);
+    const height = Math.max(1, Number(size?.height) || 1);
+    const offsetX = Number(size?.offsetX) || 0;
+    const offsetY = Number(size?.offsetY) || 0;
+    const count = Math.min(
+      Array.isArray(cxValues) || ArrayBuffer.isView(cxValues) ? cxValues.length : 0,
+      Array.isArray(cyValues) || ArrayBuffer.isView(cyValues) ? cyValues.length : 0
+    );
+    if(!count){
+      return { values: [], max: 0 };
+    }
+    const gridResolution = Math.max(10, Math.min(80, Math.round(Math.sqrt(count))));
+    const gridX = gridResolution;
+    const gridY = gridResolution;
+    const cellW = width / gridX;
+    const cellH = height / gridY;
+    const grid = new Int32Array(gridX * gridY);
+    const gxArr = new Int32Array(count);
+    const gyArr = new Int32Array(count);
+    for(let i = 0; i < count; i += 1){
+      const rawX = Number(cxValues[i]);
+      const rawY = Number(cyValues[i]);
+      const x = Math.min(Math.max((Number.isFinite(rawX) ? rawX : 0) - offsetX, 0), width - 1e-6);
+      const y = Math.min(Math.max((Number.isFinite(rawY) ? rawY : 0) - offsetY, 0), height - 1e-6);
       const gx = Math.min(gridX - 1, Math.max(0, Math.floor(x / cellW)));
       const gy = Math.min(gridY - 1, Math.max(0, Math.floor(y / cellH)));
       grid[gy * gridX + gx] += 1;
@@ -9446,6 +9537,7 @@
         if(invalidate === 'data'){
           scatterState.dataDirty = true;
           scatterState.cachedCollect = null;
+          scatterState.cachedGeometry = null;
         }
         const scheduleMeta = headerOnlyChange
           ? Object.assign({}, meta, {
@@ -14706,10 +14798,22 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
         }
-        const analysis = scatterHot?.getAnalysisData?.() || Shared.hot.getAnalysisData(scatterHot);
-        const rowCount = analysis.rowCount || 0;
-        const colCount = analysis.colCount || 0;
+        const selectedRowSet = getScatterSelectedRowSet(scatterHot);
+        const tableFormatMode = getScatterReplicateMode();
+        const cachedCollect = scatterState.cachedCollect;
+        let analysis = null;
+        let rowCount = 0;
+        let colCount = 0;
+        let groupedScatterActive = false;
+        let includedXCols = [];
+        let includedYCols = [];
+        let showGroupedReplicatePoints = false;
+        let hasZColumn = false;
+        let canReuseCollectCache = false;
         const resolvePhysicalRow = (visualRow)=>{
+          if(!analysis){
+            return visualRow;
+          }
           if(typeof analysis.toPhysicalRow === 'function'){
             const mapped = analysis.toPhysicalRow(visualRow);
             if(Number.isInteger(mapped) && mapped >= 0){
@@ -14719,6 +14823,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           return visualRow;
         };
         const extractColumn = (colIndex)=>{
+          if(!analysis){
+            return [];
+          }
           if(!Number.isInteger(colIndex) || colIndex < 0 || colIndex >= colCount){
             return [];
           }
@@ -14728,60 +14835,74 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
           return values;
         };
-        const layout = resolveScatterColumnLayout(analysis.data, colCount);
-        const groupedScatterActive = graphType === 'scatter' && !!layout.grouped;
-        const xAnalysisCols = groupedScatterActive
-          ? ((Array.isArray(layout.xCols) && layout.xCols.length) ? layout.xCols.slice() : [layout.xCol])
-          : [layout.xCol];
-        const yAnalysisCols = groupedScatterActive
-          ? layout.groups.reduce((acc, group) => {
-              for(let col = group.startCol; col <= group.endCol; col += 1){
-                if(col >= 0 && col < colCount){
-                  acc.push(col);
+        let layout = null;
+        if(viewOnly
+          && !scatterState.dataDirty
+          && cachedCollect
+          && cachedCollect.graphType === graphType
+          && cachedCollect.tableFormat === tableFormatMode){
+          groupedScatterActive = !!cachedCollect.groupedScatterActive;
+          showGroupedReplicatePoints = !!cachedCollect.showGroupedReplicatePoints;
+          hasZColumn = !!cachedCollect.hasZColumn;
+          canReuseCollectCache = true;
+        }else{
+          analysis = scatterHot?.getAnalysisData?.() || Shared.hot.getAnalysisData(scatterHot);
+          rowCount = analysis.rowCount || 0;
+          colCount = analysis.colCount || 0;
+          layout = resolveScatterColumnLayout(analysis.data, colCount);
+          groupedScatterActive = graphType === 'scatter' && !!layout.grouped;
+          const xAnalysisCols = groupedScatterActive
+            ? ((Array.isArray(layout.xCols) && layout.xCols.length) ? layout.xCols.slice() : [layout.xCol])
+            : [layout.xCol];
+          const yAnalysisCols = groupedScatterActive
+            ? layout.groups.reduce((acc, group) => {
+                for(let col = group.startCol; col <= group.endCol; col += 1){
+                  if(col >= 0 && col < colCount){
+                    acc.push(col);
+                  }
                 }
-              }
-              return acc;
-            }, [])
-          : [layout.yCol];
-        const includedXCols = xAnalysisCols.filter(col => !analysis.isColumnExcluded?.(col));
-        const includedYCols = yAnalysisCols.filter(col => !analysis.isColumnExcluded?.(col));
-        const xExcluded = !includedXCols.length;
-        const yExcluded = !includedYCols.length;
-        if(xExcluded || yExcluded){
-          console.warn('Scatter draw cancelled - axis column excluded',{
-            xCols: xAnalysisCols,
-            yCols: yAnalysisCols,
-            excludeX: !!xExcluded,
-            excludeY: !!yExcluded
-          });
-          scatterState.cachedCollect = null;
-          chartStyle.clearSvg(scatterSvg);
-          const placeholder = groupedScatterActive
-            ? 'Statistics unavailable until X and at least one grouped Y column are included.'
-            : 'Statistics unavailable until both axes are included.';
-          primeScatterStatsContext(null,{ placeholder });
-          return;
+                return acc;
+              }, [])
+            : [layout.yCol];
+          includedXCols = xAnalysisCols.filter(col => !analysis.isColumnExcluded?.(col));
+          includedYCols = yAnalysisCols.filter(col => !analysis.isColumnExcluded?.(col));
+          const xExcluded = !includedXCols.length;
+          const yExcluded = !includedYCols.length;
+          if(xExcluded || yExcluded){
+            console.warn('Scatter draw cancelled - axis column excluded',{
+              xCols: xAnalysisCols,
+              yCols: yAnalysisCols,
+              excludeX: !!xExcluded,
+              excludeY: !!yExcluded
+            });
+            scatterState.cachedCollect = null;
+            scatterState.cachedGeometry = null;
+            chartStyle.clearSvg(scatterSvg);
+            const placeholder = groupedScatterActive
+              ? 'Statistics unavailable until X and at least one grouped Y column are included.'
+              : 'Statistics unavailable until both axes are included.';
+            primeScatterStatsContext(null,{ placeholder });
+            return;
+          }
+          showGroupedReplicatePoints = groupedScatterActive
+            && !scatterGroupedXReplicates
+            && !!scatterShowGroupedReplicates?.checked;
+          hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
+          canReuseCollectCache = viewOnly
+            && !scatterState.dataDirty
+            && !!cachedCollect
+            && cachedCollect.graphType === graphType
+            && cachedCollect.tableFormat === tableFormatMode
+            && cachedCollect.groupedScatterActive === groupedScatterActive
+            && cachedCollect.showGroupedReplicatePoints === showGroupedReplicatePoints
+            && cachedCollect.hasZColumn === hasZColumn;
         }
-        const selectedRowSet = getScatterSelectedRowSet(scatterHot);
+        const selectedRowSignature = buildScatterRowSetSignature(selectedRowSet);
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
         const thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
         const useSelectionForThresholdLabels = thresholdLabelEnabled && (graphType === 'volcano' || graphType === 'ma');
-        const tableFormatMode = getScatterReplicateMode();
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
-        const showGroupedReplicatePoints = groupedScatterActive
-          && !scatterGroupedXReplicates
-          && !!scatterShowGroupedReplicates?.checked;
-        const hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
-        const cachedCollect = scatterState.cachedCollect;
-        const canReuseCollectCache = viewOnly
-          && !scatterState.dataDirty
-          && !!cachedCollect
-          && cachedCollect.graphType === graphType
-          && cachedCollect.tableFormat === tableFormatMode
-          && cachedCollect.groupedScatterActive === groupedScatterActive
-          && cachedCollect.showGroupedReplicatePoints === showGroupedReplicatePoints
-          && cachedCollect.hasZColumn === hasZColumn;
         let points=[];
         let labelSet=shouldCollectLabelSet ? new Set() : null;
         let labelsUsed = [];
@@ -14809,12 +14930,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let bubbleMissingCount = 0;
         let bubbleMinRaw = Infinity;
         let bubbleMaxRaw = -Infinity;
+        let manualLabelSignature = selectedRowSignature;
         const maxLen = rowCount;
         const collectPerf = !canReuseCollectCache && perfApi && typeof perfApi.start === 'function'
           ? perfApi.start('scatter.data.collect', { component: 'scatter', rows: maxLen })
           : null;
         if(canReuseCollectCache){
-          points = cloneScatterPoints(cachedCollect.points);
+          points = Array.isArray(cachedCollect.points) ? cachedCollect.points : [];
           labelsUsed = Array.isArray(cachedCollect.labelsUsed) ? cachedCollect.labelsUsed.slice() : [];
           labelSet = shouldCollectLabelSet ? new Set(labelsUsed) : null;
           xMinRaw = Number(cachedCollect.xMinRaw);
@@ -14823,7 +14945,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           yMaxRaw = Number(cachedCollect.yMaxRaw);
           significantCount = Number(cachedCollect.significantCount) || 0;
           maMissingPCount = Number(cachedCollect.maMissingPCount) || 0;
-          scatter3dCandidates = cloneScatterPoints(cachedCollect.scatter3dCandidates);
+          scatter3dCandidates = Array.isArray(cachedCollect.scatter3dCandidates) ? cachedCollect.scatter3dCandidates : [];
           scatter3dEligible = !!cachedCollect.scatter3dEligible;
           scatter3dMissingZ = Number(cachedCollect.scatter3dMissingZ) || 0;
           scatter3dInvalidZ = Number(cachedCollect.scatter3dInvalidZ) || 0;
@@ -14835,6 +14957,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           bubbleMissingCount = Number(cachedCollect.bubbleMissingCount) || 0;
           bubbleMinRaw = Number(cachedCollect.bubbleMinRaw);
           bubbleMaxRaw = Number(cachedCollect.bubbleMaxRaw);
+          manualLabelSignature = typeof cachedCollect.manualLabelSignature === 'string'
+            ? cachedCollect.manualLabelSignature
+            : selectedRowSignature;
           extraLabelRaw = cachedCollect.extraLabelRaw || '';
           scatterState.xLabelText = cachedCollect.xLabelText || scatterState.xLabelText;
           scatterState.yLabelText = cachedCollect.yLabelText || scatterState.yLabelText;
@@ -15206,7 +15331,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             xLabelText: scatterState.xLabelText || '',
             yLabelText: scatterState.yLabelText || '',
             zLabelText: scatterState.zLabelText || '',
-            points: cloneScatterPoints(points),
+            points,
             labelsUsed: labelsUsed.slice(),
             xMinRaw,
             xMaxRaw,
@@ -15214,8 +15339,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             yMaxRaw,
             significantCount,
             maMissingPCount,
+            manualLabelSignature: selectedRowSignature,
             extraLabelRaw,
-            scatter3dCandidates: cloneScatterPoints(scatter3dCandidates),
+            scatter3dCandidates,
             scatter3dEligible,
             scatter3dMissingZ,
             scatter3dInvalidZ,
@@ -15231,20 +15357,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }else if(!Array.isArray(labelsUsed) || !labelsUsed.length){
           labelsUsed = labelSet ? Array.from(labelSet) : [];
         }
+        if(scatterState.cachedCollect){
+          scatterState.cachedCollect.manualLabelSignature = manualLabelSignature;
+        }
         debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
         if(scatterCurrentGraphType!=='scatter'){
           renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
         }
-        const labelsUsedSet = labelSet || new Set(labelsUsed);
-        ensureScatterLabelColors(labelsUsed, { labelSet: labelsUsedSet });
-        ensureScatterLabelShapes(labelsUsed, { labelSet: labelsUsedSet });
-        const labelShapeLookup=new Map();
-        labelsUsed.forEach((lab, idx)=>{
-          if(!lab){ return; }
-          const sanitized = sanitizeScatterLabelShape(scatterLabelShapes[lab], idx);
-          scatterLabelShapes[lab] = sanitized;
-          labelShapeLookup.set(lab, sanitized);
-        });
+        let labelShapeLookup=new Map();
         info('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
         const shouldRenderSignificantLabels = false;
@@ -15287,8 +15407,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
         }
+        let pointsMutable = false;
+        const ensureMutablePoints = () => {
+          if(pointsMutable){
+            return;
+          }
+          points = cloneScatterPoints(points);
+          pointsMutable = true;
+        };
         // Apply log+1 transform if enabled
         if(logX && scatterState.logPlusOneX){
+          ensureMutablePoints();
           for(let i = 0; i < points.length; i += 1){
             const p = points[i];
             if(Number.isFinite(p?.x)){
@@ -15309,6 +15438,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           debug('Debug: scatter log+1 transform applied to X');
         }
         if(logY && scatterState.logPlusOneY){
+          ensureMutablePoints();
           for(let i = 0; i < points.length; i += 1){
             const p = points[i];
             if(Number.isFinite(p?.y)){
@@ -15329,18 +15459,30 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           debug('Debug: scatter log+1 transform applied to Y');
         }
         if(graphType === 'scatter'){
-          const selectedRows = selectedRowSet && selectedRowSet.size ? selectedRowSet : null;
-          for(let i = 0; i < points.length; i += 1){
-            const point = points[i];
-            if(!point){
-              continue;
+          const manualSelectionChanged = manualLabelSignature !== selectedRowSignature;
+          if(manualSelectionChanged){
+            const selectedRows = selectedRowSet && selectedRowSet.size ? selectedRowSet : null;
+            for(let i = 0; i < points.length; i += 1){
+              const point = points[i];
+              if(!point){
+                continue;
+              }
+              if(point.isGroupedReplicatePoint){
+                point.isManualLabel = false;
+                continue;
+              }
+              const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
+              point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
             }
-            if(point.isGroupedReplicatePoint){
-              point.isManualLabel = false;
-              continue;
+            manualLabelSignature = selectedRowSignature;
+            if(scatterState.cachedCollect && !pointsMutable){
+              scatterState.cachedCollect.manualLabelSignature = manualLabelSignature;
             }
-            const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
-            point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
+          }else{
+            debug('Debug: scatter manual label refresh skipped (selection unchanged)', {
+              pointCount: points.length,
+              selectionSignature: selectedRowSignature
+            });
           }
         }else{
           let refreshedSignificantCount = 0;
@@ -15376,6 +15518,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         }
 
+        const pointsPrepPerf = perfApi?.start('scatter.points.prepare', {
+          component: 'scatter',
+          token,
+          points: points.length,
+          viewOnly
+        });
         let xMin=xMinRaw, xMax=xMaxRaw, yMin=yMinRaw, yMax=yMaxRaw;
         if(isFinite(xMinManual)) xMin=xMinManual;
         if(isFinite(xMaxManual)) xMax=xMaxManual;
@@ -15402,7 +15550,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         let pointsInRange = points;
         let removedForRange = 0;
-        if(points.length){
+        const fullRangeCoverage = points.length
+          && xMin <= xMinRaw
+          && xMax >= xMaxRaw
+          && yMin <= yMinRaw
+          && yMax >= yMaxRaw;
+        if(points.length && !fullRangeCoverage){
           let anyOut = false;
           const filtered = [];
           for(let i = 0; i < points.length; i += 1){
@@ -15488,22 +15641,62 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             scatterLegendChangeInternal = false;
           }
         }
+        const advisorPerf = perfApi?.start('scatter.stats.advisor', {
+          component: 'scatter',
+          token,
+          points: pointsInRange.length
+        });
         if(scatterCurrentGraphType==='scatter'){
           renderScatterStatsAdvisor(pointsInRange);
         }else{
           significantCount=pointsInRange.reduce((acc,p)=>acc+(p.isSignificant?1:0),0);
         }
+        if(perfApi && advisorPerf){
+          perfApi.end(advisorPerf, {
+            component: 'scatter',
+            token,
+            points: pointsInRange.length
+          });
+        }
+        const largeScatterPointMode = scatterCurrentGraphType === 'scatter'
+          && scatterState.viewMode === '2d'
+          && pointsInRange.length >= SCATTER_POINT_BATCH_THRESHOLD;
         const labelDistribution = scatterCurrentGraphType==='scatter'
-          ? computeScatterLabelDistribution(pointsInRange)
+          ? (largeScatterPointMode
+            ? {
+                shouldUseUniform: true,
+                pureUnique: false,
+                averageFrequency: 0,
+                labelCount: labelsUsed.length,
+                labeledPointCount: pointsInRange.length,
+                totalPoints: pointsInRange.length
+              }
+            : computeScatterLabelDistribution(pointsInRange))
           : { shouldUseUniform: false, pureUnique: false, averageFrequency: 0, labelCount: 0, labeledPointCount: 0, totalPoints: pointsInRange.length };
-        const useUniformLabelStyle = densityColoringActive || (scatterCurrentGraphType==='scatter' && labelDistribution.shouldUseUniform);
+        const useUniformLabelStyle = densityColoringActive
+          || (scatterCurrentGraphType==='scatter' && labelDistribution.shouldUseUniform);
         if(useUniformLabelStyle){
           scatterDebug('Debug: scatter uniform label styling enabled', {
+            largeDataset: largeScatterPointMode,
             pureUnique: labelDistribution.pureUnique,
             averageFrequency: labelDistribution.averageFrequency,
             labelCount: labelDistribution.labelCount,
             labeledPointCount: labelDistribution.labeledPointCount,
             totalPoints: labelDistribution.totalPoints
+          });
+        }
+        if(scatterCurrentGraphType==='scatter' && !useUniformLabelStyle){
+          const labelsUsedSet = labelSet || new Set(labelsUsed);
+          ensureScatterLabelColors(labelsUsed, { labelSet: labelsUsedSet });
+          ensureScatterLabelShapes(labelsUsed, { labelSet: labelsUsedSet });
+        }
+        labelShapeLookup = new Map();
+        if(scatterCurrentGraphType === 'scatter' && !useUniformLabelStyle){
+          labelsUsed.forEach((lab, idx)=>{
+            if(!lab){ return; }
+            const sanitized = sanitizeScatterLabelShape(scatterLabelShapes[lab], idx);
+            scatterLabelShapes[lab] = sanitized;
+            labelShapeLookup.set(lab, sanitized);
           });
         }
         const visibleLabels = shouldCollectLabelSet
@@ -15688,19 +15881,31 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         let points3dInRange = [];
         if(scatterCurrentGraphType==='scatter' && scatter3dCandidates.length){
-          points3dInRange = scatter3dCandidates.filter(pt => pt.x>=xMin && pt.x<=xMax && pt.y>=yMin && pt.y<=yMax);
+          const full3dRangeCoverage = xMin <= xMinRaw
+            && xMax >= xMaxRaw
+            && yMin <= yMinRaw
+            && yMax >= yMaxRaw;
+          points3dInRange = full3dRangeCoverage
+            ? scatter3dCandidates
+            : scatter3dCandidates.filter(pt => pt.x>=xMin && pt.x<=xMax && pt.y>=yMin && pt.y<=yMax);
         }
         let supports3d = scatterCurrentGraphType==='scatter' && scatter3dEligible && scatter3dCandidates.length>=3 && points3dInRange.length>=3;
         let supportsBubble = false;
         if(scatterCurrentGraphType==='scatter' && bubbleEligible){
-          let bubbleValidInRange = 0;
-          let bubbleMissingInRange = 0;
-          for(let i = 0; i < pointsInRange.length; i += 1){
-            const candidate = pointsInRange[i];
-            if(Number.isFinite(candidate?.bubbleValue)){
-              bubbleValidInRange += 1;
-            }else{
-              bubbleMissingInRange += 1;
+          const fullBubbleRangeCoverage = xMin <= xMinRaw
+            && xMax >= xMaxRaw
+            && yMin <= yMinRaw
+            && yMax >= yMaxRaw;
+          let bubbleValidInRange = fullBubbleRangeCoverage ? bubbleValidCount : 0;
+          let bubbleMissingInRange = fullBubbleRangeCoverage ? bubbleMissingCount : 0;
+          if(!fullBubbleRangeCoverage){
+            for(let i = 0; i < pointsInRange.length; i += 1){
+              const candidate = pointsInRange[i];
+              if(Number.isFinite(candidate?.bubbleValue)){
+                bubbleValidInRange += 1;
+              }else{
+                bubbleMissingInRange += 1;
+              }
             }
           }
           supportsBubble = bubbleValidInRange > 0 && bubbleMissingInRange === 0;
@@ -15725,6 +15930,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           renderScatterNotice('Bubble view requires numeric X, Y, and bubble columns with non-missing values for every visible row.');
           debug('Debug: scatter bubble view pending dataset',{ supportsBubble, bubbleEligible, bubbleCandidates: pointsInRange.length });
           return;
+        }
+        if(perfApi && pointsPrepPerf){
+          perfApi.end(pointsPrepPerf, {
+            component: 'scatter',
+            token,
+            points: points.length,
+            viewOnly
+          });
         }
         const existingScatterSvg = plotEl.querySelector('#scatterSvg');
         const reuse3dSvg = supports3d && effectiveViewMode === '3d' && existingScatterSvg && existingScatterSvg.dataset.viewMode === '3d';
@@ -16497,6 +16710,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         } else {
           debug('Debug: scatter fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
         }
+        const svgLayoutPerf = perfApi?.start('scatter.svg.layout', {
+          component: 'scatter',
+          token,
+          points: points.length
+        });
         let xMinT=logX?Math.log10(xMin):xMin;
         let xMaxT=logX?Math.log10(xMax):xMax;
         let yMinT=logY?Math.log10(yMin):yMin;
@@ -17328,6 +17546,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
+        if(perfApi && svgLayoutPerf){
+          perfApi.end(svgLayoutPerf, {
+            component: 'scatter',
+            token,
+            points: points.length
+          });
+        }
         time(`scatterSvgDraw_${token}`);
         const renderPerf = perfApi?.start('scatter.svg.draw', {
           component: 'scatter',
@@ -17336,64 +17561,125 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         });
         let geometryPrep = null;
         let densityInfo = null;
-        const useRenderWorker = shouldUseScatterRenderWorker(points.length, {
-          brokenX: brokenXScale?.isBroken,
-          brokenY: brokenYScale?.isBroken
-        });
-        if(useRenderWorker){
-          try{
-            geometryPrep = await runScatterRenderWorker({
-              points: points.map(p => ({ x: p.x, y: p.y })),
-              logX,
-              logY,
-              xScale: { min: xScale.min, max: xScale.max },
-              yScale: { min: yScale.min, max: yScale.max },
-              margin: { left: margin.left, top: margin.top },
-              plotW,
-              plotH,
-              densityEnabled: scatterColorModeApplied === 'density',
-              debug: debugEnabled
-            });
-            if(token !== scatterDrawToken){
-              if(perfApi && renderPerf){
-                perfApi.end(renderPerf, {
-                  component: 'scatter',
-                  token,
-                  points: points.length,
-                  outcome: 'stale'
-                });
+        const densityEnabled = scatterColorModeApplied === 'density';
+        const geometryCache = scatterState.cachedGeometry;
+        const canReuseGeometryCache = !!(viewOnly
+          && !scatterState.dataDirty
+          && geometryCache
+          && geometryCache.points === points
+          && geometryCache.logX === !!logX
+          && geometryCache.logY === !!logY
+          && geometryCache.xMin === xScale.min
+          && geometryCache.xMax === xScale.max
+          && geometryCache.yMin === yScale.min
+          && geometryCache.yMax === yScale.max
+          && geometryCache.marginLeft === margin.left
+          && geometryCache.marginTop === margin.top
+          && geometryCache.plotW === plotW
+          && geometryCache.plotH === plotH);
+        let pointXv = canReuseGeometryCache ? geometryCache.xv : null;
+        let pointYv = canReuseGeometryCache ? geometryCache.yv : null;
+        let pointCx = canReuseGeometryCache ? geometryCache.cx : null;
+        let pointCy = canReuseGeometryCache ? geometryCache.cy : null;
+        if(canReuseGeometryCache && densityEnabled){
+          densityInfo = geometryCache.density || null;
+        }
+        if(canReuseGeometryCache){
+          debug('Debug: scatter geometry cache reused', {
+            token,
+            points: points.length,
+            density: !!densityInfo
+          });
+        }
+        const geometryCount = points.length;
+        const hasCompleteGeometry = pointXv
+          && pointYv
+          && pointCx
+          && pointCy
+          && pointXv.length === geometryCount
+          && pointYv.length === geometryCount
+          && pointCx.length === geometryCount
+          && pointCy.length === geometryCount;
+        if(!hasCompleteGeometry){
+          const useRenderWorker = shouldUseScatterRenderWorker(points.length, {
+            brokenX: brokenXScale?.isBroken,
+            brokenY: brokenYScale?.isBroken
+          });
+          if(useRenderWorker){
+            try{
+              geometryPrep = await runScatterRenderWorker({
+                points: points.map(p => ({ x: p.x, y: p.y })),
+                logX,
+                logY,
+                xScale: { min: xScale.min, max: xScale.max },
+                yScale: { min: yScale.min, max: yScale.max },
+                margin: { left: margin.left, top: margin.top },
+                plotW,
+                plotH,
+                densityEnabled: densityEnabled,
+                debug: debugEnabled
+              });
+              if(token !== scatterDrawToken){
+                if(perfApi && renderPerf){
+                  perfApi.end(renderPerf, {
+                    component: 'scatter',
+                    token,
+                    points: points.length,
+                    outcome: 'stale'
+                  });
+                }
+                debug('Debug: scatter render worker result ignored',{ reason:'stale-token', token, current: scatterDrawToken });
+                return;
               }
-              debug('Debug: scatter render worker result ignored',{ reason:'stale-token', token, current: scatterDrawToken });
-              return;
+              pointXv = geometryPrep?.geometry?.xv || null;
+              pointYv = geometryPrep?.geometry?.yv || null;
+              pointCx = geometryPrep?.geometry?.cx || null;
+              pointCy = geometryPrep?.geometry?.cy || null;
+              if(geometryPrep && geometryPrep.density && densityEnabled){
+                densityInfo = geometryPrep.density;
+                debug('Debug: scatter density computed (worker)',{ max: densityInfo.max, count: densityInfo.values?.length || 0 });
+              }
+              debug('Debug: scatter render prep resolved',{ usedWorker: true, pointCount: points.length });
+            }catch(err){
+              geometryPrep = null;
+              pointXv = null;
+              pointYv = null;
+              pointCx = null;
+              pointCy = null;
+              debug('Debug: scatter render worker failed',{ message: err?.message || String(err) });
             }
-            if(geometryPrep && geometryPrep.density && scatterColorModeApplied === 'density'){
-              densityInfo = geometryPrep.density;
-              debug('Debug: scatter density computed (worker)',{ max: densityInfo.max, count: densityInfo.values?.length || 0 });
+          }
+          const workerGeometryComplete = pointXv
+            && pointYv
+            && pointCx
+            && pointCy
+            && pointXv.length === geometryCount
+            && pointYv.length === geometryCount
+            && pointCx.length === geometryCount
+            && pointCy.length === geometryCount;
+          if(!workerGeometryComplete){
+            pointXv = new Float64Array(geometryCount);
+            pointYv = new Float64Array(geometryCount);
+            pointCx = new Float64Array(geometryCount);
+            pointCy = new Float64Array(geometryCount);
+            for(let i = 0; i < geometryCount; i += 1){
+              const p = points[i];
+              const xv = logX ? Math.log10(p.x) : p.x;
+              const yv = logY ? Math.log10(p.y) : p.y;
+              pointXv[i] = xv;
+              pointYv[i] = yv;
+              pointCx[i] = x2px(xv);
+              pointCy[i] = y2px(yv);
             }
-            debug('Debug: scatter render prep resolved',{ usedWorker: true, pointCount: points.length });
-          }catch(err){
-            geometryPrep = null;
-            debug('Debug: scatter render worker failed',{ message: err?.message || String(err) });
           }
         }
-        const geomXv = geometryPrep?.geometry?.xv || null;
-        const geomYv = geometryPrep?.geometry?.yv || null;
-        const geomCx = geometryPrep?.geometry?.cx || null;
-        const geomCy = geometryPrep?.geometry?.cy || null;
-        const pointGeometry = points.map((p, idx) => {
-          const xv = geomXv ? geomXv[idx] : (logX ? Math.log10(p.x) : p.x);
-          const yv = geomYv ? geomYv[idx] : (logY ? Math.log10(p.y) : p.y);
-          const cxVal = geomCx ? geomCx[idx] : x2px(xv);
-          const cyVal = geomCy ? geomCy[idx] : y2px(yv);
-          return { xv, yv, cx: cxVal, cy: cyVal };
-        });
-        if(scatterColorModeApplied === 'density' && !densityInfo){
+        if(densityEnabled && !densityInfo){
           const densityPerf = perfApi?.start('scatter.density.compute', {
             component: 'scatter',
             token,
-            points: pointGeometry.length
+            points: geometryCount
           });
-          densityInfo = computeScatterDensityValues(pointGeometry, {
+          densityInfo = computeScatterDensityValuesFromGeometry(pointCx, pointCy, {
             width: plotW,
             height: plotH,
             offsetX: margin.left,
@@ -17403,12 +17689,30 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             perfApi.end(densityPerf, {
               component: 'scatter',
               token,
-              points: pointGeometry.length,
+              points: geometryCount,
               max: densityInfo?.max || 0
             });
           }
-          debug('Debug: scatter density computed',{ max: densityInfo.max, count: pointGeometry.length });
+          debug('Debug: scatter density computed',{ max: densityInfo.max, count: geometryCount });
         }
+        scatterState.cachedGeometry = {
+          points,
+          logX: !!logX,
+          logY: !!logY,
+          xMin: xScale.min,
+          xMax: xScale.max,
+          yMin: yScale.min,
+          yMax: yScale.max,
+          marginLeft: margin.left,
+          marginTop: margin.top,
+          plotW,
+          plotH,
+          xv: pointXv,
+          yv: pointYv,
+          cx: pointCx,
+          cy: pointCy,
+          density: densityEnabled ? densityInfo : null
+        };
         const resolveNonScatterColor = point => {
           if(!point || !point.isSignificant){
             return fill;
@@ -17453,11 +17757,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           });
         }
         for(const p of points){
-          const geom = pointGeometry[pointIndex] || null;
-          const xv = geom ? geom.xv : (logX ? Math.log10(p.x) : p.x);
-          const yv = geom ? geom.yv : (logY ? Math.log10(p.y) : p.y);
-          const cxVal=geom ? geom.cx : x2px(xv);
-          const cyVal=geom ? geom.cy : y2px(yv);
+          const xv = pointXv ? pointXv[pointIndex] : (logX ? Math.log10(p.x) : p.x);
+          const yv = pointYv ? pointYv[pointIndex] : (logY ? Math.log10(p.y) : p.y);
+          const cxVal = pointCx ? pointCx[pointIndex] : x2px(xv);
+          const cyVal = pointCy ? pointCy[pointIndex] : y2px(yv);
           const densityRatioRaw = densityInfo && densityInfo.max>0
             ? (densityInfo.values[pointIndex] || 0) / densityInfo.max
             : 0;
@@ -17727,6 +18030,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             })
           : null;
         if(annotationRequests.length){
+          const pointGeometry = new Array(points.length);
+          for(let i = 0; i < points.length; i += 1){
+            pointGeometry[i] = {
+              xv: pointXv ? pointXv[i] : (logX ? Math.log10(points[i]?.x) : points[i]?.x),
+              yv: pointYv ? pointYv[i] : (logY ? Math.log10(points[i]?.y) : points[i]?.y),
+              cx: pointCx ? pointCx[i] : x2px(logX ? Math.log10(points[i]?.x) : points[i]?.x),
+              cy: pointCy ? pointCy[i] : y2px(logY ? Math.log10(points[i]?.y) : points[i]?.y)
+            };
+          }
           const annotationLayout = layoutScatterAnnotations({
             requests: annotationRequests,
             pointGeometry,
@@ -18941,8 +19253,36 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           perfApi.end(viewportPerf, { component: 'scatter', token });
         }
         commitScatterSvg();
+        const panelSyncPerf = perfApi?.start('scatter.layout.syncPanels', {
+          component: 'scatter',
+          token,
+          reason: drawOptions?.reason || null,
+          viewOnly
+        });
         scatterLayout?.syncPanels?.({ skipSchedule: true });
+        if(perfApi && panelSyncPerf){
+          perfApi.end(panelSyncPerf, {
+            component: 'scatter',
+            token,
+            reason: drawOptions?.reason || null,
+            viewOnly
+          });
+        }
+        const noticePerf = perfApi?.start('scatter.notice.sync', {
+          component: 'scatter',
+          token,
+          reason: drawOptions?.reason || null,
+          viewOnly
+        });
         syncScatterAutoDrawNoticeWidth('draw');
+        if(perfApi && noticePerf){
+          perfApi.end(noticePerf, {
+            component: 'scatter',
+            token,
+            reason: drawOptions?.reason || null,
+            viewOnly
+          });
+        }
         info('scatter render complete with enhanced styles');
         } finally {
           scatterState.lastDrawMeta = {
@@ -19571,6 +19911,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       if(!skipDataLoad && scatterHot && typeof scatterHot.loadData === 'function'){
         scatterState.dataDirty = true;
         scatterState.cachedCollect = null;
+        scatterState.cachedGeometry = null;
         scatterHot.loadData(matrixToLoad);
         if(obj.exclusions){
           scatterHot.applyExclusions?.(obj.exclusions);
