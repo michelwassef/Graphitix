@@ -28,8 +28,8 @@ async function waitForCountIncrease(page, label, before, timeout = 30000) {
   );
 }
 
-test.describe('Scatter manual mode view-only updates', () => {
-  test('large dataset keeps full redraw manual while view-only controls update instantly', async ({ page }) => {
+test.describe('Scatter live updates with view-only optimizations', () => {
+  test('large dataset keeps style changes view-only and recollects only on data edits', async ({ page }) => {
     test.setTimeout(300000);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -43,14 +43,9 @@ test.describe('Scatter manual mode view-only updates', () => {
     const csvPath = path.resolve(__dirname, '../__tests__/test-scatter.csv');
     await page.setInputFiles('#scatterFile', csvPath);
 
-    const renderRow = page.locator('#scatterRenderRow');
-    const renderButton = page.locator('#scatterRenderButton');
-    const notice = page.locator('#scatterAutoDrawNotice');
-
-    await expect(renderRow).toBeVisible({ timeout: 180000 });
-    await expect(renderButton).toBeEnabled({ timeout: 180000 });
-    await expect(notice).toBeVisible({ timeout: 180000 });
-    await expect(notice).toContainText(/paused|disabled/i, { timeout: 180000 });
+    await expect(page.locator('#scatterRenderRow')).toHaveCount(0);
+    await expect(page.locator('#scatterRenderButton')).toHaveCount(0);
+    await expect(page.locator('#scatterAutoDrawNotice')).toHaveCount(0);
 
     await page.waitForFunction(() => {
       const entries = Array.isArray(window.Shared?.Performance?._entries)
@@ -85,7 +80,7 @@ test.describe('Scatter manual mode view-only updates', () => {
     });
     await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
     let afterCollect = await collectCount(page, 'scatter.data.collect');
-    expect(afterCollect, 'fill color change should not recollect data in manual mode').toBe(beforeCollect);
+    expect(afterCollect, 'fill color change should not recollect data').toBe(beforeCollect);
 
     beforeDraw = await collectCount(page, 'scatter.draw');
     beforeCollect = afterCollect;
@@ -142,7 +137,7 @@ test.describe('Scatter manual mode view-only updates', () => {
       expect(!!pointGapState?.sawGap, 'trendline toggle should not transiently clear the visible points layer').toBe(false);
     }
     afterCollect = await collectCount(page, 'scatter.data.collect');
-    expect(afterCollect, 'trendline toggle should not recollect data in manual mode').toBe(beforeCollect);
+    expect(afterCollect, 'trendline toggle should not recollect data').toBe(beforeCollect);
 
     beforeDraw = await collectCount(page, 'scatter.draw');
     beforeCollect = afterCollect;
@@ -167,26 +162,17 @@ test.describe('Scatter manual mode view-only updates', () => {
     expect(selectedCount, 'row selection should apply immediately without update button').toBeGreaterThan(0);
     await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
     afterCollect = await collectCount(page, 'scatter.data.collect');
-    expect(afterCollect, 'row selection label update should not recollect data in manual mode').toBe(beforeCollect);
+    expect(afterCollect, 'row selection label update should not recollect data').toBe(beforeCollect);
 
     beforeDraw = await collectCount(page, 'scatter.draw');
     beforeCollect = afterCollect;
-    await page.waitForTimeout(1200);
-    beforeDraw = await collectCount(page, 'scatter.draw');
-    beforeCollect = await collectCount(page, 'scatter.data.collect');
     await page.evaluate(() => {
       const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
       if(hot && typeof hot.setDataAtCell === 'function'){
-        hot.setDataAtCell(1, 1, '999', 'e2e-manual-data-edit');
+        hot.setDataAtCell(1, 1, '999', 'e2e-live-data-edit');
       }
     });
-    await page.waitForTimeout(2000);
-    const suppressedDrawCount = await collectCount(page, 'scatter.draw');
-    const suppressedCollectCount = await collectCount(page, 'scatter.data.collect');
-    expect(suppressedCollectCount, 'table value edit should not recollect until manual update').toBe(beforeCollect);
-
-    await renderButton.click();
-    await waitForCountIncrease(page, 'scatter.draw', suppressedDrawCount, 60000);
-    await waitForCountIncrease(page, 'scatter.data.collect', suppressedCollectCount, 60000);
+    await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
+    await waitForCountIncrease(page, 'scatter.data.collect', beforeCollect, 60000);
   });
 });

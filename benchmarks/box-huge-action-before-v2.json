@@ -1,0 +1,146 @@
+{
+  "dataset": {
+    "rows": 75441,
+    "cols": 12
+  },
+  "renderMeta": {
+    "hasSvg": true,
+    "pointNodeCount": 2
+  },
+  "mode": "action-only",
+  "liveStyle": "disabled",
+  "results": [
+    {
+      "action": "color-scheme",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 15940,
+        "p50Ms": 15507,
+        "p95Ms": 17316.9,
+        "minMs": 14795,
+        "maxMs": 17518
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 5319.3,
+        "p50Ms": 5322,
+        "p95Ms": 5355.57,
+        "minMs": 5276.6,
+        "maxMs": 5359.3
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "grid-toggle",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 5490.333,
+        "p50Ms": 5458,
+        "p95Ms": 5601.1,
+        "minMs": 5396,
+        "maxMs": 5617
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 5473.867,
+        "p50Ms": 5434.7,
+        "p95Ms": 5592.2,
+        "minMs": 5377.2,
+        "maxMs": 5609.7
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "frame-toggle",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 5273.333,
+        "p50Ms": 5268,
+        "p95Ms": 5297.7,
+        "minMs": 5251,
+        "maxMs": 5301
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 5266.667,
+        "p50Ms": 5261.5,
+        "p95Ms": 5291.11,
+        "minMs": 5244.1,
+        "maxMs": 5294.4
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "legend-toggle",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 5451.667,
+        "p50Ms": 5312,
+        "p95Ms": 5715.2,
+        "minMs": 5283,
+        "maxMs": 5760
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 5282.467,
+        "p50Ms": 5273.6,
+        "p95Ms": 5301.14,
+        "minMs": 5269.6,
+        "maxMs": 5304.2
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "perfTop": [
+    {
+      "key": "box.draw",
+      "count": 12,
+      "totalMs": 64026.9,
+      "avgMs": 5335.575,
+      "p50Ms": 5299.3,
+      "p95Ms": 5513.45,
+      "maxMs": 5609.7,
+      "minMs": 5244.1
+    }
+  ]
+}

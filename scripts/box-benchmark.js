@@ -12,10 +12,15 @@ const {
 
 const PORT = Number(process.env.PLAYWRIGHT_WEB_PORT || 4173);
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${PORT}`;
-const CSV_PATH = path.resolve(__dirname, '../__tests__/test-scatter.csv');
-const ITERATIONS = Math.max(1, Number(process.env.SCATTER_BENCH_ITERATIONS) || 6);
-const OUTPUT_PATH = process.env.SCATTER_BENCH_OUTPUT
-  ? path.resolve(process.cwd(), process.env.SCATTER_BENCH_OUTPUT)
+const CSV_PATH = process.env.BOX_BENCH_CSV
+  ? path.resolve(process.cwd(), process.env.BOX_BENCH_CSV)
+  : path.resolve(__dirname, '../__tests__/test-box-large.csv');
+const ITERATIONS = Math.max(1, Number(process.env.BOX_BENCH_ITERATIONS) || 6);
+const FORCE_VIEW_DRAW = process.env.BOX_BENCH_FORCE_VIEW_DRAW === '1';
+const DISABLE_LIVE_STYLE = process.env.BOX_BENCH_DISABLE_LIVE_STYLE === '1';
+const INIT_TIMEOUT_MS = Math.max(120000, Number(process.env.BOX_BENCH_INIT_TIMEOUT_MS) || 180000);
+const OUTPUT_PATH = process.env.BOX_BENCH_OUTPUT
+  ? path.resolve(process.cwd(), process.env.BOX_BENCH_OUTPUT)
   : null;
 
 function percentile(values, p) {
@@ -141,40 +146,66 @@ async function getLastDuration(page, label) {
   }, label);
 }
 
+async function ensureInitialBoxRender(page) {
+  await page.waitForFunction(() => {
+    return !!window.Components?.box?.__getState?.()?.hot;
+  }, null, { timeout: INIT_TIMEOUT_MS });
+
+  const beforeDraw = await collectEntryCount(page, 'box.draw');
+  await page.evaluate(() => {
+    const api = window.Components?.box;
+    if (api && typeof api.draw === 'function') {
+      api.draw({ force: true, reason: 'benchmark-init' });
+    }
+  });
+  await waitForEntryIncrease(page, 'box.draw', beforeDraw, INIT_TIMEOUT_MS);
+
+  await page.waitForFunction(() => {
+    return !!document.querySelector('#boxPlot svg');
+  }, null, { timeout: INIT_TIMEOUT_MS });
+}
+
 async function runActionIterations(page, actionId, runAction, iterations = ITERATIONS) {
   const wallTimes = [];
   const drawTimes = [];
-  const svgDrawTimes = [];
-  const attachTimes = [];
   const collectTimes = [];
+  const drawIncrements = [];
   for (let i = 0; i < iterations; i += 1) {
-    const beforeDraw = await collectEntryCount(page, 'scatter.draw');
-    const beforeCollect = await collectEntryCount(page, 'scatter.data.collect');
+    const beforeDraw = await collectEntryCount(page, 'box.draw');
+    const beforeCollect = await collectEntryCount(page, 'box.data.collect');
     const t0 = Date.now();
     await runAction(i);
-    await waitForEntryIncrease(page, 'scatter.draw', beforeDraw);
-    const wall = Date.now() - t0;
-    wallTimes.push(wall);
-    drawTimes.push(await getLastDuration(page, 'scatter.draw'));
-    svgDrawTimes.push(await getLastDuration(page, 'scatter.svg.draw'));
-    attachTimes.push(await getLastDuration(page, 'scatter.svg.attach'));
-    const afterCollect = await collectEntryCount(page, 'scatter.data.collect');
+    if (FORCE_VIEW_DRAW) {
+      await page.evaluate(() => {
+        const api = window.Components?.box;
+        if (api && typeof api.draw === 'function') {
+          api.draw({ viewOnly: true, force: true, reason: 'benchmark-action' });
+        }
+      });
+      await waitForEntryIncrease(page, 'box.draw', beforeDraw, 120000);
+    } else {
+      await page.waitForTimeout(180);
+    }
+    const afterDraw = await collectEntryCount(page, 'box.draw');
+    drawIncrements.push(Math.max(0, afterDraw - beforeDraw));
+    wallTimes.push(Date.now() - t0);
+    drawTimes.push(afterDraw > beforeDraw ? await getLastDuration(page, 'box.draw') : 0);
+    const afterCollect = await collectEntryCount(page, 'box.data.collect');
     collectTimes.push(afterCollect - beforeCollect);
   }
   return {
     action: actionId,
     iterations,
     wallMs: summarizeSeries(wallTimes),
-    scatterDrawMs: summarizeSeries(drawTimes),
-    svgDrawMs: summarizeSeries(svgDrawTimes),
-    svgAttachMs: summarizeSeries(attachTimes),
-    dataCollectIncrements: collectTimes
+    boxDrawMs: summarizeSeries(drawTimes),
+    dataCollectIncrements: collectTimes,
+    drawIncrements
   };
 }
 
 async function runBenchmark(page) {
   const datasetInfo = await page.evaluate(() => {
-    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    const hot = window.Components?.box?.__getState?.()?.hot;
     const data = hot?.getData?.() || [];
     return {
       rows: Array.isArray(data) ? data.length : 0,
@@ -182,67 +213,48 @@ async function runBenchmark(page) {
     };
   });
 
+  const renderMeta = await page.evaluate(() => {
+    const svg = document.querySelector('#boxPlot svg');
+    const pointNodes = svg
+      ? svg.querySelectorAll('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] rect, g[data-export-layer="box-points"] path')
+      : [];
+    return {
+      hasSvg: !!svg,
+      pointNodeCount: pointNodes.length
+    };
+  });
+
   await page.evaluate(() => {
     window.Shared?.Performance?.clear?.();
   });
 
-  const renderMeta = await page.evaluate(() => {
-    const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
-    const mode = layer?.getAttribute?.('data-render-mode') || null;
-    const nodes = layer ? layer.querySelectorAll('*').length : 0;
-    return { mode, nodes };
-  });
-
-  const colorResult = await runActionIterations(
+  const colorSchemeResult = await runActionIterations(
     page,
-    'fill-color-input',
+    'color-scheme',
     async index => {
-      const palette = ['#1f78b4', '#33a02c', '#e31a1c', '#ff7f00', '#6a3d9a', '#b15928'];
-      const color = palette[index % palette.length];
-      await page.evaluate(nextColor => {
-        const input = document.getElementById('scatterFill');
-        if (!input) {
+      const schemes = ['scientific', 'grayscale', 'highcontrast', 'pastel'];
+      const nextScheme = schemes[index % schemes.length];
+      await page.evaluate(schemeId => {
+        if (window.Shared?.colorSchemes?.applyToActiveTab) {
+          window.Shared.colorSchemes.applyToActiveTab('box', schemeId);
           return;
         }
-        input.value = nextColor;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      }, color);
+        const select = document.getElementById('boxColorSchemeSelect');
+        if (!select) {
+          return;
+        }
+        select.value = schemeId;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }, nextScheme);
     }
   );
 
-  await page.evaluate(() => {
-    const lineToggle = document.getElementById('scatterShowLine');
-    if (lineToggle && !lineToggle.checked) {
-      lineToggle.checked = true;
-      lineToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  });
-
-  const statsButton = page.locator('#scatterComputeStats');
-  let statsComputationReady = false;
-  if (await statsButton.count()) {
-    await statsButton.click();
-    try {
-      await page.waitForFunction(() => {
-        const status = document.getElementById('scatterStatsStatus');
-        const text = (status?.textContent || '').toLowerCase();
-        const button = document.getElementById('scatterComputeStats');
-        const buttonLabel = (button?.textContent || '').toLowerCase();
-        const buttonDone = !!button && !button.disabled && !buttonLabel.includes('calculating');
-        return text.includes('up to date') || text.includes('ready') || buttonDone;
-      }, null, { timeout: 300000 });
-      statsComputationReady = true;
-    } catch (err) {
-      statsComputationReady = false;
-    }
-  }
-
-  const trendlineResult = await runActionIterations(
+  const gridToggleResult = await runActionIterations(
     page,
-    'trendline-toggle',
+    'grid-toggle',
     async () => {
       await page.evaluate(() => {
-        const toggle = document.getElementById('scatterShowLine');
+        const toggle = document.getElementById('boxShowGrid');
         if (!toggle) {
           return;
         }
@@ -252,12 +264,27 @@ async function runBenchmark(page) {
     }
   );
 
-  const statsOverlayResult = await runActionIterations(
+  const legendToggleResult = await runActionIterations(
     page,
-    'stats-overlay-toggle',
+    'legend-toggle',
     async () => {
       await page.evaluate(() => {
-        const toggle = document.getElementById('scatterShowPlotStats');
+        const toggle = document.getElementById('boxShowLegend');
+        if (!toggle) {
+          return;
+        }
+        toggle.checked = !toggle.checked;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+  );
+
+  const frameToggleResult = await runActionIterations(
+    page,
+    'frame-toggle',
+    async () => {
+      await page.evaluate(() => {
+        const toggle = document.getElementById('boxShowFrame');
         if (!toggle) {
           return;
         }
@@ -278,8 +305,9 @@ async function runBenchmark(page) {
   return {
     dataset: datasetInfo,
     renderMeta,
-    statsComputationReady,
-    results: [colorResult, trendlineResult, statsOverlayResult],
+    mode: FORCE_VIEW_DRAW ? 'forced-view-redraw' : 'action-only',
+    liveStyle: DISABLE_LIVE_STYLE ? 'disabled' : 'enabled',
+    results: [colorSchemeResult, gridToggleResult, frameToggleResult, legendToggleResult],
     perfTop: report
   };
 }
@@ -297,21 +325,14 @@ async function main() {
 
     await openComponentFromWelcome(
       page,
-      { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' },
+      { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
       { first: true }
     );
-    await page.setInputFiles('#scatterFile', CSV_PATH);
-    await page.waitForFunction(() => {
-      const entries = Array.isArray(window.Shared?.Performance?._entries)
-        ? window.Shared.Performance._entries
-        : [];
-      const hasDraw = entries.some(entry => String(entry?.label || '') === 'scatter.draw');
-      const hasCollect = entries.some(entry => String(entry?.label || '') === 'scatter.data.collect');
-      return hasDraw && hasCollect;
-    }, null, { timeout: 180000 });
-    await page.waitForFunction(() => {
-      return !!document.querySelector('#scatterPlot svg [data-layer="points"]');
-    }, null, { timeout: 120000 });
+    await page.setInputFiles('#boxFile', CSV_PATH);
+    await ensureInitialBoxRender(page);
+    await page.evaluate(disableLiveStyle => {
+      window.__BOX_DISABLE_STRIP_LIVE_STYLE = disableLiveStyle === true;
+    }, DISABLE_LIVE_STYLE);
 
     const output = await runBenchmark(page);
     if (OUTPUT_PATH) {

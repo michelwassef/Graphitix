@@ -1,0 +1,156 @@
+{
+  "dataset": {
+    "rows": 7357,
+    "cols": 12
+  },
+  "renderMeta": {
+    "hasSvg": true,
+    "pointNodeCount": 2
+  },
+  "mode": "action-only",
+  "liveStyle": "enabled",
+  "results": [
+    {
+      "action": "color-scheme",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 1745.333,
+        "p50Ms": 1598,
+        "p95Ms": 2005.7,
+        "minMs": 1587,
+        "maxMs": 2051
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 879.3,
+        "p50Ms": 873.2,
+        "p95Ms": 920.18,
+        "minMs": 839.3,
+        "maxMs": 925.4
+      },
+      "dataCollectIncrements": [
+        1,
+        1,
+        1
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "grid-toggle",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 194,
+        "p50Ms": 192,
+        "p95Ms": 200.1,
+        "minMs": 189,
+        "maxMs": 201
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "minMs": 0,
+        "maxMs": 0
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "action": "frame-toggle",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 200.333,
+        "p50Ms": 201,
+        "p95Ms": 203.7,
+        "minMs": 196,
+        "maxMs": 204
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "minMs": 0,
+        "maxMs": 0
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "action": "legend-toggle",
+      "iterations": 3,
+      "wallMs": {
+        "count": 3,
+        "avgMs": 197.667,
+        "p50Ms": 199,
+        "p95Ms": 200.8,
+        "minMs": 193,
+        "maxMs": 201
+      },
+      "boxDrawMs": {
+        "count": 3,
+        "avgMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "minMs": 0,
+        "maxMs": 0
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "perfTop": [
+    {
+      "key": "box.draw",
+      "count": 3,
+      "totalMs": 2637.9,
+      "avgMs": 879.3,
+      "p50Ms": 873.2,
+      "p95Ms": 920.18,
+      "maxMs": 925.4,
+      "minMs": 839.3
+    },
+    {
+      "key": "box.data.collect",
+      "count": 3,
+      "totalMs": 45.1,
+      "avgMs": 15.033,
+      "p50Ms": 17.3,
+      "p95Ms": 17.66,
+      "maxMs": 17.7,
+      "minMs": 10.1
+    }
+  ]
+}

@@ -1,0 +1,247 @@
+{
+  "dataset": {
+    "rows": 76092,
+    "cols": 12
+  },
+  "renderMeta": {
+    "mode": "batched-circles",
+    "nodes": 33
+  },
+  "statsComputationReady": true,
+  "results": [
+    {
+      "action": "fill-color-input",
+      "iterations": 6,
+      "wallMs": {
+        "count": 6,
+        "avgMs": 368.333,
+        "p50Ms": 366.5,
+        "p95Ms": 420.75,
+        "minMs": 322,
+        "maxMs": 434
+      },
+      "scatterDrawMs": {
+        "count": 6,
+        "avgMs": 343.7,
+        "p50Ms": 343.15,
+        "p95Ms": 384.975,
+        "minMs": 299.8,
+        "maxMs": 396.9
+      },
+      "svgDrawMs": {
+        "count": 6,
+        "avgMs": 264.717,
+        "p50Ms": 259.95,
+        "p95Ms": 306.15,
+        "minMs": 216.5,
+        "maxMs": 315.6
+      },
+      "svgAttachMs": {
+        "count": 6,
+        "avgMs": 0.033,
+        "p50Ms": 0,
+        "p95Ms": 0.1,
+        "minMs": 0,
+        "maxMs": 0.1
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "action": "trendline-toggle",
+      "iterations": 6,
+      "wallMs": {
+        "count": 6,
+        "avgMs": 2289.167,
+        "p50Ms": 2017.5,
+        "p95Ms": 3262.25,
+        "minMs": 1974,
+        "maxMs": 3650
+      },
+      "scatterDrawMs": {
+        "count": 6,
+        "avgMs": 235.45,
+        "p50Ms": 231.95,
+        "p95Ms": 288.275,
+        "minMs": 194.4,
+        "maxMs": 303.6
+      },
+      "svgDrawMs": {
+        "count": 6,
+        "avgMs": 172.717,
+        "p50Ms": 169.6,
+        "p95Ms": 216.525,
+        "minMs": 143.5,
+        "maxMs": 229
+      },
+      "svgAttachMs": {
+        "count": 6,
+        "avgMs": 0.017,
+        "p50Ms": 0,
+        "p95Ms": 0.075,
+        "minMs": 0,
+        "maxMs": 0.1
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "action": "stats-overlay-toggle",
+      "iterations": 6,
+      "wallMs": {
+        "count": 6,
+        "avgMs": 298,
+        "p50Ms": 284,
+        "p95Ms": 412.75,
+        "minMs": 225,
+        "maxMs": 445
+      },
+      "scatterDrawMs": {
+        "count": 6,
+        "avgMs": 286.333,
+        "p50Ms": 271.4,
+        "p95Ms": 396.95,
+        "minMs": 215.5,
+        "maxMs": 427.4
+      },
+      "svgDrawMs": {
+        "count": 6,
+        "avgMs": 220.883,
+        "p50Ms": 204.45,
+        "p95Ms": 322.65,
+        "minMs": 159.5,
+        "maxMs": 351.4
+      },
+      "svgAttachMs": {
+        "count": 6,
+        "avgMs": 0.017,
+        "p50Ms": 0,
+        "p95Ms": 0.075,
+        "minMs": 0,
+        "maxMs": 0.1
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "perfTop": [
+    {
+      "key": "scatter.draw",
+      "count": 22,
+      "totalMs": 6610.3,
+      "avgMs": 300.468,
+      "p50Ms": 293.4,
+      "p95Ms": 433.955,
+      "maxMs": 472.9,
+      "minMs": 194.4
+    },
+    {
+      "key": "scatter.svg.draw",
+      "count": 22,
+      "totalMs": 5048,
+      "avgMs": 229.455,
+      "p50Ms": 212.15,
+      "p95Ms": 368.69,
+      "maxMs": 373.9,
+      "minMs": 143.5
+    },
+    {
+      "key": "scatter.stats",
+      "count": 1,
+      "totalMs": 1087.9,
+      "avgMs": 1087.9,
+      "p50Ms": 1087.9,
+      "p95Ms": 1087.9,
+      "maxMs": 1087.9,
+      "minMs": 1087.9
+    },
+    {
+      "key": "scatter.svg.layout",
+      "count": 22,
+      "totalMs": 541.4,
+      "avgMs": 24.609,
+      "p50Ms": 23.35,
+      "p95Ms": 30.37,
+      "maxMs": 30.6,
+      "minMs": 15.4
+    },
+    {
+      "key": "scatter.viewport.sync",
+      "count": 22,
+      "totalMs": 280.4,
+      "avgMs": 12.745,
+      "p50Ms": 11.6,
+      "p95Ms": 17.655,
+      "maxMs": 17.8,
+      "minMs": 10.3
+    },
+    {
+      "key": "scatter.layout.syncPanels",
+      "count": 22,
+      "totalMs": 104.7,
+      "avgMs": 4.759,
+      "p50Ms": 4.35,
+      "p95Ms": 6.195,
+      "maxMs": 9,
+      "minMs": 3.2
+    },
+    {
+      "key": "scatter.legend.render",
+      "count": 22,
+      "totalMs": 71.9,
+      "avgMs": 3.268,
+      "p50Ms": 3.15,
+      "p95Ms": 4.895,
+      "maxMs": 5.3,
+      "minMs": 2
+    },
+    {
+      "key": "scatter.points.prepare",
+      "count": 22,
+      "totalMs": 53.1,
+      "avgMs": 2.414,
+      "p50Ms": 2.35,
+      "p95Ms": 2.99,
+      "maxMs": 4.6,
+      "minMs": 1.8
+    },
+    {
+      "key": "scatter.stats.advisor",
+      "count": 22,
+      "totalMs": 4.3,
+      "avgMs": 0.195,
+      "p50Ms": 0.2,
+      "p95Ms": 0.3,
+      "maxMs": 0.4,
+      "minMs": 0.1
+    },
+    {
+      "key": "scatter.svg.attach",
+      "count": 22,
+      "totalMs": 0.5,
+      "avgMs": 0.023,
+      "p50Ms": 0,
+      "p95Ms": 0.1,
+      "maxMs": 0.1,
+      "minMs": 0
+    }
+  ]
+}

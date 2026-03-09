@@ -124,9 +124,6 @@
   const SCATTER_POINT_LABEL_MARK = '✓';
   const SCATTER_POINT_LABEL_HEADER = 'Label point';
 
-  const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 8000;
-  const SCATTER_AUTO_DRAW_COL_THRESHOLD = 200;
-  const SCATTER_AUTO_DRAW_CELL_THRESHOLD = 160000;
   const SCATTER_DATA_VIEW_MAX = 12;
   const SCATTER_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
     headerRows: 1,
@@ -361,14 +358,6 @@
     }
     scatterDebug('Debug: scatter rotation reset', { reason, rotation: { x: scatterState.rotation.x, y: scatterState.rotation.y, z: scatterState.rotation.z } });
   }
-  const scatterAutoDrawState = {
-    autoDrawEnabled: true,
-    autoDrawReason: null,
-    autoDrawLockedByThreshold: false,
-    drawPending: false,
-    lastDataShape: { rows: 0, cols: 0 },
-    lastAutoDrawEvaluation: null
-  };
   let emptyPayloadTemplate = null;
   let scatterLabelColors = {};
   let scatterLabelShapes = {};
@@ -6294,7 +6283,6 @@
   let scheduleDrawScatterRaw = () => {};
   let syncScatterSymbolToolbarDotToggles = null;
   let scatterGroupedModeDefaultApplied = false;
-  let scatterAutoDrawManager = null;
   let scatterLayout = null;
   let scatterLayoutWasHidden = true;
   let scatterLayoutDeferredSync = false;
@@ -9032,9 +9020,6 @@
   let scatterDataViewsManager = null;
   let scatterDataToolbarBound = false;
   let scatterDataToolbarLastActivation = 0;
-  let scatterRenderRowEl = null;
-  let scatterRenderButtonEl = null;
-  let scatterAutoDrawNoticeEl = null;
   let scatterLegendChangeInternal = false;
       // Scatter plot setup
       const scatterHotContainer=document.getElementById('scatterHot');
@@ -9045,45 +9030,6 @@
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
-      scatterRenderRowEl=document.getElementById('scatterRenderRow');
-      scatterRenderButtonEl=document.getElementById('scatterRenderButton');
-      scatterAutoDrawNoticeEl=document.getElementById('scatterAutoDrawNotice');
-      let scatterNoticeBoundWidth=null;
-      const syncScatterAutoDrawNoticeWidth=(reason)=>{
-        const svgBox=scatterSvgBox||scatterGraphPanel?.querySelector?.('.svgbox');
-        const renderRow=scatterRenderRowEl||document.getElementById('scatterRenderRow');
-        if(!svgBox||!renderRow){
-          return;
-        }
-        const rect=svgBox.getBoundingClientRect?.();
-        const width=Math.round(rect?.width||svgBox.clientWidth||svgBox.offsetWidth||0);
-        if(!width){
-          return;
-        }
-        const widthPx=`${width}px`;
-        if(renderRow.style.maxWidth!==widthPx){
-          renderRow.style.maxWidth=widthPx;
-          renderRow.style.width='100%';
-        }
-        if(scatterAutoDrawNoticeEl&&scatterAutoDrawNoticeEl.style.maxWidth!==widthPx){
-          scatterAutoDrawNoticeEl.style.maxWidth=widthPx;
-        }
-        if(scatterNoticeBoundWidth!==width){
-          scatterNoticeBoundWidth=width;
-          scatterDebug('Debug: scatter auto draw notice width synced',{ width, reason: reason || null });
-        }
-      };
-      const scheduleScatterNoticeWidth=(()=>{
-        if(typeof Shared.debounceFrame==='function'){
-          let lastReason='frame';
-          const debounced=Shared.debounceFrame(()=>syncScatterAutoDrawNoticeWidth(lastReason));
-          return reason=>{
-            lastReason=reason||'frame';
-            debounced();
-          };
-        }
-        return reason=>syncScatterAutoDrawNoticeWidth(reason||'immediate');
-      })();
 
       const activateScatterDataToolbar = (reason) => {
         const now = Date.now();
@@ -9415,36 +9361,6 @@
         scatterDataToolbarBound = true;
       };
 
-      if(scatterRenderButtonEl){
-        scatterRenderButtonEl.addEventListener('click', () => {
-          scatterDebug('Debug: scatter manual render button');
-          if(!scatterAutoDrawState.autoDrawEnabled){
-            scatterThresholdSelectionPending = false;
-          }
-          const overlayReason = 'manual-render';
-          markScatterOverlayPending(overlayReason);
-          forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
-          scheduleDrawScatter({ force: true, reason: 'manual-render' });
-        });
-      }
-      if(!scatterAutoDrawManager && Shared.hot?.createAutoDrawManager){
-        scatterAutoDrawManager = Shared.hot.createAutoDrawManager({
-          component: 'scatter',
-          state: scatterAutoDrawState,
-          thresholds: {
-            rows: SCATTER_AUTO_DRAW_ROW_THRESHOLD,
-            cols: SCATTER_AUTO_DRAW_COL_THRESHOLD,
-            cells: SCATTER_AUTO_DRAW_CELL_THRESHOLD
-          },
-          getHot: () => scatterHot || (typeof ensureScatterHotForActiveTab === 'function' ? ensureScatterHotForActiveTab() : null),
-          elements: {
-            renderRow: () => scatterRenderRowEl,
-            renderButton: () => scatterRenderButtonEl,
-            notice: () => scatterAutoDrawNoticeEl
-          },
-          debugLog: scatterDebug
-        });
-      }
       const scatterShowLegend=$('#scatterShowLegend');
       scatterLegendControl = scatterShowLegend?.closest('label') || null;
       scatterLayout = Shared.componentLayout?.createStandardPanels({
@@ -9465,11 +9381,9 @@
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
         },
-        onAfterSync: () => syncScatterAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
           onResize: () => {
             console.debug('Debug: scatter layout onResize schedule trigger');
-            scheduleScatterNoticeWidth('resize');
             scheduleDrawScatter({ viewOnly: true, reason: 'resize' });
           }
         }
@@ -9481,7 +9395,6 @@
       scatterSvgBoxRef = scatterSvgBox;
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
       scatterLayout?.syncPanels?.();
-      syncScatterAutoDrawNoticeWidth('init');
       ensureScatterResizerControls();
       const scheduleLegendPlacement=typeof Shared.debounceFrame==='function'
         ? Shared.debounceFrame(()=>ensureScatterResizerControls())
@@ -9503,7 +9416,6 @@
           scatterSvgBoxRef = scatterSvgBox;
           bindScatterPlotContextMenuSuppression(scatterSvgBox);
           ensureScatterResizerControls();
-          scheduleScatterNoticeWidth('update-svgbox');
         };
       }
       console.debug('Debug: scatter initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
@@ -10048,7 +9960,7 @@
           minRows: DEFAULT_ROWS,
           scheduleDraw: () => {
             markScatterOverlayPending('file-import');
-            scheduleDrawScatter({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+            scheduleDrawScatter({ force: true, reason: 'import-load' });
           },
           debugLabel: 'scatter',
           onProcessed: info => scatterLog('scatter data imported',{rows: info?.rows, cols: info?.cols}),
@@ -10123,7 +10035,7 @@
             });
             updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
             syncScatterGraphTypeUI();
-            scheduleDrawScatter({ force: true, reason: 'import-prism-grouped', skipThresholdEvaluation: true });
+            scheduleDrawScatter({ force: true, reason: 'import-prism-grouped' });
             console.debug('Debug: scatter prism grouped import applied',{
               replicateCount,
               groupCount: groupLabels.length || Math.max(
@@ -14640,12 +14552,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const pointProgressInterval = 5000;
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const viewOnly = !!drawOptions?.viewOnly;
-        if(viewOnly && scatterState.dataDirty && !drawOptions?.force && !scatterAutoDrawState.autoDrawEnabled){
-          scatterDebug('Debug: scatter view-only draw skipped while data updates are pending', {
-            reason: drawOptions?.reason || null
-          });
-          return;
-        }
         const token=++scatterDrawToken; // debug token for cancellation
         const perfApi = Shared.Performance;
         const drawReasons = scatterState.activeDrawReasons ? Array.from(scatterState.activeDrawReasons) : [];
@@ -19268,21 +19174,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             viewOnly
           });
         }
-        const noticePerf = perfApi?.start('scatter.notice.sync', {
-          component: 'scatter',
-          token,
-          reason: drawOptions?.reason || null,
-          viewOnly
-        });
-        syncScatterAutoDrawNoticeWidth('draw');
-        if(perfApi && noticePerf){
-          perfApi.end(noticePerf, {
-            component: 'scatter',
-            token,
-            reason: drawOptions?.reason || null,
-            viewOnly
-          });
-        }
         info('scatter render complete with enhanced styles');
         } finally {
           scatterState.lastDrawMeta = {
@@ -19309,7 +19200,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ...next,
           force: !!(prev.force || next.force),
           viewOnly: prevView && nextView,
-          skipThresholdEvaluation: !!(prev.skipThresholdEvaluation || next.skipThresholdEvaluation),
           reason: next.reason || prev.reason
         };
       };
@@ -19371,7 +19261,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterState.skipNextDraw = false;
           scatterState.skipNextDrawReason = null;
         }
-        const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+        const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
         if(nextOpts.reason){
           if(!scatterState.pendingDrawReasons){
             scatterState.pendingDrawReasons = new Set();
@@ -19433,22 +19323,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         runSchedule();
       };
       scheduleDrawScatterRaw = scheduleScatterInstrumented;
-      if(scatterAutoDrawManager){
-        scatterAutoDrawManager.setScheduleRaw(scheduleDrawScatterRaw);
-        scatterAutoDrawManager.setElements({
-          renderRow: scatterRenderRowEl,
-          renderButton: scatterRenderButtonEl,
-          notice: scatterAutoDrawNoticeEl
-        });
-        scheduleDrawScatter = (opts) => scatterAutoDrawManager.schedule(opts);
-        scatterAutoDrawManager.updateUi();
-        scatterAutoDrawManager.evaluateThresholds();
-        syncScatterAutoDrawNoticeWidth('auto-draw-init');
-      }else{
-        scheduleDrawScatter = scheduleDrawScatterRaw;
-      }
+      scheduleDrawScatter = scheduleDrawScatterRaw;
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
-      console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame', { guarded: !!scatterAutoDrawManager }); // Debug: scheduler setup
+      console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame', { guarded: false }); // Debug: scheduler setup
     
     
       function computeScatterStats(points,method,options={}){

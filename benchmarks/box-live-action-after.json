@@ -1,0 +1,122 @@
+{
+  "dataset": {
+    "rows": 7357,
+    "cols": 12
+  },
+  "renderMeta": {
+    "hasSvg": true,
+    "pointNodeCount": 2
+  },
+  "mode": "action-only",
+  "results": [
+    {
+      "action": "fill-color-input",
+      "iterations": 6,
+      "wallMs": {
+        "count": 6,
+        "avgMs": 194.667,
+        "p50Ms": 197,
+        "p95Ms": 198.5,
+        "minMs": 186,
+        "maxMs": 199
+      },
+      "boxDrawMs": {
+        "count": 6,
+        "avgMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "minMs": 0,
+        "maxMs": 0
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "action": "border-width-input",
+      "iterations": 6,
+      "wallMs": {
+        "count": 6,
+        "avgMs": 196.333,
+        "p50Ms": 198,
+        "p95Ms": 199.5,
+        "minMs": 188,
+        "maxMs": 200
+      },
+      "boxDrawMs": {
+        "count": 6,
+        "avgMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "minMs": 0,
+        "maxMs": 0
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "action": "legend-toggle",
+      "iterations": 6,
+      "wallMs": {
+        "count": 6,
+        "avgMs": 194,
+        "p50Ms": 193,
+        "p95Ms": 204.75,
+        "minMs": 185,
+        "maxMs": 206
+      },
+      "boxDrawMs": {
+        "count": 6,
+        "avgMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "minMs": 0,
+        "maxMs": 0
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "perfTop": []
+}

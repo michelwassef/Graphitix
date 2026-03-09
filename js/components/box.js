@@ -126,9 +126,6 @@
 	  const DEFAULT_SIGNIFICANCE_P_SCIENTIFIC = false;
 	  const DEFAULT_SIGNIFICANCE_P_DECIMALS = 2;
 	  const ASSUMPTION_QQ_SAMPLE_LIMIT=4000;
-	  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
-	  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
-	  const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
     const BOX_DATA_VIEW_MAX = 12;
     const BOX_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
       headerRows: 1,
@@ -240,6 +237,7 @@
     lineTransparency: 0
   });
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
+  const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
@@ -289,11 +287,7 @@
 
   const boxRefs = {};
   let boxTooltipEl = null;
-  let boxRenderRowEl = null;
-  let boxRenderButtonEl = null;
-  let boxAutoDrawNoticeEl = null;
   let scheduleDrawBoxRaw = () => {};
-  let boxAutoDrawManager = null;
   
   function boxDebug(label, payload){
     try{
@@ -1192,7 +1186,7 @@
         || null;
       return { host: hostNode, traceIndex, scopeSelect: symbolToolbarState?.scopeSelect || null };
     }
-    const shouldApplyPointStyleDirectly = () => state && state.autoDrawEnabled === false;
+    const shouldApplyPointStyleDirectly = () => true;
     const resolveAllPointNodes = () => {
       const plot = doc.getElementById('boxPlot');
       if(!plot){
@@ -6909,7 +6903,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -7511,6 +7505,9 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     console.debug('Debug: box axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    if(tryApplyBoxAxisStrokeWidthLive(settings.strokeWidth)){
+      return;
+    }
     if(typeof state.scheduleDraw === 'function'){
       scheduleBoxViewRefresh('axis-stroke-width');
     }
@@ -7687,6 +7684,9 @@
       settings.color = DEFAULT_AXIS_COLOR;
     }
     console.debug('Debug: box axis color updated',{ color: settings.color });
+    if(tryApplyBoxAxisColorLive(settings.color)){
+      return;
+    }
     if(typeof state.scheduleDraw === 'function'){
       scheduleBoxViewRefresh('axis-color');
     }
@@ -7706,6 +7706,9 @@
         if(els.boxShowGrid){
           els.boxShowGrid.checked = !!value;
         }
+        if(tryToggleBoxGridVisibility(!!value)){
+          return;
+        }
         if(typeof state.scheduleDraw === 'function'){
           scheduleBoxViewRefresh('grid-visible');
         }
@@ -7713,6 +7716,9 @@
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
+        if(tryApplyBoxGridStyleLive(style, fallbackThickness)){
+          return;
+        }
         if(typeof state.scheduleDraw === 'function'){
           scheduleBoxViewRefresh('grid-style');
         }
@@ -7918,43 +7924,6 @@
     return boxOverlayController?.force(reason, options) || false;
   }
   let boxLegendControl = null;
-  let boxNoticeBoundWidth = null;
-
-  const syncBoxAutoDrawNoticeWidth = (reason) => {
-    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox');
-    const renderRow = els.renderRow || global.document?.getElementById?.('boxRenderRow');
-    if(!svgBox || !renderRow){
-      return;
-    }
-    const rect = svgBox.getBoundingClientRect?.();
-    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
-    if(!width){
-      return;
-    }
-    const widthPx = `${width}px`;
-    if(renderRow.style.maxWidth !== widthPx){
-      renderRow.style.maxWidth = widthPx;
-      renderRow.style.width = '100%';
-    }
-    if(els.autoDrawNotice && els.autoDrawNotice.style.maxWidth !== widthPx){
-      els.autoDrawNotice.style.maxWidth = widthPx;
-    }
-    if(boxNoticeBoundWidth !== width){
-      boxNoticeBoundWidth = width;
-      boxDebug('Debug: box auto draw notice width synced', { width, reason: reason || null });
-    }
-  };
-  const scheduleBoxNoticeWidth = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncBoxAutoDrawNoticeWidth(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncBoxAutoDrawNoticeWidth(reason || 'immediate');
-  })();
 
   function resolveBoxSvgBoxBaseSize(svgBox){
     if(!svgBox){
@@ -8037,7 +8006,6 @@
           resizeApplied: !!resizeApplied
         });
       }
-      scheduleBoxNoticeWidth(options.reason || 'significance-extension');
     }else if(debugLogging){
       console.debug('Debug: box significance viewport extension skipped (svgbox missing)', {
         previousExtension,
@@ -8430,9 +8398,6 @@
     els.panelResizer = global.document.getElementById('boxPanelResizer');
     els.svgBox = els.graphPanel?.querySelector('.svgbox');
     els.configPanel = els.graphPanel?.querySelector('.config-panel');
-    els.renderRow = global.document.getElementById('boxRenderRow');
-    els.renderButton = global.document.getElementById('boxRenderButton');
-    els.autoDrawNotice = global.document.getElementById('boxAutoDrawNotice');
       els.hotContainer = global.document.getElementById('hot');
       els.hotWrapper = global.document.getElementById('hotWrapper');
       els.plotDiv = global.document.getElementById('boxPlot');
@@ -8813,6 +8778,389 @@
       viewOnly: true,
       reason: reason || 'box-view-refresh'
     });
+  }
+
+  function isBoxLiveStyleDisabled(){
+    return global.__BOX_DISABLE_STRIP_LIVE_STYLE === true;
+  }
+
+  function resolveBoxPlotSvgRoot(){
+    const plot = global.document?.getElementById?.('boxPlot');
+    if(!plot || typeof plot.querySelector !== 'function'){
+      return null;
+    }
+    const svg = plot.querySelector('svg');
+    if(!svg || typeof svg.querySelector !== 'function'){
+      return null;
+    }
+    return svg;
+  }
+
+  function resolveBoxGridLayer(){
+    const svg = resolveBoxPlotSvgRoot();
+    if(!svg){
+      return null;
+    }
+    return svg.querySelector('g[data-layer="box-grid"]');
+  }
+
+  function resolveBoxAxisLayer(){
+    const svg = resolveBoxPlotSvgRoot();
+    if(!svg){
+      return null;
+    }
+    return svg.querySelector('g[data-layer="box-axis"]');
+  }
+
+  function resolveBoxPointNodesForLiveStyle(){
+    const plot = global.document?.getElementById?.('boxPlot');
+    if(!plot || typeof plot.querySelectorAll !== 'function'){
+      return [];
+    }
+    return Array.from(
+      plot.querySelectorAll('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] rect, g[data-export-layer="box-points"] path')
+    );
+  }
+
+  function tryApplyBoxStripPointStyleLive(patch){
+    if(!patch || typeof patch !== 'object'){
+      return false;
+    }
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const graphType = els.boxGraphType?.value;
+    if(graphType !== 'strip'){
+      return false;
+    }
+    const nodes = resolveBoxPointNodesForLiveStyle();
+    if(!nodes.length){
+      return false;
+    }
+    const stylePatch = {};
+    if(patch.fill != null){
+      stylePatch.fill = String(patch.fill);
+    }
+    if(patch.stroke != null){
+      stylePatch.stroke = String(patch.stroke);
+    }
+    if(patch.borderWidth != null || patch.strokeWidth != null){
+      const widthRaw = patch.borderWidth != null ? patch.borderWidth : patch.strokeWidth;
+      const widthNumeric = Number(widthRaw);
+      if(Number.isFinite(widthNumeric)){
+        stylePatch.borderWidth = Math.max(0, widthNumeric);
+      }
+    }
+    if(!Object.keys(stylePatch).length){
+      return false;
+    }
+    state.pointStyles = state.pointStyles || {};
+    Object.keys(state.pointStyles).forEach(key => {
+      state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, stylePatch);
+    });
+    state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, stylePatch);
+    if(stylePatch.fill != null){
+      nodes.forEach(node => node.setAttribute('fill', stylePatch.fill));
+    }
+    if(stylePatch.stroke != null){
+      nodes.forEach(node => node.setAttribute('stroke', stylePatch.stroke));
+    }
+    if(stylePatch.borderWidth != null){
+      nodes.forEach(node => node.setAttribute('stroke-width', String(stylePatch.borderWidth)));
+    }
+    return true;
+  }
+
+  function tryApplyBoxStripPaletteLive(options){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const graphType = els.boxGraphType?.value;
+    if(graphType !== 'strip'){
+      return false;
+    }
+    const nodes = resolveBoxPointNodesForLiveStyle();
+    if(!nodes.length){
+      return false;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const colorMode = getBoxColorMode();
+    const fills = Array.isArray(opts.colors) ? opts.colors.filter(v => typeof v === 'string' && v.trim()) : [];
+    const borders = Array.isArray(opts.borderColors) ? opts.borderColors.filter(v => typeof v === 'string' && v.trim()) : [];
+    const unifiedFill = typeof opts.fill === 'string' && opts.fill.trim() ? opts.fill.trim() : null;
+    const unifiedBorder = typeof opts.border === 'string' && opts.border.trim() ? opts.border.trim() : null;
+    const borderWidthRaw = opts.borderWidth;
+    const borderWidth = Number(borderWidthRaw);
+    const hasBorderWidth = Number.isFinite(borderWidth);
+    let applied = false;
+    nodes.forEach(node => {
+      const colorIndexRaw = Number(node.getAttribute('data-color-index'));
+      const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : 0;
+      if(colorMode === 'individual'){
+        if(fills.length){
+          node.setAttribute('fill', fills[colorIndex % fills.length]);
+          applied = true;
+        }else if(unifiedFill){
+          node.setAttribute('fill', unifiedFill);
+          applied = true;
+        }
+        if(borders.length){
+          node.setAttribute('stroke', borders[colorIndex % borders.length]);
+          applied = true;
+        }else if(unifiedBorder){
+          node.setAttribute('stroke', unifiedBorder);
+          applied = true;
+        }
+      }else{
+        if(unifiedFill){
+          node.setAttribute('fill', unifiedFill);
+          applied = true;
+        }
+        if(unifiedBorder){
+          node.setAttribute('stroke', unifiedBorder);
+          applied = true;
+        }
+      }
+      if(hasBorderWidth){
+        node.setAttribute('stroke-width', String(Math.max(0, borderWidth)));
+        applied = true;
+      }
+    });
+    return applied;
+  }
+
+  function tryToggleBoxLegendVisibility(show){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const svg = global.document?.querySelector?.('#boxPlot svg');
+    if(!svg || typeof svg.querySelector !== 'function'){
+      return false;
+    }
+    const legendGroup = svg.querySelector('g[data-box-legend="1"]');
+    if(legendGroup){
+      legendGroup.style.display = show ? '' : 'none';
+      return true;
+    }
+    if(!show){
+      return true;
+    }
+    return state.tableFormat !== 'grouped';
+  }
+
+  function tryToggleBoxGridVisibility(show){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const gridLayer = resolveBoxGridLayer();
+    if(!gridLayer){
+      return show ? false : true;
+    }
+    gridLayer.style.display = show ? '' : 'none';
+    return true;
+  }
+
+  function tryToggleBoxFrameVisibility(show){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const axisLayer = resolveBoxAxisLayer();
+    if(!axisLayer || typeof axisLayer.querySelectorAll !== 'function'){
+      return show ? false : true;
+    }
+    const frames = Array.from(axisLayer.querySelectorAll('[data-box-frame="1"]'));
+    if(!frames.length){
+      return show ? false : true;
+    }
+    frames.forEach(node => {
+      node.style.display = show ? '' : 'none';
+    });
+    return true;
+  }
+
+  function buildBoxLiveGridStrokeAttrs(style, fallbackThickness){
+    const fallbackNumeric = Number(fallbackThickness);
+    const fallback = Number.isFinite(fallbackNumeric) && fallbackNumeric >= 0 ? fallbackNumeric : getAxisStrokeWidthBase();
+    const normalized = getGridStyle(fallback);
+    const resolved = sanitizeGridStyle(style, fallback);
+    if(gridControls && typeof gridControls.getStrokeAttributes === 'function'){
+      return gridControls.getStrokeAttributes(resolved, {
+        fallbackColor: DEFAULT_GRID_COLOR,
+        fallbackThickness: fallback
+      });
+    }
+    const strokeWidth = Number.isFinite(Number(resolved.thickness))
+      ? Math.max(0, Number(resolved.thickness))
+      : Math.max(0, fallback);
+    const opacity = 1 - (Math.max(0, Math.min(100, Number(resolved.transparency) || normalized.transparency || 0)) / 100);
+    const pattern = String(resolved.pattern || normalized.pattern || 'solid').toLowerCase();
+    let strokeDasharray = null;
+    let strokeLinecap = null;
+    if(pattern === 'dashed'){
+      const dash = Math.max(4, strokeWidth * 3);
+      const gap = Math.max(3, strokeWidth * 2);
+      strokeDasharray = `${dash} ${gap}`;
+      strokeLinecap = 'butt';
+    }else if(pattern === 'dotted'){
+      const gap = Math.max(2.5, strokeWidth * 2.25);
+      strokeDasharray = `0 ${gap}`;
+      strokeLinecap = 'round';
+    }
+    return {
+      stroke: resolved.color || DEFAULT_GRID_COLOR,
+      'stroke-width': strokeWidth,
+      opacity,
+      'stroke-dasharray': strokeDasharray,
+      'stroke-linecap': strokeLinecap || 'round'
+    };
+  }
+
+  function tryApplyBoxGridStyleLive(style, fallbackThickness){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const gridLayer = resolveBoxGridLayer();
+    if(!gridLayer || typeof gridLayer.querySelectorAll !== 'function'){
+      return false;
+    }
+    const lines = Array.from(gridLayer.querySelectorAll('[data-grid-control="1"]'));
+    if(!lines.length){
+      return false;
+    }
+    const attrs = buildBoxLiveGridStrokeAttrs(style, fallbackThickness);
+    lines.forEach(line => {
+      if(attrs.stroke != null){
+        line.setAttribute('stroke', String(attrs.stroke));
+      }
+      if(attrs['stroke-width'] != null){
+        line.setAttribute('stroke-width', String(attrs['stroke-width']));
+      }
+      if(attrs.opacity != null){
+        line.setAttribute('opacity', String(attrs.opacity));
+      }
+      if(attrs['stroke-dasharray']){
+        line.setAttribute('stroke-dasharray', String(attrs['stroke-dasharray']));
+      }else{
+        line.removeAttribute('stroke-dasharray');
+      }
+      if(attrs['stroke-linecap']){
+        line.setAttribute('stroke-linecap', String(attrs['stroke-linecap']));
+      }
+    });
+    return true;
+  }
+
+  function tryApplyBoxAxisStrokeWidthLive(width){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const widthNumeric = Number(width);
+    if(!Number.isFinite(widthNumeric) || widthNumeric <= 0){
+      return false;
+    }
+    const axisLayer = resolveBoxAxisLayer();
+    if(!axisLayer || typeof axisLayer.querySelectorAll !== 'function'){
+      return false;
+    }
+    const nodes = Array.from(axisLayer.querySelectorAll('[data-box-axis-stroke-target="1"]'));
+    if(!nodes.length){
+      return false;
+    }
+    nodes.forEach(node => {
+      const ratioRaw = Number(node.getAttribute('data-box-axis-width-factor'));
+      const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
+      const nextWidth = Math.max(0.1, widthNumeric * ratio);
+      node.setAttribute('stroke-width', String(nextWidth));
+      if(node.getAttribute('data-box-frame') === '1' && typeof node.querySelectorAll === 'function'){
+        node.querySelectorAll('[stroke-width]').forEach(frameChild => {
+          frameChild.setAttribute('stroke-width', String(nextWidth));
+        });
+      }
+    });
+    return true;
+  }
+
+  function tryApplyBoxAxisColorLive(color){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    const nextColor = typeof color === 'string' && color.trim() ? color.trim() : null;
+    if(!nextColor){
+      return false;
+    }
+    const axisLayer = resolveBoxAxisLayer();
+    if(!axisLayer || typeof axisLayer.querySelectorAll !== 'function'){
+      return false;
+    }
+    const nodes = Array.from(axisLayer.querySelectorAll('[data-box-axis-color-target="1"]'));
+    if(!nodes.length){
+      return false;
+    }
+    nodes.forEach(node => {
+      node.setAttribute('stroke', nextColor);
+      if(node.getAttribute('data-box-frame') === '1' && typeof node.querySelectorAll === 'function'){
+        node.querySelectorAll('[stroke]').forEach(frameChild => {
+          frameChild.setAttribute('stroke', nextColor);
+        });
+      }
+    });
+    return true;
+  }
+
+  function tryApplyBoxStylePayloadLive(config){
+    if(isBoxLiveStyleDisabled()){
+      return false;
+    }
+    if(!config || typeof config !== 'object'){
+      return false;
+    }
+    const graphType = els.boxGraphType?.value;
+    let attempted = 0;
+    let failed = false;
+    const markAttempt = (result) => {
+      attempted += 1;
+      if(result !== true){
+        failed = true;
+      }
+    };
+
+    if(typeof config.showGrid === 'boolean'){
+      markAttempt(tryToggleBoxGridVisibility(!!config.showGrid));
+    }
+    if(typeof config.showFrame === 'boolean'){
+      markAttempt(tryToggleBoxFrameVisibility(!!config.showFrame));
+    }
+    if(typeof config.showLegend === 'boolean'){
+      markAttempt(tryToggleBoxLegendVisibility(!!config.showLegend));
+    }
+    if(config.gridStyle && typeof config.gridStyle === 'object'){
+      const fallbackThickness = config.axis && config.axis.strokeWidth != null ? config.axis.strokeWidth : null;
+      markAttempt(tryApplyBoxGridStyleLive(config.gridStyle, fallbackThickness));
+    }
+    const axisCfg = config.axis && typeof config.axis === 'object' ? config.axis : null;
+    if(axisCfg){
+      if(axisCfg.strokeWidth !== undefined){
+        markAttempt(tryApplyBoxAxisStrokeWidthLive(axisCfg.strokeWidth));
+      }
+      if(typeof axisCfg.color === 'string' && axisCfg.color.trim()){
+        markAttempt(tryApplyBoxAxisColorLive(axisCfg.color));
+      }
+    }
+
+    const hasPalettePatch = config.fill != null
+      || config.border != null
+      || config.borderWidth != null
+      || Array.isArray(config.colors)
+      || Array.isArray(config.borderColors);
+    if(hasPalettePatch){
+      if(graphType === 'strip'){
+        markAttempt(tryApplyBoxStripPaletteLive(config));
+      }else{
+        failed = true;
+      }
+    }
+
+    return attempted > 0 && !failed;
   }
 
   function ensureSignificanceLabelFontEventListener(){
@@ -10212,7 +10560,7 @@
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: box prism style applied', { title, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
       }
-      state.scheduleDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
+      state.scheduleDraw({ force: true, reason: 'import-prism-style' });
     };
     fileInput.addEventListener('change',()=>{
       if(!tableImport || typeof tableImport.openFile !== 'function'){
@@ -10231,7 +10579,7 @@
         minRows: DEFAULT_ROWS,
         scheduleDraw: () => {
           markBoxOverlayPending('file-import');
-          state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+          state.scheduleDraw({ force: true, reason: 'import-load' });
         },
         debugLabel: 'box',
         onPrismStyle: applyBoxPrismStyle,
@@ -10309,18 +10657,6 @@
   function initUI(){
     ensureViolinState();
     syncViolinControlsFromState();
-    if(els.renderButton){
-      boxRenderButtonEl = els.renderButton;
-      boxRenderRowEl = els.renderRow || boxRenderRowEl;
-      boxAutoDrawNoticeEl = els.autoDrawNotice || boxAutoDrawNoticeEl;
-      els.renderButton.addEventListener('click',()=>{
-        boxDebug('Debug: box manual render button');
-        const overlayReason = 'manual-render';
-        markBoxOverlayPending(overlayReason);
-        forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
-        state.scheduleDraw({ force: true, reason: 'manual-render' });
-      });
-    }
     if(els.tableFormat){
       els.tableFormat.addEventListener('change', e=>{
         console.debug('Debug: tableFormat select change',{ value: e.target.value });
@@ -10436,11 +10772,28 @@
       chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
       scheduleBoxViewRefresh('font-size-change');
     });
-    els.boxShowGrid.addEventListener('change',()=>{ boxLog('boxShowGrid changed', els.boxShowGrid.checked); scheduleBoxViewRefresh('grid-toggle'); });
-    els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); scheduleBoxViewRefresh('frame-toggle'); });
+    els.boxShowGrid.addEventListener('change',()=>{
+      const checked = !!els.boxShowGrid.checked;
+      boxLog('boxShowGrid changed', checked);
+      if(tryToggleBoxGridVisibility(checked)){
+        return;
+      }
+      scheduleBoxViewRefresh('grid-toggle');
+    });
+    els.boxShowFrame?.addEventListener('change',()=>{
+      const checked = !!els.boxShowFrame.checked;
+      console.debug('Debug: box showFrame change',{checked});
+      if(tryToggleBoxFrameVisibility(checked)){
+        return;
+      }
+      scheduleBoxViewRefresh('frame-toggle');
+    });
     els.boxShowLegend?.addEventListener('change',()=>{
       console.debug('Debug: box showLegend change',{checked:els.boxShowLegend.checked});
       ensureBoxLegendControlPlacement();
+      if(tryToggleBoxLegendVisibility(!!els.boxShowLegend.checked)){
+        return;
+      }
       scheduleBoxViewRefresh('legend-toggle');
     });
     els.boxLogScale.addEventListener('change',()=>{
@@ -10655,17 +11008,40 @@
     }
     updateGraphTypeControls();
     if(els.boxFill){
-      els.boxFill.addEventListener('input',()=>{ boxLog('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; scheduleBoxViewRefresh('fill-change'); });
+      els.boxFill.addEventListener('input',()=>{
+        const nextColor = els.boxFill.value;
+        const oldColor = state.lastDefaultFill;
+        boxLog('boxFill changed',{ newColor: nextColor, oldColor });
+        state.fillColors = state.fillColors.map(c => c === oldColor ? nextColor : c);
+        state.lastDefaultFill = nextColor;
+        if(tryApplyBoxStripPointStyleLive({ fill: nextColor })){
+          return;
+        }
+        scheduleBoxViewRefresh('fill-change');
+      });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxFill control');
     }
     if(els.boxBorder){
-      els.boxBorder.addEventListener('input',()=>{ boxLog('boxBorder changed', els.boxBorder.value); scheduleBoxViewRefresh('border-color-change'); });
+      els.boxBorder.addEventListener('input',()=>{
+        const nextBorder = els.boxBorder.value;
+        boxLog('boxBorder changed', nextBorder);
+        if(tryApplyBoxStripPointStyleLive({ stroke: nextBorder })){
+          return;
+        }
+        scheduleBoxViewRefresh('border-color-change');
+      });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxBorder control');
     }
     if(els.boxBorderWidth){
-      els.boxBorderWidth.addEventListener('input',()=>{ boxLog('boxBorderWidth changed', els.boxBorderWidth.value); scheduleBoxViewRefresh('border-width-change'); });
+      els.boxBorderWidth.addEventListener('input',()=>{
+        boxLog('boxBorderWidth changed', els.boxBorderWidth.value);
+        if(tryApplyBoxStripPointStyleLive({ borderWidth: Number(els.boxBorderWidth.value) })){
+          return;
+        }
+        scheduleBoxViewRefresh('border-width-change');
+      });
     }else if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       console.debug('Debug: box initUI missing #boxBorderWidth control');
     }
@@ -19509,7 +19885,7 @@ Technical analysis record (advanced)
     let legendWidthForMargin = 0;
     console.debug('Debug: box legend initial state',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length });
     const traces = [];
-    const traceLabels = [];
+    let traceLabels = [];
     let axisLabels = [];
     let axisGroupIndices = [];
     const groupColorAssignments = new Map();
@@ -19584,7 +19960,9 @@ Technical analysis record (advanced)
     let groupedReplicates = 1;
     let groupedHeaderEntries = [];
     let groupedConditionLabels = [];
-    const cachedDrawInput = state.cachedDrawInput;
+    let hasNonPositiveRaw = false;
+    let cachedDrawInput = state.cachedDrawInput;
+    let pointLayoutCache = null;
     const canUseCachedDrawInput = !!(
       viewOnly
       && !state.dataDirty
@@ -19606,11 +19984,12 @@ Technical analysis record (advanced)
       axisLabels = Array.isArray(cachedDrawInput.axisLabels) ? cachedDrawInput.axisLabels.slice() : [];
       axisGroupIndices = Array.isArray(cachedDrawInput.axisGroupIndices) ? cachedDrawInput.axisGroupIndices.slice() : [];
       traceLabels = Array.isArray(cachedDrawInput.traceLabels) ? cachedDrawInput.traceLabels.slice() : [];
+      hasNonPositiveRaw = cachedDrawInput.hasNonPositiveRaw === true;
       const cachedTraces = Array.isArray(cachedDrawInput.traces) ? cachedDrawInput.traces : [];
       cachedTraces.forEach(trace => {
         traces.push({
           ...trace,
-          rawY: Array.isArray(trace?.rawY) ? trace.rawY.slice() : []
+          rawY: Array.isArray(trace?.rawY) ? trace.rawY : []
         });
       });
       console.debug('Debug: box data collect skipped (view cache)', {
@@ -19618,6 +19997,9 @@ Technical analysis record (advanced)
         labels: axisLabels.length,
         reason: drawOpts?.reason || null
       });
+      if(cachedDrawInput && cachedDrawInput.pointLayoutCache && typeof cachedDrawInput.pointLayoutCache === 'object'){
+        pointLayoutCache = cachedDrawInput.pointLayoutCache;
+      }
     }else{
       const hot = state.ensureHotForActiveTab?.() || state.hot;
       if(!hot){
@@ -19694,7 +20076,12 @@ Technical analysis record (advanced)
               continue;
             }
             const v = parseFloat(rawValue);
-            if(!isNaN(v)) col.push(v);
+            if(!isNaN(v)){
+              col.push(v);
+              if(v <= 0){
+                hasNonPositiveRaw = true;
+              }
+            }
             if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
               console.debug('boxplot collect progress',{ component: 'box', col: i, row: r, token });
             }
@@ -19763,7 +20150,12 @@ Technical analysis record (advanced)
                 continue;
               }
               const v = parseFloat(rawValue);
-              if(!isNaN(v)) values.push(v);
+              if(!isNaN(v)){
+                values.push(v);
+                if(v <= 0){
+                  hasNonPositiveRaw = true;
+                }
+              }
               if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
                 console.debug('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
               }
@@ -19850,11 +20242,23 @@ Technical analysis record (advanced)
         axisLabels: axisLabels.slice(),
         axisGroupIndices: axisGroupIndices.slice(),
         traceLabels: traceLabels.slice(),
+        hasNonPositiveRaw,
+        transformCache: null,
+        distributionCache: null,
+        pointLayoutCache: { vertical: {}, horizontal: {} },
         traces: traces.map(trace => ({
           ...trace,
-          rawY: Array.isArray(trace?.rawY) ? trace.rawY.slice() : []
+          rawY: Array.isArray(trace?.rawY) ? trace.rawY : []
         }))
       };
+      cachedDrawInput = state.cachedDrawInput;
+      pointLayoutCache = cachedDrawInput.pointLayoutCache;
+    }
+    if(!pointLayoutCache && cachedDrawInput){
+      if(!cachedDrawInput.pointLayoutCache || typeof cachedDrawInput.pointLayoutCache !== 'object'){
+        cachedDrawInput.pointLayoutCache = { vertical: {}, horizontal: {} };
+      }
+      pointLayoutCache = cachedDrawInput.pointLayoutCache;
     }
     if(token !== state.drawToken){
       boxLog('boxplot draw cancelled before traces ready',{ token });
@@ -19898,9 +20302,22 @@ Technical analysis record (advanced)
       els.boxColorPerBox.innerHTML='';
     }
     renderStatsControls(traces);
+    const needSortedValues = graphTypeRaw === 'violin';
+    const transformModeKey = logScale
+      ? (state.logPlusOne ? 'log-plus-one' : 'log')
+      : 'linear';
+    const canReuseTransformCache = !!(
+      canUseCachedDrawInput
+      && cachedDrawInput
+      && cachedDrawInput.transformCache
+      && cachedDrawInput.transformCache.key === transformModeKey
+      && Array.isArray(cachedDrawInput.transformCache.yByTrace)
+      && cachedDrawInput.transformCache.yByTrace.length === traces.length
+    );
     if(logScale){
       const logPlusOne = !!state.logPlusOne;
-      const hasNonPos = traces.some(t => t.rawY.some(v => Number.isFinite(v) && v <= 0));
+      const hasNonPos = hasNonPositiveRaw === true
+        || traces.some(t => Array.isArray(t?.rawY) && t.rawY.some(v => Number.isFinite(v) && v <= 0));
       if(hasNonPos && !logPlusOne){
         global.document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
         global.document.getElementById('statsResults').innerHTML='';
@@ -19908,14 +20325,41 @@ Technical analysis record (advanced)
         applyBoxSignificanceViewportExtension(0, { reason: 'log-scale-invalid' });
         return;
       }
-      if(logPlusOne){
-        traces.forEach(t => { t.y = t.rawY.map(v => Number.isFinite(v) ? Math.log10(v + 1) : v); });
+      if(canReuseTransformCache){
+        const cachedY = cachedDrawInput.transformCache.yByTrace;
+        traces.forEach((t, idx) => {
+          t.y = Array.isArray(cachedY[idx]) ? cachedY[idx] : [];
+        });
+      }else if(logPlusOne){
+        const transformed = new Array(traces.length);
+        traces.forEach((t, idx) => {
+          const nextY = Array.isArray(t?.rawY) ? t.rawY.map(v => Number.isFinite(v) ? Math.log10(v + 1) : v) : [];
+          t.y = nextY;
+          transformed[idx] = nextY;
+        });
+        if(cachedDrawInput){
+          cachedDrawInput.transformCache = { key: transformModeKey, yByTrace: transformed };
+        }
         console.debug('Debug: box log+1 transform applied');
       }else{
-        traces.forEach(t => { t.y = t.rawY.map(v => Number.isFinite(v) ? Math.log10(v) : v); });
+        const transformed = new Array(traces.length);
+        traces.forEach((t, idx) => {
+          const nextY = Array.isArray(t?.rawY) ? t.rawY.map(v => Number.isFinite(v) ? Math.log10(v) : v) : [];
+          t.y = nextY;
+          transformed[idx] = nextY;
+        });
+        if(cachedDrawInput){
+          cachedDrawInput.transformCache = { key: transformModeKey, yByTrace: transformed };
+        }
       }
     }else{
-      traces.forEach(t => { t.y = [...t.rawY]; });
+      traces.forEach(t => { t.y = Array.isArray(t?.rawY) ? t.rawY : []; });
+      if(cachedDrawInput){
+        cachedDrawInput.transformCache = {
+          key: 'linear',
+          yByTrace: traces.map(t => (Array.isArray(t?.rawY) ? t.rawY : []))
+        };
+      }
     }
     while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
     const W = Math.max(50, Math.floor(els.plotDiv.clientWidth || 50));
@@ -20004,31 +20448,73 @@ Technical analysis record (advanced)
     } else {
       console.debug('Debug: box fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
     }
-    const needSortedValues = graphTypeRaw === 'violin';
     let ymin = Infinity;
     let ymax = -Infinity;
-    traces.forEach((trace, traceIndex) => {
-      const summary = computeTraceSummary(trace.y, { requireSorted: needSortedValues });
-      trace.__distribution = summary;
-      if(summary.count){
-        if(Number.isFinite(summary.min) && summary.min < ymin){
-          ymin = summary.min;
+    const distributionModeKey = `${transformModeKey}:${needSortedValues ? 'sorted' : 'unsorted'}`;
+    const cachedDistribution = canUseCachedDrawInput
+      && cachedDrawInput
+      && cachedDrawInput.distributionCache
+      && cachedDrawInput.distributionCache.key === distributionModeKey
+      && Array.isArray(cachedDrawInput.distributionCache.summaries)
+      && cachedDrawInput.distributionCache.summaries.length === traces.length
+      ? cachedDrawInput.distributionCache
+      : null;
+    if(cachedDistribution){
+      ymin = Number(cachedDistribution.ymin);
+      ymax = Number(cachedDistribution.ymax);
+      traces.forEach((trace, traceIndex) => {
+        const summary = cachedDistribution.summaries[traceIndex];
+        trace.__distribution = summary;
+        trace.__barStats = {
+          sampleCount: Number(summary?.count) || 0,
+          mean: Number(summary?.mean) || 0,
+          variance: Number(summary?.variance) || 0,
+          sd: Number(summary?.sd) || 0,
+          hasSpread: (Number(summary?.count) || 0) > 1
+        };
+      });
+      console.debug('Debug: box distribution cache reused', {
+        traces: traces.length,
+        mode: distributionModeKey,
+        reason: drawOpts?.reason || null
+      });
+    }
+    if(!cachedDistribution || !Number.isFinite(ymin) || !Number.isFinite(ymax)){
+      const summaries = new Array(traces.length);
+      ymin = Infinity;
+      ymax = -Infinity;
+      traces.forEach((trace, traceIndex) => {
+        const summary = computeTraceSummary(trace.y, { requireSorted: needSortedValues });
+        summaries[traceIndex] = summary;
+        trace.__distribution = summary;
+        if(summary.count){
+          if(Number.isFinite(summary.min) && summary.min < ymin){
+            ymin = summary.min;
+          }
+          if(Number.isFinite(summary.max) && summary.max > ymax){
+            ymax = summary.max;
+          }
         }
-        if(Number.isFinite(summary.max) && summary.max > ymax){
-          ymax = summary.max;
+        if(traceIndex % 5 === 0 && Shared.isDebugEnabled?.()){
+          console.debug('boxplot distribution summary',{ component: 'box', trace: traceIndex, count: summary.count, needSortedValues, token });
         }
+        trace.__barStats = {
+          sampleCount: summary.count,
+          mean: summary.mean,
+          variance: summary.variance,
+          sd: summary.sd,
+          hasSpread: summary.count > 1
+        };
+      });
+      if(cachedDrawInput){
+        cachedDrawInput.distributionCache = {
+          key: distributionModeKey,
+          summaries,
+          ymin,
+          ymax
+        };
       }
-      if(traceIndex % 5 === 0 && Shared.isDebugEnabled?.()){
-        console.debug('boxplot distribution summary',{ component: 'box', trace: traceIndex, count: summary.count, needSortedValues, token });
-      }
-      trace.__barStats = {
-        sampleCount: summary.count,
-        mean: summary.mean,
-        variance: summary.variance,
-        sd: summary.sd,
-        hasSpread: summary.count > 1
-      };
-    });
+    }
     if(token !== state.drawToken){
       boxLog('boxplot draw cancelled after range calc',{ token });
       return;
@@ -20908,7 +21394,24 @@ Technical analysis record (advanced)
           traceCount: traces.length
         });
       }
-      const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
+      const addAxisElement = (tag, attrs) => {
+        const attrMap = attrs && typeof attrs === 'object' ? attrs : {};
+        const node = appendToLayer(axisLayer || svg, tag, attrMap);
+        const strokeValue = typeof attrMap.stroke === 'string' ? attrMap.stroke : '';
+        if(strokeValue && strokeValue !== 'transparent'){
+          if(strokeValue === axisStroke){
+            node.setAttribute('data-box-axis-color-target', '1');
+          }
+          const strokeWidthRaw = Number(attrMap['stroke-width']);
+          if(Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0){
+            node.setAttribute('data-box-axis-stroke-target', '1');
+            if(Number.isFinite(axisStrokeWidth) && axisStrokeWidth > 0){
+              node.setAttribute('data-box-axis-width-factor', String(strokeWidthRaw / axisStrokeWidth));
+            }
+          }
+        }
+        return node;
+      };
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
@@ -21069,14 +21572,15 @@ Technical analysis record (advanced)
       if(token !== state.drawToken){
         return null;
       }
-      if(showGrid){
-        yScale.ticks.forEach(t => {
-          const y = y2px(t);
-          const gridLine = addGrid('line',Object.assign({ x1: yAxisX, y1: y, x2: plotRightX, y2: y }, gridStrokeAttrs));
-          gridLine.setAttribute('data-grid-control','1');
-        });
-        console.debug('Debug: box grid stroke scaled',{ horizontal: yScale.ticks.length, gridStrokeStyle });
+      if(gridLayer){
+        gridLayer.style.display = showGrid ? '' : 'none';
       }
+      yScale.ticks.forEach(t => {
+        const y = y2px(t);
+        const gridLine = addGrid('line',Object.assign({ x1: yAxisX, y1: y, x2: plotRightX, y2: y }, gridStrokeAttrs));
+        gridLine.setAttribute('data-grid-control','1');
+      });
+      console.debug('Debug: box grid stroke scaled',{ horizontal: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
       const yTickPositions = yScale.ticks.map(t => y2px(t));
       let axisYStart = yTickPositions.length ? Math.min(...yTickPositions) : marginLocal.top;
       let axisYEnd = yTickPositions.length ? Math.max(...yTickPositions) : marginLocal.top + plotHLocal;
@@ -21282,20 +21786,24 @@ Technical analysis record (advanced)
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
       console.debug('Debug: box axes stroke scaled',{ axisStrokeWidth });
-      if(showFrame){
-        console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
-        const doc = svg.ownerDocument || global.document;
-        const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
-        if(frameGroup){
-          frameGroup.setAttribute('stroke-width', axisStrokeWidth);
-          frameGroup.setAttribute('fill', 'none');
-          (axisLayer || svg).appendChild(frameGroup);
-          chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
-          console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth });
-        }else{
-          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
-          console.debug('Debug: box frame group fallback used');
-        }
+      console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
+      const doc = svg.ownerDocument || global.document;
+      const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+      if(frameGroup){
+        frameGroup.setAttribute('stroke-width', axisStrokeWidth);
+        frameGroup.setAttribute('fill', 'none');
+        frameGroup.setAttribute('stroke', axisStroke);
+        frameGroup.setAttribute('data-box-frame', '1');
+        frameGroup.setAttribute('data-box-axis-color-target', '1');
+        frameGroup.setAttribute('data-box-axis-stroke-target', '1');
+        frameGroup.setAttribute('data-box-axis-width-factor', '1');
+        frameGroup.style.display = showFrame ? '' : 'none';
+        (axisLayer || svg).appendChild(frameGroup);
+        chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+        console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth, visible: showFrame });
+      }else if(showFrame){
+        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
+        console.debug('Debug: box frame group fallback used');
       }
       const xLabelOffset = tickLen + tickGap;
       const xLabels = [];
@@ -21507,20 +22015,66 @@ Technical analysis record (advanced)
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
-        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
-          axisSpacing: localBand,
-          pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
-          sampleSize: sampleCount,
-          orientation: 'vertical',
-          widthScaleMode,
-          maxHalfWidth: resolvedMaxHalfWidth,
-          hardMaxHalfWidth: hardStripHalfWidthCap,
-          allowRadiusAdjustment: allowAdjustment,
-          skipBucketCentering: false,
-          enforceNonOverlap: useStrictStripSpacing,
-          radiusCountExponent,
-          debug: debugEnabled
-        });
+        const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+        const verticalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
+          ? (pointLayoutCache.vertical = pointLayoutCache.vertical || {})
+          : null;
+        const verticalScaleSig = [
+          Number(yScale?.min).toFixed(6),
+          Number(yScale?.max).toFixed(6),
+          Number(marginLocal?.top).toFixed(3),
+          Number(plotHLocal).toFixed(3),
+          brokenAxisEnabled ? 1 : 0,
+          brokenAxisEnabled ? JSON.stringify(brokenAxisSegments || []) : ''
+        ].join('|');
+        const verticalLayoutSig = [
+          pointCount,
+          Number(localBand).toFixed(4),
+          Number(sampleCount).toFixed(0),
+          Number(swarmPointRadius).toFixed(4),
+          widthScaleMode || 'none',
+          Number(resolvedMaxHalfWidth).toFixed(4),
+          Number(hardStripHalfWidthCap).toFixed(4),
+          allowAdjustment ? 1 : 0,
+          useStrictStripSpacing ? 1 : 0,
+          Number(radiusCountExponent).toFixed(4),
+          verticalScaleSig
+        ].join('|');
+        let swarm = null;
+        if(verticalCacheBucket && traceIndex != null){
+          const cachedLayout = verticalCacheBucket[traceIndex];
+          if(
+            cachedLayout
+            && cachedLayout.key === verticalLayoutSig
+            && cachedLayout.swarm
+            && Array.isArray(cachedLayout.swarm.offsets)
+            && cachedLayout.swarm.offsets.length === pointCount
+          ){
+            swarm = cachedLayout.swarm;
+          }
+        }
+        if(!swarm){
+          swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
+            axisSpacing: localBand,
+            pointRadius: swarmPointRadius,
+            sampleSize: sampleCount,
+            orientation: 'vertical',
+            widthScaleMode,
+            maxHalfWidth: resolvedMaxHalfWidth,
+            hardMaxHalfWidth: hardStripHalfWidthCap,
+            allowRadiusAdjustment: allowAdjustment,
+            skipBucketCentering: false,
+            enforceNonOverlap: useStrictStripSpacing,
+            radiusCountExponent,
+            debug: debugEnabled
+          });
+          if(verticalCacheBucket && traceIndex != null && (drawToken == null || drawToken === state.drawToken)){
+            verticalCacheBucket[traceIndex] = {
+              key: verticalLayoutSig,
+              swarm
+            };
+          }
+        }
         if(drawToken != null && drawToken !== state.drawToken){
           return null;
         }
@@ -22100,7 +22654,7 @@ Technical analysis record (advanced)
             minCenterPitch: stripMinCenterPitch,
             interDatasetGapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
             minInterDatasetGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
-            disableBatchPath: true,
+            disableBatchPath: sampleCount <= BOX_STRIP_BATCH_THRESHOLD,
             drawToken: token
           });
           if(!swarmResult){
@@ -22550,20 +23104,64 @@ Technical analysis record (advanced)
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
-        const swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
-          axisSpacing: localBand,
-          pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
-          sampleSize: sampleCount,
-          orientation: 'horizontal',
-          widthScaleMode,
-          maxHalfWidth: resolvedMaxHalfWidth,
-          hardMaxHalfWidth: hardStripHalfWidthCap,
-          allowRadiusAdjustment: allowAdjustment,
-          skipBucketCentering: false,
-          enforceNonOverlap: useStrictStripSpacing,
-          radiusCountExponent,
-          debug: debugEnabled
-        });
+        const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+        const horizontalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
+          ? (pointLayoutCache.horizontal = pointLayoutCache.horizontal || {})
+          : null;
+        const horizontalScaleSig = [
+          Number(yScale?.min).toFixed(6),
+          Number(yScale?.max).toFixed(6),
+          Number(marginLocal?.left).toFixed(3),
+          Number(plotWLocal).toFixed(3)
+        ].join('|');
+        const horizontalLayoutSig = [
+          pointCount,
+          Number(localBand).toFixed(4),
+          Number(sampleCount).toFixed(0),
+          Number(swarmPointRadius).toFixed(4),
+          widthScaleMode || 'none',
+          Number(resolvedMaxHalfWidth).toFixed(4),
+          Number(hardStripHalfWidthCap).toFixed(4),
+          allowAdjustment ? 1 : 0,
+          useStrictStripSpacing ? 1 : 0,
+          Number(radiusCountExponent).toFixed(4),
+          horizontalScaleSig
+        ].join('|');
+        let swarm = null;
+        if(horizontalCacheBucket && traceIndex != null){
+          const cachedLayout = horizontalCacheBucket[traceIndex];
+          if(
+            cachedLayout
+            && cachedLayout.key === horizontalLayoutSig
+            && cachedLayout.swarm
+            && Array.isArray(cachedLayout.swarm.offsets)
+            && cachedLayout.swarm.offsets.length === pointCount
+          ){
+            swarm = cachedLayout.swarm;
+          }
+        }
+        if(!swarm){
+          swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
+            axisSpacing: localBand,
+            pointRadius: swarmPointRadius,
+            sampleSize: sampleCount,
+            orientation: 'horizontal',
+            widthScaleMode,
+            maxHalfWidth: resolvedMaxHalfWidth,
+            hardMaxHalfWidth: hardStripHalfWidthCap,
+            allowRadiusAdjustment: allowAdjustment,
+            skipBucketCentering: false,
+            enforceNonOverlap: useStrictStripSpacing,
+            radiusCountExponent,
+            debug: debugEnabled
+          });
+          if(horizontalCacheBucket && traceIndex != null && (drawToken == null || drawToken === state.drawToken)){
+            horizontalCacheBucket[traceIndex] = {
+              key: horizontalLayoutSig,
+              swarm
+            };
+          }
+        }
         if(drawToken != null && drawToken !== state.drawToken){
           return null;
         }
@@ -23031,16 +23629,34 @@ Technical analysis record (advanced)
           stripPitchScale
         });
       }
-      const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
+      const addAxisElement = (tag, attrs) => {
+        const attrMap = attrs && typeof attrs === 'object' ? attrs : {};
+        const node = appendToLayer(axisLayer || svg, tag, attrMap);
+        const strokeValue = typeof attrMap.stroke === 'string' ? attrMap.stroke : '';
+        if(strokeValue && strokeValue !== 'transparent'){
+          if(strokeValue === axisStroke){
+            node.setAttribute('data-box-axis-color-target', '1');
+          }
+          const strokeWidthRaw = Number(attrMap['stroke-width']);
+          if(Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0){
+            node.setAttribute('data-box-axis-stroke-target', '1');
+            if(Number.isFinite(axisStrokeWidth) && axisStrokeWidth > 0){
+              node.setAttribute('data-box-axis-width-factor', String(strokeWidthRaw / axisStrokeWidth));
+            }
+          }
+        }
+        return node;
+      };
       let stackOffsets = null;
-      if(showGrid){
-        yScale.ticks.forEach(t => {
-          const x = valueToX(t);
-          const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal }, gridStrokeAttrs));
-          gridLine.setAttribute('data-grid-control','1');
-        });
-        console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle });
+      if(gridLayer){
+        gridLayer.style.display = showGrid ? '' : 'none';
       }
+      yScale.ticks.forEach(t => {
+        const x = valueToX(t);
+        const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal }, gridStrokeAttrs));
+        gridLine.setAttribute('data-grid-control','1');
+      });
+      console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
       const yAxisLeft = marginLocal.left;
       const xAxisBottom = marginLocal.top + plotHLocal;
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
@@ -23171,18 +23787,22 @@ Technical analysis record (advanced)
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
-      if(showFrame){
-        console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
-        const doc = svg.ownerDocument || global.document;
-        const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
-        if(frameGroup){
-          frameGroup.setAttribute('stroke-width', axisStrokeWidth);
-          frameGroup.setAttribute('fill', 'none');
-          (axisLayer || svg).appendChild(frameGroup);
-          chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
-        }else{
-          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
-        }
+      console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
+      const doc = svg.ownerDocument || global.document;
+      const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+      if(frameGroup){
+        frameGroup.setAttribute('stroke-width', axisStrokeWidth);
+        frameGroup.setAttribute('fill', 'none');
+        frameGroup.setAttribute('stroke', axisStroke);
+        frameGroup.setAttribute('data-box-frame', '1');
+        frameGroup.setAttribute('data-box-axis-color-target', '1');
+        frameGroup.setAttribute('data-box-axis-stroke-target', '1');
+        frameGroup.setAttribute('data-box-axis-width-factor', '1');
+        frameGroup.style.display = showFrame ? '' : 'none';
+        (axisLayer || svg).appendChild(frameGroup);
+        chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+      }else if(showFrame){
+        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
       }
       const defaultXLabelX = marginLocal.left + plotWLocal / 2;
       const defaultXLabelY = xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8;
@@ -23616,7 +24236,7 @@ Technical analysis record (advanced)
             minCenterPitch: stripMinCenterPitch,
             interDatasetGapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
             minInterDatasetGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
-            disableBatchPath: true,
+            disableBatchPath: sampleCount <= BOX_STRIP_BATCH_THRESHOLD,
             drawToken: token
           });
           if(!swarmResult){
@@ -23936,7 +24556,6 @@ Technical analysis record (advanced)
       applyBoxSignificanceViewportExtension(0, { reason: 'orientation-missing' });
       ensureBoxViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       state.layout?.syncPanels?.({ skipSchedule: true });
-      syncBoxAutoDrawNoticeWidth('draw');
       return;
     }
     if(token !== state.drawToken){
@@ -24079,6 +24698,9 @@ Technical analysis record (advanced)
         x: absoluteLegendX,
         y: absoluteLegendY
       });
+      if(legendGroup){
+        legendGroup.setAttribute('data-box-legend', '1');
+      }
       if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
         Shared.enableLegendDrag(legendGroup, svg, {
           onDragEnd: pos => {
@@ -24154,7 +24776,6 @@ Technical analysis record (advanced)
       preserveBaseAspect: !disableViewportAspectNormalization
     });
     state.layout?.syncPanels?.({ skipSchedule: true });
-    syncBoxAutoDrawNoticeWidth('draw');
     traceCount = traces.length;
     boxLog('boxplot render complete');
     }catch(err){
@@ -24522,7 +25143,7 @@ Technical analysis record (advanced)
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     const scheduleOriginal = typeof state.scheduleDraw === 'function' ? state.scheduleDraw : null;
-    const shouldSuspendSchedule = !!(scheduleOriginal && (suppressDraw || !skipDataLoad));
+    const shouldSuspendSchedule = !!(scheduleOriginal && (suppressDraw || !skipDataLoad || styleOnly));
     if(shouldSuspendSchedule){
       state.scheduleDraw = () => {};
     }
@@ -24753,50 +25374,52 @@ Technical analysis record (advanced)
       }
     }
     toggleColorMode();
-    const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
-    let restoredGroupedLabels = [];
-    let restoredConditionLabels = [];
-    if(c.grouped && typeof c.grouped === 'object'){
-      const groupCfg = c.grouped;
-      const repValue = Number(groupCfg.replicatesPerGroup);
-      if(Number.isFinite(repValue) && repValue >= 1){
-        state.grouped.replicatesPerGroup = Math.round(repValue);
-      }
-      if(Array.isArray(groupCfg.groups) && groupCfg.groups.length){
-        restoredGroupedLabels = groupCfg.groups.map((name, idx)=>{
-          const trimmed = typeof name === 'string' ? name.trim() : '';
-          return trimmed || `Group ${idx + 1}`;
-        });
-      }
-      if(Array.isArray(groupCfg.conditions) && groupCfg.conditions.length){
-        restoredConditionLabels = groupCfg.conditions.map((name, idx) => normalizeBoxGroupedConditionLabel(name, idx));
-      }
-    }
-    setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
-    if(restoredFormat === 'grouped' && (restoredGroupedLabels.length || restoredConditionLabels.length)){
-      const activeHot = state.ensureHotForActiveTab?.() || state.hot;
-      if(activeHot){
-        const replicates = getBoxGroupedReplicateCount();
-        const requiredGroupCount = Math.max(
-          restoredGroupedLabels.length,
-          getBoxGroupedGroupCount(typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0, replicates)
-        );
-        const requiredCols = replicates * requiredGroupCount;
-        const currentCols = typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0;
-        if(requiredCols > currentCols){
-          activeHot.alter(currentCols > 0 ? 'insert_col_end' : 'insert_col_start', currentCols > 0 ? currentCols - 1 : 0, requiredCols - currentCols);
+    if(!styleOnly){
+      const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
+      let restoredGroupedLabels = [];
+      let restoredConditionLabels = [];
+      if(c.grouped && typeof c.grouped === 'object'){
+        const groupCfg = c.grouped;
+        const repValue = Number(groupCfg.replicatesPerGroup);
+        if(Number.isFinite(repValue) && repValue >= 1){
+          state.grouped.replicatesPerGroup = Math.round(repValue);
         }
-        if(restoredGroupedLabels.length){
-          applyBoxGroupedLabelsToHeaderRow(activeHot, restoredGroupedLabels, { source: 'box-grouped-header-load' });
-        }
-        if(restoredConditionLabels.length){
-          applyBoxGroupedConditionLabelsToHeaderRow(activeHot, restoredConditionLabels, {
-            groupCount: Math.max(requiredGroupCount, 1),
-            source: 'box-grouped-header-load'
+        if(Array.isArray(groupCfg.groups) && groupCfg.groups.length){
+          restoredGroupedLabels = groupCfg.groups.map((name, idx)=>{
+            const trimmed = typeof name === 'string' ? name.trim() : '';
+            return trimmed || `Group ${idx + 1}`;
           });
         }
-        normalizeBoxGroupedHeaderRow(activeHot, { forceGrouped: true, source: 'box-grouped-header-normalize' });
-        updateGroupedHeaders(activeHot);
+        if(Array.isArray(groupCfg.conditions) && groupCfg.conditions.length){
+          restoredConditionLabels = groupCfg.conditions.map((name, idx) => normalizeBoxGroupedConditionLabel(name, idx));
+        }
+      }
+      setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
+      if(restoredFormat === 'grouped' && (restoredGroupedLabels.length || restoredConditionLabels.length)){
+        const activeHot = state.ensureHotForActiveTab?.() || state.hot;
+        if(activeHot){
+          const replicates = getBoxGroupedReplicateCount();
+          const requiredGroupCount = Math.max(
+            restoredGroupedLabels.length,
+            getBoxGroupedGroupCount(typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0, replicates)
+          );
+          const requiredCols = replicates * requiredGroupCount;
+          const currentCols = typeof activeHot.countCols === 'function' ? activeHot.countCols() : 0;
+          if(requiredCols > currentCols){
+            activeHot.alter(currentCols > 0 ? 'insert_col_end' : 'insert_col_start', currentCols > 0 ? currentCols - 1 : 0, requiredCols - currentCols);
+          }
+          if(restoredGroupedLabels.length){
+            applyBoxGroupedLabelsToHeaderRow(activeHot, restoredGroupedLabels, { source: 'box-grouped-header-load' });
+          }
+          if(restoredConditionLabels.length){
+            applyBoxGroupedConditionLabelsToHeaderRow(activeHot, restoredConditionLabels, {
+              groupCount: Math.max(requiredGroupCount, 1),
+              source: 'box-grouped-header-load'
+            });
+          }
+          normalizeBoxGroupedHeaderRow(activeHot, { forceGrouped: true, source: 'box-grouped-header-normalize' });
+          updateGroupedHeaders(activeHot);
+        }
       }
     }
     els.boxYMin.value=c.yMin||'';
@@ -25060,12 +25683,27 @@ Technical analysis record (advanced)
       console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });
       resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
     }
+    let stylePayloadAppliedLive = false;
+    if(styleOnly){
+      try{
+        stylePayloadAppliedLive = tryApplyBoxStylePayloadLive(c);
+      }catch(styleErr){
+        stylePayloadAppliedLive = false;
+        console.warn('box live style payload apply failed', styleErr);
+      }
+    }
     if(!suppressDraw && scheduleOriginal){
       if(styleOnly){
-        scheduleOriginal({
-          viewOnly: true,
-          reason: meta?.reason || 'box-style-payload'
-        });
+        if(!stylePayloadAppliedLive){
+          scheduleOriginal({
+            viewOnly: true,
+            reason: meta?.reason || 'box-style-payload'
+          });
+        }else if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: box style payload applied live without redraw', {
+            source: meta?.source || 'unknown'
+          });
+        }
       }else{
         scheduleOriginal({
           reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
@@ -25196,24 +25834,6 @@ Technical analysis record (advanced)
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
     if (typeof cacheEls === 'function') cacheEls();
-    if(!boxAutoDrawManager && Shared.hot?.createAutoDrawManager){
-      boxAutoDrawManager = Shared.hot.createAutoDrawManager({
-        component: 'box',
-        state,
-        thresholds: {
-          rows: BOX_AUTO_DRAW_ROW_THRESHOLD,
-          cols: BOX_AUTO_DRAW_COL_THRESHOLD,
-          cells: BOX_AUTO_DRAW_CELL_THRESHOLD
-        },
-        getHot: () => state.hot || state.ensureHotForActiveTab?.(),
-        elements: {
-          renderRow: () => els.renderRow,
-          renderButton: () => els.renderButton,
-          notice: () => els.autoDrawNotice
-        },
-        debugLog: boxDebug
-      });
-    }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'box',
       selectors: {
@@ -25231,7 +25851,6 @@ Technical analysis record (advanced)
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
         },
-        onAfterSync: () => syncBoxAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: box layout min width update', { value: state.minSvgWidth });
@@ -25239,7 +25858,6 @@ Technical analysis record (advanced)
       resizableBoxOptions: {
         onResize: () => {
           boxDebug('Debug: box layout onResize schedule trigger');
-          scheduleBoxNoticeWidth('resize');
           state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
         }
       }
@@ -25249,7 +25867,6 @@ Technical analysis record (advanced)
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
-    syncBoxAutoDrawNoticeWidth('init');
     ensureBoxLegendControlPlacement();
     const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
       ? Shared.debounceFrame(()=>ensureBoxLegendControlPlacement())
@@ -25266,7 +25883,7 @@ Technical analysis record (advanced)
     const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
     const scheduleBoxDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
       if(nextOpts.force){
         markBoxOverlayPending(overlayReason);
         forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
@@ -25277,7 +25894,7 @@ Technical analysis record (advanced)
       const shouldDelayForOverlay = boxOverlayController?.isActive?.() && !nextOpts.viewOnly;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
-          boxDebug('Debug: box autoDraw deferred for overlay',{ reason: overlayReason });
+          boxDebug('Debug: box draw deferred for overlay',{ reason: overlayReason });
           runSchedule();
         };
         if(typeof global.requestAnimationFrame === 'function'){
@@ -25290,21 +25907,8 @@ Technical analysis record (advanced)
       runSchedule();
     };
     scheduleDrawBoxRaw = scheduleBoxDrawInstrumented;
-    if(boxAutoDrawManager){
-      boxAutoDrawManager.setScheduleRaw(scheduleDrawBoxRaw);
-      boxAutoDrawManager.setElements({
-        renderRow: els.renderRow,
-        renderButton: els.renderButton,
-        notice: els.autoDrawNotice
-      });
-      state.scheduleDraw = (opts) => boxAutoDrawManager.schedule(opts);
-      boxAutoDrawManager.updateUi();
-      boxAutoDrawManager.evaluateThresholds();
-      syncBoxAutoDrawNoticeWidth('auto-draw-init');
-    }else{
-      state.scheduleDraw = scheduleDrawBoxRaw;
-    }
-    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: !!boxAutoDrawManager }); // Debug: scheduler setup
+    state.scheduleDraw = scheduleDrawBoxRaw;
+    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: false }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     ensureEmptyPayloadTemplate();
     box.ready = true;

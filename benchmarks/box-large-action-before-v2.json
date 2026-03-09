@@ -1,0 +1,186 @@
+{
+  "dataset": {
+    "rows": 7357,
+    "cols": 12
+  },
+  "renderMeta": {
+    "hasSvg": true,
+    "pointNodeCount": 2
+  },
+  "mode": "action-only",
+  "liveStyle": "disabled",
+  "results": [
+    {
+      "action": "color-scheme",
+      "iterations": 8,
+      "wallMs": {
+        "count": 8,
+        "avgMs": 955.5,
+        "p50Ms": 908,
+        "p95Ms": 1108.05,
+        "minMs": 850,
+        "maxMs": 1114
+      },
+      "boxDrawMs": {
+        "count": 8,
+        "avgMs": 263.925,
+        "p50Ms": 255.1,
+        "p95Ms": 309.33,
+        "minMs": 239.3,
+        "maxMs": 319.2
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "grid-toggle",
+      "iterations": 8,
+      "wallMs": {
+        "count": 8,
+        "avgMs": 261.125,
+        "p50Ms": 254,
+        "p95Ms": 288.4,
+        "minMs": 247,
+        "maxMs": 301
+      },
+      "boxDrawMs": {
+        "count": 8,
+        "avgMs": 253.15,
+        "p50Ms": 247.8,
+        "p95Ms": 280.525,
+        "minMs": 240.9,
+        "maxMs": 295.4
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "frame-toggle",
+      "iterations": 8,
+      "wallMs": {
+        "count": 8,
+        "avgMs": 261.625,
+        "p50Ms": 253.5,
+        "p95Ms": 299.9,
+        "minMs": 250,
+        "maxMs": 323
+      },
+      "boxDrawMs": {
+        "count": 8,
+        "avgMs": 255.488,
+        "p50Ms": 247.25,
+        "p95Ms": 294.53,
+        "minMs": 241.8,
+        "maxMs": 317.7
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "action": "legend-toggle",
+      "iterations": 8,
+      "wallMs": {
+        "count": 8,
+        "avgMs": 250.625,
+        "p50Ms": 250.5,
+        "p95Ms": 255.3,
+        "minMs": 245,
+        "maxMs": 256
+      },
+      "boxDrawMs": {
+        "count": 8,
+        "avgMs": 244.35,
+        "p50Ms": 244.5,
+        "p95Ms": 248.62,
+        "minMs": 239.7,
+        "maxMs": 249.6
+      },
+      "dataCollectIncrements": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "drawIncrements": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "perfTop": [
+    {
+      "key": "box.draw",
+      "count": 32,
+      "totalMs": 8135.3,
+      "avgMs": 254.228,
+      "p50Ms": 246.8,
+      "p95Ms": 305.435,
+      "maxMs": 319.2,
+      "minMs": 239.3
+    }
+  ]
+}
