@@ -1,15 +1,16 @@
 {
   "name": "venn-desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Electron desktop wrapper for the Venn web app",
   "main": "main.cjs",
   "scripts": {
     "dev": "node scripts/dev.cjs",
+    "sync:version": "node scripts/sync-version.cjs",
     "sync:web": "node scripts/sync-web-assets.cjs",
-    "build": "npm run sync:web && electron-builder --config electron-builder.yml",
-    "build:win:portable": "npm run sync:web && electron-builder --config electron-builder.yml --win portable",
-    "build:win:nsis": "npm run sync:web && electron-builder --config electron-builder.yml --win nsis",
+    "build": "npm run sync:version && npm run sync:web && electron-builder --config electron-builder.yml",
+    "build:win:portable": "npm run sync:version && npm run sync:web && electron-builder --config electron-builder.yml --win portable",
+    "build:win:nsis": "npm run sync:version && npm run sync:web && electron-builder --config electron-builder.yml --win nsis",
     "dist": "npm run build"
   },
   "devDependencies": {

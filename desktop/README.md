@@ -10,6 +10,8 @@ From the repository root:
   Starts the existing static server (`scripts/e2e-server.cjs`) and opens Electron against `http://127.0.0.1:4173/index.html`.
 - `npm run desktop:sync`  
   Copies web assets (`index.html`, `css/`, `js/`, `libs/`) into `desktop/app/`.
+- `npm run desktop:sync:version`  
+  Syncs `desktop/package.json` version to the root `package.json` version.
 - `npm run desktop:build`  
   Syncs web assets and builds installable desktop artifacts via Electron Builder.
 - `npm run desktop:build:portable`  
@@ -20,6 +22,7 @@ From the repository root:
 From `desktop/` directly:
 
 - `npm run dev`
+- `npm run sync:version`
 - `npm run sync:web`
 - `npm run build`
 - `npm run build:win:portable`
@@ -35,3 +38,4 @@ From `desktop/` directly:
 - `dist/win-unpacked/Venn.exe` is not standalone; it depends on sibling DLL files in the same folder.
 - For a copyable single executable, use the portable artifact from `npm run desktop:build:portable`.
 - Closing with unsaved workspace changes is handled by a native Electron dialog (`Save and Exit`, `Exit without Saving`, `Cancel`).
+- Symlinks are not used because desktop packaging applies offline-specific URL patching to a build copy (`desktop/app`); this keeps the website source unchanged.
