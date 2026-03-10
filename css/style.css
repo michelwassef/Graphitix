@@ -3550,6 +3550,15 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-table-actions{border-top:1px solid #d7e0ef;padding:10px 16px;display:flex;justify-content:flex-end;background:#f7f9fc}
 .stats-table-actions__fallback{font-size:12px;color:#6b7280}
 .stats-table-lead{font-size:13px;color:#445065;margin-bottom:8px}
+.box-stats-summary-tabs{margin-top:12px}
+.box-stats-summary-tabs__tablist{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 10px}
+.box-stats-summary-tabs__tab{border:1px solid #c8d2e3;background:#f3f6fb;color:#334155;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.box-stats-summary-tabs__tab:hover{background:#e8eef8}
+.box-stats-summary-tabs__tab:focus-visible{outline:2px solid #2563eb;outline-offset:1px}
+.box-stats-summary-tabs__tab--active{background:#dbe7f7;border-color:#94a9c7;color:#0f172a}
+.box-stats-summary-tabs__panel[hidden]{display:none !important}
+.box-stats-summary-tabs__panel .stats-table-card{margin-top:0}
+.stats-assumption-container+.stats-results-main .box-stats-summary-tabs:first-child{margin-top:12px}
 
 /* Box stats: Assumption Checks */
 .stats-assumption-section{margin-top:10px}
@@ -3640,6 +3649,12 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-significance-controls__label{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#1d2735}
 .stats-significance-controls__input{width:88px;padding:4px 6px;border:1px solid #cbd5e1;background:#fff;color:#1e293b;font-size:12px}
 .stats-significance-controls__hint{font-size:12px;color:#475569}
+.stats-significance-controls__extra{display:inline-flex;align-items:center;gap:8px;margin-left:auto}
+.stats-pvalue-format-inline{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#1d2735}
+.stats-pvalue-format-inline__label{font-size:12px;color:#1d2735}
+.stats-pvalue-format-toggle{border:1px solid #6b7280;background:#fff;color:#111827;padding:2px 8px;font-size:11px;line-height:1.3;cursor:pointer}
+.stats-pvalue-format-toggle:hover{background:#f3f4f6}
+.stats-pvalue-format-toggle:focus-visible{outline:2px solid #2563eb;outline-offset:1px}
 .stats-results-main{display:flex;flex-direction:column;gap:12px}
 .stats-results-advanced-panel{margin:12px 0 0;border:1px solid #d7e0ef;background:#f8fbff}
 .stats-results-advanced-panel>summary{cursor:pointer;font-weight:600;padding:10px 14px;list-style:none}
@@ -4153,6 +4168,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #analysisResults{font-size:13px}
 #analysisResults canvas{font-size:initial}
 #vennPage #analysisResults{background:#ffffff;border:1px solid #ddd;border-radius:0;padding:8px;margin-top:6px;max-height:none;overflow:visible}
+#vennPage .analysis-results-tabs{display:flex;align-items:center;gap:6px;margin-bottom:8px;border-bottom:1px solid #d6dbe5;padding-bottom:8px}
+#vennPage .analysis-results-tab{appearance:none;border:1px solid #b9c3d4;background:#f5f7fb;color:#1f2a3a;padding:5px 10px;font:inherit;cursor:pointer}
+#vennPage .analysis-results-tab.is-active{background:#ffffff;border-color:#7f94b8;color:#10213d}
+#vennPage .analysis-results-panel{display:none;min-width:0}
+#vennPage .analysis-results-panel.is-active{display:block}
 #vennPage{min-width:100%;width:100%;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #vennPage .workspace-page__topbar{width:100%;max-width:none;box-sizing:border-box}
 #vennPage .wrap{--venn-input-default:clamp(320px,33%,420px);display:flex;align-items:stretch;gap:0;flex:1 1 auto;width:100%;max-width:100%;min-width:0;padding-left:10px}
@@ -4165,7 +4185,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #vennPage .diagram-area .svgbox{flex:0 0 auto;min-width:0}
 #vennPage .diagram-area .config-panel{flex:0 0 auto}
 #vennPage .panel{display:flex;flex-direction:column;min-width:0}
-#vennPage #analysisResults,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
+#vennPage #analysisResults,#vennPage .analysis-results-panel,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
 #vennPage #stringNetwork{width:100%;overflow:visible}
 #vennPage #stringNetwork svg{width:100%;max-width:100%;height:auto;display:block;position:relative;overflow:visible}
 #vennPage .venn-inline-checkbox{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;font-size:11px;font-weight:400;color:#111b2c;letter-spacing:.04em;text-transform:none;white-space:nowrap;cursor:pointer}

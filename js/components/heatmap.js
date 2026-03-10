@@ -626,9 +626,13 @@
       console.warn('heatmap data transform skipped: Shared.dataViews unavailable');
       return false;
     }
+    const viewContext = resolveHeatmapViewContext(hot);
+    const keepCorrelationActive = isHeatmapCorrelationMatrixDataView(viewContext.activeView);
     syncHeatmapActiveDataViewFromHot(hot, 'transform-before');
     const result = manager.applyTransform(transformSpec, {
       title: options.title,
+      sourceViewId: viewContext.sourceViewId || 'raw',
+      activate: !keepCorrelationActive,
       reason: options.reason || 'toolbar-transform',
       transformOptions: Object.assign({}, HEATMAP_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
     });
@@ -642,6 +646,11 @@
         transform: transformSpec?.type || null
       });
       return false;
+    }
+    if(keepCorrelationActive && result?.view?.id){
+      updateHeatmapCorrelationMatrixViewSource(manager, result.view.id);
+      markHeatmapOverlayPending('toolbar-transform-correlation-source');
+      state.scheduleDraw({ force: true, reason: 'toolbar-transform-correlation-source' });
     }
     activateHeatmapDataToolbar('transform-applied');
     debugLog('Debug: heatmap toolbar transform created view', {
@@ -717,9 +726,13 @@
     if(!specs.length){
       return false;
     }
+    const viewContext = resolveHeatmapViewContext(hot);
+    const keepCorrelationActive = isHeatmapCorrelationMatrixDataView(viewContext.activeView);
     syncHeatmapActiveDataViewFromHot(hot, 'transform-before');
     const result = manager.applyPipeline(specs, {
       title: options.title,
+      sourceViewId: viewContext.sourceViewId || 'raw',
+      activate: !keepCorrelationActive,
       reason: options.reason || 'toolbar-transform-pipeline',
       transformOptions: Object.assign({}, HEATMAP_TRANSFORM_SCOPE_DEFAULT, options.transformOptions || {})
     });
@@ -733,6 +746,11 @@
         stepCount: specs.length
       });
       return false;
+    }
+    if(keepCorrelationActive && result?.view?.id){
+      updateHeatmapCorrelationMatrixViewSource(manager, result.view.id);
+      markHeatmapOverlayPending('toolbar-transform-pipeline-correlation-source');
+      state.scheduleDraw({ force: true, reason: 'toolbar-transform-pipeline-correlation-source' });
     }
     activateHeatmapDataToolbar('transform-pipeline-applied');
     debugLog('Debug: heatmap toolbar transform pipeline created view', {
@@ -1443,6 +1461,54 @@
     return Math.min(6, Math.max(0, Math.round(num)));
   }
 
+  function getHeatmapPValueFormatter(){
+    return Shared.formatters?.formatPValue || Shared.formatPValue || null;
+  }
+
+  function formatHeatmapPValue(value){
+    const formatter = getHeatmapPValueFormatter();
+    if(typeof formatter === 'function'){
+      return formatter(value);
+    }
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return 'n/a';
+    }
+    if(num > 0 && num < 0.0001){
+      return '<0.0001';
+    }
+    return num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function getHeatmapSignificanceThreshold(){
+    const liveInput = global.document?.querySelector?.('#heatmapStats .stats-significance-controls__input');
+    if(liveInput){
+      const liveThreshold = Number(liveInput.value);
+      if(Number.isFinite(liveThreshold) && liveThreshold > 0 && liveThreshold < 1){
+        return liveThreshold;
+      }
+    }
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.getSignificanceThreshold === 'function'){
+      const threshold = Number(reporting.getSignificanceThreshold());
+      if(Number.isFinite(threshold) && threshold > 0 && threshold < 1){
+        return threshold;
+      }
+    }
+    return 0.05;
+  }
+
+  function formatHeatmapThresholdLabel(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '0.05';
+    }
+    if(numeric >= 0.01){
+      return numeric.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    }
+    return numeric.toExponential(2).replace('e+', 'e');
+  }
+
   function getCheckedRadioValue(name){
     const checked = global.document.querySelector(`input[name="${name}"]:checked`);
     if(checked){
@@ -1459,6 +1525,8 @@
     refs.absValues = $('heatmapAbsValues');
     refs.maskLower = $('heatmapMaskLower');
     refs.showValues = $('heatmapShowValues');
+    refs.showSignificance = $('heatmapShowSignificance');
+    refs.significanceDisplay = $('heatmapSignificanceDisplay');
     refs.decimals = $('heatmapDecimals');
     refs.colorNegative = $('heatmapColorNegative');
     refs.colorZero = $('heatmapColorZero');
@@ -1489,6 +1557,7 @@
     const heatmapAutoSizeTargets=[
       refs.view,
       refs.method,
+      refs.significanceDisplay,
       refs.genesMetric,
       refs.arraysMetric,
       refs.linkage
@@ -1543,6 +1612,13 @@
       }
       if(refs.showValues){
         refs.showValues.disabled = false;
+      }
+      const significanceEnabled = !!refs.showSignificance?.checked;
+      if(refs.showSignificance){
+        refs.showSignificance.disabled = !isCorrelation;
+      }
+      if(refs.significanceDisplay){
+        refs.significanceDisplay.disabled = !isCorrelation || !significanceEnabled || !!refs.showValues?.checked;
       }
       // Disable the resizer "Lock ratio" control when showing Data values
       try {
@@ -1725,11 +1801,17 @@
         schedule();
       });
     });
-    [refs.absValues, refs.maskLower, refs.showValues].forEach(el => {
+    [refs.absValues, refs.maskLower, refs.showValues, refs.showSignificance].forEach(el => {
       el?.addEventListener('change', () => {
+        updateViewControlState();
         console.debug('Debug: heatmap view toggle changed', { id: el.id, checked: el.checked });
         scheduleViewOnly(`toggle-${el?.id || 'unknown'}`);
       });
+    });
+    refs.significanceDisplay?.addEventListener('change', () => {
+      updateViewControlState();
+      console.debug('Debug: heatmap significance display changed', { value: refs.significanceDisplay?.value || null });
+      scheduleViewOnly('significance-display');
     });
     refs.decimals?.addEventListener('input', () => {
       if(refs.decimals){
@@ -1881,6 +1963,26 @@
     }
 
     refreshHeatmapExportControls();
+
+    const statsPanel = $('heatmapStats');
+    const handleStatsThresholdInteraction = event => {
+      const target = event?.target;
+      if(!(target instanceof global.HTMLElement)){
+        return;
+      }
+      if(!target.closest?.('.stats-significance-controls__input')){
+        return;
+      }
+      console.debug('Debug: heatmap significance threshold changed', { value: target.value || null });
+      scheduleViewOnly('stats-threshold');
+    };
+    statsPanel?.addEventListener('input', handleStatsThresholdInteraction, true);
+    statsPanel?.addEventListener('change', handleStatsThresholdInteraction, true);
+    if(typeof global.addEventListener === 'function'){
+      global.addEventListener('venn:stats-pvalue-format-change', () => {
+        scheduleViewOnly('stats-pvalue-format');
+      });
+    }
 
     updateViewControlState();
   }
@@ -2037,11 +2139,12 @@
   }
 
   function collectTableData(){
-    if(!state.hot || typeof state.hot.getData !== 'function'){
+    const context = resolveHeatmapViewContext();
+    if(!context.hot || typeof context.hot.getData !== 'function'){
       console.debug('Debug: heatmap collectTableData missing hot reference');
       return null;
     }
-    return parseHeatmapInputData(state.hot.getData(), 'collectTableData');
+    return parseHeatmapInputData(context.sourceData, 'collectTableData');
   }
 
   function collectTableDataFromMatrix(matrix){
@@ -2425,6 +2528,84 @@
     return { xs, ys };
   }
 
+  function hasHeatmapDuplicateValues(values){
+    const seen = new Set();
+    for(let i = 0; i < values.length; i += 1){
+      const key = String(values[i]);
+      if(seen.has(key)){
+        return true;
+      }
+      seen.add(key);
+    }
+    return false;
+  }
+
+  function computeHeatmapSpearmanExactP(rho, n){
+    const size = Number(n);
+    const observed = Math.abs(Number(rho));
+    if(!Number.isFinite(size) || !Number.isFinite(observed) || size < 3 || size > 9){
+      return null;
+    }
+    const permutation = Array.from({ length: size }, (_, idx) => idx + 1);
+    const denom = size * (Math.pow(size, 2) - 1);
+    let total = 0;
+    let extreme = 0;
+    const tolerance = 1e-12;
+    const permute = index => {
+      if(index >= size){
+        let d2 = 0;
+        for(let i = 0; i < size; i += 1){
+          const d = (i + 1) - permutation[i];
+          d2 += d * d;
+        }
+        const rhoPerm = 1 - ((6 * d2) / denom);
+        total += 1;
+        if(Math.abs(rhoPerm) >= observed - tolerance){
+          extreme += 1;
+        }
+        return;
+      }
+      for(let i = index; i < size; i += 1){
+        const tmp = permutation[index];
+        permutation[index] = permutation[i];
+        permutation[i] = tmp;
+        permute(index + 1);
+        permutation[i] = permutation[index];
+        permutation[index] = tmp;
+      }
+    };
+    permute(0);
+    return total ? (extreme / total) : null;
+  }
+
+  function computeHeatmapCorrelationPValue(corr, xs, ys, method){
+    const bounded = Number.isFinite(corr)
+      ? Math.max(-0.999999999999, Math.min(0.999999999999, Number(corr)))
+      : NaN;
+    const count = Math.min(xs?.length || 0, ys?.length || 0);
+    if(!Number.isFinite(bounded) || count < 3 || method === 'uncentered'){
+      return NaN;
+    }
+    const statsApi = global.jStat || null;
+    const studentTCdf = (statsApi?.studentt && typeof statsApi.studentt.cdf === 'function')
+      ? statsApi.studentt.cdf.bind(statsApi.studentt)
+      : null;
+    if(method === 'spearman'){
+      const hasTies = hasHeatmapDuplicateValues(xs) || hasHeatmapDuplicateValues(ys);
+      if(!hasTies && count <= 9){
+        const exact = computeHeatmapSpearmanExactP(bounded, count);
+        if(Number.isFinite(exact)){
+          return exact;
+        }
+      }
+    }
+    if(!studentTCdf){
+      return NaN;
+    }
+    const tStatistic = bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+    return 2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2));
+  }
+
   function computeUncenteredCorrelation(xs, ys){
     const n = xs.length;
     if(n === 0){
@@ -2451,7 +2632,7 @@
     const { xs, ys } = alignVectors(vecA, vecB);
     const count = xs.length;
     if(count < 2 && method !== 'uncentered'){
-      return { corr: NaN, count };
+      return { corr: NaN, count, pValue: NaN };
     }
     let corr;
     if(method === 'spearman'){
@@ -2462,7 +2643,8 @@
       corr = computeCorrelation(xs, ys, 'pearson');
     }
     const normalized = Number.isFinite(corr) ? Math.max(-1, Math.min(1, corr)) : NaN;
-    return { corr: normalized, count };
+    const pValue = computeHeatmapCorrelationPValue(normalized, xs, ys, method);
+    return { corr: normalized, count, pValue };
   }
 
   function distanceBetweenVectors(vecA, vecB, metric){
@@ -2889,6 +3071,9 @@
       useAbsolute: isCorrelation ? !!refs.absValues?.checked : false,
       maskLower: isCorrelation ? !!refs.maskLower?.checked : false,
       showValues: !!refs.showValues?.checked,
+      showSignificance: isCorrelation ? !!refs.showSignificance?.checked : false,
+      significanceDisplay: refs.significanceDisplay?.value === 'pvalue' ? 'pvalue' : 'star',
+      significanceThreshold: getHeatmapSignificanceThreshold(),
       cellSize: Math.max(12, Number(refs.cellSize?.value) || 60),
       fontSize: Math.max(8, Number(refs.fontSize?.value) || 12),
       palette: {
@@ -2943,6 +3128,9 @@
       useAbsolute: settings.useAbsolute,
       maskLower: settings.maskLower,
       showValues: settings.showValues,
+      showSignificance: settings.showSignificance,
+      significanceDisplay: settings.significanceDisplay,
+      significanceThreshold: settings.significanceThreshold,
       cellSize: settings.cellSize,
       fontSize: settings.fontSize,
       palette: settings.palette,
@@ -3153,6 +3341,229 @@
     return !!(view && view.kind === 'derived' && view.transformSpec?.type === 'heatmapMaterialized');
   }
 
+  function isHeatmapCorrelationMatrixDataView(view){
+    return !!(view && view.kind === 'derived' && view.transformSpec?.type === 'heatmapCorrelationMatrix');
+  }
+
+  function resolveHeatmapViewContext(hotInstance){
+    const hot = hotInstance || state.ensureHotForActiveTab?.() || state.hot || null;
+    const manager = hot
+      ? (hot.__heatmapDataViewsManager || heatmapDataViewsManager || null)
+      : (heatmapDataViewsManager || null);
+    const activeView = manager?.getActiveView?.() || null;
+    let sourceView = activeView;
+    let sourceViewId = String(activeView?.id || manager?.getActiveViewId?.() || 'raw');
+    const visited = new Set();
+    while(sourceView && isHeatmapCorrelationMatrixDataView(sourceView) && !visited.has(sourceView.id)){
+      visited.add(sourceView.id);
+      const nextId = String(sourceView.sourceViewId || 'raw');
+      const nextView = manager?.getView?.(nextId) || null;
+      if(!nextView || nextView === sourceView){
+        sourceViewId = nextId || 'raw';
+        break;
+      }
+      sourceView = nextView;
+      sourceViewId = String(nextView.id || nextId || 'raw');
+    }
+    if(!sourceView && manager){
+      sourceView = manager.getView?.('raw') || activeView || null;
+      sourceViewId = String(sourceView?.id || 'raw');
+    }
+    const sourceData = Array.isArray(sourceView?.data)
+      ? sourceView.data
+      : (Array.isArray(hot?.getData?.()) ? hot.getData() : []);
+    return {
+      hot,
+      manager,
+      activeView,
+      activeViewId: String(activeView?.id || manager?.getActiveViewId?.() || 'raw'),
+      sourceView,
+      sourceViewId,
+      sourceData
+    };
+  }
+
+  function getHeatmapCorrelationMatrixViewRecords(manager){
+    if(!manager || typeof manager.getViews !== 'function' || typeof manager.getView !== 'function'){
+      return [];
+    }
+    return (manager.getViews() || [])
+      .map(view => manager.getView(view.id))
+      .filter(isHeatmapCorrelationMatrixDataView);
+  }
+
+  function findHeatmapCorrelationMatrixView(manager){
+    const views = getHeatmapCorrelationMatrixViewRecords(manager);
+    return views.length ? views[0] : null;
+  }
+
+  function buildHeatmapCorrelationMatrixViewTitle(settings){
+    return settings?.view === 'corr-rows'
+      ? 'Correlation matrix (rows)'
+      : 'Correlation matrix (columns)';
+  }
+
+  function buildHeatmapCorrelationMatrixViewSummary(settings, model){
+    return {
+      transform: 'correlation-matrix',
+      axis: settings?.view === 'corr-rows' ? 'rows' : 'columns',
+      method: settings?.correlationMethod || 'pearson',
+      display: settings?.useAbsolute ? 'absolute' : 'signed',
+      rows: Number(model?.orderedRowLabels?.length) || 0,
+      cols: Number(model?.orderedColumnLabels?.length) || 0
+    };
+  }
+
+  function buildHeatmapCorrelationMatrixViewData(model, settings){
+    if(!model || model.type !== 'correlation'){
+      return null;
+    }
+    const rowHeader = settings?.view === 'corr-rows' ? 'Row' : 'Column';
+    const header = [rowHeader].concat(Array.isArray(model.orderedColumnLabels) ? model.orderedColumnLabels.slice() : []);
+    const useAbsolute = !!settings?.useAbsolute;
+    const rows = Array.isArray(model.cells)
+      ? model.cells.map((row, rowIndex) => {
+        const label = model.orderedRowLabels?.[rowIndex] || `${rowHeader} ${rowIndex + 1}`;
+        const values = Array.isArray(row)
+          ? row.map(cell => {
+            const raw = Number(cell?.raw);
+            if(!Number.isFinite(raw)){
+              return '';
+            }
+            return useAbsolute ? Math.abs(raw) : raw;
+          })
+          : [];
+        return [label, ...values];
+      })
+      : [];
+    return [header, ...rows];
+  }
+
+  function updateHeatmapCorrelationMatrixViewSource(manager, sourceViewId){
+    if(!manager || typeof manager.getActiveView !== 'function'){
+      return false;
+    }
+    const activeView = manager.getActiveView();
+    if(!isHeatmapCorrelationMatrixDataView(activeView)){
+      return false;
+    }
+    activeView.sourceViewId = String(sourceViewId || 'raw');
+    manager.refresh?.();
+    return true;
+  }
+
+  function removeHeatmapCorrelationMatrixDataViews(options = {}){
+    const manager = options.manager || resolveHeatmapViewContext(options.hot).manager;
+    if(!manager || typeof manager.removeView !== 'function'){
+      return false;
+    }
+    const views = getHeatmapCorrelationMatrixViewRecords(manager);
+    if(!views.length){
+      return false;
+    }
+    const activeViewId = String(manager.getActiveViewId?.() || '');
+    let removedAny = false;
+    let activeRemoved = false;
+    let fallbackViewId = String(options.fallbackViewId || resolveHeatmapViewContext(options.hot).sourceViewId || 'raw');
+    views.forEach(view => {
+      if(!view?.id){
+        return;
+      }
+      if(view.id === activeViewId){
+        activeRemoved = true;
+        fallbackViewId = String(view.sourceViewId || fallbackViewId || 'raw');
+      }
+      removedAny = manager.removeView(view.id, {
+        reason: options.reason || 'heatmap-correlation-view-remove',
+        silent: true
+      }) || removedAny;
+    });
+    if(activeRemoved){
+      manager.activateView(fallbackViewId || 'raw', {
+        reason: options.reason || 'heatmap-correlation-view-remove'
+      });
+    }
+    return removedAny;
+  }
+
+  function syncHeatmapCorrelationMatrixDataView(model, settings, options = {}){
+    const context = options.context || resolveHeatmapViewContext(options.hot);
+    const manager = context.manager;
+    const hot = context.hot;
+    if(!manager){
+      return false;
+    }
+    const isCorrelation = settings?.view === 'corr-columns' || settings?.view === 'corr-rows';
+    if(!isCorrelation || !model || model.type !== 'correlation'){
+      return removeHeatmapCorrelationMatrixDataViews({
+        manager,
+        hot,
+        fallbackViewId: context.sourceViewId || 'raw',
+        reason: options.reason || 'heatmap-correlation-view-clear'
+      });
+    }
+    const data = buildHeatmapCorrelationMatrixViewData(model, settings);
+    if(!Array.isArray(data) || !data.length){
+      return false;
+    }
+    const title = buildHeatmapCorrelationMatrixViewTitle(settings);
+    const summary = buildHeatmapCorrelationMatrixViewSummary(settings, model);
+    const transformSpec = {
+      type: 'heatmapCorrelationMatrix',
+      axis: settings.view === 'corr-rows' ? 'rows' : 'columns',
+      method: settings.correlationMethod || 'pearson',
+      useAbsolute: !!settings.useAbsolute
+    };
+    const correlationViews = getHeatmapCorrelationMatrixViewRecords(manager);
+    const targetView = correlationViews.length ? correlationViews[0] : null;
+    correlationViews.slice(1).forEach(view => {
+      if(view?.id){
+        manager.removeView(view.id, {
+          reason: options.reason || 'heatmap-correlation-view-dedupe',
+          silent: true
+        });
+      }
+    });
+    if(targetView){
+      targetView.title = title;
+      targetView.data = data;
+      targetView.sourceViewId = String(context.sourceViewId || 'raw');
+      targetView.transformSpec = transformSpec;
+      targetView.summary = summary;
+      targetView.exclusions = null;
+      manager.refresh?.();
+      if(String(manager.getActiveViewId?.() || '') === String(targetView.id) && hot && typeof hot.loadData === 'function'){
+        hot.loadData(data);
+        hot.applyExclusions?.(null);
+      }
+      debugLog('Debug: heatmap correlation matrix data view updated', {
+        title,
+        sourceViewId: targetView.sourceViewId,
+        rows: data.length,
+        cols: data[0]?.length || 0
+      });
+      return true;
+    }
+    const createdView = manager.createDerivedView({
+      title,
+      data,
+      sourceViewId: context.sourceViewId || 'raw',
+      transformSpec,
+      summary,
+      exclusions: null,
+      activate: options.activate === true,
+      reason: options.reason || 'heatmap-correlation-view-create'
+    });
+    debugLog('Debug: heatmap correlation matrix data view created', {
+      id: createdView?.id || null,
+      title,
+      sourceViewId: context.sourceViewId || 'raw',
+      rows: data.length,
+      cols: data[0]?.length || 0
+    });
+    return !!createdView;
+  }
+
   function stripHeatmapAdjustAndFilters(settings){
     return {
       ...settings,
@@ -3176,10 +3587,8 @@
   }
 
   function resolveHeatmapEffectiveSettings(settings){
-    const hot = state.hot || null;
-    const manager = hot?.__heatmapDataViewsManager || heatmapDataViewsManager || null;
-    const activeView = manager?.getActiveView?.() || null;
-    if(isHeatmapMaterializedDataView(activeView)){
+    const context = resolveHeatmapViewContext();
+    if(isHeatmapMaterializedDataView(context.sourceView)){
       return stripHeatmapAdjustAndFilters(settings);
     }
     return settings;
@@ -3244,11 +3653,10 @@
       return false;
     }
     syncHeatmapActiveDataViewFromHot(hot, 'transform-before');
-    const activeView = manager.getActiveView?.() || null;
-    const defaultSourceViewId = manager.getActiveViewId?.() || 'raw';
-    const sourceViewId = isHeatmapMaterializedDataView(activeView)
-      ? (activeView.sourceViewId || 'raw')
-      : defaultSourceViewId;
+    const viewContext = resolveHeatmapViewContext(hot);
+    const activeView = viewContext.activeView;
+    const sourceViewId = viewContext.sourceViewId || 'raw';
+    const keepCorrelationActive = isHeatmapCorrelationMatrixDataView(activeView);
     const sourceView = manager.getView?.(sourceViewId) || manager.getView?.('raw') || null;
     const sourceData = Array.isArray(sourceView?.data) ? sourceView.data : (hot.getData?.() || []);
     const sourceRaw = collectTableDataFromMatrix(sourceData);
@@ -3264,10 +3672,15 @@
       : findHeatmapMaterializedViewForSource(manager, sourceViewId);
     if(!hasHeatmapDataTransformSelection(settings)){
       if(existingMaterialized){
-        const wasActive = existingMaterialized.id === manager.getActiveViewId?.();
+        const wasActive = existingMaterialized.id === manager.getActiveViewId?.() && !keepCorrelationActive;
         manager.removeView(existingMaterialized.id, { reason: 'heatmap-transform-clear', silent: true });
         if(wasActive){
           manager.activateView(sourceViewId, { reason: 'heatmap-transform-clear' });
+        }
+        if(keepCorrelationActive){
+          updateHeatmapCorrelationMatrixViewSource(manager, sourceViewId);
+          markHeatmapOverlayPending('heatmap-transform-clear-correlation-source');
+          state.scheduleDraw({ force: true, reason: 'heatmap-transform-clear-correlation-source' });
         }
         return true;
       }
@@ -3302,13 +3715,19 @@
       },
       summary: buildHeatmapDerivedViewSummary(settings, processed),
       exclusions: null,
-      activate: false,
+      activate: !keepCorrelationActive,
       reason: reason || 'heatmap-transform'
     });
     if(!createdView || !createdView.id){
       return false;
     }
-    manager.activateView(createdView.id, { reason: reason || 'heatmap-transform' });
+    if(keepCorrelationActive){
+      updateHeatmapCorrelationMatrixViewSource(manager, createdView.id);
+      markHeatmapOverlayPending('heatmap-transform-correlation-source');
+      state.scheduleDraw({ force: true, reason: 'heatmap-transform-correlation-source' });
+    }else{
+      manager.activateView(createdView.id, { reason: reason || 'heatmap-transform' });
+    }
     debugLog('Debug: heatmap derived data view created', {
       title: createdView.title || null,
       rows: derivedData.length,
@@ -4780,7 +5199,8 @@
       Math.max(6, Math.floor(cellInnerSize))
     );
     const cellValueTexts = [];
-    if(showValues){
+    const showCellText = Array.isArray(orderedCells) && orderedCells.some(row => Array.isArray(row) && row.some(cell => String(cell?.displayText || '').trim()));
+    if(showCellText){
       const seen = new Set();
       let longest = '';
       for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
@@ -4788,9 +5208,8 @@
           if(maskLower && columnIndex < rowIndex){
             continue;
           }
-          const value = Number(orderedCells[rowIndex]?.[columnIndex]?.value);
-          if(!Number.isFinite(value)){ continue; }
-          const text = value.toFixed(decimals ?? 2);
+          const text = String(orderedCells[rowIndex]?.[columnIndex]?.displayText || '').trim();
+          if(!text){ continue; }
           if(text.length > longest.length){
             longest = text;
           }
@@ -4833,7 +5252,7 @@
       const safeWidth = Number.isFinite(widthPx) ? widthPx : 0;
       return safeWidth <= cellInnerSize + 0.01 && (fontPx * cellValueHeightFactor) <= cellInnerSize + 0.01;
     };
-    if(showValues && cellValueTexts.length && !cellValueFits(cellValueFontSize, cellValueMaxTextWidth)){
+    if(showCellText && cellValueTexts.length && !cellValueFits(cellValueFontSize, cellValueMaxTextWidth)){
       const widthRatio = cellInnerSize / Math.max(cellValueMaxTextWidth, 1);
       const heightRatio = cellInnerSize / Math.max(cellValueFontSize * cellValueHeightFactor, 1);
       const ratio = Math.min(1, widthRatio, heightRatio);
@@ -4846,6 +5265,7 @@
     }
     debugLog('Debug: heatmap cell value font resolved', {
       showValues: !!showValues,
+      showCellText: !!showCellText,
       cellSize,
       cellInnerSize,
       cellValuePadding,
@@ -4875,7 +5295,8 @@
           rect.appendChild(title);
         }
         cellLayer.appendChild(rect);
-        if(showValues && Number.isFinite(cell.value)){
+        const cellText = String(cell.displayText || '').trim();
+        if(showCellText && cellText){
           const text = doc.createElementNS(NS, 'text');
           text.setAttribute('x', String(x + cellSize / 2));
           text.setAttribute('y', String(y + cellSize / 2));
@@ -4883,7 +5304,7 @@
           text.setAttribute('dominant-baseline', 'middle');
           text.setAttribute('font-size', String(cellValueFontSize));
           text.setAttribute('fill', textColorForBackground(cell.fill || '#d0d0d0'));
-          text.textContent = cell.value.toFixed(decimals ?? 2);
+          text.textContent = cellText;
           text.setAttribute('data-heatmap-cell-value', '1');
           if(text.dataset){
             text.dataset.heatmapCellValue = '1';
@@ -4975,7 +5396,7 @@
       scaleTickCount: ticks.length,
       scaleTickGap: Number.isFinite(minTickGap) ? minTickGap : NaN,
       scaleTickFontSize: tickFont,
-      showValues: !!showValues,
+      showValues: !!showCellText,
       cellValueFontSize,
       cellValueMaxTextWidth,
       cellValuePadding,
@@ -5239,10 +5660,15 @@
   }
 
   function renderCorrelationHeatmap(processed, settings, drawToken){
+    const viewContext = resolveHeatmapViewContext();
     const axis = settings.view === 'corr-columns' ? 'columns' : 'rows';
     const labels = axis === 'columns' ? processed.columnLabels : processed.rowLabels;
     const items = buildAxisItems(processed.matrix, labels, axis);
     if(items.length < 2){
+      syncHeatmapCorrelationMatrixDataView(null, settings, {
+        context: viewContext,
+        reason: 'heatmap-correlation-view-clear-insufficient'
+      });
       renderEmpty(Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null);
       updateStats(null);
       return;
@@ -5253,12 +5679,12 @@
     let mostNegative = null;
     for(let i = 0; i < items.length; i += 1){
       const selfCount = items[i].vector.filter(value => Number.isFinite(value)).length;
-      matrix[i][i] = { raw: 1, count: selfCount };
+      matrix[i][i] = { raw: 1, count: selfCount, pValue: NaN };
       for(let j = i + 1; j < items.length; j += 1){
         const entry = calculateCorrelationEntry(items[i].vector, items[j].vector, settings.correlationMethod);
         const raw = Number.isFinite(entry.corr) ? entry.corr : NaN;
-        matrix[i][j] = { raw, count: entry.count };
-        matrix[j][i] = { raw, count: entry.count };
+        matrix[i][j] = { raw, count: entry.count, pValue: entry.pValue };
+        matrix[j][i] = { raw, count: entry.count, pValue: entry.pValue };
         if(Number.isFinite(raw)){
           pairCount += 1;
           const absValue = Math.abs(raw);
@@ -5296,9 +5722,9 @@
       const orderedEntries = orderPositions.map(rowPos => orderPositions.map(colPos => {
         const entry = matrix[rowPos][colPos];
         if(!entry){
-          return { raw: NaN, count: 0 };
+          return { raw: NaN, count: 0, pValue: NaN };
         }
-        return { raw: entry.raw, count: entry.count };
+        return { raw: entry.raw, count: entry.count, pValue: entry.pValue };
       }));
       const showRowDendrogram = !!(resolvedCluster && clusterConfig.showDendrogram);
       const showColumnDendrogram = showRowDendrogram;
@@ -5316,6 +5742,10 @@
       };
       const viewOptions = extractViewOptions(settings);
       renderModelWithView(model, viewOptions);
+      syncHeatmapCorrelationMatrixDataView(model, settings, {
+        context: viewContext,
+        reason: 'heatmap-correlation-view-sync'
+      });
       updateStats({
         type: 'correlation',
         itemCount: items.length,
@@ -5345,6 +5775,10 @@
   }
 
   function renderValuesHeatmap(processed, settings, drawToken){
+    syncHeatmapCorrelationMatrixDataView(null, settings, {
+      context: resolveHeatmapViewContext(),
+      reason: 'heatmap-correlation-view-clear-values'
+    });
     const rowItems = buildAxisItems(processed.matrix, processed.rowLabels, 'rows');
     const columnItems = buildAxisItems(processed.matrix, processed.columnLabels, 'columns');
     const rowPositionByIndex = new Map(rowItems.map((item, idx) => [item.index, idx]));
@@ -5497,6 +5931,32 @@
     };
   }
 
+  function formatHeatmapCorrelationCellText(cell, viewOptions){
+    if(!viewOptions){
+      return '';
+    }
+    const value = Number(cell?.value);
+    const pValue = Number(cell?.pValue);
+    const showValues = !!viewOptions.showValues;
+    const showSignificance = !!viewOptions.showSignificance;
+    const significanceThreshold = Number(viewOptions.significanceThreshold);
+    const significant = showSignificance
+      && Number.isFinite(pValue)
+      && Number.isFinite(significanceThreshold)
+      && pValue <= significanceThreshold;
+    if(showValues && Number.isFinite(value)){
+      const base = value.toFixed(viewOptions.decimals ?? 2);
+      return significant ? `${base}*` : base;
+    }
+    if(!showSignificance || !significant){
+      return '';
+    }
+    if(viewOptions.significanceDisplay === 'pvalue'){
+      return formatHeatmapPValue(pValue);
+    }
+    return '*';
+  }
+
   function buildDrawPayloadFromModel(model, viewOptions){
     if(!model || !viewOptions){
       return null;
@@ -5510,6 +5970,7 @@
       const orderedCells = model.cells.map((row, rowIndex) => row.map((cell, columnIndex) => {
         const raw = Number(cell?.raw);
         const count = Number(cell?.count);
+        const pValue = Number(cell?.pValue);
         const displayValue = Number.isFinite(raw)
           ? (viewOptions.useAbsolute ? Math.abs(raw) : raw)
           : NaN;
@@ -5521,7 +5982,17 @@
         if(Number.isFinite(count)){
           parts.push(`(n=${count})`);
         }
-        return { fill, value: displayValue, title: parts.join(' ') };
+        if(Number.isFinite(pValue)){
+          const thresholdLabel = formatHeatmapThresholdLabel(viewOptions.significanceThreshold);
+          parts.push(`(p=${formatHeatmapPValue(pValue)}, ${pValue <= viewOptions.significanceThreshold ? `significant at p<=${thresholdLabel}` : `not significant at p<=${thresholdLabel}`})`);
+        }
+        return {
+          fill,
+          value: displayValue,
+          pValue,
+          displayText: formatHeatmapCorrelationCellText({ value: displayValue, pValue }, viewOptions),
+          title: parts.join(' ')
+        };
       }));
       return {
         orderedRowLabels: model.orderedRowLabels,
@@ -5548,7 +6019,12 @@
         const value = cell?.value;
         const fill = colorMapper(value);
         const title = `${model.orderedRowLabels[rowIndex]} vs ${model.orderedColumnLabels[columnIndex]}: ${Number.isFinite(value) ? value.toFixed(viewOptions.decimals ?? 2) : 'n/a'}`;
-        return { fill, value, title };
+        return {
+          fill,
+          value,
+          displayText: viewOptions.showValues && Number.isFinite(value) ? value.toFixed(viewOptions.decimals ?? 2) : '',
+          title
+        };
       }));
       return {
         orderedRowLabels: model.orderedRowLabels,
@@ -5643,6 +6119,14 @@
           const viewOptions = extractViewOptions(settings);
           const applied = renderModelWithView(state.lastRenderModel, viewOptions);
           if(applied){
+            syncHeatmapCorrelationMatrixDataView(
+              settings.view.startsWith('corr') ? state.lastRenderModel : null,
+              settings,
+              {
+                context: resolveHeatmapViewContext(),
+                reason: 'heatmap-correlation-view-sync-view-only'
+              }
+            );
             refreshStatsForView(viewOptions);
             prepareEnd = nowMs();
             debugLog('Debug: heatmap view-only redraw applied', { reason: drawOpts.reason });
@@ -5670,6 +6154,10 @@
       const processed = prepareProcessedData(settings);
       prepareEnd = nowMs();
       if(!processed.ok){
+        syncHeatmapCorrelationMatrixDataView(null, settings, {
+          context: resolveHeatmapViewContext(),
+          reason: 'heatmap-correlation-view-clear-empty'
+        });
         clearCachedRenderState();
         const reason = processed.reason;
         if(reason === 'no-data'){
@@ -5734,6 +6222,8 @@
       useAbsolute: !!refs.absValues?.checked,
       maskLower: !!refs.maskLower?.checked,
       showValues: !!refs.showValues?.checked,
+      showSignificance: !!refs.showSignificance?.checked,
+      significanceDisplay: refs.significanceDisplay?.value === 'pvalue' ? 'pvalue' : 'star',
       decimals: clampDecimals(refs.decimals?.value),
       colors: {
         negative: refs.colorNegative?.value || '#313695',
@@ -5821,6 +6311,8 @@
       if(refs.absValues) refs.absValues.checked = !!config.useAbsolute;
       if(refs.maskLower) refs.maskLower.checked = !!config.maskLower;
       if(refs.showValues) refs.showValues.checked = config.showValues !== false;
+      if(refs.showSignificance) refs.showSignificance.checked = !!config.showSignificance;
+      if(refs.significanceDisplay) refs.significanceDisplay.value = config.significanceDisplay === 'pvalue' ? 'pvalue' : 'star';
       if(refs.decimals) refs.decimals.value = String(clampDecimals(config.decimals));
       if(refs.colorNegative) refs.colorNegative.value = config.colors?.negative || '#313695';
       if(refs.colorZero) refs.colorZero.value = config.colors?.zero || '#f7f7f7';

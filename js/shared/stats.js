@@ -64,6 +64,9 @@
 
   const DEFAULT_PVALUE_SIG_DIGITS = 6;
   const DEFAULT_PVALUE_SCI_THRESHOLD = 1;
+  const DEFAULT_REPORT_PVALUE_DECIMALS = 4;
+  const DEFAULT_REPORT_PVALUE_MIN = 0.0001;
+  const PVALUE_FORMAT_STORAGE_KEY = 'venn.stats.pvalueScientific';
 
   function statsDebugEnabled(){
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -115,6 +118,57 @@
     return normalizeExponentText(result);
   }
 
+  function formatFixedTrimmed(value, decimals){
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return String(value);
+    }
+    const safeDecimals = Number.isInteger(decimals) && decimals >= 0
+      ? decimals
+      : DEFAULT_REPORT_PVALUE_DECIMALS;
+    return num
+      .toFixed(safeDecimals)
+      .replace(/(\.\d*?[1-9])0+$/, '$1')
+      .replace(/\.0+$/, '')
+      .replace(/^-0$/, '0');
+  }
+
+  function sanitizePValueScientific(value, fallback){
+    if(value === true || value === 'true' || value === 1 || value === '1'){
+      return true;
+    }
+    if(value === false || value === 'false' || value === 0 || value === '0'){
+      return false;
+    }
+    return fallback === true;
+  }
+
+  function getStoredPValueScientific(){
+    try{
+      if(global.localStorage){
+        const stored = global.localStorage.getItem(PVALUE_FORMAT_STORAGE_KEY);
+        if(stored != null && stored !== ''){
+          return sanitizePValueScientific(stored, false);
+        }
+      }
+    }catch(err){
+      statsReportingDebug('readPValueFormatStorageError', { message: err?.message || String(err) });
+    }
+    return false;
+  }
+
+  function persistPValueScientific(value){
+    try{
+      if(global.localStorage){
+        global.localStorage.setItem(PVALUE_FORMAT_STORAGE_KEY, value ? '1' : '0');
+      }
+    }catch(err){
+      statsReportingDebug('writePValueFormatStorageError', { message: err?.message || String(err) });
+    }
+  }
+
+  let sharedPValueScientific = getStoredPValueScientific();
+
   function sharedFormatPValue(value, options){
     const num = Number(value);
     if(!Number.isFinite(num)){
@@ -122,35 +176,34 @@
     }
     const digits = clampSignificantDigits(options?.significantDigits);
     const fractionalDigits = Math.max(0, digits - 1);
-    const minPositiveValue = Number.isFinite(options?.minPositiveValue) && options.minPositiveValue > 0
-      ? options.minPositiveValue
-      : Number.MIN_VALUE;
-    if(num === 0){
-      const lowerBound = finalizeNumberString(minPositiveValue.toExponential(fractionalDigits));
-      const formattedZero = `< ${lowerBound}`;
-      if(statsDebugEnabled()){
-        console.debug('Debug: Shared.formatPValue underflow',{ input: value, formatted: formattedZero, options });
-      }
-      return formattedZero;
-    }
-    const threshold = Number.isFinite(options?.scientificThreshold) && options.scientificThreshold > 0
-      ? options.scientificThreshold
-      : DEFAULT_PVALUE_SCI_THRESHOLD;
-    // Default for p-values: always use scientific notation for 0 < p < 1,
-    // unless a caller explicitly opts out with forceScientific === false.
-    const forceScientific = options?.forceScientific === false ? false : (num > 0 && num < 1);
-    const decimals = Number.isInteger(options?.decimals) && options.decimals >= 0 ? options.decimals : null;
+    const decimals = Number.isInteger(options?.decimals) && options.decimals >= 0
+      ? options.decimals
+      : DEFAULT_REPORT_PVALUE_DECIMALS;
+    const decimalThreshold = Number.isFinite(options?.decimalThreshold) && options.decimalThreshold > 0
+      ? options.decimalThreshold
+      : DEFAULT_REPORT_PVALUE_MIN;
+    const scientific = options?.forceScientific === true
+      ? true
+      : (options?.scientific === false
+        ? false
+        : (options?.scientific === true
+          ? true
+          : sharedPValueScientific));
     let formatted;
-    if(forceScientific || Math.abs(num) < threshold){
+    if(scientific){
       formatted = num.toExponential(fractionalDigits);
-    }else if(decimals !== null){
-      formatted = num.toFixed(decimals);
     }else{
-      formatted = num.toPrecision(digits);
+      if(num === 0){
+        formatted = '0';
+      }else if(num > 0 && num < decimalThreshold){
+        formatted = `<${formatFixedTrimmed(decimalThreshold, decimals)}`;
+      }else{
+        formatted = formatFixedTrimmed(num, decimals);
+      }
     }
-    const result = finalizeNumberString(formatted);
+    const result = scientific ? finalizeNumberString(formatted) : formatted;
     if(statsDebugEnabled()){
-      console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, options });
+      console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, scientific, options });
     }
     return result;
   }
@@ -1327,6 +1380,145 @@
     }
   }
 
+  function getPValueFormatLabel(scientific){
+    return scientific ? 'Scientific' : 'Decimal';
+  }
+
+  function getPValueFormatButtonLabel(scientific){
+    return scientific ? 'Decimal' : 'Scientific';
+  }
+
+  function formatPValueFromParsedInfo(pInfo, options){
+    if(!pInfo || !Number.isFinite(Number(pInfo.value))){
+      return null;
+    }
+    return sharedFormatPValue(Number(pInfo.value), {
+      scientific: options?.scientific === true
+    });
+  }
+
+  function replaceInlinePValueText(text, options){
+    const source = String(text == null ? '' : text);
+    if(!source){
+      return source;
+    }
+    const scientific = options?.scientific === true;
+    return source.replace(
+      /(\b(?:p(?:\s*[-]?\s*value)?|padj|p\s*\([^)]+\))\b(?:\s*\([^)]+\))?\s*)([<>]=?|=)\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/gi,
+      (match, label, operator, numericText) => {
+        const numeric = Number(numericText);
+        if(!Number.isFinite(numeric)){
+          return match;
+        }
+        const formatted = sharedFormatPValue(numeric, { scientific });
+        return `${label}${operator} ${formatted}`;
+      }
+    );
+  }
+
+  function createDefaultPValueFormatControl(documentRef, target){
+    if(!documentRef || !documentRef.createElement){
+      return null;
+    }
+    const scientific = sharedPValueScientific;
+    const wrap = documentRef.createElement('span');
+    wrap.className = 'stats-pvalue-format-inline';
+    const label = documentRef.createElement('span');
+    label.className = 'stats-pvalue-format-inline__label';
+    label.textContent = `P-value format: ${getPValueFormatLabel(scientific)}`;
+    wrap.appendChild(label);
+    const button = documentRef.createElement('button');
+    button.type = 'button';
+    button.className = 'stats-pvalue-format-toggle';
+    button.textContent = getPValueFormatButtonLabel(scientific);
+    button.setAttribute('data-undo-ignore', '1');
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      reporting.setPValueFormatScientific(!sharedPValueScientific, { source: target?.id || null });
+    });
+    wrap.appendChild(button);
+    return wrap;
+  }
+
+  function rewriteInlinePValueElements(target){
+    if(!target || typeof target.querySelectorAll !== 'function'){
+      return;
+    }
+    const scientific = sharedPValueScientific;
+    const elements = target.querySelectorAll(
+      '.stats-report-panel pre, .stats-report-panel__summary-item, .stats-table-footnote, .stats-table-lead, .stats-assumption-section .assumption-detail'
+    );
+    elements.forEach(element => {
+      if(!element || element.closest('.stats-significance-controls')){
+        return;
+      }
+      const source = element.dataset.statsPvalueSourceText || element.textContent || '';
+      if(!element.dataset.statsPvalueSourceText){
+        element.dataset.statsPvalueSourceText = source;
+      }
+      const replaced = replaceInlinePValueText(source, { scientific });
+      if(replaced !== element.textContent){
+        element.textContent = replaced;
+      }
+    });
+  }
+
+  function rewriteTablePValueCells(table){
+    if(!table || typeof table.querySelectorAll !== 'function'){
+      return;
+    }
+    const scientific = sharedPValueScientific;
+    let headerCells = Array.from(table.querySelectorAll('thead tr th'));
+    if(!headerCells.length){
+      const firstRow = table.querySelector('tr');
+      if(firstRow && firstRow.querySelector('th')){
+        headerCells = Array.from(firstRow.querySelectorAll('th'));
+      }
+    }
+    const pColumnIndexes = [];
+    headerCells.forEach((cell, index) => {
+      if(isPLabel(cell?.textContent || '')){
+        pColumnIndexes.push(index);
+      }
+    });
+    let bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    if(!bodyRows.length){
+      const allRows = Array.from(table.querySelectorAll('tr'));
+      if(allRows.length){
+        const firstRowCells = Array.from(allRows[0].cells || []);
+        const firstRowIsHeader = firstRowCells.some(cell => String(cell.tagName || '').toLowerCase() === 'th');
+        bodyRows = firstRowIsHeader ? allRows.slice(1) : allRows;
+      }
+    }
+    const rewriteBareCell = cell => {
+      if(!cell){
+        return;
+      }
+      const source = cell.dataset.statsPvalueSourceText || cell.textContent || '';
+      if(!cell.dataset.statsPvalueSourceText){
+        cell.dataset.statsPvalueSourceText = source;
+      }
+      const parsed = parsePValue(source, { allowBare: true });
+      const formatted = formatPValueFromParsedInfo(parsed, { scientific });
+      if(formatted != null){
+        cell.textContent = formatted;
+      }
+    };
+    bodyRows.forEach(row => {
+      const cells = Array.from(row.cells || []);
+      if(!cells.length){
+        return;
+      }
+      pColumnIndexes.forEach(index => {
+        rewriteBareCell(cells[index]);
+      });
+      if(cells.length >= 2 && isPLabel(cells[0]?.textContent || '')){
+        rewriteBareCell(cells[cells.length - 1]);
+      }
+    });
+  }
+
   function parsePValue(rawText, options){
     const source = String(rawText == null ? '' : rawText)
       .replace(/\u2212/g, '-')
@@ -1592,7 +1784,7 @@
       extraControls.textContent = '';
       const extraFactory = typeof target.__statsExtraControlFactory === 'function'
         ? target.__statsExtraControlFactory
-        : null;
+        : ((context) => createDefaultPValueFormatControl(context.document, context.target));
       const extraNode = extraFactory ? extraFactory({ document: documentRef, target, controls }) : null;
       if(extraNode){
         extraControls.appendChild(extraNode);
@@ -1695,10 +1887,12 @@
         return;
       }
       redistributePanelNodes(target, scaffold);
+      rewriteInlinePValueElements(target);
       const threshold = reporting.getSignificanceThreshold();
       let badgeCount = 0;
       const tables = target.querySelectorAll('table');
       tables.forEach(table => {
+        rewriteTablePValueCells(table);
         badgeCount += annotateTablePValues(table, threshold);
       });
       if(scaffold.hint){
@@ -1897,6 +2091,29 @@
 
   reporting.getSignificanceThreshold = function getSignificanceThreshold(){
     return sharedSignificanceThreshold;
+  };
+
+  reporting.getPValueFormatScientific = function getPValueFormatScientific(){
+    return sharedPValueScientific;
+  };
+
+  reporting.setPValueFormatScientific = function setPValueFormatScientific(value, options){
+    const previous = sharedPValueScientific;
+    const next = sanitizePValueScientific(value, previous);
+    sharedPValueScientific = next;
+    persistPValueScientific(next);
+    statsReportingDebug('setPValueFormatScientific', { previous, next, source: options?.source || null });
+    try{
+      if(typeof global.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
+        global.dispatchEvent(new global.CustomEvent('venn:stats-pvalue-format-change', {
+          detail: { scientific: next, source: options?.source || null }
+        }));
+      }
+    }catch(err){
+      statsReportingDebug('dispatchPValueFormatEventError', { message: err?.message || String(err) });
+    }
+    refreshAllEnhancedPanels(previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+    return next;
   };
 
   reporting.setSignificanceThreshold = function setSignificanceThreshold(value, options){

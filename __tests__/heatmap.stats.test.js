@@ -102,19 +102,21 @@ describe('Heatmap stats formatting', () => {
     const normalizeGenes = document.getElementById('heatmapNormalizeGenes');
     expect(centerGenes).toBeTruthy();
     expect(normalizeGenes).toBeTruthy();
+    const initialTabCount = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
     centerGenes.checked = true;
     centerGenes.dispatchEvent(new Event('change'));
 
     let tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
-    expect(tabs.length).toBe(2);
-    expect(tabs[0]?.textContent?.trim()?.toLowerCase()).toContain('raw');
-    expect(tabs[1]?.textContent || '').toMatch(/center rows/i);
+    expect(tabs.length).toBe(initialTabCount + 1);
+    expect(tabs.some(tab => (tab.textContent || '').trim().toLowerCase().includes('raw'))).toBe(true);
+    expect(tabs.some(tab => /correlation matrix/i.test(tab.textContent || ''))).toBe(true);
+    expect(tabs.some(tab => /center rows/i.test(tab.textContent || ''))).toBe(true);
 
     normalizeGenes.checked = true;
     normalizeGenes.dispatchEvent(new Event('change'));
 
     tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
-    expect(tabs.length).toBe(2);
+    expect(tabs.length).toBe(initialTabCount + 1);
 
     const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
     expect(activeTab).toBeTruthy();

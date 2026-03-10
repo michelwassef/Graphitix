@@ -6952,7 +6952,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -11510,15 +11510,19 @@
       return String(value);
     }
     const scientific=options?.scientific === true
-      || (options?.scientific == null && sanitizeStatsReportPScientific(state?.statsReportPScientific));
+      || (options?.scientific == null && getStatsPValueScientificPreference());
+    if(typeof formatter === 'function'){
+      return formatter(value,{
+        significantDigits: options?.significantDigits,
+        scientific,
+        forceScientific: scientific,
+        decimalThreshold: Number.isFinite(options?.decimalThreshold) && options.decimalThreshold > 0
+          ? Number(options.decimalThreshold)
+          : MIN_REPORT_PVALUE_DECIMAL,
+        decimals: Number.isInteger(options?.decimals) ? options.decimals : DEFAULT_STATS_PVALUE_DECIMALS
+      });
+    }
     if(scientific){
-      if(typeof formatter === 'function'){
-        return formatter(value,{
-          significantDigits: options?.significantDigits,
-          forceScientific: true,
-          scientificThreshold: Number.POSITIVE_INFINITY
-        });
-      }
       return Number(value).toExponential(5);
     }
     const decimalThreshold=Number.isFinite(options?.decimalThreshold) && options.decimalThreshold > 0
@@ -11589,6 +11593,13 @@
   }
   function sanitizeStatsReportPScientific(value){
     return value === true || value === 'true' || value === 1 || value === '1';
+  }
+  function getStatsPValueScientificPreference(){
+    const reporting=Shared.statsReporting;
+    if(reporting && typeof reporting.getPValueFormatScientific === 'function'){
+      return !!reporting.getPValueFormatScientific();
+    }
+    return sanitizeStatsReportPScientific(state?.statsReportPScientific);
   }
   function sanitizeNormalityMethod(value){
     if(value==='auto' || value==='shapiro-wilk' || value==='dagostino'){
@@ -14703,6 +14714,13 @@
     container.appendChild(card);
   }
 
+  function refreshSharedStatsReportingPanels(reason){
+    const reporting=Shared.statsReporting;
+    if(reporting && typeof reporting.refreshEnhancedPanels === 'function'){
+      reporting.refreshEnhancedPanels(reason || 'box-stats-render');
+    }
+  }
+
   function persistStatsUiState(reason){
     try{
       if(state.applyingPayload){
@@ -14717,8 +14735,12 @@
     }
   }
   function toggleStatsPValueFormat(){
-    state.statsReportPScientific=!sanitizeStatsReportPScientific(state.statsReportPScientific);
-    console.debug('Debug: box statsReportPScientific changed',{ value:state.statsReportPScientific });
+    const nextValue=!getStatsPValueScientificPreference();
+    state.statsReportPScientific=nextValue;
+    if(Shared.statsReporting && typeof Shared.statsReporting.setPValueFormatScientific === 'function'){
+      Shared.statsReporting.setPValueFormatScientific(nextValue,{ source:'box' });
+    }
+    console.debug('Debug: box statsReportPScientific changed',{ value:nextValue });
     requestStatsContextRefresh('stats-p-format-toggle');
     persistStatsUiState('stats-p-format-toggle');
     handleStatsComputeClick();
@@ -14728,12 +14750,7 @@
     button.type='button';
     button.dataset.statsPToggle='1';
     button.className='stats-pvalue-format-toggle';
-    button.textContent=sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Decimal' : 'Scientific';
-    button.style.marginLeft='8px';
-    button.style.fontSize='11px';
-    button.style.lineHeight='1.2';
-    button.style.padding='2px 6px';
-    button.style.cursor='pointer';
+    button.textContent=getStatsPValueScientificPreference() ? 'Decimal' : 'Scientific';
     button.addEventListener('click',evt=>{
       evt.preventDefault();
       evt.stopPropagation();
@@ -14749,139 +14766,32 @@
     statsDiv.__statsExtraControlFactory = () => {
       const wrap=document.createElement('span');
       wrap.className='stats-pvalue-format-inline';
-      wrap.style.display='inline-flex';
-      wrap.style.alignItems='center';
-      wrap.style.gap='8px';
-      wrap.style.marginLeft='16px';
       const label=document.createElement('span');
-      label.textContent=`P-value format: ${sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Scientific' : 'Decimal'}`;
+      label.className='stats-pvalue-format-inline__label';
+      label.textContent=`P-value format: ${getStatsPValueScientificPreference() ? 'Scientific' : 'Decimal'}`;
       wrap.appendChild(label);
       wrap.appendChild(createStatsPValueToggleButton());
       return wrap;
     };
   }
   function renderStatsPValueFormatToolbar(target){
-    if(!target || target.querySelector?.('.stats-pvalue-format-toolbar')){
-      return;
-    }
-    const toolbar=document.createElement('div');
-    toolbar.className='stats-pvalue-format-toolbar';
-    toolbar.style.display='flex';
-    toolbar.style.alignItems='center';
-    toolbar.style.gap='8px';
-    toolbar.style.margin='0 0 12px 0';
-    const label=document.createElement('span');
-    label.textContent=`P-value format: ${sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Scientific' : 'Decimal'}`;
-    toolbar.appendChild(label);
-    toolbar.appendChild(createStatsPValueToggleButton());
-    target.appendChild(toolbar);
+    return target;
   }
   function mountStatsPValueToggle(target){
-    if(!target || target.querySelector?.('[data-stats-p-toggle="1"]')){
-      return;
-    }
-    const text=target.textContent;
-    target.textContent='';
-    const wrap=document.createElement('span');
-    wrap.style.display='inline-flex';
-    wrap.style.alignItems='center';
-    wrap.style.gap='4px';
-    const label=document.createElement('span');
-    label.textContent=text;
-    wrap.appendChild(label);
-    wrap.appendChild(createStatsPValueToggleButton());
-    target.appendChild(wrap);
+    return target;
   }
   function isStatsPValueLabel(label){
     return typeof label === 'string' && /^p(?:\s|$|-|\()/i.test(label.trim());
   }
   function enhanceRenderedStatsTablePValueToggles(rendered, tableModel){
-    const table=rendered?.table;
-    if(!table || !table.tHead?.rows?.[0]){
-      return;
-    }
-    const columns=Array.isArray(tableModel?.columns) ? tableModel.columns : [];
-    const headerCells=Array.from(table.tHead.rows[0].cells || []);
-    const pColumnIndexes=columns
-      .map((col,index)=>isStatsPValueLabel(col?.label) ? index : -1)
-      .filter(index=>index>=0);
-    pColumnIndexes.forEach(index=>{
-      const cell=headerCells[index];
-      if(cell){
-        mountStatsPValueToggle(cell);
-      }
-    });
-    if(columns.length===2 && columns[0]?.label==='Metric'){
-      const rows=Array.isArray(tableModel?.rows) ? tableModel.rows : [];
-      const bodyRows=Array.from(table.tBodies?.[0]?.rows || []);
-      rows.forEach((row,rowIndex)=>{
-        const metric=Array.isArray(row) ? row[0] : row?.metric;
-        if(!isStatsPValueLabel(metric)){
-          return;
-        }
-        const metricCell=bodyRows[rowIndex]?.cells?.[0];
-        if(metricCell){
-          mountStatsPValueToggle(metricCell);
-        }
-      });
-    }
+    return { rendered, tableModel };
   }
   function installStatsResultsPValueToggles(){
-    const statsDiv=global.document.getElementById('statsResults');
-    if(!statsDiv){
-      return;
-    }
-    const controlsBar=statsDiv.querySelector('.stats-significance-controls');
-    if(controlsBar && !controlsBar.querySelector('.stats-pvalue-format-inline')){
-      const inlineWrap=document.createElement('span');
-      inlineWrap.className='stats-pvalue-format-inline';
-      inlineWrap.style.display='inline-flex';
-      inlineWrap.style.alignItems='center';
-      inlineWrap.style.gap='8px';
-      inlineWrap.style.marginLeft='16px';
-      const label=document.createElement('span');
-      label.textContent=`P-value format: ${sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Scientific' : 'Decimal'}`;
-      inlineWrap.appendChild(label);
-      inlineWrap.appendChild(createStatsPValueToggleButton());
-      controlsBar.appendChild(inlineWrap);
-    }
-    const tables=Array.from(statsDiv.querySelectorAll('.stats-table-card table'));
-    tables.forEach(table=>{
-      const headerCells=Array.from(table.tHead?.rows?.[0]?.cells || []);
-      if(!headerCells.length){
-        return;
-      }
-      const card=table.closest('.stats-table-card');
-      const caption=card?.querySelector?.('.stats-table-caption');
-      const firstHeader=headerCells[0]?.textContent?.trim();
-      const secondHeader=headerCells[1]?.textContent?.trim();
-      if(firstHeader==='Metric' && secondHeader==='Value'){
-        let foundPValue=false;
-        Array.from(table.tBodies?.[0]?.rows || []).forEach(row=>{
-          const metricCell=row.cells?.[0];
-          if(metricCell && isStatsPValueLabel(metricCell.textContent)){
-            foundPValue=true;
-          }
-        });
-        if(foundPValue && caption){
-          mountStatsPValueToggle(caption);
-        }
-        return;
-      }
-      let foundPValue=false;
-      headerCells.forEach(cell=>{
-        if(isStatsPValueLabel(cell.textContent)){
-          foundPValue=true;
-          mountStatsPValueToggle(cell);
-        }
-      });
-      if(foundPValue && caption){
-        mountStatsPValueToggle(caption);
-      }
-    });
+    return;
   }
   let statsResultsPValueObserver=null;
   let statsResultsPValueInterval=null;
+  let statsSummaryTabIdCounter=0;
   function refreshStatsResultsPValueObserver(){
     const statsDiv=global.document.getElementById('statsResults');
     if(statsResultsPValueObserver){
@@ -14922,6 +14832,113 @@
         statsResultsPValueInterval=null;
       }
     }, 1500);
+  }
+  function readStatsCardCaption(node){
+    if(!node || node.nodeType !== 1){
+      return '';
+    }
+    const captionNode=node.querySelector?.('.stats-table-caption');
+    if(captionNode && captionNode.textContent){
+      return String(captionNode.textContent).trim();
+    }
+    const attrCaption=node.getAttribute?.('data-stats-caption');
+    return attrCaption ? String(attrCaption).trim() : '';
+  }
+  function isOverallStatsCard(node){
+    return /^Overall test summary$/i.test(readStatsCardCaption(node));
+  }
+  function isMultipleComparisonStatsCard(node){
+    return /pairwise comparisons|comparisons vs reference/i.test(readStatsCardCaption(node));
+  }
+  function setStatsSummaryTabSelection(wrapper, tab){
+    if(!wrapper){
+      return;
+    }
+    const nextTab=tab==='comparisons' ? 'comparisons' : 'overall';
+    wrapper.setAttribute('data-active-tab', nextTab);
+    Array.from(wrapper.querySelectorAll('.box-stats-summary-tabs__tab')).forEach(button=>{
+      const isActive=button.getAttribute('data-tab')===nextTab;
+      button.classList.toggle('box-stats-summary-tabs__tab--active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      button.tabIndex=isActive ? 0 : -1;
+    });
+    Array.from(wrapper.querySelectorAll('.box-stats-summary-tabs__panel')).forEach(panel=>{
+      const isActive=panel.getAttribute('data-tab')===nextTab;
+      panel.hidden=!isActive;
+      panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+    });
+    state.statsResultsTab=nextTab;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box stats summary tab selected',{ tab:nextTab });
+    }
+  }
+  function buildStatsSummaryTabButton(label, tab){
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='box-stats-summary-tabs__tab';
+    button.textContent=label;
+    button.setAttribute('data-tab', tab);
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-selected', 'false');
+    button.tabIndex=-1;
+    button.addEventListener('click',()=>{
+      setStatsSummaryTabSelection(button.closest('.box-stats-summary-tabs'), tab);
+    });
+    return button;
+  }
+  function buildStatsSummaryPanel(tab, labelledBy){
+    const panel=document.createElement('div');
+    panel.className='box-stats-summary-tabs__panel';
+    panel.setAttribute('data-tab', tab);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', labelledBy);
+    panel.hidden=true;
+    return panel;
+  }
+  function mountStatsSummaryTabs(resultsContainer){
+    if(!resultsContainer || resultsContainer.nodeType !== 1){
+      return false;
+    }
+    const cards=Array.from(resultsContainer.children).filter(node=>node?.classList?.contains('stats-table-card'));
+    if(cards.length < 2){
+      return false;
+    }
+    const overallCard=cards.find(isOverallStatsCard);
+    const comparisonsCard=cards.find(isMultipleComparisonStatsCard);
+    if(!overallCard || !comparisonsCard || overallCard===comparisonsCard){
+      return false;
+    }
+    const wrapper=document.createElement('div');
+    wrapper.className='box-stats-summary-tabs';
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', 'Statistical summaries');
+    const tabList=document.createElement('div');
+    tabList.className='box-stats-summary-tabs__tablist';
+    tabList.setAttribute('role', 'tablist');
+    const tabIdSuffix=String((statsSummaryTabIdCounter+=1));
+    const overallButton=buildStatsSummaryTabButton('Overall test summary','overall');
+    overallButton.id=`boxStatsSummaryTabOverall-${tabIdSuffix}`;
+    const comparisonsButton=buildStatsSummaryTabButton('Multiple comparisons','comparisons');
+    comparisonsButton.id=`boxStatsSummaryTabComparisons-${tabIdSuffix}`;
+    const overallPanel=buildStatsSummaryPanel('overall', overallButton.id);
+    const comparisonsPanel=buildStatsSummaryPanel('comparisons', comparisonsButton.id);
+    tabList.appendChild(overallButton);
+    tabList.appendChild(comparisonsButton);
+    resultsContainer.insertBefore(wrapper, overallCard);
+    overallPanel.appendChild(overallCard);
+    comparisonsPanel.appendChild(comparisonsCard);
+    wrapper.appendChild(tabList);
+    wrapper.appendChild(overallPanel);
+    wrapper.appendChild(comparisonsPanel);
+    setStatsSummaryTabSelection(wrapper, state.statsResultsTab==='comparisons' ? 'comparisons' : 'overall');
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box stats summary tabs mounted',{
+        overallCaption:readStatsCardCaption(overallCard),
+        comparisonsCaption:readStatsCardCaption(comparisonsCard),
+        activeTab:state.statsResultsTab
+      });
+    }
+    return true;
   }
 
   function serializeAssumptions(diag){
@@ -16362,7 +16379,7 @@
     console.debug('Debug: box statsNonParametricVariant normalized',{ before:state.statsNonParametricVariant, after:normalizedNonParametricVariant });
     state.statsNonParametricVariant=normalizedNonParametricVariant;
   }
-  state.statsReportPScientific=sanitizeStatsReportPScientific(state.statsReportPScientific);
+  state.statsReportPScientific=getStatsPValueScientificPreference();
   const oneSampleMode=state.statsMode==='oneSample';
   if(oneSampleMode && state.statsPaired){
     state.statsPaired=false;
@@ -18000,7 +18017,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       mode:state.statsMode,
       parametricVariant:resolveStatsParametricVariant(),
       nonParametricVariant:resolveStatsNonParametricVariant(),
-      reportPScientific:sanitizeStatsReportPScientific(state.statsReportPScientific),
+      reportPScientific:getStatsPValueScientificPreference(),
       postHoc:state.statsPostHoc,
       oneSampleNullValue:sanitizeOneSampleNullValue(state.statsOneSampleValue),
       referenceIndex:state.statsRef,
@@ -18146,7 +18163,7 @@ Technical analysis record (advanced)
       state.statsEffectNonParametric,
       resolveStatsParametricVariant(),
       resolveStatsNonParametricVariant(),
-      state.statsReportPScientific ? 'scientific' : 'decimal',
+      getStatsPValueScientificPreference() ? 'scientific' : 'decimal',
       state.statsPostHoc,
       state.statsPairsText,
       state.statsCustomPairs?.length || 0
@@ -18275,7 +18292,7 @@ Technical analysis record (advanced)
       statsPostHoc: state.statsPostHoc,
       statsParametricVariant: resolveStatsParametricVariant(),
       statsNonParametricVariant: resolveStatsNonParametricVariant(),
-      statsReportPScientific: sanitizeStatsReportPScientific(state.statsReportPScientific),
+      statsReportPScientific: getStatsPValueScientificPreference(),
       annotationMaxByTrace: Array.isArray(context.helpers?.annotationMaxByTrace) ? context.helpers.annotationMaxByTrace : null,
       debug
     };
@@ -18428,6 +18445,7 @@ Technical analysis record (advanced)
       renderTableModel(tableModel, append, resultsContainer);
       append = true;
     });
+    mountStatsSummaryTabs(resultsContainer);
     installStatsResultsPValueToggles();
     refreshStatsResultsPValueObserver();
     global.setTimeout(installStatsResultsPValueToggles, 0);
@@ -18720,6 +18738,7 @@ Technical analysis record (advanced)
     }
     renderBoxStatsFromModel(model, context);
     applyBoxStatsAnnotationsFromModel(model, context);
+    refreshSharedStatsReportingPanels('box-stats-model');
     return true;
   }
 
@@ -18829,6 +18848,7 @@ Technical analysis record (advanced)
       if(els.statsResults && state.statsLastReport){
         appendStatsReportPanel(els.statsResults, state.statsLastReport);
       }
+      refreshSharedStatsReportingPanels('box-stats-local');
       applyStatsSuccess();
     };
 
@@ -20375,6 +20395,7 @@ Technical analysis record (advanced)
           contextLabel:'box-pairs'
         }
       },appendForPairs);
+      mountStatsSummaryTabs(resultsContainer);
 	      if(pairs.length){
 	        renderPairSignificanceAnnotations(pairs, { reason: state.statsMode === 'reference' ? 'reference' : 'all' });
       }else{
@@ -25784,7 +25805,8 @@ Technical analysis record (advanced)
           effectNonParametric: state.statsEffectNonParametric,
           parametricVariant: resolveStatsParametricVariant(),
           nonParametricVariant: resolveStatsNonParametricVariant(),
-          reportPScientific: sanitizeStatsReportPScientific(state.statsReportPScientific),
+          reportPScientific: getStatsPValueScientificPreference(),
+          resultsTab: state.statsResultsTab==='comparisons' ? 'comparisons' : 'overall',
           groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns,
           assumptions: serializeAssumptions(state.assumptionDiagnostics),
@@ -26371,7 +26393,15 @@ Technical analysis record (advanced)
     state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
     state.statsParametricVariant=sanitizeStatsParametricVariant(statsConfig.parametricVariant,'classic');
     state.statsNonParametricVariant=sanitizeStatsNonParametricVariant(statsConfig.nonParametricVariant);
-    state.statsReportPScientific=sanitizeStatsReportPScientific(statsConfig.reportPScientific);
+    if(Object.prototype.hasOwnProperty.call(statsConfig,'reportPScientific')){
+      state.statsReportPScientific=sanitizeStatsReportPScientific(statsConfig.reportPScientific);
+      if(Shared.statsReporting && typeof Shared.statsReporting.setPValueFormatScientific === 'function'){
+        Shared.statsReporting.setPValueFormatScientific(state.statsReportPScientific,{ source:'box-payload' });
+      }
+    }else{
+      state.statsReportPScientific=getStatsPValueScientificPreference();
+    }
+    state.statsResultsTab=statsConfig.resultsTab==='comparisons' ? 'comparisons' : 'overall';
     const candidateRef=Number(statsConfig.referenceIndex);
     const maxIndex=labelCount>0?labelCount-1:-1;
     if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
@@ -26445,7 +26475,7 @@ Technical analysis record (advanced)
       statsEffectParametric: state.statsEffectParametric,
       statsEffectNonParametric: state.statsEffectNonParametric,
       statsNonParametricVariant: state.statsNonParametricVariant,
-      statsReportPScientific: state.statsReportPScientific,
+      statsReportPScientific: getStatsPValueScientificPreference(),
       selectedCount: state.selectedCols.size,
       hasPairsText: !!state.statsPairsText
     });

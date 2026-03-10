@@ -316,13 +316,21 @@
           </div>
         </div>
         <div id="analysisResults">
-          <div id="goResults"></div>
-          <canvas id="goChart" class="idx-inline-014"></canvas>
-          <div class="row idx-inline-015" id="goChartExport"></div>
-          <div id="stringSection" class="idx-inline-016">
-            <div id="stringResults"></div>
-            <div id="stringNetwork"></div>
-            <div class="row idx-inline-017" id="stringNetworkExport"></div>
+          <div class="analysis-results-tabs" id="analysisResultsTabs" role="tablist" aria-label="Analysis results">
+            <button class="analysis-results-tab is-active" id="analysisTabGo" type="button" role="tab" aria-selected="true" aria-controls="analysisPanelGo">GO Analysis</button>
+            <button class="analysis-results-tab" id="analysisTabString" type="button" role="tab" aria-selected="false" aria-controls="analysisPanelString">STRING Analysis</button>
+          </div>
+          <div class="analysis-results-panel is-active" id="analysisPanelGo" role="tabpanel" aria-labelledby="analysisTabGo">
+            <div id="goResults"></div>
+            <canvas id="goChart" class="idx-inline-014"></canvas>
+            <div class="row idx-inline-015" id="goChartExport"></div>
+          </div>
+          <div class="analysis-results-panel" id="analysisPanelString" role="tabpanel" aria-labelledby="analysisTabString" hidden>
+            <div id="stringSection" class="idx-inline-016">
+              <div id="stringResults"></div>
+              <div id="stringNetwork"></div>
+              <div class="row idx-inline-017" id="stringNetworkExport"></div>
+            </div>
           </div>
         </div>
         <div class="row idx-inline-018">
@@ -1346,7 +1354,7 @@
           </div>
           <div class="config-panel">
             <fieldset class="heatmap-view-panel">
-              <legend>View</legend>
+              <legend>Graph</legend>
               <div class="heatmap-control-list">
                 <div class="heatmap-control-row">
                   <label class="heatmap-control-block heatmap-control-grow">
@@ -1384,6 +1392,19 @@
                     <span class="heatmap-nowrap">Decimals</span>
                     <input type="number" id="heatmapDecimals" value="2" min="0" max="6" class="heatmap-size-input" />
                   </div>
+                </div>
+                <div class="heatmap-control-row">
+                  <label class="heatmap-inline-group heatmap-control-inline">
+                    <input type="checkbox" id="heatmapShowSignificance" />
+                    <span class="heatmap-nowrap">Show significance</span>
+                  </label>
+                  <label class="heatmap-control-block heatmap-control-grow">
+                    <span class="heatmap-nowrap">Significance label</span>
+                    <select id="heatmapSignificanceDisplay">
+                      <option value="star" selected>Star</option>
+                      <option value="pvalue">P value</option>
+                    </select>
+                  </label>
                 </div>
               </div>
             </fieldset>

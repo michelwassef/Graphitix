@@ -1204,7 +1204,7 @@
       if(fieldset.querySelector('select[id$="GraphType"],select[id$="PlotType"],select[id$="ChartType"]')){
         return fieldset;
       }
-      if(fieldset.querySelector('#lineDisplayMode,#lineViewMode,#pcaMethod,#pcaViewMode')){
+      if(fieldset.querySelector('#lineDisplayMode,#lineViewMode,#pcaMethod,#pcaViewMode,#heatmapView')){
         return fieldset;
       }
     }

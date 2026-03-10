@@ -450,9 +450,13 @@
    * @property {HTMLSelectElement|null} plotType - Select box for Venn vs UpSet plot.
    * @property {Object|null} upset - UpSet plot controls group.
    * @property {HTMLButtonElement|null} stringBtn - Trigger button for STRING analysis.
+   * @property {HTMLButtonElement|null} analysisTabGo - Tab button for GO analysis results.
+   * @property {HTMLButtonElement|null} analysisTabString - Tab button for STRING analysis results.
    * @property {HTMLElement|null} goResults - Container for GO analysis results.
    * @property {HTMLElement|null} stringResults - Container for STRING analysis results.
    * @property {HTMLElement|null} stringNetwork - Container for STRING network SVG content.
+   * @property {HTMLElement|null} analysisPanelGo - Panel wrapping GO analysis outputs.
+   * @property {HTMLElement|null} analysisPanelString - Panel wrapping STRING analysis outputs.
    * @property {HTMLElement|null} goChartExport - Export controls wrapper for GO charts.
    * @property {HTMLElement|null} stringNetworkExport - Export controls wrapper for STRING SVG.
    * @property {HTMLElement|null} tooltip - Shared tooltip element for contextual hints.
@@ -515,9 +519,11 @@
         regionSelect: null,
         regionList: null,
       copyRegionBtn: null,
-      goBtn: null,
-      detectSpeciesBtn: null,
-      stringBtn: null,
+        goBtn: null,
+        detectSpeciesBtn: null,
+        stringBtn: null,
+        analysisTabGo: null,
+        analysisTabString: null,
         plotType: null,
         upset: {
           sort: null,
@@ -538,6 +544,8 @@
         goResults: null,
         stringResults: null,
         stringNetwork: null,
+        analysisPanelGo: null,
+        analysisPanelString: null,
         goChartExport: null,
         stringNetworkExport: null,
         tooltip: null,
@@ -581,6 +589,7 @@
         lastGOResult: null,
         lastGOFormatted: [],
         lastGOOrganism: 'hsapiens',
+        activeResultsTab: 'go',
         lastRegionSignature: null,
         lastRegionCode: null,
         lastSignificance: null,
@@ -2796,6 +2805,42 @@
     debug('Debug: venn clearAnalysis invoked'); // Debug: analysis outputs cleared
   }
 
+  function normalizeAnalysisResultsTab(tabName) {
+    return String(tabName || '').trim().toLowerCase() === 'string' ? 'string' : 'go';
+  }
+
+  function setActiveAnalysisResultsTab(tabName, options = {}) {
+    const nextTab = normalizeAnalysisResultsTab(tabName);
+    state.analysis.activeResultsTab = nextTab;
+    const isGo = nextTab === 'go';
+    if (state.ui.analysisTabGo) {
+      state.ui.analysisTabGo.classList.toggle('is-active', isGo);
+      state.ui.analysisTabGo.setAttribute('aria-selected', isGo ? 'true' : 'false');
+      state.ui.analysisTabGo.tabIndex = isGo ? 0 : -1;
+    }
+    if (state.ui.analysisTabString) {
+      state.ui.analysisTabString.classList.toggle('is-active', !isGo);
+      state.ui.analysisTabString.setAttribute('aria-selected', isGo ? 'false' : 'true');
+      state.ui.analysisTabString.tabIndex = isGo ? -1 : 0;
+    }
+    if (state.ui.analysisPanelGo) {
+      state.ui.analysisPanelGo.classList.toggle('is-active', isGo);
+      state.ui.analysisPanelGo.hidden = !isGo;
+    }
+    if (state.ui.analysisPanelString) {
+      state.ui.analysisPanelString.classList.toggle('is-active', !isGo);
+      state.ui.analysisPanelString.hidden = isGo;
+    }
+    if (options.syncPayload !== false) {
+      syncActiveVennPayload(options.reason || 'venn-analysis-tab');
+    }
+    debug('Debug: venn analysis results tab set', {
+      tab: nextTab,
+      synced: options.syncPayload !== false
+    });
+    return nextTab;
+  }
+
   function resolveActiveVennTabId() {
     const active = global.Main?.session?.getActiveTab?.();
     if (!active || active.type !== 'venn') return null;
@@ -2929,6 +2974,7 @@
   function applyAnalysisPayload(analysis) {
     clearAnalysis();
     if (!analysis || typeof analysis !== 'object') {
+      setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
       return;
     }
     const goResult = Array.isArray(analysis.goResult) ? analysis.goResult : null;
@@ -2951,6 +2997,7 @@
       state.analysis.lastStringEnrichment = cloneSimple(analysis.stringEnrichment) || analysis.stringEnrichment;
       renderStringResults(state.analysis.lastStringEnrichment, analysis.stringLimit || 5);
     }
+    setActiveAnalysisResultsTab(analysis.activeResultsTab || state.analysis.activeResultsTab || 'go', { syncPayload: false });
     if (state.ui.regionSelect) {
       const hasRegion = Object.prototype.hasOwnProperty.call(analysis, 'regionSelectValue');
       let targetValue = hasRegion ? (analysis.regionSelectValue || '') : '';
@@ -5463,6 +5510,7 @@
         goFormatted: state.analysis.lastGOFormatted ? state.analysis.lastGOFormatted.slice() : [],
         goOrganism: state.analysis.lastGOOrganism || '',
         goLimit,
+        activeResultsTab: normalizeAnalysisResultsTab(state.analysis.activeResultsTab),
         stringSvg: state.analysis.lastStringSVG || '',
         stringEnrichment: state.analysis.lastStringEnrichment ? cloneSimple(state.analysis.lastStringEnrichment) : null,
         stringLimit: 5,
@@ -5707,6 +5755,7 @@
         state.analysis.lastGOResult = obj.analysis.goResult ? cloneSimple(obj.analysis.goResult) : null;
         state.analysis.lastGOFormatted = Array.isArray(obj.analysis.goFormatted) ? obj.analysis.goFormatted.slice() : [];
         state.analysis.lastGOOrganism = obj.analysis.goOrganism || '';
+        state.analysis.activeResultsTab = normalizeAnalysisResultsTab(obj.analysis.activeResultsTab);
         state.analysis.lastStringSVG = obj.analysis.stringSvg || '';
         state.analysis.lastStringEnrichment = obj.analysis.stringEnrichment ? cloneSimple(obj.analysis.stringEnrichment) : null;
         if(state.ui.regionSelect && Object.prototype.hasOwnProperty.call(obj.analysis, 'regionSelectValue')){
@@ -5716,6 +5765,7 @@
         state.analysis.lastGOResult = null;
         state.analysis.lastGOFormatted = [];
         state.analysis.lastGOOrganism = '';
+        state.analysis.activeResultsTab = 'go';
         state.analysis.lastStringSVG = null;
         state.analysis.lastStringEnrichment = null;
       }
@@ -5723,6 +5773,7 @@
       refreshDiagram();
       applyAnalysisPayload(obj.analysis);
     }
+    setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     if(meta.recordUndo !== false){
       const undoPrevious = meta.undoPrevious || captureVennSnapshot();
       const next = captureVennSnapshot();
@@ -6085,6 +6136,16 @@
     }
   }
 
+  function handleAnalysisResultsTabClick(e) {
+    const button = e?.currentTarget;
+    if (!button) {
+      return;
+    }
+    setActiveAnalysisResultsTab(button.id === 'analysisTabString' ? 'string' : 'go', {
+      reason: 'venn-analysis-tab-click'
+    });
+  }
+
   function handleCalcSignificanceClick() {
     debug('Debug: venn significance click');
     calculateSignificance();
@@ -6092,6 +6153,7 @@
 
   async function handleGoButtonClick() {
     try {
+      setActiveAnalysisResultsTab('go', { reason: 'venn-go-run' });
       const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
       let organism = state.ui.speciesSelect.value;
       if (!organism) {
@@ -6115,6 +6177,7 @@
 
   async function handleStringButtonClick() {
     try {
+      setActiveAnalysisResultsTab('string', { reason: 'venn-string-run' });
       const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
       let organism = state.ui.speciesSelect.value;
       if (!organism) {
@@ -6275,6 +6338,8 @@
       { elements: state.ui.goBtn, type: 'click', handler: handleGoButtonClick, label: 'go-run' },
       { elements: state.ui.detectSpeciesBtn, type: 'click', handler: handleDetectSpeciesClick, label: 'detect-species' },
       { elements: state.ui.stringBtn, type: 'click', handler: handleStringButtonClick, label: 'string-run' },
+      { elements: state.ui.analysisTabGo, type: 'click', handler: handleAnalysisResultsTabClick, label: 'analysis-tab-go' },
+      { elements: state.ui.analysisTabString, type: 'click', handler: handleAnalysisResultsTabClick, label: 'analysis-tab-string' },
       { elements: state.ui.goBtn, type: 'mouseenter', handler: handleGoBtnMouseEnter, label: 'go-tooltip-enter' },
       { elements: state.ui.goBtn, type: 'mouseleave', handler: handleGoBtnTooltipLeave, label: 'go-tooltip-leave' },
       { elements: state.ui.goResults, type: 'click', handler: handleGoResultsClick, label: 'go-results' },
@@ -6481,6 +6546,8 @@
     state.ui.goBtn = $('#goBtn');
     state.ui.detectSpeciesBtn = $('#detectSpeciesBtn');
     state.ui.stringBtn = $('#stringBtn');
+    state.ui.analysisTabGo = $('#analysisTabGo');
+    state.ui.analysisTabString = $('#analysisTabString');
     state.ui.plotType = $('#vennPlotType');
     state.ui.upset = {
       sort: $('#upsetSort'),
@@ -6502,6 +6569,8 @@
     state.ui.goResults = $('#goResults');
     state.ui.stringResults = $('#stringResults');
     state.ui.stringNetwork = $('#stringNetwork');
+    state.ui.analysisPanelGo = $('#analysisPanelGo');
+    state.ui.analysisPanelString = $('#analysisPanelString');
     state.ui.goChartExport = $('#goChartExport');
     state.ui.stringNetworkExport = $('#stringNetworkExport');
     state.ui.tooltip = $('#tooltip');
@@ -6563,6 +6632,7 @@
     }
     loadStylePrefs();
     syncPlotMode(state.ui.plotType?.value || DEFAULT_PLOT_TYPE, { updateTitle: false });
+    setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     updateUpSetDotSizeOutput(state.ui.upset?.dotSize?.value);
     registerEventHandlers();
     initializeLabelState();
@@ -6687,7 +6757,8 @@
     const uiState = {
       copyRegionBtnDisplay: state.ui.copyRegionBtn?.style?.display ?? null,
       goChartExportDisplay: state.ui.goChartExport?.style?.display ?? null,
-      stringNetworkExportDisplay: state.ui.stringNetworkExport?.style?.display ?? null
+      stringNetworkExportDisplay: state.ui.stringNetworkExport?.style?.display ?? null,
+      activeResultsTab: normalizeAnalysisResultsTab(state.analysis.activeResultsTab)
     };
     const analysisState = {
       lastRegions: state.analysis.lastRegions,
@@ -6743,6 +6814,9 @@
       if(state.ui.stringNetworkExport && typeof cache.uiState.stringNetworkExportDisplay === 'string'){
         state.ui.stringNetworkExport.style.display = cache.uiState.stringNetworkExportDisplay;
       }
+      if(Object.prototype.hasOwnProperty.call(cache.uiState, 'activeResultsTab')){
+        state.analysis.activeResultsTab = normalizeAnalysisResultsTab(cache.uiState.activeResultsTab);
+      }
     }
     if(cache.analysisState){
       state.analysis.lastRegions = cache.analysisState.lastRegions || null;
@@ -6775,6 +6849,7 @@
     }
     const goChartRestored = restoreCanvasSnapshot(document.getElementById('goChart'), cache.goChart);
     const restored = restoredStage || restoredRegion || restoredSignificance || restoredGo || restoredString || restoredNetwork || restoredRegionOptions || goChartRestored;
+    setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: venn render cache restored', {
         restored,

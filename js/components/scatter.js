@@ -6378,6 +6378,169 @@
     if(p === 0) return '0';
     return Number(p).toExponential(5);
   }
+  function getScatterStatsAlpha(){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.getSignificanceThreshold === 'function'){
+      const alpha = Number(reporting.getSignificanceThreshold());
+      if(Number.isFinite(alpha) && alpha > 0 && alpha < 1){
+        return alpha;
+      }
+    }
+    return 0.05;
+  }
+  function formatScatterAlphaLabel(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '0.05';
+    }
+    if(numeric >= 0.01){
+      return numeric.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    }
+    return numeric.toExponential(2);
+  }
+  function normalizeScatterReportMetric(metric){
+    const source = String(metric || '').trim().replace(/^\[[^\]]+\]\s*/, '');
+    if(!source){
+      return '';
+    }
+    if(source === 'Intercept'){
+      return 'Y-intercept';
+    }
+    if(source === 'Residual SD'){
+      return 'Sy.x';
+    }
+    if(source === 'Correlation (95% CI, approx)'){
+      return 'Correlation (95% CI)';
+    }
+    if(source === 'N (paired)' || source === 'N (fit)'){
+      return 'N';
+    }
+    return source;
+  }
+  function formatScatterSummaryNumber(value, digits = 4){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 'n/a';
+    }
+    const safeDigits = Number.isFinite(digits) ? digits : 4;
+    const absValue = Math.abs(numeric);
+    const lowerBound = Math.pow(10, -Math.max(2, safeDigits));
+    if(absValue !== 0 && (absValue < lowerBound || absValue >= 1e6)){
+      return numeric.toExponential(Math.max(2, safeDigits));
+    }
+    return numeric.toFixed(safeDigits);
+  }
+  function pushScatterUniqueMetricRow(rows, seen, metric, value){
+    const metricLabel = normalizeScatterReportMetric(metric);
+    if(!metricLabel || seen.has(metricLabel)){
+      return;
+    }
+    rows.push({ metric: metricLabel, value: value == null || value === '' ? '—' : value });
+    seen.add(metricLabel);
+  }
+  function buildScatterDisplayRowSets(detail, settings){
+    const sourceRows = Array.isArray(detail?.rows) ? detail.rows : [];
+    const advancedRows = [];
+    const advancedSeen = new Set();
+    const summaryRows = [];
+    const summarySeen = new Set();
+    const metricMap = new Map();
+    sourceRows.forEach(row => {
+      const normalizedMetric = normalizeScatterReportMetric(row?.metric);
+      if(normalizedMetric && !metricMap.has(normalizedMetric)){
+        metricMap.set(normalizedMetric, row?.value ?? '—');
+      }
+    });
+
+    const confidenceLevel = Number(settings?.fitSpec?.confidenceLevel);
+    const confidenceLabel = Number.isFinite(confidenceLevel)
+      ? `${formatScatterSummaryNumber(confidenceLevel, confidenceLevel % 1 === 0 ? 0 : 2)}%`
+      : '95%';
+    const alpha = getScatterStatsAlpha();
+    const regressionModeValue = String(detail?.regressionModeValue || '').trim().toLowerCase();
+    const associationMethod = String(detail?.associationMethod || '').trim().toLowerCase();
+    const regressionModel = detail?.regressionModel || null;
+    const coefficientRows = Array.isArray(detail?.coefficientRows) ? detail.coefficientRows : [];
+    const findCoefficient = term => coefficientRows.find(row => String(row?.term || '').trim().toLowerCase() === term) || null;
+    const slopeCoefficient = findCoefficient('slope');
+    const interceptCoefficient = findCoefficient('intercept');
+    const addSummaryMetric = metric => {
+      if(metricMap.has(metric)){
+        pushScatterUniqueMetricRow(summaryRows, summarySeen, metric, metricMap.get(metric));
+      }
+    };
+    const addAdvancedMetric = metric => {
+      if(metricMap.has(metric)){
+        pushScatterUniqueMetricRow(advancedRows, advancedSeen, metric, metricMap.get(metric));
+      }
+    };
+
+    addSummaryMetric('Regression model');
+    addSummaryMetric('N (paired)');
+    addSummaryMetric('N (fit)');
+
+    if(associationMethod !== 'none' && regressionModeValue === 'none'){
+      addSummaryMetric('r');
+      addSummaryMetric('P value');
+      addSummaryMetric('Correlation (95% CI)');
+    }else{
+      addSummaryMetric('Equation');
+      addSummaryMetric('Slope');
+      addSummaryMetric('Y-intercept');
+      if(slopeCoefficient && slopeCoefficient.ciLow !== 'n/a' && slopeCoefficient.ciHigh !== 'n/a'){
+        pushScatterUniqueMetricRow(summaryRows, summarySeen, `Slope (${confidenceLabel} CI)`, `${slopeCoefficient.ciLow} to ${slopeCoefficient.ciHigh}`);
+      }
+      if(interceptCoefficient && interceptCoefficient.ciLow !== 'n/a' && interceptCoefficient.ciHigh !== 'n/a'){
+        pushScatterUniqueMetricRow(summaryRows, summarySeen, `Y-intercept (${confidenceLabel} CI)`, `${interceptCoefficient.ciLow} to ${interceptCoefficient.ciHigh}`);
+      }
+      addSummaryMetric('X-intercept');
+      addSummaryMetric(`X-intercept (${confidenceLabel} CI)`);
+      addSummaryMetric('1/Slope');
+      addSummaryMetric(`1/Slope (${confidenceLabel} CI)`);
+      addSummaryMetric('R²');
+      addSummaryMetric('Sy.x');
+
+      const slopePValue = Number(regressionModel?.coefficientStats?.find?.(stat => String(stat?.term || '').toLowerCase() === 'slope')?.pValue);
+      const fallbackPValue = Number(detail?.stats?.p);
+      const reportedPValue = Number.isFinite(slopePValue) ? slopePValue : fallbackPValue;
+      const slopeTStatistic = Number(regressionModel?.coefficientStats?.find?.(stat => String(stat?.term || '').toLowerCase() === 'slope')?.tStatistic);
+      const residualDf = Number(regressionModel?.metrics?.residualDf);
+      if(Number.isFinite(slopeTStatistic)){
+        pushScatterUniqueMetricRow(summaryRows, summarySeen, 'F', formatScatterSummaryNumber(slopeTStatistic * slopeTStatistic, 4));
+      }
+      if(Number.isFinite(residualDf)){
+        pushScatterUniqueMetricRow(summaryRows, summarySeen, 'df', `1, ${Math.max(0, Math.round(residualDf))}`);
+      }
+      if(Number.isFinite(reportedPValue)){
+        pushScatterUniqueMetricRow(summaryRows, summarySeen, 'P value', formatP(reportedPValue));
+        pushScatterUniqueMetricRow(
+          summaryRows,
+          summarySeen,
+          `Slope significantly non-zero (P < ${formatScatterAlphaLabel(alpha)})?`,
+          reportedPValue <= alpha ? 'Yes' : 'No'
+        );
+      }
+    }
+
+    if((!summarySeen.has('Slope') && !summarySeen.has('Y-intercept')) || summaryRows.length <= 3){
+      sourceRows
+        .filter(row => /^\[Parameters\]/.test(String(row?.metric || '')))
+        .slice(0, 3)
+        .forEach(row => {
+          pushScatterUniqueMetricRow(summaryRows, summarySeen, row?.metric, row?.value);
+        });
+    }
+
+    sourceRows.forEach(row => {
+      const normalizedMetric = normalizeScatterReportMetric(row?.metric);
+      if(!normalizedMetric || summarySeen.has(normalizedMetric)){
+        return;
+      }
+      pushScatterUniqueMetricRow(advancedRows, advancedSeen, normalizedMetric, row?.value);
+    });
+
+    return { summaryRows, advancedRows };
+  }
   function setup(){
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
@@ -11950,10 +12113,20 @@
               ciHigh: formatMetricValue(stat?.ciHigh)
             }))
           : [];
+        const displayRows = buildScatterDisplayRowSets({
+          rows,
+          coefficientRows,
+          regressionModel,
+          regressionModeValue,
+          associationMethod,
+          stats: normalizedStats
+        }, settings);
         return {
           stats: normalizedStats,
           regressionModel,
           rows,
+          summaryRows: displayRows.summaryRows,
+          advancedRows: displayRows.advancedRows,
           coefficientRows,
           regressionModeValue,
           regressionLabel,
@@ -12203,7 +12376,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const metricOrder = [];
           const metricSet = new Set();
           groupedReports.forEach(entry => {
-            const detailRows = Array.isArray(entry?.detail?.rows) ? entry.detail.rows : [];
+            const detailRows = Array.isArray(entry?.detail?.summaryRows) ? entry.detail.summaryRows : [];
             detailRows.forEach(row => {
               const metric = String(row?.metric || '').trim();
               if(!metric || metricSet.has(metric)){
@@ -12220,7 +12393,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }));
           const valueLookup = groupedReports.map(entry => {
             const map = new Map();
-            const rows = Array.isArray(entry?.detail?.rows) ? entry.detail.rows : [];
+            const rows = Array.isArray(entry?.detail?.summaryRows) ? entry.detail.summaryRows : [];
             rows.forEach(row => {
               const metric = String(row?.metric || '').trim();
               if(metric){
@@ -12237,7 +12410,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return row;
           });
           renderStatsCard(scatterStatsResults,{
-            caption:`Statistical report by group (${reportRegressionLabel})` ,
+            caption:`Overall test summary by group (${reportRegressionLabel})` ,
             columns:[{ key:'metric', label:'Metric', align:'left' }, ...groupedColumns],
             rows:summaryRows,
             options:{
@@ -12299,6 +12472,51 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 fileName:'scatter-grouped-coefficients',
                 contextLabel:'scatter-grouped-coefficients'
               },
+              advanced:true,
+              append:true
+            });
+          }
+          const groupedAdvancedMetricOrder = [];
+          const groupedAdvancedMetricSet = new Set();
+          groupedReports.forEach(entry => {
+            const detailRows = Array.isArray(entry?.detail?.advancedRows) ? entry.detail.advancedRows : [];
+            detailRows.forEach(row => {
+              const metric = String(row?.metric || '').trim();
+              if(!metric || groupedAdvancedMetricSet.has(metric)){
+                return;
+              }
+              groupedAdvancedMetricSet.add(metric);
+              groupedAdvancedMetricOrder.push(metric);
+            });
+          });
+          if(groupedAdvancedMetricOrder.length){
+            const groupedAdvancedLookup = groupedReports.map(entry => {
+              const map = new Map();
+              const rows = Array.isArray(entry?.detail?.advancedRows) ? entry.detail.advancedRows : [];
+              rows.forEach(row => {
+                const metric = String(row?.metric || '').trim();
+                if(metric){
+                  map.set(metric, row?.value ?? '—');
+                }
+              });
+              return map;
+            });
+            const groupedAdvancedRows = groupedAdvancedMetricOrder.map(metric => {
+              const row = { metric };
+              groupedColumns.forEach((col, index) => {
+                row[col.key] = groupedAdvancedLookup[index].has(metric) ? groupedAdvancedLookup[index].get(metric) : '—';
+              });
+              return row;
+            });
+            renderStatsCard(scatterStatsResults,{
+              caption:'Model details by group',
+              columns:[{ key:'metric', label:'Metric', align:'left' }, ...groupedColumns],
+              rows:groupedAdvancedRows,
+              options:{
+                fileName:'scatter-grouped-report-details',
+                contextLabel:'scatter-grouped-report-details'
+              },
+              advanced:true,
               append:true
             });
           }
@@ -12453,17 +12671,33 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ? regressionTools.createSummary(regressionModel)
           : null;
         renderStatsCard(scatterStatsResults,{
-          caption:`Statistical report (${detail?.regressionLabel || getScatterRegressionModeLabel(regressionModeValue)})` ,
+          caption:`Overall test summary (${detail?.regressionLabel || getScatterRegressionModeLabel(regressionModeValue)})` ,
           columns:[
             {key:'metric',label:'Metric',align:'left'},
             {key:'value',label:'Value',align:'right'}
           ],
-          rows: Array.isArray(detail?.rows) ? detail.rows : [],
+          rows: Array.isArray(detail?.summaryRows) ? detail.summaryRows : [],
           options:{
             fileName:'scatter-report',
             contextLabel:'scatter-report'
           }
         });
+        if(Array.isArray(detail?.advancedRows) && detail.advancedRows.length){
+          renderStatsCard(scatterStatsResults,{
+            caption:'Model details',
+            columns:[
+              {key:'metric',label:'Metric',align:'left'},
+              {key:'value',label:'Value',align:'right'}
+            ],
+            rows:detail.advancedRows,
+            options:{
+              fileName:'scatter-report-details',
+              contextLabel:'scatter-report-details'
+            },
+            advanced:true,
+            append:true
+          });
+        }
         if(Array.isArray(detail?.coefficientRows) && detail.coefficientRows.length){
           renderStatsCard(scatterStatsResults,{
             caption:'Coefficient diagnostics',
@@ -12481,6 +12715,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               fileName:'scatter-coefficients',
               contextLabel:'scatter-coefficients'
             },
+            advanced:true,
             append:true
           });
         }
