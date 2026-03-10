@@ -20651,6 +20651,24 @@ Technical analysis record (advanced)
     }
     const manualYMinValue = Number.isFinite(userYMin) ? (logScale ? Math.log10(userYMin) : userYMin) : null;
     const manualYMaxValue = Number.isFinite(userYMax) ? (logScale ? Math.log10(userYMax) : userYMax) : null;
+    const shouldAutoClampPositiveNonBarAxisToZero = (
+      graphTypeRaw !== 'bar'
+      && !logScale
+      && !Number.isFinite(manualYMinValue)
+      && Number.isFinite(ymin)
+      && ymin >= 0
+    );
+    const scaleDataMin = shouldAutoClampPositiveNonBarAxisToZero ? 0 : ymin;
+    const scaleDataMax = ymax;
+    if(shouldAutoClampPositiveNonBarAxisToZero){
+      boxDebug('Debug: box non-bar axis zero clamp', {
+        graphType: graphTypeRaw,
+        orientation: state.flipAxes ? 'horizontal' : 'vertical',
+        beforeMin: ymin,
+        beforeMax: ymax,
+        clampedMin: scaleDataMin
+      });
+    }
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
       if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
@@ -20674,6 +20692,18 @@ Technical analysis record (advanced)
         console.debug('Debug: box log tick override',{ tickCount: scale.ticks.length, orientation: state.flipAxes ? 'horizontal' : 'vertical' });
       }
       return applied;
+    };
+    const shouldRenderZeroReferenceLine = scale => (
+      graphTypeRaw !== 'bar'
+      && !logScale
+      && Number.isFinite(scale?.min)
+      && Number.isFinite(scale?.max)
+      && scale.min < 0
+      && scale.max > 0
+    );
+    const isNearZeroScaleValue = scaleValue => {
+      const numeric = Number(scaleValue);
+      return Number.isFinite(numeric) && Math.abs(numeric) <= 1e-9;
     };
     const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
     const separatedCategoryUnits = (isGroupedMode && layoutMode === 'separated' && axisLabels.length)
@@ -21161,15 +21191,15 @@ Technical analysis record (advanced)
       const resolveYTickTargetHeight = () => Math.max(20, plotHLocal);
       let yTickTarget = chartStyle.estimateTickCount(resolveYTickTargetHeight(), { axis: 'y', fallback: 6 });
       let yScale = buildAxisScale({
-        dataMin: ymin,
-        dataMax: ymax,
+        dataMin: scaleDataMin,
+        dataMax: scaleDataMax,
         manualMin: manualYMinValue,
         manualMax: manualYMaxValue,
         targetTickCount: yTickTarget
       });
       let manualYScale = null;
       if(yIntervalSetting){
-        const manual = buildManualTicks(ymin, ymax, yIntervalSetting);
+        const manual = buildManualTicks(scaleDataMin, scaleDataMax, yIntervalSetting);
         if(manual){
           manualYScale = manual;
           yScale = manual;
@@ -21185,8 +21215,8 @@ Technical analysis record (advanced)
       for(let pass = 0; pass < tickPasses; pass++){
         if(!manualYScale){
           yScale = buildAxisScale({
-            dataMin: ymin,
-            dataMax: ymax,
+            dataMin: scaleDataMin,
+            dataMax: scaleDataMax,
             manualMin: manualYMinValue,
             manualMax: manualYMaxValue,
             targetTickCount: yTickTarget
@@ -21426,6 +21456,7 @@ Technical analysis record (advanced)
         }
         return node;
       };
+      const showZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isYValueVisible(0);
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
@@ -21590,6 +21621,9 @@ Technical analysis record (advanced)
         gridLayer.style.display = showGrid ? '' : 'none';
       }
       yScale.ticks.forEach(t => {
+        if(showZeroReferenceLine && isNearZeroScaleValue(t)){
+          return;
+        }
         const y = y2px(t);
         const gridLine = addGrid('line',Object.assign({ x1: yAxisX, y1: y, x2: plotRightX, y2: y }, gridStrokeAttrs));
         gridLine.setAttribute('data-grid-control','1');
@@ -21667,6 +21701,39 @@ Technical analysis record (advanced)
         if(axisControls && typeof axisControls.registerAxisElement === 'function'){
           axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
         }
+      }
+      if(showZeroReferenceLine){
+        const zeroStyle = getAdditionalLineStyle({
+          lineColor: axisStroke,
+          lineWidth: Math.max(0.75, axisStrokeWidth * 0.85),
+          linePattern: 'dotted',
+          lineTransparency: 0
+        });
+        const zeroY = y2px(0);
+        const zeroLine = addAxisElement('line',{
+          x1: yAxisX,
+          y1: zeroY,
+          x2: plotRightX,
+          y2: zeroY,
+          stroke: zeroStyle.stroke,
+          'stroke-width': zeroStyle.strokeWidth,
+          opacity: Number.isFinite(zeroStyle.opacity) ? zeroStyle.opacity : 1,
+          'pointer-events': 'none'
+        });
+        zeroLine.setAttribute('data-box-zero-reference', '1');
+        if(zeroStyle.strokeDasharray){
+          zeroLine.setAttribute('stroke-dasharray', zeroStyle.strokeDasharray);
+        }
+        if(zeroStyle.strokeLinecap){
+          zeroLine.setAttribute('stroke-linecap', zeroStyle.strokeLinecap);
+        }
+        boxDebug('Debug: box zero reference line rendered',{
+          graphType: graphTypeRaw,
+          orientation: 'vertical',
+          axisMin: yScale.min,
+          axisMax: yScale.max,
+          pixel: zeroY
+        });
       }
       const yMajorTickLabels = [];
       let yTickFontCount = 0;
@@ -23008,14 +23075,14 @@ Technical analysis record (advanced)
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
       const xIntervalSetting = getAxisTickInterval('x');
       let yScale = buildAxisScale({
-        dataMin: ymin,
-        dataMax: ymax,
+        dataMin: scaleDataMin,
+        dataMax: scaleDataMax,
         manualMin: manualYMinValue,
         manualMax: manualYMaxValue,
         targetTickCount: chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 })
       });
       if(xIntervalSetting){
-        const manual = buildManualTicks(ymin, ymax, xIntervalSetting);
+        const manual = buildManualTicks(scaleDataMin, scaleDataMax, xIntervalSetting);
         if(manual){
           yScale = manual;
           console.debug('Debug: box x-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
@@ -23661,11 +23728,15 @@ Technical analysis record (advanced)
         }
         return node;
       };
+      const showZeroReferenceLine = shouldRenderZeroReferenceLine(yScale);
       let stackOffsets = null;
       if(gridLayer){
         gridLayer.style.display = showGrid ? '' : 'none';
       }
       yScale.ticks.forEach(t => {
+        if(showZeroReferenceLine && isNearZeroScaleValue(t)){
+          return;
+        }
         const x = valueToX(t);
         const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal }, gridStrokeAttrs));
         gridLine.setAttribute('data-grid-control','1');
@@ -23676,6 +23747,39 @@ Technical analysis record (advanced)
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+      }
+      if(showZeroReferenceLine){
+        const zeroStyle = getAdditionalLineStyle({
+          lineColor: axisStroke,
+          lineWidth: Math.max(0.75, axisStrokeWidth * 0.85),
+          linePattern: 'dotted',
+          lineTransparency: 0
+        });
+        const zeroX = valueToX(0);
+        const zeroLine = addAxisElement('line',{
+          x1: zeroX,
+          y1: marginLocal.top,
+          x2: zeroX,
+          y2: xAxisBottom,
+          stroke: zeroStyle.stroke,
+          'stroke-width': zeroStyle.strokeWidth,
+          opacity: Number.isFinite(zeroStyle.opacity) ? zeroStyle.opacity : 1,
+          'pointer-events': 'none'
+        });
+        zeroLine.setAttribute('data-box-zero-reference', '1');
+        if(zeroStyle.strokeDasharray){
+          zeroLine.setAttribute('stroke-dasharray', zeroStyle.strokeDasharray);
+        }
+        if(zeroStyle.strokeLinecap){
+          zeroLine.setAttribute('stroke-linecap', zeroStyle.strokeLinecap);
+        }
+        boxDebug('Debug: box zero reference line rendered',{
+          graphType: graphTypeRaw,
+          orientation: 'horizontal',
+          axisMin: yScale.min,
+          axisMax: yScale.max,
+          pixel: zeroX
+        });
       }
       const yIntervalSetting = getAxisTickInterval('y');
       const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
