@@ -236,6 +236,7 @@
     linePattern: 'dotted',
     lineTransparency: 0
   });
+  const AUTO_ZERO_AXIS_ADDITIONAL_TICK_SOURCE = 'box-auto-zero-reference';
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
@@ -3568,6 +3569,9 @@
     const lineTransparency = Number.isFinite(lineTransparencyRaw)
       ? Math.min(100, Math.max(0, lineTransparencyRaw))
       : DEFAULT_AXIS_ADDITIONAL_TICK.lineTransparency;
+    const source = typeof entry.source === 'string' && entry.source.trim()
+      ? entry.source.trim()
+      : null;
     return {
       value,
       showTick,
@@ -3576,7 +3580,8 @@
       lineColor,
       lineWidth,
       linePattern,
-      lineTransparency
+      lineTransparency,
+      ...(source ? { source } : {})
     };
   }
 
@@ -3590,6 +3595,48 @@
     return entries
       .map(entry => sanitizeAxisAdditionalTickEntry(entry))
       .filter(entry => !!entry);
+  }
+
+  function isAxisValueNearZero(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && Math.abs(numeric) <= 1e-9;
+  }
+
+  function isAutoZeroAxisAdditionalTick(entry){
+    return !!entry
+      && typeof entry === 'object'
+      && String(entry.source || '') === AUTO_ZERO_AXIS_ADDITIONAL_TICK_SOURCE;
+  }
+
+  function areAxisAdditionalTickEntriesEqual(left, right){
+    const safeLeft = sanitizeAxisAdditionalTickEntry(left);
+    const safeRight = sanitizeAxisAdditionalTickEntry(right);
+    if(!safeLeft || !safeRight){
+      return !safeLeft && !safeRight;
+    }
+    return Number(safeLeft.value) === Number(safeRight.value)
+      && safeLeft.showTick === safeRight.showTick
+      && safeLeft.showLine === safeRight.showLine
+      && String(safeLeft.label || '') === String(safeRight.label || '')
+      && String(safeLeft.lineColor || '') === String(safeRight.lineColor || '')
+      && Number(safeLeft.lineWidth) === Number(safeRight.lineWidth)
+      && String(safeLeft.linePattern || '') === String(safeRight.linePattern || '')
+      && Number(safeLeft.lineTransparency) === Number(safeRight.lineTransparency)
+      && String(safeLeft.source || '') === String(safeRight.source || '');
+  }
+
+  function areAxisAdditionalTickListsEqual(leftEntries, rightEntries){
+    const left = sanitizeAxisAdditionalTicksList(leftEntries);
+    const right = sanitizeAxisAdditionalTicksList(rightEntries);
+    if(left.length !== right.length){
+      return false;
+    }
+    for(let index = 0; index < left.length; index += 1){
+      if(!areAxisAdditionalTickEntriesEqual(left[index], right[index])){
+        return false;
+      }
+    }
+    return true;
   }
 
   function sanitizeBoxAxisNotation(value){
@@ -7570,6 +7617,18 @@
     return sanitizeAxisAdditionalTicksList(settings[axis]?.additionalTicks);
   }
 
+  function setAxisAdditionalTicksSilent(axis, entries){
+    if(axis !== 'x' && axis !== 'y'){
+      return [];
+    }
+    const settings = ensureAxisSettings();
+    if(axisExtras && typeof axisExtras.setEntries === 'function'){
+      return axisExtras.setEntries(settings, axis, entries, { defaults: DEFAULT_AXIS_ADDITIONAL_TICK });
+    }
+    settings[axis].additionalTicks = sanitizeAxisAdditionalTicksList(entries);
+    return settings[axis].additionalTicks;
+  }
+
   function updateAxisAdditionalTicks(axis, entries){
     if(axis !== 'x' && axis !== 'y'){
       return;
@@ -7587,6 +7646,49 @@
     if(typeof state.scheduleDraw === 'function'){
       scheduleBoxViewRefresh(`axis-additional-ticks-${axis}`);
     }
+  }
+
+  function syncAutoZeroAxisAdditionalTick(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){
+      return [];
+    }
+    const currentEntries = getAxisAdditionalTicks(axis);
+    const manualEntries = currentEntries.filter(entry => !isAutoZeroAxisAdditionalTick(entry));
+    const hasManualZeroLine = manualEntries.some(entry => isAxisValueNearZero(entry?.value) && entry?.showLine !== false);
+    let nextEntries = manualEntries.slice();
+    if(enabled && !hasManualZeroLine){
+      const existingAutoEntry = currentEntries.find(isAutoZeroAxisAdditionalTick) || null;
+      const nextAutoEntry = sanitizeAxisAdditionalTickEntry({
+        ...(existingAutoEntry && typeof existingAutoEntry === 'object' ? existingAutoEntry : {}),
+        value: 0,
+        showTick: false,
+        showLine: existingAutoEntry?.showLine !== false,
+        label: existingAutoEntry?.label ?? '',
+        linePattern: existingAutoEntry?.linePattern || DEFAULT_AXIS_ADDITIONAL_TICK.linePattern,
+        lineTransparency: existingAutoEntry?.lineTransparency ?? DEFAULT_AXIS_ADDITIONAL_TICK.lineTransparency,
+        source: AUTO_ZERO_AXIS_ADDITIONAL_TICK_SOURCE
+      });
+      if(nextAutoEntry){
+        nextEntries = [nextAutoEntry].concat(manualEntries);
+      }
+    }
+    if(areAxisAdditionalTickListsEqual(currentEntries, nextEntries)){
+      return currentEntries;
+    }
+    const appliedEntries = setAxisAdditionalTicksSilent(axis, nextEntries);
+    boxDebug('Debug: box auto zero axis extra synchronized', {
+      axis,
+      enabled: !!enabled,
+      count: appliedEntries.length,
+      hasManualZeroLine
+    });
+    if(axisControls && typeof axisControls.refreshActivePanel === 'function'){
+      axisControls.refreshActivePanel({
+        scopeId: 'box',
+        reason: `axis-additional-ticks-sync-${axis}`
+      });
+    }
+    return appliedEntries;
   }
 
   function updateAxisAdditionalTick(axis, index, entry){
@@ -20435,12 +20537,17 @@ Technical analysis record (advanced)
     els.plotDiv.appendChild(svg);
     const doc = svg.ownerDocument || global.document;
     const gridLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+    const referenceLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const dataLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const axisLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const significanceLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     if(gridLayer){
       gridLayer.dataset.layer = 'box-grid';
       svg.appendChild(gridLayer);
+    }
+    if(referenceLayer){
+      referenceLayer.dataset.layer = 'box-reference';
+      svg.appendChild(referenceLayer);
     }
     if(dataLayer){
       dataLayer.dataset.layer = 'box-data';
@@ -20767,10 +20874,7 @@ Technical analysis record (advanced)
       && scale.min < 0
       && scale.max > 0
     );
-    const isNearZeroScaleValue = scaleValue => {
-      const numeric = Number(scaleValue);
-      return Number.isFinite(numeric) && Math.abs(numeric) <= 1e-9;
-    };
+    const isNearZeroScaleValue = scaleValue => isAxisValueNearZero(scaleValue);
     const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
     const separatedCategoryUnits = (isGroupedMode && layoutMode === 'separated' && axisLabels.length)
       ? computeSeparatedCategoryUnits(axisGroupIndices)
@@ -20814,6 +20918,7 @@ Technical analysis record (advanced)
     };
     const add = (tag, attrs) => appendToLayer(dataLayer || svg, tag, attrs);
     const addGrid = (tag, attrs) => appendToLayer(gridLayer || svg, tag, attrs);
+    const addReference = (tag, attrs) => appendToLayer(referenceLayer || dataLayer || svg, tag, attrs);
     const axisStroke = axisStrokeColor || DEFAULT_AXIS_COLOR;
     function estimateBandwidth(sorted){
       if(!sorted.length) return 1;
@@ -21525,7 +21630,10 @@ Technical analysis record (advanced)
         }
         return node;
       };
-      const showZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isYValueVisible(0);
+      const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isYValueVisible(0);
+      const additionalYTicks = syncAutoZeroAxisAdditionalTick('y', shouldAutoRenderZeroReferenceLine);
+      syncAutoZeroAxisAdditionalTick('x', false);
+      const showZeroReferenceLine = additionalYTicks.some(entry => isAxisValueNearZero(entry?.value) && entry?.showLine !== false);
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
@@ -21771,39 +21879,6 @@ Technical analysis record (advanced)
           axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
         }
       }
-      if(showZeroReferenceLine){
-        const zeroStyle = getAdditionalLineStyle({
-          lineColor: axisStroke,
-          lineWidth: Math.max(0.75, axisStrokeWidth * 0.85),
-          linePattern: 'dotted',
-          lineTransparency: 0
-        });
-        const zeroY = y2px(0);
-        const zeroLine = addAxisElement('line',{
-          x1: yAxisX,
-          y1: zeroY,
-          x2: plotRightX,
-          y2: zeroY,
-          stroke: zeroStyle.stroke,
-          'stroke-width': zeroStyle.strokeWidth,
-          opacity: Number.isFinite(zeroStyle.opacity) ? zeroStyle.opacity : 1,
-          'pointer-events': 'none'
-        });
-        zeroLine.setAttribute('data-box-zero-reference', '1');
-        if(zeroStyle.strokeDasharray){
-          zeroLine.setAttribute('stroke-dasharray', zeroStyle.strokeDasharray);
-        }
-        if(zeroStyle.strokeLinecap){
-          zeroLine.setAttribute('stroke-linecap', zeroStyle.strokeLinecap);
-        }
-        boxDebug('Debug: box zero reference line rendered',{
-          graphType: graphTypeRaw,
-          orientation: 'vertical',
-          axisMin: yScale.min,
-          axisMax: yScale.max,
-          pixel: zeroY
-        });
-      }
       const yMajorTickLabels = [];
       let yTickFontCount = 0;
       if(minorTicksY.length){
@@ -21834,7 +21909,6 @@ Technical analysis record (advanced)
         yTickFontCount += 1;
         yMajorTickLabels.push({ pixel: y, node: txt });
       });
-      const additionalYTicks = getAxisAdditionalTicks('y');
       if(additionalYTicks.length){
         const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
           ? axisExtras.renderLinearExtras
@@ -21846,7 +21920,7 @@ Technical analysis record (advanced)
             axisMin: yScale.min,
             axisMax: yScale.max,
             majorTicks: yScale.ticks,
-            showGrid,
+            showGrid: false,
             isValueVisible: value => isYValueVisible(value),
             toPixel: value => y2px(value),
             onSkip: ({ reason, index, entry }) => {
@@ -21862,7 +21936,7 @@ Technical analysis record (advanced)
             },
             onLine: ({ index, entry, pixel }) => {
               const style = getAdditionalLineStyle(entry);
-              const lineEl = addGrid('line',{
+              const lineEl = addReference('line',{
                 x1: yAxisX,
                 y1: pixel,
                 x2: plotRightX,
@@ -21876,6 +21950,9 @@ Technical analysis record (advanced)
               }
               if(style.strokeLinecap){
                 lineEl.setAttribute('stroke-linecap', style.strokeLinecap);
+              }
+              if(isAxisValueNearZero(entry?.value)){
+                lineEl.setAttribute('data-box-zero-reference', '1');
               }
               registerAdditionalLineControlElement('y', index, lineEl);
             },
@@ -23799,7 +23876,10 @@ Technical analysis record (advanced)
         }
         return node;
       };
-      const showZeroReferenceLine = shouldRenderZeroReferenceLine(yScale);
+      const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale);
+      const additionalXTicks = syncAutoZeroAxisAdditionalTick('x', shouldAutoRenderZeroReferenceLine);
+      syncAutoZeroAxisAdditionalTick('y', false);
+      const showZeroReferenceLine = additionalXTicks.some(entry => isAxisValueNearZero(entry?.value) && entry?.showLine !== false);
       let stackOffsets = null;
       if(gridLayer){
         gridLayer.style.display = showGrid ? '' : 'none';
@@ -23818,39 +23898,6 @@ Technical analysis record (advanced)
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
-      }
-      if(showZeroReferenceLine){
-        const zeroStyle = getAdditionalLineStyle({
-          lineColor: axisStroke,
-          lineWidth: Math.max(0.75, axisStrokeWidth * 0.85),
-          linePattern: 'dotted',
-          lineTransparency: 0
-        });
-        const zeroX = valueToX(0);
-        const zeroLine = addAxisElement('line',{
-          x1: zeroX,
-          y1: marginLocal.top,
-          x2: zeroX,
-          y2: xAxisBottom,
-          stroke: zeroStyle.stroke,
-          'stroke-width': zeroStyle.strokeWidth,
-          opacity: Number.isFinite(zeroStyle.opacity) ? zeroStyle.opacity : 1,
-          'pointer-events': 'none'
-        });
-        zeroLine.setAttribute('data-box-zero-reference', '1');
-        if(zeroStyle.strokeDasharray){
-          zeroLine.setAttribute('stroke-dasharray', zeroStyle.strokeDasharray);
-        }
-        if(zeroStyle.strokeLinecap){
-          zeroLine.setAttribute('stroke-linecap', zeroStyle.strokeLinecap);
-        }
-        boxDebug('Debug: box zero reference line rendered',{
-          graphType: graphTypeRaw,
-          orientation: 'horizontal',
-          axisMin: yScale.min,
-          axisMax: yScale.max,
-          pixel: zeroX
-        });
       }
       const yIntervalSetting = getAxisTickInterval('y');
       const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
@@ -23900,7 +23947,6 @@ Technical analysis record (advanced)
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
         xMajorTickLabels.push({ pixel: x, node: txt });
       });
-      const additionalXTicks = getAxisAdditionalTicks('x');
       if(additionalXTicks.length){
         const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
           ? axisExtras.renderLinearExtras
@@ -23912,7 +23958,7 @@ Technical analysis record (advanced)
             axisMin: yScale.min,
             axisMax: yScale.max,
             majorTicks: yScale.ticks,
-            showGrid,
+            showGrid: false,
             toPixel: value => valueToX(value),
             onSkip: ({ reason, index, entry }) => {
               boxDebug('Debug: box additional axis tick skipped', {
@@ -23927,7 +23973,7 @@ Technical analysis record (advanced)
             },
             onLine: ({ index, entry, pixel }) => {
               const style = getAdditionalLineStyle(entry);
-              const lineEl = addGrid('line',{
+              const lineEl = addReference('line',{
                 x1: pixel,
                 y1: marginLocal.top,
                 x2: pixel,
@@ -23941,6 +23987,9 @@ Technical analysis record (advanced)
               }
               if(style.strokeLinecap){
                 lineEl.setAttribute('stroke-linecap', style.strokeLinecap);
+              }
+              if(isAxisValueNearZero(entry?.value)){
+                lineEl.setAttribute('data-box-zero-reference', '1');
               }
               registerAdditionalLineControlElement('x', index, lineEl);
             },

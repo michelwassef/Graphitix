@@ -497,6 +497,9 @@
           : opacityNumeric;
       }
       lineTransparency = sanitizeAxisExtraLineTransparency(lineTransparency ?? defaults.lineTransparency);
+      const source = typeof entry.source === 'string' && entry.source.trim()
+        ? entry.source.trim()
+        : null;
       return {
         value,
         showTick,
@@ -505,7 +508,8 @@
         lineColor,
         lineWidth,
         linePattern,
-        lineTransparency
+        lineTransparency,
+        ...(source ? { source } : {})
       };
     }
 
