@@ -1,0 +1,213 @@
+{
+  "metadata": {
+    "name": "venn-statistical-differential-suite",
+    "version": 1
+  },
+  "cases": [
+    {
+      "id": "adjust-bonferroni-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "bonferroni", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-sidak-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "sidak", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-holm-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "holm", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-holm-sidak-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "holm-sidak", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-hochberg-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "hochberg", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-bh-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "bh", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-by-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "by", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-none-baseline",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "none", "pValues": [0.01, 0.04, 0.02, 0.2, 0.8] }
+    },
+    {
+      "id": "adjust-mixed-boundaries",
+      "operation": "adjust_pvalues",
+      "payload": { "method": "holm", "pValues": [0, 1, 0.000001, 0.999999, 0.5, 0.05] }
+    },
+    {
+      "id": "hypergeom-venn-like",
+      "operation": "hypergeometric_right_tail",
+      "payload": { "populationSize": 20000, "successPopulation": 420, "draws": 615, "observedSuccesses": 31 }
+    },
+    {
+      "id": "hypergeom-medium",
+      "operation": "hypergeometric_right_tail",
+      "payload": { "populationSize": 5000, "successPopulation": 1200, "draws": 230, "observedSuccesses": 78 }
+    },
+    {
+      "id": "hypergeom-no-overlap",
+      "operation": "hypergeometric_right_tail",
+      "payload": { "populationSize": 1000, "successPopulation": 20, "draws": 15, "observedSuccesses": 0 }
+    },
+    {
+      "id": "hypergeom-near-max",
+      "operation": "hypergeometric_right_tail",
+      "payload": { "populationSize": 300, "successPopulation": 150, "draws": 140, "observedSuccesses": 120 }
+    },
+    {
+      "id": "hypergeom-small",
+      "operation": "hypergeometric_right_tail",
+      "payload": { "populationSize": 90, "successPopulation": 15, "draws": 10, "observedSuccesses": 3 }
+    },
+    {
+      "id": "fit-normal-compact",
+      "operation": "distribution_fit",
+      "payload": { "distribution": "normal", "values": [-1.12, -0.83, -0.41, -0.2, -0.05, 0.12, 0.38, 0.74, 1.03, 1.28] }
+    },
+    {
+      "id": "fit-normal-shifted",
+      "operation": "distribution_fit",
+      "payload": { "distribution": "normal", "values": [10.3, 11.5, 12.1, 9.9, 10.7, 12.6, 8.8, 9.1, 13.4, 11.2] }
+    },
+    {
+      "id": "fit-lognormal-with-zeros",
+      "operation": "distribution_fit",
+      "payload": { "distribution": "lognormal", "values": [0, 0.4, 0.9, 1.6, 2.5, 3.8, 5.1] }
+    },
+    {
+      "id": "fit-lognormal-wide",
+      "operation": "distribution_fit",
+      "payload": { "distribution": "lognormal", "values": [0.12, 0.35, 0.44, 0.91, 1.6, 2.3, 3.1, 5.2, 7.8] }
+    },
+    {
+      "id": "fit-exponential-clean",
+      "operation": "distribution_fit",
+      "payload": { "distribution": "exponential", "values": [0.2, 0.5, 1.2, 1.8, 2.1, 3.4, 0.9, 4.2, 2.7] }
+    },
+    {
+      "id": "fit-exponential-with-negatives",
+      "operation": "distribution_fit",
+      "payload": { "distribution": "exponential", "values": [-3, -1, 0.2, 0.3, 0.7, 1.9, 2.4] }
+    },
+    {
+      "id": "gof-normal-good",
+      "operation": "goodness_of_fit",
+      "payload": { "distribution": "normal", "alpha": 0.05, "values": [-1.12, -0.83, -0.41, -0.2, -0.05, 0.12, 0.38, 0.74, 1.03, 1.28] }
+    },
+    {
+      "id": "gof-normal-poor",
+      "operation": "goodness_of_fit",
+      "payload": { "distribution": "normal", "alpha": 0.05, "values": [0, 0, 0.1, 0.2, 0.3, 4.5, 4.7, 4.9, 5.1, 5.3] }
+    },
+    {
+      "id": "gof-lognormal-zeros",
+      "operation": "goodness_of_fit",
+      "payload": { "distribution": "lognormal", "alpha": 0.1, "values": [0, 0.4, 0.9, 1.6, 2.5, 3.8, 5.1] }
+    },
+    {
+      "id": "gof-lognormal-tail",
+      "operation": "goodness_of_fit",
+      "payload": { "distribution": "lognormal", "alpha": 0.05, "values": [0.08, 0.09, 0.11, 0.2, 0.5, 0.6, 1.4, 3.8, 6.1, 11.0] }
+    },
+    {
+      "id": "gof-exponential-good",
+      "operation": "goodness_of_fit",
+      "payload": { "distribution": "exponential", "alpha": 0.05, "values": [0.2, 0.5, 1.2, 1.8, 2.1, 3.4, 0.9, 4.2, 2.7] }
+    },
+    {
+      "id": "gof-exponential-poor",
+      "operation": "goodness_of_fit",
+      "payload": { "distribution": "exponential", "alpha": 0.05, "values": [0.1, 0.15, 0.2, 0.25, 6, 7, 8, 9, 10] }
+    },
+    {
+      "id": "reg-linear-positive",
+      "operation": "regression_linear",
+      "payload": {
+        "alpha": 0.05,
+        "x": [0, 1, 2, 3, 4, 5, 6, 7],
+        "y": [1.1, 2.9, 5.0, 6.8, 9.1, 10.9, 13.2, 14.8]
+      }
+    },
+    {
+      "id": "reg-linear-negative",
+      "operation": "regression_linear",
+      "payload": {
+        "alpha": 0.05,
+        "x": [-4, -3, -2, -1, 0, 1, 2, 3, 4],
+        "y": [8.1, 6.4, 5.8, 3.7, 2.9, 0.8, -0.4, -2.0, -3.1]
+      }
+    },
+    {
+      "id": "reg-linear-mild-noise",
+      "operation": "regression_linear",
+      "payload": {
+        "alpha": 0.05,
+        "x": [2, 3, 5, 7, 11, 13, 17, 19],
+        "y": [3.9, 4.5, 6.0, 7.5, 10.0, 11.2, 13.9, 15.0]
+      }
+    },
+    {
+      "id": "reg-origin-positive",
+      "operation": "regression_linear_through_origin",
+      "payload": {
+        "alpha": 0.05,
+        "x": [1, 2, 3, 4, 5, 6],
+        "y": [2.1, 4.2, 6.4, 8.3, 10.2, 12.0]
+      }
+    },
+    {
+      "id": "reg-origin-mixed",
+      "operation": "regression_linear_through_origin",
+      "payload": {
+        "alpha": 0.05,
+        "x": [-5, -4, -2, 1, 3, 6],
+        "y": [-7.2, -5.7, -2.9, 1.3, 4.0, 8.3]
+      }
+    },
+    {
+      "id": "reg-poly-quadratic",
+      "operation": "regression_polynomial",
+      "payload": {
+        "degree": 2,
+        "alpha": 0.05,
+        "x": [-4, -3, -2, -1, 0, 1, 2, 3, 4],
+        "y": [16.2, 9.3, 4.8, 1.1, 0.6, 1.3, 4.5, 9.1, 16.4]
+      }
+    },
+    {
+      "id": "reg-poly-cubic",
+      "operation": "regression_polynomial",
+      "payload": {
+        "degree": 3,
+        "alpha": 0.05,
+        "x": [-3, -2, -1, 0, 1, 2, 3, 4, 5],
+        "y": [-25.7, -9.9, -2.5, 0.8, 2.0, 5.2, 14.5, 31.6, 57.0]
+      }
+    },
+    {
+      "id": "reg-poly-quadratic-uneven",
+      "operation": "regression_polynomial",
+      "payload": {
+        "degree": 2,
+        "alpha": 0.05,
+        "x": [0.2, 0.6, 1.1, 1.7, 2.6, 3.2, 4.1, 5.0, 5.8],
+        "y": [1.5, 1.8, 2.5, 3.7, 5.8, 7.2, 10.0, 13.5, 17.8]
+      }
+    }
+  ]
+}

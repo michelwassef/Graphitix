@@ -245,7 +245,7 @@ Some modules support multiple visualization variants accessible via dropdown con
   - `js/main/` - Bootstrap logic, session management, tab controls, style syncing, and workspace coordination
   - Modules expose themselves via `window.Shared` and `window.Components` namespaces
 - **Vendor assets (`libs/`).** Bundled XLSX parser supports offline spreadsheet imports. Other libraries (Chart.js, SVD-JS) are lazy-loaded when requested.
-- **Scripts & tests.** Jest-based smoke and UI tests live in `__tests__/`. Helper scripts (e.g., the volcano benchmark) sit under `scripts/` for targeted performance checks.
+- **Scripts & tests.** Jest-based smoke and UI tests live in `__tests__/`. Helper scripts (e.g., the volcano benchmark and Python stats oracle) sit under `scripts/` for targeted performance and validation checks.
 
 ## Getting Started (Developers)
 1. **Install dependencies:** `npm install`
@@ -260,9 +260,11 @@ Some modules support multiple visualization variants accessible via dropdown con
 
 ## Testing & Quality
 - `npm test` spins up JSDOM, loads `index.html`, and verifies each component initializes correctly.
+- `npm run test:stats` runs differential statistical validation suites (`JS vs Python SciPy/NumPy oracle`) for both shared engines (curated/randomized/metamorphic) and component statistical hooks.
 - Performance guards exercise heavy workloads such as the heatmap clusterer and report when thresholds are exceeded.
 - `npm run bench -- [options]` executes `scripts/run-benchmarks.js`, a lightweight CLI that calls each component’s synthetic workload hooks and reports mean/median durations. Use `--json bench.json` to capture a baseline and `--compare bench.json` on future runs to see deltas. Inputs can be overridden inline (`box.rows=50000`) or via `--config overrides.json`.
 - No linting is configured; Jest is the authoritative automated check.
+- The differential suites expect Python with `scipy` and `numpy` installed (`python`, `py -3`, or `PYTHON_BIN`).
 
 ## Troubleshooting
 - **Large datasets:** Widen the AG Grid pane or SVG canvas using the resizer handles. For extremely wide tables, duplicate tabs to keep context while exploring subsets.

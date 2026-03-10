@@ -954,6 +954,24 @@
     console.log('ensurePieColors sync',state.colors); // Debug: resulting color map
   }
 
+  function computePieChiSquare(observed, expected){
+    const values = (Array.isArray(observed) ? observed : []).map(Number);
+    const expectedValues = (Array.isArray(expected) ? expected : []).map(Number);
+    if(!values.length){
+      return { available: false, message: 'No observed values supplied.' };
+    }
+    if(expectedValues.length !== values.length || expectedValues.some(v => !Number.isFinite(v) || v <= 0)){
+      return { available: false, message: 'Expected values are required and must be positive.' };
+    }
+    const chi2 = values.reduce((sum, obs, idx) => sum + Math.pow(obs - expectedValues[idx], 2) / expectedValues[idx], 0);
+    const df = Math.max(1, values.length - 1);
+    let p = NaN;
+    if(global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf === 'function'){
+      p = 1 - global.jStat.chisquare.cdf(chi2, df);
+    }
+    return { available: true, chi2, df, p };
+  }
+
   // Compute and render Chi-square statistics for proportion graphs
   function updatePieStats(labels, observed, expected){
     try{
@@ -962,12 +980,12 @@
       console.debug('Debug: updatePieStats start',{labelCount:labels.length,observedCount:observed.length,expectedCount:expected.length});
       if(!observed || !observed.length){ out.textContent='No data'; return; }
       if(!expected || expected.length!==observed.length || expected.some(e=>isNaN(e))){ out.textContent='Expected values required'; return; }
-      const chi2=observed.reduce((s,o,i)=>s+Math.pow(o-expected[i],2)/expected[i],0);
-      const df=Math.max(1, observed.length-1);
-      let p=NaN;
-      if(global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf === 'function'){
-        p = 1-global.jStat.chisquare.cdf(chi2,df);
+      const result = computePieChiSquare(observed, expected);
+      if(!result.available){
+        out.textContent = result.message || 'Unable to compute chi-square statistics.';
+        return;
       }
+      const { chi2, df, p } = result;
       const formatP=(val)=>{
         if(!isFinite(val)) return String(val);
         if(typeof Shared?.formatPValue === 'function'){
@@ -1876,5 +1894,10 @@
     }
     return restored;
   };
+
+  pie.__testHooks = Object.assign({}, pie.__testHooks, {
+    computeChiSquare: (observed, expected) => computePieChiSquare(observed, expected),
+    updatePieStats: (labels, observed, expected) => updatePieStats(labels, observed, expected)
+  });
 
 })(window);

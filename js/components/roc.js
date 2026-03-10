@@ -3373,4 +3373,21 @@
     }
     return restored;
   };
+
+  roc.__testHooks = Object.assign({}, roc.__testHooks, {
+    computeCurveMetric: (pairs, graphType = 'roc') => computeCurveMetric(Array.isArray(pairs) ? pairs : [], graphType),
+    delongCurveDiff: (pairs1, pairs2) => delongCurveDiff(Array.isArray(pairs1) ? pairs1 : [], Array.isArray(pairs2) ? pairs2 : []),
+    bootstrapCurveDiff: (pairs1, pairs2, graphType = 'roc', iters = 200) => bootstrapCurveDiff(
+      Array.isArray(pairs1) ? pairs1 : [],
+      Array.isArray(pairs2) ? pairs2 : [],
+      graphType,
+      iters
+    ),
+    permutationCurveDiff: (pairs1, pairs2, graphType = 'roc', iters = 200) => permutationCurveDiff(
+      Array.isArray(pairs1) ? pairs1 : [],
+      Array.isArray(pairs2) ? pairs2 : [],
+      graphType,
+      iters
+    )
+  });
 })(window);

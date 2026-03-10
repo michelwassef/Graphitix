@@ -4493,6 +4493,14 @@
   };
   survival.__testHooks = Object.assign({}, survival.__testHooks, {
     collectSeries: () => collectSeries(),
+    computeKaplanMeier: records => computeKaplanMeier(Array.isArray(records) ? records : []),
+    computeLogRank: series => computeLogRank(Array.isArray(series) ? series : []),
+    fitCoxModel: (summary, options) => fitCoxModel(summary, options || {}),
+    computeHazardRatios: (series, coxModel, options) => computeHazardRatios(
+      Array.isArray(series) ? series : [],
+      coxModel,
+      options || {}
+    ),
     prepareCoxData: summary => prepareCoxData(summary),
     evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared)
   });

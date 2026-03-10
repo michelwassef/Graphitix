@@ -12770,17 +12770,26 @@
     }
     const n=groups.reduce((s,g)=>s+g.length,0);
     const all=groups.flat();
-    const ranks=rankArray(all);
+    const rankInfo=rankValuesWithTieInfo(all);
+    const ranks=rankInfo.ranks;
     let idx=0;
     const R=groups.map(g=>{
       const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0);
       idx+=g.length;
       return r;
     });
-    const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
+    const rawH=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
+    const tieDenom=Math.pow(n,3)-n;
+    const tieCorrection=tieDenom>0 ? (1-(rankInfo.tieTerm/tieDenom)) : 1;
+    const H=tieCorrection>0 ? (rawH/tieCorrection) : rawH;
     const df=groups.length-1;
     const p=1-cdf(H,df);
-    return {H,p,n,k:groups.length,epsilonSquared:computeKruskalEpsilonSquared(H,groups.length,n)};
+    return {
+      H,p,n,k:groups.length,
+      epsilonSquared:computeKruskalEpsilonSquared(H,groups.length,n),
+      tieCorrected:tieCorrection!==1,
+      tieCorrection
+    };
   }
   function rankValuesWithTieInfo(values){
     const sorted=values.map((v,i)=>({ v, i })).sort((a,b)=>a.v-b.v);
@@ -12847,7 +12856,7 @@
     const ssCondition=conditionSums.reduce((acc,sum)=>acc+n*Math.pow((sum/n)-grandMean,2),0);
     const ssSubject=subjectSums.reduce((acc,sum)=>acc+k*Math.pow((sum/k)-grandMean,2),0);
     let ssError=ssTotal-ssCondition-ssSubject;
-    if(ssError<0 && Math.abs(ssError)<1e-10){
+    if(Math.abs(ssError)<1e-10){
       ssError=0;
     }
     const df1=k-1;
@@ -26016,12 +26025,12 @@ Technical analysis record (advanced)
     return state;
   };
 	  box.__testHooks = Object.assign({}, box.__testHooks, {
-	    tTest:(a,b)=>tTest(a,b),
-	    tTestPaired:(a,b)=>tTestPaired(a,b),
-	    tTestOneSample:(values,nullValue)=>tTestOneSample(values,nullValue),
-	    mannWhitney:(a,b)=>mannWhitney(a,b),
-	    wilcoxonSignedRank:(a,b)=>wilcoxonSignedRank(a,b),
-	    wilcoxonOneSample:(values,nullValue)=>wilcoxonOneSample(values,nullValue),
+	    tTest:(a,b,options={})=>tTest(a,b,options || {}),
+	    tTestPaired:(a,b,options={})=>tTestPaired(a,b,options || {}),
+	    tTestOneSample:(values,nullValue,options={})=>tTestOneSample(values,nullValue,options || {}),
+	    mannWhitney:(a,b,options={})=>mannWhitney(a,b,options || {}),
+	    wilcoxonSignedRank:(a,b,options={})=>wilcoxonSignedRank(a,b,options || {}),
+	    wilcoxonOneSample:(values,nullValue,options={})=>wilcoxonOneSample(values,nullValue,options || {}),
 	    anova:groups=>anova(groups),
 	    repeatedMeasuresAnova:groups=>computeRepeatedMeasuresAnova(groups),
 	    friedmanTest:groups=>computeFriedmanTest(groups,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed }),

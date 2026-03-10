@@ -12342,4 +12342,20 @@
     };
   };
 
+  line.__testHooks = Object.assign({}, line.__testHooks, {
+    computeLineCorrelationStats: (method, x, y, jStatLib) => computeLineCorrelationStats(
+      method,
+      Array.isArray(x) ? x : [],
+      Array.isArray(y) ? y : [],
+      jStatLib || global.jStat || global.window?.jStat
+    ),
+    computeLineStats: (points, method, options = {}) => computeLineStats(
+      Array.isArray(points) ? points : [],
+      method || 'pearson',
+      global.jStat || global.window?.jStat,
+      options.regressionMode || 'linear',
+      options
+    )
+  });
+
 })(window);

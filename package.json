@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
+    "test:stats": "jest __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js",
     "bench": "node scripts/run-benchmarks.js",
     "e2e:serve": "node scripts/e2e-server.cjs --port 4173",
     "desktop:dev": "npm --prefix desktop run dev",

@@ -20552,6 +20552,129 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     resolveAnnotationCrowdingScale: (count, options) => resolveScatterAnnotationCrowdingScale(count, options),
     setRowSelected: (hotInstance, rowIndex, selected, options) => setScatterRowSelected(hotInstance, rowIndex, selected, options),
     toggleRowSelected: (hotInstance, rowIndex, options) => toggleScatterRowSelected(hotInstance, rowIndex, options),
+    computeScatterCorrelationStats: (method, x, y) => {
+      const rawMethod = String(method || 'pearson').trim().toLowerCase();
+      const resolvedMethod = rawMethod === 'spearman'
+        ? 'spearman'
+        : (rawMethod === 'none' ? 'none' : 'pearson');
+      const xs = Array.isArray(x) ? x : [];
+      const ys = Array.isArray(y) ? y : [];
+      const n = Math.min(xs.length, ys.length);
+      const cleanX = [];
+      const cleanY = [];
+      for(let i = 0; i < n; i += 1){
+        const xv = Number(xs[i]);
+        const yv = Number(ys[i]);
+        if(Number.isFinite(xv) && Number.isFinite(yv)){
+          cleanX.push(xv);
+          cleanY.push(yv);
+        }
+      }
+      const count = cleanX.length;
+      const jStatLib = global.jStat || global.window?.jStat || null;
+      if(resolvedMethod === 'none'){
+        return {
+          methodCode: 'none',
+          methodLabel: 'None (model fit only)',
+          r: NaN,
+          p: NaN,
+          pMethod: 'not computed',
+          ci: null,
+          ciApproximate: false
+        };
+      }
+      if(count < 3){
+        return {
+          methodCode: resolvedMethod,
+          methodLabel: resolvedMethod === 'spearman' ? 'Spearman' : 'Pearson',
+          r: NaN,
+          p: NaN,
+          pMethod: 'not enough data',
+          ci: null,
+          ciApproximate: resolvedMethod === 'spearman'
+        };
+      }
+      const corr = (a, b) => {
+        if(jStatLib && typeof jStatLib.corrcoeff === 'function'){
+          return Number(jStatLib.corrcoeff(a, b));
+        }
+        const m = a.length;
+        const meanA = a.reduce((sum, value) => sum + value, 0) / Math.max(1, m);
+        const meanB = b.reduce((sum, value) => sum + value, 0) / Math.max(1, m);
+        let num = 0;
+        let denA = 0;
+        let denB = 0;
+        for(let i = 0; i < m; i += 1){
+          const da = a[i] - meanA;
+          const db = b[i] - meanB;
+          num += da * db;
+          denA += da * da;
+          denB += db * db;
+        }
+        const denom = Math.sqrt(Math.max(0, denA * denB));
+        return denom > 0 ? (num / denom) : NaN;
+      };
+      const pFromR = r => {
+        if(!Number.isFinite(r)){
+          return NaN;
+        }
+        const cdf = jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf === 'function'
+          ? jStatLib.studentt.cdf.bind(jStatLib.studentt)
+          : null;
+        if(!cdf){
+          return NaN;
+        }
+        const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, r));
+        const t = bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+        return 2 * (1 - cdf(Math.abs(t), count - 2));
+      };
+      const toRanks = values => {
+        const order = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
+        const ranks = Array(values.length).fill(0);
+        let i = 0;
+        while(i < order.length){
+          let j = i + 1;
+          while(j < order.length && order[j].value === order[i].value){
+            j += 1;
+          }
+          const avgRank = ((i + 1) + j) / 2;
+          for(let k = i; k < j; k += 1){
+            ranks[order[k].index] = avgRank;
+          }
+          i = j;
+        }
+        return ranks;
+      };
+      if(resolvedMethod === 'spearman'){
+        const spearman = (jStatLib && typeof jStatLib.spearmancoeff === 'function')
+          ? Number(jStatLib.spearmancoeff(cleanX, cleanY))
+          : corr(toRanks(cleanX), toRanks(cleanY));
+        return {
+          methodCode: 'spearman',
+          methodLabel: 'Spearman',
+          r: spearman,
+          p: pFromR(spearman),
+          pMethod: 't approximation',
+          ci: null,
+          ciApproximate: true
+        };
+      }
+      const pearson = corr(cleanX, cleanY);
+      return {
+        methodCode: 'pearson',
+        methodLabel: 'Pearson',
+        r: pearson,
+        p: pFromR(pearson),
+        pMethod: 'Student t approximation',
+        ci: null,
+        ciApproximate: false
+      };
+    },
+    computeScatterStats: (points, method, options = {}) => computeScatterStats(
+      Array.isArray(points) ? points : [],
+      method || 'pearson',
+      options || {}
+    ),
     constants: Object.assign({}, scatter.__testHooks?.constants, {
       MAX_SIGNIFICANT_ANNOTATIONS
     })
