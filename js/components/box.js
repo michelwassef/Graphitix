@@ -117,6 +117,8 @@
   const ANN_LABEL_GAP_SCALE=0.65;
   const DEFAULT_CORRECTION='holm';
   const ASSUMPTION_ALPHA=0.05;
+  const DEFAULT_STATS_PVALUE_DECIMALS = 4;
+  const MIN_REPORT_PVALUE_DECIMAL = 0.0001;
   const DEFAULT_WHISKER_RULE='iqr15';
   const DEFAULT_WHISKER_MULTIPLIER=1.5;
 	  const DEFAULT_SIGNIFICANCE_COLOR = '#000000';
@@ -6950,7 +6952,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -8440,6 +8442,13 @@
     const safeCount=Number.isFinite(rawCount) && rawCount>0 ? Math.round(rawCount) : 0;
     const pendingDetail='pending calculation';
     const oneSampleMode=state.statsMode==='oneSample';
+    if(safeCount<=1){
+      noteEl.textContent='';
+      noteEl.dataset.method='';
+      noteEl.dataset.correctionLabel='';
+      console.debug('Debug: box updateStatsCorrectionSummary cleared',{ count:safeCount });
+      return;
+    }
     if(!oneSampleMode && state.statsPostHoc==='tukey'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
       noteEl.textContent=`Post-hoc: Tukey HSD (${detail}, studentized range).`;
@@ -8613,6 +8622,7 @@
     els.boxYMax=global.$('#boxYMax');
     els.statsControls=global.document.getElementById('statsControls');
     els.statsResults=global.document.getElementById('statsResults');
+    attachBoxStatsExtraControlFactory();
     els.statsTable=global.document.getElementById('statsTable');
     els.statsButton=global.document.getElementById('boxComputeStats');
     els.statsStatus=global.document.getElementById('boxStatsStatus');
@@ -11496,13 +11506,39 @@
   }
   function formatP(value, options){
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
-    if(typeof formatter === 'function'){
-      return formatter(value, options);
-    }
     if(!Number.isFinite(value)){
       return String(value);
     }
-    return Number(value).toExponential(5);
+    const scientific=options?.scientific === true
+      || (options?.scientific == null && sanitizeStatsReportPScientific(state?.statsReportPScientific));
+    if(scientific){
+      if(typeof formatter === 'function'){
+        return formatter(value,{
+          significantDigits: options?.significantDigits,
+          forceScientific: true,
+          scientificThreshold: Number.POSITIVE_INFINITY
+        });
+      }
+      return Number(value).toExponential(5);
+    }
+    const decimalThreshold=Number.isFinite(options?.decimalThreshold) && options.decimalThreshold > 0
+      ? Number(options.decimalThreshold)
+      : MIN_REPORT_PVALUE_DECIMAL;
+    if(value > 0 && value < decimalThreshold){
+      return `<${formatFixedTrimmed(decimalThreshold, DEFAULT_STATS_PVALUE_DECIMALS)}`;
+    }
+    return formatFixedTrimmed(value, Number.isInteger(options?.decimals) ? options.decimals : DEFAULT_STATS_PVALUE_DECIMALS);
+  }
+  function formatFixedTrimmed(value, decimals){
+    if(!Number.isFinite(value)){
+      return String(value);
+    }
+    const safeDecimals=Number.isInteger(decimals) && decimals >= 0 ? decimals : DEFAULT_STATS_PVALUE_DECIMALS;
+    return Number(value)
+      .toFixed(safeDecimals)
+      .replace(/(\.\d*?[1-9])0+$/,'$1')
+      .replace(/\.0+$/,'')
+      .replace(/^-0$/,'0');
   }
   const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
   const missingDistributionWarnings=Object.create(null);
@@ -11544,6 +11580,15 @@
   }
   function sanitizeStatsAlternative(value){
     return value==='greater' || value==='less' ? value : 'two-sided';
+  }
+  function sanitizeStatsParametricVariant(value, fallback='classic'){
+    return value==='welch' ? 'welch' : (value==='classic' ? 'classic' : fallback);
+  }
+  function sanitizeStatsNonParametricVariant(value){
+    return value==='kolmogorovSmirnov' ? 'kolmogorovSmirnov' : 'mannWhitney';
+  }
+  function sanitizeStatsReportPScientific(value){
+    return value === true || value === 'true' || value === 1 || value === '1';
   }
   function sanitizeNormalityMethod(value){
     if(value==='auto' || value==='shapiro-wilk' || value==='dagostino'){
@@ -11595,6 +11640,12 @@
   function resolveStatsAlternative(options){
     return sanitizeStatsAlternative(options?.alternative ?? state?.statsAlternative ?? 'two-sided');
   }
+  function resolveStatsParametricVariant(options){
+    return sanitizeStatsParametricVariant(options?.parametricVariant ?? state?.statsParametricVariant ?? 'classic');
+  }
+  function resolveStatsNonParametricVariant(options){
+    return sanitizeStatsNonParametricVariant(options?.nonParametricVariant ?? state?.statsNonParametricVariant ?? 'mannWhitney');
+  }
   function resolveNormalityMethodOption(options){
     return sanitizeNormalityMethod(options?.normalityMethod ?? state?.statsNormalityMethod ?? 'shapiro-wilk');
   }
@@ -11623,6 +11674,139 @@
       return '—';
     }
     return `${(numeric*100).toFixed(1)}%`;
+  }
+  function formatStatsAlternativeDisplay(alternative, options){
+    if(options?.forceTwoSided){
+      return 'Two-sided';
+    }
+    const safeAlt=sanitizeStatsAlternative(alternative);
+    if(safeAlt==='greater'){
+      return 'One-sided (A > B / mean > H0)';
+    }
+    if(safeAlt==='less'){
+      return 'One-sided (A < B / mean < H0)';
+    }
+    return 'Two-sided';
+  }
+  function formatStatsSignificanceMetric(alpha){
+    const safeAlpha=sanitizeStatsAlpha(alpha,ASSUMPTION_ALPHA);
+    return `Significantly different (P < ${formatFixedTrimmed(safeAlpha, DEFAULT_STATS_PVALUE_DECIMALS)})?`;
+  }
+  function interpretStatsPValue(value, alpha){
+    if(!Number.isFinite(value)){
+      return 'Undetermined';
+    }
+    return value < sanitizeStatsAlpha(alpha,ASSUMPTION_ALPHA) ? 'Yes' : 'No';
+  }
+  function estimateStatsComparisonFamilyCount(options){
+    const mode=options?.mode ?? state?.statsMode ?? 'all';
+    const selectedCount=Math.max(0, Number.isFinite(options?.selectedCount)
+      ? Number(options.selectedCount)
+      : (state?.selectedCols?.size || 0));
+    if(mode==='oneSample'){
+      return selectedCount;
+    }
+    if(mode==='custom'){
+      const pairs=Array.isArray(options?.customPairs) ? options.customPairs : state?.statsCustomPairs;
+      return Array.isArray(pairs) ? pairs.length : 0;
+    }
+    if(mode==='reference'){
+      return selectedCount > 0 ? Math.max(0, selectedCount - 1) : 0;
+    }
+    return selectedCount >= 2 ? (selectedCount*(selectedCount-1))/2 : 0;
+  }
+  function shouldShowStatsMultiplicityControls(options){
+    return estimateStatsComparisonFamilyCount(options) > 1;
+  }
+  function isPairwiseStatsContext(options){
+    const mode=options?.mode ?? state?.statsMode ?? 'all';
+    const selectedCount=Math.max(0, Number.isFinite(options?.selectedCount)
+      ? Number(options.selectedCount)
+      : (state?.selectedCols?.size || 0));
+    return mode==='reference' || mode==='custom' || selectedCount <= 2;
+  }
+  function listStatsTestChoices(options){
+    const family=options?.family ?? state?.statsTest ?? 'parametric';
+    const paired=!!(options?.paired ?? state?.statsPaired);
+    const oneSample=!!(options?.oneSample ?? (state?.statsMode==='oneSample'));
+    const pairwiseContext=isPairwiseStatsContext(options);
+    if(family==='parametric'){
+      if(oneSample){
+        return [{ value:'classic', label:'One-sample t test' }];
+      }
+      if(paired){
+        return [{ value:'classic', label: pairwiseContext ? 'Paired t-test' : 'Repeated-measures ANOVA' }];
+      }
+      if(pairwiseContext){
+        return [
+          { value:'welch', label:'Welch t-test' },
+          { value:'classic', label:'Unpaired t test' }
+        ];
+      }
+      return [
+        { value:'classic', label:'One-way ANOVA' },
+        { value:'welch', label:'Welch ANOVA' }
+      ];
+    }
+    if(oneSample){
+      return [{ value:'wilcoxonSignedRank', label:'Wilcoxon signed-rank test' }];
+    }
+    if(paired){
+      return [{ value: pairwiseContext ? 'wilcoxonSignedRank' : 'friedman', label: pairwiseContext ? 'Wilcoxon signed-rank test' : 'Friedman test' }];
+    }
+    if(pairwiseContext){
+      return [
+        { value:'mannWhitney', label:'Mann-Whitney test' },
+        { value:'kolmogorovSmirnov', label:'Kolmogorov-Smirnov test' }
+      ];
+    }
+    return [{ value:'kruskalWallis', label:'Kruskal-Wallis test' }];
+  }
+  function resolveSelectedStatsTestChoice(options){
+    const family=options?.family ?? state?.statsTest ?? 'parametric';
+    const choices=listStatsTestChoices(options);
+    if(!choices.length){
+      return null;
+    }
+    if(family==='parametric'){
+      const current=resolveStatsParametricVariant(options);
+      return choices.some(choice=>choice.value===current) ? current : choices[0].value;
+    }
+    const current=resolveStatsNonParametricVariant(options);
+    return choices.some(choice=>choice.value===current) ? current : choices[0].value;
+  }
+  function resolvePairwiseTestMeta(options){
+    const family=options?.family ?? state?.statsTest ?? 'parametric';
+    const paired=!!(options?.paired ?? state?.statsPaired);
+    if(family==='parametric'){
+      if(paired){
+        return { key:'pairedT', label:'Paired t-test', run:tTestPaired };
+      }
+      const variant=resolveStatsParametricVariant(options);
+      if(variant==='welch'){
+        return { key:'welch', label:'Welch t-test', run:tTest };
+      }
+      return { key:'classic', label:'Unpaired t test', run:tTestEqualVariance };
+    }
+    if(paired){
+      return { key:'wilcoxonSignedRank', label:'Wilcoxon signed-rank test', run:wilcoxonSignedRank };
+    }
+    const variant=resolveStatsNonParametricVariant(options);
+    if(variant==='kolmogorovSmirnov'){
+      return { key:'kolmogorovSmirnov', label:'Kolmogorov-Smirnov test', run:kolmogorovSmirnovTwoSample, forceTwoSided:true };
+    }
+    return { key:'mannWhitney', label:'Mann-Whitney test', run:mannWhitney };
+  }
+  function resolveOverallStatsTestLabel(options){
+    const family=options?.family ?? state?.statsTest ?? 'parametric';
+    const paired=!!(options?.paired ?? state?.statsPaired);
+    if(family==='parametric'){
+      if(paired){
+        return 'Repeated-measures ANOVA';
+      }
+      return resolveStatsParametricVariant(options)==='welch' ? 'Welch ANOVA' : 'One-way ANOVA';
+    }
+    return paired ? 'Friedman test' : 'Kruskal-Wallis test';
   }
   function formatIntervalBound(value,digits){
     if(value===Infinity){
@@ -12511,6 +12695,59 @@
       alternative:interval.alternative
     };
   }
+  function tTestEqualVariance(a,b,options){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t',{ helper:'tTestEqualVariance' });
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN },'Student-t distribution unavailable.');
+    }
+    const arrA=(Array.isArray(a)?a:[]).map(Number).filter(Number.isFinite);
+    const arrB=(Array.isArray(b)?b:[]).map(Number).filter(Number.isFinite);
+    const na=arrA.length;
+    const nb=arrB.length;
+    if(na < 2 || nb < 2){
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN, nA:na, nB:nb },'Unpaired t test needs at least two values per group.');
+    }
+    const ma=mean(arrA);
+    const mb=mean(arrB);
+    const va=arrA.reduce((sum,val)=>sum+Math.pow(val-ma,2),0)/(na-1);
+    const vb=arrB.reduce((sum,val)=>sum+Math.pow(val-mb,2),0)/(nb-1);
+    const df=na+nb-2;
+    const pooledVariance=((na-1)*va + (nb-1)*vb)/(df || 1);
+    const se=Math.sqrt(Math.max(pooledVariance,0) * ((1/na)+(1/nb)));
+    const diff=ma-mb;
+    let t;
+    let p;
+    if(se===0){
+      if(diff===0){
+        t=0;
+        p=1;
+      }else{
+        t=diff>0?Infinity:-Infinity;
+        p=resolveStatsAlternative(options)==='two-sided'
+          ? 0
+          : resolveStatsAlternative(options)==='greater'
+            ? (diff>0?0:1)
+            : (diff<0?0:1);
+      }
+    }else{
+      t=diff/se;
+      p=resolveTestPValueFromT(cdf,t,df,resolveStatsAlternative(options));
+    }
+    const interval=resolveMeanDifferenceInterval(diff,se,df,options);
+    return {
+      t,df,p,se,diff,
+      meanA:ma,
+      meanB:mb,
+      ciLow:interval.ciLow,
+      ciHigh:interval.ciHigh,
+      ciLevel:interval.ciLevel,
+      alternative:interval.alternative
+    };
+  }
   function tTestPaired(a,b,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
@@ -12761,6 +12998,50 @@
       }
     }
     return { U,U1,U2,z,p,nA:na,nB:nb,method:'normal-approximation',exact:false,continuityCorrected:true,tieCorrected:rankInfo.tieTerm>0,tieTerm:rankInfo.tieTerm };
+  }
+  function kolmogorovSmirnovTwoSample(a,b){
+    const arrA=(Array.isArray(a)?a:[]).map(Number).filter(Number.isFinite).sort((x,y)=>x-y);
+    const arrB=(Array.isArray(b)?b:[]).map(Number).filter(Number.isFinite).sort((x,y)=>x-y);
+    const na=arrA.length;
+    const nb=arrB.length;
+    if(!na || !nb){
+      return createUnavailableStatResult({ D:NaN, p:NaN, nA:na, nB:nb },'Kolmogorov-Smirnov test needs at least one value per group.');
+    }
+    let i=0;
+    let j=0;
+    let d=0;
+    while(i<na || j<nb){
+      const nextA=i<na ? arrA[i] : Infinity;
+      const nextB=j<nb ? arrB[j] : Infinity;
+      const x=Math.min(nextA,nextB);
+      while(i<na && arrA[i] <= x){
+        i+=1;
+      }
+      while(j<nb && arrB[j] <= x){
+        j+=1;
+      }
+      d=Math.max(d,Math.abs((i/na)-(j/nb)));
+    }
+    const effectiveN=(na*nb)/(na+nb);
+    const sqrtN=Math.sqrt(Math.max(effectiveN,0));
+    const lambda=(sqrtN + 0.12 + (0.11/(sqrtN || 1))) * d;
+    let sum=0;
+    for(let k=1; k<=100; k+=1){
+      const term=Math.exp(-2*k*k*lambda*lambda);
+      sum+=((k % 2 ? 1 : -1) * term);
+      if(term < 1e-10){
+        break;
+      }
+    }
+    const p=Math.max(0,Math.min(1,2*sum));
+    return {
+      D:d,
+      p,
+      nA:na,
+      nB:nb,
+      method:'asymptotic',
+      alternative:'two-sided'
+    };
   }
   function wilcoxonSignedRank(a,b,options){
     const jStatLib=global.jStat;
@@ -14326,6 +14607,9 @@
       const th=document.createElement('th');
       th.className=`stats-table__cell stats-table__header stats-table__cell--${col.align}`;
       th.textContent=col.label;
+      if(col.label.toLowerCase()==='p-value'){
+        mountStatsPValueToggle(th);
+      }
       headerRow.appendChild(th);
     });
     thead.appendChild(headerRow);
@@ -14369,6 +14653,7 @@
       detail.textContent=` p = ${Number.isFinite(pValue)?formatP(pValue):'—'}`;
       detail.className='assumption-variance-detail';
       varianceRow.appendChild(detail);
+      mountStatsPValueToggle(detail);
       card.appendChild(varianceRow);
     }
     if(Array.isArray(diagnostics.warnings) && diagnostics.warnings.length){
@@ -14416,6 +14701,227 @@
       card.appendChild(info);
     }
     container.appendChild(card);
+  }
+
+  function persistStatsUiState(reason){
+    try{
+      if(state.applyingPayload){
+        return;
+      }
+      const sess=(window && window.Main && window.Main.session) ? window.Main.session : null;
+      if(sess && typeof sess.persistActiveTabState === 'function'){
+        sess.persistActiveTabState(undefined,{ reason: reason || 'stats-ui-change' });
+      }
+    }catch(err){
+      console.debug('Debug: box persistStatsUiState failed',{ reason: reason || 'stats-ui-change', message: err?.message || String(err) });
+    }
+  }
+  function toggleStatsPValueFormat(){
+    state.statsReportPScientific=!sanitizeStatsReportPScientific(state.statsReportPScientific);
+    console.debug('Debug: box statsReportPScientific changed',{ value:state.statsReportPScientific });
+    requestStatsContextRefresh('stats-p-format-toggle');
+    persistStatsUiState('stats-p-format-toggle');
+    handleStatsComputeClick();
+  }
+  function createStatsPValueToggleButton(){
+    const button=document.createElement('button');
+    button.type='button';
+    button.dataset.statsPToggle='1';
+    button.className='stats-pvalue-format-toggle';
+    button.textContent=sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Decimal' : 'Scientific';
+    button.style.marginLeft='8px';
+    button.style.fontSize='11px';
+    button.style.lineHeight='1.2';
+    button.style.padding='2px 6px';
+    button.style.cursor='pointer';
+    button.addEventListener('click',evt=>{
+      evt.preventDefault();
+      evt.stopPropagation();
+      toggleStatsPValueFormat();
+    });
+    return button;
+  }
+  function attachBoxStatsExtraControlFactory(){
+    const statsDiv=global.document.getElementById('statsResults');
+    if(!statsDiv){
+      return;
+    }
+    statsDiv.__statsExtraControlFactory = () => {
+      const wrap=document.createElement('span');
+      wrap.className='stats-pvalue-format-inline';
+      wrap.style.display='inline-flex';
+      wrap.style.alignItems='center';
+      wrap.style.gap='8px';
+      wrap.style.marginLeft='16px';
+      const label=document.createElement('span');
+      label.textContent=`P-value format: ${sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Scientific' : 'Decimal'}`;
+      wrap.appendChild(label);
+      wrap.appendChild(createStatsPValueToggleButton());
+      return wrap;
+    };
+  }
+  function renderStatsPValueFormatToolbar(target){
+    if(!target || target.querySelector?.('.stats-pvalue-format-toolbar')){
+      return;
+    }
+    const toolbar=document.createElement('div');
+    toolbar.className='stats-pvalue-format-toolbar';
+    toolbar.style.display='flex';
+    toolbar.style.alignItems='center';
+    toolbar.style.gap='8px';
+    toolbar.style.margin='0 0 12px 0';
+    const label=document.createElement('span');
+    label.textContent=`P-value format: ${sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Scientific' : 'Decimal'}`;
+    toolbar.appendChild(label);
+    toolbar.appendChild(createStatsPValueToggleButton());
+    target.appendChild(toolbar);
+  }
+  function mountStatsPValueToggle(target){
+    if(!target || target.querySelector?.('[data-stats-p-toggle="1"]')){
+      return;
+    }
+    const text=target.textContent;
+    target.textContent='';
+    const wrap=document.createElement('span');
+    wrap.style.display='inline-flex';
+    wrap.style.alignItems='center';
+    wrap.style.gap='4px';
+    const label=document.createElement('span');
+    label.textContent=text;
+    wrap.appendChild(label);
+    wrap.appendChild(createStatsPValueToggleButton());
+    target.appendChild(wrap);
+  }
+  function isStatsPValueLabel(label){
+    return typeof label === 'string' && /^p(?:\s|$|-|\()/i.test(label.trim());
+  }
+  function enhanceRenderedStatsTablePValueToggles(rendered, tableModel){
+    const table=rendered?.table;
+    if(!table || !table.tHead?.rows?.[0]){
+      return;
+    }
+    const columns=Array.isArray(tableModel?.columns) ? tableModel.columns : [];
+    const headerCells=Array.from(table.tHead.rows[0].cells || []);
+    const pColumnIndexes=columns
+      .map((col,index)=>isStatsPValueLabel(col?.label) ? index : -1)
+      .filter(index=>index>=0);
+    pColumnIndexes.forEach(index=>{
+      const cell=headerCells[index];
+      if(cell){
+        mountStatsPValueToggle(cell);
+      }
+    });
+    if(columns.length===2 && columns[0]?.label==='Metric'){
+      const rows=Array.isArray(tableModel?.rows) ? tableModel.rows : [];
+      const bodyRows=Array.from(table.tBodies?.[0]?.rows || []);
+      rows.forEach((row,rowIndex)=>{
+        const metric=Array.isArray(row) ? row[0] : row?.metric;
+        if(!isStatsPValueLabel(metric)){
+          return;
+        }
+        const metricCell=bodyRows[rowIndex]?.cells?.[0];
+        if(metricCell){
+          mountStatsPValueToggle(metricCell);
+        }
+      });
+    }
+  }
+  function installStatsResultsPValueToggles(){
+    const statsDiv=global.document.getElementById('statsResults');
+    if(!statsDiv){
+      return;
+    }
+    const controlsBar=statsDiv.querySelector('.stats-significance-controls');
+    if(controlsBar && !controlsBar.querySelector('.stats-pvalue-format-inline')){
+      const inlineWrap=document.createElement('span');
+      inlineWrap.className='stats-pvalue-format-inline';
+      inlineWrap.style.display='inline-flex';
+      inlineWrap.style.alignItems='center';
+      inlineWrap.style.gap='8px';
+      inlineWrap.style.marginLeft='16px';
+      const label=document.createElement('span');
+      label.textContent=`P-value format: ${sanitizeStatsReportPScientific(state.statsReportPScientific) ? 'Scientific' : 'Decimal'}`;
+      inlineWrap.appendChild(label);
+      inlineWrap.appendChild(createStatsPValueToggleButton());
+      controlsBar.appendChild(inlineWrap);
+    }
+    const tables=Array.from(statsDiv.querySelectorAll('.stats-table-card table'));
+    tables.forEach(table=>{
+      const headerCells=Array.from(table.tHead?.rows?.[0]?.cells || []);
+      if(!headerCells.length){
+        return;
+      }
+      const card=table.closest('.stats-table-card');
+      const caption=card?.querySelector?.('.stats-table-caption');
+      const firstHeader=headerCells[0]?.textContent?.trim();
+      const secondHeader=headerCells[1]?.textContent?.trim();
+      if(firstHeader==='Metric' && secondHeader==='Value'){
+        let foundPValue=false;
+        Array.from(table.tBodies?.[0]?.rows || []).forEach(row=>{
+          const metricCell=row.cells?.[0];
+          if(metricCell && isStatsPValueLabel(metricCell.textContent)){
+            foundPValue=true;
+          }
+        });
+        if(foundPValue && caption){
+          mountStatsPValueToggle(caption);
+        }
+        return;
+      }
+      let foundPValue=false;
+      headerCells.forEach(cell=>{
+        if(isStatsPValueLabel(cell.textContent)){
+          foundPValue=true;
+          mountStatsPValueToggle(cell);
+        }
+      });
+      if(foundPValue && caption){
+        mountStatsPValueToggle(caption);
+      }
+    });
+  }
+  let statsResultsPValueObserver=null;
+  let statsResultsPValueInterval=null;
+  function refreshStatsResultsPValueObserver(){
+    const statsDiv=global.document.getElementById('statsResults');
+    if(statsResultsPValueObserver){
+      try{
+        statsResultsPValueObserver.disconnect();
+      }catch(err){}
+      statsResultsPValueObserver=null;
+    }
+    if(statsResultsPValueInterval){
+      global.clearInterval(statsResultsPValueInterval);
+      statsResultsPValueInterval=null;
+    }
+    if(!statsDiv || typeof MutationObserver !== 'function'){
+      return;
+    }
+    statsResultsPValueObserver=new MutationObserver(()=>{
+      installStatsResultsPValueToggles();
+    });
+    statsResultsPValueObserver.observe(statsDiv,{ childList:true, subtree:true });
+    let pollCount=0;
+    statsResultsPValueInterval=global.setInterval(()=>{
+      installStatsResultsPValueToggles();
+      pollCount+=1;
+      if(pollCount>=20 && statsResultsPValueInterval){
+        global.clearInterval(statsResultsPValueInterval);
+        statsResultsPValueInterval=null;
+      }
+    },100);
+    global.setTimeout(()=>{
+      if(statsResultsPValueObserver){
+        try{
+          statsResultsPValueObserver.disconnect();
+        }catch(err){}
+        statsResultsPValueObserver=null;
+      }
+      if(statsResultsPValueInterval){
+        global.clearInterval(statsResultsPValueInterval);
+        statsResultsPValueInterval=null;
+      }
+    }, 1500);
   }
 
   function serializeAssumptions(diag){
@@ -15786,10 +16292,9 @@
         };
         state.statsPostHoc=ensureValidPostHoc(recommendation.postHoc,postHocContext);
         if(recommendation.statsTest==='parametric'){
-          const variantCandidate=recommendation.parametricVariant==='welch'?'welch':'classic';
-          state.statsParametricVariant=variantCandidate;
-        }else{
-          state.statsParametricVariant='nonparametric';
+          state.statsParametricVariant=sanitizeStatsParametricVariant(recommendation.parametricVariant,'classic');
+        }else if(recommendation.nonParametricVariant){
+          state.statsNonParametricVariant=sanitizeStatsNonParametricVariant(recommendation.nonParametricVariant);
         }
         if(recommendation.recommendedCorrection){
           state.statsCorrection=ensureValidCorrectionValue(recommendation.recommendedCorrection);
@@ -15800,6 +16305,7 @@
           statsPaired: state.statsPaired,
           statsPostHoc: state.statsPostHoc,
           statsVariant: state.statsParametricVariant,
+          statsNonParametricVariant: state.statsNonParametricVariant,
           statsCorrection: state.statsCorrection,
           answers:{ ...answers }
         });
@@ -15846,33 +16352,22 @@
     console.debug('Debug: box statsEffectNonParametric normalized',{ before:state.statsEffectNonParametric, after:normalizedNonParamEffect });
     state.statsEffectNonParametric=normalizedNonParamEffect;
   }
+  const normalizedParametricVariant=resolveStatsParametricVariant();
+  if(normalizedParametricVariant!==state.statsParametricVariant){
+    console.debug('Debug: box statsParametricVariant normalized',{ before:state.statsParametricVariant, after:normalizedParametricVariant });
+    state.statsParametricVariant=normalizedParametricVariant;
+  }
+  const normalizedNonParametricVariant=resolveStatsNonParametricVariant();
+  if(normalizedNonParametricVariant!==state.statsNonParametricVariant){
+    console.debug('Debug: box statsNonParametricVariant normalized',{ before:state.statsNonParametricVariant, after:normalizedNonParametricVariant });
+    state.statsNonParametricVariant=normalizedNonParametricVariant;
+  }
+  state.statsReportPScientific=sanitizeStatsReportPScientific(state.statsReportPScientific);
   const oneSampleMode=state.statsMode==='oneSample';
   if(oneSampleMode && state.statsPaired){
     state.statsPaired=false;
   }
   const varianceConcern=state.assumptionDiagnostics?.varianceConcern===true;
-  const normalityFailures=Number.isFinite(state.assumptionDiagnostics?.normalityFailures)
-    ? state.assumptionDiagnostics.normalityFailures
-    : 0;
-  let desiredVariant=state.statsParametricVariant;
-  if(state.statsTest!=='parametric'){
-    desiredVariant='nonparametric';
-  }else if(oneSampleMode || state.statsPaired){
-    desiredVariant='classic';
-  }else{
-    const traceCount=Array.isArray(traces)?traces.length:0;
-    const selectedCount=Math.max(0,Math.min(traceCount,state.selectedCols?.size || 0));
-    const comparisonCount=selectedCount || traceCount;
-    if(comparisonCount>=3 && varianceConcern && normalityFailures===0){
-      desiredVariant='welch';
-    }else{
-      desiredVariant='classic';
-    }
-  }
-  if(desiredVariant!==state.statsParametricVariant){
-    console.debug('Debug: box statsParametricVariant adjusted',{ before:state.statsParametricVariant, after:desiredVariant, varianceConcern, normalityFailures });
-    state.statsParametricVariant=desiredVariant;
-  }
   if(state.selectedCols && state.selectedCols.size){
     const beforeSize = state.selectedCols.size;
     const filteredSelection = [...state.selectedCols].filter(idx => idx < traces.length);
@@ -15889,7 +16384,20 @@
   if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
     state.selectedCols.add(state.statsRef);
   }
+  if(state.statsMode==='custom'){
+    state.statsCustomPairs=parsePairString(state.statsPairsText || '',traces);
+  }
   const selectedCount=Math.max(0,state.selectedCols?.size || 0);
+  const comparisonCount=estimateStatsComparisonFamilyCount({
+    mode: state.statsMode,
+    selectedCount,
+    customPairs: state.statsCustomPairs
+  });
+  const showMultiplicityControls=shouldShowStatsMultiplicityControls({
+    mode: state.statsMode,
+    selectedCount,
+    customPairs: state.statsCustomPairs
+  });
   const postHocContext={
     mode: state.statsMode,
     test: state.statsTest,
@@ -16015,6 +16523,7 @@
     boxLog('boxplot statsTest changed', state.statsTest);
     requestStatsContextRefresh('stats-test-change');
     persistTabState('stats-test-change');
+    renderStatsControls(traces);
     state.scheduleDraw();
   });
   appendInline(testLabel, testSel, false);
@@ -16034,6 +16543,7 @@
     boxLog('boxplot statsPaired changed', state.statsPaired);
     requestStatsContextRefresh('stats-pairing-change');
     persistTabState('stats-pairing-change');
+    renderStatsControls(traces);
     state.scheduleDraw();
   });
   pairedSel.disabled=oneSampleMode;
@@ -16075,6 +16585,52 @@
     state.scheduleDraw();
   });
   appendInline(modeLabel, modeSel, false);
+
+  const testChoiceLabel=document.createElement('label');
+  testChoiceLabel.textContent='Choose test:';
+  const testChoiceSel=document.createElement('select');
+  const testChoices=listStatsTestChoices({
+    family: state.statsTest,
+    paired: oneSampleMode ? false : state.statsPaired,
+    oneSample: oneSampleMode,
+    mode: state.statsMode,
+    selectedCount
+  });
+  const selectedTestChoice=resolveSelectedStatsTestChoice({
+    family: state.statsTest,
+    paired: oneSampleMode ? false : state.statsPaired,
+    oneSample: oneSampleMode,
+    mode: state.statsMode,
+    selectedCount
+  });
+  if(state.statsTest==='parametric' && (selectedTestChoice==='classic' || selectedTestChoice==='welch') && state.statsParametricVariant!==selectedTestChoice){
+    state.statsParametricVariant=selectedTestChoice;
+  }else if(state.statsTest!=='parametric' && (selectedTestChoice==='mannWhitney' || selectedTestChoice==='kolmogorovSmirnov') && state.statsNonParametricVariant!==selectedTestChoice){
+    state.statsNonParametricVariant=selectedTestChoice;
+  }
+  testChoices.forEach(choice=>{
+    const option=document.createElement('option');
+    option.value=choice.value;
+    option.textContent=choice.label;
+    if(choice.value===selectedTestChoice){
+      option.selected=true;
+    }
+    testChoiceSel.appendChild(option);
+  });
+  testChoiceSel.disabled=testChoices.length<=1;
+  testChoiceSel.addEventListener('change',()=>{
+    if(state.statsTest==='parametric'){
+      state.statsParametricVariant=sanitizeStatsParametricVariant(testChoiceSel.value,state.statsParametricVariant);
+      console.debug('Debug: box statsParametricVariant changed',{ value:state.statsParametricVariant, source:'test-choice' });
+    }else{
+      state.statsNonParametricVariant=sanitizeStatsNonParametricVariant(testChoiceSel.value);
+      console.debug('Debug: box statsNonParametricVariant changed',{ value:state.statsNonParametricVariant, source:'test-choice' });
+    }
+    requestStatsContextRefresh('stats-test-choice-change');
+    persistTabState('stats-test-choice-change');
+    state.scheduleDraw();
+  });
+  appendInline(testChoiceLabel, testChoiceSel, false);
 
   if(oneSampleMode){
     const nullLabel=document.createElement('label');
@@ -16132,7 +16688,9 @@
   }else{
     postHocSel.removeAttribute('title');
   }
-  appendInline(postHocLabel, postHocSel, false);
+  if(!oneSampleMode && showMultiplicityControls){
+    appendInline(postHocLabel, postHocSel, false);
+  }
 
   const correctionLabel=document.createElement('label');
   correctionLabel.textContent='Multiplicity control:';
@@ -16175,7 +16733,9 @@
   }else{
     correctionSel.removeAttribute('title');
   }
-  appendInline(correctionLabel, correctionSel, true);
+  if(showMultiplicityControls){
+    appendInline(correctionLabel, correctionSel, true);
+  }
 
   const alphaLabel=document.createElement('label');
   alphaLabel.textContent='Alpha:';
@@ -16450,7 +17010,11 @@
     if(oneSampleMode){
       postHocHelp.textContent='One-sample mode compares each selected group with the null value above.';
     }else if(state.statsMode==='custom'){
-      postHocHelp.textContent='Custom pairs mode applies the selected test and multiplicity control to your manual pair list.';
+      postHocHelp.textContent=showMultiplicityControls
+        ? 'Custom pairs mode applies the selected test and multiplicity control to your manual pair list.'
+        : 'A single custom comparison does not require multiplicity correction.';
+    }else if(!showMultiplicityControls){
+      postHocHelp.textContent='With only one planned comparison, a dedicated post-hoc procedure or multiplicity correction is not required.';
     }else if(selectedCount<3){
       postHocHelp.textContent='With fewer than three selected groups, a dedicated post-hoc procedure is not required.';
     }else{
@@ -16501,12 +17065,7 @@
   optionWrap.appendChild(leftColumn);
   optionWrap.appendChild(rightColumn);
   controls.appendChild(optionWrap);
-  const correctionCount=state.statsMode==='oneSample'
-    ? state.selectedCols.size
-    : (state.statsMode==='custom'
-      ? (Array.isArray(state.statsCustomPairs)?state.statsCustomPairs.length:0)
-      : (state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0));
-  updateStatsCorrectionSummary(correctionCount);
+  updateStatsCorrectionSummary(comparisonCount);
 }
 function renderGroupedStatsControls(traces, controls, precomputed){
   ensureGroupedStatsDefaults();
@@ -17425,7 +17984,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function buildStatsAnalysisSpec(extra){
     const selectedColumns=Array.from(state.selectedCols || []).sort((a,b)=>a-b);
     return {
-      schemaVersion:'box-stats-spec-v3',
+      schemaVersion:'box-stats-spec-v4',
       alpha:sanitizeStatsAlpha(state.statsAlpha,ASSUMPTION_ALPHA),
       ciLevel:sanitizeStatsCiLevel(state.statsCiLevel,0.95),
       alternative:sanitizeStatsAlternative(state.statsAlternative),
@@ -17439,7 +17998,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       testFamily:state.statsTest,
       paired:!!state.statsPaired,
       mode:state.statsMode,
-      parametricVariant:state.statsParametricVariant,
+      parametricVariant:resolveStatsParametricVariant(),
+      nonParametricVariant:resolveStatsNonParametricVariant(),
+      reportPScientific:sanitizeStatsReportPScientific(state.statsReportPScientific),
       postHoc:state.statsPostHoc,
       oneSampleNullValue:sanitizeOneSampleNullValue(state.statsOneSampleValue),
       referenceIndex:state.statsRef,
@@ -17583,6 +18144,9 @@ Technical analysis record (advanced)
       state.statsCorrection,
       state.statsEffectParametric,
       state.statsEffectNonParametric,
+      resolveStatsParametricVariant(),
+      resolveStatsNonParametricVariant(),
+      state.statsReportPScientific ? 'scientific' : 'decimal',
       state.statsPostHoc,
       state.statsPairsText,
       state.statsCustomPairs?.length || 0
@@ -17709,7 +18273,9 @@ Technical analysis record (advanced)
       statsEffectParametric: state.statsEffectParametric,
       statsEffectNonParametric: state.statsEffectNonParametric,
       statsPostHoc: state.statsPostHoc,
-      statsParametricVariant: state.statsParametricVariant,
+      statsParametricVariant: resolveStatsParametricVariant(),
+      statsNonParametricVariant: resolveStatsNonParametricVariant(),
+      statsReportPScientific: sanitizeStatsReportPScientific(state.statsReportPScientific),
       annotationMaxByTrace: Array.isArray(context.helpers?.annotationMaxByTrace) ? context.helpers.annotationMaxByTrace : null,
       debug
     };
@@ -17721,6 +18287,7 @@ Technical analysis record (advanced)
       console.warn('Debug: statsResults element not found');
       return false;
     }
+    attachBoxStatsExtraControlFactory();
     statsDiv.innerHTML = '';
     const svg = context?.svg;
     if(svg && typeof svg.querySelectorAll === 'function'){
@@ -17737,22 +18304,26 @@ Technical analysis record (advanced)
     const renderTableModel = (tableModel, append = false, targetOverride) => {
       const target = targetOverride || resultsContainer || statsDiv;
       if(hasStatsTable){
-        Shared.statsTable.render({ target, append, ...tableModel });
+        const rendered=Shared.statsTable.render({ target, append, ...tableModel });
+        enhanceRenderedStatsTablePValueToggles(rendered, tableModel);
         console.debug('Debug: box stats render via Shared.statsTable', {
           caption: tableModel.caption || null,
           rowCount: tableModel.rows?.length || 0,
           append
         });
-        return;
+        return rendered;
       }
       if(!append){
         target.innerHTML = '';
       }
+      const wrapper = document.createElement('div');
+      wrapper.className = 'stats-table-card';
+      target.appendChild(wrapper);
       if(tableModel.caption){
         const captionEl = document.createElement('div');
-        captionEl.className = 'stats-table-lead';
+        captionEl.className = 'stats-table-caption';
         captionEl.textContent = tableModel.caption;
-        target.appendChild(captionEl);
+        wrapper.appendChild(captionEl);
       }
       const table = document.createElement('table');
       const thead = document.createElement('thead');
@@ -17779,7 +18350,7 @@ Technical analysis record (advanced)
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
-      target.appendChild(table);
+      wrapper.appendChild(table);
       if(Array.isArray(tableModel.footnotes) && tableModel.footnotes.length){
         const list = document.createElement('div');
         tableModel.footnotes.forEach(note => {
@@ -17787,9 +18358,12 @@ Technical analysis record (advanced)
           item.textContent = note;
           list.appendChild(item);
         });
-        target.appendChild(list);
+        wrapper.appendChild(list);
       }
       console.debug('Debug: box stats render fallback', { caption: tableModel.caption || null, rowCount: tableModel.rows?.length || 0, append });
+      const rendered={ wrapper, table, model: tableModel };
+      enhanceRenderedStatsTablePValueToggles(rendered, tableModel);
+      return rendered;
     };
     const setResultsMessage = text => {
       if(!resultsContainer){
@@ -17823,9 +18397,14 @@ Technical analysis record (advanced)
         state.assumptionDiagnostics = null;
         return true;
       }
+      renderStatsPValueFormatToolbar(statsDiv);
       if(Array.isArray(model?.tables) && model.tables.length){
         renderTableModel(model.tables[0], true, statsDiv);
       }
+      installStatsResultsPValueToggles();
+      refreshStatsResultsPValueObserver();
+      global.setTimeout(installStatsResultsPValueToggles, 0);
+      global.setTimeout(installStatsResultsPValueToggles, 50);
       state.assumptionDiagnostics = null;
       return true;
     }
@@ -17842,12 +18421,17 @@ Technical analysis record (advanced)
       setResultsMessage(model.message);
       return true;
     }
+    renderStatsPValueFormatToolbar(statsDiv);
     const tables = Array.isArray(model?.tables) ? model.tables : [];
     let append = false;
     tables.forEach(tableModel => {
       renderTableModel(tableModel, append, resultsContainer);
       append = true;
     });
+    installStatsResultsPValueToggles();
+    refreshStatsResultsPValueObserver();
+    global.setTimeout(installStatsResultsPValueToggles, 0);
+    global.setTimeout(installStatsResultsPValueToggles, 50);
     return true;
   }
 
@@ -18788,27 +19372,10 @@ Technical analysis record (advanced)
     }
     renderAssumptionSection(assumptionContainer,assumptionDiagnostics);
     if(assumptionDiagnostics){
-      const varianceConcern=assumptionDiagnostics.varianceConcern===true;
-      const normalityFailures=Number.isFinite(assumptionDiagnostics.normalityFailures)
-        ? assumptionDiagnostics.normalityFailures
-        : 0;
-      let variant=state.statsParametricVariant;
-      if(state.statsTest!=='parametric'){
-        variant='nonparametric';
-      }else if(state.statsPaired){
-        variant='classic';
-      }else if(indices.length>=3 && varianceConcern && normalityFailures===0){
-        variant='welch';
-      }else{
-        variant='classic';
-      }
-      if(variant!==state.statsParametricVariant){
-        console.debug('Debug: box computeStats variant update',{ before:state.statsParametricVariant, after:variant, varianceConcern, normalityFailures });
-        state.statsParametricVariant=variant;
-        renderStatsControls(traces);
-      }
       assumptionDiagnostics.appliedTest=state.statsTest;
-      assumptionDiagnostics.appliedVariant=variant;
+      assumptionDiagnostics.appliedVariant=state.statsTest==='parametric'
+        ? resolveStatsParametricVariant()
+        : resolveStatsNonParametricVariant();
     }
     const paramEffectMeta=resolveEffectOptionMeta('parametric',state.statsEffectParametric);
     const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
@@ -18817,7 +19384,13 @@ Technical analysis record (advanced)
     // Custom pairs mode
     if(state.statsMode==='custom'){
       if(!state.statsCustomPairs.length){ setResultsMessage('Specify pairs for comparison.'); return; }
-      const pairTest=state.statsTest==='parametric'?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
+      const pairTestMetaLocal=resolvePairwiseTestMeta({
+        family: state.statsTest,
+        paired: state.statsPaired,
+        mode: state.statsMode,
+        selectedCount: indices.length
+      });
+      const pairTest=pairTestMetaLocal.run;
       const pairs=[];
       state.statsCustomPairs.forEach(pr=>{
         const aData=groupMapByTrace.get(pr.ai) || traces[pr.ai].rawY; const bData=groupMapByTrace.get(pr.bi) || traces[pr.bi].rawY;
@@ -18849,17 +19422,20 @@ Technical analysis record (advanced)
         });
       });
       const m=pairs.length;
-      if(m){
+      const showCustomMultiplicity=m>1;
+      if(showCustomMultiplicity){
         const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
         adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+      }else{
+        pairs.forEach(pr=>{ pr.adjP=pr.p; });
       }
       const correctionMeta=resolveCorrectionMeta(state.statsCorrection,m);
-      updateStatsCorrectionSummary(m);
+      updateStatsCorrectionSummary(showCustomMultiplicity ? m : 0);
       const tableRows=pairs.map(pr=>({
         comparison:`${pr.labelA} vs ${pr.labelB}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
         df:pr.df!=null?pr.df:'—',
-        padj:formatP(pr.adjP),
+        pValue:formatP(showCustomMultiplicity ? pr.adjP : pr.p),
         effectParametric:pr.effectParametric,
         effectNonParametric:pr.effectNonParametric
       }));
@@ -18869,13 +19445,13 @@ Technical analysis record (advanced)
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3},
+          {key:'pValue',label:showCustomMultiplicity ? `P (adj, ${correctionMeta.shortLabel})` : 'P value',align:'right',index:3},
           {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:4,tooltip:paramEffectMeta.tooltip},
           {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:5,tooltip:nonParamEffectMeta.tooltip}
         ],
         rows:tableRows,
         footnotes:[
-          ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+          ...(showCustomMultiplicity && correctionMeta.footnote ? [correctionMeta.footnote] : []),
           ...effectFootnotes,
           ...dataQualityFootnotes
         ],
@@ -18885,11 +19461,11 @@ Technical analysis record (advanced)
         }
       });
       state.statsLastReport=finalizeStatsReport({
-        methodsText:`User-specified custom pairwise comparisons were tested with ${state.statsTest==='parametric' ? (state.statsPaired ? 'paired t-tests' : 'Welch two-sample t-tests') : (state.statsPaired ? 'Wilcoxon signed-rank tests' : 'Mann-Whitney U tests')} and ${correctionMeta.label} multiplicity control across the custom comparison family.`,
-        resultsText:`${pairs.length} custom comparison${pairs.length===1?' was':'s were'} reported with ${correctionMeta.shortLabel} adjusted P values.`,
+        methodsText:`User-specified custom pairwise comparisons were tested with ${pairTestMetaLocal.label}${showCustomMultiplicity ? ` and ${correctionMeta.label} multiplicity control across the custom comparison family` : ''}.`,
+        resultsText:`${pairs.length} custom comparison${pairs.length===1?' was':'s were'} reported${showCustomMultiplicity ? ` with ${correctionMeta.shortLabel} adjusted P values` : ''}.`,
         analysisSpec:buildStatsAnalysisSpec({ customPairs:pairs.length, comparisonMode:'custom' })
       },{
-        familyDescription:'Only the manually specified custom pairs were included in the multiplicity family.'
+        familyDescription:showCustomMultiplicity ? 'Only the manually specified custom pairs were included in the multiplicity family.' : ''
       });
 	      if(pairs.length){
 	        renderPairSignificanceAnnotations(pairs, { reason: 'custom' });
@@ -18897,8 +19473,14 @@ Technical analysis record (advanced)
       return;
     }
     const param=state.statsTest==='parametric';
-    const paramVariant=param?state.statsParametricVariant:'nonparametric';
-    const pairTest=param?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
+    const paramVariant=param?resolveStatsParametricVariant():'nonparametric';
+    const pairTestMeta=resolvePairwiseTestMeta({
+      family: state.statsTest,
+      paired: state.statsPaired,
+      mode: state.statsMode,
+      selectedCount: indices.length
+    });
+    const pairTest=pairTestMeta.run;
     if(state.statsMode==='oneSample'){
       const nullValue=sanitizeOneSampleNullValue(state.statsOneSampleValue);
       if(nullValue!==state.statsOneSampleValue){
@@ -18952,22 +19534,27 @@ Technical analysis record (advanced)
         setResultsMessage('No one-sample tests could be computed. Check that each selected column has enough numeric values.');
         return;
       }
-      const adjusted=applyPValueCorrection(validTests.map(test=>test.p),state.statsCorrection);
-      validTests.forEach((test,idx)=>{
-        test.adjP=Array.isArray(adjusted) && Number.isFinite(adjusted[idx]) ? adjusted[idx] : test.p;
-      });
+      const showOneSampleMultiplicity=validTests.length>1;
+      if(showOneSampleMultiplicity){
+        const adjusted=applyPValueCorrection(validTests.map(test=>test.p),state.statsCorrection);
+        validTests.forEach((test,idx)=>{
+          test.adjP=Array.isArray(adjusted) && Number.isFinite(adjusted[idx]) ? adjusted[idx] : test.p;
+        });
+      }else{
+        validTests.forEach(test=>{ test.adjP=test.p; });
+      }
       const correctionMeta=resolveCorrectionMeta(state.statsCorrection,validTests.length);
-      updateStatsCorrectionSummary(validTests.length);
+      updateStatsCorrectionSummary(showOneSampleMultiplicity ? validTests.length : 0);
       const skippedNotes=tests
         .filter(test=>!test.valid)
         .map(test=>`${test.label}: ${test.message || 'skipped'}`);
       if(param){
         state.statsLastReport=finalizeStatsReport({
-          methodsText:`One-sample t-tests were run against H0 = ${formatStatNumber(nullValue)} with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level, a ${state.statsAlternative} alternative hypothesis, and ${resolveCorrectionMeta(state.statsCorrection,validTests.length).label} adjustment across the selected groups.`,
+          methodsText:`One-sample t-tests were run against H0 = ${formatStatNumber(nullValue)} with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level, and a ${state.statsAlternative} alternative hypothesis.${showOneSampleMultiplicity ? ` ${resolveCorrectionMeta(state.statsCorrection,validTests.length).label} adjustment was applied across the selected groups.` : ''}`,
           resultsText:`${validTests.length} one-sample t-test${validTests.length===1?' was':'s were'} computed against H0 = ${formatStatNumber(nullValue)}.`,
           analysisSpec:buildStatsAnalysisSpec({ oneSample:true, test:'t-test', count:validTests.length })
         },{
-          familyDescription:'The selected one-sample tests were treated as one multiplicity family.'
+          familyDescription:showOneSampleMultiplicity ? 'The selected one-sample tests were treated as one multiplicity family.' : ''
         });
         renderTableModel({
           caption:'One-sample t-tests',
@@ -18980,8 +19567,8 @@ Technical analysis record (advanced)
             { key:'statistic', label:'t', align:'right', index:5 },
             { key:'df', label:'df', align:'right', index:6 },
             { key:'p', label:'P value', align:'right', index:7 },
-            { key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:8 },
-            { key:'note', label:'Note', align:'left', index:9 }
+            ...(showOneSampleMultiplicity ? [{ key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:8 }] : []),
+            { key:'note', label:'Note', align:'left', index:showOneSampleMultiplicity ? 9 : 8 }
           ],
           rows:tests.map(test=>({
             group:test.label,
@@ -18992,13 +19579,13 @@ Technical analysis record (advanced)
             statistic:Number.isFinite(test.stat)?formatStatNumber(test.stat):'-',
             df:Number.isFinite(test.auxValue)?formatStatNumber(test.auxValue,2):'-',
             p:test.valid?formatP(test.p):'-',
-            padj:test.valid?formatP(test.adjP):'-',
+            ...(showOneSampleMultiplicity ? { padj:test.valid?formatP(test.adjP):'-' } : {}),
             note:test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes:[
             `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
             `Alternative hypothesis: ${state.statsAlternative}. ${formatPercentLabel(state.statsCiLevel)} confidence intervals use alpha = ${formatStatNumber(1-state.statsCiLevel,3)}.`,
-            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...(showOneSampleMultiplicity && correctionMeta.footnote ? [correctionMeta.footnote] : []),
             ...skippedNotes,
             ...dataQualityFootnotes
           ],
@@ -19009,11 +19596,11 @@ Technical analysis record (advanced)
         });
       }else{
         state.statsLastReport=finalizeStatsReport({
-          methodsText:`One-sample Wilcoxon signed-rank tests were run against H0 = ${formatStatNumber(nullValue)} with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${state.statsAlternative} alternative hypothesis, and ${resolveCorrectionMeta(state.statsCorrection,validTests.length).label} adjustment across the selected groups. Small, tie-free samples used exact signed-rank P values when available; otherwise tie-aware Monte Carlo or asymptotic calibration was used.`,
+          methodsText:`One-sample Wilcoxon signed-rank tests were run against H0 = ${formatStatNumber(nullValue)} with alpha = ${formatStatNumber(state.statsAlpha,3)} and a ${state.statsAlternative} alternative hypothesis.${showOneSampleMultiplicity ? ` ${resolveCorrectionMeta(state.statsCorrection,validTests.length).label} adjustment was applied across the selected groups.` : ''} Small, tie-free samples used exact signed-rank P values when available; otherwise tie-aware Monte Carlo or asymptotic calibration was used.`,
           resultsText:`${validTests.length} one-sample Wilcoxon test${validTests.length===1?' was':'s were'} computed against H0 = ${formatStatNumber(nullValue)}.`,
           analysisSpec:buildStatsAnalysisSpec({ oneSample:true, test:'wilcoxon', count:validTests.length })
         },{
-          familyDescription:'The selected one-sample tests were treated as one multiplicity family.'
+          familyDescription:showOneSampleMultiplicity ? 'The selected one-sample tests were treated as one multiplicity family.' : ''
         });
         renderTableModel({
           caption:'One-sample Wilcoxon signed-rank tests',
@@ -19025,8 +19612,8 @@ Technical analysis record (advanced)
             { key:'statistic', label:'W', align:'right', index:4 },
             { key:'z', label:'z', align:'right', index:5 },
             { key:'p', label:'P value', align:'right', index:6 },
-            { key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:7 },
-            { key:'note', label:'Note', align:'left', index:8 }
+            ...(showOneSampleMultiplicity ? [{ key:'padj', label:`P (adj, ${correctionMeta.shortLabel})`, align:'right', index:7 }] : []),
+            { key:'note', label:'Note', align:'left', index:showOneSampleMultiplicity ? 8 : 7 }
           ],
           rows:tests.map(test=>({
             group:test.label,
@@ -19036,13 +19623,13 @@ Technical analysis record (advanced)
             statistic:Number.isFinite(test.stat)?formatStatNumber(test.stat):'-',
             z:Number.isFinite(test.auxValue)?formatStatNumber(test.auxValue):'-',
             p:test.valid?formatP(test.p):'-',
-            padj:test.valid?formatP(test.adjP):'-',
+            ...(showOneSampleMultiplicity ? { padj:test.valid?formatP(test.adjP):'-' } : {}),
             note:test.valid ? (test.method==='exact' ? 'exact' : '') : (test.message || 'Skipped')
           })),
           footnotes:[
             `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
             `Alternative hypothesis: ${state.statsAlternative}. Small, tie-free samples use exact signed-rank P values; otherwise a tie-corrected normal approximation with continuity correction is used.`,
-            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...(showOneSampleMultiplicity && correctionMeta.footnote ? [correctionMeta.footnote] : []),
             ...skippedNotes,
             ...dataQualityFootnotes
           ],
@@ -19061,6 +19648,7 @@ Technical analysis record (advanced)
     if(indices.length===2){
       const res=pairTest(groups[0],groups[1],{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
       const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
+      const reportedAlternative=formatStatsAlternativeDisplay(res.alternative || state.statsAlternative,{ forceTwoSided: !!pairTestMeta.forceTwoSided });
       const effectMetrics=computeEffectSizeMetrics(groups[0],groups[1],{ paired:state.statsPaired });
       console.debug('Debug: box pair summary effect metrics',{
         labels:labels,
@@ -19071,8 +19659,8 @@ Technical analysis record (advanced)
       const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
       const summaryRows=[
         { metric:'Comparison', value:`${labels[0]} vs ${labels[1]}` },
-        { metric:'Test', value:param?(state.statsPaired?'Paired t-test':'Welch t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U') },
-        { metric:statName, value:res[statName].toFixed(4) }
+        { metric:'Test', value:pairTestMeta.label },
+        { metric:statName, value:Number.isFinite(res[statName]) ? res[statName].toFixed(4) : '—' }
       ];
       const diffValue=Number.isFinite(res.diff)?res.diff:(mean(groups[0])-mean(groups[1]));
       if(Number.isFinite(diffValue)){
@@ -19082,23 +19670,19 @@ Technical analysis record (advanced)
         summaryRows.push({ metric:`Difference (${formatPercentLabel(res.ciLevel || state.statsCiLevel)} CI)`, value:formatConfidenceInterval(res.ciLow,res.ciHigh) });
       }
       if(res.df!==undefined){ summaryRows.push({ metric:'df', value:res.df.toFixed(4) }); }
-      summaryRows.push({ metric:'Alternative', value:state.statsAlternative });
+      summaryRows.push({ metric:'One- or two-sided P value ?', value:reportedAlternative });
       if(res.method){ summaryRows.push({ metric:'P-value method', value:res.method }); }
       summaryRows.push({ metric:'P value', value:formatP(res.p) });
-      const correctionMeta=resolveCorrectionMeta(state.statsCorrection,1);
-      const adjusted=applyPValueCorrection([res.p], state.statsCorrection);
-      const adjValue=Array.isArray(adjusted) && adjusted.length?adjusted[0]:res.p;
-      summaryRows.push({ metric:`P (${correctionMeta.shortLabel})`, value:formatP(adjValue) });
+      summaryRows.push({ metric:formatStatsSignificanceMetric(state.statsAlpha), value:interpretStatsPValue(res.p,state.statsAlpha) });
       summaryRows.push({ metric:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, value:formattedParamEffect });
       summaryRows.push({ metric:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, value:formattedNonParamEffect });
-      updateStatsCorrectionSummary(1);
+      updateStatsCorrectionSummary(0);
       const footnotes=[
-        ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
         ...effectFootnotes,
         ...dataQualityFootnotes
       ];
       state.statsLastReport=finalizeStatsReport({
-        methodsText:`${param ? (state.statsPaired ? 'A paired t-test' : 'A Welch two-sample t-test') : (state.statsPaired ? 'A Wilcoxon signed-rank test' : 'A Mann-Whitney U test')} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level, and a ${state.statsAlternative} alternative hypothesis. Effect sizes were reported as ${paramEffectMeta.shortLabel || paramEffectMeta.label} and ${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label}.`,
+        methodsText:`${pairTestMeta.label} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, and a ${reportedAlternative.toLowerCase()} P value. Effect sizes were reported as ${paramEffectMeta.shortLabel || paramEffectMeta.label} and ${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label}.`,
         resultsText:`${labels[0]} vs ${labels[1]}: ${statName} = ${Number.isFinite(res[statName]) ? formatStatNumber(res[statName]) : '—'}, p = ${formatP(res.p)}${Number.isFinite(res.ciLow) || Number.isFinite(res.ciHigh) ? `, difference ${formatConfidenceInterval(res.ciLow,res.ciHigh)}` : ''}.`,
         analysisSpec:buildStatsAnalysisSpec({ comparison:[labels[0],labels[1]], pMethod:res.method || null })
       },{
@@ -19123,11 +19707,10 @@ Technical analysis record (advanced)
 	      const baseCoord=valueToCoord(rangeMax);
 	      const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset;
 	      if(significanceEnabled){
-          const pairAnnotationP = Number.isFinite(adjValue) ? adjValue : res.p;
-	        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,pairAnnotationP,buildPairAnnotationStyle(indices[0], indices[1], 0, null));
+	        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,buildPairAnnotationStyle(indices[0], indices[1], 0, null));
 	        state.significanceMaxLevel = 0;
 	      }else{
-	        console.debug('Debug: box significance annotation skipped for pair',{ p: Number.isFinite(adjValue) ? adjValue : res.p, significanceEnabled });
+	        console.debug('Debug: box significance annotation skipped for pair',{ p: res.p, significanceEnabled });
 	      }
       return;
     }
@@ -19623,6 +20206,7 @@ Technical analysis record (advanced)
       }
     }
     if(pairs.length){
+      const showPairMultiplicity=pairs.length>1;
       let correctionMeta;
       if(postHocMode==='tukey'){
         correctionMeta={ key:'tukey', label:'Tukey HSD', shortLabel:'Tukey HSD', footnote:null };
@@ -19637,10 +20221,13 @@ Technical analysis record (advanced)
       }else{
         correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
       }
-      updateStatsCorrectionSummary(pairs.length);
+      updateStatsCorrectionSummary(showPairMultiplicity ? pairs.length : 0);
       console.debug('Debug: box pairwise correction applied',{ method:correctionMeta.key, count:pairs.length });
-      const footnotes=[`Alpha = ${formatStatNumber(state.statsAlpha,3)}. Alternative hypothesis = ${state.statsAlternative}.`, `Selected pairwise comparisons are treated as one multiplicity family in this view.`, describeResamplingForMethods({}), describeOutlierWorkflowForMethods({})];
-      if(correctionMeta.footnote){ footnotes.push(correctionMeta.footnote); }
+      const footnotes=[`Alpha = ${formatStatNumber(state.statsAlpha,3)}. Alternative hypothesis = ${state.statsAlternative}.`, describeResamplingForMethods({}), describeOutlierWorkflowForMethods({})];
+      if(showPairMultiplicity){
+        footnotes.push('Selected pairwise comparisons are treated as one multiplicity family in this view.');
+      }
+      if(showPairMultiplicity && correctionMeta.footnote){ footnotes.push(correctionMeta.footnote); }
       methodFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       dataQualityFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       let appendForPairs=false;
@@ -19679,6 +20266,7 @@ Technical analysis record (advanced)
           overallRows.push({ metric:'df', value:String(overall.df) });
         }
         overallRows.push({ metric:'P value', value:formatP(overall.p) });
+        overallRows.push({ metric:formatStatsSignificanceMetric(state.statsAlpha), value:interpretStatsPValue(overall.p,state.statsAlpha) });
         if(Number.isFinite(overall.etaSquared)){
           overallRows.push({ metric:'Eta squared (η²)', value:formatStatNumber(overall.etaSquared) });
         }
@@ -19731,7 +20319,7 @@ Technical analysis record (advanced)
         ci:(Number.isFinite(pr.ciLow)||Number.isFinite(pr.ciHigh)||pr.ciLow===-Infinity||pr.ciHigh===Infinity)
           ? formatConfidenceInterval(pr.ciLow,pr.ciHigh)
           : '—',
-        padj:formatP(pr.adjP),
+        pValue:formatP(showPairMultiplicity ? pr.adjP : pr.p),
         effectParametric:pr.effectParametric,
         effectNonParametric:pr.effectNonParametric
       }));
@@ -19749,7 +20337,7 @@ Technical analysis record (advanced)
               ? 'P (Dunnett T3)'
               : postHocMode==='nemenyi'
                 ? 'P (Nemenyi)'
-          : `P (adj, ${correctionMeta.shortLabel})`;
+          : (showPairMultiplicity ? `P (adj, ${correctionMeta.shortLabel})` : 'P value');
       const overallLabelForReport=overall
         ? (overall.method==='welch'
             ? 'Welch ANOVA'
@@ -19762,11 +20350,11 @@ Technical analysis record (advanced)
                   : 'Kruskal-Wallis')
         : '';
       state.statsLastReport=finalizeStatsReport({
-        methodsText:`${overall ? (overall.method==='welch' ? 'Welch ANOVA' : overall.method==='anova' ? 'One-way ANOVA' : overall.method==='rmAnova' ? 'Repeated-measures ANOVA' : overall.method==='friedman' ? 'Friedman test' : 'Kruskal-Wallis test') + ' followed by ' : ''}${postHocMode==='standard' ? (param ? (state.statsPaired ? 'paired contrasts' : 'pairwise contrasts') : 'rank-based pairwise contrasts') : (POST_HOC_META[postHocMode]?.label || postHocMode)} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, a ${state.statsAlternative} alternative hypothesis for pairwise tests, and ${correctionMeta.label} multiplicity control${postHocMode==='standard' ? ' applied to the selected comparison family' : ''}.`,
-        resultsText:`${overall ? `${overallLabelForReport}: p = ${formatP(overall.p)}. ` : ''}${pairs.length} pairwise comparison${pairs.length===1?' was':'s were'} reported${pairs.length ? ` with ${pLabel}` : ''}.`,
+        methodsText:`${overall ? (overall.method==='welch' ? 'Welch ANOVA' : overall.method==='anova' ? 'One-way ANOVA' : overall.method==='rmAnova' ? 'Repeated-measures ANOVA' : overall.method==='friedman' ? 'Friedman test' : 'Kruskal-Wallis test') + ' followed by ' : ''}${postHocMode==='standard' ? (param ? (state.statsPaired ? 'paired contrasts' : 'pairwise contrasts') : 'rank-based pairwise contrasts') : (POST_HOC_META[postHocMode]?.label || postHocMode)} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, and a ${formatStatsAlternativeDisplay(state.statsAlternative,{ forceTwoSided: !!pairTestMeta.forceTwoSided }).toLowerCase()} P value for pairwise tests.${showPairMultiplicity ? ` ${correctionMeta.label} multiplicity control${postHocMode==='standard' ? ' was applied to the selected comparison family' : ''}.` : ''}`,
+        resultsText:`${overall ? `${overallLabelForReport}: p = ${formatP(overall.p)}. ` : ''}${pairs.length} pairwise comparison${pairs.length===1?' was':'s were'} reported${showPairMultiplicity ? ` with ${pLabel}` : ''}.`,
         analysisSpec:buildStatsAnalysisSpec({ overallMethod: overall ? overall.method : null, pairCount:pairs.length, postHoc:postHocMode })
       },{
-        familyDescription:'All pairwise contrasts displayed in this table were treated as one multiplicity family.'
+        familyDescription:showPairMultiplicity ? 'All pairwise contrasts displayed in this table were treated as one multiplicity family.' : ''
       });
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
@@ -19776,7 +20364,7 @@ Technical analysis record (advanced)
           {key:'df',label:'df',align:'right',index:2},
           {key:'difference',label:'Difference',align:'right',index:3},
           {key:'ci',label:`${formatPercentLabel(state.statsCiLevel)} CI`,align:'right',index:4},
-          {key:'padj',label:pLabel,align:'right',index:5},
+          {key:'pValue',label:pLabel,align:'right',index:5},
           {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:6,tooltip:paramEffectMeta.tooltip},
           {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:7,tooltip:nonParamEffectMeta.tooltip}
         ],
@@ -25194,7 +25782,9 @@ Technical analysis record (advanced)
           outlierQ: state.statsOutlierQ,
           effectParametric: state.statsEffectParametric,
           effectNonParametric: state.statsEffectNonParametric,
-          parametricVariant: state.statsParametricVariant,
+          parametricVariant: resolveStatsParametricVariant(),
+          nonParametricVariant: resolveStatsNonParametricVariant(),
+          reportPScientific: sanitizeStatsReportPScientific(state.statsReportPScientific),
           groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns,
           assumptions: serializeAssumptions(state.assumptionDiagnostics),
@@ -25288,6 +25878,8 @@ Technical analysis record (advanced)
     payload.config.stats.effectParametric = EFFECT_SIZE_PARAM_OPTIONS[0].value;
     payload.config.stats.effectNonParametric = EFFECT_SIZE_NONPARAM_OPTIONS[0].value;
     payload.config.stats.parametricVariant = 'classic';
+    payload.config.stats.nonParametricVariant = 'mannWhitney';
+    payload.config.stats.reportPScientific = false;
     payload.config.stats.groupedAnalysis = 'twoWayAnova';
     payload.config.stats.selectedColumns = [];
     payload.config.stats.assumptions = null;
@@ -25777,12 +26369,9 @@ Technical analysis record (advanced)
     state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
     state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
     state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
-    const variantCandidate=typeof statsConfig.parametricVariant==='string'?statsConfig.parametricVariant:'classic';
-    const allowedVariants=new Set(['classic','welch','nonparametric']);
-    state.statsParametricVariant=allowedVariants.has(variantCandidate)?variantCandidate:'classic';
-    if(state.statsTest!=='parametric'){
-      state.statsParametricVariant='nonparametric';
-    }
+    state.statsParametricVariant=sanitizeStatsParametricVariant(statsConfig.parametricVariant,'classic');
+    state.statsNonParametricVariant=sanitizeStatsNonParametricVariant(statsConfig.nonParametricVariant);
+    state.statsReportPScientific=sanitizeStatsReportPScientific(statsConfig.reportPScientific);
     const candidateRef=Number(statsConfig.referenceIndex);
     const maxIndex=labelCount>0?labelCount-1:-1;
     if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
@@ -25855,6 +26444,8 @@ Technical analysis record (advanced)
       statsCorrection: state.statsCorrection,
       statsEffectParametric: state.statsEffectParametric,
       statsEffectNonParametric: state.statsEffectNonParametric,
+      statsNonParametricVariant: state.statsNonParametricVariant,
+      statsReportPScientific: state.statsReportPScientific,
       selectedCount: state.selectedCols.size,
       hasPairsText: !!state.statsPairsText
     });

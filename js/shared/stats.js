@@ -1565,7 +1565,7 @@
     if(!controls){
       controls = documentRef.createElement('div');
       controls.className = 'stats-significance-controls';
-      controls.innerHTML = '<label class="stats-significance-controls__label">Significance threshold (p \u2264) <input type="number" class="stats-significance-controls__input" min="0.000001" max="1" step="0.0001" data-undo-ignore="1" /></label><span class="stats-significance-controls__hint">Applies when p-values are present.</span>';
+      controls.innerHTML = '<label class="stats-significance-controls__label">Significance threshold (p \u2264) <input type="number" class="stats-significance-controls__input" min="0.000001" max="1" step="0.0001" data-undo-ignore="1" /></label><span class="stats-significance-controls__hint">Applies when p-values are present.</span><span class="stats-significance-controls__extra"></span>';
       target.insertBefore(controls, target.firstChild || null);
       statsReportingDebug('createSignificanceControls', { id: target.id || null });
     }
@@ -1580,6 +1580,25 @@
           thresholdInput.value = String(reporting.getSignificanceThreshold());
         });
         state.thresholdInputEl = thresholdInput;
+      }
+    }
+    let extraControls = controls.querySelector('.stats-significance-controls__extra');
+    if(!extraControls){
+      extraControls = documentRef.createElement('span');
+      extraControls.className = 'stats-significance-controls__extra';
+      controls.appendChild(extraControls);
+    }
+    if(extraControls){
+      extraControls.textContent = '';
+      const extraFactory = typeof target.__statsExtraControlFactory === 'function'
+        ? target.__statsExtraControlFactory
+        : null;
+      const extraNode = extraFactory ? extraFactory({ document: documentRef, target, controls }) : null;
+      if(extraNode){
+        extraControls.appendChild(extraNode);
+        extraControls.hidden = false;
+      }else{
+        extraControls.hidden = true;
       }
     }
     let main = findDirectChildByClass(target, 'stats-results-main');
