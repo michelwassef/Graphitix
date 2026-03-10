@@ -20658,6 +20658,13 @@ Technical analysis record (advanced)
       && Number.isFinite(ymin)
       && ymin >= 0
     );
+    const shouldAutoPadNegativeNonBarAxisLowerBound = (
+      graphTypeRaw !== 'bar'
+      && !logScale
+      && !Number.isFinite(manualYMinValue)
+      && Number.isFinite(ymin)
+      && ymin < 0
+    );
     const scaleDataMin = shouldAutoClampPositiveNonBarAxisToZero ? 0 : ymin;
     const scaleDataMax = ymax;
     if(shouldAutoClampPositiveNonBarAxisToZero){
@@ -20692,6 +20699,65 @@ Technical analysis record (advanced)
         console.debug('Debug: box log tick override',{ tickCount: scale.ticks.length, orientation: state.flipAxes ? 'horizontal' : 'vertical' });
       }
       return applied;
+    };
+    const ensureNegativeAutoAxisLowerPadding = scale => {
+      if(!shouldAutoPadNegativeNonBarAxisLowerBound || !scale || Number.isFinite(manualYMinValue)){
+        return scale;
+      }
+      const currentMin = Number(scale.min);
+      const currentMax = Number(scale.max);
+      if(!Number.isFinite(currentMin) || !Number.isFinite(currentMax) || currentMin >= currentMax){
+        return scale;
+      }
+      let step = Number(scale.step);
+      const ticks = Array.isArray(scale.ticks)
+        ? scale.ticks.map(Number).filter(value => Number.isFinite(value))
+        : [];
+      if((!Number.isFinite(step) || step <= 0) && ticks.length > 1){
+        let smallestGap = Infinity;
+        for(let i = 1; i < ticks.length; i += 1){
+          const gap = ticks[i] - ticks[i - 1];
+          if(Number.isFinite(gap) && gap > 0 && gap < smallestGap){
+            smallestGap = gap;
+          }
+        }
+        if(Number.isFinite(smallestGap) && smallestGap > 0){
+          step = smallestGap;
+        }
+      }
+      if(!Number.isFinite(step) || step <= 0){
+        return scale;
+      }
+      const tolerance = Math.max(Math.abs(step) * 1e-9, 1e-9);
+      const currentGap = ymin - currentMin;
+      const minimumDesiredGap = Math.max(step * 0.12, tolerance * 10);
+      if(currentGap > minimumDesiredGap + tolerance){
+        return scale;
+      }
+      const nextMin = Number.parseFloat((currentMin - step).toPrecision(12));
+      if(!Number.isFinite(nextMin) || nextMin >= currentMin - tolerance){
+        return scale;
+      }
+      const nextTicks = ticks.length ? ticks.slice() : [currentMin, currentMax];
+      if(!nextTicks.length || Math.abs(nextTicks[0] - currentMin) > tolerance){
+        nextTicks.unshift(currentMin);
+      }
+      nextTicks.unshift(nextMin);
+      nextTicks.sort((a, b) => a - b);
+      scale.min = nextMin;
+      scale.ticks = nextTicks.filter((value, index, arr) => index === 0 || Math.abs(value - arr[index - 1]) > tolerance);
+      boxDebug('Debug: box negative lower axis padding applied', {
+        graphType: graphTypeRaw,
+        orientation: state.flipAxes ? 'horizontal' : 'vertical',
+        dataMin: ymin,
+        dataMax: ymax,
+        previousMin: currentMin,
+        nextMin,
+        step,
+        currentGap,
+        minimumDesiredGap
+      });
+      return scale;
     };
     const shouldRenderZeroReferenceLine = scale => (
       graphTypeRaw !== 'bar'
@@ -21197,10 +21263,12 @@ Technical analysis record (advanced)
         manualMax: manualYMaxValue,
         targetTickCount: yTickTarget
       });
+      ensureNegativeAutoAxisLowerPadding(yScale);
       let manualYScale = null;
       if(yIntervalSetting){
         const manual = buildManualTicks(scaleDataMin, scaleDataMax, yIntervalSetting);
         if(manual){
+          ensureNegativeAutoAxisLowerPadding(manual);
           manualYScale = manual;
           yScale = manual;
           yTickTarget = manual.ticks.length;
@@ -21222,6 +21290,7 @@ Technical analysis record (advanced)
             targetTickCount: yTickTarget
           });
           applyLogTickOverride(yScale);
+          ensureNegativeAutoAxisLowerPadding(yScale);
         }
         tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
         tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
@@ -23084,11 +23153,13 @@ Technical analysis record (advanced)
       if(xIntervalSetting){
         const manual = buildManualTicks(scaleDataMin, scaleDataMax, xIntervalSetting);
         if(manual){
+          ensureNegativeAutoAxisLowerPadding(manual);
           yScale = manual;
           console.debug('Debug: box x-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
         }
       }else{
         applyLogTickOverride(yScale);
+        ensureNegativeAutoAxisLowerPadding(yScale);
       }
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
