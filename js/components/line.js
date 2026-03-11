@@ -9022,28 +9022,35 @@
       if(isFinite(xMaxManual)) xMax=xMaxManual;
       if(isFinite(yMinManual)) yMin=yMinManual;
       if(isFinite(yMaxManual)) yMax=yMaxManual;
-        if(originMode==='custom'){
-          if(isFinite(originXInput)){
-            if(!(logX && originXInput<=0)){
-              if(originXInput<xMin) xMin=originXInput;
-              if(originXInput>xMax) xMax=originXInput;
-          }
+      const useZeroOrigin = originMode === 'zero';
+      if(originMode==='custom'){
+        if(isFinite(originXInput) && !(logX && originXInput<=0)){
+          if(originXInput<xMin) xMin=originXInput;
+          if(originXInput>xMax) xMax=originXInput;
         }
-        if(isFinite(originYInput)){
-          if(!(logY && originYInput<=0)){
-            if(originYInput<yMin) yMin=originYInput;
-            if(originYInput>yMax) yMax=originYInput;
-            }
-          }
+        if(isFinite(originYInput) && !(logY && originYInput<=0)){
+          if(originYInput<yMin) yMin=originYInput;
+          if(originYInput>yMax) yMax=originYInput;
         }
-        const rangeForClipping = { xMin, xMax, yMin, yMax };
-        seriesWithData = clipSeriesToRange(seriesWithData, rangeForClipping);
-        if(!seriesWithData.length){
-          resetLineRenderState('no-valid-series-after-clipping');
-          handleLineStatsUnavailable(statsContext, 'Adjust the axis range to enable statistics.');
-          console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
-          return;
+      }else if(useZeroOrigin){
+        if(!logX){
+          if(!isFinite(xMinManual)) xMin=Math.min(xMin,0);
+          if(!isFinite(xMaxManual)) xMax=Math.max(xMax,0);
         }
+        if(!logY){
+          if(!isFinite(yMinManual)) yMin=Math.min(yMin,0);
+          if(!isFinite(yMaxManual)) yMax=Math.max(yMax,0);
+        }
+        lineDebug('Debug: line range adjusted for zero origin',{xMin,xMax,yMin,yMax,logX,logY});
+      }
+      const rangeForClipping = { xMin, xMax, yMin, yMax };
+      seriesWithData = clipSeriesToRange(seriesWithData, rangeForClipping);
+      if(!seriesWithData.length){
+        resetLineRenderState('no-valid-series-after-clipping');
+        handleLineStatsUnavailable(statsContext, 'Adjust the axis range to enable statistics.');
+        console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
+        return;
+      }
       const pointsInRange = [];
       seriesWithData.forEach(seriesEntry => {
         seriesEntry.points.forEach(pt => {
@@ -9405,6 +9412,9 @@
       if(originMode==='custom'){
         originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);
         originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);
+      }else if(originMode==='zero'){
+        originXT=logX?xScale.min:0;
+        originYT=logY?yScale.min:0;
       }else{
         originXT=xScale.min;
         originYT=yScale.min;
@@ -9453,6 +9463,16 @@
       if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
       if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+      const axisCrossTickTolerance = Math.max(1.5, axisStrokeWidth * 1.5);
+      const axisCrossLabelTolerance = Math.max(1.5, axisStrokeWidth * 1.5, tickLen * 0.2);
+      const yAxisCrossesXTickZone = axisYEnd > (xAxisY + axisCrossTickTolerance);
+      const xAxisCrossesYTickZone = axisXStart < (yAxisX - axisCrossTickTolerance);
+      const yAxisCrossesXLabelZone = axisYEnd > (xAxisY + axisCrossLabelTolerance);
+      const xAxisCrossesYLabelZone = axisXStart < (yAxisX - axisCrossLabelTolerance);
+      const shouldHideXAxisTickMark = pixel => yAxisCrossesXTickZone && Number.isFinite(pixel) && Math.abs(pixel - yAxisX) <= axisCrossTickTolerance;
+      const shouldHideYAxisTickMark = pixel => xAxisCrossesYTickZone && Number.isFinite(pixel) && Math.abs(pixel - xAxisY) <= axisCrossTickTolerance;
+      const shouldHideXAxisTickLabel = pixel => yAxisCrossesXLabelZone && Number.isFinite(pixel) && Math.abs(pixel - yAxisX) <= axisCrossLabelTolerance;
+      const shouldHideYAxisTickLabel = pixel => xAxisCrossesYLabelZone && Number.isFinite(pixel) && Math.abs(pixel - xAxisY) <= axisCrossLabelTolerance;
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
       const minorSubdivisionsX = getLineAxisMinorTickSubdivisions('x');
       const minorSubdivisionsY = getLineAxisMinorTickSubdivisions('y');
@@ -9712,6 +9732,7 @@
         minorTicksX.forEach(value => {
           if(!isXValueVisible(value)){ return; }
           const x = x2px(value);
+          if(shouldHideXAxisTickMark(x)){ return; }
           add('line',{
             x1: x,
             y1: xAxisY,
@@ -9729,7 +9750,15 @@
           return; // Skip ticks that fall in gaps
         }
         const x=x2px(t);
+        if(shouldHideXAxisTickMark(x)){
+          lineDebug('Debug: line x-axis tick mark hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
+          return;
+        }
         add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        if(shouldHideXAxisTickLabel(x)){
+          lineDebug('Debug: line x-axis tick label hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
+          return;
+        }
         const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
         const txt=add('text',{x,y:xAxisY+tickLen+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTickX(logX?Math.pow(10,t):t);
@@ -9785,6 +9814,10 @@
               registerAdditionalLineControlElement('x', index, lineEl);
             },
             onTick: ({ pixel }) => {
+              if(shouldHideXAxisTickMark(pixel)){
+                lineDebug('Debug: line additional x-axis tick mark hidden at axis crossing',{ pixel });
+                return;
+              }
               add('line',{
                 x1: pixel,
                 y1: xAxisY,
@@ -9795,6 +9828,10 @@
               });
             },
             onLabel: ({ pixel, label, nearMajor }) => {
+              if(shouldHideXAxisTickLabel(pixel)){
+                lineDebug('Debug: line additional x-axis label hidden at axis crossing',{ pixel, label });
+                return;
+              }
               if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
                 return;
               }
@@ -9822,6 +9859,7 @@
         minorTicksY.forEach(value => {
           if(!isYValueVisible(value)){ return; }
           const y = y2px(value);
+          if(shouldHideYAxisTickMark(y)){ return; }
           add('line',{
             x1: yAxisX - minorTickStyle.length,
             y1: y,
@@ -9839,7 +9877,15 @@
           return; // Skip ticks that fall in gaps
         }
         const y=y2px(t);
+        if(shouldHideYAxisTickMark(y)){
+          lineDebug('Debug: line y-axis tick mark hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
+          return;
+        }
         add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        if(shouldHideYAxisTickLabel(y)){
+          lineDebug('Debug: line y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
+          return;
+        }
         const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTickY(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');
@@ -9892,6 +9938,10 @@
               registerAdditionalLineControlElement('y', index, lineEl);
             },
             onTick: ({ pixel }) => {
+              if(shouldHideYAxisTickMark(pixel)){
+                lineDebug('Debug: line additional y-axis tick mark hidden at axis crossing',{ pixel });
+                return;
+              }
               add('line',{
                 x1: yAxisX - tickLen,
                 y1: pixel,
@@ -9902,6 +9952,10 @@
               });
             },
             onLabel: ({ pixel, label, nearMajor }) => {
+              if(shouldHideYAxisTickLabel(pixel)){
+                lineDebug('Debug: line additional y-axis label hidden at axis crossing',{ pixel, label });
+                return;
+              }
               if(nearMajor && replaceMajorTickLabel(yMajorTickLabels, pixel, label)){
                 return;
               }

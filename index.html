@@ -673,7 +673,8 @@
                 <label class="config-panel__item config-panel__item--select-auto">
                   <span class="config-panel__label">Origin</span>
                   <select id="scatterOriginMode">
-                    <option value="lower" selected>Lower left</option>
+                    <option value="zero" selected>Zero</option>
+                    <option value="lower">Lower left</option>
                     <option value="custom">Custom</option>
                   </select>
                 </label>
@@ -1230,7 +1231,8 @@
                 <div class="idx-inline-042">
                   <label class="idx-inline-023">Origin</label>
                   <select id="lineOriginMode">
-                    <option value="lower" selected>Lower Left</option>
+                    <option value="zero" selected>Zero</option>
+                    <option value="lower">Lower Left</option>
                     <option value="custom">Custom</option>
                   </select>
                 </div>
@@ -1404,40 +1406,6 @@
                 </div>
               </div>
             </fieldset>
-            <div class="heatmap-layout-colors-row">
-              <fieldset class="heatmap-layout-panel">
-                <legend>Layout</legend>
-                <div class="heatmap-control-list">
-                  <div class="heatmap-inline-group">
-                    <span class="heatmap-nowrap">Cell Size</span>
-                    <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
-                    <output id="heatmapCellSizeVal">60</output>
-                  </div>
-                  <div class="heatmap-inline-group">
-                    <span class="heatmap-nowrap">Font Size</span>
-                    <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="13" />
-                    <output id="heatmapFontSizeVal">13</output>
-                  </div>
-                </div>
-              </fieldset>
-              <fieldset class="heatmap-colors-panel">
-                <legend>Colors</legend>
-                <div class="heatmap-color-pickers">
-                  <label class="color-picker">
-                    <input type="color" id="heatmapColorNegative" value="#313695" />
-                    <span class="heatmap-nowrap">Negative</span>
-                  </label>
-                  <label class="color-picker">
-                    <input type="color" id="heatmapColorZero" value="#f7f7f7" />
-                    <span class="heatmap-nowrap">Neutral</span>
-                  </label>
-                  <label class="color-picker">
-                    <input type="color" id="heatmapColorPositive" value="#a50026" />
-                    <span class="heatmap-nowrap">Positive</span>
-                  </label>
-                </div>
-              </fieldset>
-            </div>
           </div>
         </div>
         <div class="heatmap-lower-panels">
@@ -1449,7 +1417,7 @@
                   <input type="checkbox" id="heatmapLogTransform" />
                   <span class="heatmap-nowrap">Log transform data</span>
                 </label>
-                <div class="heatmap-subgroup">
+                <div class="heatmap-subgroup heatmap-subgroup--inline">
                   <label class="heatmap-inline-group">
                     <input type="checkbox" id="heatmapCenterGenes" />
                     <span class="heatmap-nowrap">Center rows</span>
@@ -1465,7 +1433,7 @@
                     </label>
                   </div>
                 </div>
-                <div class="heatmap-subgroup">
+                <div class="heatmap-subgroup heatmap-subgroup--inline">
                   <label class="heatmap-inline-group">
                     <input type="checkbox" id="heatmapCenterArrays" />
                     <span class="heatmap-nowrap">Center columns</span>
@@ -1493,25 +1461,25 @@
             </fieldset>
             <fieldset>
               <legend>Filter Rows</legend>
-              <div class="heatmap-control-list">
-                <label class="heatmap-inline-group">
+              <div class="heatmap-control-list heatmap-filter-list">
+                <label class="heatmap-inline-group heatmap-filter-row">
                   <input type="checkbox" id="heatmapFilterPresentEnable" />
                   <span class="heatmap-nowrap">% Present &gt;=</span>
                   <input type="number" id="heatmapFilterPresentValue" value="80" min="0" max="100" step="1" />
                 </label>
-                <label class="heatmap-inline-group">
+                <label class="heatmap-inline-group heatmap-filter-row">
                   <input type="checkbox" id="heatmapFilterSdEnable" />
                   <span class="heatmap-nowrap">SD (Row Vector) &gt;=</span>
                   <input type="number" id="heatmapFilterSdValue" value="2" step="0.1" />
                 </label>
-                <div class="heatmap-inline-group">
+                <div class="heatmap-inline-group heatmap-filter-row heatmap-filter-row--abs">
                   <input type="checkbox" id="heatmapFilterAbsEnable" />
                   <span class="heatmap-nowrap">At least</span>
                   <input type="number" id="heatmapFilterAbsCount" value="1" min="1" step="1" class="heatmap-count-field" />
                   <span class="heatmap-nowrap">observations with abs(val) &gt;=</span>
                   <input type="number" id="heatmapFilterAbsValue" value="2" step="0.1" />
                 </div>
-                <label class="heatmap-inline-group">
+                <label class="heatmap-inline-group heatmap-filter-row">
                   <input type="checkbox" id="heatmapFilterRangeEnable" />
                   <span class="heatmap-nowrap">MaxVal - MinVal &gt;=</span>
                   <input type="number" id="heatmapFilterRangeValue" value="2" step="0.1" />
@@ -1524,13 +1492,11 @@
               <legend>Clustering</legend>
               <div class="heatmap-control-list">
                 <div class="heatmap-subgroup">
-                  <strong class="heatmap-subgroup-title">Rows</strong>
-                  <label class="heatmap-inline-group">
-                    <input type="checkbox" id="heatmapClusterGenes" checked />
-                    <span class="heatmap-nowrap">Cluster rows</span>
-                  </label>
-                  <div class="heatmap-inline-group">
-                    <span class="heatmap-nowrap">Similarity Metric</span>
+                  <div class="heatmap-inline-group heatmap-cluster-row">
+                    <label class="heatmap-inline-group">
+                      <input type="checkbox" id="heatmapClusterGenes" checked />
+                      <span class="heatmap-nowrap">Cluster rows</span>
+                    </label>
                     <select id="heatmapGenesMetric" class="heatmap-metric-select">
                       <option value="pearson">Correlation (Pearson)</option>
                       <option value="spearman">Correlation (Spearman)</option>
@@ -1540,13 +1506,11 @@
                   </div>
                 </div>
                 <div class="heatmap-subgroup">
-                  <strong class="heatmap-subgroup-title">Columns</strong>
-                  <label class="heatmap-inline-group">
-                    <input type="checkbox" id="heatmapClusterArrays" checked />
-                    <span class="heatmap-nowrap">Cluster columns</span>
-                  </label>
-                  <div class="heatmap-inline-group">
-                    <span class="heatmap-nowrap">Similarity Metric</span>
+                  <div class="heatmap-inline-group heatmap-cluster-row">
+                    <label class="heatmap-inline-group">
+                      <input type="checkbox" id="heatmapClusterArrays" checked />
+                      <span class="heatmap-nowrap">Cluster columns</span>
+                    </label>
                     <select id="heatmapArraysMetric" class="heatmap-metric-select">
                       <option value="pearson">Correlation (Pearson)</option>
                       <option value="spearman">Correlation (Spearman)</option>

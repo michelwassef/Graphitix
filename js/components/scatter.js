@@ -11417,6 +11417,104 @@
         return [graphKey,pointsKey,groupedKey,thresholdKey,significanceKey,domainKey,controlKey].join('::');
       }
 
+      function resolveScatterCachedVisualStatsForContext(context){
+        const signature = buildScatterStatsSignature(context);
+        const cachedContext = scatterState.statsContext;
+        const canReuseActiveContext = scatterHasComputedStats()
+          && typeof scatterState.statsContextSignature === 'string'
+          && scatterState.statsContextSignature === signature
+          && !!cachedContext?.precomputedStats;
+        if(canReuseActiveContext){
+          return {
+            signature,
+            stats: cachedContext.precomputedStats,
+            controlSignature: cachedContext.precomputedSignature || getScatterStatsControlSignature()
+          };
+        }
+        const signatureCache = readScatterStatsCache(signature);
+        if(signatureCache?.stats){
+          return {
+            signature,
+            stats: signatureCache.stats,
+            controlSignature: signatureCache.controlSignature || getScatterStatsControlSignature()
+          };
+        }
+        return {
+          signature,
+          stats: null,
+          controlSignature: getScatterStatsControlSignature()
+        };
+      }
+
+      function collectScatterIntervalYBounds(stats, options = {}){
+        const includeConfidence = !!options.includeConfidence;
+        const includePrediction = !!options.includePrediction;
+        if(!stats || (!includeConfidence && !includePrediction)){
+          return null;
+        }
+        const groupedStats = Array.isArray(stats?.groupedSeriesStats) ? stats.groupedSeriesStats : [];
+        const models = groupedStats.length
+          ? groupedStats.map(entry => entry?.stats?.regression).filter(Boolean)
+          : [stats?.regression].filter(Boolean);
+        if(!models.length){
+          return null;
+        }
+        const logX = !!options.logX;
+        const logY = !!options.logY;
+        const minX = Number.isFinite(options.minX) ? options.minX : null;
+        const maxX = Number.isFinite(options.maxX) ? options.maxX : null;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        let modelCount = 0;
+        let sampleCount = 0;
+        const includeValue = value => {
+          if(!Number.isFinite(value)){
+            return false;
+          }
+          if(logY && value <= 0){
+            return false;
+          }
+          if(value < minY){ minY = value; }
+          if(value > maxY){ maxY = value; }
+          sampleCount += 1;
+          return true;
+        };
+        models.forEach(model => {
+          const samples = Array.isArray(model?.intervals?.samples) ? model.intervals.samples : [];
+          if(!samples.length){
+            return;
+          }
+          modelCount += 1;
+          samples.forEach(sample => {
+            const xRaw = Number(sample?.x);
+            if(!Number.isFinite(xRaw)){
+              return;
+            }
+            if(logX && xRaw <= 0){
+              return;
+            }
+            if(minX !== null && xRaw < minX){
+              return;
+            }
+            if(maxX !== null && xRaw > maxX){
+              return;
+            }
+            if(includeConfidence){
+              includeValue(Number(sample?.ciLow));
+              includeValue(Number(sample?.ciHigh));
+            }
+            if(includePrediction){
+              includeValue(Number(sample?.piLow));
+              includeValue(Number(sample?.piHigh));
+            }
+          });
+        });
+        if(!Number.isFinite(minY) || !Number.isFinite(maxY)){
+          return null;
+        }
+        return { minY, maxY, modelCount, sampleCount };
+      }
+
       function shouldUseScatterStatsWorker(points, regressionMode, fitMethod){
         const workerApi = Shared.Workers;
         if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
@@ -15788,6 +15886,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(isFinite(xMaxManual)) xMax=xMaxManual;
         if(isFinite(yMinManual)) yMin=yMinManual;
         if(isFinite(yMaxManual)) yMax=yMaxManual;
+        const useZeroOrigin = originMode === 'zero';
         if(originMode==='custom'){
           if(isFinite(originXInput)){
             if(logX && originXInput<=0){
@@ -15806,9 +15905,102 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             }
           }
           info('scatter range adjusted for custom origin',{xMin,xMax,yMin,yMax});
+        }else if(useZeroOrigin){
+          if(!logX){
+            if(!isFinite(xMinManual)) xMin = Math.min(xMin, 0);
+            if(!isFinite(xMaxManual)) xMax = Math.max(xMax, 0);
+          }
+          if(!logY){
+            if(!isFinite(yMinManual)) yMin = Math.min(yMin, 0);
+            if(!isFinite(yMaxManual)) yMax = Math.max(yMax, 0);
+          }
+          info('scatter range adjusted for zero origin',{xMin,xMax,yMin,yMax,logX,logY});
         }
         let pointsInRange = points;
         let removedForRange = 0;
+        let cachedVisualStats = null;
+        let cachedVisualStatsSignature = null;
+        let cachedVisualStatsControlSignature = null;
+        if(graphType === 'scatter' && showIntervals){
+          const statsSourcePoints = groupedScatterActive
+            ? points.filter(point => !point?.isGroupedReplicatePoint)
+            : points;
+          const statsPoints = statsSourcePoints.map(p => ({
+            label: p.label,
+            series: p.series || p.label || '',
+            pointName: p.pointName || p.label || '',
+            x: p.x,
+            y: p.y
+          }));
+          const groupedStatsSeries = groupedScatterActive
+            ? Array.from(statsPoints.reduce((acc, point) => {
+                const rawLabel = point?.series != null && String(point.series).trim() !== ''
+                  ? String(point.series).trim()
+                  : (point?.label != null && String(point.label).trim() !== ''
+                    ? String(point.label).trim()
+                    : '');
+                if(!rawLabel){
+                  return acc;
+                }
+                if(!acc.has(rawLabel)){
+                  acc.set(rawLabel, []);
+                }
+                acc.get(rawLabel).push(point);
+                return acc;
+              }, new Map()).entries())
+              .map(([label, groupPoints]) => ({ label, points: groupPoints.slice() }))
+            : [];
+          const statsPayloadBase = {
+            graphType: 'scatter',
+            points: statsPoints,
+            pointSummary: summarizeScatterPoints(statsPoints),
+            domain: { minX: xMin, maxX: xMax },
+            groupedSeries: groupedStatsSeries,
+            thresholds: null,
+            significance: null,
+            precomputedStats: null,
+            precomputedSignature: null,
+            signatureSeed: groupedStatsSeries.length ? buildScatterGroupedSignatureSeed(groupedStatsSeries) : null
+          };
+          const cachedStatsResult = resolveScatterCachedVisualStatsForContext(statsPayloadBase);
+          cachedVisualStats = cachedStatsResult.stats;
+          cachedVisualStatsSignature = cachedStatsResult.signature;
+          cachedVisualStatsControlSignature = cachedStatsResult.controlSignature;
+          const intervalBounds = collectScatterIntervalYBounds(cachedVisualStats, {
+            includeConfidence: !!(scatterShowCI && scatterShowCI.checked),
+            includePrediction: !!(scatterShowPI && scatterShowPI.checked),
+            minX: xMin,
+            maxX: xMax,
+            logX,
+            logY
+          });
+          if(intervalBounds){
+            const previousYMin = yMin;
+            const previousYMax = yMax;
+            if(!isFinite(yMinManual)){
+              yMin = Math.min(yMin, intervalBounds.minY);
+            }
+            if(!isFinite(yMaxManual)){
+              yMax = Math.max(yMax, intervalBounds.maxY);
+            }
+            debug('Debug: scatter auto range expanded for interval bands', {
+              previousYMin,
+              previousYMax,
+              nextYMin: yMin,
+              nextYMax: yMax,
+              intervalMinY: intervalBounds.minY,
+              intervalMaxY: intervalBounds.maxY,
+              modelCount: intervalBounds.modelCount,
+              sampleCount: intervalBounds.sampleCount,
+              signature: cachedVisualStatsSignature
+            });
+          }else{
+            debug('Debug: scatter interval bounds unavailable for auto range', {
+              hasCachedVisualStats: !!cachedVisualStats,
+              signature: cachedVisualStatsSignature
+            });
+          }
+        }
         const fullRangeCoverage = points.length
           && xMin <= xMinRaw
           && xMax >= xMaxRaw
@@ -17326,7 +17518,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         }
         let originXT,originYT;
-        if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
+        if(originMode==='custom'){
+          originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);
+          originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);
+        }else if(originMode==='zero'){
+          originXT=logX?xScale.min:0;
+          originYT=logY?yScale.min:0;
+        }else{
+          originXT=xScale.min;
+          originYT=yScale.min;
+        }
         const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
         const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
         info('scatter origin final',{originXT,originYT,clampedXT,clampedYT});
@@ -17346,6 +17547,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(axisXStart===axisXEnd){axisXStart=axisXMinPos;axisXEnd=axisXMaxPos;}
         if(axisYStart===axisYEnd){axisYStart=axisYMinPos;axisYEnd=axisYMaxPos;}
         debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+        const axisCrossTickTolerance = Math.max(1.5, axisStrokeWidth * 1.5);
+        const axisCrossLabelTolerance = Math.max(1.5, axisStrokeWidth * 1.5, tickLen * 0.2);
+        const yAxisCrossesXTickZone = axisYEnd > (xAxisY + axisCrossTickTolerance);
+        const xAxisCrossesYTickZone = axisXStart < (yAxisX - axisCrossTickTolerance);
+        const yAxisCrossesXLabelZone = axisYEnd > (xAxisY + axisCrossLabelTolerance);
+        const xAxisCrossesYLabelZone = axisXStart < (yAxisX - axisCrossLabelTolerance);
+        const shouldHideXAxisTickMark = pixel => yAxisCrossesXTickZone && Number.isFinite(pixel) && Math.abs(pixel - yAxisX) <= axisCrossTickTolerance;
+        const shouldHideYAxisTickMark = pixel => xAxisCrossesYTickZone && Number.isFinite(pixel) && Math.abs(pixel - xAxisY) <= axisCrossTickTolerance;
+        const shouldHideXAxisTickLabel = pixel => yAxisCrossesXLabelZone && Number.isFinite(pixel) && Math.abs(pixel - yAxisX) <= axisCrossLabelTolerance;
+        const shouldHideYAxisTickLabel = pixel => xAxisCrossesYLabelZone && Number.isFinite(pixel) && Math.abs(pixel - xAxisY) <= axisCrossLabelTolerance;
         const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
         const minorSubdivisionsX = getScatterAxisMinorTickSubdivisions('x');
         const minorSubdivisionsY = getScatterAxisMinorTickSubdivisions('y');
@@ -17592,6 +17803,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           minorTicksX.forEach(value => {
             if(!isXValueVisible(value)){ return; }
             const x = x2px(value);
+            if(shouldHideXAxisTickMark(x)){ return; }
             add('line',{
               x1: x,
               y1: xAxisY,
@@ -17609,7 +17821,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
           const x = x2px(t);
+          if(shouldHideXAxisTickMark(x)){
+            debug('Debug: scatter x-axis tick mark hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
+            return;
+          }
           add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+          if(shouldHideXAxisTickLabel(x)){
+            debug('Debug: scatter x-axis tick label hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
+            return;
+          }
           const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
           const txt = add('text',{x, y: xAxisY + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor':'middle', fill: chartStyle.TEXT_COLOR});
           txt.textContent = formatTickX(logX ? Math.pow(10, t) : t);
@@ -17665,6 +17885,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 registerAdditionalLineControlElement('x', index, lineEl);
               },
               onTick: ({ pixel }) => {
+                if(shouldHideXAxisTickMark(pixel)){
+                  debug('Debug: scatter additional x-axis tick mark hidden at axis crossing',{ pixel });
+                  return;
+                }
                 add('line',{
                   x1: pixel,
                   y1: xAxisY,
@@ -17675,6 +17899,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 });
               },
               onLabel: ({ pixel, label, nearMajor }) => {
+                if(shouldHideXAxisTickLabel(pixel)){
+                  debug('Debug: scatter additional x-axis label hidden at axis crossing',{ pixel, label });
+                  return;
+                }
                 if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
                   return;
                 }
@@ -17703,6 +17931,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           minorTicksY.forEach(value => {
             if(!isYValueVisible(value)){ return; }
             const y = y2px(value);
+            if(shouldHideYAxisTickMark(y)){ return; }
             add('line',{
               x1: yAxisX - minorTickStyle.length,
               y1: y,
@@ -17720,7 +17949,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
           const y=y2px(t);
+          if(shouldHideYAxisTickMark(y)){
+            debug('Debug: scatter y-axis tick mark hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
+            return;
+          }
           add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+          if(shouldHideYAxisTickLabel(y)){
+            debug('Debug: scatter y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
+            return;
+          }
           const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
           txt.textContent=formatTickY(logY?Math.pow(10,t):t);
           markFontEditable(txt,'yTick');
@@ -17774,6 +18011,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 registerAdditionalLineControlElement('y', index, lineEl);
               },
               onTick: ({ pixel }) => {
+                if(shouldHideYAxisTickMark(pixel)){
+                  debug('Debug: scatter additional y-axis tick mark hidden at axis crossing',{ pixel });
+                  return;
+                }
                 add('line',{
                   x1: yAxisX - tickLen,
                   y1: pixel,
@@ -17784,6 +18025,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 });
               },
               onLabel: ({ pixel, label, nearMajor }) => {
+                if(shouldHideYAxisTickLabel(pixel)){
+                  debug('Debug: scatter additional y-axis label hidden at axis crossing',{ pixel, label });
+                  return;
+                }
                 if(nearMajor && replaceMajorTickLabel(yMajorTickLabels, pixel, label)){
                   return;
                 }
@@ -19164,25 +19409,23 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             signatureSeed: groupedSignatureSeed || null
           };
           const nextStatsSignature=buildScatterStatsSignature(statsPayloadBase);
-          const cachedContext=scatterState.statsContext;
-          const canReuseActiveContext=scatterHasComputedStats()
-            && typeof scatterState.statsContextSignature==='string'
-            && scatterState.statsContextSignature===nextStatsSignature
-            && !!cachedContext?.precomputedStats;
-          const signatureCache=readScatterStatsCache(nextStatsSignature);
-          let visualStats=null;
-          if(canReuseActiveContext){
-            visualStats=cachedContext.precomputedStats;
-            statsPayloadBase.precomputedStats=cachedContext.precomputedStats;
-            statsPayloadBase.precomputedSignature=cachedContext.precomputedSignature || getScatterStatsControlSignature();
-          }else if(signatureCache?.stats){
-            visualStats=signatureCache.stats;
-            statsPayloadBase.precomputedStats=signatureCache.stats;
-            statsPayloadBase.precomputedSignature=signatureCache.controlSignature || getScatterStatsControlSignature();
-            scatterDebug('Debug: scatter stats restored from signature cache', {
-              signature: nextStatsSignature,
-              groupedSeries: Array.isArray(visualStats?.groupedSeriesStats) ? visualStats.groupedSeriesStats.length : 0
-            });
+          const cachedStatsResult = (cachedVisualStatsSignature === nextStatsSignature)
+            ? {
+                signature: cachedVisualStatsSignature,
+                stats: cachedVisualStats,
+                controlSignature: cachedVisualStatsControlSignature
+              }
+            : resolveScatterCachedVisualStatsForContext(statsPayloadBase);
+          let visualStats=cachedStatsResult.stats;
+          if(visualStats){
+            statsPayloadBase.precomputedStats=visualStats;
+            statsPayloadBase.precomputedSignature=cachedStatsResult.controlSignature || getScatterStatsControlSignature();
+            if(cachedStatsResult.signature === nextStatsSignature){
+              scatterDebug('Debug: scatter stats restored from signature cache', {
+                signature: nextStatsSignature,
+                groupedSeries: Array.isArray(visualStats?.groupedSeriesStats) ? visualStats.groupedSeriesStats.length : 0
+              });
+            }
           }
           if(visualStats?.regression){
             scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function'

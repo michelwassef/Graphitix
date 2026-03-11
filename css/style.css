@@ -4150,6 +4150,10 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 #heatmapGraphPanel .config-panel .heatmap-size-input{width:80px}
 #heatmapGraphPanel .config-panel .heatmap-inline-group input[type=range]{flex:1 1 auto;min-width:120px}
 #heatmapGraphPanel .config-panel .heatmap-inline-group output{min-width:32px;text-align:right}
+#heatmapPage .heatmap-filter-list{gap:5px}
+#heatmapPage .heatmap-filter-row{display:flex;align-items:center;justify-content:flex-start;gap:5px;flex-wrap:nowrap;width:100%;min-width:0;min-height:22px}
+#heatmapPage .heatmap-filter-row input[type=checkbox]{flex:0 0 auto}
+#heatmapPage .heatmap-filter-row>span{flex:0 0 auto}
 #heatmapGraphPanel .config-panel .heatmap-color-pickers{display:flex;flex-direction:column;gap:8px}
 #heatmapGraphPanel .config-panel .heatmap-color-pickers .color-picker{font-size:13px}
 #heatmapGraphPanel .config-panel .heatmap-hint{font-size:11px;color:#666}
@@ -4325,6 +4329,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .config-panel__fieldset input[type=number],
 .config-panel input[type=number],
 .config-panel fieldset input[type=number]{width:var(--config-panel-number-width,96px);max-width:var(--config-panel-number-width,96px);flex:0 0 var(--config-panel-number-width,96px);padding-right:0;padding-left:8px}
+#heatmapPage .heatmap-filter-row input[type=number]{width:54px;max-width:54px;flex:0 0 54px;height:24px;padding:1px 4px 1px 6px;font-size:11px;line-height:18px}
+#heatmapPage .heatmap-filter-row .heatmap-count-field{width:38px;max-width:38px;flex:0 0 38px}
 .config-panel select,
 .config-panel__fieldset select,
 .config-panel select,
@@ -4533,6 +4539,34 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #heatmapPage .heatmap-lower-right{flex:1 1 300px;min-width:260px;display:flex;flex-direction:column}
 #heatmapPage .heatmap-lower-right fieldset{height:100%}
 #heatmapPage .heatmap-lower-left fieldset{min-height:0}
+#heatmapPage .heatmap-lower-panels,
+#heatmapPage .heatmap-lower-panels fieldset{font-family:var(--ui-font-family);color:#1d2532;--graph-control-font-size:13px}
+#heatmapPage .heatmap-lower-panels fieldset{border:1px solid #b9c2d0;background:#fbfcff;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
+#heatmapPage .heatmap-lower-panels legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
+#heatmapPage .heatmap-lower-panels .heatmap-control-list,
+#heatmapPage .heatmap-lower-panels .heatmap-control-block,
+#heatmapPage .heatmap-lower-panels .heatmap-subgroup{font-size:12px;color:#1c2534}
+#heatmapPage .heatmap-lower-panels .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:7px;width:100%}
+#heatmapPage .heatmap-lower-panels .heatmap-subgroup{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%}
+#heatmapPage .heatmap-lower-panels .heatmap-subgroup--inline{flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap}
+#heatmapPage .heatmap-lower-panels .heatmap-inline-group,
+#heatmapPage .heatmap-lower-panels .heatmap-control-block,
+#heatmapPage .heatmap-lower-panels .heatmap-control-block>span{font-size:var(--graph-control-font-size,13px);font-weight:400;letter-spacing:0;text-transform:none;color:#111b2c}
+#heatmapPage .heatmap-lower-panels .heatmap-inline-group{display:inline-flex;align-items:center;gap:6px;line-height:1.3;min-height:22px}
+#heatmapPage .heatmap-lower-panels .heatmap-inline-group>input[type=checkbox],
+#heatmapPage .heatmap-lower-panels .heatmap-inline-group>input[type=radio]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
+#heatmapPage .heatmap-lower-panels .heatmap-subgroup-title{font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;color:#111b2c}
+#heatmapPage .heatmap-lower-panels .heatmap-cluster-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%}
+#heatmapPage .heatmap-lower-panels .heatmap-cluster-row>label{flex:0 0 auto}
+#heatmapPage .heatmap-lower-panels .heatmap-cluster-row select{flex:0 1 auto}
+#heatmapPage .heatmap-lower-panels .heatmap-subgroup-options{display:flex;align-items:center;gap:12px;margin-left:24px;flex-wrap:wrap}
+#heatmapPage .heatmap-lower-panels .heatmap-subgroup--inline .heatmap-subgroup-options{margin-left:0}
+#heatmapPage .heatmap-lower-panels select,
+#heatmapPage .heatmap-lower-panels input[type=text],
+#heatmapPage .heatmap-lower-panels input[type=number]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);box-sizing:border-box}
+#heatmapPage .heatmap-lower-panels select{appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
+#heatmapPage .heatmap-lower-panels select:focus,
+#heatmapPage .heatmap-lower-panels input:not([type=range]):focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
 #heatmapPage .panel{display:flex;flex-direction:column;min-width:0}
 #heatmapPage #heatmapSvg{width:100%;height:auto;min-width:0;min-height:0;flex:1 1 auto}
 @media (max-width:1000px){#heatmapPage .wrap{grid-template-columns:1fr}}
@@ -4591,11 +4625,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host.font-toolbar-host--axis{flex:0 0 auto;justify-content:flex-start;align-self:center;width:100%;max-width:100%;margin-left:0;margin-right:0}
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
 .font-toolbar-host--box-dual.font-toolbar-host--visible,
+.font-toolbar-host--heatmap-dual.font-toolbar-host--visible,
 .font-toolbar-host--scatter-dual.font-toolbar-host--visible,
 .font-toolbar-host--grid-dual.font-toolbar-host--visible,
 .font-toolbar-host--significance-dual.font-toolbar-host--visible{display:grid}
 .font-toolbar-host--line-dual,
 .font-toolbar-host--box-dual,
+.font-toolbar-host--heatmap-dual,
 .font-toolbar-host--scatter-dual,
 .font-toolbar-host--grid-dual,
 .font-toolbar-host--significance-dual{
@@ -4618,6 +4654,18 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .font-toolbar-host--line-dual .additional-line-controls-panel,
 .font-toolbar-host--box-dual .additional-line-controls-panel,
 .font-toolbar-host--scatter-dual .additional-line-controls-panel{
+  width:max-content;
+  min-width:max-content;
+  flex:0 0 auto;
+  align-self:stretch;
+  padding-left:10px;
+  border-left:none;
+  background-image:linear-gradient(#cbd5e1,#cbd5e1);
+  background-repeat:no-repeat;
+  background-position:left center;
+  background-size:1px calc(100% - 12px);
+}
+.font-toolbar-host--heatmap-dual .heatmap-palette-controls-panel{
   width:max-content;
   min-width:max-content;
   flex:0 0 auto;

@@ -310,6 +310,11 @@
   const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const HEATMAP_DATA_VIEW_MAX = 12;
   const DEFAULT_HEATMAP_FONT_SIZE_PT = 13;
+  const DEFAULT_HEATMAP_PALETTE = Object.freeze({
+    negative: '#313695',
+    zero: '#f7f7f7',
+    positive: '#a50026'
+  });
   const HEATMAP_TEXT_SCALE_MODE = 'preserve-fit';
   const HEATMAP_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
     headerRows: 1,
@@ -367,7 +372,8 @@
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
     },
-    labelPositions: { title: null }
+    labelPositions: { title: null },
+    palette: { ...DEFAULT_HEATMAP_PALETTE }
   };
 
   function ensureHeatmapPerformanceState(){
@@ -429,6 +435,307 @@
       };
     }
     return state.dendrogramSettings;
+  }
+
+  function normalizeHeatmapPalette(palette){
+    const next = palette && typeof palette === 'object' ? palette : {};
+    const normalize = (value, fallback) => {
+      const text = typeof value === 'string' ? value.trim() : '';
+      return text || fallback;
+    };
+    return {
+      negative: normalize(next.negative, DEFAULT_HEATMAP_PALETTE.negative),
+      zero: normalize(next.zero, DEFAULT_HEATMAP_PALETTE.zero),
+      positive: normalize(next.positive, DEFAULT_HEATMAP_PALETTE.positive)
+    };
+  }
+
+  function getHeatmapPalette(){
+    state.palette = normalizeHeatmapPalette(state.palette);
+    return { ...state.palette };
+  }
+
+  function syncHeatmapPaletteInputs(doc){
+    const palette = getHeatmapPalette();
+    if(refs.colorNegative){ refs.colorNegative.value = palette.negative; }
+    if(refs.colorZero){ refs.colorZero.value = palette.zero; }
+    if(refs.colorPositive){ refs.colorPositive.value = palette.positive; }
+    const root = doc || global.document;
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return palette;
+    }
+    root.querySelectorAll('.heatmap-palette-controls-panel input[data-heatmap-palette-key]').forEach(input => {
+      const key = input?.dataset?.heatmapPaletteKey || '';
+      if(key && palette[key]){
+        input.value = palette[key];
+      }
+    });
+    return palette;
+  }
+
+  function updateHeatmapPalette(patch, options = {}){
+    const previous = getHeatmapPalette();
+    const next = normalizeHeatmapPalette({ ...previous, ...(patch || {}) });
+    state.palette = next;
+    syncHeatmapPaletteInputs(options.document);
+    if(options.skipSchedule !== true){
+      state.scheduleDraw({
+        viewOnly: true,
+        reason: options.reason || 'palette-change'
+      });
+    }
+    debugLog('Debug: heatmap palette updated', {
+      reason: options.reason || 'palette-change',
+      palette: next
+    });
+    return next;
+  }
+
+  function resolveHeatmapToolbarHost(doc){
+    const root = doc || global.document;
+    if(!root){
+      return null;
+    }
+    const anchor = root.getElementById ? root.getElementById('heatmapFontHost') : null;
+    if(anchor && anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')){
+      return anchor.nextElementSibling;
+    }
+    return root.querySelector('.font-toolbar-host[data-font-toolbar-scope="heatmap"]') || null;
+  }
+
+  function ensureHeatmapToolbarHost(doc){
+    const root = doc || global.document;
+    if(!root){
+      return null;
+    }
+    const existing = resolveHeatmapToolbarHost(root);
+    if(existing){
+      return existing;
+    }
+    const anchor = root.getElementById ? root.getElementById('heatmapFontHost') : null;
+    if(!anchor || !anchor.insertAdjacentElement){
+      return null;
+    }
+    const host = root.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = 'heatmap';
+    host.style.display = 'none';
+    anchor.insertAdjacentElement('afterend', host);
+    return host;
+  }
+
+  function resetHeatmapPaletteHostLayout(host){
+    if(!host){
+      return;
+    }
+    host.classList.remove('font-toolbar-host--heatmap-dual');
+    host.style.removeProperty('display');
+    host.style.removeProperty('grid-auto-flow');
+    host.style.removeProperty('grid-auto-columns');
+    host.style.removeProperty('column-gap');
+    host.style.removeProperty('align-items');
+    host.style.removeProperty('justify-content');
+  }
+
+  function clearHeatmapPalettePanel(host){
+    if(!host || typeof host.querySelectorAll !== 'function'){
+      return;
+    }
+    host.querySelectorAll('.heatmap-palette-controls-panel').forEach(node => {
+      const panel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
+      if(panel && panel.parentNode){
+        panel.parentNode.removeChild(panel);
+        return;
+      }
+      if(node.parentNode){
+        node.parentNode.removeChild(node);
+      }
+    });
+  }
+
+  function setHeatmapToolbarHostVisible(host){
+    if(!host){
+      return;
+    }
+    host.style.display = 'block';
+    host.classList.add('font-toolbar-host--visible');
+    const dock = host.closest ? host.closest('.workspace-toolbar__dock') : null;
+    if(dock && dock.classList){
+      dock.classList.add('workspace-toolbar__dock--active');
+    }
+  }
+
+  function detachHeatmapPaletteDocClick(host){
+    if(!host || !host.__heatmapPaletteDocClickHandler || !global.document){
+      return;
+    }
+    global.document.removeEventListener('click', host.__heatmapPaletteDocClickHandler, true);
+    host.__heatmapPaletteDocClickHandler = null;
+  }
+
+  function attachHeatmapPaletteDocClick(host){
+    if(!host || !global.document){
+      return;
+    }
+    detachHeatmapPaletteDocClick(host);
+    const onDocClick = event => {
+      const target = event?.target || null;
+      if(!target){
+        return;
+      }
+      if(host.contains(target)){
+        return;
+      }
+      if(target.closest && target.closest('.shared-color-picker')){
+        return;
+      }
+      detachHeatmapPaletteDocClick(host);
+      clearHeatmapPalettePanel(host);
+      resetHeatmapPaletteHostLayout(host);
+      host.classList.remove('font-toolbar-host--visible');
+      host.style.display = 'none';
+      const dock = host.closest ? host.closest('.workspace-toolbar__dock') : null;
+      if(dock && dock.classList){
+        dock.classList.remove('workspace-toolbar__dock--active');
+      }
+    };
+    global.document.addEventListener('click', onDocClick, true);
+    host.__heatmapPaletteDocClickHandler = onDocClick;
+  }
+
+  function showHeatmapPaletteFormatControls(options = {}){
+    const doc = options.document || global.document;
+    if(!doc){
+      return null;
+    }
+    const appendToHost = options.appendToHost === true;
+    if(!appendToHost && options.skipHideAll !== true && typeof Shared.hideAllFormatControls === 'function'){
+      try{
+        Shared.hideAllFormatControls();
+      }catch(err){
+        debugLog('Debug: heatmap palette hideAllFormatControls failed', { error: err?.message || String(err) });
+      }
+    }
+    const host = options.host || ensureHeatmapToolbarHost(doc);
+    if(!host){
+      return null;
+    }
+    detachHeatmapPaletteDocClick(host);
+    clearHeatmapPalettePanel(host);
+    if(!appendToHost){
+      resetHeatmapPaletteHostLayout(host);
+    }
+
+    const panel = doc.createElement('div');
+    panel.className = 'workspace-toolbar__panel heatmap-palette-controls-panel';
+    panel.dataset.heatmapPaletteControls = '1';
+
+    const title = doc.createElement('div');
+    title.className = 'workspace-toolbar__panel-title';
+    title.textContent = 'Heatmap Colors';
+    panel.appendChild(title);
+
+    const form = doc.createElement('div');
+    form.className = 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row';
+    form.dataset.heatmapPaletteControls = '1';
+
+    const palette = getHeatmapPalette();
+    const fieldDefs = [
+      { key: 'negative', label: 'Negative' },
+      { key: 'zero', label: 'Neutral' },
+      { key: 'positive', label: 'Positive' }
+    ];
+    fieldDefs.forEach(field => {
+      const label = doc.createElement('label');
+      label.className = 'additional-line-controls-panel__field heatmap-palette-controls__field';
+
+      const caption = doc.createElement('span');
+      caption.className = 'additional-line-controls-panel__field-label';
+      caption.textContent = field.label;
+      label.appendChild(caption);
+
+      const input = doc.createElement('input');
+      input.type = 'color';
+      input.value = palette[field.key];
+      input.dataset.heatmapPaletteKey = field.key;
+      input.setAttribute('aria-label', `${field.label} heatmap color`);
+      if(typeof global.attachColorPickerNear === 'function'){
+        global.attachColorPickerNear(input);
+      }
+      input.addEventListener('input', () => {
+        updateHeatmapPalette({ [field.key]: input.value }, {
+          reason: `palette-${field.key}`,
+          document: doc
+        });
+      });
+      label.appendChild(input);
+
+      form.appendChild(label);
+    });
+
+    panel.appendChild(form);
+    host.appendChild(panel);
+    setHeatmapToolbarHostVisible(host);
+
+    if(appendToHost){
+      host.classList.add('font-toolbar-host--heatmap-dual');
+      host.style.display = 'grid';
+      host.style.gridAutoFlow = 'column';
+      host.style.gridAutoColumns = 'max-content';
+      host.style.columnGap = '10px';
+      host.style.alignItems = 'flex-start';
+      host.style.justifyContent = 'flex-start';
+    }else{
+      attachHeatmapPaletteDocClick(host);
+    }
+
+    debugLog('Debug: heatmap palette toolbar shown', {
+      appendToHost,
+      hasHost: true
+    });
+    return { host, panel };
+  }
+
+  function handleHeatmapSvgFormatClick(event){
+    const target = event?.target || null;
+    const svg = state.svg;
+    if(!target || !svg || !svg.contains(target)){
+      return;
+    }
+    const legendTarget = typeof target.closest === 'function'
+      ? target.closest('[data-heatmap-palette-trigger="legend"]')
+      : null;
+    if(legendTarget){
+      showHeatmapPaletteFormatControls({ document: global.document });
+      return;
+    }
+    let textTarget = target;
+    if(textTarget.tagName?.toLowerCase() !== 'text' && typeof textTarget.closest === 'function'){
+      const ownerText = textTarget.closest('text');
+      if(ownerText){
+        textTarget = ownerText;
+      }
+    }
+    if(!textTarget || textTarget.tagName?.toLowerCase() !== 'text'){
+      return;
+    }
+    if(textTarget.dataset?.fontEditable === '0'){
+      return;
+    }
+    const scope = textTarget.dataset?.fontScope || svg.dataset?.fontScope || null;
+    if(scope !== 'heatmap'){
+      return;
+    }
+    const host = resolveHeatmapToolbarHost(global.document);
+    if(!host || !host.classList || !host.classList.contains('font-toolbar-host--visible')){
+      return;
+    }
+    showHeatmapPaletteFormatControls({
+      document: global.document,
+      host,
+      appendToHost: true,
+      skipHideAll: true
+    });
   }
 
   function getDendrogramThickness(){
@@ -1824,6 +2131,12 @@
       input: refs.fontSize,
       manual: true
     });
+    state.palette = normalizeHeatmapPalette({
+      negative: refs.colorNegative?.value,
+      zero: refs.colorZero?.value,
+      positive: refs.colorPositive?.value
+    });
+    syncHeatmapPaletteInputs(global.document);
 
     const schedule = () => {
       if(state.suspendControlSchedule){
@@ -2074,7 +2387,14 @@
       }
       el.addEventListener('input', () => {
         console.debug('Debug: heatmap color changed', { id: el.id, value: el.value });
-        scheduleViewOnly(`color-${el.id}`);
+        updateHeatmapPalette({
+          negative: refs.colorNegative?.value,
+          zero: refs.colorZero?.value,
+          positive: refs.colorPositive?.value
+        }, {
+          reason: `color-${el.id}`,
+          document: global.document
+        });
       });
     });
     refs.cellSize?.addEventListener('input', () => {
@@ -3323,11 +3643,7 @@
       significanceThreshold: getHeatmapSignificanceThreshold(),
       cellSize: Math.max(12, Number(refs.cellSize?.value) || 60),
       fontSize: Math.max(8, Number(refs.fontSize?.value) || DEFAULT_HEATMAP_FONT_SIZE_PT),
-      palette: {
-        negative: refs.colorNegative?.value || '#313695',
-        zero: refs.colorZero?.value || '#f7f7f7',
-        positive: refs.colorPositive?.value || '#a50026'
-      },
+      palette: getHeatmapPalette(),
       filters: {
         presentEnabled: !!refs.filterPresentEnable?.checked,
         presentThreshold: Number(refs.filterPresentValue?.value),
@@ -5690,8 +6006,19 @@
       tickLabel.setAttribute('font-size', String(tickFont));
       tickLabel.textContent = tick.label !== undefined ? String(tick.label) : (colorScale?.tickFormatter ? colorScale.tickFormatter(tick.value) : String(tick.value));
       markFontEditable(tickLabel, 'scaleTick', `scale-tick-${tick.value}`);
+      if(tickLabel.dataset){
+        tickLabel.dataset.fontEditable = '0';
+        tickLabel.dataset.heatmapPaletteTrigger = 'legend';
+      }
       scaleGroup.appendChild(tickLabel);
     });
+    if(scaleGroup.querySelectorAll){
+      scaleGroup.querySelectorAll('*').forEach(node => {
+        if(node?.dataset){
+          node.dataset.heatmapPaletteTrigger = 'legend';
+        }
+      });
+    }
     g.appendChild(scaleGroup);
     state.textAspectMetrics = {
       rowCount,
@@ -6548,11 +6875,7 @@
       showSignificance: !!refs.showSignificance?.checked,
       significanceDisplay: refs.significanceDisplay?.value === 'pvalue' ? 'pvalue' : 'star',
       decimals: clampDecimals(refs.decimals?.value),
-      colors: {
-        negative: refs.colorNegative?.value || '#313695',
-        zero: refs.colorZero?.value || '#f7f7f7',
-        positive: refs.colorPositive?.value || '#a50026'
-      },
+      colors: getHeatmapPalette(),
       cellSize: Number(refs.cellSize?.value) || 60,
       fontSize: Number(refs.fontSize?.value) || DEFAULT_HEATMAP_FONT_SIZE_PT,
       fontStyles: exportFontStyles('heatmap') || undefined,
@@ -6637,9 +6960,8 @@
       if(refs.showSignificance) refs.showSignificance.checked = !!config.showSignificance;
       if(refs.significanceDisplay) refs.significanceDisplay.value = config.significanceDisplay === 'pvalue' ? 'pvalue' : 'star';
       if(refs.decimals) refs.decimals.value = String(clampDecimals(config.decimals));
-      if(refs.colorNegative) refs.colorNegative.value = config.colors?.negative || '#313695';
-      if(refs.colorZero) refs.colorZero.value = config.colors?.zero || '#f7f7f7';
-      if(refs.colorPositive) refs.colorPositive.value = config.colors?.positive || '#a50026';
+      state.palette = normalizeHeatmapPalette(config.colors);
+      syncHeatmapPaletteInputs(global.document);
       if(refs.cellSize){
         refs.cellSize.value = String(config.cellSize || 60);
         if(refs.cellSizeVal){ refs.cellSizeVal.textContent = refs.cellSize.value; }
@@ -7015,6 +7337,10 @@
         console.debug('Debug: heatmap fontControls enableForSvg invoked', { hasFontControls: !!fontControls }); // Debug: font toolbar binding
       } else {
         console.debug('Debug: heatmap fontControls enableForSvg missing', { hasFontControls: !!fontControls });
+      }
+      if(!state.svg.__heatmapPaletteFormatBound){
+        state.svg.addEventListener('click', handleHeatmapSvgFormatClick, false);
+        state.svg.__heatmapPaletteFormatBound = true;
       }
       ensureHeatmapFontObserver();
       ensureHeatmapFontEventListener();
