@@ -9761,12 +9761,16 @@
           debugLog('Debug: pca font size base restored',{ value: pcaFontSize.value });
         }
         chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
-        if(c.stats){
-          lastPcaStats = c.stats;
+        const restoredStats = (obj.stats && typeof obj.stats === 'object')
+          ? obj.stats
+          : ((c.stats && typeof c.stats === 'object') ? c.stats : null);
+        if(restoredStats){
+          lastPcaStats = cloneSimple(restoredStats) || restoredStats;
           debugLog('Debug: pca stats restored from payload',{
-            hasEigenSummary: Array.isArray(c.stats?.eigenSummary) && c.stats.eigenSummary.length > 0,
-            hasScree: Array.isArray(c.stats?.scree) && c.stats.scree.length > 0,
-            method: c.stats?.method || null
+            hasEigenSummary: Array.isArray(lastPcaStats?.eigenSummary) && lastPcaStats.eigenSummary.length > 0,
+            hasScree: Array.isArray(lastPcaStats?.scree) && lastPcaStats.scree.length > 0,
+            method: lastPcaStats?.method || null,
+            source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
           });
         }else{
           resetStatsPanel('');
@@ -10018,24 +10022,73 @@
       return true;
     }
 
+    function captureElementState(node, options = {}){
+      if(!node){ return null; }
+      const includeMaxWidth = !!options.includeMaxWidth;
+      return {
+        hidden: !!node.hidden,
+        display: node.style?.display || '',
+        maxWidth: includeMaxWidth ? (node.style?.maxWidth || '') : undefined
+      };
+    }
+
+    function restoreElementState(node, state, options = {}){
+      if(!node || !state){ return false; }
+      const includeMaxWidth = !!options.includeMaxWidth;
+      if(Object.prototype.hasOwnProperty.call(state, 'hidden')){
+        node.hidden = !!state.hidden;
+      }
+      if(node.style && Object.prototype.hasOwnProperty.call(state, 'display')){
+        if(state.display){
+          node.style.display = state.display;
+        }else{
+          node.style.removeProperty('display');
+        }
+      }
+      if(includeMaxWidth && node.style && Object.prototype.hasOwnProperty.call(state, 'maxWidth')){
+        if(state.maxWidth){
+          node.style.maxWidth = state.maxWidth;
+        }else{
+          node.style.removeProperty('max-width');
+        }
+      }
+      return true;
+    }
+
     pca.captureRenderCache = function captureRenderCache(){
       const plot = document.getElementById('pcaPlot');
       const stats = document.getElementById('pcaStatsResults');
       const summary = document.getElementById('pcaStatsSummary');
       const scree = document.getElementById('pcaScreePlot');
+      const screeContainer = document.getElementById('pcaScreeContainer');
+      const screeExportControls = document.getElementById('pcaScreeExportControls');
+      const varianceSummary = document.getElementById('pcaVarianceSummary');
+      const eigenTableContainer = document.getElementById('pcaEigenTableContainer');
+      const loadingsContainer = document.getElementById('pcaLoadingsContainer');
+      const screeVarianceRow = document.getElementById('pcaScreeVarianceRow');
       const plotCache = detachChildren(plot);
       const statsCache = detachChildren(stats);
       const summaryCache = detachChildren(summary);
       const screeCache = detachChildren(scree);
+      const uiState = {
+        screeContainer: captureElementState(screeContainer, { includeMaxWidth: true }),
+        screeExportControls: captureElementState(screeExportControls),
+        varianceSummary: captureElementState(varianceSummary),
+        eigenTableContainer: captureElementState(eigenTableContainer),
+        loadingsContainer: captureElementState(loadingsContainer),
+        screeVarianceRow: captureElementState(screeVarianceRow)
+      };
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: pca render cache captured', {
           plotNodes: plotCache?.count || 0,
           statsNodes: statsCache?.count || 0,
           summaryNodes: summaryCache?.count || 0,
-          screeNodes: screeCache?.count || 0
+          screeNodes: screeCache?.count || 0,
+          screeHidden: uiState.screeContainer?.hidden ?? null,
+          varianceHidden: uiState.varianceSummary?.hidden ?? null
         });
       }
-      return { plot: plotCache, stats: statsCache, summary: summaryCache, scree: screeCache };
+      return { plot: plotCache, stats: statsCache, summary: summaryCache, scree: screeCache, uiState };
     };
 
     pca.restoreRenderCache = function restoreRenderCache(cache){
@@ -10044,10 +10097,50 @@
       const stats = document.getElementById('pcaStatsResults');
       const summary = document.getElementById('pcaStatsSummary');
       const scree = document.getElementById('pcaScreePlot');
+      const screeContainer = document.getElementById('pcaScreeContainer');
+      const screeExportControls = document.getElementById('pcaScreeExportControls');
+      const varianceSummary = document.getElementById('pcaVarianceSummary');
+      const eigenTableContainer = document.getElementById('pcaEigenTableContainer');
+      const loadingsContainer = document.getElementById('pcaLoadingsContainer');
+      const screeVarianceRow = document.getElementById('pcaScreeVarianceRow');
       const restoredPlot = restoreChildren(plot, cache.plot);
       const restoredStats = restoreChildren(stats, cache.stats);
       const restoredSummary = restoreChildren(summary, cache.summary);
       const restoredScree = restoreChildren(scree, cache.scree);
+      restoreElementState(screeContainer, cache.uiState?.screeContainer, { includeMaxWidth: true });
+      restoreElementState(screeExportControls, cache.uiState?.screeExportControls);
+      restoreElementState(varianceSummary, cache.uiState?.varianceSummary);
+      restoreElementState(eigenTableContainer, cache.uiState?.eigenTableContainer);
+      restoreElementState(loadingsContainer, cache.uiState?.loadingsContainer);
+      restoreElementState(screeVarianceRow, cache.uiState?.screeVarianceRow);
+      if(restoredScree && screeContainer && !cache.uiState?.screeContainer){
+        screeContainer.hidden = false;
+      }
+      if(restoredScree && screeExportControls && !cache.uiState?.screeExportControls){
+        screeExportControls.style.display = '';
+      }
+      if(lastPcaStats && (!restoredScree || (screeContainer && screeContainer.hidden))){
+        const restoredMethod = String(lastPcaStats.method || '').toLowerCase();
+        const restoredEigenSummary = Array.isArray(lastPcaStats.eigenSummary) ? lastPcaStats.eigenSummary : [];
+        const restoredScreeData = Array.isArray(lastPcaStats.scree) ? lastPcaStats.scree : [];
+        renderScreeChart({
+          show: restoredMethod === 'pca',
+          data: restoredScreeData,
+          method: restoredMethod,
+          pointColor: pcaFill?.value || '#377eb8'
+        });
+        renderVarianceSummary({
+          method: restoredMethod,
+          data: restoredMethod === 'pca' ? restoredEigenSummary : []
+        });
+        renderEigenTable({
+          show: restoredMethod === 'pca' || restoredMethod === 'mds',
+          data: restoredEigenSummary,
+          enableExport: restoredEigenSummary.length > 0,
+          method: restoredMethod
+        });
+      }
+      updateScreeVarianceRowVisibility();
       const restored = restoredPlot || restoredStats || restoredSummary || restoredScree;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: pca render cache restored', {
@@ -10055,7 +10148,11 @@
           plot: restoredPlot,
           stats: restoredStats,
           summary: restoredSummary,
-          scree: restoredScree
+          scree: restoredScree,
+          screeHidden: screeContainer?.hidden ?? null,
+          varianceHidden: varianceSummary?.hidden ?? null,
+          eigenHidden: eigenTableContainer?.hidden ?? null,
+          loadingsHidden: loadingsContainer?.hidden ?? null
         });
       }
       return restored;

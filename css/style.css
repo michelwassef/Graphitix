@@ -3676,7 +3676,7 @@ input[type=number]::-webkit-inner-spin-button{
 #statsPanel .box-stats-options__column{display:flex;flex:1;min-width:0;flex-direction:column;gap:10px}
 #statsPanel .box-stats-options__row{display:flex;align-items:center;gap:8px}
 #statsPanel .box-stats-advanced{margin-top:2px;border:1px solid #ddd;border-radius:var(--ui-rounded-radius);background:#fff;padding:0;overflow:hidden}
-#statsPanel .box-stats-advanced>summary{cursor:pointer;list-style:none;padding:8px 10px;background:#f4f7fb;font-size:11px;font-weight:700;letter-spacing:.05em;color:#1d2735}
+#statsPanel .box-stats-advanced>summary{cursor:pointer;list-style:none;padding:8px 10px;background:#f4f7fb;font-size:11px;font-weight:700;letter-spacing:0;color:#1d2735}
 #statsPanel .box-stats-advanced>summary::-webkit-details-marker{display:none}
 #statsPanel .box-stats-advanced>summary::before{content:"\25B8";display:inline-block;margin-right:6px;transition:transform .15s ease}
 #statsPanel .box-stats-advanced[open]>summary::before{transform:rotate(90deg)}
@@ -3769,7 +3769,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .workspace-toolbar,
 .axis-controls-panel,
 .significance-controls-panel{
-  --graph-control-font-size:12px;
+  --graph-control-font-size:13px;
   --shared-checkbox-chip-border:#b4bccb;
   --shared-checkbox-chip-bg:#f9fafc;
   --shared-checkbox-chip-text:#1e2633;
@@ -3784,7 +3784,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel__item--select-auto{flex:0 0 auto}
 .config-panel__label,
 .config-panel .control label,
-.config-panel .config-panel__line label{font-size:var(--graph-control-font-size,12px);font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
+.config-panel .config-panel__line label{font-size:var(--graph-control-font-size,12px);font-weight:400;text-transform:none;letter-spacing:0;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
 .config-panel .control label.color-picker{width:auto;min-width:0}
 .config-panel__range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
 .config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
@@ -3916,10 +3916,10 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
     #scatterStats,
     #heatmapStats
 ) label{
-    font-size:11px;
+    font-size:var(--graph-control-font-size,13px);
     font-weight:400;
     text-transform:none;
-    letter-spacing:.05em;
+    letter-spacing:0;
     color:#111b2c;
     white-space:nowrap;
     display:inline-flex;
@@ -3969,7 +3969,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
     padding:0;
     border:0;
     background:transparent;
-    font-size:var(--graph-control-font-size,12px);
+    font-size:var(--graph-control-font-size,13px);
     font-weight:400;
     color:#111b2c;
     letter-spacing:.04em;
@@ -4135,7 +4135,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 #heatmapGraphPanel .config-panel .heatmap-hint{font-size:11px;color:#666}
 #heatmapGraphPanel .config-panel .heatmap-subgroup{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%}
 #heatmapGraphPanel .config-panel .heatmap-subgroup-options{margin-left:24px;gap:12px}
-#heatmapGraphPanel .config-panel .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}
+#heatmapGraphPanel .config-panel .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:0;color:#555}
 #heatmapGraphPanel .heatmap-layout-colors-row{display:flex;flex-direction:column;gap:12px;align-items:stretch;flex-wrap:nowrap;width:auto;max-width:100%}
 #heatmapGraphPanel .heatmap-layout-colors-row fieldset{flex:0 0 auto;min-width:0;width:auto;max-width:100%}
 #heatmapGraphPanel .heatmap-layout-colors-row .heatmap-layout-panel,

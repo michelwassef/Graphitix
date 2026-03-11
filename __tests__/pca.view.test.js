@@ -157,6 +157,66 @@ describe('PCA view controls', () => {
     expect(screeFirst.variancePercent).toBeCloseTo(firstEntry.variancePercent, 5);
   });
 
+  test('PCA payload restore keeps statistics when saved stats live at payload root', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    expect(exampleBtn).toBeTruthy();
+    exampleBtn.click();
+    await flushAll(20);
+
+    const payload = window.Components.pca.getPayload();
+    expect(payload.stats).toBeTruthy();
+    expect(payload.config?.stats).toBeUndefined();
+
+    const varianceCard = document.getElementById('pcaVarianceSummary');
+    const eigenContainer = document.getElementById('pcaEigenTableContainer');
+    const loadingsContainer = document.getElementById('pcaLoadingsContainer');
+    expect(varianceCard).toBeTruthy();
+    expect(eigenContainer).toBeTruthy();
+    expect(loadingsContainer).toBeTruthy();
+
+    window.Components.pca.loadFromPayload(payload, { source: 'test-payload-restore', skipDraw: true });
+    await flushAll(5);
+
+    expect(payload.stats.method).toBe('pca');
+    expect(varianceCard.hidden).toBe(false);
+    expect(eigenContainer.hidden).toBe(false);
+    expect(loadingsContainer.hidden).toBe(false);
+    expect(document.querySelector('#pcaScreePlot svg')).toBeTruthy();
+    expect(document.querySelector('#pcaEigenTableWrapper table')).toBeTruthy();
+    expect(document.querySelector('#pcaLoadingsTable table')).toBeTruthy();
+  });
+
+  test('PCA render cache restore restores scree visibility state', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    expect(exampleBtn).toBeTruthy();
+    exampleBtn.click();
+    await flushAll(20);
+
+    const component = window.Components?.pca;
+    expect(component).toBeTruthy();
+    const screeContainer = document.getElementById('pcaScreeContainer');
+    const screeExportControls = document.getElementById('pcaScreeExportControls');
+    const screeVarianceRow = document.getElementById('pcaScreeVarianceRow');
+    expect(screeContainer).toBeTruthy();
+    expect(screeExportControls).toBeTruthy();
+    expect(screeVarianceRow).toBeTruthy();
+
+    const cache = component.captureRenderCache();
+    expect(cache).toBeTruthy();
+
+    screeContainer.hidden = true;
+    screeContainer.style.maxWidth = '';
+    screeExportControls.style.display = 'none';
+    screeVarianceRow.style.display = 'none';
+
+    const restored = component.restoreRenderCache(cache);
+    expect(restored).toBe(true);
+    expect(screeContainer.hidden).toBe(false);
+    expect(screeContainer.querySelector('svg')).toBeTruthy();
+    expect(screeExportControls.style.display).not.toBe('none');
+    expect(screeVarianceRow.style.display).toBe('flex');
+  });
+
   test('large PCA dataset disables live updates until manual render', async () => {
     const fs = require('fs');
     const path = require('path');
