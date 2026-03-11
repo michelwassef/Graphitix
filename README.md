@@ -13,45 +13,59 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 | Module | Primary use cases | Notable tools |
 | --- | --- | --- |
 | **Venn** | Compare list overlaps, perform GO enrichment, fetch STRING networks | Region inspector, hypergeometric significance, GO/STRING exports |
-| **Box Plot** | Group comparisons, violin overlays, bar charts | t-tests (paired/unpaired), Welch, ANOVA, Mann-Whitney U, Wilcoxon, Kruskal-Wallis, Games-Howell, Dunn's test, multiple comparison corrections (Bonferroni, Holm, Šidák, Hochberg, BH/BY FDR), effect sizes (Cohen's d, Glass's delta, Hedges' g, rank-biserial r), stats advisor, per-series color pickers |
-| **Scatter / Volcano / MA** | Relationship exploration, differential expression, regression | Pearson/Spearman correlation, regression models (linear, quadratic, cubic, exponential, power-law, logistic, spline), R²/adjusted R², RMSE, MAE, residual diagnostics, Jarque-Bera test, confidence/prediction intervals, Volcano & MA plot variants, 2D/3D views, density coloring, label-based colors |
+| **Box Plot** | Group comparisons, violin overlays, bar charts | One-sample / paired / unpaired workflows, Welch t/ANOVA, one-way / repeated-measures / grouped two-way / grouped three-way analyses, Mann-Whitney / Wilcoxon / Kolmogorov-Smirnov / Kruskal-Wallis / Friedman, Tukey / Games-Howell / Dunn / Dunnett / Dunnett T3 / Nemenyi follow-ups, Bonferroni / Holm / Holm-Šidák / Šidák / Hochberg / BH / BY corrections, normality checks, Grubbs / ROUT-style outlier screening, effect sizes, stats advisor |
+| **Scatter / Volcano / MA** | Relationship exploration, differential expression, regression | Pearson/Spearman correlation, regression models (linear, Deming, orthogonal, LOWESS, quadratic, cubic, exponential, power-law, logistic, spline), R²/adjusted R², RMSE, MAE, AIC/AICc/BIC, residual and influence diagnostics, confidence/prediction intervals, linear-regression comparison, Volcano & MA plot variants, 2D/3D views, density coloring, label-based colors |
 | **3D Surface** | 3D data visualization, topography, response surfaces | Interactive rotation, grid interpolation, color gradients, mesh/surface toggling |
 | **Heatmap** | Correlation matrices, hierarchical clustering | Pearson/Spearman correlation, hierarchical clustering, dendrogram overlays, distance metrics, color scale legend |
 | **PCA / MDS / t-SNE / UMAP** | Dimensionality reduction for multivariate data | Axis selectors, 2D/3D views, method-specific controls, lazy-loaded solvers, variance explained summaries, PC loadings tables |
-| **Line Graph** | Time series, longitudinal trends, forecasting | Pearson/Spearman correlation, regression models (linear, quadratic, cubic, exponential, power-law, logistic, spline), ARIMA & Holt–Winters forecasts, R²/adjusted R², RMSE, MAE, residual diagnostics, interval bands |
-| **ROC / PR** | Model evaluation | ROC/PR curve toggle, AUC summaries, pairwise comparisons (DeLong, bootstrap, permutation), sensitivity/specificity analysis, guided test selection |
+| **Line Graph** | Time series, longitudinal trends, forecasting | Pearson/Spearman correlation, regression models (linear, quadratic, cubic, exponential, power-law, logistic, spline), ARIMA & Holt–Winters forecasts, R²/adjusted R², RMSE, MAE, AIC/BIC, residual diagnostics, coefficient tables, confidence/prediction intervals |
+| **ROC / PR** | Model evaluation | ROC/PR curve toggle, ROC AUC and PR area / average-precision summaries, pairwise comparisons (DeLong for ROC, bootstrap, permutation), best-threshold summary (accuracy/precision/recall/F1), guided test selection |
 | **Survival** | Kaplan–Meier curves, Cox modeling | Kaplan-Meier estimator, log-rank test, Cox proportional hazards regression, hazard ratios (pairwise/adjusted), time-dependent covariates, covariate selection, stats advisor |
-| **Histogram / Density Plot** | Distribution summaries | Descriptive statistics (mean, median, SD, Q1, Q3), histogram or KDE density mode, log scaling, auto binning, PDF/CDF overlays |
+| **Histogram / Density Plot** | Distribution summaries | Descriptive statistics (N, mean, median, SD, min, Q1, Q3, max), histogram or KDE density mode, log scaling, auto binning, PDF/CDF overlays, best-fit distribution summary |
 | **Proportion (Pie/Donut/Stacked)** | Category proportions, Chi² tests | Chi² goodness-of-fit test, observed vs. expected frequencies, slice styling, stacked bar axis tools |
 
 All modules share a two-panel layout: AG Grid workspace on the left, responsive SVG canvas with contextual controls on the right. Drag the center divider or canvas resize handle to rebalance your layout per tab-the app remembers your choices for each workspace.
 
 ## Statistical Tests & Analyses
 
+This section is intended to track what is implemented in code today, not planned parity with Prism.
+
 Each visualization module includes statistical tools tailored to its use case. Below is a comprehensive guide to the tests and analyses available in each workspace.
 
 ### Box Plot
 **Parametric Tests:**
+- One-sample t-test
 - Paired t-test (for matched/repeated measurements)
 - Unpaired t-test (standard Student's t-test)
 - Welch t-test (for unequal variances)
 - One-way ANOVA (for three or more groups)
+- Welch ANOVA
+- Repeated-measures ANOVA
 - Two-way ANOVA (group × condition designs)
+- Two-way mixed model
 - Three-way ANOVA (group × condition × row/subject designs)
+- Three-way mixed model
 
 **Non-parametric Tests:**
+- One-sample Wilcoxon signed-rank test
 - Mann-Whitney U test (rank-based two-group comparison)
 - Wilcoxon signed-rank test (paired non-parametric alternative)
+- Kolmogorov-Smirnov two-sample test
 - Kruskal-Wallis test (non-parametric ANOVA alternative)
+- Friedman test
 
 **Post-hoc Tests:**
-- Pairwise tests with multiple comparison corrections
+- Tukey HSD
 - Games-Howell test (for Welch ANOVA scenarios with ≥3 groups)
 - Dunn's test (non-parametric post-hoc following Kruskal-Wallis)
+- Dunnett and Dunnett T3 (reference-group comparisons)
+- Nemenyi test (post-Friedman paired rank comparisons)
+- Pairwise tests with configurable multiple-comparison correction families
 
 **Multiple Comparison Corrections:**
 - Bonferroni correction
 - Holm correction
+- Holm-Šidák correction
 - Šidák correction
 - Hochberg correction
 - Benjamini-Hochberg (FDR control)
@@ -65,6 +79,8 @@ Each visualization module includes statistical tools tailored to its use case. B
 
 **Additional Features:**
 - Row-wise t-tests for within-condition comparisons
+- Shapiro-Wilk and D'Agostino-Pearson normality diagnostics
+- Grubbs and ROUT-style outlier screening
 - Stats advisor for guided test selection based on data characteristics
 
 ### Scatter / Volcano / MA Plot
@@ -74,6 +90,9 @@ Each visualization module includes statistical tools tailored to its use case. B
 
 **Regression Models:**
 - Linear regression
+- Deming regression
+- Orthogonal regression
+- LOWESS smoothing
 - Quadratic regression
 - Cubic regression
 - Exponential regression
@@ -86,6 +105,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 - Adjusted R² (penalized for model complexity)
 - RMSE (root mean squared error)
 - MAE (mean absolute error)
+- AIC, AICc, and BIC
 - Log loss (for logistic regression)
 
 **Residual Analysis:**
@@ -93,29 +113,42 @@ Each visualization module includes statistical tools tailored to its use case. B
 - Residual skewness
 - Residual kurtosis
 - Jarque-Bera normality test for residuals
+- Runs test
+- Breusch-Pagan heteroscedasticity test
+- RESET specification test
+- Lack-of-fit test
+- Influence diagnostics (studentized residuals, leverage, Cook's distance, DFFITS)
 
 **Intervals:**
 - Confidence intervals for regression line
 - Prediction intervals for individual observations
 
+**Additional Features:**
+- Linear-regression comparison workflow for grouped scatter series
+- Trapezoidal AUC / mean-response summaries on XY data
+- Inverse prediction / interpolation from fitted curves
+
 ### Line Graph
 **Correlation & Regression:**
 - Pearson and Spearman correlation
 - All regression models available in Scatter plots (linear, quadratic, cubic, exponential, power-law, logistic, spline)
-- Regression diagnostics: R², adjusted R², RMSE, MAE
-- Residual analysis with interval bands
+- Regression diagnostics: R², adjusted R², RMSE, MAE, AIC, BIC, model F
+- Residual analysis with Jarque-Bera, runs, and lack-of-fit summaries
+- Coefficient tables with estimates, standard errors, t statistics, p values, and confidence intervals
+- Confidence and prediction interval summaries
 
 **Time Series Forecasting:**
 - ARIMA (AutoRegressive Integrated Moving Average) models for non-seasonal forecasting
 - Holt-Winters exponential smoothing for seasonal time series
-- Forecast confidence intervals
+- Forecast accuracy metrics (MAE, RMSE, MAPE, sMAPE, AIC, BIC)
 
 ### ROC / PR Curves
 **Curve Metrics:**
 - ROC (Receiver Operating Characteristic) curves
 - PR (Precision-Recall) curves
-- AUC (Area Under Curve) calculation for both ROC and PR
-- Sensitivity and specificity at various thresholds
+- ROC AUC calculation
+- PR area and Average Precision calculation
+- Best-threshold summary with accuracy, precision, recall, and F1
 
 **Pairwise Comparisons:**
 - DeLong test (fast analytic variance estimate for ROC curves)
@@ -136,6 +169,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 - Baseline covariates (fixed predictors)
 - Time-dependent covariates (predictors that vary over follow-up)
 - Adjusted hazard ratios with confidence intervals
+- Cox coefficient tables with likelihood-ratio / AIC / BIC diagnostics
 
 **Additional Features:**
 - Stats advisor for guided analysis selection
@@ -156,11 +190,14 @@ Each visualization module includes statistical tools tailored to its use case. B
 
 ### Histogram / Density Plot
 **Descriptive Statistics:**
+- N
 - Mean
 - Median
 - Standard deviation
+- Minimum
 - First quartile (Q1 / 25th percentile)
 - Third quartile (Q3 / 75th percentile)
+- Maximum
 
 **Distribution Visualization:**
 - Histogram mode with automatic or manual binning
@@ -168,6 +205,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 - PDF (Probability Density Function) overlay
 - CDF (Cumulative Distribution Function) overlay in histogram mode
 - Log-scale axis support for skewed distributions
+- Best-fit distribution summary when fitting succeeds
 
 ### Proportion (Pie/Donut/Stacked)
 **Goodness-of-Fit Testing:**
@@ -187,6 +225,10 @@ Each visualization module includes statistical tools tailored to its use case. B
 - Multiple distance metrics (Euclidean, correlation-based)
 - Linkage methods for cluster merging
 
+**Additional Features:**
+- Matrix value summaries (rows, columns, min, max, mean, finite-cell counts)
+- Correlation-matrix summary panel with strongest positive / negative associations
+
 ### PCA / MDS / t-SNE / UMAP
 **Dimensionality Reduction Methods:**
 - PCA (Principal Component Analysis) with variance explained per component
@@ -197,7 +239,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 **PCA-Specific Outputs:**
 - Variance explained by each principal component (percentage and cumulative)
 - PC loadings table (top contributing features per component)
-- Scree plots implicitly available via variance summaries
+- Scree plot export and eigenvalue tables
 
 **Visualization Options:**
 - 2D and 3D projections (PCA and MDS)

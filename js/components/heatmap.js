@@ -309,6 +309,7 @@
   const HEATMAP_AUTO_DRAW_COL_THRESHOLD = 5000;
   const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const HEATMAP_DATA_VIEW_MAX = 12;
+  const DEFAULT_HEATMAP_FONT_SIZE_PT = 13;
   const HEATMAP_TEXT_SCALE_MODE = 'preserve-fit';
   const HEATMAP_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
     headerRows: 1,
@@ -1074,6 +1075,8 @@
 
   let scheduleDrawHeatmapRaw = () => {};
   let pendingDrawOptions = {};
+  let deferredHiddenDrawOptions = null;
+  let hiddenDrawFlushHandle = null;
 
   function clearCachedRenderState(){
     state.lastRenderModel = null;
@@ -1122,6 +1125,105 @@
       next.reason = previous.reason;
     }
     pendingDrawOptions = next;
+  }
+
+  function isHeatmapWorkspaceHidden(){
+    const page = global.document?.getElementById?.('heatmapPage')
+      || state.svg?.closest?.('.workspace-page')
+      || null;
+    if(!page){
+      return false;
+    }
+    if(page.hidden === true){
+      return true;
+    }
+    if(typeof page.getAttribute === 'function' && page.getAttribute('hidden') !== null){
+      return true;
+    }
+    try{
+      const style = typeof global.getComputedStyle === 'function'
+        ? global.getComputedStyle(page)
+        : null;
+      if(style && (style.display === 'none' || style.visibility === 'hidden')){
+        return true;
+      }
+    }catch(err){
+      console.error('heatmap workspace visibility check error', err);
+    }
+    return false;
+  }
+
+  function mergeDeferredHiddenDrawOptions(options){
+    const opts = normalizeDrawOptions(options);
+    const previous = deferredHiddenDrawOptions || {};
+    if(!opts || typeof opts !== 'object'){
+      deferredHiddenDrawOptions = previous && Object.keys(previous).length ? { ...previous } : null;
+      return deferredHiddenDrawOptions;
+    }
+    const next = { ...previous, ...opts };
+    if(opts.force){
+      next.viewOnly = false;
+    }else if(Object.prototype.hasOwnProperty.call(opts, 'viewOnly')){
+      next.viewOnly = !!opts.viewOnly;
+    }else if(previous.viewOnly){
+      next.viewOnly = true;
+    }else{
+      next.viewOnly = false;
+    }
+    if(!Object.prototype.hasOwnProperty.call(opts, 'reason') && previous.reason){
+      next.reason = previous.reason;
+    }
+    deferredHiddenDrawOptions = next;
+    return deferredHiddenDrawOptions;
+  }
+
+  function clearHiddenDrawFlushHandle(){
+    if(hiddenDrawFlushHandle == null){
+      return;
+    }
+    if(typeof global.cancelAnimationFrame === 'function'){
+      global.cancelAnimationFrame(hiddenDrawFlushHandle);
+    }else{
+      (global.clearTimeout || clearTimeout)(hiddenDrawFlushHandle);
+    }
+    hiddenDrawFlushHandle = null;
+  }
+
+  function scheduleDeferredHiddenDrawFlush(reason){
+    clearHiddenDrawFlushHandle();
+    const flush = () => {
+      hiddenDrawFlushHandle = null;
+      if(isHeatmapWorkspaceHidden()){
+        debugLog('Debug: heatmap hidden draw flush deferred - still hidden', { reason: reason || 'visibility-flush' });
+        return;
+      }
+      if(!deferredHiddenDrawOptions){
+        return;
+      }
+      const pending = { ...deferredHiddenDrawOptions };
+      deferredHiddenDrawOptions = null;
+      debugLog('Debug: heatmap hidden draw flush scheduled', {
+        reason: reason || 'visibility-flush',
+        pendingReason: pending.reason || null,
+        viewOnly: !!pending.viewOnly,
+        force: !!pending.force
+      });
+      scheduleDrawHeatmap({
+        ...pending,
+        reason: pending.reason || reason || 'hidden-draw-flush'
+      });
+    };
+    if(typeof global.requestAnimationFrame === 'function'){
+      hiddenDrawFlushHandle = global.requestAnimationFrame(() => {
+        if(typeof global.requestAnimationFrame === 'function'){
+          hiddenDrawFlushHandle = global.requestAnimationFrame(flush);
+        }else{
+          flush();
+        }
+      });
+      return;
+    }
+    hiddenDrawFlushHandle = (global.setTimeout || setTimeout)(flush, 32);
   }
 
   function updateHeatmapDataShape(shape){
@@ -1320,6 +1422,15 @@
 
   function scheduleDrawHeatmap(options){
     const opts = normalizeDrawOptions(options);
+    if(isHeatmapWorkspaceHidden()){
+      const pending = mergeDeferredHiddenDrawOptions(opts);
+      debugLog('Debug: heatmap draw deferred while hidden', {
+        reason: pending?.reason || opts.reason || null,
+        viewOnly: !!pending?.viewOnly,
+        force: !!pending?.force
+      });
+      return;
+    }
     mergePendingDrawOptions(opts);
     if(opts.viewOnly){
       if(typeof scheduleDrawHeatmapRaw === 'function'){
@@ -1707,7 +1818,12 @@
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
       console.debug('Debug: heatmap font size base initialized', { value: refs.fontSize.value });
     }
-    chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value || 12), input: refs.fontSize, manual: true });
+    chartStyle.renderFontSizeLabel({
+      element: refs.fontSizeVal,
+      pt: Number(refs.fontSize?.value || DEFAULT_HEATMAP_FONT_SIZE_PT),
+      input: refs.fontSize,
+      manual: true
+    });
 
     const schedule = () => {
       if(state.suspendControlSchedule){
@@ -3206,7 +3322,7 @@
       significanceDisplay: refs.significanceDisplay?.value === 'pvalue' ? 'pvalue' : 'star',
       significanceThreshold: getHeatmapSignificanceThreshold(),
       cellSize: Math.max(12, Number(refs.cellSize?.value) || 60),
-      fontSize: Math.max(8, Number(refs.fontSize?.value) || 12),
+      fontSize: Math.max(8, Number(refs.fontSize?.value) || DEFAULT_HEATMAP_FONT_SIZE_PT),
       palette: {
         negative: refs.colorNegative?.value || '#313695',
         zero: refs.colorZero?.value || '#f7f7f7',
@@ -6299,6 +6415,16 @@
         finalizeDrawPerformance({ status: 'skipped', error: 'missing-hot-or-svg' });
         return;
       }
+      if(isHeatmapWorkspaceHidden()){
+        const pending = mergeDeferredHiddenDrawOptions(drawOpts);
+        debugLog('Debug: heatmap draw skipped while hidden', {
+          reason: pending?.reason || drawOpts.reason || null,
+          viewOnly: !!pending?.viewOnly,
+          force: !!pending?.force
+        });
+        finalizeDrawPerformance({ status: 'skipped', error: 'workspace-hidden' });
+        return;
+      }
       if(state.emptyPlotNoticeEl && state.emptyPlotNoticeEl.parentNode){
         state.emptyPlotNoticeEl.parentNode.removeChild(state.emptyPlotNoticeEl);
       }
@@ -6428,7 +6554,7 @@
         positive: refs.colorPositive?.value || '#a50026'
       },
       cellSize: Number(refs.cellSize?.value) || 60,
-      fontSize: Number(refs.fontSize?.value) || 12,
+      fontSize: Number(refs.fontSize?.value) || DEFAULT_HEATMAP_FONT_SIZE_PT,
       fontStyles: exportFontStyles('heatmap') || undefined,
       title: state.titleText,
       labelPositions: state.labelPositions || null,
@@ -6520,7 +6646,7 @@
         refs.cellSize.dispatchEvent(new Event('input'));
       }
       if(refs.fontSize){
-        refs.fontSize.value = String(config.fontSize || 12);
+        refs.fontSize.value = String(config.fontSize || DEFAULT_HEATMAP_FONT_SIZE_PT);
         refs.fontSize.dispatchEvent(new Event('input'));
       }
       importFontStyles('heatmap', config.fontStyles || null);
@@ -7022,6 +7148,7 @@
         syncHeatmapActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
+    scheduleDeferredHiddenDrawFlush('prepare-tab');
   };
 
   function detachChildren(node){

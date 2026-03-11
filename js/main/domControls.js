@@ -724,7 +724,11 @@
         if (payload && defaultPayload) {
           payload = namespace.mergePayloadWithDefaults(tab.type, payload, defaultPayload, { cloneFn });
         }
-        namespace.applyWorkspacePayload(config, payload, { skipDraw: canRestoreRender, restoreRenderCache: canRestoreRender });
+        namespace.applyWorkspacePayload(config, payload, {
+          skipDraw: canRestoreRender,
+          restoreRenderCache: canRestoreRender,
+          skipPayloadSizing: canRestoreRender
+        });
       }
       if (typeof config.applyLayoutState === 'function') {
         let defaultLayout = moduleState.workspaceLayoutDefaults[tab.type] || null;

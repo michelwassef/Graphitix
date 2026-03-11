@@ -97,7 +97,7 @@ describe('domControls default payload cache isolation', () => {
                 method: 'pearson'
               },
               statsOptions: {
-                showDiagnostics: false
+                showDiagnostics: true
               }
             }
           }
@@ -114,7 +114,7 @@ describe('domControls default payload cache isolation', () => {
                 method: 'pearson'
               },
               statsOptions: {
-                showDiagnostics: false
+                showDiagnostics: true
               }
             }
           }
@@ -124,13 +124,13 @@ describe('domControls default payload cache isolation', () => {
 
     const first = domControls.ensureDefaultPayload(session, 'line', config);
     expect(first?.config?.stats?.controls?.method).toBe('pearson');
-    expect(first?.config?.stats?.statsOptions?.showDiagnostics).toBe(false);
+    expect(first?.config?.stats?.statsOptions?.showDiagnostics).toBe(true);
 
     first.config.stats.controls.method = 'spearman';
     first.config.stats.statsOptions.showDiagnostics = true;
 
     const second = domControls.ensureDefaultPayload(session, 'line', config);
     expect(second?.config?.stats?.controls?.method).toBe('pearson');
-    expect(second?.config?.stats?.statsOptions?.showDiagnostics).toBe(false);
+    expect(second?.config?.stats?.statsOptions?.showDiagnostics).toBe(true);
   });
 });

@@ -322,7 +322,6 @@
   let lineLast2dShowTrendLine = false;
   let lineLast2dShowIntervals = false;
   let lineLast2dShowPredictionIntervals = false;
-  let lineLast2dShowDiagnostics = false;
   const lineUndoManager = Shared.undoManager || null;
   function isLine3dMode(){
     return lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d';
@@ -1788,6 +1787,10 @@
     return 'na';
   }
 
+  function isLineDiagnosticsEnabled(){
+    return true;
+  }
+
   function buildLineStatsSignature(payload){
     if(!payload || !Array.isArray(payload.series) || !payload.series.length){
       return 'empty';
@@ -1795,7 +1798,7 @@
     const method = payload.controls?.method || 'pearson';
     const regressionMode = payload.controls?.regressionMode || 'linear';
     const showIntervalsKey = payload.statsOptions?.showIntervals ? 'intervals:on' : 'intervals:off';
-    const showDiagnosticsKey = payload.statsOptions?.showDiagnostics ? 'diagnostics:on' : 'diagnostics:off';
+    const showDiagnosticsKey = 'diagnostics:on';
     const forecast = payload.statsOptions?.forecast || {};
     const forecastKey = [
       forecast.horizon ?? '',
@@ -1841,7 +1844,7 @@
   }
 
   function handleLineStatsUnavailable(statsOptions, placeholder){
-    const advisorOptions = statsOptions || { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: !!refs.showDiagnostics?.checked };
+    const advisorOptions = statsOptions || { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: isLineDiagnosticsEnabled() };
     renderLineStatsAdvisor([], advisorOptions);
     primeLineStatsContext(null, { placeholder: placeholder || lineStatsEmptyPlaceholder });
   }
@@ -1898,7 +1901,7 @@
       statsOptions: {
         ...context.statsOptions,
         showIntervals: isLineAnyIntervalEnabled(),
-        showDiagnostics: !!refs.showDiagnostics?.checked
+        showDiagnostics: isLineDiagnosticsEnabled()
       },
       controls: {
         ...context.controls,
@@ -3973,7 +3976,7 @@
       statsMethod: refs.statType?.value || 'pearson',
       regressionMode: refs.regressionMode?.value || 'linear',
       showIntervals: options?.showIntervals ?? isLineAnyIntervalEnabled(),
-      showDiagnostics: options?.showDiagnostics ?? !!refs.showDiagnostics?.checked,
+      showDiagnostics: options?.showDiagnostics ?? isLineDiagnosticsEnabled(),
       forecastOptions: options?.forecast || null
     };
     let totalPoints=0;
@@ -4359,9 +4362,6 @@
           if(refs.showPredictionIntervals){
             refs.showPredictionIntervals.checked=!!recommendation.showIntervals;
           }
-          if(refs.showDiagnostics){
-            refs.showDiagnostics.checked=!!recommendation.showDiagnostics;
-          }
           updateForecastVisibility();
           lineAdvisorState.lastApplied={ ...recommendation };
           console.debug('Debug: line statsAdvisor applied',{
@@ -4507,9 +4507,6 @@
         }
         if(refs.showPredictionIntervals){
           refs.showPredictionIntervals.checked=!!recommendation.showIntervals;
-        }
-        if(refs.showDiagnostics){
-          refs.showDiagnostics.checked=!!recommendation.showDiagnostics;
         }
         updateForecastVisibility();
         lineAdvisorState.lastApplied={ ...recommendation };
@@ -5887,7 +5884,6 @@
       lineLast2dShowTrendLine = !!refs.showTrendLine?.checked;
       lineLast2dShowIntervals = !!refs.showIntervals?.checked;
       lineLast2dShowPredictionIntervals = !!refs.showPredictionIntervals?.checked;
-      lineLast2dShowDiagnostics = !!refs.showDiagnostics?.checked;
     }
     lineViewState.viewMode = '3d';
     if(refs.viewMode){
@@ -5947,12 +5943,6 @@
       refs.showPredictionIntervals.disabled = true;
       if(refs.showPredictionIntervals.checked){
         refs.showPredictionIntervals.checked = false;
-      }
-    }
-    if(refs.showDiagnostics){
-      refs.showDiagnostics.disabled = true;
-      if(refs.showDiagnostics.checked){
-        refs.showDiagnostics.checked = false;
       }
     }
     if(refs.forecastFieldset){
@@ -6031,10 +6021,6 @@
     if(refs.showPredictionIntervals){
       refs.showPredictionIntervals.disabled = false;
       refs.showPredictionIntervals.checked = !!lineLast2dShowPredictionIntervals;
-    }
-    if(refs.showDiagnostics){
-      refs.showDiagnostics.disabled = false;
-      refs.showDiagnostics.checked = !!lineLast2dShowDiagnostics;
     }
     if(refs.forecastFieldset){
       refs.forecastFieldset.disabled = false;
@@ -6546,7 +6532,7 @@
     let parameterColumnLabel = 'Slope';
     let parameterLabelResolved = false;
     const showIntervals = !!options.showIntervals;
-    const showDiagnostics = !!options.showDiagnostics;
+    const showDiagnostics = isLineDiagnosticsEnabled();
     const regressionAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
     const regressionCache = options.regressionCache instanceof Map ? options.regressionCache : new Map();
     renderLineStatsAdvisor(series, { ...options, showIntervals, showDiagnostics });
@@ -7033,7 +7019,7 @@
         showIntervals:isLineAnyIntervalEnabled(),
         showConfidenceIntervals: isLineConfidenceIntervalEnabled(),
         showPredictionIntervals: isLinePredictionIntervalEnabled(),
-        showDiagnostics:refs.showDiagnostics?.checked,
+        showDiagnostics:isLineDiagnosticsEnabled(),
         overlayStyles: sanitizeLineOverlayStylesMap(lineOverlayStyles),
         xMin:refs.xMin?.value,
         xMax:refs.xMax?.value,
@@ -7094,7 +7080,7 @@
             showIntervals: isLineAnyIntervalEnabled(),
             showConfidenceIntervals: isLineConfidenceIntervalEnabled(),
             showPredictionIntervals: isLinePredictionIntervalEnabled(),
-            showDiagnostics: !!refs.showDiagnostics?.checked,
+            showDiagnostics: isLineDiagnosticsEnabled(),
             forecast: {
               horizon: refs.forecastHorizon?.value ?? null,
               seasonLength: refs.forecastSeasonLength?.value ?? null,
@@ -7196,7 +7182,6 @@
     lineLast2dShowTrendLine = !!c.showTrendLine;
     lineLast2dShowIntervals = !!(c.showConfidenceIntervals ?? c.showIntervals);
     lineLast2dShowPredictionIntervals = !!(c.showPredictionIntervals ?? c.showIntervals);
-    lineLast2dShowDiagnostics = !!c.showDiagnostics;
     if(typeof c.equalAxes === 'boolean'){
       lineViewState.equalAxes = c.equalAxes;
     }
@@ -7276,10 +7261,6 @@
           refs.showPredictionIntervals.disabled = true;
           refs.showPredictionIntervals.checked = false;
         }
-        if(refs.showDiagnostics){
-          refs.showDiagnostics.disabled = true;
-          refs.showDiagnostics.checked = false;
-        }
         if(refs.forecastFieldset){
           refs.forecastFieldset.disabled = true;
         }
@@ -7308,9 +7289,6 @@
         }
         if(refs.showPredictionIntervals){
           refs.showPredictionIntervals.disabled = false;
-        }
-        if(refs.showDiagnostics){
-          refs.showDiagnostics.disabled = false;
         }
         if(refs.forecastFieldset){
           refs.forecastFieldset.disabled = false;
@@ -7421,7 +7399,6 @@
     if(refs.showTrendLine) refs.showTrendLine.checked=!!c.showTrendLine;
     if(refs.showIntervals) refs.showIntervals.checked=!!(c.showConfidenceIntervals ?? c.showIntervals);
     if(refs.showPredictionIntervals) refs.showPredictionIntervals.checked=!!(c.showPredictionIntervals ?? c.showIntervals);
-    if(refs.showDiagnostics) refs.showDiagnostics.checked=!!c.showDiagnostics;
     if(refs.xMin) refs.xMin.value=c.xMin||'';
     if(refs.xMax) refs.xMax.value=c.xMax||'';
     if(refs.yMin) refs.yMin.value=c.yMin||'';
@@ -7504,10 +7481,6 @@
         refs.showPredictionIntervals.checked = false;
         refs.showPredictionIntervals.disabled = true;
       }
-      if(refs.showDiagnostics){
-        refs.showDiagnostics.checked = false;
-        refs.showDiagnostics.disabled = true;
-      }
       if(refs.forecastFieldset){
         refs.forecastFieldset.disabled = true;
       }
@@ -7542,9 +7515,6 @@
       }
       if(refs.showPredictionIntervals){
         refs.showPredictionIntervals.disabled = false;
-      }
-      if(refs.showDiagnostics){
-        refs.showDiagnostics.disabled = false;
       }
       if(refs.forecastFieldset){
         refs.forecastFieldset.disabled = false;
@@ -8733,7 +8703,7 @@
       const showConfidenceIntervals = isLineConfidenceIntervalEnabled();
       const showPredictionIntervals = isLinePredictionIntervalEnabled();
       const showIntervals = showConfidenceIntervals || showPredictionIntervals;
-      const showDiagnostics=!!refs.showDiagnostics?.checked;
+      const showDiagnostics=isLineDiagnosticsEnabled();
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
       const regressionAlpha = 0.05;
       const forecastOptions = resolveForecastOptions();
@@ -10792,7 +10762,6 @@
     refs.showTrendLine=document.getElementById('lineShowTrendLine');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showPredictionIntervals=document.getElementById('lineShowPredictionIntervals');
-    refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
     refs.showLegend=document.getElementById('lineShowLegend');
     if(refs.showLegend){
       const legendHost=refs.showLegend.closest('label');
@@ -10800,7 +10769,7 @@
         lineLegendControl=legendHost;
       }
     }
-    renderLineStatsAdvisor([], { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: !!refs.showDiagnostics?.checked });
+    renderLineStatsAdvisor([], { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: isLineDiagnosticsEnabled() });
     clearLineStatsOutputs(lineStatsEmptyPlaceholder);
     setLineStatsStatus('');
     updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
@@ -12027,11 +11996,6 @@
     refs.showPredictionIntervals?.addEventListener('change',e=>{
       console.debug('Debug: line showPredictionIntervals change',{checked:e.target.checked});
       requestLineStatsContextRefresh('prediction-intervals-toggle');
-      scheduleLineDraw();
-    });
-    refs.showDiagnostics?.addEventListener('change',e=>{
-      console.debug('Debug: line showDiagnostics change',{checked:e.target.checked});
-      requestLineStatsContextRefresh('diagnostics-toggle');
       scheduleLineDraw();
     });
     refs.showLegend?.addEventListener('change',e=>{

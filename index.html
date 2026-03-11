@@ -759,7 +759,6 @@
                   <option value="none">None (model fit only)</option>
                 </select>
               </label>
-              <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowDiagnostics" /> <span>Show diagnostics summary</span></label>
             </div>
             <div id="scatterStatsActionRow" class="config-panel__line idx-inline-040">
               <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
@@ -1281,9 +1280,6 @@
                   <option value="holtWinters">Holt-Winters</option>
                 </select>
               </label>
-              <label class="idx-inline-023">
-                <input type="checkbox" id="lineShowDiagnostics" /> Show Diagnostics Summary
-              </label>
             </div>
             <div class="control idx-inline-040" id="lineStatsActionRow">
               <button type="button" class="btn" id="lineComputeStats" disabled>Calculate statistics</button>
@@ -1386,7 +1382,7 @@
                 <div class="heatmap-control-row">
                   <label class="heatmap-inline-group">
                     <input type="checkbox" id="heatmapShowValues" checked />
-                    <span class="heatmap-nowrap">Show cell values</span>
+                    <span class="heatmap-nowrap">Show correlation values</span>
                   </label>
                   <div class="heatmap-inline-group">
                     <span class="heatmap-nowrap">Decimals</span>
@@ -1419,8 +1415,8 @@
                   </div>
                   <div class="heatmap-inline-group">
                     <span class="heatmap-nowrap">Font Size</span>
-                    <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="12" />
-                    <output id="heatmapFontSizeVal">12</output>
+                    <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="13" />
+                    <output id="heatmapFontSizeVal">13</output>
                   </div>
                 </div>
               </fieldset>

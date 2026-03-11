@@ -10331,7 +10331,7 @@
       const scatterStatsRegressionOptionsRow=document.getElementById('scatterGraphRegressionOptionsGrid')
         || (scatterShowLine)?.closest('.config-panel__line--checkboxes')
         || null;
-      let scatterShowDiagnostics=$('#scatterShowDiagnostics');
+      const isScatterDiagnosticsEnabled = () => true;
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
       if(scatterFontSize?.dataset){
@@ -10847,7 +10847,7 @@
         const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
         const showCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
         const showPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
-        const showDiagnostics = !!scatterShowDiagnostics?.checked;
+        const showDiagnostics = isScatterDiagnosticsEnabled();
         const controlSignature = getScatterStatsControlSignature();
         return {
           regressionModeValue,
@@ -11859,7 +11859,7 @@
         const regressionModeValue = settings?.regressionModeValue || 'linear';
         const showCI = !!settings?.showCI;
         const showPI = !!settings?.showPI;
-        const showDiagnostics = !!settings?.showDiagnostics;
+        const showDiagnostics = isScatterDiagnosticsEnabled();
         const normalizedStats = ensureScatterRegressionForStats(context, stats, settings);
         const regressionModel = normalizedStats?.regression || null;
         const fitMethodValue = normalizeScatterFitMethod(regressionModel?.fitMethod || settings?.fitMethodValue || 'ols');
@@ -12216,7 +12216,7 @@
             showLine: !!settings?.showLineMaster,
             showCI: !!settings?.showCI,
             showPI: !!settings?.showPI,
-            showDiagnostics: !!settings?.showDiagnostics
+            showDiagnostics: isScatterDiagnosticsEnabled()
           },
           generatedAt: new Date().toISOString(),
           extra: extra || null
@@ -12382,7 +12382,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const showLineMaster = !!settings?.showLineMaster;
         const showCI = !!settings?.showCI;
         const showPI = !!settings?.showPI;
-        const showDiagnostics = !!settings?.showDiagnostics;
+        const showDiagnostics = isScatterDiagnosticsEnabled();
         const controlSignature = settings?.controlSignature || null;
         stats = ensureScatterRegressionForStats(context, stats, settings);
         cacheScatterStats(context, stats, controlSignature);
@@ -12813,7 +12813,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
           const showCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
           const showPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
-          const showDiagnostics=!!scatterShowDiagnostics?.checked;
+          const showDiagnostics=isScatterDiagnosticsEnabled();
           const controlSignature=getScatterStatsControlSignature();
           const settings = {
             regressionModeValue,
@@ -13048,12 +13048,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         try{ updateCIEnabled(); }catch(e){
           if(scatterShowCI){ scatterShowCI.disabled = disableRegression; if(disableRegression && scatterShowCI.checked){ scatterShowCI.checked = false; } }
           if(scatterShowPI){ scatterShowPI.disabled = disableRegression; if(disableRegression && scatterShowPI.checked){ scatterShowPI.checked = false; } }
-        }
-        if(scatterShowDiagnostics){
-          scatterShowDiagnostics.disabled = disableRegression;
-          if(disableRegression && scatterShowDiagnostics.checked){
-            scatterShowDiagnostics.checked = false;
-          }
         }
         if(normalized === '3d' && scatterShowFrame && !scatterShowFrame.checked){
           scatterShowFrame.checked = true;
@@ -13471,9 +13465,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(scatterShowCI){ scatterShowCI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowCI.checked){ scatterShowCI.checked = false; } }
           if(scatterShowPI){ scatterShowPI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowPI.checked){ scatterShowPI.checked = false; } }
         }
-        if(scatterShowDiagnostics){
-          scatterShowDiagnostics.disabled=disableRegressionControls;
-        }
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
           scatterFill.value=DEFAULT_NON_SIG_COLOR;
         }
@@ -13520,7 +13511,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           showCI: !!(scatterShowLine && scatterShowCI && scatterShowCI.checked),
           showPI: !!(scatterShowLine && scatterShowPI && scatterShowPI.checked),
           showIntervals: !!(scatterShowLine && ((scatterShowCI && scatterShowCI.checked) || (scatterShowPI && scatterShowPI.checked))),
-          showDiagnostics: !!scatterShowDiagnostics?.checked,
+          showDiagnostics: isScatterDiagnosticsEnabled(),
           logX: !!scatterLogX?.checked,
           logY: !!scatterLogY?.checked
         };
@@ -14066,9 +14057,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               if(scatterShowPI){
                 scatterShowPI.checked = !!recommendation.showIntervals;
               }
-              if(scatterShowDiagnostics){
-                scatterShowDiagnostics.checked=!!recommendation.showDiagnostics;
-              }
               try{
                 updateCIEnabled();
               }catch(err){}
@@ -14260,7 +14248,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleScatterViewRefresh('font-size-change');
       });
-      [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI,scatterShowDiagnostics]
+      [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           if(el===scatterOriginMode){
@@ -14273,21 +14261,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(el===scatterStatType || el===scatterFitMethod){
             requestScatterStatsContextRefresh(`${el.id||'scatter-control'}-change`);
             persistTabState(el===scatterFitMethod ? 'scatter-fit-method-change' : 'scatter-stat-type-change');
-          }else if(el===scatterShowDiagnostics && scatterHasComputedStats()){
-            try{
-              const ctx = scatterState.statsContext;
-              runScatterStatsComputation(ctx)
-                .then(() => {
-                  if(scatterState.statsContext === ctx){
-                    setScatterStatsStatus('Statistics up to date.');
-                  }
-                })
-                .catch(renderErr => {
-                  console.error('scatter diagnostics toggle rerender failed',renderErr);
-                });
-            }catch(renderErr){
-              console.error('scatter diagnostics toggle rerender failed',renderErr);
-            }
           }
           if(el === scatterShowGrid){
             scheduleScatterViewRefresh('grid-toggle');
@@ -15020,7 +14993,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let showLine=scatterShowLine.checked;
         let showLineStats = scatterShowPlotStats ? scatterShowPlotStats.checked : false;
         const showIntervals = !!(showLine && ((scatterShowCI && scatterShowCI.checked) || (scatterShowPI && scatterShowPI.checked)));
-        const showDiagnostics = !!(scatterShowDiagnostics && scatterShowDiagnostics.checked);
+        const showDiagnostics = isScatterDiagnosticsEnabled();
         const graphType=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=graphType;
         const allowLogAxes=graphType==='scatter';
@@ -19995,7 +19968,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             showPlotStats:scatterShowPlotStats ? scatterShowPlotStats.checked : false,
             showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
             showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
-            showDiagnostics:scatterShowDiagnostics ? scatterShowDiagnostics.checked : false,
+            showDiagnostics:isScatterDiagnosticsEnabled(),
             graphType:scatterGraphTypeSelect?.value || 'scatter',
             tableFormat: normalizeScatterTableFormat(scatterTableFormat),
             replicates: clampScatterReplicateCount(scatterReplicates),
@@ -20064,7 +20037,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               fitSpec: buildScatterFitSpec(),
               showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
               showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
-              showDiagnostics: scatterShowDiagnostics ? !!scatterShowDiagnostics.checked : undefined
+              showDiagnostics: isScatterDiagnosticsEnabled()
             },
             notes: {
               text: notesText,
@@ -20280,9 +20253,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(typeof c.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = !!c.showPI; }
         // Ensure CI/PI controls reflect enabled/disabled state after payload applied
         try{ updateCIEnabled(); }catch(e){ /* ignore if unavailable */ }
-        if(scatterShowDiagnostics){
-          scatterShowDiagnostics.checked=!!c.showDiagnostics;
-        }
         if(scatterGraphTypeSelect && c.graphType){
           scatterGraphTypeSelect.value=c.graphType;
         }
@@ -20422,7 +20392,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             const savedFitSpec = c.stats.fitSpec && typeof c.stats.fitSpec === 'object' ? c.stats.fitSpec : null;
             const savedShowCI = c.stats.showCI === true;
             const savedShowPI = c.stats.showPI === true;
-            const savedShowDiagnostics = c.stats.showDiagnostics === true;
             if(scatterStatsResults && savedHtml != null){
               try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
             }
@@ -20434,7 +20403,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             if(typeof c.stats.showCI === 'boolean' && scatterShowCI){ scatterShowCI.checked = savedShowCI; }
             if(typeof c.stats.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = savedShowPI; }
             if((savedShowCI || savedShowPI) && scatterShowLine){ scatterShowLine.checked = true; }
-            if(typeof c.stats.showDiagnostics === 'boolean' && scatterShowDiagnostics){ scatterShowDiagnostics.checked = savedShowDiagnostics; }
 
             scatterState.statsLastRunVersion = savedVersion;
             scatterState.statsContextSignature = savedSig;
@@ -20642,7 +20610,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       payload.config.stats.fitSpec = buildScatterFitSpec();
       payload.config.stats.showCI = !!(scatterShowCI ? scatterShowCI.defaultChecked : false);
       payload.config.stats.showPI = !!(scatterShowPI ? scatterShowPI.defaultChecked : false);
-      payload.config.stats.showDiagnostics = !!(scatterShowDiagnostics ? scatterShowDiagnostics.defaultChecked : false);
+      payload.config.stats.showDiagnostics = true;
       payload.config.showErrorBars = false;
       payload.config.showGroupedReplicatePoints = true;
       if(Object.prototype.hasOwnProperty.call(payload, 'stats')){
