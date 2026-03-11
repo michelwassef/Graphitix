@@ -3,7 +3,7 @@
 Venn is a browser-based analytics workspace that turns tabular data into publication-ready graphics. The app combines spreadsheet-style data entry, rich styling controls, and statistical tooling across multiple visualization workspaces—no server or build tooling required.
 
 ## Why Venn?
-- **One workspace, many charts.** Switch between Venn diagrams, box plots, scatter plots, 3D surfaces, dimensionality reduction, line charts, ROC/PR curves, histograms, and proportion plots without leaving the page.
+- **One workspace, many charts.** Switch between Venn diagrams, box plots, scatter plots, 3D surfaces, dimensionality reduction, line charts, ROC/PR curves, histogram/density plots, and proportion plots without leaving the page.
 - **Spreadsheet comfort.** Each module embeds an AG Grid table with undo/redo, paste-special helpers (including transpose), CSV/TSV/Excel/ODS import, and column reordering.
 - **Inline styling & stats.** Workspace toolbars with undo/redo, axis controls, typography tools, and per-module statistics live beside every chart so you can tune visuals and analyses in real time.
 - **Offline friendly.** Everything runs client-side in HTML, CSS, and vanilla JavaScript; only GO and STRING enrichment lookups require network access.
@@ -21,7 +21,7 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 | **Line Graph** | Time series, longitudinal trends, forecasting | Pearson/Spearman correlation, regression models (linear, quadratic, cubic, exponential, power-law, logistic, spline), ARIMA & Holt–Winters forecasts, R²/adjusted R², RMSE, MAE, residual diagnostics, interval bands |
 | **ROC / PR** | Model evaluation | ROC/PR curve toggle, AUC summaries, pairwise comparisons (DeLong, bootstrap, permutation), sensitivity/specificity analysis, guided test selection |
 | **Survival** | Kaplan–Meier curves, Cox modeling | Kaplan-Meier estimator, log-rank test, Cox proportional hazards regression, hazard ratios (pairwise/adjusted), time-dependent covariates, covariate selection, stats advisor |
-| **Histogram** | Distribution summaries | Descriptive statistics (mean, median, SD, Q1, Q3), log scaling, auto binning, PDF/CDF overlays |
+| **Histogram / Density Plot** | Distribution summaries | Descriptive statistics (mean, median, SD, Q1, Q3), histogram or KDE density mode, log scaling, auto binning, PDF/CDF overlays |
 | **Proportion (Pie/Donut/Stacked)** | Category proportions, Chi² tests | Chi² goodness-of-fit test, observed vs. expected frequencies, slice styling, stacked bar axis tools |
 
 All modules share a two-panel layout: AG Grid workspace on the left, responsive SVG canvas with contextual controls on the right. Drag the center divider or canvas resize handle to rebalance your layout per tab-the app remembers your choices for each workspace.
@@ -154,7 +154,7 @@ Each visualization module includes statistical tools tailored to its use case. B
   - Adjusted p-values (Benjamini-Hochberg FDR)
 - STRING protein-protein interaction network retrieval and visualization
 
-### Histogram
+### Histogram / Density Plot
 **Descriptive Statistics:**
 - Mean
 - Median
@@ -163,9 +163,10 @@ Each visualization module includes statistical tools tailored to its use case. B
 - Third quartile (Q3 / 75th percentile)
 
 **Distribution Visualization:**
-- Automatic or manual binning
+- Histogram mode with automatic or manual binning
+- Density plot mode with kernel density estimation
 - PDF (Probability Density Function) overlay
-- CDF (Cumulative Distribution Function) overlay
+- CDF (Cumulative Distribution Function) overlay in histogram mode
 - Log-scale axis support for skewed distributions
 
 ### Proportion (Pie/Donut/Stacked)
@@ -208,6 +209,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 Some modules support multiple visualization variants accessible via dropdown controls:
 - **Scatter:** Standard scatter plot, Volcano plot (for differential expression), MA plot (mean-difference)
 - **Box:** Box plot, violin plot, bar chart, strip chart (individual values)
+- **Histogram:** Histogram or density plot mode, plus welcome-screen quick launcher entries for both
 - **PCA:** 2D or 3D views with interactive rotation
 - **Pie:** Pie chart, donut chart, stacked bar chart
 
@@ -229,7 +231,7 @@ Some modules support multiple visualization variants accessible via dropdown con
 8. Save a `.graph` archive and choose whether to include the current tab only or all tabs, or export individual charts as SVG/PNG images.
 
 ### Tab Management
-- **Create tabs:** Click the "+" button or use the quick launcher on the welcome screen to add new visualization workspaces.
+- **Create tabs:** Click the "+" button or use the quick launcher on the welcome screen to add new visualization workspaces or launch specific variants such as Density plot directly.
 - **Duplicate tabs:** Right-click a tab or use the toolbar menu to duplicate it—choose to reuse data or start with an empty table.
 - **Drag and reorder:** Click and drag tabs to reorder them in your workspace.
 - **Match styles:** Copy typography, colors, and axis settings from one tab to another using the *Match Styles* toolbar option.
