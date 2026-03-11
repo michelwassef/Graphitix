@@ -951,6 +951,160 @@
     console.debug(...args);
   }
 
+  function computeScatterMedianForLowess(values){
+    const data = Array.isArray(values) ? values.filter(Number.isFinite).slice().sort((a, b) => a - b) : [];
+    if(!data.length){
+      return NaN;
+    }
+    const mid = Math.floor(data.length / 2);
+    return (data.length % 2)
+      ? data[mid]
+      : ((data[mid - 1] + data[mid]) / 2);
+  }
+
+  function computeScatterAicMetricsForLowess(sseValue, sampleSize, parameterCount){
+    const n = Number(sampleSize);
+    const k = Number(parameterCount);
+    const sse = Number(sseValue);
+    if(!Number.isFinite(n) || !Number.isFinite(k) || n <= 0 || k <= 0 || !Number.isFinite(sse) || sse <= 0){
+      return { aic: NaN, aicc: NaN, bic: NaN };
+    }
+    const aic = (n * Math.log(sse / n)) + (2 * k);
+    const aicc = (n - k - 1) > 0 ? aic + ((2 * k * (k + 1)) / (n - k - 1)) : NaN;
+    const bic = (n * Math.log(sse / n)) + (k * Math.log(n));
+    return { aic, aicc, bic };
+  }
+
+  function fitScatterLowessRegressionCore(inputPoints, options = {}){
+    const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
+    const span = Math.min(0.95, Math.max(0.2, Number(
+      fitSpec?.span
+      ?? fitSpec?.parameters?.span
+      ?? fitSpec?.initialValues?.span
+      ?? 0.75
+    )));
+    const points = (Array.isArray(inputPoints) ? inputPoints : [])
+      .filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y))
+      .map(pt => ({ ...pt, x: Number(pt.x), y: Number(pt.y) }))
+      .sort((a, b) => a.x - b.x);
+    const n = points.length;
+    if(n < 3){
+      return null;
+    }
+    const k = Math.max(2, Math.ceil(span * n));
+    const tricube = value => {
+      const t = Math.min(1, Math.abs(value));
+      const base = 1 - Math.pow(t, 3);
+      return Math.pow(Math.max(0, base), 3);
+    };
+    const smoothAt = (targetIndex, robustWeights) => {
+      const x0 = points[targetIndex].x;
+      const distances = points.map((pt, idx) => ({ idx, dist: Math.abs(pt.x - x0) })).sort((a, b) => a.dist - b.dist);
+      const bandwidth = Math.max(1e-9, distances[Math.min(distances.length - 1, k - 1)].dist || 1e-9);
+      let sw = 0;
+      let sx = 0;
+      let sy = 0;
+      let sxx = 0;
+      let sxy = 0;
+      points.forEach((pt, idx) => {
+        const distanceWeight = tricube((pt.x - x0) / bandwidth);
+        const weight = distanceWeight * (robustWeights ? robustWeights[idx] : 1);
+        sw += weight;
+        sx += weight * pt.x;
+        sy += weight * pt.y;
+        sxx += weight * pt.x * pt.x;
+        sxy += weight * pt.x * pt.y;
+      });
+      const det = (sw * sxx) - (sx * sx);
+      if(!(Math.abs(det) > 1e-18)){
+        return points[targetIndex].y;
+      }
+      const intercept = ((sy * sxx) - (sx * sxy)) / det;
+      const slope = ((sw * sxy) - (sx * sy)) / det;
+      return intercept + (slope * x0);
+    };
+    let robustWeights = new Array(n).fill(1);
+    let smoothed = points.map((_, idx) => smoothAt(idx, robustWeights));
+    for(let iter = 0; iter < 2; iter += 1){
+      const residuals = points.map((pt, idx) => pt.y - smoothed[idx]);
+      const medianAbs = computeScatterMedianForLowess(residuals.map(value => Math.abs(value))) || 1e-9;
+      robustWeights = residuals.map(value => {
+        const ratio = Math.abs(value) / (6 * medianAbs);
+        if(ratio >= 1){
+          return 0;
+        }
+        const base = 1 - (ratio * ratio);
+        return base * base;
+      });
+      smoothed = points.map((_, idx) => smoothAt(idx, robustWeights));
+    }
+    const curveSamples = points.map((pt, idx) => ({ x: pt.x, y: smoothed[idx] }));
+    const predict = xValue => {
+      const x = Number(xValue);
+      if(!Number.isFinite(x) || !curveSamples.length){
+        return NaN;
+      }
+      if(x <= curveSamples[0].x){
+        return curveSamples[0].y;
+      }
+      if(x >= curveSamples[curveSamples.length - 1].x){
+        return curveSamples[curveSamples.length - 1].y;
+      }
+      for(let i = 1; i < curveSamples.length; i += 1){
+        const a = curveSamples[i - 1];
+        const b = curveSamples[i];
+        if(x <= b.x){
+          const spanX = b.x - a.x || 1;
+          const t = (x - a.x) / spanX;
+          return a.y + (t * (b.y - a.y));
+        }
+      }
+      return NaN;
+    };
+    const residuals = points.map((pt, idx) => pt.y - smoothed[idx]);
+    const sse = residuals.reduce((sum, value) => sum + (value * value), 0);
+    const yMean = points.reduce((sum, pt) => sum + pt.y, 0) / n;
+    const tss = points.reduce((sum, pt) => sum + Math.pow(pt.y - yMean, 2), 0);
+    const parameterCount = Math.max(2, Math.round(span * n));
+    const spanLabel = typeof options.formatSpanLabel === 'function'
+      ? options.formatSpanLabel(span)
+      : span.toFixed(3);
+    return {
+      mode: 'lowess',
+      fitMethod: 'ols',
+      fitSpec,
+      domain: {
+        minX: points[0].x,
+        maxX: points[points.length - 1].x
+      },
+      predict,
+      summary: {
+        parameters: { Span: span },
+        equation: `LOWESS smoother (span = ${spanLabel})`
+      },
+      metrics: {
+        sampleSize: n,
+        parameterCount,
+        residualDf: Math.max(1, n - parameterCount),
+        sse,
+        r2: tss > 0 ? (1 - (sse / tss)) : NaN,
+        adjR2: NaN,
+        rmse: Math.sqrt(sse / n),
+        mae: residuals.reduce((sum, value) => sum + Math.abs(value), 0) / n,
+        ...computeScatterAicMetricsForLowess(sse, n, parameterCount)
+      },
+      residuals: {
+        mean: residuals.reduce((sum, value) => sum + value, 0) / n,
+        sd: Math.sqrt(sse / Math.max(1, n - parameterCount)),
+        min: Math.min(...residuals),
+        max: Math.max(...residuals)
+      },
+      warnings: ['LOWESS is intended for descriptive smoothing. Use mechanistic regression for parameter inference.'],
+      curveSamples,
+      intervals: { samples: [], summary: {} }
+    };
+  }
+
   function getScatterLockRatioCheckbox(){
     if(scatterLockRatioInput && scatterLockRatioInput.isConnected){
       return scatterLockRatioInput;
@@ -7820,133 +7974,10 @@
       return model;
     };
     scatterFitDemingRegressionForTests = fitScatterDemingRegression;
-    const fitScatterLowessRegression = (inputPoints, options = {}) => {
-      const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
-      const span = Math.min(0.95, Math.max(0.2, Number(
-        fitSpec?.span
-        ?? fitSpec?.parameters?.span
-        ?? fitSpec?.initialValues?.span
-        ?? 0.75
-      )));
-      const points = (Array.isArray(inputPoints) ? inputPoints : [])
-        .filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y))
-        .map(pt => ({ ...pt, x: Number(pt.x), y: Number(pt.y) }))
-        .sort((a, b) => a.x - b.x);
-      const n = points.length;
-      if(n < 3){
-        return null;
-      }
-      const k = Math.max(2, Math.ceil(span * n));
-      const tricube = value => {
-        const t = Math.min(1, Math.abs(value));
-        const base = 1 - Math.pow(t, 3);
-        return Math.pow(Math.max(0, base), 3);
-      };
-      const smoothAt = (targetIndex, robustWeights) => {
-        const x0 = points[targetIndex].x;
-        const distances = points.map((pt, idx) => ({ idx, dist: Math.abs(pt.x - x0) })).sort((a, b) => a.dist - b.dist);
-        const bandwidth = Math.max(1e-9, distances[Math.min(distances.length - 1, k - 1)].dist || 1e-9);
-        let sw = 0;
-        let sx = 0;
-        let sy = 0;
-        let sxx = 0;
-        let sxy = 0;
-        points.forEach((pt, idx) => {
-          const distanceWeight = tricube((pt.x - x0) / bandwidth);
-          const weight = distanceWeight * (robustWeights ? robustWeights[idx] : 1);
-          sw += weight;
-          sx += weight * pt.x;
-          sy += weight * pt.y;
-          sxx += weight * pt.x * pt.x;
-          sxy += weight * pt.x * pt.y;
-        });
-        const det = (sw * sxx) - (sx * sx);
-        if(!(Math.abs(det) > 1e-18)){
-          return points[targetIndex].y;
-        }
-        const intercept = ((sy * sxx) - (sx * sxy)) / det;
-        const slope = ((sw * sxy) - (sx * sy)) / det;
-        return intercept + (slope * x0);
-      };
-      let robustWeights = new Array(n).fill(1);
-      let smoothed = points.map((_, idx) => smoothAt(idx, robustWeights));
-      for(let iter = 0; iter < 2; iter += 1){
-        const residuals = points.map((pt, idx) => pt.y - smoothed[idx]);
-        const medianAbs = computeScatterMedian(residuals.map(value => Math.abs(value))) || 1e-9;
-        robustWeights = residuals.map(value => {
-          const ratio = Math.abs(value) / (6 * medianAbs);
-          if(ratio >= 1){
-            return 0;
-          }
-          const base = 1 - (ratio * ratio);
-          return base * base;
-        });
-        smoothed = points.map((_, idx) => smoothAt(idx, robustWeights));
-      }
-      const curveSamples = points.map((pt, idx) => ({ x: pt.x, y: smoothed[idx] }));
-      const predict = xValue => {
-        const x = Number(xValue);
-        if(!Number.isFinite(x) || !curveSamples.length){
-          return NaN;
-        }
-        if(x <= curveSamples[0].x){
-          return curveSamples[0].y;
-        }
-        if(x >= curveSamples[curveSamples.length - 1].x){
-          return curveSamples[curveSamples.length - 1].y;
-        }
-        for(let i = 1; i < curveSamples.length; i += 1){
-          const a = curveSamples[i - 1];
-          const b = curveSamples[i];
-          if(x <= b.x){
-            const spanX = b.x - a.x || 1;
-            const t = (x - a.x) / spanX;
-            return a.y + (t * (b.y - a.y));
-          }
-        }
-        return NaN;
-      };
-      const residuals = points.map((pt, idx) => pt.y - smoothed[idx]);
-      const sse = residuals.reduce((sum, value) => sum + (value * value), 0);
-      const yMean = points.reduce((sum, pt) => sum + pt.y, 0) / n;
-      const tss = points.reduce((sum, pt) => sum + Math.pow(pt.y - yMean, 2), 0);
-      const parameterCount = Math.max(2, Math.round(span * n));
-      const model = {
-        mode: 'lowess',
-        fitMethod: 'ols',
-        fitSpec,
-        domain: {
-          minX: points[0].x,
-          maxX: points[points.length - 1].x
-        },
-        predict,
-        summary: {
-          parameters: { Span: span },
-          equation: `LOWESS smoother (span = ${formatMetricValue(span, 3)})`
-        },
-        metrics: {
-          sampleSize: n,
-          parameterCount,
-          residualDf: Math.max(1, n - parameterCount),
-          sse,
-          r2: tss > 0 ? (1 - (sse / tss)) : NaN,
-          adjR2: NaN,
-          rmse: Math.sqrt(sse / n),
-          mae: residuals.reduce((sum, value) => sum + Math.abs(value), 0) / n,
-          ...computeScatterAicMetrics(sse, n, parameterCount)
-        },
-        residuals: {
-          mean: residuals.reduce((sum, value) => sum + value, 0) / n,
-          sd: Math.sqrt(sse / Math.max(1, n - parameterCount)),
-          min: Math.min(...residuals),
-          max: Math.max(...residuals)
-        },
-        warnings: ['LOWESS is intended for descriptive smoothing. Use mechanistic regression for parameter inference.'],
-        curveSamples,
-        intervals: { samples: [], summary: {} }
-      };
-      return model;
-    };
+    const fitScatterLowessRegression = (inputPoints, options = {}) => fitScatterLowessRegressionCore(inputPoints, {
+      ...(options || {}),
+      formatSpanLabel: value => formatMetricValue(value, 3)
+    });
     scatterFitLowessRegressionForTests = fitScatterLowessRegression;
     const enrichScatterRegressionModel = (points, regressionModel, options = {}) => {
       const model = regressionModel && typeof regressionModel === 'object' ? regressionModel : null;
@@ -21027,8 +21058,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             fitSpec,
             domain: domainOption || null
           });
-        }else if(modeKey === 'lowess' && typeof scatterFitLowessRegressionForTests === 'function'){
-          regression = scatterFitLowessRegressionForTests(paired.points, {
+        }else if(modeKey === 'lowess'){
+          const lowessFitter = typeof scatterFitLowessRegressionForTests === 'function'
+            ? scatterFitLowessRegressionForTests
+            : fitScatterLowessRegressionCore;
+          regression = lowessFitter(paired.points, {
             mode: regressionMode,
             method: fitMethod,
             fitSpec,
@@ -21094,6 +21128,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
       };
     },
+    fitScatterLowessRegression: (points, options = {}) => fitScatterLowessRegressionCore(
+      Array.isArray(points) ? points : [],
+      options || {}
+    ),
     constants: Object.assign({}, scatter.__testHooks?.constants, {
       MAX_SIGNIFICANT_ANNOTATIONS
     })

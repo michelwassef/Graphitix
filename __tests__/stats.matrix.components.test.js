@@ -38,6 +38,10 @@ function uniqueSorted(values) {
   return Array.from(new Set(values.map(Number))).sort((a, b) => a - b);
 }
 
+function sampleModelPoints(x, predict) {
+  return x.map(xValue => ({ x: Number(xValue), y: Number(predict(Number(xValue))) }));
+}
+
 function createSpearmanExactP(rho, n) {
   const size = Number(n);
   const observed = Math.abs(Number(rho));
@@ -149,6 +153,19 @@ function regressionOperationForMode(mode) {
   if (key === 'deming') return { operation: 'regression_deming', payloadExtra: { mode: 'deming' } };
   if (key === 'orthogonal') return { operation: 'regression_deming', payloadExtra: { mode: 'orthogonal' } };
   if (key === 'lowess') return { operation: 'regression_lowess', payloadExtra: {} };
+  if (key === 'gaussian') return { operation: 'regression_gaussian', payloadExtra: {} };
+  if (key === 'onePhaseAssociation') return { operation: 'regression_one_phase_association', payloadExtra: {} };
+  if (key === 'onePhaseDecay') return { operation: 'regression_one_phase_decay', payloadExtra: {} };
+  if (key === 'gompertz') return { operation: 'regression_gompertz', payloadExtra: {} };
+  if (key === 'bindingSaturation') return { operation: 'regression_binding_saturation', payloadExtra: {} };
+  if (key === 'bindingCompetitive') return { operation: 'regression_binding_competitive', payloadExtra: {} };
+  if (key === 'enzymeKineticsSubstrate') return { operation: 'regression_enzyme_kinetics_substrate', payloadExtra: {} };
+  if (key === 'enzymeKineticsInhibition') return { operation: 'regression_enzyme_kinetics_inhibition', payloadExtra: {} };
+  if (key === 'doseResponse3pl') return { operation: 'regression_dose_response_3pl', payloadExtra: {} };
+  if (key === 'doseResponse4pl') return { operation: 'regression_dose_response_4pl', payloadExtra: {} };
+  if (key === 'doseResponse5pl') return { operation: 'regression_dose_response_5pl', payloadExtra: {} };
+  if (key === 'arima') return { operation: 'regression_arima', payloadExtra: {} };
+  if (key === 'holtWinters') return { operation: 'regression_holt_winters', payloadExtra: {} };
   throw new Error(`No oracle operation mapping for regression mode ${mode}`);
 }
 
@@ -171,6 +188,32 @@ function compareLinearLikeRegression(actualRegression, expected, label, options 
     expected.coefficients.forEach((value, index) => {
       expectClose(actualRegression.coefficients[index], value, `${label}.coefficients[${index}]`, { abs: 1e-5, rel: 1e-4 });
     });
+  }
+}
+
+function compareRegressionPredictions(actualRegression, evalXs, expectedPredictions, label, tolerance = { abs: 1e-5, rel: 1e-4 }) {
+  expect(actualRegression).toBeTruthy();
+  const actualPredictions = evalXs.map(xValue => actualRegression.predict(xValue));
+  expect(actualPredictions.length).toBe(expectedPredictions.length);
+  actualPredictions.forEach((value, index) => {
+    expectClose(value, expectedPredictions[index], `${label}.predictions[${index}]`, tolerance);
+  });
+}
+
+function compareSummaryParameters(actualRegression, expectedSummary, keys, label, tolerance = { abs: 1e-5, rel: 1e-4 }) {
+  expect(actualRegression?.summary?.parameters).toBeTruthy();
+  expect(expectedSummary?.parameters).toBeTruthy();
+  keys.forEach(key => {
+    expectClose(actualRegression.summary.parameters[key], expectedSummary.parameters[key], `${label}.summary.parameters.${key}`, tolerance);
+  });
+  if (expectedSummary?.primaryParameter?.label) {
+    expect(String(actualRegression.summary?.primaryParameter?.label || '')).toBe(String(expectedSummary.primaryParameter.label));
+    expectClose(
+      actualRegression.summary?.primaryParameter?.value,
+      expectedSummary.primaryParameter.value,
+      `${label}.summary.primaryParameter.value`,
+      tolerance
+    );
   }
 }
 
@@ -511,7 +554,7 @@ describe('Generated component statistics matrix', () => {
     });
   });
 
-  test('line exact Spearman branch and forecast modes are wired through computeLineStats', () => {
+  test('line exact Spearman branch and forecast modes are differentially validated against oracle', () => {
     const exactX = [1, 2, 3, 4, 5, 6, 7];
     const exactY = [4, 1, 6, 2, 7, 3, 5];
     const exact = lineHooks.computeLineStats(toPoints(exactX, exactY), 'spearman', { regressionMode: 'linear' });
@@ -519,31 +562,88 @@ describe('Generated component statistics matrix', () => {
     expect(String(exact.pMethod || '').toLowerCase()).toContain('exact');
     expectClose(exact.p, exactP, 'line spearman exact p', { abs: 1e-12, rel: 1e-9 });
 
-    const timeX = Array.from({ length: 18 }, (_, idx) => idx + 1);
-    const timeY = [10, 12, 11, 13, 15, 14, 16, 18, 17, 19, 21, 20, 22, 24, 23, 25, 27, 26];
-    const timePoints = toPoints(timeX, timeY);
+    const arimaX = Array.from({ length: 18 }, (_, idx) => idx + 1);
+    const arimaY = [10, 12, 11, 13, 15, 14, 16, 18, 17, 19, 21, 20, 22, 24, 23, 25, 27, 26];
+    const seasonalX = Array.from({ length: 20 }, (_, idx) => idx + 1);
+    const seasonalY = [18, 24, 29, 22, 21, 27, 32, 25, 24, 30, 35, 28, 27, 33, 38, 31, 30, 36, 41, 34];
+    const arimaPoints = toPoints(arimaX, arimaY);
+    const seasonalPoints = toPoints(seasonalX, seasonalY);
 
-    const arima4 = lineHooks.computeLineStats(timePoints, 'pearson', { regressionMode: 'arima', forecast: { horizon: 4, p: 1, d: 0, autoTune: false } });
-    const arima8 = lineHooks.computeLineStats(timePoints, 'pearson', { regressionMode: 'arima', forecast: { horizon: 8, p: 1, d: 0, autoTune: false } });
-    expect(arima4.regression?.mode).toBe('arima');
-    expect(arima4.regression?.forecast?.points?.length).toBe(4);
-    expect(arima8.regression?.forecast?.points?.length).toBe(8);
-    expect(arima4.regression?.summary?.parameters?.Horizon).toBe(4);
-    expect(arima8.regression?.summary?.parameters?.Horizon).toBe(8);
-    expect(arima8.regression?.forecast?.points?.[7]?.x).toBeGreaterThan(arima4.regression?.forecast?.points?.[3]?.x);
+    const specs = [
+      {
+        id: 'line-arima-manual',
+        mode: 'arima',
+        points: arimaPoints,
+        forecast: { horizon: 4, p: 1, d: 0, autoTune: false },
+        summaryKeys: ['Horizon', 'AR order (p)', 'Differencing (d)', 'AR1']
+      },
+      {
+        id: 'line-arima-auto',
+        mode: 'arima',
+        points: arimaPoints,
+        forecast: { horizon: 5, autoTune: true, criterion: 'bic', maxP: 2, maxD: 1 },
+        summaryKeys: ['Horizon', 'AR order (p)', 'Differencing (d)']
+      },
+      {
+        id: 'line-hw-manual',
+        mode: 'holtWinters',
+        points: seasonalPoints,
+        forecast: { horizon: 4, seasonLength: 4, autoTune: false, level: 0.2, trend: 0.1, seasonal: 0.1 },
+        summaryKeys: ['Season length', 'Horizon', 'Level α', 'Trend β', 'Season γ', 'Seasonal 1', 'Seasonal 2', 'Seasonal 3', 'Seasonal 4']
+      },
+      {
+        id: 'line-hw-auto',
+        mode: 'holtWinters',
+        points: seasonalPoints,
+        forecast: { horizon: 5, seasonLength: 4, autoTune: true, criterion: 'bic' },
+        summaryKeys: ['Season length', 'Horizon', 'Level α', 'Trend β', 'Season γ', 'Seasonal 1', 'Seasonal 2', 'Seasonal 3', 'Seasonal 4']
+      }
+    ];
 
-    const hw3 = lineHooks.computeLineStats(timePoints, 'pearson', { regressionMode: 'holtWinters', forecast: { horizon: 3, seasonLength: 3 } });
-    const hw6 = lineHooks.computeLineStats(timePoints, 'pearson', { regressionMode: 'holtWinters', forecast: { horizon: 6, seasonLength: 6 } });
-    expect(hw3.regression?.mode).toBe('holtWinters');
-    expect(hw3.regression?.forecast?.points?.length).toBe(3);
-    expect(hw6.regression?.forecast?.points?.length).toBe(6);
-    expect(hw3.regression?.forecast?.seasonLength).toBe(3);
-    expect(hw6.regression?.forecast?.seasonLength).toBe(6);
+    const cases = specs.map(spec => ({
+      id: spec.id,
+      operation: regressionOperationForMode(spec.mode).operation,
+      payload: {
+        x: spec.points.map(point => point.x),
+        y: spec.points.map(point => point.y),
+        forecast: spec.forecast
+      }
+    }));
+    const oracle = indexOracleResults(runPythonOracle(cases));
+
+    specs.forEach(spec => {
+      const actual = lineHooks.computeLineStats(spec.points, 'pearson', { regressionMode: spec.mode, forecast: spec.forecast });
+      const ref = oracle.get(spec.id)?.result;
+      expect(actual?.regression?.mode).toBe(spec.mode);
+      compareRegressionMetrics(actual.regression?.metrics, ref?.metrics, `${spec.id}.metrics`, {
+        keys: ['sse', 'rmse', 'mae', 'mape', 'smape', 'aic', 'bic', 'horizon'],
+        tolerance: { abs: 1e-6, rel: 1e-5 }
+      });
+      compareSummaryParameters(actual.regression, ref?.summary, spec.summaryKeys, spec.id, { abs: 1e-6, rel: 1e-5 });
+      expect(actual.regression?.forecast?.points?.length).toBe(ref?.forecast?.points?.length);
+      ref.forecast.points.forEach((point, index) => {
+        expectClose(actual.regression?.forecast?.points?.[index]?.x, point.x, `${spec.id}.forecast[${index}].x`, { abs: 1e-8, rel: 1e-8 });
+        expectClose(actual.regression?.forecast?.points?.[index]?.y, point.y, `${spec.id}.forecast[${index}].y`, { abs: 1e-6, rel: 1e-5 });
+        expectClose(actual.regression?.forecast?.points?.[index]?.lower, point.lower, `${spec.id}.forecast[${index}].lower`, { abs: 1e-6, rel: 1e-5 });
+        expectClose(actual.regression?.forecast?.points?.[index]?.upper, point.upper, `${spec.id}.forecast[${index}].upper`, { abs: 1e-6, rel: 1e-5 });
+        expectClose(actual.regression?.forecast?.points?.[index]?.stdErr, point.stdErr, `${spec.id}.forecast[${index}].stdErr`, { abs: 1e-6, rel: 1e-5 });
+        if (spec.mode === 'holtWinters') {
+          expectClose(actual.regression?.forecast?.points?.[index]?.seasonal, point.seasonal, `${spec.id}.forecast[${index}].seasonal`, { abs: 1e-6, rel: 1e-5 });
+        }
+      });
+      if (spec.mode === 'holtWinters') {
+        expect(actual.regression?.forecast?.seasonLength).toBe(ref?.forecast?.seasonLength);
+      }
+    });
   });
 
   test('scatter oracle-backed matrix covers supported regression families and parameter routing', () => {
     expect(scatterHooks).toBeTruthy();
 
+    const saturatingX = [0.2, 0.4, 0.8, 1.5, 2.5, 4, 6, 9, 13, 18];
+    const logDoseX = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2];
+    const gaussianX = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
+    const lowessX = [0, 1, 2, 3, 4, 5, 6, 7];
     const scatterSpecs = [
       {
         mode: 'linear',
@@ -614,6 +714,82 @@ describe('Generated component statistics matrix', () => {
         y: [3.4, 5.2, 7.7, 9.5, 11.8, 14.1, 15.9, 18.5],
         expectedAssociation: 'pearson',
         fitSpec: {}
+      },
+      {
+        mode: 'doseResponse3pl',
+        points: sampleModelPoints(logDoseX, x => 92 / (1 + Math.pow(10, (0.35 - x) * 1.15))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Bottom', 'Top', 'LogIC50', 'IC50', 'HillSlope']
+      },
+      {
+        mode: 'doseResponse4pl',
+        points: sampleModelPoints(logDoseX, x => 7 + ((96 - 7) / (1 + Math.pow(10, (0.25 - x) * 1.2)))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Bottom', 'Top', 'LogIC50', 'IC50', 'HillSlope']
+      },
+      {
+        mode: 'doseResponse5pl',
+        points: sampleModelPoints(logDoseX, x => 5 + ((90 - 5) / Math.pow(1 + Math.pow(10, (0.15 - x) * 1.05), 1.35))),
+        expectedAssociation: 'spearman',
+        fitSpec: {}
+      },
+      {
+        mode: 'onePhaseAssociation',
+        points: sampleModelPoints(saturatingX, x => 3 + ((48 - 3) * (1 - Math.exp(-0.24 * x)))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Y0', 'Plateau', 'K']
+      },
+      {
+        mode: 'onePhaseDecay',
+        points: sampleModelPoints(saturatingX, x => 8 + ((75 - 8) * Math.exp(-0.2 * x))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Y0', 'Plateau', 'K']
+      },
+      {
+        mode: 'gompertz',
+        points: sampleModelPoints(saturatingX, x => 4 + ((98 - 4) * Math.exp(-Math.exp(-0.42 * (x - 5.5))))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Lower', 'Upper', 'K', 'X0']
+      },
+      {
+        mode: 'gaussian',
+        points: sampleModelPoints(gaussianX, x => 1.5 + (19 * Math.exp(-0.5 * Math.pow((x - 0.5) / 1.4, 2)))),
+        expectedAssociation: 'none',
+        fitSpec: {},
+        summaryKeys: ['Baseline', 'Amplitude', 'Center', 'Sigma']
+      },
+      {
+        mode: 'bindingSaturation',
+        points: sampleModelPoints(saturatingX, x => ((82 * x) / (2.8 + x)) + (0.45 * x)),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Bmax', 'Kd', 'NS']
+      },
+      {
+        mode: 'bindingCompetitive',
+        points: sampleModelPoints(saturatingX, x => 6 + ((97 - 6) / (1 + Math.pow(x / 3.8, 1.25)))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Top', 'Bottom', 'IC50', 'HillSlope']
+      },
+      {
+        mode: 'enzymeKineticsSubstrate',
+        points: sampleModelPoints(saturatingX, x => 2 + ((88 * x) / (2.4 + x))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Vmax', 'Km', 'Baseline']
+      },
+      {
+        mode: 'enzymeKineticsInhibition',
+        points: sampleModelPoints(saturatingX, x => 4 + (84 / (1 + Math.pow(x / 3.2, 1.4)))),
+        expectedAssociation: 'spearman',
+        fitSpec: {},
+        summaryKeys: ['Vmax', 'IC50', 'HillSlope', 'Baseline']
       }
     ];
 
@@ -621,12 +797,15 @@ describe('Generated component statistics matrix', () => {
     const js = {};
 
     scatterSpecs.forEach(spec => {
+      const points = Array.isArray(spec.points) ? spec.points : toPoints(spec.x, spec.y);
+      const x = points.map(point => point.x);
+      const y = points.map(point => point.y);
       const op = regressionOperationForMode(spec.mode);
       const payload = {
-        x: spec.x,
-        y: spec.y,
+        x,
+        y,
         alpha: 0.05,
-        evalXs: uniqueSorted(spec.x),
+        evalXs: uniqueSorted(x),
         ...op.payloadExtra
       };
       if (spec.mode === 'deming') {
@@ -637,20 +816,46 @@ describe('Generated component statistics matrix', () => {
       }
       cases.push({ id: `scatter-${spec.mode}-regression`, operation: op.operation, payload });
       if (spec.expectedAssociation !== 'none') {
-        cases.push({ id: `scatter-${spec.mode}-correlation`, operation: 'correlation', payload: { method: spec.expectedAssociation, x: spec.x, y: spec.y } });
+        cases.push({ id: `scatter-${spec.mode}-correlation`, operation: 'correlation', payload: { method: spec.expectedAssociation, x, y } });
       }
       js[spec.mode] = scatterHooks.computeScatterStats(
-        toPoints(spec.x, spec.y),
+        points,
         'auto',
         { regressionMode: spec.mode, associationSelection: 'auto', fitMethod: 'ols', fitSpec: spec.fitSpec }
       );
     });
 
     const oracle = indexOracleResults(runPythonOracle(cases));
+    const predictionModes = new Set([
+      'lowess',
+      'spline',
+      'doseResponse3pl',
+      'doseResponse4pl',
+      'doseResponse5pl',
+      'onePhaseAssociation',
+      'onePhaseDecay',
+      'gompertz',
+      'gaussian',
+      'bindingSaturation',
+      'bindingCompetitive',
+      'enzymeKineticsSubstrate',
+      'enzymeKineticsInhibition'
+    ]);
 
     scatterSpecs.forEach(spec => {
       const actual = js[spec.mode];
       const regressionRef = oracle.get(`scatter-${spec.mode}-regression`)?.result;
+      const metricTolerance = spec.mode === 'doseResponse5pl'
+        ? { abs: 1e-1, rel: 1e-2 }
+        : ((spec.mode === 'deming' || spec.mode === 'orthogonal')
+          ? { abs: 2e-4, rel: 1e-3 }
+          : { abs: 1e-5, rel: 1e-4 });
+      const predictionTolerance = spec.mode === 'doseResponse5pl'
+        ? { abs: 2e-1, rel: 2e-2 }
+        : { abs: 1e-5, rel: 1e-4 };
+      const summaryTolerance = spec.mode === 'doseResponse5pl'
+        ? { abs: 2e-1, rel: 2e-2 }
+        : { abs: 1e-4, rel: 1e-3 };
       expect(actual).toBeTruthy();
       expect(actual.associationMethod).toBe(spec.expectedAssociation);
       if (spec.expectedAssociation !== 'none') {
@@ -664,11 +869,15 @@ describe('Generated component statistics matrix', () => {
           : (spec.mode === 'logistic'
             ? ['sse', 'r2', 'rmse', 'mae', 'logLoss']
             : ['sse', 'r2', 'rmse', 'mae']),
-        tolerance: (spec.mode === 'deming' || spec.mode === 'orthogonal')
-          ? { abs: 2e-4, rel: 1e-3 }
-          : { abs: 1e-5, rel: 1e-4 }
+        tolerance: metricTolerance
       });
-      if ((spec.mode === 'exponential') || (spec.mode === 'power')) {
+      if (predictionModes.has(spec.mode)) {
+        const evalXs = uniqueSorted((Array.isArray(spec.points) ? spec.points : toPoints(spec.x, spec.y)).map(point => point.x));
+        compareRegressionPredictions(actual.regression, evalXs, regressionRef.predictions, `scatter-${spec.mode}`, predictionTolerance);
+        if (Array.isArray(spec.summaryKeys) && spec.summaryKeys.length) {
+          compareSummaryParameters(actual.regression, regressionRef.summary, spec.summaryKeys, `scatter-${spec.mode}`, summaryTolerance);
+        }
+      } else if ((spec.mode === 'exponential') || (spec.mode === 'power')) {
         if (spec.mode === 'exponential') {
           expectClose(actual.regression?.summary?.parameters?.Amplitude, regressionRef?.summary?.amplitude, `scatter-${spec.mode}.amplitude`, { abs: 1e-5, rel: 1e-4 });
           expectClose(actual.regression?.summary?.parameters?.Rate, regressionRef?.summary?.rate, `scatter-${spec.mode}.rate`, { abs: 1e-5, rel: 1e-4 });
@@ -688,15 +897,35 @@ describe('Generated component statistics matrix', () => {
           );
         });
       }
-      if (spec.mode === 'lowess' || spec.mode === 'spline') {
-        const evalXs = uniqueSorted(spec.x);
-        const actualPredictions = evalXs.map(xValue => actual.regression.predict(xValue));
-        expect(actualPredictions.length).toBe(regressionRef.predictions.length);
-        actualPredictions.forEach((value, index) => {
-          expectClose(value, regressionRef.predictions[index], `scatter-${spec.mode}.predictions[${index}]`, { abs: 1e-5, rel: 1e-4 });
-        });
-      }
     });
+  });
+
+  test('scatter LOWESS fitter is differentially validated against oracle', () => {
+    expect(typeof scatterHooks?.fitScatterLowessRegression).toBe('function');
+    const points = toPoints(
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [1.2, 2.8, 2.1, 4.4, 3.6, 5.1, 4.8, 6.2]
+    );
+    const x = points.map(point => point.x);
+    const y = points.map(point => point.y);
+    const span = 0.65;
+    const actual = scatterHooks.fitScatterLowessRegression(points, { fitSpec: { span } });
+    const oracle = indexOracleResults(runPythonOracle([
+      {
+        id: 'scatter-lowess-direct',
+        operation: 'regression_lowess',
+        payload: { x, y, span, evalXs: uniqueSorted(x) }
+      }
+    ]));
+    const ref = oracle.get('scatter-lowess-direct')?.result;
+
+    expect(actual).toBeTruthy();
+    compareRegressionMetrics(actual.metrics, ref.metrics, 'scatter-lowess-direct.metrics', {
+      keys: ['sampleSize', 'parameterCount', 'residualDf', 'sse', 'r2', 'rmse', 'mae', 'aic', 'aicc', 'bic'],
+      tolerance: { abs: 1e-6, rel: 1e-5 }
+    });
+    compareRegressionPredictions(actual, uniqueSorted(x), ref.predictions, 'scatter-lowess-direct', { abs: 1e-6, rel: 1e-5 });
+    compareSummaryParameters({ summary: actual.summary }, ref.summary, ['Span'], 'scatter-lowess-direct', { abs: 1e-12, rel: 1e-9 });
   });
 
   test('scatter visible modes all execute, auto-association matches policy, and special routing is exercised', () => {

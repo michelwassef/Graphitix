@@ -65,6 +65,8 @@ describe('PCA view controls', () => {
     require('../js/shared/axisControls.js');
     require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
+    require('../js/shared/stats.js');
+    require('../js/shared/stats-table.js');
     require('../js/shared/formControls.js');
     require('../js/shared/dom.js');
     require('../js/components/pca.js');
@@ -165,7 +167,7 @@ describe('PCA view controls', () => {
 
     const payload = window.Components.pca.getPayload();
     expect(payload.stats).toBeTruthy();
-    expect(payload.config?.stats).toBeUndefined();
+    expect(payload.config?.stats?.resultsHtml).toContain('Samples analysed');
 
     const varianceCard = document.getElementById('pcaVarianceSummary');
     const eigenContainer = document.getElementById('pcaEigenTableContainer');
@@ -184,6 +186,28 @@ describe('PCA view controls', () => {
     expect(document.querySelector('#pcaScreePlot svg')).toBeTruthy();
     expect(document.querySelector('#pcaEigenTableWrapper table')).toBeTruthy();
     expect(document.querySelector('#pcaLoadingsTable table')).toBeTruthy();
+  });
+
+  test('PCA payload restore keeps reporting and reproducibility panel', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    expect(exampleBtn).toBeTruthy();
+    exampleBtn.click();
+    await flushAll(20);
+
+    const payload = window.Components.pca.getPayload();
+    expect(payload.config?.stats?.resultsHtml).toContain('Samples analysed');
+    expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeTruthy();
+
+    const summary = document.getElementById('pcaStatsSummary');
+    expect(summary).toBeTruthy();
+    summary.innerHTML = '';
+
+    window.Components.pca.loadFromPayload(payload, { source: 'test-report-restore', skipDraw: true });
+    await flushAll(10);
+
+    const restoredPanel = document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel');
+    expect(restoredPanel).toBeTruthy();
+    expect(restoredPanel.textContent || '').toContain('Reporting and reproducibility');
   });
 
   test('PCA render cache restore restores scree visibility state', async () => {

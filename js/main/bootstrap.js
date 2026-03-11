@@ -31,7 +31,7 @@
     { type: 'box', label: 'Distribution Charts', hint: 'Group comparisons', description: 'Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.' },
     { type: 'scatter', label: 'XY Plots', hint: 'Correlation & expression', description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.' },
     { type: 'line', label: 'Line & Area Charts', hint: 'Trends & forecasting', description: 'Plot time series as lines or areas with regression, ARIMA/Holt-Winters forecasting, and correlation metrics.' },
-    { type: 'hist', label: 'Histogram', hint: 'Frequency distribution', description: 'Summarize univariate distributions with adjustable binning, PDF/CDF overlays, and distribution fits.' },
+    { type: 'hist', label: 'Histogram', hint: 'Frequency distribution', description: 'Summarize univariate distributions with adjustable binning, density plots, PDF/CDF overlays, and distribution fits.' },
     { type: 'heatmap', label: 'Heatmap & Clustering', hint: 'Matrix view', description: 'Visualize data values or correlation matrices with hierarchical clustering and dendrograms.' },
     { type: 'pca', label: 'Dimensionality Reduction', hint: 'PCA / MDS / t-SNE / UMAP', description: 'Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.' },
     { type: 'pie', label: 'Pie, Donut & Stacked Bar', hint: 'Category proportions', description: 'Visualize category proportions as pie charts, donuts, or stacked bars with Chi-square tests.' },

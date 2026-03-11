@@ -4982,6 +4982,8 @@
       const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
       const pcaLoadingsLimitInput=document.getElementById('pcaLoadingsLimit');
       const pcaLoadingsLimitVal=document.getElementById('pcaLoadingsLimitVal');
+      const pcaLoadingsActions=document.querySelector('#pcaLoadingsContainer .loadings-card__actions');
+      const pcaDefaultLoadingsActionsHost=pcaLoadingsActions?.parentElement || null;
       let lastLoadingsRender = null;
       function clampLoadingsLimitValue(value, maxRows = PCA_LOADINGS_ROW_LIMIT){
         const safeMax = Math.max(1, Math.floor(Number(maxRows) || 1));
@@ -5015,6 +5017,10 @@
         }
         if(method !== 'pca'){
           lastLoadingsRender = null;
+          if(pcaLoadingsContainer){
+            delete pcaLoadingsContainer.dataset.sharedStatsTable;
+          }
+          resetLoadingsActionsHost();
           pcaLoadingsTable.innerHTML = '<i>Loadings available for PCA only.</i>';
           debugLog('Debug: pca loadings unavailable for method',{ method });
           return;
@@ -5025,6 +5031,10 @@
         const totalAvailable = Number.isFinite(totalCount) ? totalCount : totalRows;
         if(!totalRows || !components){
           lastLoadingsRender = null;
+          if(pcaLoadingsContainer){
+            delete pcaLoadingsContainer.dataset.sharedStatsTable;
+          }
+          resetLoadingsActionsHost();
           pcaLoadingsTable.innerHTML = '<i>No loadings computed.</i>';
           debugLog('Debug: pca loadings empty',{ rowCount: totalRows, totalAvailable, components });
           return;
@@ -5039,28 +5049,64 @@
         }
         const rowsToDisplay = rowsToRender.slice(0, rowsLimit);
         const truncated = totalAvailable > rowsToDisplay.length;
-        const parts = [];
-        parts.push('<table class="stats-table"><thead><tr>');
-        parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${headerCells[0]}</th>`);
-        headerCells.slice(1).forEach(h => {
-          parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${h}</th>`);
-        });
-        parts.push('</tr></thead><tbody>');
-        rowsToDisplay.forEach(row => {
-          const label = row?.label || '';
-          parts.push('<tr>');
-          parts.push(`<td class="stats-table__cell stats-table__cell--left">${label}</td>`);
+        const tableRows = rowsToDisplay.map(row => {
+          const entry = { variable: row?.label || '' };
           for(let idx=0; idx<columnsToRender; idx+=1){
             const value = Number(row?.values?.[idx] ?? 0);
-            parts.push(`<td class="stats-table__cell stats-table__cell--left">${value.toFixed(4)}</td>`);
+            entry[`pc${idx+1}`] = value.toFixed(4);
           }
-          parts.push('</tr>');
+          return entry;
         });
-        parts.push('</tbody></table>');
-        if(truncated){
-          parts.push(`<div class="stats-table-footnotes"><div class="stats-table-footnote">Showing top ${rowsToDisplay.length.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.</div></div>`);
+        const columns = [{ key: 'variable', label: headerCells[0], align: 'left' }];
+        for(let idx=0; idx<columnsToRender; idx+=1){
+          columns.push({ key: `pc${idx+1}`, label: headerCells[idx + 1], align: 'left' });
         }
-        pcaLoadingsTable.innerHTML = parts.join('');
+        const rendered = renderPcaSharedStatsTable(pcaLoadingsTable, {
+          target: pcaLoadingsTable,
+          columns,
+          rows: tableRows,
+          caption: 'Component Loadings',
+          footnotes: truncated
+            ? [`Showing top ${rowsToDisplay.length.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.`]
+            : [],
+          options: {
+            fileName: 'pca-component-loadings',
+            contextLabel: 'pca-component-loadings'
+          }
+        });
+        if(rendered?.wrapper){
+          if(pcaLoadingsContainer){
+            pcaLoadingsContainer.dataset.sharedStatsTable = '1';
+          }
+          dockLoadingsActions(rendered.wrapper);
+        }else{
+          if(pcaLoadingsContainer){
+            delete pcaLoadingsContainer.dataset.sharedStatsTable;
+          }
+          resetLoadingsActionsHost();
+          const parts = [];
+          parts.push('<table class="stats-table"><thead><tr>');
+          parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${headerCells[0]}</th>`);
+          headerCells.slice(1).forEach(h => {
+            parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${h}</th>`);
+          });
+          parts.push('</tr></thead><tbody>');
+          rowsToDisplay.forEach(row => {
+            const label = row?.label || '';
+            parts.push('<tr>');
+            parts.push(`<td class="stats-table__cell stats-table__cell--left">${label}</td>`);
+            for(let idx=0; idx<columnsToRender; idx+=1){
+              const value = Number(row?.values?.[idx] ?? 0);
+              parts.push(`<td class="stats-table__cell stats-table__cell--left">${value.toFixed(4)}</td>`);
+            }
+            parts.push('</tr>');
+          });
+          parts.push('</tbody></table>');
+          if(truncated){
+            parts.push(`<div class="stats-table-footnotes"><div class="stats-table-footnote">Showing top ${rowsToDisplay.length.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.</div></div>`);
+          }
+          pcaLoadingsTable.innerHTML = parts.join('');
+        }
         debugLog('Debug: pca loadings table rendered',{
           rowCount: rowsToDisplay.length,
           columnsToRender,
@@ -5157,6 +5203,7 @@
       const pcaEigenTableContainer=document.getElementById('pcaEigenTableContainer');
       const pcaEigenTableWrapper=document.getElementById('pcaEigenTableWrapper');
       const pcaExportEigenTableBtn=document.getElementById('pcaExportEigenTable');
+      const pcaDefaultEigenExportHost = pcaExportEigenTableBtn?.parentElement || null;
       function syncAxisSelectValues(){
         const entries = [
           { key: 'x', element: pcaXAxis },
@@ -5314,6 +5361,138 @@
           pcaExportEigenTableBtn.disabled = true;
         }
       }
+      function dockEigenExportButton(host){
+        if(!pcaExportEigenTableBtn || !host || typeof host.appendChild !== 'function'){
+          return false;
+        }
+        host.appendChild(pcaExportEigenTableBtn);
+        return true;
+      }
+      function resetEigenExportButtonHost(){
+        if(pcaDefaultEigenExportHost){
+          dockEigenExportButton(pcaDefaultEigenExportHost);
+        }
+      }
+      function renderPcaSharedStatsTable(target, config){
+        if(!target || !Shared.statsTable || typeof Shared.statsTable.render !== 'function'){
+          return null;
+        }
+        return Shared.statsTable.render(config);
+      }
+      function dockLoadingsActions(wrapper){
+        if(!pcaLoadingsActions || !wrapper || typeof wrapper.insertBefore !== 'function'){
+          return false;
+        }
+        const referenceNode = wrapper.querySelector('.stats-table') || wrapper.firstChild || null;
+        wrapper.insertBefore(pcaLoadingsActions, referenceNode);
+        return true;
+      }
+      function resetLoadingsActionsHost(){
+        if(pcaDefaultLoadingsActionsHost && pcaLoadingsActions){
+          pcaDefaultLoadingsActionsHost.insertBefore(pcaLoadingsActions, pcaLoadingsTable || null);
+        }
+      }
+      function renderPcaSummaryPanel(options = {}){
+        if(!pcaStatsSummary){
+          return;
+        }
+        const summaryLines = Array.isArray(options.summaryLines) ? options.summaryLines : [];
+        const method = String(options.method || '').toLowerCase();
+        const savedHtml = typeof options.savedHtml === 'string' ? options.savedHtml : null;
+        if(pcaStatsResults){
+          pcaStatsResults.querySelectorAll('.stats-report-panel').forEach(node => {
+            node.parentNode?.removeChild?.(node);
+          });
+        }
+        if(savedHtml != null){
+          pcaStatsSummary.innerHTML = savedHtml;
+          if(pcaStatsResults){
+            pcaStatsSummary.querySelectorAll('.stats-report-panel').forEach(node => {
+              pcaStatsResults.appendChild(node);
+            });
+          }
+          debugLog('Debug: pca summary panel restored from saved html', {
+            length: savedHtml.length,
+            hasReportPanel: savedHtml.includes('stats-report-panel')
+          });
+        } else if(summaryLines.length){
+          pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
+        } else if(method === 'pca'){
+          pcaStatsSummary.innerHTML = '<div class="stats-table-message">Component variance summary appears alongside the scree plot.</div>';
+        } else {
+          pcaStatsSummary.innerHTML = '<div class="stats-table-message">No statistics computed.</div>';
+        }
+        if(pcaStatsResults && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
+          const statsSnapshot = lastPcaStats || {};
+          Shared.statsReporting.appendReportPanel(pcaStatsResults, {
+            methodsText: `${(method || statsSnapshot.method || 'pca').toUpperCase()} summary statistics were generated for the current ordination result.`,
+            resultsText: [
+              summaryLines.length ? summaryLines.join(' ') : null,
+              Number.isFinite(statsSnapshot.totalVariance) ? `Total explained variance = ${statsSnapshot.totalVariance.toFixed(2)}%.` : null,
+              Number.isFinite(statsSnapshot.stress) ? `Stress = ${statsSnapshot.stress.toFixed(4)}.` : null
+            ].filter(Boolean).join(' '),
+            analysisSpec: {
+              component: 'pca',
+              method: method || statsSnapshot.method || null,
+              dimensions: statsSnapshot.dimensions || null,
+              totalVariance: Number.isFinite(statsSnapshot.totalVariance) ? statsSnapshot.totalVariance : null,
+              stress: Number.isFinite(statsSnapshot.stress) ? statsSnapshot.stress : null,
+              eigenCount: Array.isArray(statsSnapshot.eigenSummary) ? statsSnapshot.eigenSummary.length : 0
+            }
+          }, { title: 'Reporting and reproducibility' });
+        }
+      }
+      function restorePcaStatsFromPayload(options = {}){
+        if(!lastPcaStats || typeof lastPcaStats !== 'object'){
+          return false;
+        }
+        const method = String(lastPcaStats.method || '').toLowerCase();
+        const summaryLines = Array.isArray(lastPcaStats.summaryLines) ? lastPcaStats.summaryLines : [];
+        const eigenSummary = Array.isArray(lastPcaStats.eigenSummary) ? lastPcaStats.eigenSummary : [];
+        const screeData = Array.isArray(lastPcaStats.scree) ? lastPcaStats.scree : [];
+        const loadings = lastPcaStats.loadings && typeof lastPcaStats.loadings === 'object'
+          ? lastPcaStats.loadings
+          : null;
+        renderPcaSummaryPanel({
+          summaryLines,
+          method,
+          savedHtml: options.savedSummaryHtml
+        });
+        renderScreeChart({
+          show: method === 'pca',
+          data: screeData,
+          method,
+          pointColor: pcaFill?.value || '#377eb8'
+        });
+        renderVarianceSummary({
+          method,
+          data: method === 'pca' ? eigenSummary : []
+        });
+        renderEigenTable({
+          show: method === 'pca' || method === 'mds',
+          data: eigenSummary,
+          enableExport: eigenSummary.length > 0,
+          method
+        });
+        if(loadings){
+          updateLoadingsTable({
+            rows: Array.isArray(loadings.rows) ? loadings.rows : [],
+            components: Number(loadings.components) || 0,
+            method,
+            viewMode: pcaViewMode?.value || DEFAULT_VIEW_MODE,
+            totalCount: Number.isFinite(loadings.totalCount) ? loadings.totalCount : 0
+          });
+        }
+        debugLog('Debug: pca stats restored from persisted payload UI', {
+          method,
+          summaryLines: summaryLines.length,
+          screePoints: screeData.length,
+          eigenRows: eigenSummary.length,
+          loadingsRows: Array.isArray(loadings?.rows) ? loadings.rows.length : 0,
+          hasSavedSummaryHtml: !!options.savedSummaryHtml
+        });
+        return true;
+      }
       function updateScreeVarianceRowVisibility(){
         if(!pcaScreeVarianceRow){ return; }
         const screeVisible = !!pcaScreeContainer && !pcaScreeContainer.hidden;
@@ -5337,6 +5516,7 @@
         }
         if(pcaVarianceSummary){
           pcaVarianceSummary.hidden = true;
+          delete pcaVarianceSummary.dataset.sharedStatsTable;
         }
         if(pcaVarianceList){
           pcaVarianceList.innerHTML = '';
@@ -5346,15 +5526,22 @@
         }
         if(pcaEigenTableContainer){
           pcaEigenTableContainer.hidden = true;
+          delete pcaEigenTableContainer.dataset.sharedStatsTable;
         }
         if(pcaLoadingsTable){
           pcaLoadingsTable.innerHTML = '';
         }
         if(pcaLoadingsContainer){
           pcaLoadingsContainer.hidden = true;
+          delete pcaLoadingsContainer.dataset.sharedStatsTable;
         }
+        resetLoadingsActionsHost();
         if(pcaExportEigenTableBtn){
           pcaExportEigenTableBtn.disabled = true;
+        }
+        resetEigenExportButtonHost();
+        if(pcaDefaultEigenExportHost?.style){
+          pcaDefaultEigenExportHost.style.display = '';
         }
         updateEigenExportVisibility(false);
         updateScreeVarianceRowVisibility();
@@ -5631,29 +5818,56 @@
         if(method !== 'pca'){
           pcaVarianceSummary.hidden = true;
           pcaVarianceList.innerHTML = '';
+          delete pcaVarianceSummary.dataset.sharedStatsTable;
           updateScreeVarianceRowVisibility();
           debugLog('Debug: pca variance summary hidden',{ method, count: data.length });
           return;
         }
         if(!data.length){
           pcaVarianceSummary.hidden = false;
+          delete pcaVarianceSummary.dataset.sharedStatsTable;
           pcaVarianceList.innerHTML = '<div class="variance-card__empty">Variance summary will appear after PCA runs.</div>';
           updateScreeVarianceRowVisibility();
           debugLog('Debug: pca variance summary placeholder shown');
           return;
         }
-        let tableHtml = '<table class="variance-card__table"><thead><tr><th>Component</th><th>Variance %</th></tr></thead><tbody>';
         let listHtml = '<ul class="variance-card__sr-only">';
-        data.forEach(entry => {
+        const rows = data.map(entry => {
           const component = Number(entry.component) || 0;
           const pct = Number(entry.variancePercent) || 0;
           const label = entry.componentLabel || `PC${component}`;
-          tableHtml += `<tr><td>${label}</td><td>${pct.toFixed(2)}%</td></tr>`;
           listHtml += `<li>${label}: ${pct.toFixed(2)}%</li>`;
+          return {
+            component: label,
+            variancePercent: `${pct.toFixed(2)}%`
+          };
         });
-        tableHtml += '</tbody></table>';
         listHtml += '</ul>';
-        pcaVarianceList.innerHTML = tableHtml + listHtml;
+        const rendered = renderPcaSharedStatsTable(pcaVarianceList, {
+          target: pcaVarianceList,
+          columns: [
+            { key: 'component', label: 'Component', align: 'left' },
+            { key: 'variancePercent', label: 'Variance %', align: 'left' }
+          ],
+          rows,
+          caption: 'Component Variance',
+          options: {
+            fileName: 'pca-component-variance',
+            contextLabel: 'pca-component-variance'
+          }
+        });
+        if(rendered){
+          pcaVarianceSummary.dataset.sharedStatsTable = '1';
+          pcaVarianceList.insertAdjacentHTML('beforeend', listHtml);
+        }else{
+          delete pcaVarianceSummary.dataset.sharedStatsTable;
+          let tableHtml = '<table class="variance-card__table"><thead><tr><th>Component</th><th>Variance %</th></tr></thead><tbody>';
+          rows.forEach(row => {
+            tableHtml += `<tr><td>${row.component}</td><td>${row.variancePercent}</td></tr>`;
+          });
+          tableHtml += '</tbody></table>';
+          pcaVarianceList.innerHTML = tableHtml + listHtml;
+        }
         pcaVarianceSummary.hidden = false;
         updateScreeVarianceRowVisibility();
         debugLog('Debug: pca variance summary rendered',{ count: data.length });
@@ -5673,6 +5887,11 @@
             pcaEigenTableWrapper.innerHTML = '';
           }
           pcaEigenTableContainer.hidden = true;
+          delete pcaEigenTableContainer.dataset.sharedStatsTable;
+          resetEigenExportButtonHost();
+          if(pcaDefaultEigenExportHost?.style){
+            pcaDefaultEigenExportHost.style.display = '';
+          }
           updateEigenExportVisibility(false);
           debugLog('Debug: pca eigen table hidden',{ show, method: opts.method, count: data.length });
           return;
@@ -5683,6 +5902,11 @@
             const friendly = method === 'mds' ? 'MDS' : 'PCA';
             pcaEigenTableWrapper.innerHTML = `<div class="stats-table-message">${friendly} eigenvalues will populate after the analysis runs.</div>`;
           }
+          delete pcaEigenTableContainer.dataset.sharedStatsTable;
+          resetEigenExportButtonHost();
+          if(pcaDefaultEigenExportHost?.style){
+            pcaDefaultEigenExportHost.style.display = '';
+          }
           updateEigenExportVisibility(false);
           if(pcaExportEigenTableBtn){
             pcaExportEigenTableBtn.disabled = true;
@@ -5691,29 +5915,66 @@
           return;
         }
         if(pcaEigenTableWrapper){
-          let html = '<table class="stats-table"><thead><tr>';
           const percentHeader = method === 'mds' ? 'Inertia %' : 'Variance %';
           const cumulativeHeader = method === 'mds' ? 'Cumulative Inertia %' : 'Cumulative %';
-          const headers = ['Component','Eigenvalue',percentHeader,cumulativeHeader];
-          headers.forEach(header => {
-            html += `<th class="stats-table__cell stats-table__header stats-table__cell--left">${header}</th>`;
-          });
-          html += '</tr></thead><tbody>';
-          data.forEach(entry => {
+          const rows = data.map(entry => {
             const comp = Number(entry.component) || 0;
             const eigen = Number(entry.eigenvalue) || 0;
             const pct = Number(entry.variancePercent) || 0;
             const cumulative = Number(entry.cumulativeVariancePercent) || 0;
-            const label = entry.componentLabel || (method === 'mds' ? `Dim${comp}` : `PC${comp}`);
-            html += '<tr>';
-            html += `<td class="stats-table__cell stats-table__cell--left">${label}</td>`;
-            html += `<td class="stats-table__cell stats-table__cell--left">${eigen.toFixed(4)}</td>`;
-            html += `<td class="stats-table__cell stats-table__cell--left">${pct.toFixed(2)}%</td>`;
-            html += `<td class="stats-table__cell stats-table__cell--left">${cumulative.toFixed(2)}%</td>`;
-            html += '</tr>';
+            return {
+              component: entry.componentLabel || (method === 'mds' ? `Dim${comp}` : `PC${comp}`),
+              eigenvalue: eigen.toFixed(4),
+              variancePercent: `${pct.toFixed(2)}%`,
+              cumulativePercent: `${cumulative.toFixed(2)}%`
+            };
           });
-          html += '</tbody></table>';
-          pcaEigenTableWrapper.innerHTML = html;
+          const rendered = renderPcaSharedStatsTable(pcaEigenTableWrapper, {
+            target: pcaEigenTableWrapper,
+            columns: [
+              { key: 'component', label: 'Component', align: 'left' },
+              { key: 'eigenvalue', label: 'Eigenvalue', align: 'left' },
+              { key: 'variancePercent', label: percentHeader, align: 'left' },
+              { key: 'cumulativePercent', label: cumulativeHeader, align: 'left' }
+            ],
+            rows,
+            caption: method === 'mds' ? 'MDS Eigen Summary' : 'PCA Eigen Summary',
+            options: {
+              fileName: method === 'mds' ? 'mds-eigen-summary' : 'pca-eigen-summary',
+              contextLabel: method === 'mds' ? 'mds-eigen-summary' : 'pca-eigen-summary'
+            }
+          });
+          if(rendered?.wrapper){
+            pcaEigenTableContainer.dataset.sharedStatsTable = '1';
+            const actions = rendered.wrapper.querySelector('.stats-table-actions');
+            if(actions){
+              dockEigenExportButton(actions);
+            }
+            if(pcaDefaultEigenExportHost?.style){
+              pcaDefaultEigenExportHost.style.display = 'none';
+            }
+          }else{
+            delete pcaEigenTableContainer.dataset.sharedStatsTable;
+            resetEigenExportButtonHost();
+            if(pcaDefaultEigenExportHost?.style){
+              pcaDefaultEigenExportHost.style.display = '';
+            }
+            let html = '<table class="stats-table"><thead><tr>';
+            ['Component', 'Eigenvalue', percentHeader, cumulativeHeader].forEach(header => {
+              html += `<th class="stats-table__cell stats-table__header stats-table__cell--left">${header}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            rows.forEach(row => {
+              html += '<tr>';
+              html += `<td class="stats-table__cell stats-table__cell--left">${row.component}</td>`;
+              html += `<td class="stats-table__cell stats-table__cell--left">${row.eigenvalue}</td>`;
+              html += `<td class="stats-table__cell stats-table__cell--left">${row.variancePercent}</td>`;
+              html += `<td class="stats-table__cell stats-table__cell--left">${row.cumulativePercent}</td>`;
+              html += '</tr>';
+            });
+            html += '</tbody></table>';
+            pcaEigenTableWrapper.innerHTML = html;
+          }
         }
         const exportEnabled = !!opts.enableExport;
         updateEigenExportVisibility(exportEnabled);
@@ -5725,15 +5986,11 @@
       function renderStatsPanel(options){
         const opts = options || {};
         const summaryLines = Array.isArray(opts.summaryLines) ? opts.summaryLines : [];
-        if(pcaStatsSummary){
-          if(summaryLines.length){
-            pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
-          } else if((opts.method || '').toLowerCase() === 'pca'){
-            pcaStatsSummary.innerHTML = '<div class="stats-table-message">Component variance summary appears alongside the scree plot.</div>';
-          } else {
-            pcaStatsSummary.innerHTML = '<div class="stats-table-message">No statistics computed.</div>';
-          }
-        } else if(pcaStatsResults){
+        renderPcaSummaryPanel({
+          summaryLines,
+          method: opts.method
+        });
+        if(!pcaStatsSummary && pcaStatsResults){
           pcaStatsResults.innerHTML = summaryLines.length ? summaryLines.join('<br>') : '<i>No statistics computed.</i>';
         }
         renderScreeChart({
@@ -5752,25 +6009,6 @@
           enableExport: opts.enableEigenExport,
           method: opts.method,
         });
-        if(pcaStatsSummary && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
-          const statsSnapshot = lastPcaStats || {};
-          Shared.statsReporting.appendReportPanel(pcaStatsSummary, {
-            methodsText: `${(opts.method || statsSnapshot.method || 'pca').toUpperCase()} summary statistics were generated for the current ordination result.`,
-            resultsText: [
-              summaryLines.length ? summaryLines.join(' ') : null,
-              Number.isFinite(statsSnapshot.totalVariance) ? `Total explained variance = ${statsSnapshot.totalVariance.toFixed(2)}%.` : null,
-              Number.isFinite(statsSnapshot.stress) ? `Stress = ${statsSnapshot.stress.toFixed(4)}.` : null
-            ].filter(Boolean).join(' '),
-            analysisSpec: {
-              component: 'pca',
-              method: opts.method || statsSnapshot.method || null,
-              dimensions: statsSnapshot.dimensions || null,
-              totalVariance: Number.isFinite(statsSnapshot.totalVariance) ? statsSnapshot.totalVariance : null,
-              stress: Number.isFinite(statsSnapshot.stress) ? statsSnapshot.stress : null,
-              eigenCount: Array.isArray(statsSnapshot.eigenSummary) ? statsSnapshot.eigenSummary.length : (Array.isArray(opts.eigenSummary) ? opts.eigenSummary.length : 0)
-            }
-          }, { title: 'Reporting and reproducibility' });
-        }
       }
       function handleEigenExport(){
         if(!lastPcaStats || !['pca','mds'].includes(lastPcaStats.method)){
@@ -6866,7 +7104,8 @@
             })),
             stress: Number(stress.toFixed(6)),
             dimensions: dimsToUse,
-            totalVariance: Number(totalPositive)
+            totalVariance: Number(totalPositive),
+            summaryLines: statsSummaryLines.slice()
           };
           if (dimensionMeta.length >= 3 && typeof axisIndices.z === 'number') {
             points3d = coords.map((row, idx) => ({
@@ -7043,7 +7282,8 @@
           })),
           stress: Number(stress.toFixed(6)),
           dimensions: dimsToUse,
-          totalVariance: Number(totalPositive)
+          totalVariance: Number(totalPositive),
+          summaryLines: statsSummaryLines.slice()
         };
         console.debug('Debug: mds stress computed', { stress, dimsToUse });
         if (dimensionMeta.length >= 3 && typeof axisIndices.z === 'number') {
@@ -7138,7 +7378,8 @@
           iterations: Number(tsneResult.iterations),
           learningRate: Number(tsneResult.learningRate),
           earlyExaggeration: Number(tsneResult.earlyExaggeration),
-          klDivergence: Number(tsneResult.klDivergence.toFixed(6))
+          klDivergence: Number(tsneResult.klDivergence.toFixed(6)),
+          summaryLines: statsSummaryLines.slice()
         };
         console.debug('Debug: tsne embedding complete',{ stats: lastPcaStats, pointCount: points.length });
       } else if (method === 'umap') {
@@ -7214,7 +7455,8 @@
           epochs: Number(umapResult.epochs),
           minDist: Number(umapResult.minDist.toFixed(4)),
           learningRate: Number(umapResult.learningRate),
-          negativeSampleRate: Number(umapResult.negativeSampleRate)
+          negativeSampleRate: Number(umapResult.negativeSampleRate),
+          summaryLines: statsSummaryLines.slice()
         };
         console.debug('Debug: umap embedding complete',{ stats: lastPcaStats, pointCount: points.length });
       } else {
@@ -7450,7 +7692,8 @@
             component: item.component,
             variancePercent: Number(item.variancePercent)
           })),
-          totalVariance: Number(totalVar)
+          totalVariance: Number(totalVar),
+          summaryLines: statsSummaryLines.slice()
         };
         debugLog('Debug: pca eigen summary prepared',{
           components: eigenSummaryData.length,
@@ -9387,6 +9630,12 @@
       }
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+      const cachedStatsRender = pcaState.cachedRender && typeof pcaState.cachedRender === 'object'
+        ? pcaState.cachedRender
+        : null;
+      const savedSummaryHtml = (typeof pcaStatsSummary?.innerHTML === 'string' && pcaStatsSummary.innerHTML)
+        ? pcaStatsSummary.innerHTML
+        : null;
       return {
         type:'pca',
         data:activeHot?.getData?.() || [],
@@ -9395,6 +9644,9 @@
         activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: {
           ...snapshotPcaConfig(axisSettings),
+          stats: {
+            resultsHtml: savedSummaryHtml
+          },
           notes: {
             text: notesText,
             open: notesOpen
@@ -9406,7 +9658,16 @@
           scree:Array.isArray(lastPcaStats.scree) ? lastPcaStats.scree : [],
           stress:lastPcaStats.stress,
           totalVariance:lastPcaStats.totalVariance,
-          dimensions:lastPcaStats.dimensions
+          dimensions:lastPcaStats.dimensions,
+          summaryLines: Array.isArray(lastPcaStats.summaryLines)
+            ? lastPcaStats.summaryLines
+            : (Array.isArray(cachedStatsRender?.statsSummaryLines) ? cachedStatsRender.statsSummaryLines : []),
+          loadings: cachedStatsRender ? {
+            rows: Array.isArray(cachedStatsRender.loadingsRows) ? cachedStatsRender.loadingsRows : [],
+            components: Number(cachedStatsRender.loadingsComponents) || 0,
+            totalCount: Number.isFinite(cachedStatsRender.loadingsTotalCount) ? cachedStatsRender.loadingsTotalCount : 0,
+            truncated: !!cachedStatsRender.loadingsTruncated
+          } : null
         } : null
       };
     }
@@ -9761,6 +10022,9 @@
           debugLog('Debug: pca font size base restored',{ value: pcaFontSize.value });
         }
         chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
+        const savedStatsHtml = (c.stats && typeof c.stats === 'object' && typeof c.stats.resultsHtml === 'string')
+          ? c.stats.resultsHtml
+          : null;
         const restoredStats = (obj.stats && typeof obj.stats === 'object')
           ? obj.stats
           : ((c.stats && typeof c.stats === 'object') ? c.stats : null);
@@ -9772,6 +10036,7 @@
             method: lastPcaStats?.method || null,
             source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
           });
+          restorePcaStatsFromPayload({ savedSummaryHtml: savedStatsHtml });
         }else{
           resetStatsPanel('');
           lastPcaStats = null;
@@ -9974,6 +10239,10 @@
       payload.exclusions = [];
       payload.stats = null;
       if(payload.config){
+        payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
+          ? payload.config.stats
+          : {};
+        payload.config.stats.resultsHtml = null;
         payload.config.labels = { title: getDefaultTitleForMethod('pca') };
         payload.config.axisSelection = { x: 1, y: 2, z: 3 };
         payload.config.rotation = {
@@ -10119,25 +10388,9 @@
       if(restoredScree && screeExportControls && !cache.uiState?.screeExportControls){
         screeExportControls.style.display = '';
       }
-      if(lastPcaStats && (!restoredScree || (screeContainer && screeContainer.hidden))){
-        const restoredMethod = String(lastPcaStats.method || '').toLowerCase();
-        const restoredEigenSummary = Array.isArray(lastPcaStats.eigenSummary) ? lastPcaStats.eigenSummary : [];
-        const restoredScreeData = Array.isArray(lastPcaStats.scree) ? lastPcaStats.scree : [];
-        renderScreeChart({
-          show: restoredMethod === 'pca',
-          data: restoredScreeData,
-          method: restoredMethod,
-          pointColor: pcaFill?.value || '#377eb8'
-        });
-        renderVarianceSummary({
-          method: restoredMethod,
-          data: restoredMethod === 'pca' ? restoredEigenSummary : []
-        });
-        renderEigenTable({
-          show: restoredMethod === 'pca' || restoredMethod === 'mds',
-          data: restoredEigenSummary,
-          enableExport: restoredEigenSummary.length > 0,
-          method: restoredMethod
+      if(lastPcaStats && (!restoredScree || (screeContainer && screeContainer.hidden) || !restoredSummary)){
+        restorePcaStatsFromPayload({
+          savedSummaryHtml: null
         });
       }
       updateScreeVarianceRowVisibility();

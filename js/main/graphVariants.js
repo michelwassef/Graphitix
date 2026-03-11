@@ -75,6 +75,10 @@
     return setSelectValue('pieChartType', mode);
   }
 
+  function applyHistVariant(mode) {
+    return setSelectValue('histPlotMode', mode);
+  }
+
   const VARIANTS = [
     createVariant({
       id: 'venn:diagram',
@@ -320,9 +324,17 @@
       id: 'hist:hist',
       type: 'hist',
       label: 'Histogram',
-      description: 'Frequency distribution with adjustable bins.',
+      description: 'Frequency distribution with adjustable bins and fitted overlays.',
       groupLabel: 'Histogram',
-      keywords: ['histogram', 'distribution']
+      keywords: ['histogram', 'distribution', 'bins']
+    }),
+    createVariant({
+      id: 'hist:density',
+      type: 'hist',
+      label: 'Density plot',
+      description: 'Smoothed univariate distribution using kernel density estimation.',
+      groupLabel: 'Histogram',
+      keywords: ['density', 'kde', 'kernel', 'distribution']
     }),
     createVariant({
       id: 'pie:pie',
@@ -381,7 +393,8 @@
     'roc:roc': () => applyRocVariant('roc'),
     'roc:pr': () => applyRocVariant('pr'),
     'survival:km': () => true,
-    'hist:hist': () => true,
+    'hist:hist': () => applyHistVariant('histogram'),
+    'hist:density': () => applyHistVariant('density'),
     'pie:pie': () => applyPieVariant('pie'),
     'pie:donut': () => applyPieVariant('donut'),
     'pie:stacked': () => applyPieVariant('stacked')

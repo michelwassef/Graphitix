@@ -260,7 +260,7 @@ Some modules support multiple visualization variants accessible via dropdown con
 
 ## Testing & Quality
 - `npm test` spins up JSDOM, loads `index.html`, and verifies each component initializes correctly.
-- `npm run test:stats` runs differential statistical validation suites (`JS vs Python SciPy/NumPy oracle`) for shared engines, component hooks, and generated coverage matrices for `box.js`, `line.js`, and `scatter.js`.
+- `npm run test:stats` runs differential statistical validation suites (`JS vs Python SciPy/NumPy oracle`) for shared engines, component hooks, and generated coverage matrices for `box.js`, `line.js`, and `scatter.js`, including box test matrices, line forecast validation (ARIMA / Holt-Winters), scatter LOWESS, and the main scatter nonlinear families.
 - Performance guards exercise heavy workloads such as the heatmap clusterer and report when thresholds are exceeded.
 - `npm run bench -- [options]` executes `scripts/run-benchmarks.js`, a lightweight CLI that calls each component’s synthetic workload hooks and reports mean/median durations. Use `--json bench.json` to capture a baseline and `--compare bench.json` on future runs to see deltas. Inputs can be overridden inline (`box.rows=50000`) or via `--config overrides.json`.
 - No linting is configured; Jest is the authoritative automated check.

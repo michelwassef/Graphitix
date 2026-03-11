@@ -46,8 +46,16 @@ Current differential coverage includes:
   - exponential
   - power
   - logistic
+  - Gaussian
+  - one-phase association / decay
+  - Gompertz
+  - dose-response 3PL / 4PL / 5PL
+  - binding saturation / competitive
+  - enzyme kinetics (substrate / inhibition)
   - Deming / orthogonal
   - natural spline
+  - ARIMA
+  - Holt-Winters
 - Box/statistics engine tests:
   - Welch t-test
   - pooled-variance unpaired t-test
@@ -89,13 +97,13 @@ Current differential coverage includes:
   - Pearson and Spearman correlation across all visible regression modes
   - visible regression modes: linear, quadratic, cubic, exponential, power, spline, logistic
   - exact Spearman permutation branch
-  - ARIMA and Holt-Winters forecast parameter wiring
+  - oracle-backed ARIMA and Holt-Winters forecast validation, including manual and auto-tuned parameter branches
 - `scatter.js`
-  - oracle-backed component validation for linear, linear-through-origin, quadratic, cubic, exponential, power, logistic, spline, Deming, and orthogonal
+  - oracle-backed component validation for linear, linear-through-origin, quadratic, cubic, exponential, power, logistic, spline, LOWESS, Deming, orthogonal, dose-response 3PL/4PL/5PL, one-phase association/decay, Gompertz, Gaussian, binding saturation/competitive, and enzyme kinetics substrate/inhibition
   - visible-mode execution coverage for every regression option exposed by the UI
   - auto-association policy checks
   - logistic-to-4PL routing for non-binary responses
-  - fit-method and LOWESS fit-spec wiring checks
+  - fit-method wiring checks, including LOWESS span propagation
 
 ## Running
 

@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Tuple
 import numpy as np
 from scipy import stats
 from scipy.interpolate import CubicSpline
+from scipy.optimize import least_squares
 
 
 EPSILON = 1e-12
@@ -677,17 +678,33 @@ def regression_lowess(payload: Dict[str, Any]) -> Dict[str, Any]:
     sse = float(np.sum(residuals ** 2))
     y_mean = float(np.mean(ys))
     tss = float(np.sum((ys - y_mean) ** 2))
+    parameter_count = max(2, int(round(span * n)))
+    residual_df = max(1, n - parameter_count)
+    if n > 0 and parameter_count > 0 and sse > 0:
+        aic = float((n * math.log(sse / n)) + (2 * parameter_count))
+        aicc = float(aic + ((2 * parameter_count * (parameter_count + 1)) / (n - parameter_count - 1))) if (n - parameter_count - 1) > 0 else float("nan")
+        bic = float((n * math.log(sse / n)) + (parameter_count * math.log(n)))
+    else:
+        aic = float("nan")
+        aicc = float("nan")
+        bic = float("nan")
     eval_xs = [float(v) for v in (payload.get("evalXs") or []) if _is_finite_number(v)]
     return {
         "valid": True,
         "metrics": {
+            "sampleSize": n,
+            "parameterCount": parameter_count,
+            "residualDf": residual_df,
             "sse": sse,
             "r2": float(1 - (sse / tss)) if tss > 0 else float("nan"),
             "adjR2": float("nan"),
             "rmse": float(math.sqrt(sse / n)),
             "mae": float(np.mean(np.abs(residuals))),
+            "aic": aic,
+            "aicc": aicc,
+            "bic": bic,
         },
-        "summary": {"span": span},
+        "summary": {"span": span, "parameters": {"Span": span}},
         "predictions": [predict(x_val) for x_val in eval_xs],
     }
 
@@ -720,6 +737,806 @@ def regression_spline_natural(payload: Dict[str, Any]) -> Dict[str, Any]:
         },
         "summary": {"knots": int(x.size), "domainMin": float(x[0]), "domainMax": float(x[-1])},
         "predictions": [float(value) for value in predictions.tolist()],
+    }
+
+
+def _safe_pow10(exponent: float) -> float:
+    if not math.isfinite(exponent):
+        return float("nan")
+    bounded = max(-308.0, min(308.0, float(exponent)))
+    return float(10**bounded)
+
+
+def _clamp_positive(value: Any, fallback: float) -> float:
+    numeric = float(value) if _is_finite_number(value) else fallback
+    if not math.isfinite(numeric) or numeric <= 0:
+        return fallback
+    return float(numeric)
+
+
+def _clamp_positive_int(value: Any, *, min_value: int = 1, max_value: int = 120, fallback: int = 1) -> int:
+    if not _is_finite_number(value):
+        return fallback
+    rounded = int(round(float(value)))
+    return max(min_value, min(max_value, rounded))
+
+
+def _clamp_unit_interval(value: Any, fallback: float = 0.2) -> float:
+    if not _is_finite_number(value):
+        return fallback
+    numeric = float(value)
+    return max(0.001, min(0.999, numeric))
+
+
+def _compute_sse_metrics(y_true: np.ndarray, y_pred: np.ndarray, parameter_count: int) -> Dict[str, float]:
+    residuals = y_true - y_pred
+    sse = float(np.sum(residuals**2))
+    y_mean = float(np.mean(y_true)) if y_true.size else float("nan")
+    sst = float(np.sum((y_true - y_mean) ** 2)) if y_true.size else float("nan")
+    r2 = 1.0 if sst == 0 else float(1 - (sse / sst))
+    n = int(y_true.size)
+    if n > parameter_count + 1:
+        adj_r2 = float(1 - (1 - r2) * ((n - 1) / (n - parameter_count - 1)))
+    else:
+        adj_r2 = r2
+    return {
+        "sse": sse,
+        "sst": sst,
+        "r2": r2,
+        "adjR2": adj_r2,
+        "rmse": float(math.sqrt(sse / n)) if n > 0 else float("nan"),
+        "mae": float(np.mean(np.abs(residuals))) if n > 0 else float("nan"),
+    }
+
+
+def _run_nonlinear_fit(
+    payload: Dict[str, Any],
+    *,
+    initial_builder: Callable[[List[Tuple[float, float]]], List[float]],
+    predict_scalar: Callable[[np.ndarray, float], float],
+    summary_builder: Callable[[np.ndarray], Dict[str, Any]],
+    bounds_builder: Callable[[List[Tuple[float, float]]], Tuple[List[float], List[float]]],
+    mode: str,
+) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    points = list(zip(x.tolist(), y.tolist()))
+    if len(points) < 4:
+        return {"valid": False, "message": f"Insufficient data for {mode} regression."}
+
+    lower, upper = bounds_builder(points)
+    lower_arr = np.asarray(lower, dtype=float)
+    upper_arr = np.asarray(upper, dtype=float)
+    raw_initial = initial_builder(points)
+    if raw_initial and isinstance(raw_initial[0], (list, tuple, np.ndarray)):
+        initial_candidates = [np.asarray(candidate, dtype=float) for candidate in raw_initial]
+    else:
+        initial_candidates = [np.asarray(raw_initial, dtype=float)]
+
+    def residual_vector(params: np.ndarray) -> np.ndarray:
+        predictions = np.asarray([predict_scalar(params, float(xv)) for xv in x], dtype=float)
+        return predictions - y
+
+    fit = None
+    best_cost = float("inf")
+    for candidate in initial_candidates:
+        initial = np.minimum(np.maximum(candidate, lower_arr), upper_arr)
+        try:
+            attempt = least_squares(
+                residual_vector,
+                x0=initial,
+                bounds=(lower_arr, upper_arr),
+                method="trf",
+                max_nfev=10000,
+            )
+        except Exception:
+            continue
+        cost = float(getattr(attempt, "cost", float("inf")))
+        if fit is None or cost < best_cost:
+            fit = attempt
+            best_cost = cost
+    if fit is None:
+        return {"valid": False, "message": f"Fit failed for {mode} regression."}
+    params = np.asarray(fit.x, dtype=float)
+    predictions = np.asarray([predict_scalar(params, float(xv)) for xv in x], dtype=float)
+    metrics = _compute_sse_metrics(y, predictions, params.size)
+    eval_xs = [float(v) for v in (payload.get("evalXs") or []) if _is_finite_number(v)]
+    return {
+        "valid": True,
+        "coefficients": [float(value) for value in params.tolist()],
+        "metrics": {
+            **metrics,
+            "iterations": int(getattr(fit, "nfev", 0) or 0),
+        },
+        "summary": summary_builder(params),
+        "predictions": [float(predict_scalar(params, x_val)) for x_val in eval_xs],
+    }
+
+
+def regression_gaussian(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        min_y = min(ys)
+        max_y = max(ys)
+        center = xs[ys.index(max_y)] if ys else float(np.mean(xs))
+        sigma = max((max(xs) - min(xs)) / 6.0, 1e-3)
+        return [min_y, max_y - min_y, center, sigma]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        baseline, amplitude, center, sigma = params
+        sigma = _clamp_positive(sigma, 1e-9)
+        z = (x_value - center) / sigma
+        return float(baseline + (amplitude * math.exp(-0.5 * z * z)))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {
+                "Baseline": float(params[0]),
+                "Amplitude": float(params[1]),
+                "Center": float(params[2]),
+                "Sigma": float(params[3]),
+            },
+            "primaryParameter": {"label": "Center", "value": float(params[2])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, -math.inf, 1e-9], [math.inf, math.inf, math.inf, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="gaussian")
+
+
+def regression_one_phase_association(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        x_range = max(1e-6, max(xs) - min(xs))
+        return [ys[0], ys[-1], 1 / x_range]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        y0, plateau, k = params
+        k = _clamp_positive(k, 1e-9)
+        return float(y0 + ((plateau - y0) * (1 - math.exp(-k * x_value))))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Y0": float(params[0]), "Plateau": float(params[1]), "K": float(params[2])},
+            "primaryParameter": {"label": "K", "value": float(params[2])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, 1e-9], [math.inf, math.inf, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="onePhaseAssociation")
+
+
+def regression_one_phase_decay(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        x_range = max(1e-6, max(xs) - min(xs))
+        return [ys[0], ys[-1], 1 / x_range]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        y0, plateau, k = params
+        k = _clamp_positive(k, 1e-9)
+        return float(plateau + ((y0 - plateau) * math.exp(-k * x_value)))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Y0": float(params[0]), "Plateau": float(params[1]), "K": float(params[2])},
+            "primaryParameter": {"label": "K", "value": float(params[2])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, 1e-9], [math.inf, math.inf, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="onePhaseDecay")
+
+
+def regression_gompertz(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        lower = min(ys)
+        upper = max(ys)
+        k = 1 / max(1e-6, max(xs) - min(xs))
+        return [lower, upper, k, float(np.mean(xs))]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        lower, upper, k, x0 = params
+        k = _clamp_positive(k, 1e-9)
+        return float(lower + ((upper - lower) * math.exp(-math.exp(-k * (x_value - x0)))))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Lower": float(params[0]), "Upper": float(params[1]), "K": float(params[2]), "X0": float(params[3])},
+            "primaryParameter": {"label": "K", "value": float(params[2])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, 1e-9, -math.inf], [math.inf, math.inf, math.inf, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="gompertz")
+
+
+def regression_binding_saturation(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        xs = sorted(pt[0] for pt in points)
+        ys = [pt[1] for pt in points]
+        mid_x = xs[len(xs) // 2] if xs else 1.0
+        return [max(ys), max(1e-6, mid_x), 0.0]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        bmax, kd, ns = params
+        kd = _clamp_positive(kd, 1e-12)
+        return float((bmax * x_value) / (kd + x_value) + (ns * x_value))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Bmax": float(params[0]), "Kd": float(params[1]), "NS": float(params[2])},
+            "primaryParameter": {"label": "Kd", "value": float(params[1])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([0.0, 1e-12, -math.inf], [math.inf, math.inf, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="bindingSaturation")
+
+
+def regression_binding_competitive(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        ys = [pt[1] for pt in points]
+        xs = sorted(pt[0] for pt in points)
+        mid_x = xs[len(xs) // 2] if xs else 1.0
+        return [max(ys), min(ys), max(1e-9, abs(mid_x)), 1.0]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        top, bottom, ic50, hill = params
+        ic50 = _clamp_positive(ic50, 1e-12)
+        hill = _clamp_positive(hill, 0.01)
+        ratio = (max(0.0, x_value) / ic50) ** hill
+        return float(bottom + ((top - bottom) / (1 + ratio)))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Top": float(params[0]), "Bottom": float(params[1]), "IC50": float(params[2]), "HillSlope": float(params[3])},
+            "primaryParameter": {"label": "IC50", "value": float(params[2])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, 1e-12, 0.01], [math.inf, math.inf, math.inf, 8.0])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="bindingCompetitive")
+
+
+def regression_enzyme_kinetics_substrate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        ys = [pt[1] for pt in points]
+        xs = sorted(pt[0] for pt in points)
+        mid_x = xs[len(xs) // 2] if xs else 1.0
+        return [max(ys), max(1e-6, mid_x), min(ys) * 0.05]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        vmax, km, baseline = params
+        km = _clamp_positive(km, 1e-12)
+        x_pos = max(0.0, x_value)
+        return float(baseline + ((vmax * x_pos) / (km + x_pos)))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Vmax": float(params[0]), "Km": float(params[1]), "Baseline": float(params[2])},
+            "primaryParameter": {"label": "Km", "value": float(params[1])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([0.0, 1e-12, -math.inf], [math.inf, math.inf, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="enzymeKineticsSubstrate")
+
+
+def regression_enzyme_kinetics_inhibition(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[float]:
+        ys = [pt[1] for pt in points]
+        xs = sorted(pt[0] for pt in points)
+        mid_x = xs[len(xs) // 2] if xs else 1.0
+        return [max(ys), max(1e-9, abs(mid_x)), 1.0, min(ys)]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        vmax, ic50, hill, baseline = params
+        ic50 = _clamp_positive(ic50, 1e-12)
+        hill = _clamp_positive(hill, 0.01)
+        ratio = (max(0.0, x_value) / ic50) ** hill
+        return float(baseline + (vmax / (1 + ratio)))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        return {
+            "parameters": {"Vmax": float(params[0]), "IC50": float(params[1]), "HillSlope": float(params[2]), "Baseline": float(params[3])},
+            "primaryParameter": {"label": "IC50", "value": float(params[1])},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, 1e-12, 0.01, -math.inf], [math.inf, math.inf, 8.0, math.inf])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="enzymeKineticsInhibition")
+
+
+def regression_dose_response_3pl(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[List[float]]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        mid_y = (min(ys) + max(ys)) / 2.0
+        near = min(points, key=lambda pt: abs(pt[1] - mid_y))
+        mean_x = float(np.mean(xs))
+        top = max(ys)
+        return [
+            [top, near[0], -1.0],
+            [top, near[0], 1.0],
+            [top, mean_x, -1.0],
+            [top, mean_x, 1.0],
+            [top * 1.05, near[0], 1.5],
+        ]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        top, log_ic50, hill = params
+        denom = 1 + _safe_pow10((log_ic50 - x_value) * hill)
+        return float(top / denom)
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        ic50 = _safe_pow10(float(params[1]))
+        return {
+            "parameters": {"Bottom": 0.0, "Top": float(params[0]), "LogIC50": float(params[1]), "IC50": ic50, "HillSlope": float(params[2])},
+            "primaryParameter": {"label": "IC50", "value": ic50},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, -12.0], [math.inf, math.inf, 12.0])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="doseResponse3pl")
+
+
+def regression_dose_response_4pl(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[List[float]]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        span = max(max(ys) - min(ys), 1e-6)
+        mid_y = min(ys) + (span / 2.0)
+        near = min(points, key=lambda pt: abs(pt[1] - mid_y))
+        mean_x = float(np.mean(xs))
+        bottom = min(ys)
+        top = max(ys)
+        return [
+            [bottom, top, near[0], -1.0],
+            [bottom, top, near[0], 1.0],
+            [bottom, top, mean_x, -1.0],
+            [bottom, top, mean_x, 1.0],
+            [bottom - 0.05 * span, top + 0.05 * span, near[0], 1.25],
+        ]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        bottom, top, log_ic50, hill = params
+        denom = 1 + _safe_pow10((log_ic50 - x_value) * hill)
+        return float(bottom + ((top - bottom) / denom))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        ic50 = _safe_pow10(float(params[2]))
+        return {
+            "parameters": {"Bottom": float(params[0]), "Top": float(params[1]), "LogIC50": float(params[2]), "IC50": ic50, "HillSlope": float(params[3])},
+            "primaryParameter": {"label": "IC50", "value": ic50},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, -math.inf, -12.0], [math.inf, math.inf, math.inf, 12.0])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="doseResponse4pl")
+
+
+def regression_dose_response_5pl(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def initial(points: List[Tuple[float, float]]) -> List[List[float]]:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        mid_y = (min(ys) + max(ys)) / 2.0
+        near = min(points, key=lambda pt: abs(pt[1] - mid_y))
+        mean_x = float(np.mean(xs))
+        bottom = min(ys)
+        top = max(ys)
+        return [
+            [bottom, top, near[0], -1.0, 1.0],
+            [bottom, top, near[0], 1.0, 1.0],
+            [bottom, top, mean_x, -1.0, 1.0],
+            [bottom, top, mean_x, 1.0, 1.0],
+            [bottom, top, near[0], 1.0, 1.5],
+        ]
+
+    def predict(params: np.ndarray, x_value: float) -> float:
+        bottom, top, log_ic50, hill, asym = params
+        asym = _clamp_positive(asym, 0.1)
+        base = 1 + _safe_pow10((log_ic50 - x_value) * hill)
+        return float(bottom + ((top - bottom) / (base**asym)))
+
+    def summary(params: np.ndarray) -> Dict[str, Any]:
+        ic50 = _safe_pow10(float(params[2]))
+        return {
+            "parameters": {
+                "Bottom": float(params[0]),
+                "Top": float(params[1]),
+                "LogIC50": float(params[2]),
+                "IC50": ic50,
+                "HillSlope": float(params[3]),
+                "Asymmetry": float(params[4]),
+            },
+            "primaryParameter": {"label": "IC50", "value": ic50},
+        }
+
+    def bounds(_: List[Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+        return ([-math.inf, -math.inf, -math.inf, -12.0, 0.1], [math.inf, math.inf, math.inf, 12.0, 10.0])
+
+    return _run_nonlinear_fit(payload, initial_builder=initial, predict_scalar=predict, summary_builder=summary, bounds_builder=bounds, mode="doseResponse5pl")
+
+
+def _difference_series(values: List[float], order: int = 0) -> List[float]:
+    current = list(values)
+    for _ in range(max(0, order)):
+        if len(current) < 2:
+            return list(current)
+        current = [current[idx] - current[idx - 1] for idx in range(1, len(current))]
+    return current
+
+
+def _compute_mape(actual: List[float], predicted: List[float]) -> float:
+    total = 0.0
+    count = 0
+    for a_val, p_val in zip(actual, predicted):
+        if math.isfinite(a_val) and math.isfinite(p_val) and a_val != 0:
+            total += abs((a_val - p_val) / a_val)
+            count += 1
+    return float(total / count) if count else float("nan")
+
+
+def _compute_smape(actual: List[float], predicted: List[float]) -> float:
+    total = 0.0
+    count = 0
+    for a_val, p_val in zip(actual, predicted):
+        if math.isfinite(a_val) and math.isfinite(p_val):
+            denom = abs(a_val) + abs(p_val)
+            if denom == 0:
+                continue
+            total += (2 * abs(a_val - p_val)) / denom
+            count += 1
+    return float(total / count) if count else float("nan")
+
+
+def _compute_average_spacing(values: List[float]) -> float:
+    if len(values) < 2:
+        return float("nan")
+    deltas = [values[idx] - values[idx - 1] for idx in range(1, len(values)) if math.isfinite(values[idx] - values[idx - 1])]
+    return float(sum(deltas) / len(deltas)) if deltas else float("nan")
+
+
+def _compute_forecast_variance(phi: List[float], horizon: int, sigma_sq: float) -> List[float]:
+    if not phi:
+        return [float(sigma_sq * h) for h in range(1, horizon + 1)]
+    p = len(phi)
+    psi = [1.0]
+    for k in range(1, horizon + 1):
+        value = 0.0
+        for i in range(1, min(k, p) + 1):
+            value += phi[i - 1] * (psi[k - i] if k - i < len(psi) else 0.0)
+        psi.append(value)
+    variances: List[float] = []
+    for h in range(1, horizon + 1):
+        sum_sq = 0.0
+        for i in range(h):
+            psi_val = psi[i] if i < len(psi) else 0.0
+            sum_sq += psi_val * psi_val
+        variances.append(float(max(0.0, sigma_sq * (1 + sum_sq))))
+    return variances
+
+
+def _ols_coefficients(design: List[List[float]], target: List[float]) -> np.ndarray:
+    design_arr = np.asarray(design, dtype=float)
+    target_arr = np.asarray(target, dtype=float)
+    xtx = design_arr.T @ design_arr
+    try:
+        xtx_inv = np.linalg.inv(xtx)
+    except np.linalg.LinAlgError:
+        xtx_inv = np.linalg.pinv(xtx)
+    beta = xtx_inv @ (design_arr.T @ target_arr)
+    return np.asarray(beta, dtype=float)
+
+
+def _auto_select_arima_order(series: List[float], options: Dict[str, Any]) -> Dict[str, Any]:
+    if len(series) < 5:
+        return {"p": 1, "d": 0, "criterion": float("nan")}
+    max_p = max(0, min(int(options.get("maxP") or 2), 5))
+    max_d = max(0, min(int(options.get("maxD") or 2), 2))
+    criterion = "aic" if options.get("criterion") == "aic" else "bic"
+    best: Dict[str, Any] | None = None
+    for d_val in range(max_d + 1):
+        values = _difference_series(series, d_val)
+        if len(values) < 4:
+            continue
+        for p_val in range(max_p + 1):
+            if p_val == 0:
+                continue
+            design: List[List[float]] = []
+            target: List[float] = []
+            for t_idx in range(p_val, len(values)):
+                row = [1.0] + [values[t_idx - lag] for lag in range(1, p_val + 1)]
+                design.append(row)
+                target.append(values[t_idx])
+            coeffs = _ols_coefficients(design, target)
+            residuals = []
+            for t_idx in range(p_val, len(values)):
+                pred = float(coeffs[0] + sum(coeffs[lag] * values[t_idx - lag] for lag in range(1, p_val + 1)))
+                residuals.append(values[t_idx] - pred)
+            n_eff = len(residuals)
+            if n_eff <= 0:
+                continue
+            sse = float(sum(val * val for val in residuals))
+            sigma_sq = sse / max(n_eff, 1)
+            if not math.isfinite(sigma_sq) or sigma_sq <= 0:
+                continue
+            k = len(coeffs)
+            log_likelihood = -0.5 * n_eff * (math.log(2 * math.pi) + math.log(sigma_sq) + 1)
+            aic = 2 * k - 2 * log_likelihood
+            bic = math.log(n_eff) * k - 2 * log_likelihood
+            score = aic if criterion == "aic" else bic
+            if best is None or score < best["score"]:
+                best = {"p": p_val, "d": d_val, "score": score, "aic": aic, "bic": bic}
+    return best or {"p": 1, "d": 0, "criterion": float("nan")}
+
+
+def regression_arima(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    if x.size < 4:
+        return {"valid": False, "message": "Insufficient data for ARIMA."}
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+    y_vals = [float(val) for val in y.tolist()]
+    x_vals = [float(val) for val in x.tolist()]
+    forecast = payload.get("forecast") if isinstance(payload.get("forecast"), dict) else {}
+    horizon = _clamp_positive_int(forecast.get("horizon"), min_value=1, max_value=120, fallback=max(1, round(len(y_vals) * 0.25)))
+    auto_tune = bool(forecast.get("autoTune"))
+    selection = _auto_select_arima_order(y_vals, forecast) if auto_tune else None
+    p_raw = int(forecast.get("p")) if isinstance(forecast.get("p"), int) else 1
+    d_raw = int(forecast.get("d")) if isinstance(forecast.get("d"), int) else 0
+    p_val = max(1, selection["p"] if selection else max(0, min(p_raw, int(forecast.get("maxP") or 5))))
+    d_val = max(0, selection["d"] if selection else max(0, min(d_raw, int(forecast.get("maxD") or 2))))
+    diff_series = _difference_series(y_vals, d_val)
+    if len(diff_series) <= p_val:
+        return {"valid": False, "message": "Differenced series too short for ARIMA."}
+    design: List[List[float]] = []
+    target: List[float] = []
+    for t_idx in range(p_val, len(diff_series)):
+        design.append([1.0] + [diff_series[t_idx - lag] for lag in range(1, p_val + 1)])
+        target.append(diff_series[t_idx])
+    coeffs = _ols_coefficients(design, target)
+    intercept = float(coeffs[0])
+    phi = [float(val) for val in coeffs[1:].tolist()]
+    fitted: List[float | None] = [None] * len(y_vals)
+    residuals: List[float] = []
+    actual_for_errors: List[float] = []
+    predicted_for_errors: List[float] = []
+    for t_idx in range(p_val, len(diff_series)):
+        pred = intercept + sum(phi[lag - 1] * diff_series[t_idx - lag] for lag in range(1, p_val + 1))
+        actual_index = t_idx + d_val
+        base_actual = y_vals[actual_index - 1]
+        predicted_actual = base_actual + pred
+        fitted[actual_index] = predicted_actual
+        residuals.append(y_vals[actual_index] - predicted_actual)
+        actual_for_errors.append(y_vals[actual_index])
+        predicted_for_errors.append(predicted_actual)
+    n_eff = len(residuals)
+    sse = float(sum(val * val for val in residuals))
+    sigma_sq = sse / max(n_eff, 1) if n_eff else 0.0
+    metrics = _compute_sse_metrics(np.asarray(y_vals, dtype=float), np.asarray([f if f is not None else y_vals[idx] for idx, f in enumerate(fitted)], dtype=float), len(coeffs))
+    metrics["sse"] = sse
+    metrics["rmse"] = float(math.sqrt(sse / n_eff)) if n_eff else float("nan")
+    metrics["mae"] = float(sum(abs(val) for val in residuals) / n_eff) if n_eff else float("nan")
+    metrics["mape"] = _compute_mape(actual_for_errors, predicted_for_errors)
+    metrics["smape"] = _compute_smape(actual_for_errors, predicted_for_errors)
+    k = len(coeffs)
+    log_likelihood = -0.5 * n_eff * (math.log(2 * math.pi) + math.log(sigma_sq) + 1) if n_eff > 0 and sigma_sq > 0 else float("nan")
+    metrics["aic"] = float(2 * k - 2 * log_likelihood) if math.isfinite(log_likelihood) else float("nan")
+    metrics["bic"] = float(math.log(n_eff or 1) * k - 2 * log_likelihood) if math.isfinite(log_likelihood) else float("nan")
+    metrics["horizon"] = int(horizon)
+    spacing = _compute_average_spacing(x_vals)
+    last_x = x_vals[-1]
+    working_actual = y_vals[-1]
+    diff_history = diff_series[-p_val:]
+    variances = _compute_forecast_variance(phi, horizon, sigma_sq)
+    z_critical = float(stats.norm.ppf(0.975))
+    forecast_points = []
+    for h_idx in range(1, horizon + 1):
+        diff_pred = intercept + sum((phi[lag - 1] if lag - 1 < len(phi) else 0.0) * (diff_history[-lag] if lag <= len(diff_history) else 0.0) for lag in range(1, p_val + 1))
+        diff_history.append(diff_pred)
+        working_actual = working_actual + diff_pred
+        variance = variances[h_idx - 1] if h_idx - 1 < len(variances) else sigma_sq
+        std_err = math.sqrt(max(variance, sigma_sq))
+        x_value = (last_x + spacing * h_idx) if math.isfinite(spacing) else (last_x + h_idx)
+        forecast_points.append({
+            "x": float(x_value),
+            "y": float(working_actual),
+            "lower": float(working_actual - z_critical * std_err),
+            "upper": float(working_actual + z_critical * std_err),
+            "stdErr": float(std_err),
+        })
+    summary_parameters: Dict[str, Any] = {"Intercept": intercept, "Horizon": horizon, "AR order (p)": p_val, "Differencing (d)": d_val}
+    for idx, value in enumerate(phi):
+        summary_parameters[f"AR{idx + 1}"] = value
+    return {
+        "valid": True,
+        "coefficients": [float(value) for value in coeffs.tolist()],
+        "metrics": metrics,
+        "forecast": {"horizon": int(horizon), "points": forecast_points},
+        "summary": {"parameters": summary_parameters, "primaryParameter": {"label": "AR1" if phi else "Intercept", "value": phi[0] if phi else intercept}},
+    }
+
+
+def _build_initial_seasonal_components(values: List[float], season_length: int) -> Dict[str, Any]:
+    seasons = max(1, len(values) // season_length)
+    if seasons < 2:
+        avg = float(np.mean(values)) if values else 0.0
+        seasonals = [(values[idx] - avg) if idx < len(values) and math.isfinite(values[idx]) else 0.0 for idx in range(season_length)]
+        return {"level": avg, "trend": 0.0, "seasonals": seasonals}
+    season_averages: List[float] = []
+    for season_idx in range(seasons):
+        start = season_idx * season_length
+        chunk = values[start : start + season_length]
+        if len(chunk) < season_length:
+            continue
+        season_averages.append(float(sum(chunk) / season_length))
+    seasonals = [0.0] * season_length
+    for idx in range(season_length):
+        total = 0.0
+        count = 0
+        for season_idx in range(seasons):
+            value_index = season_idx * season_length + idx
+            if value_index >= len(values):
+                continue
+            value = values[value_index]
+            if not math.isfinite(value):
+                continue
+            total += value - (season_averages[season_idx] if season_idx < len(season_averages) else 0.0)
+            count += 1
+        seasonals[idx] = (total / count) if count else 0.0
+    level = season_averages[0] if season_averages else values[0]
+    trend = ((season_averages[1] - season_averages[0]) / season_length) if len(season_averages) > 1 else (((values[season_length] if season_length < len(values) else values[-1]) - values[0]) / max(season_length, 1))
+    return {"level": level, "trend": trend, "seasonals": seasonals}
+
+
+def _run_holt_winters(values: List[float], season_length: int, level_alpha: float, trend_beta: float, seasonal_gamma: float) -> Dict[str, Any]:
+    sanitized = max(2, round(season_length))
+    initial = _build_initial_seasonal_components(values, sanitized)
+    level = float(initial["level"]) if math.isfinite(float(initial["level"])) else (values[0] if values else 0.0)
+    trend = float(initial["trend"]) if math.isfinite(float(initial["trend"])) else 0.0
+    seasonal = list(initial["seasonals"]) if isinstance(initial.get("seasonals"), list) else [0.0] * sanitized
+    fitted: List[float] = []
+    residuals: List[float] = []
+    alpha_val = _clamp_unit_interval(level_alpha)
+    beta_val = _clamp_unit_interval(trend_beta)
+    gamma_val = _clamp_unit_interval(seasonal_gamma)
+    for idx, actual in enumerate(values):
+        season_index = idx % sanitized
+        season_factor = seasonal[season_index] if season_index < len(seasonal) else 0.0
+        fitted_value = level + trend + season_factor
+        fitted.append(float(fitted_value))
+        resid = actual - fitted_value if math.isfinite(actual) else 0.0
+        residuals.append(float(resid))
+        prev_level = level
+        level = alpha_val * (actual - season_factor) + (1 - alpha_val) * (level + trend)
+        trend = beta_val * (level - prev_level) + (1 - beta_val) * trend
+        seasonal[season_index] = gamma_val * (actual - level) + (1 - gamma_val) * season_factor
+    return {"fitted": fitted, "residuals": residuals, "level": float(level), "trend": float(trend), "seasonals": [float(v) for v in seasonal]}
+
+
+def _auto_tune_holt_winters(values: List[float], season_length: int, options: Dict[str, Any]) -> Dict[str, Any] | None:
+    criterion = "aic" if options.get("criterion") == "aic" else "bic"
+    candidates = options.get("gridValues") if isinstance(options.get("gridValues"), list) and options.get("gridValues") else [0.2, 0.4, 0.6, 0.8]
+    best: Dict[str, Any] | None = None
+    for alpha_candidate in candidates:
+        for beta_candidate in candidates:
+            for gamma_candidate in candidates:
+                execution = _run_holt_winters(values, season_length, float(alpha_candidate), float(beta_candidate), float(gamma_candidate))
+                residuals = execution["residuals"][season_length:]
+                if not residuals:
+                    continue
+                sse = float(sum(val * val for val in residuals))
+                sigma_sq = sse / max(len(residuals), 1)
+                if not math.isfinite(sigma_sq) or sigma_sq <= 0:
+                    continue
+                k = season_length + 3
+                log_likelihood = -0.5 * len(residuals) * (math.log(2 * math.pi) + math.log(sigma_sq) + 1)
+                aic = 2 * k - 2 * log_likelihood
+                bic = math.log(len(residuals)) * k - 2 * log_likelihood
+                score = aic if criterion == "aic" else bic
+                if best is None or score < best["score"]:
+                    best = {"alpha": float(alpha_candidate), "beta": float(beta_candidate), "gamma": float(gamma_candidate), "score": score, "aic": aic, "bic": bic}
+    return best
+
+
+def regression_holt_winters(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    if x.size < 4:
+        return {"valid": False, "message": "Insufficient data for Holt-Winters."}
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+    x_vals = [float(val) for val in x.tolist()]
+    y_vals = [float(val) for val in y.tolist()]
+    forecast = payload.get("forecast") if isinstance(payload.get("forecast"), dict) else {}
+    season_length = _clamp_positive_int(forecast.get("seasonLength"), min_value=2, max_value=max(2, len(y_vals) // 2), fallback=12)
+    horizon = _clamp_positive_int(forecast.get("horizon"), min_value=1, max_value=120, fallback=max(1, round(len(y_vals) * 0.25)))
+    auto_tune = bool(forecast.get("autoTune"))
+    tuned = _auto_tune_holt_winters(y_vals, season_length, forecast) if auto_tune else None
+    level_alpha = _clamp_unit_interval((tuned or {}).get("alpha", forecast.get("level", 0.2)))
+    trend_beta = _clamp_unit_interval((tuned or {}).get("beta", forecast.get("trend", 0.1)))
+    seasonal_gamma = _clamp_unit_interval((tuned or {}).get("gamma", forecast.get("seasonal", 0.1)))
+    execution = _run_holt_winters(y_vals, season_length, level_alpha, trend_beta, seasonal_gamma)
+    residuals = execution["residuals"][season_length:]
+    fitted = execution["fitted"]
+    if not residuals:
+        return {"valid": False, "message": "No residuals available for Holt-Winters."}
+    actual_for_errors = y_vals[season_length:]
+    predicted_for_errors = fitted[season_length:]
+    sse = float(sum(val * val for val in residuals))
+    sigma_sq = sse / max(len(residuals), 1)
+    sigma = math.sqrt(max(sigma_sq, 0.0))
+    y_mean = float(np.mean(y_vals))
+    sst = float(sum((value - y_mean) ** 2 for value in y_vals))
+    r2 = 1.0 if sst == 0 else float(1 - (sse / sst))
+    k = season_length + 3
+    adj_r2 = float(1 - (1 - r2) * ((len(residuals) - 1) / (len(residuals) - k - 1))) if len(residuals) > k else r2
+    log_likelihood = -0.5 * len(residuals) * (math.log(2 * math.pi) + math.log(sigma_sq) + 1)
+    spacing = _compute_average_spacing(x_vals)
+    last_x = x_vals[-1]
+    z_critical = float(stats.norm.ppf(0.975))
+    forecast_points = []
+    for h_idx in range(1, horizon + 1):
+        season_index = (len(y_vals) + h_idx - 1) % season_length
+        seasonal = execution["seasonals"][season_index] if season_index < len(execution["seasonals"]) else 0.0
+        forecast_value = execution["level"] + h_idx * execution["trend"] + seasonal
+        inflation = math.sqrt(1 + (h_idx / season_length))
+        std_err = sigma * inflation
+        x_value = (last_x + spacing * h_idx) if math.isfinite(spacing) else (last_x + h_idx)
+        forecast_points.append({
+            "x": float(x_value),
+            "y": float(forecast_value),
+            "lower": float(forecast_value - z_critical * std_err),
+            "upper": float(forecast_value + z_critical * std_err),
+            "stdErr": float(std_err),
+            "seasonal": float(seasonal),
+        })
+    parameters: Dict[str, Any] = {
+        "Level": float(execution["level"]),
+        "Trend": float(execution["trend"]),
+        "Season length": int(season_length),
+        "Horizon": int(horizon),
+        "Level α": float(level_alpha),
+        "Trend β": float(trend_beta),
+        "Season γ": float(seasonal_gamma),
+    }
+    for idx, value in enumerate(execution["seasonals"][: min(season_length, 6)]):
+        parameters[f"Seasonal {idx + 1}"] = float(value)
+    return {
+        "valid": True,
+        "coefficients": [],
+        "metrics": {
+            "sse": sse,
+            "sst": sst,
+            "r2": r2,
+            "adjR2": adj_r2,
+            "rmse": float(math.sqrt(sse / len(residuals))),
+            "mae": float(sum(abs(val) for val in residuals) / len(residuals)),
+            "mape": _compute_mape(actual_for_errors, predicted_for_errors),
+            "smape": _compute_smape(actual_for_errors, predicted_for_errors),
+            "aic": float(2 * k - 2 * log_likelihood),
+            "bic": float(math.log(len(residuals)) * k - 2 * log_likelihood),
+            "horizon": int(horizon),
+        },
+        "forecast": {"horizon": int(horizon), "seasonLength": int(season_length), "points": forecast_points},
+        "summary": {"parameters": parameters, "primaryParameter": {"label": "Trend", "value": float(execution["trend"])}},
     }
 
 
@@ -1410,6 +2227,32 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = regression_lowess(payload)
     elif operation == "regression_spline_natural":
         result = regression_spline_natural(payload)
+    elif operation == "regression_gaussian":
+        result = regression_gaussian(payload)
+    elif operation == "regression_one_phase_association":
+        result = regression_one_phase_association(payload)
+    elif operation == "regression_one_phase_decay":
+        result = regression_one_phase_decay(payload)
+    elif operation == "regression_gompertz":
+        result = regression_gompertz(payload)
+    elif operation == "regression_binding_saturation":
+        result = regression_binding_saturation(payload)
+    elif operation == "regression_binding_competitive":
+        result = regression_binding_competitive(payload)
+    elif operation == "regression_enzyme_kinetics_substrate":
+        result = regression_enzyme_kinetics_substrate(payload)
+    elif operation == "regression_enzyme_kinetics_inhibition":
+        result = regression_enzyme_kinetics_inhibition(payload)
+    elif operation == "regression_dose_response_3pl":
+        result = regression_dose_response_3pl(payload)
+    elif operation == "regression_dose_response_4pl":
+        result = regression_dose_response_4pl(payload)
+    elif operation == "regression_dose_response_5pl":
+        result = regression_dose_response_5pl(payload)
+    elif operation == "regression_arima":
+        result = regression_arima(payload)
+    elif operation == "regression_holt_winters":
+        result = regression_holt_winters(payload)
     elif operation == "box_ttest_welch":
         result = box_ttest_welch(payload)
     elif operation == "box_ttest_equal_variance":
