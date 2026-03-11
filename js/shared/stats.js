@@ -1229,7 +1229,7 @@
       : 'Technical analysis record (advanced)';
     const panel = documentRef.createElement('details');
     panel.className = 'stats-report-panel';
-    panel.dataset.statsAdvanced = '1';
+    panel.dataset.statsReporting = '1';
     const summary = documentRef.createElement('summary');
     summary.textContent = title;
     panel.appendChild(summary);
@@ -1718,13 +1718,23 @@
       return true;
     }
     if(node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced')){
-      return true;
+      return false;
     }
     const caption = readNodeCaption(node);
     if(!caption){
       return false;
     }
     return ADVANCED_KEYWORD_PATTERNS.some(pattern => pattern.test(caption));
+  }
+
+  function isReportingNode(node){
+    if(!node || node.nodeType !== 1){
+      return false;
+    }
+    if(node.getAttribute('data-stats-reporting') === '1'){
+      return true;
+    }
+    return node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced');
   }
 
   function findDirectChildByClass(parent, className){
@@ -1850,15 +1860,13 @@
     Array.from(scaffold.advancedBody.childNodes).forEach(pushCandidate);
     const unique = Array.from(new Set(candidates));
     unique.forEach(node => {
+      if(isReportingNode(node)){
+        target.appendChild(node);
+        return;
+      }
       const destination = isAdvancedNode(node) ? scaffold.advancedBody : scaffold.main;
       destination.appendChild(node);
     });
-    if(scaffold.main.childNodes.length === 0 && scaffold.advancedBody.childNodes.length){
-      const fallback = Array.from(scaffold.advancedBody.childNodes).find(node => node.nodeType === 1 && !node.classList?.contains('stats-report-panel'));
-      if(fallback){
-        scaffold.main.appendChild(fallback);
-      }
-    }
     scaffold.advancedPanel.hidden = scaffold.advancedBody.childNodes.length === 0;
     scaffold.advancedPanel.setAttribute('aria-hidden', scaffold.advancedPanel.hidden ? 'true' : 'false');
   }

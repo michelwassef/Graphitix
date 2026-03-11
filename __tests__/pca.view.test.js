@@ -196,7 +196,8 @@ describe('PCA view controls', () => {
 
     const payload = window.Components.pca.getPayload();
     expect(payload.config?.stats?.resultsHtml).toContain('Samples analysed');
-    expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeTruthy();
+    expect(document.querySelector('#pcaStatsResults > .stats-report-panel')).toBeTruthy();
+    expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeFalsy();
 
     const summary = document.getElementById('pcaStatsSummary');
     expect(summary).toBeTruthy();
@@ -205,9 +206,10 @@ describe('PCA view controls', () => {
     window.Components.pca.loadFromPayload(payload, { source: 'test-report-restore', skipDraw: true });
     await flushAll(10);
 
-    const restoredPanel = document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel');
+    const restoredPanel = document.querySelector('#pcaStatsResults > .stats-report-panel');
     expect(restoredPanel).toBeTruthy();
     expect(restoredPanel.textContent || '').toContain('Reporting and reproducibility');
+    expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeFalsy();
   });
 
   test('PCA render cache restore restores scree visibility state', async () => {
