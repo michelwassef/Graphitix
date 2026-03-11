@@ -801,6 +801,9 @@
   }
 
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
+  let scatterFitRegressionModelForTests = null;
+  let scatterFitDemingRegressionForTests = null;
+  let scatterFitLowessRegressionForTests = null;
   const regressionDebugNamespace = 'scatter-regression';
   const getScatterJStat = () => global.jStat || global.window?.jStat || null;
 
@@ -7816,6 +7819,7 @@
       };
       return model;
     };
+    scatterFitDemingRegressionForTests = fitScatterDemingRegression;
     const fitScatterLowessRegression = (inputPoints, options = {}) => {
       const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
       const span = Math.min(0.95, Math.max(0.2, Number(
@@ -7943,6 +7947,7 @@
       };
       return model;
     };
+    scatterFitLowessRegressionForTests = fitScatterLowessRegression;
     const enrichScatterRegressionModel = (points, regressionModel, options = {}) => {
       const model = regressionModel && typeof regressionModel === 'object' ? regressionModel : null;
       const finitePoints = Array.isArray(points) ? points.filter(pt => Number.isFinite(pt?.x) && Number.isFinite(pt?.y)) : [];
@@ -8047,6 +8052,7 @@
       }
       return regressionModel;
     };
+    scatterFitRegressionModelForTests = fitScatterRegressionModel;
     const computeScatterExtraSumSquaresF = (simplerSse, simplerDf, complexSse, complexDf) => {
       const jStatApi = getScatterJStat();
       if(
@@ -20905,11 +20911,189 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         ciApproximate: false
       };
     },
-    computeScatterStats: (points, method, options = {}) => computeScatterStats(
-      Array.isArray(points) ? points : [],
-      method || 'pearson',
-      options || {}
-    ),
+    computeScatterStats: (points, method, options = {}) => {
+      const safePoints = Array.isArray(points) ? points : [];
+      const safeOptions = options || {};
+      const regressionMode = safeOptions.regressionMode || 'linear';
+      const fitMethod = safeOptions.fitMethod || 'ols';
+      const normalizeAssociationSelection = value => {
+        if(typeof normalizeScatterAssociationSelection === 'function'){
+          return normalizeScatterAssociationSelection(value);
+        }
+        const raw = String(value || 'auto').trim().toLowerCase();
+        return (raw === 'pearson' || raw === 'spearman' || raw === 'none' || raw === 'auto')
+          ? raw
+          : 'auto';
+      };
+      const modeKey = String(regressionMode || 'linear').trim().toLowerCase();
+      const associationPolicy = {
+        linear: 'pearson',
+        linearthroughorigin: 'pearson',
+        deming: 'pearson',
+        orthogonal: 'pearson',
+        lowess: 'none',
+        quadratic: 'none',
+        cubic: 'none',
+        logistic: 'spearman',
+        doseresponse3pl: 'spearman',
+        doseresponse4pl: 'spearman',
+        doseresponse5pl: 'spearman',
+        exponential: 'spearman',
+        onephaseassociation: 'spearman',
+        onephasedecay: 'spearman',
+        gompertz: 'spearman',
+        power: 'spearman',
+        gaussian: 'none',
+        spline: 'none',
+        bindingsaturation: 'spearman',
+        bindingcompetitive: 'spearman',
+        enzymekineticssubstrate: 'spearman',
+        enzymekineticsinhibition: 'spearman'
+      };
+      const associationSelection = normalizeAssociationSelection(safeOptions.associationSelection || method || 'auto');
+      const resolvedAssociationMethod = associationSelection === 'auto'
+        ? normalizeAssociationSelection(associationPolicy[modeKey] || 'pearson')
+        : associationSelection;
+      const fitSpec = safeOptions.fitSpec && typeof safeOptions.fitSpec === 'object' ? safeOptions.fitSpec : {};
+      const domainOption = safeOptions.domain || null;
+      const paired = (() => {
+        const rows = [];
+        const xs = [];
+        const ys = [];
+        let droppedRows = 0;
+        safePoints.forEach(point => {
+          const xv = Number(point?.x);
+          const yv = Number(point?.y);
+          if(Number.isFinite(xv) && Number.isFinite(yv)){
+            rows.push({ x: xv, y: yv });
+            xs.push(xv);
+            ys.push(yv);
+          }else{
+            droppedRows += 1;
+          }
+        });
+        return {
+          points: rows,
+          x: xs,
+          y: ys,
+          count: rows.length,
+          totalRows: safePoints.length,
+          droppedRows
+        };
+      })();
+      const n = paired.count;
+      const x = paired.x;
+      const y = paired.y;
+      if(n < 3){
+        return {
+          method: resolvedAssociationMethod === 'spearman'
+            ? 'Spearman'
+            : (resolvedAssociationMethod === 'none' ? 'None (model fit only)' : 'Pearson'),
+          associationSelection,
+          associationMethod: resolvedAssociationMethod,
+          r: NaN,
+          p: NaN,
+          r2: NaN,
+          m: NaN,
+          b: NaN,
+          regression: null,
+          pointCount: n
+        };
+      }
+      const correlation = scatter.__testHooks.computeScatterCorrelationStats(resolvedAssociationMethod, x, y);
+      const statsApi = global.jStat || global.window?.jStat || null;
+      const pearson = Number.isFinite(correlation?.r)
+        ? Number(correlation.r)
+        : ((statsApi && typeof statsApi.corrcoeff === 'function')
+          ? Number(statsApi.corrcoeff(x, y))
+          : NaN);
+      const xMean = (statsApi && typeof statsApi.mean === 'function')
+        ? Number(statsApi.mean(x))
+        : (x.reduce((sum, value) => sum + value, 0) / Math.max(1, x.length));
+      const yMean = (statsApi && typeof statsApi.mean === 'function')
+        ? Number(statsApi.mean(y))
+        : (y.reduce((sum, value) => sum + value, 0) / Math.max(1, y.length));
+      const num = x.reduce((sum, xi, index) => sum + ((xi - xMean) * (y[index] - yMean)), 0);
+      const den = x.reduce((sum, xi) => sum + Math.pow(xi - xMean, 2), 0);
+      const linearSlope = den !== 0 ? (num / den) : NaN;
+      const linearIntercept = yMean - (linearSlope * xMean);
+      let regression = null;
+      try{
+        const scatterFitModel = scatterFitRegressionModelForTests;
+        if((modeKey === 'deming' || modeKey === 'orthogonal') && typeof scatterFitDemingRegressionForTests === 'function'){
+          regression = scatterFitDemingRegressionForTests(paired.points, {
+            mode: regressionMode,
+            method: fitMethod,
+            fitSpec,
+            domain: domainOption || null
+          });
+        }else if(modeKey === 'lowess' && typeof scatterFitLowessRegressionForTests === 'function'){
+          regression = scatterFitLowessRegressionForTests(paired.points, {
+            mode: regressionMode,
+            method: fitMethod,
+            fitSpec,
+            domain: domainOption || null
+          });
+        }else if(typeof scatterFitModel === 'function'){
+          regression = scatterFitModel(paired.points, {
+            mode: regressionMode,
+            method: fitMethod,
+            fitSpec,
+            domain: domainOption || null,
+            preferDoseResponse: regressionMode === 'logistic'
+          });
+        }else if(regressionTools && typeof regressionTools.fitRegression === 'function'){
+          regression = regressionTools.fitRegression(paired.points, {
+            mode: regressionMode,
+            method: fitMethod,
+            fitSpec,
+            domain: domainOption || null,
+            preferDoseResponse: regressionMode === 'logistic'
+          });
+        }
+        if(regression && domainOption){
+          const minCandidate = Number.isFinite(domainOption.minX) ? domainOption.minX : Number.isFinite(domainOption.min) ? domainOption.min : undefined;
+          const maxCandidate = Number.isFinite(domainOption.maxX) ? domainOption.maxX : Number.isFinite(domainOption.max) ? domainOption.max : undefined;
+          if(Number.isFinite(minCandidate) && Number.isFinite(maxCandidate)){
+            regression.domain = { minX: minCandidate, maxX: maxCandidate };
+          }
+        }
+      }catch(err){
+        console.error('Regression fit error', err);
+      }
+      const summaryForRegression = regression?.summary;
+      const regressionSlope = summaryForRegression?.slope;
+      const regressionIntercept = summaryForRegression?.intercept;
+      let resolvedSlope = Number.isFinite(regressionSlope) ? regressionSlope : linearSlope;
+      if(summaryForRegression?.primaryParameter && Number.isFinite(summaryForRegression.primaryParameter.value)){
+        resolvedSlope = summaryForRegression.primaryParameter.value;
+      }
+      const resolvedIntercept = Number.isFinite(regressionIntercept) ? regressionIntercept : linearIntercept;
+      const regressionR2 = regression?.metrics?.r2;
+      return {
+        method: correlation?.methodLabel || (resolvedAssociationMethod === 'spearman'
+          ? 'Spearman'
+          : (resolvedAssociationMethod === 'none' ? 'None (model fit only)' : 'Pearson')),
+        associationSelection,
+        associationMethod: correlation?.methodCode || resolvedAssociationMethod,
+        r: correlation?.r,
+        p: correlation?.p,
+        pMethod: correlation?.pMethod,
+        correlationCI: correlation?.ci || null,
+        correlationCiApproximate: !!correlation?.ciApproximate,
+        r2: Number.isFinite(regressionR2) ? regressionR2 : (pearson * pearson),
+        m: resolvedSlope,
+        b: resolvedIntercept,
+        pointCount: n,
+        regression,
+        derived: {
+          ...(typeof computeScatterDerivedRegressionStats === 'function'
+            ? (computeScatterDerivedRegressionStats(regression) || {})
+            : {}),
+          ...(regression?.derived || {})
+        }
+      };
+    },
     constants: Object.assign({}, scatter.__testHooks?.constants, {
       MAX_SIGNIFICANT_ANNOTATIONS
     })

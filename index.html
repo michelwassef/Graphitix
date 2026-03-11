@@ -480,7 +480,6 @@
               <div class="control idx-inline-031">
                 <label class="idx-inline-023"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
-                <label class="idx-inline-023"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
                 <label class="idx-inline-023"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
               </div>
               <div class="control idx-inline-032">
@@ -1783,7 +1782,19 @@
             </div>
           </div>
           <div class="config-panel">
-            <fieldset>
+            <fieldset data-graph-selection-fieldset="1">
+              <legend>Graph</legend>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">
+                  Graph type
+                  <select id="histPlotMode">
+                    <option value="histogram" selected>Histogram</option>
+                    <option value="density">Density Plot</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset id="histBinsFieldset">
               <legend>Bins</legend>
               <div class="control">
                 <label>Count</label>

@@ -1,5 +1,10 @@
 describe('Heatmap stats formatting', () => {
   let originalCreateStandardTable;
+  async function flushAsyncWork(iterations = 20){
+    for(let i = 0; i < iterations; i += 1){
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
 
   beforeEach(() => {
     jest.resetModules();
@@ -232,6 +237,58 @@ describe('Heatmap stats formatting', () => {
     const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
     expect(activeTab).toBeTruthy();
     expect((activeTab.textContent || '').toLowerCase()).toContain('raw');
+  });
+
+  test('switching to the correlation matrix tab does not trigger recursive redraw loads', async () => {
+    if(typeof global.__resetGrid__ === 'function'){
+      global.__resetGrid__();
+    }
+    const hot = global.__LAST_HEATMAP_HOT__;
+    expect(hot).toBeTruthy();
+    const originalApplyExclusions = hot.applyExclusions;
+    const applyExclusionsCalls = [];
+    hot.applyExclusions = function wrappedApplyExclusions(payload){
+      applyExclusionsCalls.push(payload);
+      return originalApplyExclusions.apply(this, arguments);
+    };
+    try{
+    hot.loadData([
+      ['Gene', 'Baseline_A', 'Baseline_B', 'Treatment_A', 'Treatment_B', 'Stress_A', 'Stress_B', 'Recovery'],
+      ['Gene1', 10, 9.7, 3.2, 3.1, 6.1, 6.3, 8.2],
+      ['Gene2', 11, 10.8, 4.1, 4.0, 5.9, 6.0, 8.0],
+      ['Gene3', 12, 11.7, 2.9, 3.0, 6.4, 6.6, 7.6],
+      ['Gene4', 9.5, 9.4, 7.5, 7.6, 5.2, 5.1, 8.8]
+    ]);
+    window.Components.heatmap.draw();
+    await flushAsyncWork();
+
+    const correlationTab = Array.from(
+      document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab')
+    ).find(tab => /correlation matrix/i.test(tab.textContent || ''));
+    expect(correlationTab).toBeTruthy();
+
+    const loadCallsBefore = (global.__GRID_CALLS__ || []).filter(call =>
+      call.type === 'loadData' && call.containerId === 'heatmapHot'
+    ).length;
+    correlationTab.click();
+    const manager = hot.__heatmapDataViewsManager;
+    await flushAsyncWork(6);
+    const activeView = manager?.getActiveView?.() || null;
+    const loadCallsAfter = (global.__GRID_CALLS__ || []).filter(call =>
+      call.type === 'loadData' && call.containerId === 'heatmapHot'
+    );
+    const loadSources = loadCallsAfter.slice(loadCallsBefore).map(call => call.source);
+    const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
+
+    expect(activeView?.transformSpec?.type).toBe('heatmapCorrelationMatrix');
+    expect(activeView?.sourceViewId).toBe('raw');
+    expect(loadSources).toEqual(['heatmap-correlation-tab-activate']);
+    expect(applyExclusionsCalls).toEqual([]);
+    expect(activeTab).toBeTruthy();
+    expect((activeTab.textContent || '').toLowerCase()).toContain('correlation matrix');
+    } finally {
+      hot.applyExclusions = originalApplyExclusions;
+    }
   });
 
   test('graph title stays above long vertical column labels', () => {

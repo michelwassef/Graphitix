@@ -9672,7 +9672,7 @@
         syncLoadingsLimitUi(PCA_LOADINGS_ROW_LIMIT);
         pcaShowGrid.checked=!!c.showGrid;
         setGridStyle(c.gridStyle, c.axis?.strokeWidth);
-        pcaShowFrame.checked=!!c.showFrame;
+        pcaShowFrame.checked = c.showFrame !== false;
         if(pcaShowLegendInput){
           pcaShowLegendInput.checked = c.showLegend !== false;
           ensurePcaResizerControls();

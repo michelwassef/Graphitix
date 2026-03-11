@@ -20,12 +20,14 @@ Output (stdout):
 from __future__ import annotations
 
 import json
+import itertools
 import math
 import sys
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 from scipy import stats
+from scipy.interpolate import CubicSpline
 
 
 EPSILON = 1e-12
@@ -426,6 +428,301 @@ def regression_polynomial(payload: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def regression_exponential(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    mask = y > 0
+    x = x[mask]
+    y = y[mask]
+    if x.size < 2:
+        return {"valid": False, "message": "Insufficient positive-Y data for exponential regression."}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    log_y = np.log(y)
+    design = np.column_stack([np.ones_like(x), x])
+    result = _regression_core(x, log_y, design, alpha, ["ln(a)", "b"])
+    if not result.get("valid"):
+        return result
+    log_a, b = result["coefficients"]
+    predictions = np.exp(design @ np.asarray([log_a, b], dtype=float))
+    residuals = y - predictions
+    y_mean = float(np.mean(y))
+    sst = float(np.sum((y - y_mean) ** 2))
+    sse = float(np.sum(residuals ** 2))
+    r2 = 1.0 if sst == 0 else float(1 - (sse / sst))
+    n = int(x.size)
+    result["metrics"] = {
+        "sse": sse,
+        "sst": sst,
+        "r2": r2,
+        "adjR2": float(1 - (1 - r2) * ((n - 1) / (n - 2))) if n > 2 else r2,
+        "rmse": float(math.sqrt(sse / n)),
+        "mae": float(np.mean(np.abs(residuals))),
+    }
+    result["summary"] = {"intercept": log_a, "slope": b, "amplitude": float(math.exp(log_a)), "rate": b}
+    return result
+
+
+def regression_power(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    mask = (x > 0) & (y > 0)
+    x = x[mask]
+    y = y[mask]
+    if x.size < 2:
+        return {"valid": False, "message": "Insufficient positive-X/positive-Y data for power regression."}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    log_x = np.log(x)
+    log_y = np.log(y)
+    design = np.column_stack([np.ones_like(log_x), log_x])
+    result = _regression_core(log_x, log_y, design, alpha, ["ln(a)", "b"])
+    if not result.get("valid"):
+        return result
+    log_a, b = result["coefficients"]
+    predictions = np.exp(log_a + (b * log_x))
+    residuals = y - predictions
+    y_mean = float(np.mean(y))
+    sst = float(np.sum((y - y_mean) ** 2))
+    sse = float(np.sum(residuals ** 2))
+    r2 = 1.0 if sst == 0 else float(1 - (sse / sst))
+    n = int(x.size)
+    result["metrics"] = {
+        "sse": sse,
+        "sst": sst,
+        "r2": r2,
+        "adjR2": float(1 - (1 - r2) * ((n - 1) / (n - 2))) if n > 2 else r2,
+        "rmse": float(math.sqrt(sse / n)),
+        "mae": float(np.mean(np.abs(residuals))),
+    }
+    result["summary"] = {"intercept": log_a, "slope": b, "scale": float(math.exp(log_a)), "exponent": b}
+    return result
+
+
+def regression_logistic(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    if x.size < 2:
+        return {"valid": False, "message": "Insufficient data for logistic regression."}
+    y_clamped = np.clip(y, 0.0, 1.0)
+    if np.allclose(y_clamped, y_clamped[0]):
+        return {
+            "valid": True,
+            "coefficients": [0.0, 0.0],
+            "metrics": {
+                "sse": float("nan"),
+                "sst": float("nan"),
+                "r2": float("nan"),
+                "adjR2": float("nan"),
+                "rmse": float("nan"),
+                "mae": float("nan"),
+                "logLoss": float("nan"),
+                "iterations": 0,
+            },
+            "summary": {"intercept": 0.0, "slope": 0.0},
+        }
+
+    beta0 = 0.0
+    beta1 = 0.0
+    learning_rate = 0.01
+    tolerance = 1e-6
+    max_iterations = 1000
+    iteration = 0
+    n = int(x.size)
+    for iteration in range(max_iterations):
+        z = beta0 + (beta1 * x)
+        pred = 1.0 / (1.0 + np.exp(-z))
+        error = pred - y_clamped
+        grad0 = float(np.mean(error))
+        grad1 = float(np.mean(error * x))
+        delta0 = learning_rate * grad0
+        delta1 = learning_rate * grad1
+        beta0 -= delta0
+        beta1 -= delta1
+        if abs(delta0) < tolerance and abs(delta1) < tolerance:
+            break
+
+    predictions = 1.0 / (1.0 + np.exp(-(beta0 + (beta1 * x))))
+    residuals = y_clamped - predictions
+    sse = float(np.sum(residuals ** 2))
+    rmse = float(math.sqrt(sse / n))
+    mae = float(np.mean(np.abs(residuals)))
+    eps = 1e-9
+    clipped = np.clip(predictions, eps, 1 - eps)
+    log_loss = float(-np.mean((y_clamped * np.log(clipped)) + ((1 - y_clamped) * np.log(1 - clipped))))
+    mean_y = float(np.mean(y_clamped))
+    mean_y = min(1 - eps, max(eps, mean_y))
+    null_loss = float(-((mean_y * math.log(mean_y)) + ((1 - mean_y) * math.log(1 - mean_y))))
+    pseudo_r2 = float(1 - (log_loss / null_loss)) if null_loss > 0 else float("nan")
+    return {
+        "valid": True,
+        "coefficients": [beta0, beta1],
+        "metrics": {
+            "sse": sse,
+            "sst": float("nan"),
+            "r2": pseudo_r2,
+            "adjR2": pseudo_r2,
+            "rmse": rmse,
+            "mae": mae,
+            "logLoss": log_loss,
+            "iterations": iteration + 1,
+        },
+        "summary": {"intercept": beta0, "slope": beta1},
+    }
+
+
+def regression_deming(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    if x.size < 3:
+        return {"valid": False, "message": "Insufficient data for Deming regression."}
+    mode = str(payload.get("mode") or "deming").strip().lower()
+    error_ratio = 1.0 if mode == "orthogonal" else (
+        float(payload.get("errorRatio")) if _is_finite_number(payload.get("errorRatio")) and float(payload.get("errorRatio")) > 0 else 1.0
+    )
+    x_mean = float(np.mean(x))
+    y_mean = float(np.mean(y))
+    dx = x - x_mean
+    dy = y - y_mean
+    sxx = float(np.sum(dx * dx))
+    syy = float(np.sum(dy * dy))
+    sxy = float(np.sum(dx * dy))
+    if abs(sxy) <= 1e-18:
+        return {"valid": False, "message": "Degenerate covariance for Deming regression."}
+    discriminant = ((syy - (error_ratio * sxx)) ** 2) + (4 * error_ratio * sxy * sxy)
+    slope = ((syy - (error_ratio * sxx)) + math.sqrt(max(0.0, discriminant))) / (2 * sxy)
+    intercept = y_mean - (slope * x_mean)
+    predictions = intercept + (slope * x)
+    residuals = y - predictions
+    sse = float(np.sum(residuals ** 2))
+    orth_sse = float(np.sum((residuals ** 2) / np.maximum(1e-12, 1 + (slope * slope))))
+    return {
+        "valid": True,
+        "coefficients": [intercept, slope],
+        "metrics": {
+            "sse": sse,
+            "orthogonalSSE": orth_sse,
+            "r2": float("nan"),
+            "adjR2": float("nan"),
+            "rmse": float(math.sqrt(sse / x.size)),
+            "mae": float(np.mean(np.abs(residuals))),
+        },
+        "summary": {"intercept": intercept, "slope": slope, "errorRatio": error_ratio},
+    }
+
+
+def regression_lowess(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    if x.size < 3:
+        return {"valid": False, "message": "Insufficient data for LOWESS."}
+    points = sorted(zip(x.tolist(), y.tolist()), key=lambda item: item[0])
+    xs = np.asarray([pt[0] for pt in points], dtype=float)
+    ys = np.asarray([pt[1] for pt in points], dtype=float)
+    span = float(payload.get("span")) if _is_finite_number(payload.get("span")) else 0.75
+    span = min(0.95, max(0.2, span))
+    n = int(xs.size)
+    k = max(2, int(math.ceil(span * n)))
+
+    def tricube(value: float) -> float:
+        t = min(1.0, abs(value))
+        base = 1 - (t ** 3)
+        return max(0.0, base) ** 3
+
+    def smooth_at(target_index: int, robust_weights: np.ndarray) -> float:
+        x0 = xs[target_index]
+        distances = sorted((abs(xs[idx] - x0), idx) for idx in range(n))
+        bandwidth = max(1e-9, distances[min(len(distances) - 1, k - 1)][0] or 1e-9)
+        sw = sx = sy = sxx = sxy = 0.0
+        for idx in range(n):
+            distance_weight = tricube((xs[idx] - x0) / bandwidth)
+            weight = distance_weight * robust_weights[idx]
+            sw += weight
+            sx += weight * xs[idx]
+            sy += weight * ys[idx]
+            sxx += weight * xs[idx] * xs[idx]
+            sxy += weight * xs[idx] * ys[idx]
+        det = (sw * sxx) - (sx * sx)
+        if abs(det) <= 1e-18:
+            return float(ys[target_index])
+        intercept = ((sy * sxx) - (sx * sxy)) / det
+        slope = ((sw * sxy) - (sx * sy)) / det
+        return float(intercept + (slope * x0))
+
+    robust_weights = np.ones(n, dtype=float)
+    smoothed = np.asarray([smooth_at(idx, robust_weights) for idx in range(n)], dtype=float)
+    for _ in range(2):
+        residuals = ys - smoothed
+        median_abs = float(np.median(np.abs(residuals))) or 1e-9
+        updated = []
+        for value in residuals:
+            ratio = abs(float(value)) / (6 * median_abs)
+            if ratio >= 1:
+                updated.append(0.0)
+            else:
+                base = 1 - (ratio * ratio)
+                updated.append(base * base)
+        robust_weights = np.asarray(updated, dtype=float)
+        smoothed = np.asarray([smooth_at(idx, robust_weights) for idx in range(n)], dtype=float)
+
+    def predict(x_value: float) -> float:
+        x_num = float(x_value)
+        if x_num <= xs[0]:
+            return float(smoothed[0])
+        if x_num >= xs[-1]:
+            return float(smoothed[-1])
+        for idx in range(1, n):
+            left_x = xs[idx - 1]
+            right_x = xs[idx]
+            if x_num <= right_x:
+                span_x = (right_x - left_x) or 1.0
+                t = (x_num - left_x) / span_x
+                return float(smoothed[idx - 1] + (t * (smoothed[idx] - smoothed[idx - 1])))
+        return float("nan")
+
+    residuals = ys - smoothed
+    sse = float(np.sum(residuals ** 2))
+    y_mean = float(np.mean(ys))
+    tss = float(np.sum((ys - y_mean) ** 2))
+    eval_xs = [float(v) for v in (payload.get("evalXs") or []) if _is_finite_number(v)]
+    return {
+        "valid": True,
+        "metrics": {
+            "sse": sse,
+            "r2": float(1 - (sse / tss)) if tss > 0 else float("nan"),
+            "adjR2": float("nan"),
+            "rmse": float(math.sqrt(sse / n)),
+            "mae": float(np.mean(np.abs(residuals))),
+        },
+        "summary": {"span": span},
+        "predictions": [predict(x_val) for x_val in eval_xs],
+    }
+
+
+def regression_spline_natural(payload: Dict[str, Any]) -> Dict[str, Any]:
+    x, y = _prepare_xy(payload)
+    if x.size < 3:
+        return {"valid": False, "message": "Insufficient data for spline regression."}
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+    if np.unique(x).size != x.size:
+        return {"valid": False, "message": "Natural spline requires unique X values."}
+    spline = CubicSpline(x, y, bc_type="natural")
+    fitted = spline(x)
+    residuals = y - fitted
+    sse = float(np.sum(residuals ** 2))
+    y_mean = float(np.mean(y))
+    tss = float(np.sum((y - y_mean) ** 2))
+    eval_xs = [float(v) for v in (payload.get("evalXs") or []) if _is_finite_number(v)]
+    predictions = spline(np.asarray(eval_xs, dtype=float)) if eval_xs else np.asarray([], dtype=float)
+    return {
+        "valid": True,
+        "metrics": {
+            "sse": sse,
+            "r2": float(1 - (sse / tss)) if tss > 0 else float("nan"),
+            "adjR2": float("nan"),
+            "rmse": float(math.sqrt(sse / x.size)),
+            "mae": float(np.mean(np.abs(residuals))),
+        },
+        "summary": {"knots": int(x.size), "domainMin": float(x[0]), "domainMax": float(x[-1])},
+        "predictions": [float(value) for value in predictions.tolist()],
+    }
+
+
 def hypergeometric_right_tail(payload: Dict[str, Any]) -> Dict[str, Any]:
     population_size = int(payload.get("populationSize") or 0)
     success_population = int(payload.get("successPopulation") or 0)
@@ -463,6 +760,32 @@ def _clean_paired_vectors(a_values: Any, b_values: Any) -> Tuple[List[float], Li
     return a, b
 
 
+def _rankdata_average(values: List[float]) -> np.ndarray:
+    n = len(values)
+    order = sorted(range(n), key=lambda idx: values[idx])
+    ranks = np.zeros(n, dtype=float)
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and values[order[j]] == values[order[i]]:
+            j += 1
+        avg_rank = ((i + 1) + j) / 2.0
+        for k in range(i, j):
+            ranks[order[k]] = avg_rank
+        i = j
+    return ranks
+
+
+def _has_duplicate_values(values: List[float]) -> bool:
+    seen = set()
+    for value in values:
+        key = float(value)
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
+
+
 def box_ttest_welch(payload: Dict[str, Any]) -> Dict[str, Any]:
     a = _clean_vector(payload.get("a"))
     b = _clean_vector(payload.get("b"))
@@ -488,6 +811,35 @@ def box_ttest_welch(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         t_stat = diff / se
         df = ((va / na + vb / nb) ** 2) / (((va / na) ** 2) / (na - 1) + ((vb / nb) ** 2) / (nb - 1))
+        p_value = _p_from_t_stat(t_stat, df, alternative)
+    return {"available": True, "t": t_stat, "df": df, "p": p_value, "se": se, "diff": diff, "meanA": ma, "meanB": mb}
+
+
+def box_ttest_equal_variance(payload: Dict[str, Any]) -> Dict[str, Any]:
+    a = _clean_vector(payload.get("a"))
+    b = _clean_vector(payload.get("b"))
+    if len(a) < 2 or len(b) < 2:
+        return {"available": False, "message": "Need at least two observations per group."}
+    alternative = _resolve_alternative(payload.get("alternative"))
+    na = len(a)
+    nb = len(b)
+    ma = float(np.mean(a))
+    mb = float(np.mean(b))
+    va = float(np.var(a, ddof=1))
+    vb = float(np.var(b, ddof=1))
+    df = float(na + nb - 2)
+    pooled_variance = (((na - 1) * va) + ((nb - 1) * vb)) / max(df, 1.0)
+    se = math.sqrt(max(pooled_variance, 0.0) * ((1.0 / na) + (1.0 / nb)))
+    diff = ma - mb
+    if se == 0:
+        if diff == 0:
+            t_stat = 0.0
+            p_value = 1.0
+        else:
+            t_stat = float("inf") if diff > 0 else float("-inf")
+            p_value = _p_from_t_stat(t_stat, df, alternative)
+    else:
+        t_stat = diff / se
         p_value = _p_from_t_stat(t_stat, df, alternative)
     return {"available": True, "t": t_stat, "df": df, "p": p_value, "se": se, "diff": diff, "meanA": ma, "meanB": mb}
 
@@ -546,10 +898,14 @@ def box_mann_whitney(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not a or not b:
         return {"available": False, "message": "Need at least one observation per group."}
     alternative = _resolve_alternative(payload.get("alternative"))
-    result = stats.mannwhitneyu(a, b, alternative=alternative, method="asymptotic", use_continuity=True)
+    resampling_mode = str(payload.get("resamplingMode") or "auto").strip().lower()
+    has_ties = _has_duplicate_values(a + b)
+    exact_eligible = (not has_ties) and ((len(a) + len(b)) <= 20)
+    method = "exact" if (resampling_mode != "asymptotic" and exact_eligible) else "asymptotic"
+    result = stats.mannwhitneyu(a, b, alternative=alternative, method=method, use_continuity=True)
     u1 = float(result.statistic)
     u2 = float(len(a) * len(b) - u1)
-    return {"available": True, "U1": u1, "U2": u2, "U": min(u1, u2), "p": float(result.pvalue)}
+    return {"available": True, "U1": u1, "U2": u2, "U": min(u1, u2), "p": float(result.pvalue), "method": method}
 
 
 def box_wilcoxon_signed_rank(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -561,12 +917,15 @@ def box_wilcoxon_signed_rank(payload: Dict[str, Any]) -> Dict[str, Any]:
     if np.allclose(diffs, 0):
         return {"available": True, "W": 0.0, "p": 1.0}
     resampling_mode = str(payload.get("resamplingMode") or "auto").strip().lower()
-    method = "approx" if resampling_mode == "asymptotic" else "auto"
+    ranks = _rankdata_average(np.abs(diffs).tolist())
+    has_ties = _has_duplicate_values(ranks.tolist())
+    exact_eligible = (not has_ties) and diffs.size <= 25
+    method = "approx" if resampling_mode == "asymptotic" else ("exact" if exact_eligible else "approx")
     try:
         result = stats.wilcoxon(diffs, zero_method="wilcox", correction=True, alternative=alternative, method=method)
     except TypeError:
         result = stats.wilcoxon(diffs, zero_method="wilcox", correction=True, alternative=alternative, mode=method)
-    return {"available": True, "W": float(result.statistic), "p": float(result.pvalue)}
+    return {"available": True, "W": float(result.statistic), "p": float(result.pvalue), "method": method}
 
 
 def box_wilcoxon_one_sample(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -580,12 +939,15 @@ def box_wilcoxon_one_sample(payload: Dict[str, Any]) -> Dict[str, Any]:
     if non_zero.size == 0:
         return {"available": True, "W": 0.0, "p": 1.0}
     resampling_mode = str(payload.get("resamplingMode") or "auto").strip().lower()
-    method = "approx" if resampling_mode == "asymptotic" else "auto"
+    ranks = _rankdata_average(np.abs(non_zero).tolist())
+    has_ties = _has_duplicate_values(ranks.tolist())
+    exact_eligible = (not has_ties) and non_zero.size <= 25
+    method = "approx" if resampling_mode == "asymptotic" else ("exact" if exact_eligible else "approx")
     try:
         result = stats.wilcoxon(non_zero, zero_method="wilcox", correction=True, alternative=alternative, method=method)
     except TypeError:
         result = stats.wilcoxon(non_zero, zero_method="wilcox", correction=True, alternative=alternative, mode=method)
-    return {"available": True, "W": float(result.statistic), "p": float(result.pvalue)}
+    return {"available": True, "W": float(result.statistic), "p": float(result.pvalue), "method": method}
 
 
 def box_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -604,6 +966,43 @@ def box_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def box_welch_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    groups = [group for group in groups if len(group) > 0]
+    if len(groups) < 2:
+        return {"available": False, "message": "Need at least two groups."}
+    if any(len(group) < 2 for group in groups):
+        return {"available": False, "message": "Need at least two observations per group."}
+    k = len(groups)
+    counts = [len(group) for group in groups]
+    means = [float(np.mean(group)) for group in groups]
+    variances = []
+    for group, mean_val in zip(groups, means):
+        variance = float(np.var(group, ddof=1))
+        variances.append(variance if variance > 0 else float(np.finfo(float).eps))
+    weights = [counts[idx] / variances[idx] for idx in range(k)]
+    weight_sum = float(sum(weights))
+    if not math.isfinite(weight_sum) or weight_sum <= 0:
+        return {"available": False, "message": "Unable to normalize Welch weights."}
+    mean_weighted = sum(weights[idx] * means[idx] for idx in range(k)) / weight_sum
+    between = 0.0
+    sum_term = 0.0
+    for idx in range(k):
+        mean_diff = means[idx] - mean_weighted
+        between += weights[idx] * mean_diff * mean_diff
+        weight_frac = weights[idx] / weight_sum
+        sum_term += ((1 - weight_frac) ** 2) / max(counts[idx] - 1, 1)
+    df1 = float(k - 1)
+    numerator = between / max(df1, 1.0)
+    correction_denom = (k ** 2) - 1
+    correction = 1 + ((2 * (k - 2) / correction_denom) * sum_term) if correction_denom != 0 else 1.0
+    f_stat = (numerator / correction) if correction > 0 else float("nan")
+    df2_den = 3 * sum_term
+    df2 = (((k ** 2) - 1) / df2_den) if df2_den > 0 else float("inf")
+    p_value = float(1 - stats.f.cdf(f_stat, df1, df2)) if math.isfinite(f_stat) else 1.0
+    return {"available": True, "F": f_stat, "p": p_value, "df1": df1, "df2": df2, "means": means, "counts": counts}
+
+
 def box_kruskal(payload: Dict[str, Any]) -> Dict[str, Any]:
     groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
     groups = [group for group in groups if len(group) > 0]
@@ -620,8 +1019,42 @@ def box_friedman(payload: Dict[str, Any]) -> Dict[str, Any]:
     size = len(groups[0])
     if size < 2 or any(len(group) != size for group in groups):
         return {"available": False, "message": "Friedman requires equal paired group sizes >= 2."}
+    resampling_mode = str(payload.get("resamplingMode") or "auto").strip().lower()
+    k = len(groups)
+    n = size
+    row_ranks = []
+    rank_sums = np.zeros(k, dtype=float)
+    tie_term_sum = 0.0
+    for row_idx in range(n):
+        row_values = [group[row_idx] for group in groups]
+        ranks = _rankdata_average(row_values)
+        row_ranks.append(ranks.tolist())
+        _, counts = np.unique(np.asarray(row_values, dtype=float), return_counts=True)
+        tie_term_sum += float(sum((count ** 3) - count for count in counts if count > 1))
+        rank_sums += ranks
+    q_stat = float((12 / (n * k * (k + 1))) * np.sum(rank_sums ** 2) - (3 * n * (k + 1)))
+    tie_correction = 1.0
+    if tie_term_sum > 0:
+        denom = n * k * ((k * k) - 1)
+        if denom > 0:
+            tie_correction = 1 - (tie_term_sum / denom)
+        if tie_correction > 0:
+            q_stat /= tie_correction
+    exact_eligible = (tie_term_sum == 0) and ((math.factorial(k) ** n) <= 200000)
+    if resampling_mode != "asymptotic" and exact_eligible:
+        permutations = list(itertools.permutations(range(1, k + 1)))
+        total = 0
+        hits = 0
+        for assignment in itertools.product(permutations, repeat=n):
+            sums = np.sum(np.asarray(assignment, dtype=float), axis=0)
+            sim_q = float((12 / (n * k * (k + 1))) * np.sum(sums ** 2) - (3 * n * (k + 1)))
+            total += 1
+            if sim_q >= q_stat - 1e-12:
+                hits += 1
+        p_value = hits / max(total, 1)
+        return {"available": True, "Q": q_stat, "p": float(p_value), "df": k - 1, "method": "exact"}
     result = stats.friedmanchisquare(*groups)
-    return {"available": True, "Q": float(result.statistic), "p": float(result.pvalue), "df": len(groups) - 1}
+    return {"available": True, "Q": float(result.statistic), "p": float(result.pvalue), "df": k - 1, "method": "asymptotic"}
 
 
 def box_repeated_measures_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -657,6 +1090,15 @@ def box_repeated_measures_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "F": f_stat, "p": p_value, "df1": df1, "df2": df2}
 
 
+def box_kolmogorov_smirnov(payload: Dict[str, Any]) -> Dict[str, Any]:
+    a = _clean_vector(payload.get("a"))
+    b = _clean_vector(payload.get("b"))
+    if not a or not b:
+        return {"available": False, "message": "Need at least one observation per group."}
+    result = stats.ks_2samp(a, b, alternative="two-sided", method="asymp")
+    return {"available": True, "D": float(result.statistic), "p": float(result.pvalue), "method": "asymptotic"}
+
+
 def pie_chi_square(payload: Dict[str, Any]) -> Dict[str, Any]:
     observed = _clean_vector(payload.get("observed"))
     expected = _clean_vector(payload.get("expected"))
@@ -676,22 +1118,6 @@ def _prepare_pairs(raw_pairs: Any) -> List[Dict[str, float]]:
         if label in (0, 1) and _is_finite_number(score):
             pairs.append({"label": int(label), "score": float(score)})
     return pairs
-
-
-def _rankdata_average(values: List[float]) -> np.ndarray:
-    n = len(values)
-    order = sorted(range(n), key=lambda idx: values[idx])
-    ranks = np.zeros(n, dtype=float)
-    i = 0
-    while i < n:
-        j = i + 1
-        while j < n and values[order[j]] == values[order[i]]:
-            j += 1
-        avg_rank = ((i + 1) + j) / 2.0
-        for k in range(i, j):
-            ranks[order[k]] = avg_rank
-        i = j
-    return ranks
 
 
 def _roc_auc_score_binary(y_true: List[int], y_score: List[float]) -> float:
@@ -824,9 +1250,30 @@ def correlation(payload: Dict[str, Any]) -> Dict[str, Any]:
     method = str(payload.get("method") or "pearson").strip().lower()
     if method == "spearman":
         stat = stats.spearmanr(x, y)
-        return {"available": True, "method": "spearman", "r": float(stat.statistic), "p": float(stat.pvalue), "n": int(x.size)}
+        p_value = float(stat.pvalue)
+        p_method = "t approximation"
+        has_ties = (_has_duplicate_values(x.tolist()) or _has_duplicate_values(y.tolist()))
+        if bool(payload.get("exactPermutation")) and not has_ties and x.size <= 9:
+            observed = abs(float(stat.statistic))
+            ranks = list(range(1, int(x.size) + 1))
+            total = 0
+            extreme = 0
+            denom = x.size * ((x.size ** 2) - 1)
+            for perm in itertools.permutations(ranks):
+                d2 = 0.0
+                for idx, rank in enumerate(perm):
+                    diff = (idx + 1) - rank
+                    d2 += diff * diff
+                perm_rho = 1 - ((6 * d2) / denom)
+                total += 1
+                if abs(perm_rho) >= observed - 1e-12:
+                    extreme += 1
+            if total > 0:
+                p_value = extreme / total
+                p_method = "exact permutation"
+        return {"available": True, "method": "spearman", "r": float(stat.statistic), "p": p_value, "n": int(x.size), "pMethod": p_method}
     stat = stats.pearsonr(x, y)
-    return {"available": True, "method": "pearson", "r": float(stat.statistic), "p": float(stat.pvalue), "n": int(x.size)}
+    return {"available": True, "method": "pearson", "r": float(stat.statistic), "p": float(stat.pvalue), "n": int(x.size), "pMethod": "Student t approximation"}
 
 
 def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -951,8 +1398,22 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = regression_linear_through_origin(payload)
     elif operation == "regression_polynomial":
         result = regression_polynomial(payload)
+    elif operation == "regression_exponential":
+        result = regression_exponential(payload)
+    elif operation == "regression_power":
+        result = regression_power(payload)
+    elif operation == "regression_logistic":
+        result = regression_logistic(payload)
+    elif operation == "regression_deming":
+        result = regression_deming(payload)
+    elif operation == "regression_lowess":
+        result = regression_lowess(payload)
+    elif operation == "regression_spline_natural":
+        result = regression_spline_natural(payload)
     elif operation == "box_ttest_welch":
         result = box_ttest_welch(payload)
+    elif operation == "box_ttest_equal_variance":
+        result = box_ttest_equal_variance(payload)
     elif operation == "box_ttest_paired":
         result = box_ttest_paired(payload)
     elif operation == "box_ttest_one_sample":
@@ -965,12 +1426,16 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_wilcoxon_one_sample(payload)
     elif operation == "box_anova":
         result = box_anova(payload)
+    elif operation == "box_welch_anova":
+        result = box_welch_anova(payload)
     elif operation == "box_kruskal":
         result = box_kruskal(payload)
     elif operation == "box_friedman":
         result = box_friedman(payload)
     elif operation == "box_repeated_measures_anova":
         result = box_repeated_measures_anova(payload)
+    elif operation == "box_kolmogorov_smirnov":
+        result = box_kolmogorov_smirnov(payload)
     elif operation == "pie_chi_square":
         result = pie_chi_square(payload)
     elif operation == "roc_curve_metric":

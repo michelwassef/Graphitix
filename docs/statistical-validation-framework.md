@@ -23,6 +23,9 @@ Catch statistical implementation regressions by validating that:
   - Core oracle differential suite (curated + randomized + metamorphic checks).
 - `__tests__/stats.component.differential.test.js`
   - Component-engine differential suite validating component statistical hooks against the Python oracle.
+- `__tests__/stats.matrix.components.test.js`
+  - Generated coverage-matrix suite for `box.js`, `line.js`, and `scatter.js`.
+  - Exhaustively exercises exposed analysis branches and parameter combinations where practical.
 
 ## Supported Statistical Operations
 
@@ -40,13 +43,21 @@ Current differential coverage includes:
   - linear
   - linear through origin
   - polynomial (quadratic, cubic)
+  - exponential
+  - power
+  - logistic
+  - Deming / orthogonal
+  - natural spline
 - Box/statistics engine tests:
   - Welch t-test
+  - pooled-variance unpaired t-test
   - paired t-test
   - one-sample t-test
   - Mann-Whitney U
   - Wilcoxon signed-rank (paired and one-sample)
+  - Kolmogorov-Smirnov two-sample
   - one-way ANOVA
+  - Welch ANOVA
   - Kruskal-Wallis (tie-corrected)
   - Friedman test
   - repeated-measures ANOVA
@@ -59,8 +70,32 @@ Current differential coverage includes:
 - Correlation engines:
   - Pearson
   - Spearman
+  - exact-permutation Spearman branch in `line.js` when eligible
 - Survival:
   - log-rank test
+
+## Component Matrix Coverage
+
+`__tests__/stats.matrix.components.test.js` adds systematic branch coverage on top of the curated/randomized differential suites:
+
+- `box.js`
+  - parametric vs non-parametric
+  - paired vs unpaired vs one-sample
+  - pooled-variance vs Welch
+  - exact-eligible vs asymptotic rank-test branches
+  - ANOVA / Welch ANOVA / Kruskal / Friedman / repeated-measures ANOVA
+  - Monte Carlo seed and iteration wiring checks
+- `line.js`
+  - Pearson and Spearman correlation across all visible regression modes
+  - visible regression modes: linear, quadratic, cubic, exponential, power, spline, logistic
+  - exact Spearman permutation branch
+  - ARIMA and Holt-Winters forecast parameter wiring
+- `scatter.js`
+  - oracle-backed component validation for linear, linear-through-origin, quadratic, cubic, exponential, power, logistic, spline, Deming, and orthogonal
+  - visible-mode execution coverage for every regression option exposed by the UI
+  - auto-association policy checks
+  - logistic-to-4PL routing for non-binary responses
+  - fit-method and LOWESS fit-spec wiring checks
 
 ## Running
 

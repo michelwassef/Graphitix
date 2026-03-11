@@ -8027,8 +8027,6 @@
   function forceBoxOverlay(reason, options = {}){
     return boxOverlayController?.force(reason, options) || false;
   }
-  let boxLegendControl = null;
-
   function resolveBoxSvgBoxBaseSize(svgBox){
     if(!svgBox){
       return { width: NaN, height: NaN, zoomScale: 1 };
@@ -8124,19 +8122,6 @@
       delta,
       applied: !!resizeApplied
     };
-  }
-
-  function ensureBoxLegendControlPlacement(){
-    if(!boxLegendControl || !els.svgBox){
-      return;
-    }
-    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
-      Shared.resizer.ensureLegendControlPlacement({
-        svgBox: els.svgBox,
-        control: boxLegendControl,
-        debugLabel: 'box-legend'
-      });
-    }
   }
 
   function ensureBoxSignificanceControlPlacement(){
@@ -8546,13 +8531,6 @@
     }
     els.boxShowGrid=global.$('#boxShowGrid');
     els.boxShowFrame=global.$('#boxShowFrame');
-    els.boxShowLegend=global.$('#boxShowLegend');
-    if(els.boxShowLegend){
-      const legendHost=els.boxShowLegend.closest('label');
-      if(legendHost){
-        boxLegendControl=legendHost;
-      }
-    }
     els.boxLogScale=global.$('#boxLogScale');
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
     clearBoxLogWarning();
@@ -8616,7 +8594,6 @@
     }
     els.boxErrorMode=global.$('#boxErrorMode');
     els.boxErrorModeCtl=global.$('#boxErrorModeCtl');
-    ensureBoxLegendControlPlacement();
     els.boxColorPerBox=global.$('#boxColorPerBox');
     els.boxYMin=global.$('#boxYMin');
     els.boxYMax=global.$('#boxYMax');
@@ -9041,25 +9018,6 @@
     return applied;
   }
 
-  function tryToggleBoxLegendVisibility(show){
-    if(isBoxLiveStyleDisabled()){
-      return false;
-    }
-    const svg = global.document?.querySelector?.('#boxPlot svg');
-    if(!svg || typeof svg.querySelector !== 'function'){
-      return false;
-    }
-    const legendGroup = svg.querySelector('g[data-box-legend="1"]');
-    if(legendGroup){
-      legendGroup.style.display = show ? '' : 'none';
-      return true;
-    }
-    if(!show){
-      return true;
-    }
-    return state.tableFormat !== 'grouped';
-  }
-
   function tryToggleBoxGridVisibility(show){
     if(isBoxLiveStyleDisabled()){
       return false;
@@ -9241,9 +9199,6 @@
     }
     if(typeof config.showFrame === 'boolean'){
       markAttempt(tryToggleBoxFrameVisibility(!!config.showFrame));
-    }
-    if(typeof config.showLegend === 'boolean'){
-      markAttempt(tryToggleBoxLegendVisibility(!!config.showLegend));
     }
     if(config.gridStyle && typeof config.gridStyle === 'object'){
       const fallbackThickness = config.axis && config.axis.strokeWidth != null ? config.axis.strokeWidth : null;
@@ -10899,14 +10854,6 @@
         return;
       }
       scheduleBoxViewRefresh('frame-toggle');
-    });
-    els.boxShowLegend?.addEventListener('change',()=>{
-      console.debug('Debug: box showLegend change',{checked:els.boxShowLegend.checked});
-      ensureBoxLegendControlPlacement();
-      if(tryToggleBoxLegendVisibility(!!els.boxShowLegend.checked)){
-        return;
-      }
-      scheduleBoxViewRefresh('legend-toggle');
     });
     els.boxLogScale.addEventListener('change',()=>{
       const enabling=!!els.boxLogScale.checked;
@@ -20554,8 +20501,7 @@ Technical analysis record (advanced)
     const showGrid = els.boxShowGrid.checked;
     const showFrame = !!els.boxShowFrame?.checked;
     console.debug('Debug: box showFrame state',{ showFrame });
-    ensureBoxLegendControlPlacement();
-    const showLegend = !els.boxShowLegend || !!els.boxShowLegend.checked;
+    const showLegend = false;
     console.debug('Debug: box showLegend state',{ showLegend });
     const logScale = els.boxLogScale.checked;
     const graphTypeRaw = els.boxGraphType.value;
@@ -25702,7 +25648,7 @@ Technical analysis record (advanced)
         showGrid:els.boxShowGrid.checked,
         gridStyle: getGridStyle(axisSnapshot.strokeWidth),
         showFrame:!!els.boxShowFrame?.checked,
-        showLegend:els.boxShowLegend ? !!els.boxShowLegend.checked : true,
+        showLegend:false,
         logScale:els.boxLogScale.checked,
         logPlusOne:!!state.logPlusOne,
         graphType:els.boxGraphType.value,
@@ -26085,7 +26031,6 @@ Technical analysis record (advanced)
     els.boxShowGrid.checked=!!c.showGrid;
     setGridStyle(c.gridStyle, c.axis?.strokeWidth);
     if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
-    if(els.boxShowLegend) els.boxShowLegend.checked=c.showLegend !== false;
     els.boxLogScale.checked=!!c.logScale;
     state.logPlusOne=!!c.logPlusOne;
     els.boxGraphType.value=c.graphType||els.boxGraphType.value;
@@ -26491,7 +26436,6 @@ Technical analysis record (advanced)
     }else if(els.boxColorPerBox){
       els.boxColorPerBox.innerHTML='';
     }
-    ensureBoxLegendControlPlacement();
     // Restore label positions if saved
     if(c.labelPositions){
       state.labelPositions = {
@@ -26726,15 +26670,6 @@ Technical analysis record (advanced)
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
-    ensureBoxLegendControlPlacement();
-    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(()=>ensureBoxLegendControlPlacement())
-      : null;
-    if(scheduleLegendPlacement){
-      scheduleLegendPlacement();
-    }else if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(()=>ensureBoxLegendControlPlacement());
-    }
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
     ensureSignificanceLabelFontEventListener();
@@ -26871,14 +26806,21 @@ Technical analysis record (advanced)
   };
 	  box.__testHooks = Object.assign({}, box.__testHooks, {
 	    tTest:(a,b,options={})=>tTest(a,b,options || {}),
+      tTestEqualVariance:(a,b,options={})=>tTestEqualVariance(a,b,options || {}),
 	    tTestPaired:(a,b,options={})=>tTestPaired(a,b,options || {}),
 	    tTestOneSample:(values,nullValue,options={})=>tTestOneSample(values,nullValue,options || {}),
 	    mannWhitney:(a,b,options={})=>mannWhitney(a,b,options || {}),
 	    wilcoxonSignedRank:(a,b,options={})=>wilcoxonSignedRank(a,b,options || {}),
 	    wilcoxonOneSample:(values,nullValue,options={})=>wilcoxonOneSample(values,nullValue,options || {}),
+      kolmogorovSmirnovTwoSample:(a,b)=>kolmogorovSmirnovTwoSample(a,b),
 	    anova:groups=>anova(groups),
+      welchAnova:groups=>computeWelchAnova(groups),
 	    repeatedMeasuresAnova:groups=>computeRepeatedMeasuresAnova(groups),
-	    friedmanTest:groups=>computeFriedmanTest(groups,{ resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed }),
+	    friedmanTest:(groups,options={})=>computeFriedmanTest(groups,{
+        resamplingMode: options?.resamplingMode ?? state.statsResamplingMode,
+        iterations: options?.iterations ?? state.statsMonteCarloIterations,
+        seed: options?.seed ?? state.statsSeed
+      }),
 	    kruskalWallis:groups=>kruskalWallis(groups),
 	    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
 	    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),

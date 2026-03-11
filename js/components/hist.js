@@ -248,6 +248,27 @@
     return Object.keys(selections).filter(key => selections[key]);
   }
 
+  const HIST_PLOT_MODE_HISTOGRAM = 'histogram';
+  const HIST_PLOT_MODE_DENSITY = 'density';
+
+  function normalizeHistPlotMode(value){
+    return String(value || '').toLowerCase() === HIST_PLOT_MODE_DENSITY
+      ? HIST_PLOT_MODE_DENSITY
+      : HIST_PLOT_MODE_HISTOGRAM;
+  }
+
+  function getHistDefaultTitle(mode){
+    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density Plot' : 'Histogram';
+  }
+
+  function getHistDefaultYLabel(mode){
+    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density' : 'Count';
+  }
+
+  function getHistGraphLabel(mode){
+    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density plot' : 'Histogram';
+  }
+
   const HIST_DEFAULT_FILL = '#377eb8';
   const HIST_DEFAULT_BORDER = '#000000';
   const HIST_DEFAULT_BORDER_WIDTH = 1;
@@ -257,9 +278,12 @@
     scheduleDraw: null,
     fileHandle: null,
     fileName: 'histogram.graph',
-    titleText: 'Histogram',
+    plotMode: HIST_PLOT_MODE_HISTOGRAM,
+    titleText: getHistDefaultTitle(HIST_PLOT_MODE_HISTOGRAM),
+    titleAuto: true,
     xLabelText: 'Value',
-    yLabelText: 'Count',
+    yLabelText: getHistDefaultYLabel(HIST_PLOT_MODE_HISTOGRAM),
+    yLabelAuto: true,
     barFill: HIST_DEFAULT_FILL,
     barBorder: HIST_DEFAULT_BORDER,
     barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
@@ -321,6 +345,66 @@
   function forceHistOverlay(reason, options = {}){
     return histOverlayController?.force(reason, options) || false;
   }
+
+  function syncHistPlotModeControls(){
+    if(typeof document === 'undefined'){
+      return;
+    }
+    const mode = normalizeHistPlotMode(state.plotMode);
+    const densityMode = mode === HIST_PLOT_MODE_DENSITY;
+    const plotModeSelect = document.getElementById('histPlotMode');
+    if(plotModeSelect && plotModeSelect.value !== mode){
+      plotModeSelect.value = mode;
+    }
+    const binsFieldset = document.getElementById('histBinsFieldset');
+    if(binsFieldset){
+      binsFieldset.hidden = densityMode;
+      binsFieldset.setAttribute('aria-hidden', densityMode ? 'true' : 'false');
+    }
+    const histBinsInput = document.getElementById('histBins');
+    if(histBinsInput){
+      histBinsInput.disabled = densityMode;
+    }
+    const cdfInput = document.getElementById('histShowCdf');
+    if(cdfInput){
+      cdfInput.disabled = densityMode;
+      const title = densityMode ? 'CDF overlay is only available in histogram mode.' : '';
+      cdfInput.title = title;
+      const label = cdfInput.closest('label');
+      if(label){
+        label.title = title;
+      }
+    }
+  }
+
+  function applyHistPlotMode(mode, options = {}){
+    const previousMode = normalizeHistPlotMode(state.plotMode);
+    const nextMode = normalizeHistPlotMode(mode);
+    state.plotMode = nextMode;
+    if(options.syncDefaults !== false){
+      if(state.titleAuto || state.titleText === getHistDefaultTitle(previousMode)){
+        state.titleText = getHistDefaultTitle(nextMode);
+        state.titleAuto = true;
+      }
+      if(state.yLabelAuto || state.yLabelText === getHistDefaultYLabel(previousMode)){
+        state.yLabelText = getHistDefaultYLabel(nextMode);
+        state.yLabelAuto = true;
+      }
+    }
+    syncHistPlotModeControls();
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: hist plot mode applied', {
+        previousMode,
+        mode: nextMode,
+        titleAuto: state.titleAuto,
+        yLabelAuto: state.yLabelAuto
+      });
+    }
+    if(options.schedule !== false && typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
   let histNoticeBoundWidth = null;
   const syncHistAutoDrawNoticeWidth = (reason) => {
     const svgBox = state.svgBox || state.layout?.elements?.svgBox || document.querySelector('#histGraphPanel .svgbox');
@@ -1602,7 +1686,11 @@
       return { pdfMax: 0, cdfMax: 0 };
     }
     const { xMin, xMax, binWidth, sampleCount, includePdf, includeCdf } = options || {};
-    if(!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMax === xMin || !Number.isFinite(binWidth) || binWidth <= 0 || !Number.isFinite(sampleCount) || sampleCount <= 0){
+    const scaleMode = normalizeHistPlotMode(options?.scaleMode) === HIST_PLOT_MODE_DENSITY ? HIST_PLOT_MODE_DENSITY : HIST_PLOT_MODE_HISTOGRAM;
+    if(!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMax === xMin){
+      return { pdfMax: 0, cdfMax: 0 };
+    }
+    if(scaleMode === HIST_PLOT_MODE_HISTOGRAM && (!Number.isFinite(binWidth) || binWidth <= 0 || !Number.isFinite(sampleCount) || sampleCount <= 0)){
       return { pdfMax: 0, cdfMax: 0 };
     }
     const steps = Math.min(240, Math.max(24, Math.round((options?.plotPixels || 240) / 2)));
@@ -1616,18 +1704,114 @@
         if(includePdf && typeof fit.pdf === 'function'){
           const density = fit.pdf(x);
           if(Number.isFinite(density) && density >= 0){
-            const expected = density * sampleCount * binWidth;
+            const expected = scaleMode === HIST_PLOT_MODE_DENSITY
+              ? density
+              : density * sampleCount * binWidth;
             if(expected > pdfMax){ pdfMax = expected; }
           }
         }
         if(includeCdf && typeof fit.cdf === 'function'){
           const cumulative = clampUnit(fit.cdf(x));
-          const expected = cumulative * sampleCount;
+          const expected = scaleMode === HIST_PLOT_MODE_DENSITY
+            ? cumulative
+            : cumulative * sampleCount;
           if(expected > cdfMax){ cdfMax = expected; }
         }
       }
     }
     return { pdfMax, cdfMax };
+  }
+
+  function estimateHistDensityBandwidth(sorted){
+    if(!Array.isArray(sorted) || !sorted.length){
+      return 1;
+    }
+    const n = sorted.length;
+    const meanVal = sorted.reduce((acc, value) => acc + value, 0) / n;
+    const variance = sorted.reduce((acc, value) => acc + Math.pow(value - meanVal, 2), 0) / (n - 1 || 1);
+    const sigma = Math.sqrt(variance) || 0;
+    const percentile = (p) => {
+      if(!sorted.length){
+        return NaN;
+      }
+      const pos = (sorted.length - 1) * p;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      const baseVal = sorted[base];
+      const nextVal = sorted[base + 1] !== undefined ? sorted[base + 1] : baseVal;
+      return baseVal + rest * (nextVal - baseVal);
+    };
+    const iqrVal = percentile(0.75) - percentile(0.25);
+    const scale = Math.min(sigma, iqrVal / 1.349 || Infinity) || sigma || Math.abs(sorted[0]) || 1;
+    const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
+    const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
+    const resolved = Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: hist density bandwidth resolved', { n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
+    }
+    return resolved;
+  }
+
+  function computeHistDensitySeries(values, options = {}){
+    const sorted = Array.isArray(values)
+      ? values.filter(Number.isFinite).slice().sort((a, b) => a - b)
+      : [];
+    const requestedCount = Number(options.sampleCount);
+    const sampleCount = Math.min(320, Math.max(48, Math.round(Number.isFinite(requestedCount) && requestedCount > 0 ? requestedCount : 160)));
+    if(!sorted.length){
+      return { positions: [], densities: [], bandwidth: 1, domainMin: NaN, domainMax: NaN, peak: 0, minPositive: NaN };
+    }
+    const bandwidth = estimateHistDensityBandwidth(sorted);
+    const dataMin = sorted[0];
+    const dataMax = sorted[sorted.length - 1];
+    const dataSpan = dataMax - dataMin;
+    const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
+    let domainMin = Number.isFinite(options.minVal) ? Number(options.minVal) : dataMin - pad;
+    let domainMax = Number.isFinite(options.maxVal) ? Number(options.maxVal) : dataMax + pad;
+    if(!Number.isFinite(domainMin) || !Number.isFinite(domainMax)){
+      domainMin = dataMin;
+      domainMax = dataMax;
+    }
+    if(domainMax === domainMin){
+      domainMin -= 0.5;
+      domainMax += 0.5;
+    }
+    const positions = [];
+    const densities = [];
+    const step = (domainMax - domainMin) / Math.max(sampleCount - 1, 1);
+    const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
+    for(let index = 0; index < sampleCount; index++){
+      const x = domainMin + step * index;
+      let sum = 0;
+      for(let sampleIndex = 0; sampleIndex < sorted.length; sampleIndex++){
+        const u = (x - sorted[sampleIndex]) / bandwidth;
+        sum += Math.exp(-0.5 * u * u);
+      }
+      const density = denom ? sum / denom : 0;
+      positions.push(x);
+      densities.push(density);
+    }
+    const peak = densities.length ? densities.reduce((max, density) => (density > max ? density : max), 0) : 0;
+    const minPositive = densities.reduce((min, density) => (density > 0 && density < min ? density : min), Infinity);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: hist density series computed', {
+        bandwidth,
+        sampleCount,
+        domainMin,
+        domainMax,
+        peak,
+        minPositive: Number.isFinite(minPositive) ? minPositive : null
+      });
+    }
+    return {
+      positions,
+      densities,
+      bandwidth,
+      domainMin,
+      domainMax,
+      peak,
+      minPositive: Number.isFinite(minPositive) ? minPositive : NaN
+    };
   }
 
   function initHot(){
@@ -1735,7 +1919,7 @@
   }
 
   function initControls(){
-    const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
+    const histPlotMode=$('#histPlotMode'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
       console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
@@ -1743,8 +1927,15 @@
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
     state.distributionOptions = getDistributionOptions();
     state.distributionSettings.selections = mergeDistributionSelections(state.distributionSettings?.selections || {}, state.distributionOptions);
+    applyHistPlotMode(histPlotMode?.value || state.plotMode, { schedule: false, syncDefaults: false });
     const distListEl=document.getElementById('histDistributionList');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    if(histPlotMode){
+      histPlotMode.value = normalizeHistPlotMode(state.plotMode);
+      histPlotMode.addEventListener('change',()=>{
+        applyHistPlotMode(histPlotMode.value);
+      });
+    }
     if(distListEl){
       distListEl.innerHTML='';
       state.distributionInputs.checkboxes={};
@@ -1803,6 +1994,7 @@
       });
       state.distributionInputs.showCdf=histShowCdfInput;
     }
+    syncHistPlotModeControls();
     [histBins,histShowGrid,histLogY].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
     histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{
@@ -1916,7 +2108,9 @@
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const axisSettings = ensureAxisSettings();
+      const plotMode = normalizeHistPlotMode(state.plotMode);
       const c={
+        plotMode,
         title:state.titleText,
         xLabel:state.xLabelText,
         yLabel:state.yLabelText,
@@ -2025,9 +2219,13 @@
       }
       const config = payload.config || {};
       importFontStyles('hist', config.fontStyles || null);
-      state.titleText = config.title || state.titleText;
+      const loadedPlotMode = normalizeHistPlotMode(config.plotMode);
+      applyHistPlotMode(loadedPlotMode, { schedule: false, syncDefaults: false });
+      state.titleText = config.title || getHistDefaultTitle(loadedPlotMode);
+      state.titleAuto = state.titleText === getHistDefaultTitle(loadedPlotMode);
       state.xLabelText = config.xLabel || state.xLabelText;
-      state.yLabelText = config.yLabel || state.yLabelText;
+      state.yLabelText = config.yLabel || getHistDefaultYLabel(loadedPlotMode);
+      state.yLabelAuto = state.yLabelText === getHistDefaultYLabel(loadedPlotMode);
       state.barFill = (typeof config.fill === 'string' && config.fill.trim()) ? config.fill : HIST_DEFAULT_FILL;
       state.barBorder = (typeof config.border === 'string' && config.border.trim()) ? config.border : HIST_DEFAULT_BORDER;
       const loadedBorderWidth = Number(config.borderWidth);
@@ -2352,6 +2550,7 @@
   function updateHistStats(values, distributionSummaries){
     const target = document.getElementById('histStatsResults');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const graphLabel = getHistGraphLabel(state.plotMode);
     if(!target){
       if(debugEnabled){
         console.debug('Debug: hist stats target missing');
@@ -2422,7 +2621,7 @@
       Shared.statsTable.render(statsModel);
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         Shared.statsReporting.appendReportPanel(target, {
-          methodsText: `Histogram descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
+          methodsText: `${graphLabel} descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
           resultsText: `Mean = ${statsRow.mean}, median = ${statsRow.median}, SD = ${statsRow.sd}, and range = ${statsRow.min} to ${statsRow.max}.`,
           analysisSpec: {
             component: 'hist',
@@ -2457,7 +2656,7 @@
     target.appendChild(table);
     if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       Shared.statsReporting.appendReportPanel(target, {
-        methodsText: `Histogram descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
+        methodsText: `${graphLabel} descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
         resultsText: `Mean = ${statsRow.mean}, median = ${statsRow.median}, SD = ${statsRow.sd}, and range = ${statsRow.min} to ${statsRow.max}.`,
         analysisSpec: {
           component: 'hist',
@@ -2476,6 +2675,8 @@
     // Reuse existing global draw implementation if present? Implement local logic mirroring legacy drawHistogram
     const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize');
     ensureAxisSettings();
+    const plotMode = normalizeHistPlotMode(state.plotMode);
+    const densityMode = plotMode === HIST_PLOT_MODE_DENSITY;
     const data=state.hot.getDataAtCol(0);
     const labelRaw=data[0];
     state.xLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
@@ -2492,13 +2693,15 @@
     }
     const distributionFits = prepareDistributionFits(values);
     const includePdf = !!state.distributionSettings.showPdf;
-    const includeCdf = !!state.distributionSettings.showCdf;
+    const includeCdf = densityMode ? false : !!state.distributionSettings.showCdf;
     const statsHelpers = Shared.stats || {};
     const alpha = Number(state.distributionSettings.alpha) > 0 ? Number(state.distributionSettings.alpha) : 0.05;
     const rawXMin = Math.min(...values);
     const rawXMax = Math.max(...values);
     let xMin = rawXMin;
     let xMax = rawXMax;
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     if(xMax === xMin || !Number.isFinite(xMax - xMin)){
       const basePad = Number.isFinite(xMin) ? Math.abs(xMin) : 0;
       let pad = basePad > 1 ? basePad * 0.05 : 1;
@@ -2519,8 +2722,16 @@
         adjustedMax: xMax
       });
     }
-    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
-    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+    let densitySeries = null;
+    if(densityMode){
+      densitySeries = computeHistDensitySeries(values, {
+        sampleCount: Math.min(240, Math.max(64, Math.round(W)))
+      });
+      if(Number.isFinite(densitySeries.domainMin) && Number.isFinite(densitySeries.domainMax) && densitySeries.domainMax > densitySeries.domainMin){
+        xMin = densitySeries.domainMin;
+        xMax = densitySeries.domainMax;
+      }
+    }
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
       if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
@@ -2621,17 +2832,38 @@
     let maxYLabelWidth = 0;
     for(let pass=0;pass<2;pass++){
       xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
-      binWidth=(xScale.max-xScale.min)/bins || 1;
-      counts=new Array(bins).fill(0);
-      values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
-      yMin=0;
-      const maxCount = Math.max(...counts, 0);
-      yMax = Number.isFinite(maxCount) ? maxCount : 0;
-      if(logY){
-        const minPositive = counts.reduce((min,val)=> (val>0 && val<min ? val : min), Infinity);
-        yMin = Number.isFinite(minPositive) ? Math.max(minPositive, 1e-3) : 0.1;
-        if(yMax <= 0){
-          yMax = yMin * 10;
+      if(densityMode){
+        if(!densitySeries || !Array.isArray(densitySeries.positions) || !densitySeries.positions.length){
+          densitySeries = computeHistDensitySeries(values, {
+            sampleCount: Math.min(240, Math.max(64, Math.round(W))),
+            minVal: xScale.min,
+            maxVal: xScale.max
+          });
+        }
+        counts = [];
+        binWidth = 0;
+        yMin = 0;
+        yMax = Number.isFinite(densitySeries?.peak) ? densitySeries.peak : 0;
+        if(logY){
+          const minPositive = Number.isFinite(densitySeries?.minPositive) ? densitySeries.minPositive : Infinity;
+          yMin = Number.isFinite(minPositive) ? Math.max(minPositive, 1e-9) : 1e-6;
+          if(yMax <= 0){
+            yMax = yMin * 10;
+          }
+        }
+      }else{
+        binWidth=(xScale.max-xScale.min)/bins || 1;
+        counts=new Array(bins).fill(0);
+        values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
+        yMin=0;
+        const maxCount = Math.max(...counts, 0);
+        yMax = Number.isFinite(maxCount) ? maxCount : 0;
+        if(logY){
+          const minPositive = counts.reduce((min,val)=> (val>0 && val<min ? val : min), Infinity);
+          yMin = Number.isFinite(minPositive) ? Math.max(minPositive, 1e-3) : 0.1;
+          if(yMax <= 0){
+            yMax = yMin * 10;
+          }
         }
       }
       if(yMax<=yMin){
@@ -2645,7 +2877,8 @@
           sampleCount: values.length,
           includePdf,
           includeCdf,
-          plotPixels: W
+          plotPixels: W,
+          scaleMode: densityMode ? HIST_PLOT_MODE_DENSITY : HIST_PLOT_MODE_HISTOGRAM
         });
         const overlayMax = Math.max(metrics.pdfMax || 0, metrics.cdfMax || 0);
         if(Number.isFinite(overlayMax) && overlayMax > yMax){
@@ -2855,16 +3088,61 @@
       });
     console.debug('Debug: hist font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
     console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
-    const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
     const fill=state.barFill || HIST_DEFAULT_FILL;
     const borderColor=state.barBorder || HIST_DEFAULT_BORDER;
-    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill,'class':'hist-bar','data-hist-bar':'1'}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
+    if(densityMode){
+      const points = [];
+      const baselineValue = logY ? Math.max(yMin, 1e-9) : 0;
+      const baselineDomain = logY ? Math.log10(baselineValue) : baselineValue;
+      const positions = Array.isArray(densitySeries?.positions) ? densitySeries.positions : [];
+      const densities = Array.isArray(densitySeries?.densities) ? densitySeries.densities : [];
+      for(let index = 0; index < positions.length; index++){
+        const x = positions[index];
+        const density = densities[index];
+        if(!Number.isFinite(x) || !Number.isFinite(density) || density < 0){
+          continue;
+        }
+        const yDomain = logY ? Math.log10(Math.max(density, baselineValue)) : density;
+        points.push([x2px(x), y2px(yDomain)]);
+      }
+      if(points.length > 1){
+        const areaLinePath = points.map((point, index) => `${index === 0 ? 'L' : 'L'} ${point[0]} ${point[1]}`);
+        const areaPath = [
+          `M ${points[0][0]} ${y2px(baselineDomain)}`,
+          ...areaLinePath,
+          `L ${points[points.length - 1][0]} ${y2px(baselineDomain)}`,
+          'Z'
+        ];
+        const densityShape = add('path',{
+          d: areaPath.join(' '),
+          fill: fill,
+          'fill-opacity': '0.4',
+          stroke: borderWidthPx > 0 ? borderColor : 'none',
+          'stroke-width': borderWidthPx > 0 ? borderWidthPx : 0,
+          'stroke-linejoin': 'round',
+          'stroke-linecap': 'round',
+          'class': 'hist-bar hist-density-shape',
+          'data-hist-bar': '1',
+          'data-hist-primary': '1'
+        });
+        try{
+          densityShape.style.cursor='pointer';
+          densityShape.addEventListener('click', evt=>{
+            try{ evt.stopPropagation(); }catch(e){}
+            showHistBarFormatControls(evt.currentTarget);
+          });
+        }catch(e){}
+      }
+    }else{
+      const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
+      counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill,'class':'hist-bar','data-hist-bar':'1'}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
+    }
     if(distributionFits.length && (includePdf || includeCdf)){
       const overlayGroup = add('g',{ 'class':'hist-overlay-group' });
       const sampleCount = values.length;
       const effectiveBinWidth = binWidth || ((xScale.max - xScale.min) || 1);
       const sampleSteps = Math.min(240, Math.max(32, Math.round(plotW)));
-      const yLowerBound = Math.max(0, yMin);
+      const yLowerBound = densityMode ? yMin : Math.max(0, yMin);
       const logLowerBound = logY ? Math.max(yLowerBound, 1e-6) : yLowerBound;
       const toDomainY = value => {
         if(logY){
@@ -2885,7 +3163,9 @@
             const x=xScale.min+(xScale.max-xScale.min)*t;
             const density=fit.pdf(x);
             if(!Number.isFinite(density) || density<0){ continue; }
-            const expected=density*sampleCount*effectiveBinWidth;
+            const expected = densityMode
+              ? density
+              : density*sampleCount*effectiveBinWidth;
             const yDomain=toDomainY(expected);
             parts.push(`${step===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
           }
@@ -2913,7 +3193,7 @@
             const t=sampleSteps===1?0:step/(sampleSteps-1);
             const x=xScale.min+(xScale.max-xScale.min)*t;
             const cumulative=clampUnit(fit.cdf(x));
-            const expected=cumulative*sampleCount;
+            const expected = densityMode ? cumulative : cumulative*sampleCount;
             const yDomain=toDomainY(expected);
             parts.push(`${step===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
           }
@@ -3154,6 +3434,7 @@
     const applyHistYLabel=value=>{
       const nextValue=value!=null?String(value):'';
       state.yLabelText=nextValue;
+      state.yLabelAuto = nextValue === getHistDefaultYLabel(state.plotMode);
       if(yText.textContent!==nextValue){
         yText.textContent=nextValue;
       }
@@ -3214,6 +3495,7 @@
     const applyHistTitle=value=>{
       const nextValue=value!=null?String(value):'';
       state.titleText=nextValue;
+      state.titleAuto = nextValue === getHistDefaultTitle(state.plotMode);
       if(titleText.textContent!==nextValue){
         titleText.textContent=nextValue;
       }

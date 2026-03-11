@@ -322,6 +322,9 @@
     minCells: 12000,
     timeoutMs: 20000
   };
+  const HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH = 'heatmap-data-view-switch';
+  const HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE = 'heatmap-correlation-tab-activate';
+  const HEATMAP_LOAD_SOURCE_CORRELATION_SYNC = 'heatmap-correlation-view-sync';
 
   let heatmapRenderRowEl = null;
   let heatmapRenderButtonEl = null;
@@ -519,6 +522,88 @@
     }
   }
 
+  function shouldSkipHeatmapHotSchedule(scheduleMeta){
+    const source = String(scheduleMeta?.source || '').trim();
+    if(source === HEATMAP_LOAD_SOURCE_CORRELATION_SYNC || source === HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE){
+      debugLog('Debug: heatmap skipped rescheduled draw for derived grid sync', {
+        source
+      });
+      return true;
+    }
+    return false;
+  }
+
+  function normalizeHeatmapExclusionState(payload){
+    const rows = Array.isArray(payload?.rows)
+      ? payload.rows.map(value => Number(value)).filter(Number.isInteger).sort((a, b) => a - b)
+      : [];
+    const cols = Array.isArray(payload?.cols)
+      ? payload.cols.map(value => Number(value)).filter(Number.isInteger).sort((a, b) => a - b)
+      : [];
+    const cells = Array.isArray(payload?.cells)
+      ? payload.cells
+        .map(pair => {
+          const row = Number(pair?.row ?? pair?.[0]);
+          const col = Number(pair?.col ?? pair?.[1]);
+          if(!Number.isInteger(row) || !Number.isInteger(col)){
+            return null;
+          }
+          return `${row}:${col}`;
+        })
+        .filter(Boolean)
+        .sort()
+      : [];
+    return { rows, cols, cells };
+  }
+
+  function areHeatmapExclusionStatesEqual(left, right){
+    const normalizedLeft = normalizeHeatmapExclusionState(left);
+    const normalizedRight = normalizeHeatmapExclusionState(right);
+    if(normalizedLeft.rows.length !== normalizedRight.rows.length
+      || normalizedLeft.cols.length !== normalizedRight.cols.length
+      || normalizedLeft.cells.length !== normalizedRight.cells.length){
+      return false;
+    }
+    for(let i = 0; i < normalizedLeft.rows.length; i += 1){
+      if(normalizedLeft.rows[i] !== normalizedRight.rows[i]){
+        return false;
+      }
+    }
+    for(let i = 0; i < normalizedLeft.cols.length; i += 1){
+      if(normalizedLeft.cols[i] !== normalizedRight.cols[i]){
+        return false;
+      }
+    }
+    for(let i = 0; i < normalizedLeft.cells.length; i += 1){
+      if(normalizedLeft.cells[i] !== normalizedRight.cells[i]){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function syncHeatmapHotExclusions(hotInstance, exclusions, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.applyExclusions !== 'function'){
+      return false;
+    }
+    const current = typeof hot.exportExclusions === 'function'
+      ? hot.exportExclusions()
+      : (Shared.hot?.exportExclusions ? Shared.hot.exportExclusions(hot) : null);
+    if(areHeatmapExclusionStatesEqual(current, exclusions)){
+      debugLog('Debug: heatmap exclusion sync skipped', {
+        reason: reason || null
+      });
+      return false;
+    }
+    hot.applyExclusions(exclusions || null);
+    debugLog('Debug: heatmap exclusion sync applied', {
+      reason: reason || null,
+      exclusions: normalizeHeatmapExclusionState(exclusions)
+    });
+    return true;
+  }
+
   function activateHeatmapDataToolbar(reason){
     const now = Date.now();
     if(now - heatmapDataToolbarLastActivation < 80){
@@ -548,6 +633,7 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
+          const isCorrelationView = isHeatmapCorrelationMatrixDataView(view);
           const closedViewId = String(context?.previousViewId || '').trim();
           const activeMaterializedId = String(state.activeMaterializedViewId || '').trim();
           const closedActiveMaterialized = context?.reason === 'tab-close'
@@ -566,12 +652,16 @@
             state.activeMaterializedViewId = null;
           }
           const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData);
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
+          hotInstance.loadData(nextData, {
+            source: isCorrelationView
+              ? HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE
+              : HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH
+          });
+          syncHeatmapHotExclusions(hotInstance, view.exclusions || null, 'active-view-change');
+          if(!isCorrelationView){
+            markHeatmapOverlayPending('data-view-switch');
+            state.scheduleDraw?.({ reason: 'data-view-switch' });
           }
-          markHeatmapOverlayPending('data-view-switch');
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
         },
         onInteraction(){
           activateHeatmapDataToolbar('data-tab-interaction');
@@ -611,6 +701,40 @@
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
+  }
+
+  function replaceHeatmapDataset(matrix, options = {}){
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    if(!hot || typeof hot.loadData !== 'function'){
+      console.warn('heatmap dataset replace skipped - hot not ready', { reason: options.reason || null });
+      return false;
+    }
+    const nextData = Array.isArray(matrix) ? matrix : [];
+    const manager = ensureHeatmapDataViewsForHot(hot, {
+      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+    });
+    if(manager && typeof manager.initialize === 'function'){
+      manager.initialize(nextData, {
+        rawTitle: options.rawTitle || 'Raw'
+      });
+    }
+    state.activeMaterializedViewId = null;
+    hot.loadData(nextData, options.loadOptions || undefined);
+    syncHeatmapHotExclusions(hot, null, 'dataset-replace');
+    if(options.scheduleDraw !== false){
+      state.scheduleDraw({
+        force: options.force !== false,
+        reason: options.reason || 'dataset-replace'
+      });
+    }
+    debugLog('Debug: heatmap dataset replaced', {
+      reason: options.reason || 'dataset-replace',
+      rows: nextData.length,
+      cols: nextData[0]?.length || 0,
+      resetViews: !!manager
+    });
+    return true;
   }
 
   function applyHeatmapToolbarTransformToNewView(transformSpec, options = {}){
@@ -1310,7 +1434,14 @@
     console.debug('Debug: heatmap initHot using shared factory', { hasDataHelper: !!Shared.createEmptyData });
     const createHeatmapTable = (container) => {
       let instance = null;
-      instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), {
+      instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleMeta => {
+        if(shouldSkipHeatmapHotSchedule(scheduleMeta)){
+          return;
+        }
+        state.scheduleDraw({
+          reason: scheduleMeta?.source || scheduleMeta?.reason || 'table-change'
+        });
+      }, {
         debugLabel: 'heatmap',
         data,
         disablePaste: true,
@@ -1870,18 +2001,18 @@
       ['GeneE', 4.5, 4.2, 3.1, 3.4, 6.9, 7.2, 5.1]
     ];
     $('heatmapLoadExample')?.addEventListener('click', () => {
-      if(!state.hot){
-        console.warn('heatmap example skipped - hot not ready');
-        return;
-      }
       markHeatmapOverlayPending('example-data');
-      state.hot.loadData(example, {
+      if(!replaceHeatmapDataset(example, {
+        reason: 'example-load',
+        loadOptions: {
         source: 'example-load',
         recordUndo: true,
         undoLabel: 'table:heatmap:example-load'
-      });
+        }
+      })){
+        return;
+      }
       console.log('heatmap example loaded');
-      state.scheduleDraw({ force: true, reason: 'example-load' });
     });
 
     const importBtn = $('heatmapImport');
@@ -3359,7 +3490,9 @@
       const nextId = String(sourceView.sourceViewId || 'raw');
       const nextView = manager?.getView?.(nextId) || null;
       if(!nextView || nextView === sourceView){
-        sourceViewId = nextId || 'raw';
+        const rawFallback = manager?.getView?.('raw') || null;
+        sourceView = rawFallback || nextView || sourceView;
+        sourceViewId = String(sourceView?.id || nextId || 'raw');
         break;
       }
       sourceView = nextView;
@@ -3437,6 +3570,65 @@
       })
       : [];
     return [header, ...rows];
+  }
+
+  function isHeatmapMatrixCellEmpty(value){
+    return value == null || value === '';
+  }
+
+  function trimHeatmapViewMatrix(matrix){
+    if(!Array.isArray(matrix)){
+      return [];
+    }
+    let rowEnd = matrix.length;
+    while(rowEnd > 0){
+      const row = Array.isArray(matrix[rowEnd - 1]) ? matrix[rowEnd - 1] : [];
+      const hasData = row.some(cell => !isHeatmapMatrixCellEmpty(cell));
+      if(hasData){
+        break;
+      }
+      rowEnd -= 1;
+    }
+    const trimmedRows = matrix.slice(0, rowEnd).map(row => Array.isArray(row) ? row.slice() : []);
+    let colEnd = 0;
+    trimmedRows.forEach(row => {
+      for(let colIndex = row.length - 1; colIndex >= 0; colIndex -= 1){
+        if(!isHeatmapMatrixCellEmpty(row[colIndex])){
+          colEnd = Math.max(colEnd, colIndex + 1);
+          break;
+        }
+      }
+    });
+    return trimmedRows.map(row => row.slice(0, colEnd));
+  }
+
+  function areHeatmapViewMatricesEqual(left, right){
+    const normalizedLeft = trimHeatmapViewMatrix(left);
+    const normalizedRight = trimHeatmapViewMatrix(right);
+    if(normalizedLeft === normalizedRight){
+      return true;
+    }
+    if(!Array.isArray(normalizedLeft) || !Array.isArray(normalizedRight) || normalizedLeft.length !== normalizedRight.length){
+      return false;
+    }
+    for(let rowIndex = 0; rowIndex < normalizedLeft.length; rowIndex += 1){
+      const leftRow = normalizedLeft[rowIndex];
+      const rightRow = normalizedRight[rowIndex];
+      if(!Array.isArray(leftRow) || !Array.isArray(rightRow) || leftRow.length !== rightRow.length){
+        return false;
+      }
+      for(let colIndex = 0; colIndex < leftRow.length; colIndex += 1){
+        const leftValue = leftRow[colIndex];
+        const rightValue = rightRow[colIndex];
+        if(Number.isNaN(leftValue) && Number.isNaN(rightValue)){
+          continue;
+        }
+        if(leftValue !== rightValue){
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   function updateHeatmapCorrelationMatrixViewSource(manager, sourceViewId){
@@ -3533,8 +3725,13 @@
       targetView.exclusions = null;
       manager.refresh?.();
       if(String(manager.getActiveViewId?.() || '') === String(targetView.id) && hot && typeof hot.loadData === 'function'){
-        hot.loadData(data);
-        hot.applyExclusions?.(null);
+        const currentData = typeof hot.getData === 'function' ? hot.getData() : null;
+        if(!areHeatmapViewMatricesEqual(currentData, data)){
+          hot.loadData(data, {
+            source: HEATMAP_LOAD_SOURCE_CORRELATION_SYNC
+          });
+        }
+        syncHeatmapHotExclusions(hot, null, 'correlation-view-sync');
       }
       debugLog('Debug: heatmap correlation matrix data view updated', {
         title,

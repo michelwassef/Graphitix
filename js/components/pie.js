@@ -297,6 +297,7 @@
     svgBox: null,
     layout: null,
     minSvgWidth: 0,
+    legendGuardWidth: 0,
     axisSettings: createDefaultAxisSettings(),
     labelPositions: { title: null, legend: null }
   };
@@ -450,6 +451,41 @@
         svgBox: state.svgBox,
         control: pieLegendControl,
         debugLabel: 'pie-legend'
+      });
+    }
+  }
+
+  function resolvePieLegendGuardCap(){
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || null;
+    const datasetMin = Number(svgBox?.dataset?.resizerMinWidth);
+    if(Number.isFinite(datasetMin) && datasetMin > 0){
+      return datasetMin;
+    }
+    return null;
+  }
+
+  function applyPieLegendGuardWidth(requiredWidth){
+    const normalized = Number.isFinite(requiredWidth) ? Math.max(0, Math.round(requiredWidth)) : 0;
+    const cap = resolvePieLegendGuardCap();
+    const effectiveWidth = Number.isFinite(cap) && cap > 0
+      ? Math.max(normalized, cap)
+      : normalized;
+    if(effectiveWidth === state.legendGuardWidth){
+      return;
+    }
+    state.legendGuardWidth = effectiveWidth;
+    state.minSvgWidth = effectiveWidth;
+    try{
+      state.layout?.updateMinSvgWidth?.(effectiveWidth);
+      state.layout?.syncPanels?.({ skipSchedule: true, reason: 'pie-legend-guard' });
+    }catch(err){
+      console.error('pie legend guard update error', err);
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: pie legend guard width applied', {
+        requestedWidth: normalized,
+        appliedWidth: effectiveWidth,
+        cap
       });
     }
   }
@@ -1131,6 +1167,7 @@
         onSwatchClick: handlePieLegendSwatchClick
       });
       const stackedLegendVisible = showLegend && stackedLegendLayout.renderer.entries.length > 0;
+      applyPieLegendGuardWidth(stackedLegendVisible ? stackedLegendLayout.minSvgWidth : 0);
       state.legendWidth = stackedLegendVisible ? Math.ceil(stackedLegendLayout.renderer.width) : 0;
       const stackedLegendMargin = stackedLegendVisible ? Math.max(stackedLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
       const stackedLegendGap = stackedLegendVisible ? stackedLegendLayout.legendGapPx : 0;
@@ -1144,7 +1181,7 @@
       });
       plotEl.style.display='flex';
       plotEl.style.alignItems='flex-start';
-      const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
+      const svgWidth=Math.max(state.minSvgWidth || 50, Math.floor(plotEl.clientWidth||50));
       const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
       const svg=document.createElementNS(NS,'svg');
       svg.setAttribute('id','pieSvg');
@@ -1209,7 +1246,8 @@
       const axisLabelFont=chartStyle.makeFont(fs);
       const yTitleText='Percentage';
       const yTitleWidth=chartStyle.measureText(yTitleText,axisLabelFont);
-      let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth:0,maxYLabelWidth,yTitleWidth,axisMetrics});
+      const stackedLegendWidthForMargin = stackedLegendVisible ? stackedLegendLayout.legendWidthForMargin : 0;
+      let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth:stackedLegendWidthForMargin,maxYLabelWidth,yTitleWidth,axisMetrics});
       let chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       let chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
       const bottomLayout=chartStyle.computeBottomLayout({labels:barHeaders,fontSize:fs,plotWidth:chartWidth,baseBottom:margin.bottom,axisMetrics});
@@ -1477,6 +1515,7 @@
       onSwatchClick: handlePieLegendSwatchClick
     });
     const radialLegendVisible = showLegend && radialLegendLayout.renderer.entries.length > 0;
+    applyPieLegendGuardWidth(radialLegendVisible ? radialLegendLayout.minSvgWidth : 0);
     state.legendWidth = radialLegendVisible ? Math.ceil(radialLegendLayout.renderer.width) : 0;
     const radialLegendMargin = radialLegendVisible ? Math.max(radialLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
     const radialLegendGap = radialLegendVisible ? radialLegendLayout.legendGapPx : 0;
@@ -1529,6 +1568,10 @@
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0, exact: true });
     const frameStroke = '#000';
     const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
+    const legendReservedWidth = radialLegendVisible ? radialLegendLayout.legendWidthForMargin : 0;
+    const contentLeft = 0;
+    const contentRight = Math.max(contentLeft + 50, svgWidth - legendReservedWidth);
+    const contentWidth = Math.max(50, contentRight - contentLeft);
     const contentTop=fs*2;
     const contentBottom=svgHeight-fs*2.2;
     const contentHeight=Math.max(10,contentBottom-contentTop);
@@ -1544,7 +1587,7 @@
       rows=Math.ceil(Math.sqrt(chartCount));
       cols=Math.ceil(chartCount/rows);
     }
-    const colWidth=svgWidth/Math.max(1,cols);
+    const colWidth=contentWidth/Math.max(1,cols);
     const rowHeight=contentHeight/Math.max(1,rows);
     const rHoriz=colWidth*0.35;
     const rVert=rowHeight*0.35;
@@ -1553,15 +1596,15 @@
     seriesColumns.forEach((_series,idx)=>{
       const row=Math.floor(idx/cols);
       const col=idx%cols;
-      const cx=colWidth*(col+0.5);
+      const cx=contentLeft + colWidth*(col+0.5);
       const cy=contentTop+rowHeight*(row+0.5);
       centers.push({ cx, cy });
     });
     // Compute a safe common radius so all pies and labels stay
     // fully inside the SVG bounds.
     if(centers.length){
-      const leftLimit=fs; // padding from left edge
-      const rightLimit=svgWidth - fs; // padding from right edge
+      const leftLimit=contentLeft + fs; // padding from left edge
+      const rightLimit=contentRight - fs; // keep charts clear of the legend lane
       const topLimit=contentTop + fs*0.2;
       const bottomLimit=svgHeight - fs*2; // leave space for viewport padding
       let maxAllowedR=r;
@@ -1649,7 +1692,7 @@
     if(showFrame){
       chartStyle.drawPlotFrame({ svg, margin: { top: 0, right: 0, bottom: 0, left: 0 }, plotW: svgWidth, plotH: svgHeight, stroke: frameStroke, strokeWidth: axisStrokeWidth, sides: ['top','right','bottom','left'] });
     }
-    const defaultTitleX = svgWidth/2;
+    const defaultTitleX = contentLeft + contentWidth/2;
     const defaultTitleY = fs*1.2;
     const titlePos = state.labelPositions?.title;
     
@@ -1706,11 +1749,9 @@
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
     if(radialLegendVisible){
       const legendRenderer = radialLegendLayout.renderer;
-      const legendWidthPx = legendRenderer.width || 0;
-      const padding = Math.max(radialLegendMargin || 0, Math.round(fs));
-      let defaultLegendX = svgWidth - legendWidthPx - padding;
-      if(!Number.isFinite(defaultLegendX) || defaultLegendX < padding){
-        defaultLegendX = padding;
+      let defaultLegendX = contentRight + radialLegendLayout.legendGapPx;
+      if(!Number.isFinite(defaultLegendX) || defaultLegendX < 0){
+        defaultLegendX = 0;
       }
       const defaultLegendY = contentTop;
       const legendGroup = drawPieLegend(svg, radialLegendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: svgWidth, height: svgHeight });
