@@ -1737,6 +1737,14 @@
     return node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced');
   }
 
+  function resolveReportingHost(target){
+    const explicitHost = target && target.__statsReportHost;
+    if(explicitHost && explicitHost.nodeType === 1){
+      return explicitHost;
+    }
+    return target || null;
+  }
+
   function findDirectChildByClass(parent, className){
     if(!parent || !className){
       return null;
@@ -1859,13 +1867,20 @@
     Array.from(scaffold.main.childNodes).forEach(pushCandidate);
     Array.from(scaffold.advancedBody.childNodes).forEach(pushCandidate);
     const unique = Array.from(new Set(candidates));
+    const reportingHost = resolveReportingHost(target);
+    const reportingNodes = [];
     unique.forEach(node => {
       if(isReportingNode(node)){
-        target.appendChild(node);
+        reportingNodes.push(node);
         return;
       }
       const destination = isAdvancedNode(node) ? scaffold.advancedBody : scaffold.main;
       destination.appendChild(node);
+    });
+    reportingNodes.forEach(node => {
+      if(reportingHost && typeof reportingHost.appendChild === 'function'){
+        reportingHost.appendChild(node);
+      }
     });
     scaffold.advancedPanel.hidden = scaffold.advancedBody.childNodes.length === 0;
     scaffold.advancedPanel.setAttribute('aria-hidden', scaffold.advancedPanel.hidden ? 'true' : 'false');

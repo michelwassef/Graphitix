@@ -8601,6 +8601,10 @@
     els.statsResults=global.document.getElementById('statsResults');
     attachBoxStatsExtraControlFactory();
     els.statsTable=global.document.getElementById('statsTable');
+    els.statsReportHost=global.document.getElementById('boxStatsReportHost');
+    if(els.statsResults){
+      els.statsResults.__statsReportHost = els.statsReportHost || null;
+    }
     els.statsButton=global.document.getElementById('boxComputeStats');
     els.statsStatus=global.document.getElementById('boxStatsStatus');
     ensureBoxStatsActionRowPlacement();
@@ -17922,6 +17926,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(els.statsTable){
       els.statsTable.innerHTML = '';
     }
+    clearBoxStatsReportHost();
     state.significanceMaxLevel = null;
     state.statsLastReport = null;
   }
@@ -17980,6 +17985,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(!target || !report){
       return;
     }
+    clearBoxStatsReportPanels(target);
     const reporting = Shared.statsReporting;
     if(reporting && typeof reporting.appendReportPanel === 'function'){
       reporting.appendReportPanel(target, {
@@ -18042,6 +18048,38 @@ Technical analysis record (advanced)
     }
     parent.insertBefore(actionRow, preferredAnchor || anchor);
     return true;
+  }
+
+  function getBoxStatsReportHost(){
+    return els.statsReportHost
+      || global.document.getElementById('boxStatsReportHost')
+      || null;
+  }
+
+  function clearBoxStatsReportHost(){
+    const host = getBoxStatsReportHost();
+    if(!host){
+      return false;
+    }
+    host.innerHTML = '';
+    return true;
+  }
+
+  function clearBoxStatsReportPanels(target){
+    const roots = Array.from(new Set([target, getBoxStatsReportHost()].filter(node => node && typeof node.querySelectorAll === 'function')));
+    roots.forEach(root => {
+      root.querySelectorAll('.stats-report-panel').forEach(node => {
+        node.parentNode?.removeChild?.(node);
+      });
+    });
+  }
+
+  function getBoxStatsReportHtml(){
+    const host = getBoxStatsReportHost();
+    if(!host || typeof host.innerHTML !== 'string' || !host.innerHTML){
+      return null;
+    }
+    return host.innerHTML;
   }
 
 
@@ -18253,6 +18291,7 @@ Technical analysis record (advanced)
     }
     attachBoxStatsExtraControlFactory();
     statsDiv.innerHTML = '';
+    clearBoxStatsReportHost();
     const svg = context?.svg;
     if(svg && typeof svg.querySelectorAll === 'function'){
       const existingAnnotations = svg.querySelectorAll('.box-significance-annotation');
@@ -18843,6 +18882,7 @@ Technical analysis record (advanced)
             if(els.statsResults){
               els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
             }
+            clearBoxStatsReportHost();
             setStatsStatus('Failed to compute statistics.');
           }
         })
@@ -18860,6 +18900,7 @@ Technical analysis record (advanced)
       if(els.statsResults){
         els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
       }
+      clearBoxStatsReportHost();
       setStatsStatus('Failed to compute statistics.');
     }finally{
       finalizeStatsComputation();
@@ -20992,6 +21033,7 @@ Technical analysis record (advanced)
       if(hasNonPos && !logPlusOne){
         global.document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
         global.document.getElementById('statsResults').innerHTML='';
+        clearBoxStatsReportHost();
         global.document.getElementById('statsTable').innerHTML='';
         applyBoxSignificanceViewportExtension(0, { reason: 'log-scale-invalid' });
         return;
@@ -25758,6 +25800,7 @@ Technical analysis record (advanced)
           assumptions: serializeAssumptions(state.assumptionDiagnostics),
           // Persist last computed statistics output so each tab can restore its results
           resultsHtml: (els.statsResults && typeof els.statsResults.innerHTML === 'string') ? els.statsResults.innerHTML : null,
+          reportHtml: getBoxStatsReportHtml(),
           lastRunVersion: Number.isFinite(Number(state.statsLastRunVersion)) ? Number(state.statsLastRunVersion) : 0,
           contextSignature: state.statsContextSignature || null
         },
@@ -25852,6 +25895,7 @@ Technical analysis record (advanced)
     payload.config.stats.selectedColumns = [];
     payload.config.stats.assumptions = null;
     payload.config.stats.resultsHtml = null;
+    payload.config.stats.reportHtml = null;
     payload.config.stats.lastRunVersion = 0;
     payload.config.stats.contextSignature = null;
     return payload;
@@ -26452,6 +26496,7 @@ Technical analysis record (advanced)
       let restoredComputedStats = false;
       if(c.stats && typeof c.stats === 'object'){
         const savedHtml = c.stats.resultsHtml;
+        const savedReportHtml = typeof c.stats.reportHtml === 'string' ? c.stats.reportHtml : null;
         const savedVersionRaw = Number(c.stats.lastRunVersion);
         const savedVersion = Number.isFinite(savedVersionRaw) && savedVersionRaw > 0 ? savedVersionRaw : 0;
         const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
@@ -26465,6 +26510,9 @@ Technical analysis record (advanced)
           }else{
             els.statsResults.innerHTML = '';
           }
+        }
+        if(els.statsReportHost){
+          els.statsReportHost.innerHTML = savedReportHtml || '';
         }
         state.statsLastRunVersion = savedVersion;
         state.statsContextVersion = savedVersion;
@@ -26749,15 +26797,17 @@ Technical analysis record (advanced)
     const controlsCache = detachChildren(els.statsControls);
     const resultsCache = detachChildren(els.statsResults);
     const tableCache = detachChildren(els.statsTable);
-    const total = (plotCache?.count || 0) + (controlsCache?.count || 0) + (resultsCache?.count || 0) + (tableCache?.count || 0);
+    const reportCache = detachChildren(els.statsReportHost);
+    const total = (plotCache?.count || 0) + (controlsCache?.count || 0) + (resultsCache?.count || 0) + (tableCache?.count || 0) + (reportCache?.count || 0);
     console.debug('Debug: box render cache captured', {
       plotNodes: plotCache?.count || 0,
       controlsNodes: controlsCache?.count || 0,
       resultsNodes: resultsCache?.count || 0,
       tableNodes: tableCache?.count || 0,
+      reportNodes: reportCache?.count || 0,
       total
     });
-    return { plot: plotCache, statsControls: controlsCache, statsResults: resultsCache, statsTable: tableCache };
+    return { plot: plotCache, statsControls: controlsCache, statsResults: resultsCache, statsTable: tableCache, statsReport: reportCache };
   };
 
   box.restoreRenderCache = function restoreRenderCache(cache){
@@ -26770,13 +26820,15 @@ Technical analysis record (advanced)
     const restoredControls = restoreChildren(els.statsControls, cache.statsControls);
     const restoredResults = restoreChildren(els.statsResults, cache.statsResults);
     const restoredTable = restoreChildren(els.statsTable, cache.statsTable);
-    const restored = restoredPlot || restoredControls || restoredResults || restoredTable;
+    const restoredReport = restoreChildren(els.statsReportHost, cache.statsReport);
+    const restored = restoredPlot || restoredControls || restoredResults || restoredTable || restoredReport;
     console.debug('Debug: box render cache restored', {
       restored,
       plot: restoredPlot,
       controls: restoredControls,
       results: restoredResults,
-      table: restoredTable
+      table: restoredTable,
+      report: restoredReport
     });
     return restored;
   };

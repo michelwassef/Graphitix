@@ -78,4 +78,41 @@ describe('Shared stats reporting layout', () => {
     expect(advancedPanel.querySelector('.stats-report-panel')).toBeNull();
     expect(reportPanel).toBeTruthy();
   });
+
+  test('report host override places reporting at the end of the containing statistics section', async () => {
+    const section = document.createElement('fieldset');
+    const target = document.createElement('div');
+    target.id = 'statsResults';
+    const siblingTable = document.createElement('div');
+    siblingTable.id = 'statsTable';
+    const reportHost = document.createElement('div');
+    reportHost.id = 'boxStatsReportHost';
+    section.appendChild(target);
+    section.appendChild(siblingTable);
+    section.appendChild(reportHost);
+    document.body.appendChild(section);
+
+    target.__statsReportHost = reportHost;
+
+    const reporting = global.Shared.statsReporting;
+    expect(reporting).toBeTruthy();
+    reporting.installEnhancedPanels({ selectors: ['#statsResults'] });
+    await flushAll();
+
+    const summaryCard = document.createElement('div');
+    summaryCard.className = 'stats-table-card';
+    summaryCard.textContent = 'Overall test summary';
+    target.appendChild(summaryCard);
+
+    reporting.appendReportPanel(target, {
+      methodsText: 'ANOVA was used.',
+      resultsText: 'At least one group differed.'
+    }, { title: 'Reporting and reproducibility' });
+    reporting.refreshEnhancedPanels('test-report-host');
+    await flushAll();
+
+    expect(target.querySelector(':scope > .stats-report-panel')).toBeNull();
+    expect(reportHost.querySelector(':scope > .stats-report-panel')).toBeTruthy();
+    expect(section.lastElementChild).toBe(reportHost);
+  });
 });
