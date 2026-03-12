@@ -272,6 +272,9 @@
   const HIST_DEFAULT_FILL = '#0000ff';
   const HIST_DEFAULT_BORDER = '#000000';
   const HIST_DEFAULT_BORDER_WIDTH = 1;
+  const HIST_DEFAULT_SERIES_FILL_OPACITY = 0.34;
+  const HIST_DEFAULT_DENSITY_FILL_OPACITY = 0.18;
+  const HIST_DEFAULT_DENSITY_STROKE_WIDTH = 1.5;
 
   let state = {
     hot: null,
@@ -284,6 +287,8 @@
     xLabelText: 'Value',
     yLabelText: getHistDefaultYLabel(HIST_PLOT_MODE_HISTOGRAM),
     yLabelAuto: true,
+    showLegend: true,
+    seriesColors: {},
     barFill: HIST_DEFAULT_FILL,
     barBorder: HIST_DEFAULT_BORDER,
     barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
@@ -313,7 +318,8 @@
     labelPositions: {
       title: null,
       xLabel: null,
-      yLabel: null
+      yLabel: null,
+      legend: null
     }
   };
   let histDataViewsManager = null;
@@ -1060,23 +1066,147 @@
     }
   };
 
+  function getHistLegendGuardWidth(requiredWidth){
+    const numeric = Number(requiredWidth);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.max(0, Math.round(numeric)) : 0;
+  }
+
+  function applyHistLegendGuardWidth(requiredWidth){
+    const effectiveWidth = getHistLegendGuardWidth(requiredWidth);
+    if(effectiveWidth === state.minSvgWidth){
+      return;
+    }
+    state.minSvgWidth = effectiveWidth;
+    try{
+      state.layout?.updateMinSvgWidth?.(effectiveWidth);
+    }catch(err){
+      console.error('hist legend guard width update error', err);
+    }
+    try{
+      state.layout?.syncPanels?.({ skipSchedule: true, reason: 'legend-guard' });
+    }catch(err){
+      console.error('hist legend guard sync error', err);
+    }
+    console.debug('Debug: hist legend guard width applied', { width: effectiveWidth });
+  }
+
+  function getHistCategoricalPalette(){
+    const selectedSchemeId = Shared.colorSchemes?.getSelectedSchemeId?.('hist') || Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific';
+    const schemes = Shared.colorSchemes?.getSchemes?.() || {};
+    const scheme = schemes && typeof schemes === 'object' ? schemes[selectedSchemeId] : null;
+    const categorical = Array.isArray(scheme?.categorical) && scheme.categorical.length
+      ? scheme.categorical
+      : (Array.isArray(Shared.palette?.DEFAULT_SCATTER_COLORS) && Shared.palette.DEFAULT_SCATTER_COLORS.length
+        ? Shared.palette.DEFAULT_SCATTER_COLORS
+        : ['#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6', '#8b4513', '#ff1493', '#666666']);
+    return categorical.slice();
+  }
+
+  function getHistSeriesColor(seriesKey, index){
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    if(key && typeof state.seriesColors?.[key] === 'string' && state.seriesColors[key].trim()){
+      return state.seriesColors[key].trim();
+    }
+    const palette = getHistCategoricalPalette();
+    const fallback = palette[index % palette.length] || HIST_DEFAULT_FILL;
+    if(key){
+      state.seriesColors = state.seriesColors && typeof state.seriesColors === 'object' ? state.seriesColors : {};
+      state.seriesColors[key] = fallback;
+    }
+    return fallback;
+  }
+
+  function setHistSeriesColor(seriesKey, color){
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    const nextColor = typeof color === 'string' ? color.trim() : '';
+    if(!key || !nextColor){
+      return;
+    }
+    state.seriesColors = state.seriesColors && typeof state.seriesColors === 'object' ? state.seriesColors : {};
+    state.seriesColors[key] = nextColor;
+  }
+
+  function collectHistSeries(){
+    const hot = state.hot || state.ensureHotForActiveTab?.();
+    const matrix = hot && typeof hot.getData === 'function' ? hot.getData() : [];
+    if(!Array.isArray(matrix) || !matrix.length){
+      return [];
+    }
+    let columnCount = 0;
+    matrix.forEach(row => {
+      if(Array.isArray(row) && row.length > columnCount){
+        columnCount = row.length;
+      }
+    });
+    const labelCounts = new Map();
+    const series = [];
+    for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+      const headerRaw = Array.isArray(matrix[0]) ? matrix[0][colIndex] : '';
+      const headerText = headerRaw == null ? '' : String(headerRaw).trim();
+      const baseLabel = headerText || `Column ${colIndex + 1}`;
+      const values = [];
+      for(let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1){
+        const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+        const numeric = parseFloat(row[colIndex]);
+        if(Number.isFinite(numeric)){
+          values.push(numeric);
+        }
+      }
+      if(!values.length){
+        continue;
+      }
+      const seenCount = labelCounts.get(baseLabel) || 0;
+      labelCounts.set(baseLabel, seenCount + 1);
+      const label = seenCount > 0 ? `${baseLabel} (${seenCount + 1})` : baseLabel;
+      series.push({
+        key: `col-${colIndex}`,
+        label,
+        baseLabel,
+        colIndex,
+        values
+      });
+    }
+    return series;
+  }
+
   // Format toolbar for histogram bars
   function showHistBarFormatControls(target){
     const doc = global.document;
     if(!doc) return;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const activeSeries = collectHistSeries();
+      const seriesIndexByKey = new Map(activeSeries.map((entry, index) => [entry.key, index]));
+      const targetSeriesKey = String(
+        (typeof target?.getAttribute === 'function' ? target.getAttribute('data-series-key') : '')
+        || ''
+      ).trim();
+      const targetSeriesLabel = String(
+        (typeof target?.getAttribute === 'function' ? target.getAttribute('data-series') : '')
+        || ''
+      ).trim();
+      const defaultScopeValue = targetSeriesKey && typeof Shared.encodeScopeValue === 'function'
+        ? Shared.encodeScopeValue('series', targetSeriesKey)
+        : 'global';
       const resolveBars = () => {
         const root = state.svgBox || doc;
         const nodes = Array.from(root.querySelectorAll('#histSvg [data-hist-bar="1"], #histSvg .hist-bar'));
         return nodes.length ? nodes : (target ? [target] : []);
       };
-      const barScopeLabel = (() => {
-        const fromSeries = typeof target?.getAttribute === 'function' ? target.getAttribute('data-series') : '';
-        const fromLabel = typeof target?.getAttribute === 'function' ? target.getAttribute('data-label') : '';
-        const resolved = String(fromSeries || fromLabel || 'Histogram').trim();
-        return resolved || 'Histogram';
-      })();
+      const resolveSeriesNodes = seriesKey => {
+        const normalized = String(seriesKey == null ? '' : seriesKey).trim();
+        if(!normalized){
+          return resolveBars();
+        }
+        return resolveBars().filter(node => String(node?.getAttribute?.('data-series-key') || '').trim() === normalized);
+      };
+      const resolveScopedSeriesKey = context => {
+        const ctx = context && typeof context === 'object' ? context : {};
+        if(String(ctx.scope || '').trim() === 'series' && String(ctx.scopeDataset || '').trim()){
+          return String(ctx.scopeDataset).trim();
+        }
+        return targetSeriesKey || '';
+      };
       Shared.symbolToolbar.show({
         document: doc,
         target,
@@ -1086,28 +1216,50 @@
         formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls hist-bar-controls',
         scope: {
           label: 'Scope',
-          options: [
-            { value: 'global', label: 'Global', disabled: false },
-            { value: 'trace', label: barScopeLabel, datasetLabel: barScopeLabel, disabled: false }
-          ],
-          value: 'trace'
+          options: [{ value: 'global', label: 'Global', disabled: false }].concat(activeSeries.map(entry => ({
+            value: typeof Shared.encodeScopeValue === 'function' ? Shared.encodeScopeValue('series', entry.key) : entry.key,
+            label: entry.label,
+            datasetLabel: entry.label,
+            scopeKind: 'series',
+            scopeDataset: entry.key,
+            disabled: false
+          }))),
+          value: defaultScopeValue
         },
         fillShape: {
           label: 'Fill',
           showShapePicker: false,
           shapeOptions: [{ value: 'square', label: 'Square' }],
-          getColor(){
+          getColor(context){
+            const scopedSeriesKey = resolveScopedSeriesKey(context);
+            if(scopedSeriesKey){
+              return getHistSeriesColor(scopedSeriesKey, seriesIndexByKey.get(scopedSeriesKey) || 0);
+            }
             return state.barFill || target?.getAttribute?.('fill') || HIST_DEFAULT_FILL;
           },
           getShape(){
             return 'square';
           },
-          onColorInput(value){
-            state.barFill = value || HIST_DEFAULT_FILL;
-            resolveBars().forEach(node => node.setAttribute('fill', value));
+          onColorInput(value, context){
+            const nextValue = value || HIST_DEFAULT_FILL;
+            const scopedSeriesKey = resolveScopedSeriesKey(context);
+            if(scopedSeriesKey){
+              setHistSeriesColor(scopedSeriesKey, nextValue);
+              resolveSeriesNodes(scopedSeriesKey).forEach(node => node.setAttribute('fill', nextValue));
+              return;
+            }
+            state.barFill = nextValue;
+            resolveBars().forEach(node => node.setAttribute('fill', nextValue));
           },
-          onColorChange(value){
-            state.barFill = value || HIST_DEFAULT_FILL;
+          onColorChange(value, context){
+            const nextValue = value || HIST_DEFAULT_FILL;
+            const scopedSeriesKey = resolveScopedSeriesKey(context);
+            if(scopedSeriesKey){
+              setHistSeriesColor(scopedSeriesKey, nextValue);
+              state.scheduleDraw?.();
+              return;
+            }
+            state.barFill = nextValue;
             state.scheduleDraw?.();
           }
         },
@@ -1155,6 +1307,9 @@
           enabled: false
         }
       });
+      if(targetSeriesLabel){
+        console.debug('Debug: hist bar format controls opened', { series: targetSeriesLabel, seriesKey: targetSeriesKey });
+      }
       return;
     }
     const anchor = doc.getElementById('histFontHost');
@@ -1831,7 +1986,7 @@
         }
       }
       if(document.getElementById('histStatsResults')){
-        updateHistStats([], []);
+        updateHistStats([]);
       }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
@@ -1919,7 +2074,7 @@
   }
 
   function initControls(){
-    const histPlotMode=$('#histPlotMode'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
+    const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
       console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
@@ -1934,6 +2089,13 @@
       histPlotMode.value = normalizeHistPlotMode(state.plotMode);
       histPlotMode.addEventListener('change',()=>{
         applyHistPlotMode(histPlotMode.value);
+      });
+    }
+    if(histShowLegend){
+      histShowLegend.checked = state.showLegend !== false;
+      histShowLegend.addEventListener('change',()=>{
+        state.showLegend = !!histShowLegend.checked;
+        state.scheduleDraw();
       });
     }
     if(distListEl){
@@ -2114,6 +2276,8 @@
         title:state.titleText,
         xLabel:state.xLabelText,
         yLabel:state.yLabelText,
+        showLegend: state.showLegend !== false,
+        seriesColors: state.seriesColors && typeof state.seriesColors === 'object' ? { ...state.seriesColors } : {},
         colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('hist') || 'scientific',
         fill:state.barFill,
         border:state.barBorder,
@@ -2235,6 +2399,10 @@
         : HIST_DEFAULT_BORDER_WIDTH;
       const histBinsInput = document.getElementById('histBins');
       if(histBinsInput){ histBinsInput.value = config.bins || histBinsInput.value; }
+      const histShowLegendInput = document.getElementById('histShowLegend');
+      state.showLegend = config.showLegend !== false;
+      if(histShowLegendInput){ histShowLegendInput.checked = state.showLegend; }
+      state.seriesColors = config.seriesColors && typeof config.seriesColors === 'object' ? { ...config.seriesColors } : {};
       const histShowGridInput = document.getElementById('histShowGrid');
       if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
       setGridStyle(config.gridStyle, config.axis?.strokeWidth);
@@ -2336,7 +2504,8 @@
         state.labelPositions = {
           title: config.labelPositions.title || null,
           xLabel: config.labelPositions.xLabel || null,
-          yLabel: config.labelPositions.yLabel || null
+          yLabel: config.labelPositions.yLabel || null,
+          legend: config.labelPositions.legend || null
         };
       }
       if(!skipDraw && typeof state.scheduleDraw === 'function'){
@@ -2552,7 +2721,7 @@
     return num <= 0 ? '0' : num.toExponential(5);
   }
 
-  function updateHistStats(values, distributionSummaries){
+  function updateHistStats(seriesEntries){
     const target = document.getElementById('histStatsResults');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const graphLabel = getHistGraphLabel(state.plotMode);
@@ -2562,16 +2731,15 @@
       }
       return;
     }
-    const numericValues = Array.isArray(values) ? values.filter(Number.isFinite) : [];
+    const entries = Array.isArray(seriesEntries) ? seriesEntries.filter(entry => Array.isArray(entry?.values) && entry.values.some(Number.isFinite)) : [];
     target.innerHTML = '';
-    if(!numericValues.length){
+    if(!entries.length){
       target.textContent = 'No data';
       if(debugEnabled){
         console.debug('Debug: hist stats skipped (no values)');
       }
       return;
     }
-    const sorted = numericValues.slice().sort((a, b) => a - b);
     const percentile = (list, p) => {
       if(!list.length) return NaN;
       const pos = (list.length - 1) * p;
@@ -2581,25 +2749,35 @@
       const nextVal = list[base + 1] !== undefined ? list[base + 1] : baseVal;
       return baseVal + rest * (nextVal - baseVal);
     };
-    const mean = (global.jStat?.mean ? global.jStat.mean(sorted) : sorted.reduce((s,v)=>s+v,0)/sorted.length) || 0;
-    const median = global.jStat?.median ? global.jStat.median(sorted) : percentile(sorted, 0.5);
-    const sd = global.jStat?.stdev ? global.jStat.stdev(sorted, true) : Math.sqrt(sorted.reduce((s,v)=>s+Math.pow(v-mean,2),0)/(sorted.length || 1));
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-    const q1 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.25])?.[0] : percentile(sorted, 0.25);
-    const q3 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.75])?.[0] : percentile(sorted, 0.75);
-    const bestFit = Array.isArray(distributionSummaries) ? distributionSummaries.find(entry => entry?.fit?.valid !== false && entry?.fit) : null;
-    const statsRow = {
-      column: state.xLabelText || 'Column 1',
-      n: sorted.length,
-      mean: formatNumber(mean, 2),
-      median: formatNumber(median, 2),
-      sd: formatNumber(sd, 2),
-      min: formatNumber(min, 2),
-      q1: formatNumber(q1, 2),
-      q3: formatNumber(q3, 2),
-      max: formatNumber(max, 2)
-    };
+    const statsRows = entries.map(entry => {
+      const sorted = entry.values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+      const mean = (global.jStat?.mean ? global.jStat.mean(sorted) : sorted.reduce((s, v) => s + v, 0) / sorted.length) || 0;
+      const median = global.jStat?.median ? global.jStat.median(sorted) : percentile(sorted, 0.5);
+      const sd = global.jStat?.stdev ? global.jStat.stdev(sorted, true) : Math.sqrt(sorted.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (sorted.length || 1));
+      const min = sorted[0];
+      const max = sorted[sorted.length - 1];
+      const q1 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.25])?.[0] : percentile(sorted, 0.25);
+      const q3 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.75])?.[0] : percentile(sorted, 0.75);
+      const bestFit = Array.isArray(entry.distributionSummaries)
+        ? entry.distributionSummaries.find(summary => summary?.fit?.valid !== false && summary?.fit)
+        : null;
+      return {
+        column: entry.label || `Column ${Number(entry.colIndex) + 1}`,
+        n: sorted.length,
+        mean: formatNumber(mean, 2),
+        median: formatNumber(median, 2),
+        sd: formatNumber(sd, 2),
+        min: formatNumber(min, 2),
+        q1: formatNumber(q1, 2),
+        q3: formatNumber(q3, 2),
+        max: formatNumber(max, 2),
+        bestFit: bestFit?.fit?.label || null
+      };
+    });
+    const totalObservations = statsRows.reduce((sum, row) => sum + (Number(row.n) || 0), 0);
+    const footnotes = statsRows
+      .filter(row => row.bestFit)
+      .map(row => `${row.column}: best fit ${row.bestFit}`);
     const statsModel = {
       caption: 'Descriptive statistics',
       columns: [
@@ -2613,8 +2791,8 @@
         { key: 'q3', label: 'Q3', align: 'right' },
         { key: 'max', label: 'Max', align: 'right' }
       ],
-      rows: [statsRow],
-      footnotes: bestFit?.fit?.label ? [`Best fit: ${bestFit.fit.label}`] : [],
+      rows: statsRows,
+      footnotes,
       options: {
         fileName: 'histogram-stats',
         contextLabel: 'hist-stats'
@@ -2626,13 +2804,14 @@
       Shared.statsTable.render(statsModel);
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         Shared.statsReporting.appendReportPanel(target, {
-          methodsText: `${graphLabel} descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
-          resultsText: `Mean = ${statsRow.mean}, median = ${statsRow.median}, SD = ${statsRow.sd}, and range = ${statsRow.min} to ${statsRow.max}.`,
+          methodsText: `${graphLabel} descriptive statistics were computed for ${statsRows.length} series spanning ${totalObservations} numeric observations${footnotes.length ? ` with per-series distribution fitting assessed (${footnotes.join('; ')})` : ''}.`,
+          resultsText: statsRows.map(row => `${row.column}: mean = ${row.mean}, median = ${row.median}, SD = ${row.sd}, range = ${row.min} to ${row.max}`).join(' '),
           analysisSpec: {
             component: 'hist',
-            n: sorted.length,
-            bestFit: bestFit?.fit?.key || bestFit?.fit?.label || null,
-            distributionsTried: Array.isArray(distributionSummaries) ? distributionSummaries.length : 0
+            n: totalObservations,
+            seriesCount: statsRows.length,
+            bestFit: footnotes.length ? footnotes.join('; ') : null,
+            distributionsTried: entries.reduce((sum, entry) => sum + (Array.isArray(entry.distributionSummaries) ? entry.distributionSummaries.length : 0), 0)
           }
         }, { title: 'Reporting and reproducibility' });
       }
@@ -2651,23 +2830,26 @@
       headerRow.appendChild(th);
     });
     table.appendChild(headerRow);
-    const bodyRow = document.createElement('tr');
-    statsModel.columns.forEach(col => {
-      const td = document.createElement('td');
-      td.textContent = statsRow[col.key];
-      bodyRow.appendChild(td);
+    statsRows.forEach(row => {
+      const bodyRow = document.createElement('tr');
+      statsModel.columns.forEach(col => {
+        const td = document.createElement('td');
+        td.textContent = row[col.key];
+        bodyRow.appendChild(td);
+      });
+      table.appendChild(bodyRow);
     });
-    table.appendChild(bodyRow);
     target.appendChild(table);
     if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       Shared.statsReporting.appendReportPanel(target, {
-        methodsText: `${graphLabel} descriptive statistics were computed for ${sorted.length} numeric observations${bestFit?.fit?.label ? ` with distribution fitting assessed against ${bestFit.fit.label}` : ''}.`,
-        resultsText: `Mean = ${statsRow.mean}, median = ${statsRow.median}, SD = ${statsRow.sd}, and range = ${statsRow.min} to ${statsRow.max}.`,
+        methodsText: `${graphLabel} descriptive statistics were computed for ${statsRows.length} series spanning ${totalObservations} numeric observations${footnotes.length ? ` with per-series distribution fitting assessed (${footnotes.join('; ')})` : ''}.`,
+        resultsText: statsRows.map(row => `${row.column}: mean = ${row.mean}, median = ${row.median}, SD = ${row.sd}, range = ${row.min} to ${row.max}`).join(' '),
         analysisSpec: {
           component: 'hist',
-          n: sorted.length,
-          bestFit: bestFit?.fit?.key || bestFit?.fit?.label || null,
-          distributionsTried: Array.isArray(distributionSummaries) ? distributionSummaries.length : 0
+          n: totalObservations,
+          seriesCount: statsRows.length,
+          bestFit: footnotes.length ? footnotes.join('; ') : null,
+          distributionsTried: entries.reduce((sum, entry) => sum + (Array.isArray(entry.distributionSummaries) ? entry.distributionSummaries.length : 0), 0)
         }
       }, { title: 'Reporting and reproducibility' });
     }
@@ -2677,26 +2859,24 @@
   }
 
   function draw(){
-    // Reuse existing global draw implementation if present? Implement local logic mirroring legacy drawHistogram
-    const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize');
+    const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     ensureAxisSettings();
     const plotMode = normalizeHistPlotMode(state.plotMode);
     const densityMode = plotMode === HIST_PLOT_MODE_DENSITY;
-    const data=state.hot.getDataAtCol(0);
-    const labelRaw=data[0];
-    state.xLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
-    const values=[]; for(let i=1;i<data.length;i++){const v=parseFloat(data[i]); if(!isNaN(v)) values.push(v);}
+    const seriesEntries = collectHistSeries();
+    const values = seriesEntries.flatMap(entry => entry.values);
     const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
-    if(!values.length){
+    if(!seriesEntries.length || !values.length){
+      applyHistLegendGuardWidth(0);
       if(typeof Shared.renderPlotNotice === 'function'){
         Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
       }else{
         plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
       }
-      updateHistStats(values, []);
+      updateHistStats([]);
       return;
     }
-    const distributionFits = prepareDistributionFits(values);
+    const fitSets = seriesEntries.map(entry => ({ ...entry, fits: prepareDistributionFits(entry.values) }));
     const includePdf = !!state.distributionSettings.showPdf;
     const includeCdf = densityMode ? false : !!state.distributionSettings.showCdf;
     const statsHelpers = Shared.stats || {};
@@ -2705,7 +2885,7 @@
     const rawXMax = Math.max(...values);
     let xMin = rawXMin;
     let xMax = rawXMax;
-    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+    const baseWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     if(xMax === xMin || !Number.isFinite(xMax - xMin)){
       const basePad = Number.isFinite(xMin) ? Math.abs(xMin) : 0;
@@ -2727,15 +2907,86 @@
         adjustedMax: xMax
       });
     }
-    let densitySeries = null;
+    const containerRect=state.svgBox?.getBoundingClientRect?.();
+    const fontInfo=chartStyle.resolveScaledFontSize({
+      rawSize: histFontSize.value,
+      width: containerRect?.width,
+      height: containerRect?.height,
+      svgBox: state.svgBox,
+      input: histFontSize
+    });
+    const fs=fontInfo.scaledPx;
+    const styleScaleInfo=fontInfo.scaleInfo;
+    const borderWidthRaw=Number(state.barBorderWidth)||0;
+    const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
+    const legendVisible = state.showLegend !== false && seriesEntries.length > 1;
+    const legendEntries = legendVisible
+      ? seriesEntries.map((entry, index) => ({
+          label: entry.label,
+          fill: getHistSeriesColor(entry.key, index),
+          stroke: state.barBorder || HIST_DEFAULT_BORDER,
+          strokeWidth: borderWidthPx > 0 ? borderWidthPx : 1,
+          key: entry.key,
+          editable: true
+        }))
+      : [];
+    const legendLayout = legendVisible
+      ? chartStyle.computeLegendLayout({
+          entries: legendEntries,
+          fontSize: fs,
+          strokeWidth: borderWidthPx > 0 ? borderWidthPx : 1,
+          textColor: chartStyle.TEXT_COLOR,
+          onSwatchClick: ({ entry, swatch, event, index }) => {
+            if(!entry?.key || typeof Shared.openColorPicker !== 'function'){
+              return;
+            }
+            event?.stopPropagation?.();
+            const seriesKey = entry.key;
+            let previousColor = getHistSeriesColor(seriesKey, Number.isInteger(index) ? index : 0);
+            Shared.openColorPicker({
+              anchor: swatch,
+              color: previousColor,
+              onInput(value){
+                const nextValue = String(value || '').trim();
+                if(!nextValue) return;
+                setHistSeriesColor(seriesKey, nextValue);
+                const root = state.svgBox || document;
+                root.querySelectorAll(`#histSvg [data-series-key="${seriesKey}"]`).forEach(node => {
+                  const role = String(node.getAttribute('data-series-role') || '').trim();
+                  if(role === 'density-line'){
+                    node.setAttribute('stroke', nextValue);
+                  }else{
+                    node.setAttribute('fill', nextValue);
+                  }
+                });
+              },
+              onChange(value){
+                const nextValue = String(value || '').trim();
+                if(!nextValue || nextValue === previousColor) return;
+                recordHistChange(`hist:series-color:${seriesKey}`, previousColor, nextValue, committed => {
+                  setHistSeriesColor(seriesKey, committed);
+                  state.scheduleDraw?.();
+                });
+                setHistSeriesColor(seriesKey, nextValue);
+                previousColor = nextValue;
+                state.scheduleDraw?.();
+              }
+            });
+          }
+        })
+      : null;
+    applyHistLegendGuardWidth(legendVisible ? legendLayout?.minSvgWidth || 0 : 0);
+    const W=Math.max(baseWidth, legendVisible ? Math.ceil(legendLayout?.minSvgWidth || 0) : 0);
     if(densityMode){
-      densitySeries = computeHistDensitySeries(values, {
-        sampleCount: Math.min(240, Math.max(64, Math.round(W)))
+      fitSets.forEach(entry => {
+        const densityInfo = computeHistDensitySeries(entry.values, {
+          sampleCount: Math.min(240, Math.max(64, Math.round(W)))
+        });
+        if(Number.isFinite(densityInfo.domainMin) && Number.isFinite(densityInfo.domainMax) && densityInfo.domainMax > densityInfo.domainMin){
+          xMin = Math.min(xMin, densityInfo.domainMin);
+          xMax = Math.max(xMax, densityInfo.domainMax);
+        }
       });
-      if(Number.isFinite(densitySeries.domainMin) && Number.isFinite(densitySeries.domainMax) && densitySeries.domainMax > densitySeries.domainMin){
-        xMin = densitySeries.domainMin;
-        xMax = densitySeries.domainMax;
-      }
     }
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
@@ -2767,16 +3018,6 @@
     const histNotationY = getAxisNotation('y');
     const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: histNotationX, maxDecimals: 2 });
     const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: histNotationY, maxDecimals: 2 });
-    const containerRect=state.svgBox?.getBoundingClientRect?.();
-    const fontInfo=chartStyle.resolveScaledFontSize({
-      rawSize: histFontSize.value,
-      width: containerRect?.width,
-      height: containerRect?.height,
-      svgBox: state.svgBox,
-      input: histFontSize
-    });
-    const fs=fontInfo.scaledPx;
-    const styleScaleInfo=fontInfo.scaleInfo;
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0, exact: true });
     const axisStroke = getAxisColor();
@@ -2787,8 +3028,6 @@
     const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
       ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
       : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
-    const borderWidthRaw=Number(state.barBorderWidth)||0;
-    const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
     console.debug('Debug: hist style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
@@ -2817,7 +3056,12 @@
     const yTitleWidthBase=chartStyle.measureText(state.yLabelText,axisLabelFont);
     const tickLen=axisMetrics.tickLength;
     const tickGap=axisMetrics.tickLabelGap;
-    let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
+    const legendWidth = legendVisible ? (legendLayout?.legendWidthForMargin || 0) : 0;
+    const legendGapPx = legendVisible ? (legendLayout?.legendGapPx || 0) : 0;
+    const legendRenderer = legendVisible && legendLayout?.renderer
+      ? legendLayout.renderer
+      : { entries: [], width: 0, height: 0, draw(){ return null; } };
+    let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
     let plotW=Math.max(20,W-margin.left-margin.right);
     let plotH=Math.max(20,H-margin.top-margin.bottom);
     let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
@@ -2828,7 +3072,9 @@
     let yScale=buildAxisScale({ dataMin: 0, dataMax: 1, targetTickCount: yTickTarget, manualMin: 0 });
     let xTickLabels=[];
     let yTickLabels=[];
-    let counts=[];
+    let histogramSeries=[];
+    let densitySeriesByKey=new Map();
+    let sharedEdges=[];
     let binWidth=0;
     let yMin=0;
     let yMax=0;
@@ -2838,33 +3084,46 @@
     for(let pass=0;pass<2;pass++){
       xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
       if(densityMode){
-        if(!densitySeries || !Array.isArray(densitySeries.positions) || !densitySeries.positions.length){
-          densitySeries = computeHistDensitySeries(values, {
-            sampleCount: Math.min(240, Math.max(64, Math.round(W))),
+        densitySeriesByKey=new Map();
+        binWidth = 0;
+        yMin = 0;
+        yMax = 0;
+        let minPositiveDensity = Infinity;
+        fitSets.forEach(entry => {
+          const densityInfo = computeHistDensitySeries(entry.values, {
+            sampleCount: Math.min(240, Math.max(64, Math.round(plotW))),
             minVal: xScale.min,
             maxVal: xScale.max
           });
-        }
-        counts = [];
-        binWidth = 0;
-        yMin = 0;
-        yMax = Number.isFinite(densitySeries?.peak) ? densitySeries.peak : 0;
+          densitySeriesByKey.set(entry.key, densityInfo);
+          if(Number.isFinite(densityInfo?.peak) && densityInfo.peak > yMax){
+            yMax = densityInfo.peak;
+          }
+          if(Number.isFinite(densityInfo?.minPositive) && densityInfo.minPositive > 0 && densityInfo.minPositive < minPositiveDensity){
+            minPositiveDensity = densityInfo.minPositive;
+          }
+        });
         if(logY){
-          const minPositive = Number.isFinite(densitySeries?.minPositive) ? densitySeries.minPositive : Infinity;
-          yMin = Number.isFinite(minPositive) ? Math.max(minPositive, 1e-9) : 1e-6;
+          yMin = Number.isFinite(minPositiveDensity) ? Math.max(minPositiveDensity, 1e-9) : 1e-6;
           if(yMax <= 0){
             yMax = yMin * 10;
           }
         }
       }else{
         binWidth=(xScale.max-xScale.min)/bins || 1;
-        counts=new Array(bins).fill(0);
-        values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
+        sharedEdges=Array.from({ length: bins + 1 }, (_, i) => xScale.min + i * binWidth);
+        histogramSeries=fitSets.map(entry => {
+          const counts=new Array(bins).fill(0);
+          entry.values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
+          return { ...entry, counts };
+        });
         yMin=0;
-        const maxCount = Math.max(...counts, 0);
-        yMax = Number.isFinite(maxCount) ? maxCount : 0;
+        yMax = histogramSeries.reduce((max, entry) => Math.max(max, Math.max(...entry.counts, 0)), 0);
         if(logY){
-          const minPositive = counts.reduce((min,val)=> (val>0 && val<min ? val : min), Infinity);
+          const minPositive = histogramSeries.reduce((min, entry) => {
+            const localMin = entry.counts.reduce((inner, val) => (val > 0 && val < inner ? val : inner), Infinity);
+            return localMin < min ? localMin : min;
+          }, Infinity);
           yMin = Number.isFinite(minPositive) ? Math.max(minPositive, 1e-3) : 0.1;
           if(yMax <= 0){
             yMax = yMin * 10;
@@ -2874,24 +3133,26 @@
       if(yMax<=yMin){
         yMax = yMin + 1;
       }
-      if(distributionFits.length && (includePdf || includeCdf)){
-        const metrics = computeOverlayMetrics(distributionFits, {
-          xMin: xScale.min,
-          xMax: xScale.max,
-          binWidth,
-          sampleCount: values.length,
-          includePdf,
-          includeCdf,
-          plotPixels: W,
-          scaleMode: densityMode ? HIST_PLOT_MODE_DENSITY : HIST_PLOT_MODE_HISTOGRAM
-        });
-        const overlayMax = Math.max(metrics.pdfMax || 0, metrics.cdfMax || 0);
-        if(Number.isFinite(overlayMax) && overlayMax > yMax){
-          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: hist overlay range extend',{ overlayMax, previous: yMax });
+      if(includePdf || includeCdf){
+        fitSets.forEach(entry => {
+          if(!entry.fits.length){
+            return;
           }
-          yMax = overlayMax;
-        }
+          const metrics = computeOverlayMetrics(entry.fits, {
+            xMin: xScale.min,
+            xMax: xScale.max,
+            binWidth,
+            sampleCount: entry.values.length,
+            includePdf,
+            includeCdf,
+            plotPixels: W,
+            scaleMode: densityMode ? HIST_PLOT_MODE_DENSITY : HIST_PLOT_MODE_HISTOGRAM
+          });
+          const overlayMax = Math.max(metrics.pdfMax || 0, metrics.cdfMax || 0);
+          if(Number.isFinite(overlayMax) && overlayMax > yMax){
+            yMax = overlayMax;
+          }
+        });
       }
       yMinT=logY?Math.log10(yMin):yMin;
       yMaxT=logY?Math.log10(yMax):yMax;
@@ -2937,7 +3198,7 @@
       yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       maxYLabelWidth=Math.max(...yLabelWidths,0);
-      margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
+      margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
       bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
@@ -2959,7 +3220,7 @@
     console.debug('Debug: hist showFrame state',{showFrame});
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
-    function add(tag,attrs){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); svg.appendChild(el); return el;}
+    function add(tag,attrs,parent){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)){ if(v !== null && v !== undefined){ el.setAttribute(k,String(v)); } } (parent || svg).appendChild(el); return el;}
       if(showGrid){
         yScale.ticks.forEach(t=>{
           const y=y2px(t);
@@ -3093,59 +3354,97 @@
       });
     console.debug('Debug: hist font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
     console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
-    const fill=state.barFill || HIST_DEFAULT_FILL;
     const borderColor=state.barBorder || HIST_DEFAULT_BORDER;
     if(densityMode){
-      const points = [];
       const baselineValue = logY ? Math.max(yMin, 1e-9) : 0;
       const baselineDomain = logY ? Math.log10(baselineValue) : baselineValue;
-      const positions = Array.isArray(densitySeries?.positions) ? densitySeries.positions : [];
-      const densities = Array.isArray(densitySeries?.densities) ? densitySeries.densities : [];
-      for(let index = 0; index < positions.length; index++){
-        const x = positions[index];
-        const density = densities[index];
-        if(!Number.isFinite(x) || !Number.isFinite(density) || density < 0){
-          continue;
+      fitSets.forEach((entry, seriesIndex) => {
+        const densityInfo = densitySeriesByKey.get(entry.key);
+        const positions = Array.isArray(densityInfo?.positions) ? densityInfo.positions : [];
+        const densities = Array.isArray(densityInfo?.densities) ? densityInfo.densities : [];
+        const points = [];
+        for(let index = 0; index < positions.length; index += 1){
+          const x = positions[index];
+          const density = densities[index];
+          if(!Number.isFinite(x) || !Number.isFinite(density) || density < 0){
+            continue;
+          }
+          const yDomain = logY ? Math.log10(Math.max(density, baselineValue)) : density;
+          points.push([x2px(x), y2px(yDomain)]);
         }
-        const yDomain = logY ? Math.log10(Math.max(density, baselineValue)) : density;
-        points.push([x2px(x), y2px(yDomain)]);
-      }
-      if(points.length > 1){
-        const areaLinePath = points.map((point, index) => `${index === 0 ? 'L' : 'L'} ${point[0]} ${point[1]}`);
-        const areaPath = [
-          `M ${points[0][0]} ${y2px(baselineDomain)}`,
-          ...areaLinePath,
-          `L ${points[points.length - 1][0]} ${y2px(baselineDomain)}`,
-          'Z'
-        ];
-        const densityShape = add('path',{
-          d: areaPath.join(' '),
-          fill: fill,
-          'fill-opacity': '0.4',
-          stroke: borderWidthPx > 0 ? borderColor : 'none',
-          'stroke-width': borderWidthPx > 0 ? borderWidthPx : 0,
-          'stroke-linejoin': 'round',
-          'stroke-linecap': 'round',
+        if(points.length < 2){
+          return;
+        }
+        const fill = getHistSeriesColor(entry.key, seriesIndex);
+        const areaPath = [`M ${points[0][0]} ${y2px(baselineDomain)}`]
+          .concat(points.map(point => `L ${point[0]} ${point[1]}`))
+          .concat([`L ${points[points.length - 1][0]} ${y2px(baselineDomain)}`, 'Z'])
+          .join(' ');
+        const area = add('path',{
+          d: areaPath,
+          fill,
+          'fill-opacity': seriesEntries.length > 1 ? HIST_DEFAULT_DENSITY_FILL_OPACITY : 0.24,
+          stroke: 'none',
           'class': 'hist-bar hist-density-shape',
           'data-hist-bar': '1',
-          'data-hist-primary': '1'
+          'data-series-key': entry.key,
+          'data-series': entry.label,
+          'data-series-role': 'density-area'
         });
-        try{
-          densityShape.style.cursor='pointer';
-          densityShape.addEventListener('click', evt=>{
-            try{ evt.stopPropagation(); }catch(e){}
-            showHistBarFormatControls(evt.currentTarget);
-          });
-        }catch(e){}
-      }
+        const line = add('path',{
+          d: points.map((point, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${point[0]} ${point[1]}`).join(' '),
+          fill: 'none',
+          stroke: fill,
+          'stroke-width': Math.max(borderWidthPx, chartStyle.scaleStrokeWidth(HIST_DEFAULT_DENSITY_STROKE_WIDTH, styleScaleInfo, { context: 'hist-density-line', min: 1 })),
+          'stroke-linejoin': 'round',
+          'stroke-linecap': 'round',
+          'class': 'hist-bar hist-density-line',
+          'data-hist-bar': '1',
+          'data-series-key': entry.key,
+          'data-series': entry.label,
+          'data-series-role': 'density-line'
+        });
+        [area, line].forEach(node => {
+          try{
+            node.style.cursor='pointer';
+            node.addEventListener('click', evt=>{
+              try{ evt.stopPropagation(); }catch(e){}
+              showHistBarFormatControls(evt.currentTarget);
+            });
+          }catch(e){}
+        });
+      });
     }else{
-      const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
-      counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill,'class':'hist-bar','data-hist-bar':'1'}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
+      histogramSeries.forEach((entry, seriesIndex) => {
+        const fill = getHistSeriesColor(entry.key, seriesIndex);
+        entry.counts.forEach((count, binIndex) => {
+          const xStart=x2px(sharedEdges[binIndex]);
+          const xEnd=x2px(sharedEdges[binIndex+1]);
+          const barW=Math.max(0,xEnd-xStart);
+          const val=logY?Math.log10(Math.max(count,yMin)):count;
+          const y=y2px(val);
+          const h=margin.top+plotH-y;
+          const rect=add('rect',{
+            x:xStart,
+            y,
+            width:barW,
+            height:h,
+            fill,
+            'fill-opacity': seriesEntries.length > 1 ? HIST_DEFAULT_SERIES_FILL_OPACITY : 0.72,
+            'class':'hist-bar',
+            'data-hist-bar':'1',
+            'data-series-key': entry.key,
+            'data-series': entry.label,
+            'data-series-role': 'hist-bar'
+          });
+          if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);}
+          try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){}
+        });
+      });
     }
-    if(distributionFits.length && (includePdf || includeCdf)){
+    if((includePdf || includeCdf) && fitSets.some(entry => entry.fits.length)){
       const overlayGroup = add('g',{ 'class':'hist-overlay-group' });
-      const sampleCount = values.length;
-      const effectiveBinWidth = binWidth || ((xScale.max - xScale.min) || 1);
+      const effectiveBinWidth = densityMode ? ((xScale.max - xScale.min) || 1) : (binWidth || ((xScale.max - xScale.min) || 1));
       const sampleSteps = Math.min(240, Math.max(32, Math.round(plotW)));
       const yLowerBound = densityMode ? yMin : Math.max(0, yMin);
       const logLowerBound = logY ? Math.max(yLowerBound, 1e-6) : yLowerBound;
@@ -3156,296 +3455,137 @@
         }
         return Math.max(value, yLowerBound);
       };
-      distributionFits.forEach((fit,index)=>{
-        if(!fit || fit.valid === false){ return; }
-        const strokeColor = fit.color || DEFAULT_DISTRIBUTION_COLORS[index % DEFAULT_DISTRIBUTION_COLORS.length];
-        const strokeWidth = Number.isFinite(Number(fit.strokeWidth)) ? Number(fit.strokeWidth) : Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
-        const strokePattern = sanitizeHistOverlayPattern(fit.pattern || 'solid');
-        if(includePdf && typeof fit.pdf === 'function' && effectiveBinWidth > 0){
-          const parts=[];
-          for(let step=0;step<sampleSteps;step++){
-            const t=sampleSteps===1?0:step/(sampleSteps-1);
-            const x=xScale.min+(xScale.max-xScale.min)*t;
-            const density=fit.pdf(x);
-            if(!Number.isFinite(density) || density<0){ continue; }
-            const expected = densityMode
-              ? density
-              : density*sampleCount*effectiveBinWidth;
-            const yDomain=toDomainY(expected);
-            parts.push(`${step===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
+      fitSets.forEach((entry, seriesIndex)=>{
+        entry.fits.forEach((fit, fitIndex)=>{
+          if(!fit || fit.valid === false){ return; }
+          const strokeColor = seriesEntries.length > 1
+            ? getHistSeriesColor(entry.key, seriesIndex)
+            : (fit.color || DEFAULT_DISTRIBUTION_COLORS[fitIndex % DEFAULT_DISTRIBUTION_COLORS.length]);
+          const strokeWidth = Number.isFinite(Number(fit.strokeWidth)) ? Number(fit.strokeWidth) : Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
+          const strokePattern = sanitizeHistOverlayPattern(fit.pattern || 'solid');
+          const strokeOpacity = Number.isFinite(Number(fit.alpha)) ? fit.alpha : (seriesEntries.length > 1 ? 0.85 : 1);
+          if(includePdf && typeof fit.pdf === 'function' && effectiveBinWidth > 0){
+            const parts=[];
+            for(let step=0;step<sampleSteps;step++){
+              const t=sampleSteps===1?0:step/(sampleSteps-1);
+              const x=xScale.min+(xScale.max-xScale.min)*t;
+              const density=fit.pdf(x);
+              if(!Number.isFinite(density) || density<0){ continue; }
+              const expected = densityMode ? density : density*entry.values.length*effectiveBinWidth;
+              const yDomain=toDomainY(expected);
+              parts.push(`${parts.length===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
+            }
+            if(parts.length>1){
+              const p = add('path',{
+                d:parts.join(' '),
+                fill:'none',
+                stroke:strokeColor,
+                'stroke-width':strokeWidth,
+                'stroke-opacity': strokeOpacity,
+                'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
+                'stroke-linejoin':'round',
+                'stroke-linecap':'round',
+                'data-dist':fit.key || fit.label,
+                'data-overlay-type':'pdf',
+                'data-series-key': entry.key,
+                'data-series': entry.label,
+                'pointer-events':'stroke',
+                'class':'hist-overlay hist-overlay--pdf'
+              }, overlayGroup);
+              try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
+            }
           }
-          if(parts.length>1){
-            const p = add('path',{
-              d:parts.join(' '),
-              fill:'none',
-              stroke:strokeColor,
-              'stroke-width':strokeWidth,
-              'stroke-opacity': Number.isFinite(Number(fit.alpha)) ? fit.alpha : 1,
-              'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
-              'stroke-linejoin':'round',
-              'stroke-linecap':'round',
-              'data-dist':fit.key || fit.label,
-              'data-overlay-type':'pdf',
-              'pointer-events':'stroke',
-              'class':'hist-overlay hist-overlay--pdf'
-            });
-            try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
+          if(includeCdf && typeof fit.cdf === 'function'){
+            const parts=[];
+            for(let step=0;step<sampleSteps;step++){
+              const t=sampleSteps===1?0:step/(sampleSteps-1);
+              const x=xScale.min+(xScale.max-xScale.min)*t;
+              const cumulative=clampUnit(fit.cdf(x));
+              const expected = cumulative*entry.values.length;
+              const yDomain=toDomainY(expected);
+              parts.push(`${parts.length===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
+            }
+            if(parts.length>1){
+              const p = add('path',{
+                d:parts.join(' '),
+                fill:'none',
+                stroke:strokeColor,
+                'stroke-width':strokeWidth,
+                'stroke-opacity': strokeOpacity,
+                'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
+                'stroke-linejoin':'round',
+                'stroke-linecap':'round',
+                'data-dist':fit.key || fit.label,
+                'data-overlay-type':'cdf',
+                'data-series-key': entry.key,
+                'data-series': entry.label,
+                'pointer-events':'stroke',
+                'class':'hist-overlay hist-overlay--cdf'
+              }, overlayGroup);
+              try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
+            }
           }
-        }
-        if(includeCdf && typeof fit.cdf === 'function'){
-          const parts=[];
-          for(let step=0;step<sampleSteps;step++){
-            const t=sampleSteps===1?0:step/(sampleSteps-1);
-            const x=xScale.min+(xScale.max-xScale.min)*t;
-            const cumulative=clampUnit(fit.cdf(x));
-            const expected = densityMode ? cumulative : cumulative*sampleCount;
-            const yDomain=toDomainY(expected);
-            parts.push(`${step===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
-          }
-          if(parts.length>1){
-            const p = add('path',{
-              d:parts.join(' '),
-              fill:'none',
-              stroke:strokeColor,
-              'stroke-width':strokeWidth,
-              'stroke-opacity': Number.isFinite(Number(fit.alpha)) ? fit.alpha : 1,
-              'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
-              'stroke-linejoin':'round',
-              'stroke-linecap':'round',
-              'data-dist':fit.key || fit.label,
-              'data-overlay-type':'cdf',
-              'pointer-events':'stroke',
-              'class':'hist-overlay hist-overlay--cdf'
-            });
-            try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
-          }
-        }
+        });
       });
       if(!overlayGroup.hasChildNodes()){
         svg.removeChild(overlayGroup);
       }
     }
     const xAxisBase=margin.top+plotH;
-    const defaultXLabelX = margin.left+plotW/2;
-    const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
-    const xLabelPos = state.labelPositions?.xLabel;
-    
-    // Convert relative positions to absolute if needed for xLabel
-    let absoluteXLabelX = defaultXLabelX;
-    let absoluteXLabelY = defaultXLabelY;
-    if (xLabelPos) {
-      if (xLabelPos.relX !== undefined && xLabelPos.relY !== undefined) {
-        // Use relative positioning
-        absoluteXLabelX = margin.left + xLabelPos.relX * plotW;
-        absoluteXLabelY = xAxisBase + xLabelPos.relY * (plotH + margin.top);
-      } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
-        absoluteXLabelX = xLabelPos.x;
-        absoluteXLabelY = xLabelPos.y;
+    const resolveLabelPosition = (saved, defaults, spanX, spanY) => {
+      if(saved?.relX !== undefined && saved?.relY !== undefined){
+        return { x: defaults.originX + saved.relX * spanX, y: defaults.originY + saved.relY * spanY };
       }
-    }
-    
-    const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
-    xText.textContent=state.xLabelText;
-    markFontEditable(xText,'xTitle','xTitle');
-    const applyHistXLabel=value=>{
-      const nextValue=value!=null?String(value):'';
-      state.xLabelText=nextValue;
-      if(xText.textContent!==nextValue){
-        xText.textContent=nextValue;
+      if(saved?.x !== undefined && saved?.y !== undefined){
+        return { x: saved.x, y: saved.y };
       }
-      if(typeof state.scheduleDraw==='function'){
-        state.scheduleDraw();
-      }
+      return { x: defaults.x, y: defaults.y };
     };
+    const storedXLabel = String(state.xLabelText == null ? '' : state.xLabelText).trim();
+    const renderedXLabel = storedXLabel
+      ? (storedXLabel === 'Value' && seriesEntries.length === 1 ? seriesEntries[0].label : storedXLabel)
+      : (seriesEntries.length === 1 ? seriesEntries[0].label : 'Value');
+    const xLabelPos = resolveLabelPosition(state.labelPositions?.xLabel, { x: margin.left+plotW/2, y: xAxisBase+bottomLayout.titleOffset, originX: margin.left, originY: xAxisBase }, plotW, plotH + margin.top);
+    const xText=add('text',{x: xLabelPos.x, y: xLabelPos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    xText.textContent=renderedXLabel;
+    markFontEditable(xText,'xTitle','xTitle');
+    const applyHistXLabel=value=>{ state.xLabelText = value != null ? String(value) : ''; state.scheduleDraw?.(); };
     if(global.makeEditable){
       makeEditable(xText,txt=>{
-        console.log('HIST X-AXIS EDIT HANDLER CALLED!');
-        
         const previous=state.xLabelText!=null?String(state.xLabelText):'';
         const nextValue=txt!=null?String(txt):'';
-        
-        console.log('HIST X-AXIS EDIT - Previous:', previous, 'Next:', nextValue);
-        
         if(previous===nextValue){
-          console.log('HIST X-AXIS EDIT - No change, returning');
           return;
         }
-        
-        // Create a combined apply function that updates both visual and table header
-        const applyBoth = (value) => {
-          console.log('HIST applyBoth called with value:', value);
-          
-          // Update visual title
-          applyHistXLabel(value);
-          console.log('HIST applyBoth - Visual title updated to:', value);
-          
-          // Also update the table header to maintain consistency
-          const hot = state.hot;
-          console.log('HIST applyBoth - HOT instance:', hot);
-          
-          if(hot && typeof hot.setDataAtCell === 'function'){
-            try {
-              const data = hot.getData() || [];
-              console.log('HIST applyBoth - Table data:', data);
-              
-              if(Array.isArray(data) && data.length > 0) {
-                const headerRow = Array.isArray(data[0]) ? data[0] : [];
-                console.log('HIST applyBoth - Header row:', headerRow);
-                
-                if(headerRow.length > 0) {
-                  console.log('HIST applyBoth - Current header[0]:', headerRow[0], 'New value:', value);
-                  
-                  // For histogram, the data is in column 0, so header is at [0][0]
-                  if(headerRow[0] !== value) {
-                    console.log('HIST applyBoth - Updating table header...');
-                    
-                    // Try multiple approaches to ensure the update works
-                    let updateSuccessful = false;
-                    
-                    // Approach 1: setDataAtCell (primary method)
-                    try {
-                      const result = hot.setDataAtCell([0, 0, value], 'hist-x-axis-edit');
-                      console.log('HIST applyBoth - setDataAtCell result:', result);
-                      
-                      // Verify the update
-                      const verifyData1 = hot.getData() || [];
-                      const verifyHeader1 = Array.isArray(verifyData1[0]) ? verifyData1[0] : [];
-                      if(verifyHeader1[0] === value) {
-                        updateSuccessful = true;
-                        console.log('HIST applyBoth - SUCCESS with setDataAtCell');
-                      }
-                    } catch(err) {
-                      console.log('HIST applyBoth - setDataAtCell failed:', err.message);
-                    }
-                    
-                    // Approach 2: Direct data manipulation (fallback)
-                    if(!updateSuccessful) {
-                      try {
-                        const currentData = hot.getData() || [];
-                        const newData = JSON.parse(JSON.stringify(currentData));
-                        
-                        if(Array.isArray(newData[0]) && newData[0].length > 0) {
-                          newData[0][0] = value;
-                          
-                          // Try different update methods
-                          if(typeof hot.setData === 'function') {
-                            hot.setData(newData);
-                            console.log('HIST applyBoth - Used setData method');
-                          } else if(typeof hot.updateSettings === 'function') {
-                            hot.updateSettings({ data: newData });
-                            console.log('HIST applyBoth - Used updateSettings method');
-                          } else if(typeof hot.gridApi?.setRowData === 'function') {
-                            hot.gridApi.setRowData(newData);
-                            console.log('HIST applyBoth - Used gridApi.setRowData method');
-                          } else {
-                            console.warn('HIST applyBoth - No suitable update method found');
-                          }
-                          
-                          // Verify the update
-                          const verifyData2 = hot.getData() || [];
-                          const verifyHeader2 = Array.isArray(verifyData2[0]) ? verifyData2[0] : [];
-                          if(verifyHeader2[0] === value) {
-                            updateSuccessful = true;
-                            console.log('HIST applyBoth - SUCCESS with direct manipulation');
-                          }
-                        }
-                      } catch(err) {
-                        console.error('HIST applyBoth - Direct manipulation failed:', err);
-                      }
-                    }
-                    
-                    if(!updateSuccessful) {
-                      console.error('HIST applyBoth - FAILED: All update methods failed');
-                    }
-                  } else {
-                    console.log('HIST applyBoth - Header already matches, no update needed');
-                  }
-                } else {
-                  console.error('HIST applyBoth - Header row is empty');
-                }
-              } else {
-                console.error('HIST applyBoth - No table data available');
-              }
-            } catch(err) {
-              console.error('HIST applyBoth - Failed to update histogram x-axis header:', err);
-            }
-          } else {
-            console.error('HIST applyBoth - HOT instance or setDataAtCell not available');
-          }
-          
-          // Force a redraw to ensure consistency
-          if(typeof state.scheduleDraw === 'function'){
-            console.log('HIST applyBoth - Scheduling redraw');
-            state.scheduleDraw();
-          } else {
-            console.warn('HIST applyBoth - scheduleDraw not available');
-          }
-          
-          console.log('HIST applyBoth - Completed');
-          return true;
-        };
-        
-        console.log('HIST X-AXIS EDIT - Calling applyBoth with:', nextValue);
-        applyBoth(nextValue);
-        
-        console.log('HIST X-AXIS EDIT - Recording change for undo');
-        recordHistChange('hist:x-label',previous,nextValue,applyBoth);
-        
-        console.log('HIST X-AXIS EDIT - Completed');
+        applyHistXLabel(nextValue);
+        if(seriesEntries.length === 1 && state.hot?.setDataAtCell){
+          try{ state.hot.setDataAtCell([0, seriesEntries[0].colIndex, nextValue], 'hist-x-axis-edit'); }catch(err){ console.error('hist x label header sync failed', err); }
+        }
+        recordHistChange('hist:x-label',previous,nextValue,applyHistXLabel);
       });
     }
-    // Enable drag for x-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions for xLabel
-          const relX = (pos.x - margin.left) / plotW;
-          const relY = (pos.y - xAxisBase) / (plotH + margin.top);
-          state.labelPositions.xLabel = { 
-            x: pos.x, 
+          state.labelPositions.xLabel = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: (pos.x - margin.left) / Math.max(plotW, 1),
+            relY: (pos.y - xAxisBase) / Math.max(plotH + margin.top, 1)
           };
-          console.debug('Debug: hist x-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
     const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-    const yX = margin.left - yLabelOffsetSpan;
-    const defaultYLabelX = yX;
-    const defaultYLabelY = margin.top+plotH/2;
-    const yLabelPos = state.labelPositions?.yLabel;
-    
-    // Convert relative positions to absolute if needed for yLabel
-    let absoluteYTextX = defaultYLabelX;
-    let absoluteYTextY = defaultYLabelY;
-    if (yLabelPos) {
-      if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
-        // Use relative positioning
-        absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
-        absoluteYTextY = margin.top + yLabelPos.relY * plotH;
-      } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
-        absoluteYTextX = yLabelPos.x;
-        absoluteYTextY = yLabelPos.y;
-      }
-    }
-    
-    const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,'dominant-baseline':'middle',transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    const yLabelPos = resolveLabelPosition(state.labelPositions?.yLabel, { x: margin.left - yLabelOffsetSpan, y: margin.top+plotH/2, originX: margin.left, originY: margin.top }, yLabelOffsetSpan, plotH);
+    const yText=add('text',{x:yLabelPos.x,y:yLabelPos.y,'dominant-baseline':'middle',transform:`rotate(-90 ${yLabelPos.x} ${yLabelPos.y})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     yText.textContent=state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
     const applyHistYLabel=value=>{
       const nextValue=value!=null?String(value):'';
       state.yLabelText=nextValue;
       state.yLabelAuto = nextValue === getHistDefaultYLabel(state.plotMode);
-      if(yText.textContent!==nextValue){
-        yText.textContent=nextValue;
-      }
-      if(typeof state.scheduleDraw==='function'){
-        state.scheduleDraw();
-      }
+      state.scheduleDraw?.();
     };
     if(global.makeEditable){
       makeEditable(yText,txt=>{
@@ -3458,55 +3598,27 @@
         recordHistChange('hist:y-label',previous,nextValue,applyHistYLabel);
       });
     }
-    // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions for yLabel
-          const relX = (pos.x - margin.left) / yLabelOffsetSpan;
-          const relY = (pos.y - margin.top) / plotH;
-          state.labelPositions.yLabel = { 
-            x: pos.x, 
+          state.labelPositions.yLabel = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: (pos.x - margin.left) / Math.max(yLabelOffsetSpan, 1),
+            relY: (pos.y - margin.top) / Math.max(plotH, 1)
           };
-          console.debug('Debug: hist y-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
-    const defaultTitleX = margin.left+plotW/2;
-    const defaultTitleY = margin.top/2;
-    const titlePos = state.labelPositions?.title;
-    
-    // Convert relative positions to absolute if needed
-    let absoluteTitleX = defaultTitleX;
-    let absoluteTitleY = defaultTitleY;
-    if (titlePos) {
-      if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
-        // Use relative positioning
-        absoluteTitleX = margin.left + titlePos.relX * plotW;
-        absoluteTitleY = margin.top + titlePos.relY * plotH;
-      } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
-        absoluteTitleX = titlePos.x;
-        absoluteTitleY = titlePos.y;
-      }
-    }
-    
-    const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    const titlePos = resolveLabelPosition(state.labelPositions?.title, { x: margin.left+plotW/2, y: margin.top/2, originX: margin.left, originY: margin.top }, plotW, plotH);
+    const titleText=add('text',{x: titlePos.x, y: titlePos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     titleText.textContent=state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
     const applyHistTitle=value=>{
       const nextValue=value!=null?String(value):'';
       state.titleText=nextValue;
       state.titleAuto = nextValue === getHistDefaultTitle(state.plotMode);
-      if(titleText.textContent!==nextValue){
-        titleText.textContent=nextValue;
-      }
-      if(typeof state.scheduleDraw==='function'){
-        state.scheduleDraw();
-      }
+      state.scheduleDraw?.();
     };
     if(global.makeEditable){
       makeEditable(titleText,txt=>{
@@ -3519,35 +3631,60 @@
         recordHistChange('hist:title',previous,nextValue,applyHistTitle);
       });
     }
-    // Enable drag for title
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions
-          const relX = (pos.x - margin.left) / plotW;
-          const relY = (pos.y - margin.top) / plotH;
-          state.labelPositions.title = { 
-            x: pos.x, 
+          state.labelPositions.title = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: (pos.x - margin.left) / Math.max(plotW, 1),
+            relY: (pos.y - margin.top) / Math.max(plotH, 1)
           };
-          console.debug('Debug: hist title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
+    }
+    if(legendVisible && legendRenderer.entries.length){
+      const plotRight = margin.left + plotW;
+      const legendPos = state.labelPositions?.legend;
+      const resolvedLegendPos = legendPos?.relX !== undefined && legendPos?.relY !== undefined
+        ? { x: plotRight + legendPos.relX * Math.max(legendGapPx, 1), y: margin.top + legendPos.relY * plotH }
+        : (legendPos?.x !== undefined && legendPos?.y !== undefined ? { x: legendPos.x, y: legendPos.y } : { x: plotRight + legendGapPx, y: margin.top });
+      const legendGroup = legendRenderer.draw(svg, resolvedLegendPos);
+      if(legendGroup){
+        legendGroup.querySelectorAll('[data-legend-key]').forEach(node => {
+          const key = String(node.dataset.legendKey || '').trim();
+          if(key && String(node.tagName || '').toLowerCase() !== 'text'){
+            node.setAttribute('data-series-key', key);
+            node.setAttribute('data-series-role', 'legend-swatch');
+          }
+        });
+        Array.from(legendGroup.querySelectorAll('text')).forEach((node, index) => markFontEditable(node, 'legend', `legend-${index}`));
+        Shared.enableLegendDrag?.(legendGroup, svg, {
+          onDragEnd: pos => {
+            state.labelPositions.legend = {
+              x: pos.x,
+              y: pos.y,
+              relX: (pos.x - plotRight) / Math.max(legendGapPx, 1),
+              relY: (pos.y - margin.top) / Math.max(plotH, 1)
+            };
+          }
+        });
+      }
     }
     registerHistGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
-    // Update stats panel
-    const distributionSummaries = [];
-    if(distributionFits.length){
-      distributionFits.forEach(fit=>{
+    updateHistStats(fitSets.map((entry, seriesIndex) => ({
+      key: entry.key,
+      colIndex: entry.colIndex,
+      label: entry.label,
+      values: entry.values,
+      distributionSummaries: entry.fits.map(fit => {
         let gof=null;
         if(fit && fit.valid !== false && typeof statsHelpers.goodnessOfFit === 'function'){
           try{
-            gof = statsHelpers.goodnessOfFit(values, {
+            gof = statsHelpers.goodnessOfFit(entry.values, {
               distribution: fit.key,
               fit,
               params: fit.params,
@@ -3556,14 +3693,13 @@
               alpha
             });
           }catch(err){
-            console.error('hist goodnessOfFit error',{ key: fit?.key, message: err?.message });
+            console.error('hist goodnessOfFit error',{ key: fit?.key, message: err?.message, series: entry.label });
           }
         }
-        distributionSummaries.push({ fit, gof, color: fit?.color });
-      });
-    }
-    updateHistStats(values, distributionSummaries);
-    console.debug('Debug: drawHistogram complete');
+        return { fit, gof, color: seriesEntries.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color };
+      })
+    })));
+    console.debug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
   }
 
   // Public API
