@@ -779,7 +779,7 @@
       ? Shared.createShapeColorSwatch({
           document: doc,
           label: fillCfg.label || 'Fill/Shape',
-          color: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#377eb8',
+          color: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#0000ff',
           shape: typeof fillCfg.getShape === 'function' ? fillCfg.getShape(getContext()) : 'circle',
           shapeOptions: resolveShapeOptions(fillCfg.shapeOptions),
           showShapePicker: shapePickerEnabled,
@@ -834,7 +834,7 @@
     const fillControlElement = fillShapeSwatch?.element || (() => {
       const fallback = doc.createElement('input');
       fallback.type = 'color';
-      fallback.value = typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#377eb8';
+      fallback.value = typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#0000ff';
       fallback.setAttribute('data-undo-ignore', '1');
       fallback.addEventListener('input', () => {
         const context = getContext();

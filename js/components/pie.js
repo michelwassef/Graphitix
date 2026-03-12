@@ -498,10 +498,10 @@
       // Some sections define DEFAULT_SCATTER_COLORS as a global lexical binding
       // eslint-disable-next-line no-undef
       const palFromLexical = (typeof DEFAULT_SCATTER_COLORS !== 'undefined' && Array.isArray(DEFAULT_SCATTER_COLORS)) ? DEFAULT_SCATTER_COLORS : undefined;
-      const palette = palFromGlobal || palFromLexical || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+      const palette = palFromGlobal || palFromLexical || ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
       return palette;
     }catch(_e){
-      return ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+      return ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
     }
   }
 

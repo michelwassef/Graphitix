@@ -201,6 +201,19 @@
   });
   const PCA_FAST_POINT_THRESHOLD = 20000;
   const PCA_LOADINGS_ROW_LIMIT = 100;
+  const PCA_DEFAULT_COMPONENT_SELECTION_RULE = 'parallel';
+  const PCA_DEFAULT_EIGEN_THRESHOLD = 1;
+  const PCA_DEFAULT_PARALLEL_ITERATIONS = 200;
+  const PCA_MAX_PARALLEL_ITERATIONS = 500;
+  const PCA_PARALLEL_MAX_CELLS = 40000;
+  const PCA_BIPLOT_POINT_LIMIT = 120;
+  const PCA_BIPLOT_VECTOR_LIMIT = 8;
+  const PCA_COMPONENT_SELECTION_RULES = Object.freeze([
+    { value: 'parallel', label: 'Parallel analysis' },
+    { value: 'kaiser', label: 'Kaiser > 1' },
+    { value: 'threshold', label: 'Eigenvalue threshold' },
+    { value: 'all', label: 'Show all components' }
+  ]);
   const PCA_SVD_WORKER = {
     url: 'js/workers/pca.worker.js',
     minSamples: 50,
@@ -3819,10 +3832,15 @@
     axisSettings: createDefaultAxisSettings(),
     gridStyle: null,
       tableFormat: 'standard',
-      grouped: {
+    grouped: {
       replicatesPerGroup: 2,
       colors: [],
       shapes: []
+    },
+    componentSelection: {
+      rule: PCA_DEFAULT_COMPONENT_SELECTION_RULE,
+      eigenThreshold: PCA_DEFAULT_EIGEN_THRESHOLD,
+      parallelIterations: PCA_DEFAULT_PARALLEL_ITERATIONS
     },
     loadingsLimit: PCA_LOADINGS_ROW_LIMIT,
     labels: { title: getDefaultTitleForMethod('pca') },
@@ -3922,6 +3940,232 @@
       console.error('pca cloneSimple error', err);
       return null;
     }
+  }
+
+  function sanitizePcaComponentSelectionRule(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return PCA_COMPONENT_SELECTION_RULES.some(entry => entry.value === normalized)
+      ? normalized
+      : PCA_DEFAULT_COMPONENT_SELECTION_RULE;
+  }
+
+  function sanitizePcaEigenThreshold(value, fallback = PCA_DEFAULT_EIGEN_THRESHOLD){
+    const numeric = Number(value);
+    if(Number.isFinite(numeric) && numeric > 0 && numeric <= 100){
+      return numeric;
+    }
+    return fallback;
+  }
+
+  function sanitizePcaParallelIterations(value, fallback = PCA_DEFAULT_PARALLEL_ITERATIONS){
+    const numeric = Math.round(Number(value));
+    if(Number.isFinite(numeric) && numeric >= 25 && numeric <= PCA_MAX_PARALLEL_ITERATIONS){
+      return numeric;
+    }
+    return fallback;
+  }
+
+  function getPcaComponentSelectionRuleLabel(value){
+    const normalized = sanitizePcaComponentSelectionRule(value);
+    const match = PCA_COMPONENT_SELECTION_RULES.find(entry => entry.value === normalized);
+    return match?.label || 'Parallel analysis';
+  }
+
+  function createPcaSeededRandom(seed){
+    let stateValue = (Number(seed) || 1) >>> 0;
+    return function nextRandom(){
+      stateValue = (stateValue * 1664525 + 1013904223) >>> 0;
+      return stateValue / 4294967296;
+    };
+  }
+
+  function shufflePcaArray(values, random){
+    const list = Array.isArray(values) ? values.slice() : [];
+    const nextRandom = typeof random === 'function' ? random : Math.random;
+    for(let idx = list.length - 1; idx > 0; idx -= 1){
+      const swapIndex = Math.floor(nextRandom() * (idx + 1));
+      const temp = list[idx];
+      list[idx] = list[swapIndex];
+      list[swapIndex] = temp;
+    }
+    return list;
+  }
+
+  function quantileFromSortedPca(sortedValues, probability){
+    const list = Array.isArray(sortedValues) ? sortedValues : [];
+    if(!list.length){
+      return NaN;
+    }
+    if(list.length === 1){
+      return Number(list[0]) || 0;
+    }
+    const bounded = Math.min(1, Math.max(0, Number(probability) || 0));
+    const position = (list.length - 1) * bounded;
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.min(list.length - 1, lowerIndex + 1);
+    const remainder = position - lowerIndex;
+    const lowerValue = Number(list[lowerIndex]) || 0;
+    const upperValue = Number(list[upperIndex]) || 0;
+    return lowerValue + (upperValue - lowerValue) * remainder;
+  }
+
+  function transposePcaMatrix(matrix){
+    const rows = Array.isArray(matrix) ? matrix.length : 0;
+    const cols = rows > 0 && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    const transposed = Array.from({ length: cols }, () => new Array(rows));
+    for(let rowIdx = 0; rowIdx < rows; rowIdx += 1){
+      const row = Array.isArray(matrix[rowIdx]) ? matrix[rowIdx] : [];
+      for(let colIdx = 0; colIdx < cols; colIdx += 1){
+        transposed[colIdx][rowIdx] = row[colIdx];
+      }
+    }
+    return transposed;
+  }
+
+  function computePcaParallelAnalysis(matrix, svdLib, options = {}){
+    const rows = Array.isArray(matrix) ? matrix.length : 0;
+    const cols = rows > 0 && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    if(rows < 3 || cols < 2 || !svdLib || typeof svdLib.SVD !== 'function'){
+      return null;
+    }
+    if((rows * cols) > PCA_PARALLEL_MAX_CELLS){
+      return {
+        iterations: 0,
+        averageEigenvalues: [],
+        percentile95Eigenvalues: [],
+        skipped: true,
+        reason: 'Skipped for large matrices to keep PCA updates responsive.'
+      };
+    }
+    const componentCount = Math.max(1, Math.min(rows, cols));
+    const iterationCount = sanitizePcaParallelIterations(options.iterations, PCA_DEFAULT_PARALLEL_ITERATIONS);
+    const seedBase = (rows * 73856093) ^ (cols * 19349663) ^ (iterationCount * 83492791);
+    const random = createPcaSeededRandom(seedBase);
+    const useTransposed = rows < cols;
+    const columns = Array.from({ length: cols }, (_, colIdx) =>
+      Array.from({ length: rows }, (_, rowIdx) => Number(matrix?.[rowIdx]?.[colIdx]) || 0)
+    );
+    const averages = new Array(componentCount).fill(0);
+    const percentileBuffers = Array.from({ length: componentCount }, () => []);
+    for(let iter = 0; iter < iterationCount; iter += 1){
+      const permuted = Array.from({ length: rows }, () => Array(cols).fill(0));
+      for(let colIdx = 0; colIdx < cols; colIdx += 1){
+        const shuffled = shufflePcaArray(columns[colIdx], random);
+        for(let rowIdx = 0; rowIdx < rows; rowIdx += 1){
+          permuted[rowIdx][colIdx] = shuffled[rowIdx];
+        }
+      }
+      const matrixForSvd = useTransposed ? transposePcaMatrix(permuted) : permuted;
+      const svd = svdLib.SVD(matrixForSvd);
+      const singularValues = (Array.isArray(svd?.q) ? svd.q : [])
+        .map(value => Number(value) || 0)
+        .sort((a, b) => b - a);
+      for(let componentIdx = 0; componentIdx < componentCount; componentIdx += 1){
+        const singularValue = singularValues[componentIdx] || 0;
+        const eigenvalue = (singularValue * singularValue) / Math.max(rows - 1, 1);
+        averages[componentIdx] += eigenvalue;
+        percentileBuffers[componentIdx].push(eigenvalue);
+      }
+    }
+    const averageEigenvalues = averages.map(value => value / Math.max(iterationCount, 1));
+    const percentile95Eigenvalues = percentileBuffers.map(values => {
+      const sorted = values.slice().sort((a, b) => a - b);
+      return quantileFromSortedPca(sorted, 0.95);
+    });
+    return {
+      iterations: iterationCount,
+      averageEigenvalues,
+      percentile95Eigenvalues
+    };
+  }
+
+  function computePcaComponentSelectionSummary(eigenSummary, matrix, svdLib, options = {}){
+    const entries = Array.isArray(eigenSummary) ? eigenSummary : [];
+    if(!entries.length){
+      return null;
+    }
+    const rule = sanitizePcaComponentSelectionRule(options.rule);
+    const threshold = sanitizePcaEigenThreshold(options.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD);
+    const parallel = computePcaParallelAnalysis(matrix, svdLib, {
+      iterations: options.parallelIterations
+    });
+    const kaiserCount = entries.filter(entry => Number(entry?.eigenvalue) >= 1).length;
+    const thresholdCount = entries.filter(entry => Number(entry?.eigenvalue) >= threshold).length;
+    const parallelAvailable = !!(parallel && Array.isArray(parallel.percentile95Eigenvalues) && parallel.percentile95Eigenvalues.length);
+    const parallelCount = parallelAvailable
+      ? entries.filter((entry, idx) => Number(entry?.eigenvalue) > (parallel.percentile95Eigenvalues[idx] || 0)).length
+      : 0;
+    const ruleLabel = rule === 'parallel' && !parallelAvailable
+      ? 'Parallel analysis (Kaiser fallback)'
+      : getPcaComponentSelectionRuleLabel(rule);
+    const retainedCount = rule === 'kaiser'
+      ? kaiserCount
+      : rule === 'threshold'
+        ? thresholdCount
+        : rule === 'all'
+          ? entries.length
+          : (parallelAvailable ? parallelCount : kaiserCount);
+    return {
+      rule,
+      ruleLabel,
+      retainedCount,
+      threshold,
+      kaiserCount,
+      thresholdCount,
+      parallelCount,
+      parallelIterations: parallel?.iterations || null,
+      parallelAnalysis: parallel,
+      rows: [
+        {
+          criterion: 'Selected rule',
+          threshold: rule === 'threshold' ? `Eigenvalue >= ${threshold.toFixed(2)}` : '—',
+          retained: String(retainedCount),
+          detail: ruleLabel
+        },
+        {
+          criterion: 'Kaiser',
+          threshold: 'Eigenvalue > 1',
+          retained: String(kaiserCount),
+          detail: 'Counts components above the classical Kaiser cutoff.'
+        },
+        {
+          criterion: 'Parallel analysis',
+          threshold: parallelAvailable ? 'Observed > random 95th percentile' : 'Unavailable',
+          retained: parallelAvailable ? String(parallelCount) : '—',
+          detail: parallelAvailable
+            ? `${parallel.iterations} permutations`
+            : (parallel?.reason || 'Requires PCA eigenvalues and SVD support.')
+        },
+        {
+          criterion: 'Custom threshold',
+          threshold: `Eigenvalue >= ${threshold.toFixed(2)}`,
+          retained: String(thresholdCount),
+          detail: 'User-defined eigenvalue cutoff.'
+        }
+      ]
+    };
+  }
+
+  function buildPcaBiplotSnapshot(points, loadingsRows, axisLabels = {}){
+    const pointList = Array.isArray(points) ? points.slice(0, PCA_BIPLOT_POINT_LIMIT) : [];
+    const vectors = (Array.isArray(loadingsRows) ? loadingsRows : [])
+      .slice(0, PCA_BIPLOT_VECTOR_LIMIT)
+      .map(row => ({
+        label: row?.label || 'Variable',
+        x: Number(row?.values?.[0]) || 0,
+        y: Number(row?.values?.[1]) || 0
+      }))
+      .filter(vector => Number.isFinite(vector.x) && Number.isFinite(vector.y));
+    return {
+      points: pointList.map(point => ({
+        x: Number(point?.x) || 0,
+        y: Number(point?.y) || 0,
+        label: point?.label || ''
+      })),
+      vectors,
+      xLabel: axisLabels.x || 'PC1',
+      yLabel: axisLabels.y || 'PC2'
+    };
   }
 
   function nowMs(){
@@ -5063,6 +5307,7 @@
         }
         const rendered = renderPcaSharedStatsTable(pcaLoadingsTable, {
           target: pcaLoadingsTable,
+          advanced: true,
           columns,
           rows: tableRows,
           caption: 'Component Loadings',
@@ -5159,6 +5404,110 @@
       const pcaUmapLearningRate=document.getElementById('pcaUmapLearningRate');
       const pcaUmapEpochs=document.getElementById('pcaUmapEpochs');
       const pcaAlphaVal=$('#pcaAlphaVal');
+      let pcaComponentRuleInput = null;
+      let pcaEigenThresholdInput = null;
+      let pcaParallelIterationsInput = null;
+      function syncPcaComponentSelectionUi(){
+        if(pcaComponentRuleInput){
+          pcaComponentRuleInput.value = sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule);
+        }
+        if(pcaEigenThresholdInput){
+          const threshold = sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD);
+          pcaEigenThresholdInput.value = String(threshold);
+          pcaEigenThresholdInput.disabled = sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule) !== 'threshold' || (pcaMethod?.value || 'pca').toLowerCase() !== 'pca';
+        }
+        if(pcaParallelIterationsInput){
+          const iterations = sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS);
+          pcaParallelIterationsInput.value = String(iterations);
+          pcaParallelIterationsInput.disabled = (pcaMethod?.value || 'pca').toLowerCase() !== 'pca';
+        }
+      }
+      function ensurePcaComponentSelectionControls(){
+        const configPanel = document.querySelector('#pcaPage .config-panel');
+        const dataFieldset = document.querySelector('#pcaPage .config-panel fieldset:nth-of-type(3)');
+        if(!configPanel || !dataFieldset){
+          return null;
+        }
+        let fieldset = document.getElementById('pcaComponentSelectionFieldset');
+        if(!fieldset){
+          fieldset = document.createElement('fieldset');
+          fieldset.id = 'pcaComponentSelectionFieldset';
+          const legend = document.createElement('legend');
+          legend.textContent = 'Component Selection';
+          fieldset.appendChild(legend);
+          const controlRow = document.createElement('div');
+          controlRow.className = 'control idx-inline-041';
+          const ruleLabel = document.createElement('label');
+          ruleLabel.className = 'idx-inline-023';
+          ruleLabel.textContent = 'Retention rule';
+          const ruleSelect = document.createElement('select');
+          ruleSelect.id = 'pcaComponentRule';
+          PCA_COMPONENT_SELECTION_RULES.forEach(entry => {
+            const option = document.createElement('option');
+            option.value = entry.value;
+            option.textContent = entry.label;
+            ruleSelect.appendChild(option);
+          });
+          ruleLabel.appendChild(ruleSelect);
+          const thresholdLabel = document.createElement('label');
+          thresholdLabel.className = 'idx-inline-023';
+          thresholdLabel.textContent = 'Eigenvalue cutoff';
+          const thresholdInput = document.createElement('input');
+          thresholdInput.type = 'number';
+          thresholdInput.id = 'pcaEigenThreshold';
+          thresholdInput.min = '0.1';
+          thresholdInput.max = '100';
+          thresholdInput.step = '0.1';
+          thresholdLabel.appendChild(thresholdInput);
+          const iterationsLabel = document.createElement('label');
+          iterationsLabel.className = 'idx-inline-023';
+          iterationsLabel.textContent = 'Parallel runs';
+          const iterationsInput = document.createElement('input');
+          iterationsInput.type = 'number';
+          iterationsInput.id = 'pcaParallelIterations';
+          iterationsInput.min = '25';
+          iterationsInput.max = String(PCA_MAX_PARALLEL_ITERATIONS);
+          iterationsInput.step = '25';
+          iterationsLabel.appendChild(iterationsInput);
+          controlRow.appendChild(ruleLabel);
+          controlRow.appendChild(thresholdLabel);
+          controlRow.appendChild(iterationsLabel);
+          const help = document.createElement('div');
+          help.className = 'stats-help-text';
+          help.id = 'pcaComponentSelectionHelp';
+          help.textContent = 'Parallel analysis, Kaiser, and custom eigenvalue thresholds are reported for PCA results and drive the retained-component summary.';
+          fieldset.appendChild(controlRow);
+          fieldset.appendChild(help);
+          dataFieldset.insertAdjacentElement('afterend', fieldset);
+          pcaComponentRuleInput = ruleSelect;
+          pcaEigenThresholdInput = thresholdInput;
+          pcaParallelIterationsInput = iterationsInput;
+          attachPcaSelectAutoSize(ruleSelect, 'pca');
+          ruleSelect.addEventListener('change', () => {
+            pcaState.componentSelection.rule = sanitizePcaComponentSelectionRule(ruleSelect.value);
+            syncPcaComponentSelectionUi();
+            requestPcaDataRefresh('component-selection-rule');
+          });
+          thresholdInput.addEventListener('change', () => {
+            const nextValue = sanitizePcaEigenThreshold(thresholdInput.value, PCA_DEFAULT_EIGEN_THRESHOLD);
+            pcaState.componentSelection.eigenThreshold = nextValue;
+            syncPcaComponentSelectionUi();
+            requestPcaDataRefresh('component-selection-threshold');
+          });
+          iterationsInput.addEventListener('change', () => {
+            const nextValue = sanitizePcaParallelIterations(iterationsInput.value, PCA_DEFAULT_PARALLEL_ITERATIONS);
+            pcaState.componentSelection.parallelIterations = nextValue;
+            syncPcaComponentSelectionUi();
+            requestPcaDataRefresh('component-selection-parallel');
+          });
+        }else{
+          pcaComponentRuleInput = document.getElementById('pcaComponentRule');
+          pcaEigenThresholdInput = document.getElementById('pcaEigenThreshold');
+          pcaParallelIterationsInput = document.getElementById('pcaParallelIterations');
+        }
+        syncPcaComponentSelectionUi();
+        return fieldset;
+      }
       const pcaAutoSizeTargets=[
         pcaMethod,
         pcaViewMode,
@@ -5170,6 +5519,7 @@
       pcaAutoSizeTargets.filter(Boolean).forEach(select=>{
         attachPcaSelectAutoSize(select, 'pca');
       });
+      ensurePcaComponentSelectionControls();
       const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
       if(pcaFontSize?.dataset){
         pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
@@ -5257,6 +5607,7 @@
           }
         }
         applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
+        syncPcaComponentSelectionUi();
         syncPcaAspectControls('method-ui-state');
         debugLog('Debug: pca method UI state',{ method: methodName, supports3d });
       }
@@ -5396,6 +5747,11 @@
         if(!pcaStatsSummary){
           return;
         }
+        pcaStatsSummary?.setAttribute?.('data-stats-advanced', '0');
+        pcaScreeVarianceRow?.setAttribute?.('data-stats-advanced', '0');
+        pcaVarianceSummary?.setAttribute?.('data-stats-advanced', '0');
+        pcaEigenTableContainer?.setAttribute?.('data-stats-advanced', '0');
+        pcaLoadingsContainer?.setAttribute?.('data-stats-advanced', '1');
         const summaryLines = Array.isArray(options.summaryLines) ? options.summaryLines : [];
         const method = String(options.method || '').toLowerCase();
         const savedHtml = typeof options.savedHtml === 'string' ? options.savedHtml : null;
@@ -5429,7 +5785,8 @@
             resultsText: [
               summaryLines.length ? summaryLines.join(' ') : null,
               Number.isFinite(statsSnapshot.totalVariance) ? `Total explained variance = ${statsSnapshot.totalVariance.toFixed(2)}%.` : null,
-              Number.isFinite(statsSnapshot.stress) ? `Stress = ${statsSnapshot.stress.toFixed(4)}.` : null
+              Number.isFinite(statsSnapshot.stress) ? `Stress = ${statsSnapshot.stress.toFixed(4)}.` : null,
+              Number.isFinite(statsSnapshot.selectionSummary?.retainedCount) ? `${statsSnapshot.selectionSummary.ruleLabel || 'Selected rule'} retained ${statsSnapshot.selectionSummary.retainedCount} component${statsSnapshot.selectionSummary.retainedCount === 1 ? '' : 's'}.` : null
             ].filter(Boolean).join(' '),
             analysisSpec: {
               component: 'pca',
@@ -5437,9 +5794,236 @@
               dimensions: statsSnapshot.dimensions || null,
               totalVariance: Number.isFinite(statsSnapshot.totalVariance) ? statsSnapshot.totalVariance : null,
               stress: Number.isFinite(statsSnapshot.stress) ? statsSnapshot.stress : null,
-              eigenCount: Array.isArray(statsSnapshot.eigenSummary) ? statsSnapshot.eigenSummary.length : 0
+              eigenCount: Array.isArray(statsSnapshot.eigenSummary) ? statsSnapshot.eigenSummary.length : 0,
+              retainedComponents: Number.isFinite(statsSnapshot.selectionSummary?.retainedCount) ? statsSnapshot.selectionSummary.retainedCount : null,
+              componentSelectionRule: statsSnapshot.selectionSummary?.rule || null
             }
           }, { title: 'Reporting and reproducibility' });
+        }
+      }
+      function ensurePcaDynamicStatsCard(cardId, title, anchor){
+        const host = pcaStatsResults || pcaStatsSummary?.parentElement;
+        if(!host){
+          return { card: null, body: null };
+        }
+        let card = document.getElementById(cardId);
+        if(!card){
+          card = document.createElement('div');
+          card.id = cardId;
+          card.className = 'loadings-card';
+          card.hidden = true;
+          const heading = document.createElement('div');
+          heading.className = 'loadings-card__title';
+          heading.textContent = title;
+          const body = document.createElement('div');
+          body.className = 'loadings-card__table';
+          body.id = `${cardId}Body`;
+          card.appendChild(heading);
+          card.appendChild(body);
+          const anchorNode = anchor || pcaLoadingsContainer || null;
+          if(anchorNode && anchorNode.parentNode === host){
+            anchorNode.insertAdjacentElement('afterend', card);
+          }else{
+            host.appendChild(card);
+          }
+        }
+        return {
+          card,
+          body: document.getElementById(`${cardId}Body`)
+        };
+      }
+      function renderPcaComponentSelectionSummary(summary){
+        const { card, body } = ensurePcaDynamicStatsCard('pcaComponentSelectionSummaryCard', 'Component Selection', pcaStatsSummary || null);
+        if(!card || !body){
+          return;
+        }
+        card.setAttribute('data-stats-advanced', '0');
+        if(!summary || !Array.isArray(summary.rows) || !summary.rows.length){
+          card.hidden = true;
+          body.innerHTML = '';
+          return;
+        }
+        body.innerHTML = '';
+        const rendered = renderPcaSharedStatsTable(body, {
+          target: body,
+          advanced: false,
+          columns: [
+            { key: 'criterion', label: 'Criterion', align: 'left' },
+            { key: 'threshold', label: 'Threshold', align: 'left' },
+            { key: 'retained', label: 'Retained', align: 'right' },
+            { key: 'detail', label: 'Detail', align: 'left' }
+          ],
+          rows: summary.rows,
+          caption: 'Component retention summary',
+          options: {
+            fileName: 'pca-component-selection',
+            contextLabel: 'pca-component-selection'
+          }
+        });
+        if(!rendered){
+          let html = '<table class="stats-table"><thead><tr><th>Criterion</th><th>Threshold</th><th>Retained</th><th>Detail</th></tr></thead><tbody>';
+          summary.rows.forEach(row => {
+            html += `<tr><td>${row.criterion}</td><td>${row.threshold}</td><td>${row.retained}</td><td>${row.detail}</td></tr>`;
+          });
+          html += '</tbody></table>';
+          body.innerHTML = html;
+        }
+        card.hidden = false;
+      }
+      function createPcaMiniScatterSvg(config = {}){
+        const width = 360;
+        const height = 280;
+        const margin = { top: 18, right: 18, bottom: 42, left: 52 };
+        const plotWidth = width - margin.left - margin.right;
+        const plotHeight = height - margin.top - margin.bottom;
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', String(height));
+        chartStyle.applySvgDefaults(svg);
+        const pointList = Array.isArray(config.points) ? config.points : [];
+        const vectorList = Array.isArray(config.vectors) ? config.vectors : [];
+        const allX = [];
+        const allY = [];
+        pointList.forEach(point => {
+          allX.push(Number(point?.x) || 0);
+          allY.push(Number(point?.y) || 0);
+        });
+        vectorList.forEach(vector => {
+          allX.push(Number(vector?.x) || 0);
+          allY.push(Number(vector?.y) || 0);
+        });
+        const maxAbsX = Math.max(1e-6, ...allX.map(value => Math.abs(value)));
+        const maxAbsY = Math.max(1e-6, ...allY.map(value => Math.abs(value)));
+        const bound = Math.max(maxAbsX, maxAbsY) * 1.15;
+        const xScale = value => margin.left + ((Number(value) || 0) + bound) * (plotWidth / (bound * 2 || 1));
+        const yScale = value => margin.top + plotHeight - (((Number(value) || 0) + bound) * (plotHeight / (bound * 2 || 1)));
+        const axisColor = chartStyle.TEXT_COLOR || '#333333';
+        const zeroX = xScale(0);
+        const zeroY = yScale(0);
+        const xAxis = document.createElementNS(NS, 'line');
+        xAxis.setAttribute('x1', String(margin.left));
+        xAxis.setAttribute('x2', String(margin.left + plotWidth));
+        xAxis.setAttribute('y1', String(zeroY));
+        xAxis.setAttribute('y2', String(zeroY));
+        xAxis.setAttribute('stroke', axisColor);
+        xAxis.setAttribute('stroke-width', '1');
+        svg.appendChild(xAxis);
+        const yAxis = document.createElementNS(NS, 'line');
+        yAxis.setAttribute('x1', String(zeroX));
+        yAxis.setAttribute('x2', String(zeroX));
+        yAxis.setAttribute('y1', String(margin.top));
+        yAxis.setAttribute('y2', String(margin.top + plotHeight));
+        yAxis.setAttribute('stroke', axisColor);
+        yAxis.setAttribute('stroke-width', '1');
+        svg.appendChild(yAxis);
+        pointList.forEach((point, idx) => {
+          const circle = document.createElementNS(NS, 'circle');
+          circle.setAttribute('cx', String(xScale(point.x)));
+          circle.setAttribute('cy', String(yScale(point.y)));
+          circle.setAttribute('r', idx < 12 ? '3' : '2.5');
+          circle.setAttribute('fill', config.pointColor || '#0000ff');
+          circle.setAttribute('fill-opacity', config.pointOpacity != null ? String(config.pointOpacity) : '0.75');
+          svg.appendChild(circle);
+          if(idx < 10 && point?.label){
+            const label = document.createElementNS(NS, 'text');
+            label.setAttribute('x', String(xScale(point.x) + 4));
+            label.setAttribute('y', String(yScale(point.y) - 4));
+            label.setAttribute('font-size', '10');
+            label.setAttribute('fill', axisColor);
+            label.textContent = String(point.label);
+            svg.appendChild(label);
+          }
+        });
+        vectorList.forEach(vector => {
+          const line = document.createElementNS(NS, 'line');
+          const endX = xScale(vector.x);
+          const endY = yScale(vector.y);
+          line.setAttribute('x1', String(zeroX));
+          line.setAttribute('y1', String(zeroY));
+          line.setAttribute('x2', String(endX));
+          line.setAttribute('y2', String(endY));
+          line.setAttribute('stroke', config.vectorColor || '#c7301f');
+          line.setAttribute('stroke-width', '1.5');
+          svg.appendChild(line);
+          if(vector?.label){
+            const label = document.createElementNS(NS, 'text');
+            label.setAttribute('x', String(endX + 4));
+            label.setAttribute('y', String(endY - 4));
+            label.setAttribute('font-size', '10');
+            label.setAttribute('fill', config.vectorColor || '#c7301f');
+            label.textContent = String(vector.label);
+            svg.appendChild(label);
+          }
+        });
+        const xLabel = document.createElementNS(NS, 'text');
+        xLabel.setAttribute('x', String(margin.left + plotWidth / 2));
+        xLabel.setAttribute('y', String(height - 10));
+        xLabel.setAttribute('text-anchor', 'middle');
+        xLabel.setAttribute('font-size', '11');
+        xLabel.setAttribute('fill', axisColor);
+        xLabel.textContent = config.xLabel || 'PC1';
+        svg.appendChild(xLabel);
+        const yLabel = document.createElementNS(NS, 'text');
+        yLabel.setAttribute('x', '16');
+        yLabel.setAttribute('y', String(margin.top + plotHeight / 2));
+        yLabel.setAttribute('text-anchor', 'middle');
+        yLabel.setAttribute('font-size', '11');
+        yLabel.setAttribute('fill', axisColor);
+        yLabel.setAttribute('transform', `rotate(-90 16 ${margin.top + plotHeight / 2})`);
+        yLabel.textContent = config.yLabel || 'PC2';
+        svg.appendChild(yLabel);
+        return svg;
+      }
+      function renderPcaSupplementalPlots(options = {}){
+        const method = String(options.method || '').toLowerCase();
+        const { card: loadingsCard, body: loadingsBody } = ensurePcaDynamicStatsCard('pcaLoadingsPlotCard', 'Loadings Plot', pcaLoadingsContainer || null);
+        const { card: biplotCard, body: biplotBody } = ensurePcaDynamicStatsCard('pcaBiplotCard', 'Biplot', loadingsCard || pcaLoadingsContainer || null);
+        if(loadingsCard){
+          loadingsCard.setAttribute('data-stats-advanced', '1');
+        }
+        if(biplotCard){
+          biplotCard.setAttribute('data-stats-advanced', '0');
+        }
+        if(loadingsBody){
+          loadingsBody.innerHTML = '';
+        }
+        if(biplotBody){
+          biplotBody.innerHTML = '';
+        }
+        const rows = Array.isArray(options.loadingsRows) ? options.loadingsRows : [];
+        const biplot = options.biplot && typeof options.biplot === 'object' ? options.biplot : null;
+        const hasLoadingsPlot = method === 'pca' && rows.some(row => Number.isFinite(Number(row?.values?.[0])) && Number.isFinite(Number(row?.values?.[1])));
+        if(loadingsCard){
+          loadingsCard.hidden = !hasLoadingsPlot;
+        }
+        if(hasLoadingsPlot && loadingsBody){
+          loadingsBody.appendChild(createPcaMiniScatterSvg({
+            points: rows.slice(0, PCA_BIPLOT_VECTOR_LIMIT).map(row => ({
+              x: Number(row?.values?.[0]) || 0,
+              y: Number(row?.values?.[1]) || 0,
+              label: row?.label || ''
+            })),
+            xLabel: 'PC1 loading',
+            yLabel: 'PC2 loading',
+            pointColor: '#1f78b4',
+            pointOpacity: 0.85
+          }));
+        }
+        const hasBiplot = method === 'pca' && biplot && Array.isArray(biplot.points) && biplot.points.length && Array.isArray(biplot.vectors) && biplot.vectors.length;
+        if(biplotCard){
+          biplotCard.hidden = !hasBiplot;
+        }
+        if(hasBiplot && biplotBody){
+          biplotBody.appendChild(createPcaMiniScatterSvg({
+            points: biplot.points,
+            vectors: biplot.vectors,
+            xLabel: biplot.xLabel || 'PC1',
+            yLabel: biplot.yLabel || 'PC2',
+            pointColor: '#4daf4a',
+            pointOpacity: 0.55,
+            vectorColor: '#c7301f'
+          }));
         }
       }
       function restorePcaStatsFromPayload(options = {}){
@@ -5458,11 +6042,13 @@
           method,
           savedHtml: options.savedSummaryHtml
         });
+        renderPcaComponentSelectionSummary(lastPcaStats.selectionSummary || null);
         renderScreeChart({
           show: method === 'pca',
           data: screeData,
           method,
-          pointColor: pcaFill?.value || '#377eb8'
+          pointColor: pcaFill?.value || '#0000ff',
+          parallelAnalysis: Array.isArray(lastPcaStats.parallelAnalysis) ? lastPcaStats.parallelAnalysis : []
         });
         renderVarianceSummary({
           method,
@@ -5483,6 +6069,11 @@
             totalCount: Number.isFinite(loadings.totalCount) ? loadings.totalCount : 0
           });
         }
+        renderPcaSupplementalPlots({
+          method,
+          loadingsRows: Array.isArray(loadings?.rows) ? loadings.rows : [],
+          biplot: lastPcaStats.biplot || null
+        });
         debugLog('Debug: pca stats restored from persisted payload UI', {
           method,
           summaryLines: summaryLines.length,
@@ -5535,6 +6126,16 @@
           pcaLoadingsContainer.hidden = true;
           delete pcaLoadingsContainer.dataset.sharedStatsTable;
         }
+        ['pcaComponentSelectionSummaryCard','pcaLoadingsPlotCard','pcaBiplotCard'].forEach(cardId => {
+          const card = document.getElementById(cardId);
+          const body = document.getElementById(`${cardId}Body`);
+          if(card){
+            card.hidden = true;
+          }
+          if(body){
+            body.innerHTML = '';
+          }
+        });
         resetLoadingsActionsHost();
         if(pcaExportEigenTableBtn){
           pcaExportEigenTableBtn.disabled = true;
@@ -5551,6 +6152,7 @@
         const opts = options || {};
         const show = !!opts.show;
         const data = Array.isArray(opts.data) ? opts.data : [];
+        const parallelAnalysis = Array.isArray(opts.parallelAnalysis) ? opts.parallelAnalysis : [];
         if(!pcaScreeContainer){
           debugLog('Debug: pca scree render skipped',{ reason: 'missing-container' });
           return;
@@ -5690,7 +6292,7 @@
           return scaled;
         });
         const path = document.createElementNS(NS, 'path');
-        const pointColor = opts.pointColor || '#377eb8';
+        const pointColor = opts.pointColor || '#0000ff';
         const d = xPositions.map((x, idx) => `${idx===0?'M':'L'}${x} ${yPositions[idx]}`).join(' ');
         path.setAttribute('d', d);
         path.setAttribute('fill', 'none');
@@ -5706,6 +6308,25 @@
           cumulativePath.setAttribute('stroke', cumulativeColor);
           cumulativePath.setAttribute('stroke-width', '2');
           svg.appendChild(cumulativePath);
+        }
+        const parallelPositions = parallelAnalysis.length
+          ? parallelAnalysis.map(value => {
+              const pct = Number(value) || 0;
+              return margin.top + plotHeight - (plotHeight * (pct / Math.max(yAxisMax, 1)));
+            })
+          : [];
+        if(parallelPositions.length){
+          const parallelPath = document.createElementNS(NS, 'path');
+          const parallelD = xPositions
+            .slice(0, parallelPositions.length)
+            .map((x, idx) => `${idx===0?'M':'L'}${x} ${parallelPositions[idx]}`)
+            .join(' ');
+          parallelPath.setAttribute('d', parallelD);
+          parallelPath.setAttribute('fill', 'none');
+          parallelPath.setAttribute('stroke', '#e41a1c');
+          parallelPath.setAttribute('stroke-width', '1.75');
+          parallelPath.setAttribute('stroke-dasharray', '6 4');
+          svg.appendChild(parallelPath);
         }
         const xAxisTickLength = 6;
         data.forEach((item, idx) => {
@@ -5775,6 +6396,9 @@
           { label: 'Cumulative variance', color: cumulativeColor, strokeDash: '' },
           { label: 'Explained variance', color: pointColor, strokeDash: '' }
         ];
+        if(parallelPositions.length){
+          legendEntries.push({ label: 'Parallel analysis', color: '#e41a1c', strokeDash: '6 4' });
+        }
         const legendLineHeight = 14;
         const legendHeight = legendEntries.length * legendLineHeight;
         const legendGroup = document.createElementNS(NS, 'g');
@@ -5845,6 +6469,7 @@
         listHtml += '</ul>';
         const rendered = renderPcaSharedStatsTable(pcaVarianceList, {
           target: pcaVarianceList,
+          advanced: false,
           columns: [
             { key: 'component', label: 'Component', align: 'left' },
             { key: 'variancePercent', label: 'Variance %', align: 'left' }
@@ -5931,6 +6556,7 @@
           });
           const rendered = renderPcaSharedStatsTable(pcaEigenTableWrapper, {
             target: pcaEigenTableWrapper,
+            advanced: false,
             columns: [
               { key: 'component', label: 'Component', align: 'left' },
               { key: 'eigenvalue', label: 'Eigenvalue', align: 'left' },
@@ -5990,6 +6616,7 @@
           summaryLines,
           method: opts.method
         });
+        renderPcaComponentSelectionSummary(opts.selectionSummary || null);
         if(!pcaStatsSummary && pcaStatsResults){
           pcaStatsResults.innerHTML = summaryLines.length ? summaryLines.join('<br>') : '<i>No statistics computed.</i>';
         }
@@ -5998,6 +6625,7 @@
           data: opts.screeData,
           method: opts.method,
           pointColor: opts.pointColor,
+          parallelAnalysis: opts.parallelAnalysis
         });
         renderVarianceSummary({
           method: opts.method,
@@ -6008,6 +6636,11 @@
           data: opts.eigenSummary,
           enableExport: opts.enableEigenExport,
           method: opts.method,
+        });
+        renderPcaSupplementalPlots({
+          method: opts.method,
+          loadingsRows: opts.loadingsRows,
+          biplot: opts.biplot
         });
       }
       function handleEigenExport(){
@@ -6189,9 +6822,9 @@
             shapeOptions: GROUP_SHAPE_OPTIONS,
             getColor(ctx){
               if(ctx.scope === 'label' && hasLabelScope){
-                return pcaLabelColors[labelKey] || pcaFill.value || '#377eb8';
+                return pcaLabelColors[labelKey] || pcaFill.value || '#0000ff';
               }
-              return pcaFill.value || '#377eb8';
+              return pcaFill.value || '#0000ff';
             },
             getShape(ctx){
               if(ctx.scope === 'label' && hasLabelScope){
@@ -6604,6 +7237,8 @@
       let statsSummaryLines = [];
       let eigenSummaryData = [];
       let screeData = [];
+      let componentSelectionSummary = null;
+      let parallelAnalysisPercent = [];
       let statsMethod = null;
       let dimensionMeta = [];
       let labels = [];
@@ -7461,19 +8096,6 @@
         console.debug('Debug: umap embedding complete',{ stats: lastPcaStats, pointCount: points.length });
       } else {
         // Ensure SVD works even if samples < features
-        const transpose2D = (m) => {
-          const rows = m.length | 0;
-          const cols = rows ? (m[0].length | 0) : 0;
-          const t = Array.from({ length: cols }, () => new Array(rows));
-          for (let r = 0; r < rows; r++) {
-            const row = m[r];
-            for (let c = 0; c < cols; c++) {
-              t[c][r] = row[c];
-            }
-          }
-          return t;
-        };
-
         let useFactor = 'u'; // when SVD is done on X directly, scores = U * S
         const useTransposed = nSamples < nFeatures;
         if (useTransposed) {
@@ -7508,7 +8130,7 @@
         if(!svd){
           let matrixForSvd = matrix;
           if(useTransposed){
-            matrixForSvd = transpose2D(matrix);
+            matrixForSvd = transposePcaMatrix(matrix);
           }
           svd = SVDLib.SVD(matrixForSvd);
         }
@@ -7595,11 +8217,30 @@
         const pc1Pct = firstEigen ? firstEigen.variancePercent : 0;
         const pc2Pct = secondEigen ? secondEigen.variancePercent : 0;
         const topTwoCumulative = pc1Pct + pc2Pct;
+        componentSelectionSummary = computePcaComponentSelectionSummary(
+          eigenSummaryData,
+          matrix,
+          SVDLib,
+          {
+            rule: pcaState.componentSelection?.rule,
+            eigenThreshold: pcaState.componentSelection?.eigenThreshold,
+            parallelIterations: pcaState.componentSelection?.parallelIterations
+          }
+        );
+        parallelAnalysisPercent = Array.isArray(componentSelectionSummary?.parallelAnalysis?.averageEigenvalues)
+          ? componentSelectionSummary.parallelAnalysis.averageEigenvalues.map(value => {
+              const numeric = Number(value) || 0;
+              return safeTotal > 0 ? (numeric / safeTotal) * 100 : 0;
+            })
+          : [];
         statsSummaryLines = [
           `Samples analysed: ${nSamples}`,
           `Variables analysed: ${nFeatures}`,
-          `Top two PCs capture ${topTwoCumulative.toFixed(1)}% of variance`
-        ];
+          `Top two PCs capture ${topTwoCumulative.toFixed(1)}% of variance`,
+          componentSelectionSummary
+            ? `${componentSelectionSummary.ruleLabel} retains ${componentSelectionSummary.retainedCount} component${componentSelectionSummary.retainedCount === 1 ? '' : 's'}`
+            : null
+        ].filter(Boolean);
         dimensionMeta = eigenSummaryData.map(entry => ({
           value: entry.component,
           label: `PC${entry.component}`,
@@ -7677,6 +8318,10 @@
         }else{
           debugLog('Debug: pca loadings skipped',{ hasV: !!svd.v });
         }
+        const biplotSnapshot = buildPcaBiplotSnapshot(points, loadingsRows, {
+          x: pcaXLabelText,
+          y: pcaYLabelText
+        });
         lastPcaStats = {
           method: 'pca',
           eigenSummary: eigenSummaryData.map(entry => ({
@@ -7693,7 +8338,10 @@
             variancePercent: Number(item.variancePercent)
           })),
           totalVariance: Number(totalVar),
-          summaryLines: statsSummaryLines.slice()
+          summaryLines: statsSummaryLines.slice(),
+          selectionSummary: componentSelectionSummary ? cloneSimple(componentSelectionSummary) : null,
+          parallelAnalysis: parallelAnalysisPercent.slice(),
+          biplot: biplotSnapshot
         };
         debugLog('Debug: pca eigen summary prepared',{
           components: eigenSummaryData.length,
@@ -7704,6 +8352,8 @@
           method,
           statsSummaryLines,
           screeData,
+          componentSelectionSummary,
+          parallelAnalysisPercent,
           statsMethod,
           eigenSummaryData,
           dimensionMeta,
@@ -7722,6 +8372,7 @@
           pcaXLabelText,
           pcaYLabelText,
           pcaZLabelText,
+          biplotSnapshot,
           parseEnd,
           computeStart,
           computeEnd,
@@ -7837,7 +8488,11 @@
         eigenSummary: eigenSummaryForStats,
         enableEigenExport: allowEigenExport,
         varianceSummary: method === 'pca' ? eigenSummaryForStats : [],
-        pointColor: fill
+        pointColor: fill,
+        selectionSummary: method === 'pca' ? componentSelectionSummary : null,
+        parallelAnalysis: method === 'pca' ? parallelAnalysisPercent : [],
+        loadingsRows,
+        biplot: method === 'pca' ? buildPcaBiplotSnapshot(points, loadingsRows, { x: pcaXLabelText, y: pcaYLabelText }) : null
       });
 
       if (effectiveViewMode === '3d') {
@@ -9662,6 +10317,9 @@
           summaryLines: Array.isArray(lastPcaStats.summaryLines)
             ? lastPcaStats.summaryLines
             : (Array.isArray(cachedStatsRender?.statsSummaryLines) ? cachedStatsRender.statsSummaryLines : []),
+          selectionSummary: lastPcaStats.selectionSummary ? cloneSimple(lastPcaStats.selectionSummary) : null,
+          parallelAnalysis: Array.isArray(lastPcaStats.parallelAnalysis) ? lastPcaStats.parallelAnalysis.slice() : [],
+          biplot: lastPcaStats.biplot ? cloneSimple(lastPcaStats.biplot) : null,
           loadings: cachedStatsRender ? {
             rows: Array.isArray(cachedStatsRender.loadingsRows) ? cachedStatsRender.loadingsRows : [],
             components: Number(cachedStatsRender.loadingsComponents) || 0,
@@ -9692,6 +10350,11 @@
           colors: Array.isArray(pcaState.grouped.colors) ? [...pcaState.grouped.colors] : [],
           shapes: Array.isArray(pcaState.grouped.shapes) ? [...pcaState.grouped.shapes] : []
         } : null,
+        componentSelection: {
+          rule: sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule),
+          eigenThreshold: sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD),
+          parallelIterations: sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS)
+        },
         alpha:pcaAlpha.value,
         labelColors:pcaLabelColors,
         labelShapes:pcaLabelShapes,
@@ -9930,6 +10593,20 @@
         } else {
           pcaState.loadingsLimit = clampLoadingsLimitValue(pcaState.loadingsLimit, PCA_LOADINGS_ROW_LIMIT);
         }
+        if(c.componentSelection && typeof c.componentSelection === 'object'){
+          pcaState.componentSelection = {
+            rule: sanitizePcaComponentSelectionRule(c.componentSelection.rule),
+            eigenThreshold: sanitizePcaEigenThreshold(c.componentSelection.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD),
+            parallelIterations: sanitizePcaParallelIterations(c.componentSelection.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS)
+          };
+        }else{
+          pcaState.componentSelection = {
+            rule: sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule),
+            eigenThreshold: sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD),
+            parallelIterations: sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS)
+          };
+        }
+        syncPcaComponentSelectionUi();
         syncLoadingsLimitUi(PCA_LOADINGS_ROW_LIMIT);
         pcaShowGrid.checked=!!c.showGrid;
         setGridStyle(c.gridStyle, c.axis?.strokeWidth);

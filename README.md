@@ -13,14 +13,14 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 | Module | Primary use cases | Notable tools |
 | --- | --- | --- |
 | **Venn** | Compare list overlaps, perform GO enrichment, fetch STRING networks | Region inspector, hypergeometric significance, GO/STRING exports |
-| **Box Plot** | Group comparisons, violin overlays, bar charts | One-sample / paired / unpaired workflows, Welch t/ANOVA, one-way / repeated-measures / grouped two-way / grouped three-way analyses, Mann-Whitney / Wilcoxon / Kolmogorov-Smirnov / Kruskal-Wallis / Friedman, Tukey / Games-Howell / Dunn / Dunnett / Dunnett T3 / Nemenyi follow-ups, Bonferroni / Holm / Holm-Šidák / Šidák / Hochberg / BH / BY corrections, normality checks, Grubbs / ROUT-style outlier screening, effect sizes, stats advisor |
+| **Box Plot** | Group comparisons, violin overlays, bar charts | One-sample / paired / unpaired workflows, ratio t tests, lognormal t/ANOVA workflows, Welch t/ANOVA, one-way / repeated-measures / grouped two-way / grouped three-way analyses, grouped multiple-comparison scopes, Mann-Whitney / Wilcoxon / Kolmogorov-Smirnov / Kruskal-Wallis / Friedman, Tukey / Games-Howell / Tamhane T2 / Dunn / Dunnett / Dunnett T3 / Nemenyi follow-ups, Bonferroni / Holm / Holm-Šidák / Šidák / Hochberg / BH / BY corrections, normality plus variance/log-normal diagnostics, lognormal-aware stats advisor guidance, Grubbs / ROUT-style outlier screening, effect sizes |
 | **Scatter / Volcano / MA** | Relationship exploration, differential expression, regression | Pearson/Spearman correlation, regression models (linear, Deming, orthogonal, LOWESS, quadratic, cubic, exponential, power-law, logistic, spline), R²/adjusted R², RMSE, MAE, AIC/AICc/BIC, residual and influence diagnostics, confidence/prediction intervals, linear-regression comparison, Volcano & MA plot variants, 2D/3D views, density coloring, label-based colors |
 | **3D Surface** | 3D data visualization, topography, response surfaces | Interactive rotation, grid interpolation, color gradients, mesh/surface toggling |
 | **Heatmap** | Correlation matrices, hierarchical clustering | Pearson/Spearman correlation, hierarchical clustering, dendrogram overlays, distance metrics, color scale legend |
-| **PCA / MDS / t-SNE / UMAP** | Dimensionality reduction for multivariate data | Axis selectors, 2D/3D views, method-specific controls, lazy-loaded solvers, variance explained summaries, PC loadings tables |
-| **Line Graph** | Time series, longitudinal trends, forecasting | Pearson/Spearman correlation, regression models (linear, quadratic, cubic, exponential, power-law, logistic, spline), ARIMA & Holt–Winters forecasts, R²/adjusted R², RMSE, MAE, AIC/BIC, residual diagnostics, coefficient tables, confidence/prediction intervals |
-| **ROC / PR** | Model evaluation | ROC/PR curve toggle, ROC AUC and PR area / average-precision summaries, pairwise comparisons (DeLong for ROC, bootstrap, permutation), best-threshold summary (accuracy/precision/recall/F1), guided test selection |
-| **Survival** | Kaplan–Meier curves, Cox modeling | Kaplan-Meier estimator, log-rank test, Cox proportional hazards regression, hazard ratios (pairwise/adjusted), time-dependent covariates, covariate selection, stats advisor |
+| **PCA / MDS / t-SNE / UMAP** | Dimensionality reduction for multivariate data | Axis selectors, 2D/3D views, method-specific controls, component-retention controls in the config panel (parallel/Kaiser/threshold), lazy-loaded solvers, variance explained summaries, scree overlays, PC loadings tables and loadings plots in advanced stats, biplots |
+| **Line Graph** | Time series, longitudinal trends, forecasting | Pearson/Spearman correlation, shared regression-engine models (linear, polynomial, exponential, spline, and additional implemented nonlinear families), ARIMA & Holt–Winters forecasts, R²/adjusted R², RMSE, MAE, AIC/BIC, residual diagnostics, coefficient tables, confidence/prediction intervals |
+| **ROC / PR** | Model evaluation | ROC/PR curve toggle, ROC AUC and PR area / average-precision summaries, AUC SE/CI, sensitivity/specificity/PPV/NPV/LR summaries, cutoff-by-cutoff ROC tables with Wilson CIs in advanced stats, pairwise comparisons (DeLong for ROC, bootstrap, permutation), guided test selection |
+| **Survival** | Kaplan–Meier curves, Cox modeling | Kaplan-Meier estimator, log-rank / Gehan-Breslow-Wilcoxon / trend tests, primary hazard-ratio and Cox-coefficient tables with advanced pairwise/diagnostic sections, median survival CIs and ratios, time-dependent covariates, covariate selection, stats advisor |
 | **Histogram / Density Plot** | Distribution summaries | Descriptive statistics (N, mean, median, SD, min, Q1, Q3, max), histogram or KDE density mode, log scaling, auto binning, PDF/CDF overlays, best-fit distribution summary |
 | **Proportion (Pie/Donut/Stacked)** | Category proportions, Chi² tests | Chi² goodness-of-fit test, observed vs. expected frequencies, slice styling, stacked bar axis tools |
 
@@ -36,10 +36,15 @@ Each visualization module includes statistical tools tailored to its use case. B
 **Parametric Tests:**
 - One-sample t-test
 - Paired t-test (for matched/repeated measurements)
+- Ratio t test (paired positive-valued measurements on the ratio scale)
 - Unpaired t-test (standard Student's t-test)
 - Welch t-test (for unequal variances)
+- Lognormal t test (pooled log-scale t test; reports geometric-mean ratios)
+- Lognormal Welch's t test (Welch log-scale t test; reports geometric-mean ratios)
 - One-way ANOVA (for three or more groups)
 - Welch ANOVA
+- Lognormal one-way ANOVA
+- Lognormal Welch ANOVA
 - Repeated-measures ANOVA
 - Two-way ANOVA (group × condition designs)
 - Two-way mixed model
@@ -57,6 +62,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 **Post-hoc Tests:**
 - Tukey HSD
 - Games-Howell test (for Welch ANOVA scenarios with ≥3 groups)
+- Tamhane T2 (Welch/Sidak-style unequal-variance post-hoc)
 - Dunn's test (non-parametric post-hoc following Kruskal-Wallis)
 - Dunnett and Dunnett T3 (reference-group comparisons)
 - Nemenyi test (post-Friedman paired rank comparisons)
@@ -79,7 +85,16 @@ Each visualization module includes statistical tools tailored to its use case. B
 
 **Additional Features:**
 - Row-wise t-tests for within-condition comparisons
+- Grouped multiple-comparison scopes:
+  - groups within each condition
+  - conditions within each group
+  - group marginal means
+  - condition marginal means
+  - all cell means
 - Shapiro-Wilk and D'Agostino-Pearson normality diagnostics
+- Brown-Forsythe and Bartlett variance diagnostics
+- Normal-vs-log-normal distribution comparison
+- Linear trend testing across ordered multi-group designs
 - Grubbs and ROUT-style outlier screening
 - Stats advisor for guided test selection based on data characteristics
 
@@ -131,7 +146,7 @@ Each visualization module includes statistical tools tailored to its use case. B
 ### Line Graph
 **Correlation & Regression:**
 - Pearson and Spearman correlation
-- All regression models available in Scatter plots (linear, quadratic, cubic, exponential, power-law, logistic, spline)
+- Shared regression-engine models exposed in the regression selector, including linear, quadratic, cubic, exponential, power-law, logistic, spline, and other implemented nonlinear families
 - Regression diagnostics: R², adjusted R², RMSE, MAE, AIC, BIC, model F
 - Residual analysis with Jarque-Bera, runs, and lack-of-fit summaries
 - Coefficient tables with estimates, standard errors, t statistics, p values, and confidence intervals
@@ -147,8 +162,10 @@ Each visualization module includes statistical tools tailored to its use case. B
 - ROC (Receiver Operating Characteristic) curves
 - PR (Precision-Recall) curves
 - ROC AUC calculation
+- ROC AUC standard error and 95% confidence interval
 - PR area and Average Precision calculation
-- Best-threshold summary with accuracy, precision, recall, and F1
+- Best-threshold summary with sensitivity, specificity, PPV, NPV, LR+/LR-, accuracy, and F1
+- Cutoff-by-cutoff ROC table with Wilson confidence intervals for sensitivity, specificity, PPV, and NPV (reported in the advanced statistics section)
 
 **Pairwise Comparisons:**
 - DeLong test (fast analytic variance estimate for ROC curves)
@@ -162,18 +179,25 @@ Each visualization module includes statistical tools tailored to its use case. B
 
 **Hypothesis Tests:**
 - Log-rank test (overall comparison of survival curves across groups)
-- Pairwise hazard ratios between groups
+- Gehan-Breslow-Wilcoxon survival-curve comparison
+- Log-rank trend test for ordered groups
+- Pairwise hazard ratios between groups (primary stats card)
+- Pairwise log-rank comparisons with selectable multiplicity correction (advanced statistics section)
 
 **Regression Modeling:**
 - Cox proportional hazards regression
 - Baseline covariates (fixed predictors)
 - Time-dependent covariates (predictors that vary over follow-up)
 - Adjusted hazard ratios with confidence intervals
-- Cox coefficient tables with likelihood-ratio / AIC / BIC diagnostics
+- Cox coefficient tables with likelihood-ratio / AIC / BIC diagnostics (coefficients in the main card, diagnostics in advanced statistics)
+- Harrell's C concordance with confidence interval
+- Residual summaries for Martingale, Deviance, Cox-Snell, and scaled Schoenfeld checks
 
 **Additional Features:**
 - Stats advisor for guided analysis selection
 - Support for censored observations
+- Median survival confidence intervals from Kaplan-Meier bands
+- Median survival ratio summaries across groups
 
 ### Venn Diagrams
 **Overlap Testing:**
@@ -238,8 +262,11 @@ Each visualization module includes statistical tools tailored to its use case. B
 
 **PCA-Specific Outputs:**
 - Variance explained by each principal component (percentage and cumulative)
+- Component-selection rules: parallel analysis, Kaiser > 1, custom eigenvalue threshold, or show-all, exposed in the PCA config panel
 - PC loadings table (top contributing features per component)
 - Scree plot export and eigenvalue tables
+- Parallel-analysis overlay on scree plots when available
+- Loadings plot (advanced statistics) and biplot summary (main statistics) for PCA
 
 **Visualization Options:**
 - 2D and 3D projections (PCA and MDS)

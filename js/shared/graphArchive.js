@@ -14,6 +14,10 @@
   const ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES = 1024 * 1024;
   const WORKER_TIMEOUT_MS = 120000;
   const SCATTER_DEFAULT_LABEL_COLORS = Object.freeze([
+    '#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080',
+    '#00a6d6', '#8b4513', '#ff1493', '#666666'
+  ]);
+  const LEGACY_SCATTER_DEFAULT_LABEL_COLORS = Object.freeze([
     '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
     '#ffff33', '#a65628', '#f781bf', '#999999'
   ]);
@@ -464,6 +468,15 @@
     return lite;
   }
 
+  function matchesScatterDefaultValue(value, index, defaults) {
+    const currentDefault = defaults[index % defaults.length];
+    if (value === currentDefault) {
+      return true;
+    }
+    const legacyDefault = LEGACY_SCATTER_DEFAULT_LABEL_COLORS[index % LEGACY_SCATTER_DEFAULT_LABEL_COLORS.length];
+    return value === legacyDefault;
+  }
+
   function compactScatterCategoricalMap(mapValue, defaults) {
     if (!isPlainObject(mapValue) || !Array.isArray(defaults) || !defaults.length) {
       return mapValue;
@@ -482,7 +495,7 @@
       const key = keys[i];
       const value = mapValue[key];
       const defaultValue = defaults[i % defaults.length];
-      if (value === defaultValue) {
+      if (matchesScatterDefaultValue(value, i, defaults)) {
         prunedCount += 1;
       } else {
         compact[key] = value;

@@ -311,9 +311,9 @@
   const HEATMAP_DATA_VIEW_MAX = 12;
   const DEFAULT_HEATMAP_FONT_SIZE_PT = 13;
   const DEFAULT_HEATMAP_PALETTE = Object.freeze({
-    negative: '#313695',
-    zero: '#f7f7f7',
-    positive: '#a50026'
+    negative: '#0000ff',
+    zero: '#ffffff',
+    positive: '#ff0000'
   });
   const HEATMAP_TEXT_SCALE_MODE = 'preserve-fit';
   const HEATMAP_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
@@ -4377,7 +4377,7 @@
     const min = stats?.min;
     const max = stats?.max;
     if(!Number.isFinite(min) || !Number.isFinite(max) || min === max){
-      const zeroColor = rgbToCss(hexToRgb(palette.zero || '#f7f7f7'));
+      const zeroColor = rgbToCss(hexToRgb(palette.zero || DEFAULT_HEATMAP_PALETTE.zero));
       return () => zeroColor;
     }
     if(min < 0 && max > 0){
@@ -4386,9 +4386,9 @@
         if(!Number.isFinite(value)) return '#d0d0d0';
         const normalized = value / maxAbs;
         return colorForValue({ raw: normalized, value: normalized }, {
-          negative: hexToRgb(palette.negative || '#313695'),
-          zero: hexToRgb(palette.zero || '#f7f7f7'),
-          positive: hexToRgb(palette.positive || '#a50026')
+          negative: hexToRgb(palette.negative || DEFAULT_HEATMAP_PALETTE.negative),
+          zero: hexToRgb(palette.zero || DEFAULT_HEATMAP_PALETTE.zero),
+          positive: hexToRgb(palette.positive || DEFAULT_HEATMAP_PALETTE.positive)
         }, false);
       };
     }
@@ -4397,14 +4397,14 @@
       return value => {
         if(!Number.isFinite(value)) return '#d0d0d0';
         const normalized = (value - max) / (min - max || -span);
-        return mixColor(hexToRgb(palette.negative || '#313695'), hexToRgb(palette.zero || '#f7f7f7'), Math.min(1, Math.max(0, normalized)));
+        return mixColor(hexToRgb(palette.negative || DEFAULT_HEATMAP_PALETTE.negative), hexToRgb(palette.zero || DEFAULT_HEATMAP_PALETTE.zero), Math.min(1, Math.max(0, normalized)));
       };
     }
     const range = max - min || 1;
     return value => {
       if(!Number.isFinite(value)) return '#d0d0d0';
       const normalized = (value - min) / range;
-      return mixColor(hexToRgb(palette.zero || '#f7f7f7'), hexToRgb(palette.positive || '#a50026'), Math.min(1, Math.max(0, normalized)));
+      return mixColor(hexToRgb(palette.zero || DEFAULT_HEATMAP_PALETTE.zero), hexToRgb(palette.positive || DEFAULT_HEATMAP_PALETTE.positive), Math.min(1, Math.max(0, normalized)));
     };
   }
 
@@ -6505,8 +6505,8 @@
     if(viewOptions.useAbsolute){
       return {
         stops: [
-          { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || '#f7f7f7')) },
-          { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || '#a50026')) }
+          { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || DEFAULT_HEATMAP_PALETTE.zero)) },
+          { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || DEFAULT_HEATMAP_PALETTE.positive)) }
         ],
         ticks: [0, 0.25, 0.5, 0.75, 1].map(value => ({ value, label: chartStyle.formatScientific(value, { maxDecimals: viewOptions.decimals ?? 2 }) })),
         valueToRatio: value => Math.min(1, Math.max(0, value))
@@ -6514,9 +6514,9 @@
     }
     return {
       stops: [
-        { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.negative || '#313695')) },
-        { offset: 50, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || '#f7f7f7')) },
-        { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || '#a50026')) }
+        { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.negative || DEFAULT_HEATMAP_PALETTE.negative)) },
+        { offset: 50, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || DEFAULT_HEATMAP_PALETTE.zero)) },
+        { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || DEFAULT_HEATMAP_PALETTE.positive)) }
       ],
       ticks: [-1, -0.5, 0, 0.5, 1].map(value => ({ value, label: chartStyle.formatScientific(value, { maxDecimals: viewOptions.decimals ?? 2 }) })),
       valueToRatio: value => (Math.min(1, Math.max(-1, value)) + 1) / 2
@@ -6532,19 +6532,19 @@
     let stops;
     if(Number.isFinite(min) && Number.isFinite(max) && min < 0 && max > 0){
       stops = [
-        { offset: 0, color: rgbToCss(hexToRgb(palette?.negative || '#313695')) },
-        { offset: 50, color: rgbToCss(hexToRgb(palette?.zero || '#f7f7f7')) },
-        { offset: 100, color: rgbToCss(hexToRgb(palette?.positive || '#a50026')) }
+        { offset: 0, color: rgbToCss(hexToRgb(palette?.negative || DEFAULT_HEATMAP_PALETTE.negative)) },
+        { offset: 50, color: rgbToCss(hexToRgb(palette?.zero || DEFAULT_HEATMAP_PALETTE.zero)) },
+        { offset: 100, color: rgbToCss(hexToRgb(palette?.positive || DEFAULT_HEATMAP_PALETTE.positive)) }
       ];
     }else if(Number.isFinite(max) && max <= 0){
       stops = [
-        { offset: 0, color: rgbToCss(hexToRgb(palette?.negative || '#313695')) },
-        { offset: 100, color: rgbToCss(hexToRgb(palette?.zero || '#f7f7f7')) }
+        { offset: 0, color: rgbToCss(hexToRgb(palette?.negative || DEFAULT_HEATMAP_PALETTE.negative)) },
+        { offset: 100, color: rgbToCss(hexToRgb(palette?.zero || DEFAULT_HEATMAP_PALETTE.zero)) }
       ];
     }else{
       stops = [
-        { offset: 0, color: rgbToCss(hexToRgb(palette?.zero || '#f7f7f7')) },
-        { offset: 100, color: rgbToCss(hexToRgb(palette?.positive || '#a50026')) }
+        { offset: 0, color: rgbToCss(hexToRgb(palette?.zero || DEFAULT_HEATMAP_PALETTE.zero)) },
+        { offset: 100, color: rgbToCss(hexToRgb(palette?.positive || DEFAULT_HEATMAP_PALETTE.positive)) }
       ];
     }
     const tickValues = [];
@@ -6603,9 +6603,9 @@
     }
     if(model.type === 'correlation'){
       const palette = {
-        negative: hexToRgb(viewOptions.palette?.negative || '#313695'),
-        zero: hexToRgb(viewOptions.palette?.zero || '#f7f7f7'),
-        positive: hexToRgb(viewOptions.palette?.positive || '#a50026')
+        negative: hexToRgb(viewOptions.palette?.negative || DEFAULT_HEATMAP_PALETTE.negative),
+        zero: hexToRgb(viewOptions.palette?.zero || DEFAULT_HEATMAP_PALETTE.zero),
+        positive: hexToRgb(viewOptions.palette?.positive || DEFAULT_HEATMAP_PALETTE.positive)
       };
       const orderedCells = model.cells.map((row, rowIndex) => row.map((cell, columnIndex) => {
         const raw = Number(cell?.raw);

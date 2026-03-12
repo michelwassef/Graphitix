@@ -150,6 +150,19 @@
   const DEFAULT_FORECAST_HORIZON = 6;
   const DEFAULT_FORECAST_SEASON = 12;
   const MAX_FORECAST_HORIZON = 120;
+  const LINE_REGRESSION_FAMILY_ORDER = Object.freeze([
+    'Lines',
+    'Polynomial',
+    'Exponential',
+    'Growth',
+    'Classic',
+    'Dose-response',
+    'Gaussian',
+    'Curves',
+    'Binding',
+    'Enzyme kinetics',
+    'Forecasting'
+  ]);
   const palette = Shared.palette = Shared.palette || {};
   if(typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function'){
     try{
@@ -3056,9 +3069,9 @@
         const scopedSeriesKey = resolveScopedSeriesKey(ctx);
         const style = resolveSeriesStyle(scopedSeriesKey);
         if(scopedSeriesKey){
-          return style?.markerFill || style?.fill || lineLabelColors[scopedSeriesKey] || fillInput?.value || '#377eb8';
+          return style?.markerFill || style?.fill || lineLabelColors[scopedSeriesKey] || fillInput?.value || '#0000ff';
         }
-        return fillInput?.value || '#377eb8';
+        return fillInput?.value || '#0000ff';
       };
       const getMarkerBorderColor = ctx => {
         const scopedSeriesKey = resolveScopedSeriesKey(ctx);
@@ -3905,6 +3918,85 @@
 
   const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
 
+  function getLineRegressionModelInfo(mode){
+    const safeMode = String(mode || 'linear').trim();
+    return regressionTools && typeof regressionTools.getModelInfo === 'function'
+      ? regressionTools.getModelInfo(safeMode)
+      : null;
+  }
+
+  function getLineRegressionLabel(mode){
+    const info = getLineRegressionModelInfo(mode);
+    if(info?.label){
+      return info.label;
+    }
+    const compact = String(mode || 'linear')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ');
+    return compact.charAt(0).toUpperCase() + compact.slice(1);
+  }
+
+  function ensureLineRegressionSelectOptions(selectEl){
+    if(!selectEl || typeof document === 'undefined'){
+      return;
+    }
+    const models = regressionTools && typeof regressionTools.listModels === 'function'
+      ? regressionTools.listModels().filter(model => model?.implemented)
+      : [];
+    if(!models.length){
+      return;
+    }
+    const existingValues = new Set(Array.from(selectEl.options || []).map(option => String(option.value)));
+    const familyHosts = new Map();
+    Array.from(selectEl.querySelectorAll('optgroup')).forEach(group => {
+      familyHosts.set(String(group.label || '').trim(), group);
+    });
+    const resolveFamilyHost = family => {
+      const safeFamily = String(family || 'Other').trim() || 'Other';
+      if(familyHosts.has(safeFamily)){
+        return familyHosts.get(safeFamily);
+      }
+      const group = document.createElement('optgroup');
+      group.label = safeFamily;
+      selectEl.appendChild(group);
+      familyHosts.set(safeFamily, group);
+      return group;
+    };
+    const orderedModels = models.slice().sort((a, b) => {
+      const familyA = LINE_REGRESSION_FAMILY_ORDER.indexOf(a.family);
+      const familyB = LINE_REGRESSION_FAMILY_ORDER.indexOf(b.family);
+      const rankA = familyA >= 0 ? familyA : LINE_REGRESSION_FAMILY_ORDER.length + 1;
+      const rankB = familyB >= 0 ? familyB : LINE_REGRESSION_FAMILY_ORDER.length + 1;
+      if(rankA !== rankB){
+        return rankA - rankB;
+      }
+      return String(a.label || a.id).localeCompare(String(b.label || b.id));
+    });
+    orderedModels.forEach(model => {
+      const value = String(model.id || '').trim();
+      if(!value || existingValues.has(value)){
+        return;
+      }
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = model.label || value;
+      resolveFamilyHost(model.family).appendChild(option);
+      existingValues.add(value);
+    });
+  }
+
+  function ensureLineRegressionSelection(){
+    if(!refs.regressionMode){
+      return;
+    }
+    ensureLineRegressionSelectOptions(refs.regressionMode);
+    const currentValue = String(refs.regressionMode.value || 'linear').trim();
+    if(currentValue && Array.from(refs.regressionMode.options || []).some(option => String(option.value) === currentValue)){
+      return;
+    }
+    refs.regressionMode.value = 'linear';
+  }
+
   const formatPercent = (value, digits = 2) => {
     if(!Number.isFinite(value)) return 'n/a';
     return `${(value * 100).toFixed(digits)}%`;
@@ -4284,18 +4376,8 @@
         break;
     }
     const methodLabel=recommendation.statsMethod==='pearson'?'Pearson correlation':'Spearman correlation';
-    const regressionLabels={
-      linear:'linear regression',
-      quadratic:'quadratic regression',
-      cubic:'cubic regression',
-      exponential:'exponential regression',
-      power:'power-law regression',
-      logistic:'logistic regression',
-      spline:'spline smoothing',
-      arima:'ARIMA forecasting',
-      holtWinters:'Holt–Winters forecasting'
-    };
-    let summary=`${methodLabel} with ${regressionLabels[recommendation.regression] || recommendation.regression}`;
+    const regressionLabel = getLineRegressionLabel(recommendation.regression).toLowerCase();
+    let summary=`${methodLabel} with ${regressionLabel}`;
     const extras=[];
     if(recommendation.showIntervals && recommendation.regression!=='spline'){
       extras.push('interval shading');
@@ -6529,6 +6611,7 @@
     }
     const method=refs.statType.value||'pearson';
     const regressionMode=refs.regressionMode?.value || 'linear';
+    const regressionModeLabel = getLineRegressionLabel(regressionMode);
     let parameterColumnLabel = 'Slope';
     let parameterLabelResolved = false;
     const showIntervals = !!options.showIntervals;
@@ -6744,7 +6827,7 @@
             {key:'logLoss',label:'Log loss',align:'right'}
           ],
           rows:tableRows,
-          caption: methodLabel ? `${methodLabel} correlation summary (${regressionMode} regression)` : 'Correlation summary',
+          caption: methodLabel ? `${methodLabel} correlation summary (${regressionModeLabel})` : 'Correlation summary',
           options:{
             fileName:'line-statistics',
             contextLabel:'line-stats'
@@ -6901,7 +6984,7 @@
     }
     if(tableRows.length && refs.statsResults && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function'){
       const methodsParts = [
-        `Association and regression statistics were computed for ${tableRows.length} series using ${methodLabel || method} correlation with ${regressionMode} regression.`,
+        `Association and regression statistics were computed for ${tableRows.length} series using ${methodLabel || method} correlation with ${regressionModeLabel}.`,
         showIntervals ? 'Regression interval bounds were requested.' : null,
         showDiagnostics ? 'Residual diagnostic summaries were requested.' : null,
         forecastRows.length ? 'Forecast accuracy metrics were also summarised when available.' : null
@@ -6920,6 +7003,7 @@
           component: 'line',
           method,
           regressionMode,
+          regressionLabel: regressionModeLabel,
           showIntervals,
           showDiagnostics,
           seriesCount: tableRows.length,
@@ -7434,6 +7518,7 @@
       console.debug('Debug: line axis settings restored',{ axis: ensureLineAxisSettings() });
     }
     if(refs.regressionMode && c.regression?.mode){
+      ensureLineRegressionSelection();
       refs.regressionMode.value = c.regression.mode;
     }
     if(c.forecast){
@@ -7554,7 +7639,10 @@
         // restore stat control values if saved
         if(s.controls && typeof s.controls === 'object'){
           if(typeof s.controls.method === 'string' && refs.statType){ refs.statType.value = s.controls.method; }
-          if(typeof s.controls.regressionMode === 'string' && refs.regressionMode){ refs.regressionMode.value = s.controls.regressionMode; }
+          if(typeof s.controls.regressionMode === 'string' && refs.regressionMode){
+            ensureLineRegressionSelection();
+            refs.regressionMode.value = s.controls.regressionMode;
+          }
         }
         if(lineStatsState.lastRunVersion && lineStatsState.lastRunVersion === lineStatsState.version){
           setLineStatsStatus('Statistics up to date.');
@@ -10813,6 +10901,7 @@
     refs.statsButton=document.getElementById('lineComputeStats');
     refs.statsStatus=document.getElementById('lineStatsStatus');
     refs.regressionMode=document.getElementById('lineRegressionMode');
+    ensureLineRegressionSelection();
     refs.showTrendLine=document.getElementById('lineShowTrendLine');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showPredictionIntervals=document.getElementById('lineShowPredictionIntervals');

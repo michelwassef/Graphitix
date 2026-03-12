@@ -1717,6 +1717,9 @@
     if(node.getAttribute('data-stats-advanced') === '1'){
       return true;
     }
+    if(node.getAttribute('data-stats-advanced') === '0'){
+      return false;
+    }
     if(node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced')){
       return false;
     }

@@ -615,7 +615,7 @@
             </fieldset>
             <div id="scatterDotControlState" hidden aria-hidden="true">
               <input type="number" id="scatterDotSize" value="3" min="1" max="20" />
-              <input type="color" id="scatterFill" value="#377eb8" />
+              <input type="color" id="scatterFill" value="#0000ff" />
               <input type="color" id="scatterBorder" value="#000000" />
               <input type="number" id="scatterBorderWidth" value="0" min="0" max="10" />
               <input type="number" id="scatterErrorBarWidth" value="1" min="0" max="10" />
@@ -635,10 +635,14 @@
                 <label class="config-panel__item config-panel__item--select-auto" id="scatterDensityPaletteRow">
                   <span class="config-panel__label">Density palette</span>
                   <select id="scatterDensityPalette">
+                    <option value="grayscale">Grayscale</option>
                     <option value="turbo">Turbo</option>
                     <option value="viridis">Viridis</option>
+                    <option value="cividis">Cividis</option>
                     <option value="plasma">Plasma</option>
                     <option value="inferno">Inferno</option>
+                    <option value="magma">Magma</option>
+                    <option value="sunset">Sunset</option>
                   </select>
                 </label>
               </div>
@@ -917,7 +921,7 @@
             </fieldset>
             <div id="pcaHiddenPointControls" hidden aria-hidden="true">
               <input type="number" id="pcaDotSize" value="3" min="1" max="20" />
-              <input type="color" id="pcaFill" value="#377eb8" />
+              <input type="color" id="pcaFill" value="#0000ff" />
               <input type="range" id="pcaAlpha" min="0" max="1" step="0.05" value="0" />
               <output id="pcaAlphaVal">0</output>
               <input type="number" id="pcaBorderWidth" value="0" min="0" max="10" />
@@ -1058,6 +1062,7 @@
                 <label class="idx-inline-023">
                   Palette
                   <select id="surfaceColorRamp">
+                    <option value="grayscale">Grayscale</option>
                     <option value="viridis">Viridis</option>
                     <option value="plasma">Plasma</option>
                     <option value="magma">Magma</option>
@@ -1201,7 +1206,7 @@
                 </div>
                 <div class="idx-inline-042">
                   <label class="idx-inline-023">Color</label>
-                  <input type="color" id="lineBorder" value="#377eb8" />
+                  <input type="color" id="lineBorder" value="#0000ff" />
                 </div>
               </div>
             </fieldset>

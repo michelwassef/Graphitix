@@ -145,6 +145,7 @@
   };
 
   const SCATTER_DENSITY_RAMPS = Object.freeze({
+    grayscale: Object.freeze(['#f2f2f2', '#d9d9d9', '#bdbdbd', '#969696', '#737373', '#525252', '#2e2e2e', '#000000']),
     viridis: Object.freeze(['#440154','#482777','#3f4a8a','#31688e','#26838f','#1f9d8a','#6cce5a','#b6de2b','#fee825']),
     turbo: Object.freeze(['#30123b','#4145ab','#4675e7','#2fb5f4','#14cdd4','#34d35c','#8fd625','#f9e524','#fca108','#f1605d','#b91372']),
     inferno: Object.freeze(['#000004','#1b0c41','#4a0c6b','#781c6d','#a52c5f','#cf4446','#ef6a32','#fb9b06','#f7d13d','#fcffa4']),
@@ -218,7 +219,7 @@
 
   const SIGNIFICANT_NEGATIVE_COLOR = (typeof global.SIGNIFICANT_NEGATIVE_COLOR !== 'undefined' && global.SIGNIFICANT_NEGATIVE_COLOR)
     ? global.SIGNIFICANT_NEGATIVE_COLOR
-    : (DEFAULT_SCATTER_COLORS[1] || '#377eb8');
+    : (DEFAULT_SCATTER_COLORS[1] || '#0000ff');
   if(typeof global.SIGNIFICANT_NEGATIVE_COLOR === 'undefined') global.SIGNIFICANT_NEGATIVE_COLOR = SIGNIFICANT_NEGATIVE_COLOR;
 
   const DEFAULT_NON_SIG_COLOR = (typeof global.DEFAULT_NON_SIG_COLOR !== 'undefined' && global.DEFAULT_NON_SIG_COLOR)
@@ -332,6 +333,41 @@
     }else{
       svg.removeAttribute('data-color-scheme-bg-color');
     }
+  }
+
+  function getActiveScatterPalette(){
+    return Array.isArray(DEFAULT_SCATTER_COLORS) && DEFAULT_SCATTER_COLORS.length
+      ? DEFAULT_SCATTER_COLORS
+      : ['#0000ff', '#ff0000', '#00aa00', '#666666'];
+  }
+
+  function getScatterPrimaryFillColor(){
+    const palette = getActiveScatterPalette();
+    return String((palette[0] || '#0000ff')).toLowerCase();
+  }
+
+  function getScatterSignificanceColors(){
+    const palette = getActiveScatterPalette();
+    const schemeId = String(scatterColorSchemeId || '').toLowerCase();
+    if(schemeId === 'grayscale'){
+      return {
+        positive: palette[0] || '#000000',
+        negative: palette[1] || '#555555',
+        neutral: palette[4] || '#999999'
+      };
+    }
+    if(schemeId === 'colorblind'){
+      return {
+        positive: palette[1] || '#d55e00',
+        negative: palette[0] || '#0072b2',
+        neutral: palette[7] || '#999999'
+      };
+    }
+    return {
+      positive: palette[1] || '#ff0000',
+      negative: palette[0] || '#0000ff',
+      neutral: palette[palette.length - 1] || '#666666'
+    };
   }
 
   function resetScatterRotation(reason){
@@ -1566,7 +1602,7 @@
       color: scatterHexToRgb(hex)
     })).filter(entry => entry.color);
     if(!parsed.length){
-      const fallback = scatterHexToRgb('#377eb8');
+      const fallback = scatterHexToRgb('#0000ff');
       return () => scatterRgbToCss(fallback);
     }
     return ratio => {
@@ -4981,11 +5017,11 @@
             const targetFill = target.getAttribute('fill');
             const targetStroke = target.getAttribute('stroke');
             if(ctx.scope === 'label' && scatterLabelKey){
-              return (scatterLabelColors[scatterLabelKey] || labelStyle?.color || targetFill || scatterFillInput?.value || '#377eb8');
+              return (scatterLabelColors[scatterLabelKey] || labelStyle?.color || targetFill || scatterFillInput?.value || '#0000ff');
             }
             return (targetFill && targetFill !== 'none' ? targetFill : null)
               || (targetStroke && targetStroke !== 'none' ? targetStroke : null)
-              || (scatterFillInput?.value || '#377eb8');
+              || (scatterFillInput?.value || '#0000ff');
           },
           getShape(ctx){
             if(ctx.scope === 'label' && scatterLabelKey){
@@ -5481,7 +5517,7 @@
       || (labelColor || null)
       || (targetStroke && targetStroke !== 'none' ? targetStroke : null)
       || (scatterFillInput?.value || null)
-      || '#377eb8';
+      || '#0000ff';
     if(scatterFillInput && resolvedFill){
       try{ scatterFillInput.value = resolvedFill; }catch(e){}
     }
@@ -10171,8 +10207,9 @@
           });
           updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
         }
-        if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
-          scatterFill.value=DEFAULT_NON_SIG_COLOR;
+        const significanceColors = getScatterSignificanceColors();
+        if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
+          scatterFill.value=significanceColors.neutral;
         }
         scatterLog('scatter example loaded',{type,viewMode,rows:dataset.length});
         syncScatterGraphTypeUI();
@@ -13563,8 +13600,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(scatterShowCI){ scatterShowCI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowCI.checked){ scatterShowCI.checked = false; } }
           if(scatterShowPI){ scatterShowPI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowPI.checked){ scatterShowPI.checked = false; } }
         }
-        if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
-          scatterFill.value=DEFAULT_NON_SIG_COLOR;
+        const significanceColors = getScatterSignificanceColors();
+        if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
+          scatterFill.value=significanceColors.neutral;
         }
         if(type!==scatterLastGraphType){
           const defaults=GRAPH_TYPE_DEFAULTS[type];
@@ -15015,7 +15053,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterState.rotationPendingLogged = false;
         scatterLayout?.suppressNextSchedule?.({ reason: 'scatter-draw', count: 2, delayMs: 120 });
         hideScatterTooltip('draw-start');
-        const fill=scatterFill.value||DEFAULT_NON_SIG_COLOR;
+        const significanceColors = getScatterSignificanceColors();
+        const fill=scatterFill.value||significanceColors.neutral;
         const alpha=Number(scatterAlpha.value)||0;
         const borderWidthRaw=Number(scatterBorderWidth.value);
         const borderColor=scatterBorder.value;
@@ -16189,11 +16228,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             }
           }else if(significanceLegendNeeded){
             if(scatterCurrentGraphType === 'volcano'){
-              legendEntries.push({label:'Significant (positive)',fill:SIGNIFICANT_COLOR});
-              legendEntries.push({label:'Significant (negative)',fill:SIGNIFICANT_NEGATIVE_COLOR});
+              legendEntries.push({label:'Significant (positive)',fill:significanceColors.positive});
+              legendEntries.push({label:'Significant (negative)',fill:significanceColors.negative});
               legendEntries.push({label:'Not significant',fill});
             }else{
-              legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
+              legendEntries.push({label:'Significant',fill:significanceColors.positive});
               legendEntries.push({label:'Not significant',fill});
             }
           }
@@ -18222,9 +18261,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return fill;
           }
           if(scatterCurrentGraphType === 'volcano' && Number.isFinite(point.x) && point.x < 0){
-            return SIGNIFICANT_NEGATIVE_COLOR;
+            return significanceColors.negative;
           }
-          return SIGNIFICANT_COLOR;
+          return significanceColors.positive;
         };
         const frag=document.createDocumentFragment();
         const errorBarFrag=document.createDocumentFragment();

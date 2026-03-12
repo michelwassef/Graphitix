@@ -161,10 +161,10 @@
         getSummary: ctx => (ctx?.scope === 'series' && seriesKey) ? seriesKey : 'Global',
         getColor: ctx => {
           if(ctx?.scope === 'series' && seriesKey){
-            return state.labelColors[seriesKey] || target.getAttribute('stroke') || '#377eb8';
+            return state.labelColors[seriesKey] || target.getAttribute('stroke') || '#0000ff';
           }
           const keys = Object.keys(state.labelColors || {});
-          return (keys.length ? state.labelColors[keys[0]] : null) || target.getAttribute('stroke') || '#377eb8';
+          return (keys.length ? state.labelColors[keys[0]] : null) || target.getAttribute('stroke') || '#0000ff';
         },
         getThickness: ctx => {
           if(ctx?.scope === 'series' && seriesKey){
@@ -352,7 +352,7 @@
     });
     scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect); wrap.appendChild(scopeField);
 
-    const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || '#377eb8'; }catch(e){}
+    const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || '#0000ff'; }catch(e){}
     colorInput.addEventListener('input', ()=>{
       const v = colorInput.value;
       if(scopeSelect.value==='series' && seriesKey){ state.labelColors[seriesKey] = v; }
@@ -676,6 +676,7 @@
     titleText: 'Survival curve',
     lastSummary: null,
     lastStats: null,
+    pairwiseCorrection: 'holm-sidak',
     covariateSettings: {},
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings(),
@@ -1883,12 +1884,36 @@
       lastTime = currentTime;
     }
 
+    const resolveMedianCrossing = points => {
+      const safePoints = Array.isArray(points) ? points : [];
+      for(let idx = 0; idx < safePoints.length; idx += 1){
+        const time = Number(safePoints[idx]?.time);
+        const value = Number(
+          Number.isFinite(safePoints[idx]?.value)
+            ? safePoints[idx].value
+            : safePoints[idx]?.survival
+        );
+        if(Number.isFinite(time) && Number.isFinite(value) && value <= 0.5){
+          return time;
+        }
+      }
+      return null;
+    };
+    let medianCiLow = resolveMedianCrossing(lowerSteps);
+    let medianCiHigh = resolveMedianCrossing(upperSteps);
+    if(Number.isFinite(medianCiLow) && Number.isFinite(medianCiHigh) && medianCiLow > medianCiHigh){
+      const swap = medianCiLow;
+      medianCiLow = medianCiHigh;
+      medianCiHigh = swap;
+    }
     return {
       steps: stepPoints,
       lower: lowerSteps,
       upper: upperSteps,
       censor: censorPoints,
       median,
+      medianCiLow,
+      medianCiHigh,
       lastSurvival: survivalProb,
       maxTime: lastTime
     };
@@ -1985,7 +2010,64 @@
     return total;
   }
 
-  function computeLogRank(series){
+  function finalizeSurvivalQuadraticTest(diff, variance, options = {}){
+    const k = Array.isArray(diff) ? diff.length : 0;
+    const scores = Array.isArray(options.scores) ? options.scores.map(Number) : null;
+    let chi2 = NaN;
+    let df = k - 1;
+    if(scores && scores.length === k){
+      let numerator = 0;
+      let denominator = 0;
+      for(let i = 0; i < k; i += 1){
+        const scoreI = Number(scores[i]);
+        const diffI = Number(diff[i]);
+        if(!Number.isFinite(scoreI) || !Number.isFinite(diffI)){
+          continue;
+        }
+        numerator += scoreI * diffI;
+        for(let j = 0; j < k; j += 1){
+          const scoreJ = Number(scores[j]);
+          const varianceValue = Number(variance?.[i]?.[j]);
+          if(Number.isFinite(scoreJ) && Number.isFinite(varianceValue)){
+            denominator += scoreI * scoreJ * varianceValue;
+          }
+        }
+      }
+      chi2 = denominator > 0 ? (numerator * numerator) / denominator : NaN;
+      df = 1;
+    }else{
+      if(df <= 0){
+        return { available: false, message: 'Insufficient groups for survival comparison.' };
+      }
+      const reducedMatrix = [];
+      for(let i = 0; i < df; i += 1){
+        const row = [];
+        for(let j = 0; j < df; j += 1){
+          row.push(variance[i][j]);
+        }
+        reducedMatrix.push(row);
+      }
+      const inverse = tryInvertMatrix(reducedMatrix, { context: options.context || 'survival variance' });
+      if(!inverse){
+        return { available: false, message: 'Unable to invert survival comparison variance matrix.' };
+      }
+      const diffVec = diff.slice(0, df);
+      const invTimesDiff = multiplyMatrixVector(inverse, diffVec);
+      chi2 = dotProduct(diffVec, invTimesDiff);
+    }
+    let pValue = null;
+    if(global.jStat?.chisquare && typeof global.jStat.chisquare.cdf === 'function' && Number.isFinite(chi2)){
+      pValue = 1 - global.jStat.chisquare.cdf(chi2, df);
+    }
+    return {
+      available: Number.isFinite(chi2),
+      chi2,
+      df,
+      p: pValue
+    };
+  }
+
+  function computeWeightedLogRank(series, options = {}){
     if(!Array.isArray(series) || series.length < 2){
       return { available: false, message: 'Log-rank test requires at least two groups.' };
     }
@@ -2021,9 +2103,19 @@
       const totalEvents = eventsAtTime.reduce((sum, value) => sum + value, 0);
       const totalAtRisk = atRisk.reduce((sum, value) => sum + value, 0);
       if(totalEvents > 0 && totalAtRisk > 0){
+        const weight = typeof options.weightFn === 'function'
+          ? Number(options.weightFn({
+            time,
+            atRisk: atRisk.slice(),
+            eventsAtTime: eventsAtTime.slice(),
+            totalEvents,
+            totalAtRisk
+          }))
+          : 1;
+        const appliedWeight = Number.isFinite(weight) ? weight : 1;
         eventsAtTime.forEach((observed, idx) => {
           const expected = (atRisk[idx] / totalAtRisk) * totalEvents;
-          diff[idx] += observed - expected;
+          diff[idx] += appliedWeight * (observed - expected);
         });
         if(totalAtRisk > 1){
           const common = totalEvents * (totalAtRisk - totalEvents) / (totalAtRisk * (totalAtRisk - 1));
@@ -2032,9 +2124,9 @@
             for(let h = 0; h < k; h += 1){
               const ph = atRisk[h] / totalAtRisk;
               if(g === h){
-                variance[g][h] += common * pg * (1 - pg);
+                variance[g][h] += appliedWeight * appliedWeight * common * pg * (1 - pg);
               } else {
-                variance[g][h] -= common * pg * ph;
+                variance[g][h] -= appliedWeight * appliedWeight * common * pg * ph;
               }
             }
           }
@@ -2048,31 +2140,53 @@
       }
     });
 
-    const df = k - 1;
-    if(df <= 0){
-      return { available: false, message: 'Insufficient groups for log-rank statistic.' };
+    const result = finalizeSurvivalQuadraticTest(diff, variance, {
+      context: options.context || 'log-rank variance',
+      scores: options.scores
+    });
+    if(result.available){
+      logDebug('weighted survival summary', {
+        label: options.label || 'log-rank',
+        chi2: result.chi2,
+        df: result.df,
+        p: result.p
+      });
     }
-    const reducedMatrix = [];
-    for(let i = 0; i < df; i += 1){
-      const row = [];
-      for(let j = 0; j < df; j += 1){
-        row.push(variance[i][j]);
-      }
-      reducedMatrix.push(row);
+    return {
+      ...result,
+      label: options.label || 'Log-rank'
+    };
+  }
+
+  function computeLogRank(series){
+    return computeWeightedLogRank(series, {
+      label: 'Log-rank',
+      context: 'log-rank variance'
+    });
+  }
+
+  function computeGehanBreslowWilcoxon(series){
+    return computeWeightedLogRank(series, {
+      label: 'Gehan-Breslow-Wilcoxon',
+      context: 'gehan-breslow variance',
+      weightFn: ({ totalAtRisk }) => totalAtRisk
+    });
+  }
+
+  function computeLogRankTrend(series){
+    if(!Array.isArray(series) || series.length < 3){
+      return { available: false, message: 'Trend test requires at least three ordered groups.' };
     }
-    const inverse = tryInvertMatrix(reducedMatrix, { context: 'log-rank variance' });
-    if(!inverse){
-      return { available: false, message: 'Unable to invert log-rank variance matrix.' };
+    const scores = series.map((_, index) => index + 1);
+    const result = computeWeightedLogRank(series, {
+      label: 'Log-rank trend',
+      context: 'log-rank trend variance',
+      scores
+    });
+    if(result.available){
+      result.scores = scores.slice();
     }
-    const diffVec = diff.slice(0, df);
-    const invTimesDiff = multiplyMatrixVector(inverse, diffVec);
-    const chi2 = dotProduct(diffVec, invTimesDiff);
-    let pValue = null;
-    if(global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf === 'function'){
-      pValue = 1 - global.jStat.chisquare.cdf(chi2, df);
-    }
-    logDebug('log-rank summary', { chi2, df, p: pValue });
-    return { available: true, chi2, df, p: pValue };
+    return result;
   }
 
   function collectSeries(){
@@ -2621,6 +2735,238 @@
     return { gradient, fisher, logLik };
   }
 
+  function summarizeNumericSeries(values){
+    const clean = Array.isArray(values) ? values.map(Number).filter(Number.isFinite) : [];
+    if(!clean.length){
+      return null;
+    }
+    const mean = clean.reduce((sum, value) => sum + value, 0) / clean.length;
+    const variance = clean.length > 1
+      ? clean.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / (clean.length - 1)
+      : 0;
+    return {
+      mean,
+      sd: Math.sqrt(Math.max(variance, 0)),
+      min: Math.min(...clean),
+      max: Math.max(...clean),
+      count: clean.length
+    };
+  }
+
+  function computePearsonCorrelation(valuesA, valuesB){
+    const points = [];
+    const maxLength = Math.min(valuesA?.length || 0, valuesB?.length || 0);
+    for(let idx = 0; idx < maxLength; idx += 1){
+      const x = Number(valuesA[idx]);
+      const y = Number(valuesB[idx]);
+      if(Number.isFinite(x) && Number.isFinite(y)){
+        points.push({ x, y });
+      }
+    }
+    if(points.length < 3){
+      return null;
+    }
+    const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
+    points.forEach(point => {
+      const dx = point.x - meanX;
+      const dy = point.y - meanY;
+      sxx += dx * dx;
+      syy += dy * dy;
+      sxy += dx * dy;
+    });
+    const denom = Math.sqrt(sxx * syy);
+    if(!(denom > 0)){
+      return null;
+    }
+    return sxy / denom;
+  }
+
+  function computeCoxDerivedEventStats(prepared, beta){
+    if(!prepared || !Array.isArray(prepared.data) || !Array.isArray(prepared.eventsByTime)){
+      return null;
+    }
+    const { data, predictors, eventsByTime } = prepared;
+    const entryOrder = Array.isArray(prepared.entryOrder) && prepared.entryOrder.length === data.length
+      ? prepared.entryOrder
+      : data.map((_, idx) => idx);
+    const exitOrder = Array.isArray(prepared.exitOrder) && prepared.exitOrder.length === data.length
+      ? prepared.exitOrder
+      : data.map((_, idx) => idx);
+    const weights = new Array(data.length);
+    const linearPredictors = new Array(data.length);
+    for(let i = 0; i < data.length; i += 1){
+      const xb = dotProduct(data[i].covariates, beta);
+      linearPredictors[i] = xb;
+      weights[i] = safeExp(xb);
+    }
+    let denom = 0;
+    const weightedX = new Array(predictors).fill(0);
+    let entryPointer = 0;
+    let exitPointer = 0;
+    const epsilon = 1e-9;
+    const eventGroups = [];
+    eventsByTime.forEach(group => {
+      const timeValue = Number.isFinite(group?.time) ? group.time : 0;
+      while(entryPointer < entryOrder.length){
+        const obs = data[entryOrder[entryPointer]];
+        const entryTime = Number.isFinite(obs?.entry) ? obs.entry : 0;
+        if(entryTime <= timeValue + epsilon){
+          const weight = weights[entryOrder[entryPointer]];
+          denom += weight;
+          for(let idx = 0; idx < predictors; idx += 1){
+            weightedX[idx] += weight * Number(obs?.covariates?.[idx] || 0);
+          }
+          entryPointer += 1;
+        }else{
+          break;
+        }
+      }
+      while(exitPointer < exitOrder.length){
+        const obs = data[exitOrder[exitPointer]];
+        if(Number(obs?.time) < timeValue - epsilon){
+          const weight = weights[exitOrder[exitPointer]];
+          denom -= weight;
+          for(let idx = 0; idx < predictors; idx += 1){
+            weightedX[idx] -= weight * Number(obs?.covariates?.[idx] || 0);
+          }
+          exitPointer += 1;
+        }else{
+          break;
+        }
+      }
+      if(!(denom > 0) || !Array.isArray(group?.eventIndices) || !group.eventIndices.length){
+        return;
+      }
+      eventGroups.push({
+        time: timeValue,
+        eventIndices: group.eventIndices.slice(),
+        eventCount: group.eventIndices.length,
+        hazardIncrement: group.eventIndices.length / denom,
+        weightedMean: weightedX.map(value => value / denom)
+      });
+    });
+    return { weights, linearPredictors, eventGroups };
+  }
+
+  function computeHarrellConcordance(prepared, linearPredictors){
+    const data = Array.isArray(prepared?.data) ? prepared.data : [];
+    if(!data.length || !Array.isArray(linearPredictors) || linearPredictors.length !== data.length){
+      return null;
+    }
+    let comparable = 0;
+    let concordant = 0;
+    let tied = 0;
+    for(let i = 0; i < data.length; i += 1){
+      for(let j = i + 1; j < data.length; j += 1){
+        const obsA = data[i];
+        const obsB = data[j];
+        if(!Number.isFinite(obsA?.time) || !Number.isFinite(obsB?.time) || obsA.time === obsB.time){
+          continue;
+        }
+        let early = obsA;
+        let late = obsB;
+        let earlyScore = linearPredictors[i];
+        let lateScore = linearPredictors[j];
+        if(obsB.time < obsA.time){
+          early = obsB;
+          late = obsA;
+          earlyScore = linearPredictors[j];
+          lateScore = linearPredictors[i];
+        }
+        if(!early.event || early.time >= late.time){
+          continue;
+        }
+        comparable += 1;
+        if(earlyScore > lateScore){
+          concordant += 1;
+        }else if(earlyScore === lateScore){
+          tied += 1;
+        }
+      }
+    }
+    if(comparable <= 0){
+      return null;
+    }
+    const c = (concordant + (0.5 * tied)) / comparable;
+    const se = Math.sqrt(Math.max(c * (1 - c), 0) / comparable);
+    return {
+      c,
+      se,
+      ciLow: Math.max(0, c - (1.96 * se)),
+      ciHigh: Math.min(1, c + (1.96 * se)),
+      comparable,
+      concordant,
+      tied
+    };
+  }
+
+  function computeCoxDiagnosticsSummary(prepared, beta, coefficients){
+    const derived = computeCoxDerivedEventStats(prepared, beta);
+    if(!derived){
+      return null;
+    }
+    const martingale = [];
+    const deviance = [];
+    const coxSnell = [];
+    const schoenfeldByPredictor = Array.from({ length: prepared.predictors }, (_, idx) => ({
+      label: coefficients[idx]?.label || `Predictor ${idx + 1}`,
+      logTimes: [],
+      scaledResiduals: []
+    }));
+    prepared.data.forEach((obs, obsIndex) => {
+      const baselineHazard = derived.eventGroups.reduce((sum, group) => {
+        if(group.time + 1e-9 < (Number.isFinite(obs.entry) ? obs.entry : 0)){
+          return sum;
+        }
+        if(group.time <= obs.time + 1e-9){
+          return sum + group.hazardIncrement;
+        }
+        return sum;
+      }, 0);
+      const cumulativeHazard = derived.weights[obsIndex] * baselineHazard;
+      const martingaleResidual = Number(obs.event || 0) - cumulativeHazard;
+      const safeArgument = Math.max(1e-12, Number(obs.event || 0) - martingaleResidual);
+      const devianceResidual = martingaleResidual === 0
+        ? 0
+        : Math.sign(martingaleResidual) * Math.sqrt(Math.max(0, -2 * (martingaleResidual + (Number(obs.event || 0) * Math.log(safeArgument)))));
+      martingale.push(martingaleResidual);
+      deviance.push(devianceResidual);
+      coxSnell.push(cumulativeHazard);
+    });
+    derived.eventGroups.forEach(group => {
+      const logTime = Math.log(Math.max(group.time, 1e-6));
+      group.eventIndices.forEach(eventIndex => {
+        const obs = prepared.data[eventIndex];
+        if(!obs){
+          return;
+        }
+        for(let predictorIndex = 0; predictorIndex < prepared.predictors; predictorIndex += 1){
+          const residual = Number(obs.covariates?.[predictorIndex] || 0) - Number(group.weightedMean?.[predictorIndex] || 0);
+          const scale = Math.max(Number(coefficients[predictorIndex]?.se) || 0, 1e-6);
+          schoenfeldByPredictor[predictorIndex].logTimes.push(logTime);
+          schoenfeldByPredictor[predictorIndex].scaledResiduals.push(residual / scale);
+        }
+      });
+    });
+    return {
+      concordance: computeHarrellConcordance(prepared, derived.linearPredictors),
+      martingale: summarizeNumericSeries(martingale),
+      deviance: summarizeNumericSeries(deviance),
+      coxSnell: summarizeNumericSeries(coxSnell),
+      schoenfeld: schoenfeldByPredictor.map(entry => ({
+        predictor: entry.label,
+        correlation: computePearsonCorrelation(entry.logTimes, entry.scaledResiduals),
+        meanAbs: entry.scaledResiduals.length
+          ? entry.scaledResiduals.reduce((sum, value) => sum + Math.abs(value), 0) / entry.scaledResiduals.length
+          : NaN
+      }))
+    };
+  }
+
   function fitCoxModel(summary, options){
     const enabled = options?.enabled !== false;
     if(!enabled){
@@ -2725,6 +3071,16 @@
       iterations: iterations + 1,
       converged
     };
+    const residualDiagnostics = computeCoxDiagnosticsSummary(prepared, beta, coefficients);
+    if(residualDiagnostics){
+      diagnostics.concordance = residualDiagnostics.concordance;
+      diagnostics.residuals = {
+        martingale: residualDiagnostics.martingale,
+        deviance: residualDiagnostics.deviance,
+        coxSnell: residualDiagnostics.coxSnell,
+        schoenfeld: residualDiagnostics.schoenfeld
+      };
+    }
     const debugMetrics = {
       recordCount: prepared.data.length,
       eventGroupCount: Array.isArray(prepared.eventsByTime) ? prepared.eventsByTime.length : 0,
@@ -2815,6 +3171,89 @@
     }
     logDebug('hazard ratios computed', { pairCount: rows.length });
     return { available: rows.length > 0, rows, baselineGroup: coxModel.baselineGroup, message: rows.length ? null : 'No comparisons available.' };
+  }
+
+  function computePairwiseSurvivalComparisons(series, method = 'holm-sidak'){
+    if(!Array.isArray(series) || series.length < 2){
+      return { available: false, message: 'Pairwise survival comparisons require at least two groups.' };
+    }
+    const rows = [];
+    for(let i = 0; i < series.length; i += 1){
+      for(let j = i + 1; j < series.length; j += 1){
+        const subset = [series[i], series[j]];
+        const result = computeLogRank(subset);
+        rows.push({
+          groupA: series[i].name,
+          groupB: series[j].name,
+          chi2: result.chi2,
+          df: result.df,
+          p: result.p
+        });
+      }
+    }
+    const adjuster = Shared.stats?.adjustPValues;
+    const metaResolver = Shared.stats?.getCorrectionMeta;
+    const adjusted = typeof adjuster === 'function'
+      ? adjuster(rows.map(row => row.p), { method })
+      : rows.map(row => row.p);
+    rows.forEach((row, index) => {
+      row.adjustedP = Array.isArray(adjusted) && Number.isFinite(adjusted[index]) ? adjusted[index] : row.p;
+    });
+    const correctionMeta = typeof metaResolver === 'function'
+      ? metaResolver(method)
+      : { label: method, shortLabel: method, footnote: null };
+    return {
+      available: rows.length > 0,
+      rows,
+      correction: correctionMeta,
+      message: rows.length ? null : 'No pairwise survival comparisons available.'
+    };
+  }
+
+  function computeMedianSurvivalRatios(series){
+    if(!Array.isArray(series) || series.length < 2){
+      return { available: false, message: 'Median survival ratios require at least two groups.' };
+    }
+    const rows = [];
+    for(let i = 0; i < series.length; i += 1){
+      for(let j = i + 1; j < series.length; j += 1){
+        const groupA = series[i];
+        const groupB = series[j];
+        const medianA = Number(groupA?.km?.median);
+        const medianB = Number(groupB?.km?.median);
+        if(!(medianA > 0) || !(medianB > 0)){
+          continue;
+        }
+        const ratio = medianB / medianA;
+        let ciLow = null;
+        let ciHigh = null;
+        const aLow = Number(groupA?.km?.medianCiLow);
+        const aHigh = Number(groupA?.km?.medianCiHigh);
+        const bLow = Number(groupB?.km?.medianCiLow);
+        const bHigh = Number(groupB?.km?.medianCiHigh);
+        if(aLow > 0 && aHigh > 0 && bLow > 0 && bHigh > 0){
+          ciLow = bLow / aHigh;
+          ciHigh = bHigh / aLow;
+          if(ciLow > ciHigh){
+            const swap = ciLow;
+            ciLow = ciHigh;
+            ciHigh = swap;
+          }
+        }
+        rows.push({
+          groupA: groupA.name,
+          groupB: groupB.name,
+          ratio,
+          ciLow,
+          ciHigh
+        });
+      }
+    }
+    return {
+      available: rows.length > 0,
+      rows,
+      message: rows.length ? null : 'Median survival ratios unavailable.'
+    };
   }
 
   function extendSteps(points, axisMax){
@@ -2914,16 +3353,24 @@
       statsRenderer({ target, ...model });
       return true;
     }
-    target.innerHTML = '';
+    if(!model?.append){
+      target.innerHTML = '';
+    }
     if(model.caption){
       const caption = document.createElement('div');
       caption.className = 'stats-table-lead';
       caption.textContent = model.caption;
+      if(Object.prototype.hasOwnProperty.call(model, 'advanced')){
+        caption.setAttribute('data-stats-advanced', model.advanced ? '1' : '0');
+      }
       target.appendChild(caption);
     }
     if(Array.isArray(model.columns) && model.columns.length){
       const table = document.createElement('table');
       table.className = 'stats-table stats-table--fallback';
+      if(Object.prototype.hasOwnProperty.call(model, 'advanced')){
+        table.setAttribute('data-stats-advanced', model.advanced ? '1' : '0');
+      }
       const thead = document.createElement('thead');
       const headRow = document.createElement('tr');
       model.columns.forEach(col => {
@@ -2998,6 +3445,14 @@
         hazardSummary = computeHazardRatios(summary.series, coxModelSummary, { enabled: hazardRatiosEnabled });
       }
     }
+    summary.logRankWilcoxon = summary.series.length ? computeGehanBreslowWilcoxon(summary.series) : { available: false };
+    summary.logRankTrend = summary.series.length >= 3 ? computeLogRankTrend(summary.series) : { available: false };
+    summary.pairwiseComparisons = summary.series.length >= 2
+      ? computePairwiseSurvivalComparisons(summary.series, state.pairwiseCorrection || 'holm-sidak')
+      : { available: false };
+    summary.medianRatios = summary.series.length >= 2
+      ? computeMedianSurvivalRatios(summary.series)
+      : { available: false };
     summary.coxModel = coxModelSummary;
     summary.hazardRatios = hazardSummary;
     summary.flags = { hazardRatiosEnabled, coxEnabled };
@@ -3637,6 +4092,10 @@
         color: group.color || null
       })),
       logRank: summary.logRank,
+      logRankWilcoxon: summary.logRankWilcoxon,
+      logRankTrend: summary.logRankTrend,
+      pairwiseComparisons: summary.pairwiseComparisons,
+      medianRatios: summary.medianRatios,
       hazardRatios: summary.hazardRatios,
       coxModel: summary.coxModel,
       flags: summary.flags
@@ -3646,8 +4105,14 @@
       const logRankText = summary.logRank?.available
         ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = ${formatP(summary.logRank.p)}.`
         : (summary.logRank?.message || 'Log-rank test unavailable.');
+      const wilcoxonText = summary.logRankWilcoxon?.available
+        ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = ${formatP(summary.logRankWilcoxon.p)}.`
+        : null;
       const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
         ? `${summary.hazardRatios.rows.length} hazard-ratio comparison(s) were available.`
+        : null;
+      const pairwiseText = summary.pairwiseComparisons?.available && Array.isArray(summary.pairwiseComparisons.rows)
+        ? `${summary.pairwiseComparisons.rows.length} pairwise log-rank comparison(s) were adjusted with ${summary.pairwiseComparisons.correction?.label || state.pairwiseCorrection || 'the selected correction'}.`
         : null;
       const coxText = summary.coxModel?.available && Array.isArray(summary.coxModel.coefficients)
         ? `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`
@@ -3657,6 +4122,8 @@
         resultsText: [
           `${summary.series.length} group(s) contributed survival data.`,
           logRankText,
+          wilcoxonText,
+          pairwiseText,
           hazardText,
           coxText
         ].filter(Boolean).join(' '),
@@ -3666,8 +4133,11 @@
           showHazardRatios: !!summary.flags?.hazardRatiosEnabled,
           fitCox: !!summary.flags?.coxEnabled,
           hazardRatioRows: Array.isArray(summary.hazardRatios?.rows) ? summary.hazardRatios.rows.length : 0,
+          pairwiseRows: Array.isArray(summary.pairwiseComparisons?.rows) ? summary.pairwiseComparisons.rows.length : 0,
           coxCoefficientCount: Array.isArray(summary.coxModel?.coefficients) ? summary.coxModel.coefficients.length : 0,
           logRankAvailable: !!summary.logRank?.available,
+          gehanBreslowAvailable: !!summary.logRankWilcoxon?.available,
+          trendAvailable: !!summary.logRankTrend?.available,
           covariates: getSelectedCovariates(summary.covariateColumns),
           availableCovariates: Array.isArray(summary.covariateColumns) ? summary.covariateColumns.slice() : [],
           supportsTimeDependent: !!summary.supportsTimeDependent
@@ -3695,20 +4165,26 @@
       total: Number.isFinite(group.total) ? String(group.total) : String(group.total ?? '0'),
       events: Number.isFinite(group.events) ? String(group.events) : String(group.events ?? '0'),
       censored: Number.isFinite(group.censored) ? String(group.censored) : String(group.censored ?? '0'),
-      median: Number.isFinite(group.km?.median) ? formatNumber(group.km.median, 2) : 'Not reached'
+      median: Number.isFinite(group.km?.median) ? formatNumber(group.km.median, 2) : 'Not reached',
+      medianCi: Number.isFinite(group.km?.medianCiLow) && Number.isFinite(group.km?.medianCiHigh)
+        ? formatInterval(group.km.medianCiLow, group.km.medianCiHigh)
+        : 'n/a'
     }));
     const footnotes = [
       'Counts and medians derive from the filtered grid input.',
-      '"Not reached" indicates survival remained above 50% at the final timepoint.'
+      '"Not reached" indicates survival remained above 50% at the final timepoint.',
+      'Median survival confidence intervals are derived from the Kaplan–Meier confidence bands.'
     ];
     renderStatsTableCard(refs.statsSummary, {
       caption: 'Group Summary',
+      advanced: false,
       columns: [
         { key: 'group', label: 'Group', align: 'left' },
         { key: 'total', label: 'N', align: 'right' },
         { key: 'events', label: 'Events', align: 'right' },
         { key: 'censored', label: 'Censored', align: 'right' },
-        { key: 'median', label: 'Median survival', align: 'right' }
+        { key: 'median', label: 'Median survival', align: 'right' },
+        { key: 'medianCi', label: 'Median 95% CI', align: 'right' }
       ],
       rows,
       footnotes,
@@ -3723,15 +4199,35 @@
     if(!refs.statsLogRank){
       return;
     }
+    const rows = [];
     if(summary.logRank?.available){
-      const rows = [{
+      rows.push({
         test: 'Log-rank',
         statistic: formatNumber(summary.logRank.chi2, 3),
         df: Number.isFinite(summary.logRank.df) ? String(summary.logRank.df) : 'n/a',
         p: formatP(summary.logRank.p)
-      }];
+      });
+    }
+    if(summary.logRankWilcoxon?.available){
+      rows.push({
+        test: 'Gehan-Breslow-Wilcoxon',
+        statistic: formatNumber(summary.logRankWilcoxon.chi2, 3),
+        df: Number.isFinite(summary.logRankWilcoxon.df) ? String(summary.logRankWilcoxon.df) : 'n/a',
+        p: formatP(summary.logRankWilcoxon.p)
+      });
+    }
+    if(summary.logRankTrend?.available){
+      rows.push({
+        test: 'Log-rank trend',
+        statistic: formatNumber(summary.logRankTrend.chi2, 3),
+        df: Number.isFinite(summary.logRankTrend.df) ? String(summary.logRankTrend.df) : 'n/a',
+        p: formatP(summary.logRankTrend.p)
+      });
+    }
+    if(rows.length){
       renderStatsTableCard(refs.statsLogRank, {
-        caption: 'Log-rank Test',
+        caption: 'Survival Curve Comparisons',
+        advanced: false,
         columns: [
           { key: 'test', label: 'Test', align: 'left' },
           { key: 'statistic', label: 'Statistic', align: 'right' },
@@ -3739,12 +4235,43 @@
           { key: 'p', label: 'p value', align: 'right' }
         ],
         rows,
-        footnotes: ['H0: survival curves are identical across groups.'],
+        footnotes: [
+          'H0: survival curves are identical across groups.',
+          summary.logRankTrend?.available ? 'Trend test uses the displayed group order as the ordinal progression.' : null
+        ].filter(Boolean),
         options: {
-          fileName: 'survival-log-rank',
+          fileName: 'survival-curve-comparisons',
           contextLabel: 'survival-log-rank'
         }
       });
+      if(summary.pairwiseComparisons?.available && Array.isArray(summary.pairwiseComparisons.rows) && summary.pairwiseComparisons.rows.length){
+        renderStatsTableCard(refs.statsLogRank, {
+          caption: 'Pairwise Log-rank Comparisons',
+          advanced: true,
+          columns: [
+            { key: 'comparison', label: 'Comparison', align: 'left' },
+            { key: 'chi2', label: 'χ²', align: 'right' },
+            { key: 'p', label: 'p value', align: 'right' },
+            { key: 'adjustedP', label: `Adjusted p (${summary.pairwiseComparisons.correction?.shortLabel || 'adj'})`, align: 'right' }
+          ],
+          rows: summary.pairwiseComparisons.rows.map(row => ({
+            comparison: `${row.groupB} vs ${row.groupA}`,
+            chi2: formatNumber(row.chi2, 3),
+            p: formatP(row.p),
+            adjustedP: formatP(row.adjustedP)
+          })),
+          footnotes: [
+            summary.pairwiseComparisons.correction?.footnote
+              ? summary.pairwiseComparisons.correction.footnote(summary.pairwiseComparisons.rows.length)
+              : `${summary.pairwiseComparisons.correction?.label || 'Selected'} correction applied across pairwise survival comparisons.`
+          ],
+          options: {
+            fileName: 'survival-pairwise-log-rank',
+            contextLabel: 'survival-pairwise-log-rank'
+          },
+          append: true
+        });
+      }
       return;
     }
     renderStatsLead(refs.statsLogRank, summary.logRank?.message || 'Log-rank test unavailable.');
@@ -3771,6 +4298,7 @@
     }));
     renderStatsTableCard(refs.statsHazardRatios, {
       caption: 'Hazard Ratios',
+      advanced: false,
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 'hazardRatio', label: 'Hazard Ratio', align: 'right' },
@@ -3788,6 +4316,28 @@
         contextLabel: 'survival-hazard-ratios'
       }
     });
+    if(summary.medianRatios?.available && Array.isArray(summary.medianRatios.rows) && summary.medianRatios.rows.length){
+      renderStatsTableCard(refs.statsHazardRatios, {
+        caption: 'Median Survival Ratios',
+        advanced: true,
+        columns: [
+          { key: 'comparison', label: 'Comparison', align: 'left' },
+          { key: 'ratio', label: 'Median ratio', align: 'right' },
+          { key: 'ci', label: '95% CI', align: 'right' }
+        ],
+        rows: summary.medianRatios.rows.map(row => ({
+          comparison: `${row.groupB} / ${row.groupA}`,
+          ratio: formatNumber(row.ratio, 3),
+          ci: formatInterval(row.ciLow, row.ciHigh)
+        })),
+        footnotes: ['Ratios greater than 1 indicate longer median survival in the numerator group.'],
+        options: {
+          fileName: 'survival-median-ratios',
+          contextLabel: 'survival-median-ratios'
+        },
+        append: true
+      });
+    }
     logDebug('hazard ratio stats rendered', { rowCount: rows.length });
   }
 
@@ -3823,6 +4373,7 @@
     ].filter(Boolean);
     renderStatsTableCard(refs.statsCox, {
       caption: 'Cox Model Coefficients',
+      advanced: false,
       columns: [
         { key: 'predictor', label: 'Predictor', align: 'left' },
         { key: 'type', label: 'Type', align: 'left' },
@@ -3839,6 +4390,81 @@
         contextLabel: 'survival-cox-model'
       }
     });
+    const concordance = diag.concordance || null;
+    if(concordance){
+      renderStatsTableCard(refs.statsCox, {
+        caption: 'Cox Model Diagnostics',
+        advanced: true,
+        columns: [
+          { key: 'metric', label: 'Metric', align: 'left' },
+          { key: 'value', label: 'Value', align: 'right' }
+        ],
+        rows: [
+          { metric: "Harrell's C", value: formatNumber(concordance.c, 3) },
+          { metric: "Harrell's C 95% CI", value: formatInterval(concordance.ciLow, concordance.ciHigh) },
+          { metric: 'Comparable pairs', value: Number.isFinite(concordance.comparable) ? String(concordance.comparable) : 'n/a' },
+          { metric: 'Concordant pairs', value: Number.isFinite(concordance.concordant) ? String(concordance.concordant) : 'n/a' }
+        ],
+        footnotes: ['Higher concordance indicates better risk ranking by the Cox model.'],
+        options: {
+          fileName: 'survival-cox-diagnostics',
+          contextLabel: 'survival-cox-diagnostics'
+        },
+        append: true
+      });
+    }
+    const residuals = diag.residuals || {};
+    const residualRows = [
+      { label: 'Martingale', summary: residuals.martingale },
+      { label: 'Deviance', summary: residuals.deviance },
+      { label: 'Cox-Snell', summary: residuals.coxSnell }
+    ].filter(entry => entry.summary);
+    if(residualRows.length){
+      renderStatsTableCard(refs.statsCox, {
+        caption: 'Residual Summaries',
+        advanced: true,
+        columns: [
+          { key: 'residual', label: 'Residual', align: 'left' },
+          { key: 'mean', label: 'Mean', align: 'right' },
+          { key: 'sd', label: 'SD', align: 'right' },
+          { key: 'range', label: 'Range', align: 'right' }
+        ],
+        rows: residualRows.map(entry => ({
+          residual: entry.label,
+          mean: formatNumber(entry.summary.mean, 3),
+          sd: formatNumber(entry.summary.sd, 3),
+          range: `${formatNumber(entry.summary.min, 3)} to ${formatNumber(entry.summary.max, 3)}`
+        })),
+        footnotes: ['Residual summaries help flag lack of fit and influential observations.'],
+        options: {
+          fileName: 'survival-cox-residuals',
+          contextLabel: 'survival-cox-residuals'
+        },
+        append: true
+      });
+    }
+    if(Array.isArray(residuals.schoenfeld) && residuals.schoenfeld.length){
+      renderStatsTableCard(refs.statsCox, {
+        caption: 'Scaled Schoenfeld Residual Checks',
+        advanced: true,
+        columns: [
+          { key: 'predictor', label: 'Predictor', align: 'left' },
+          { key: 'correlation', label: 'Corr(log time)', align: 'right' },
+          { key: 'meanAbs', label: 'Mean |scaled residual|', align: 'right' }
+        ],
+        rows: residuals.schoenfeld.map(entry => ({
+          predictor: entry.predictor,
+          correlation: formatNumber(entry.correlation, 3),
+          meanAbs: formatNumber(entry.meanAbs, 3)
+        })),
+        footnotes: ['Large time correlations can indicate non-proportional hazards.'],
+        options: {
+          fileName: 'survival-schoenfeld-checks',
+          contextLabel: 'survival-schoenfeld-checks'
+        },
+        append: true
+      });
+    }
     logDebug('cox stats rendered', {
       rowCount: rows.length,
       baseline: summary.coxModel.baselineGroup
@@ -3873,6 +4499,7 @@
         showCensor: !!refs.showCensor?.checked,
         showHazardRatios: !!refs.showHazardRatios?.checked,
         fitCoxModel: !!refs.fitCoxModel?.checked,
+        pairwiseCorrection: state.pairwiseCorrection || 'holm-sidak',
         showGrid: !!refs.showGrid?.checked,
         gridStyle: getGridStyle(axisSettings.strokeWidth),
         showFrame: !!refs.showFrame?.checked,
@@ -4019,6 +4646,11 @@
     if(refs.showCensor) refs.showCensor.checked = !!config.showCensor;
     if(refs.showHazardRatios) refs.showHazardRatios.checked = config.showHazardRatios !== false;
     if(refs.fitCoxModel) refs.fitCoxModel.checked = config.fitCoxModel !== false;
+    state.pairwiseCorrection = typeof config.pairwiseCorrection === 'string' ? config.pairwiseCorrection : (state.pairwiseCorrection || 'holm-sidak');
+    const pairwiseCorrectionSelect = document.getElementById('survivalPairwiseCorrection');
+    if(pairwiseCorrectionSelect){
+      pairwiseCorrectionSelect.value = state.pairwiseCorrection;
+    }
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
     setGridStyle(config.gridStyle, config.axis?.strokeWidth);
     if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
@@ -4167,6 +4799,7 @@
   }
 
   function initControls(){
+    ensureSurvivalStatsConfigControls();
     const schedule = () => {
       if(state.scheduleDraw){
         state.scheduleDraw();
@@ -4215,6 +4848,39 @@
       logDebug('font size base initialized', { value: refs.fontSize.value });
     }
     chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value), input: refs.fontSize, manual: true });
+  }
+
+  function ensureSurvivalStatsConfigControls(){
+    const host = document.getElementById('survivalStatsToggleRow');
+    if(!host || document.getElementById('survivalPairwiseCorrection')){
+      return;
+    }
+    const label = document.createElement('label');
+    label.className = 'idx-inline-023';
+    label.dataset.survivalStatsExtra = '1';
+    label.textContent = 'Pairwise correction ';
+    const select = document.createElement('select');
+    select.id = 'survivalPairwiseCorrection';
+    [
+      ['holm-sidak', 'Holm-Sidak'],
+      ['holm', 'Holm'],
+      ['bh', 'BH FDR']
+    ].forEach(([value, text]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      if(value === state.pairwiseCorrection){
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+    select.addEventListener('change', () => {
+      state.pairwiseCorrection = String(select.value || 'holm-sidak');
+      logDebug('pairwise correction changed', { value: state.pairwiseCorrection });
+      state.scheduleDraw?.();
+    });
+    label.appendChild(select);
+    host.appendChild(label);
   }
 
   function initNotes(){

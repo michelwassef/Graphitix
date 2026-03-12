@@ -269,7 +269,7 @@
     return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density plot' : 'Histogram';
   }
 
-  const HIST_DEFAULT_FILL = '#377eb8';
+  const HIST_DEFAULT_FILL = '#0000ff';
   const HIST_DEFAULT_BORDER = '#000000';
   const HIST_DEFAULT_BORDER_WIDTH = 1;
 

@@ -88,6 +88,7 @@
   const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
 
   const COLOR_RAMPS = Object.freeze({
+    grayscale: { label: 'Grayscale', stops: ['#000000', '#2e2e2e', '#525252', '#737373', '#969696', '#bdbdbd', '#e0e0e0', '#ffffff'] },
     viridis: { label: 'Viridis', stops: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] },
     plasma: { label: 'Plasma', stops: ['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921'] },
     magma: { label: 'Magma', stops: ['#0c081b', '#2a115b', '#5c1f78', '#933d6c', '#c75b54', '#f48834', '#fbf671'] },

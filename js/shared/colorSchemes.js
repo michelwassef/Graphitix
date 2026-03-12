@@ -12,7 +12,7 @@
     const fromGlobal = Array.isArray(global.DEFAULT_SCATTER_COLORS) && global.DEFAULT_SCATTER_COLORS.length
       ? global.DEFAULT_SCATTER_COLORS
       : null;
-    const fallback = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999'];
+    const fallback = ['#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6', '#8b4513', '#ff1493', '#666666'];
     const source = fromShared || fromGlobal || fallback;
     return source.slice();
   })();
@@ -24,54 +24,54 @@
     background: '#ffffff'
   });
   const DEFAULT_BOX_CLASSIC_CATEGORICAL = Object.freeze([
-    '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3'
+    '#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6', '#8b4513', '#ff1493'
   ]);
   const DEFAULT_HIST_DISTRIBUTION_COLORS = Object.freeze([
-    '#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'
+    '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6'
   ]);
   const DEFAULT_HEATMAP_DIVERGING = Object.freeze({
-    negative: '#313695',
-    zero: '#f7f7f7',
-    positive: '#a50026'
+    negative: '#0000ff',
+    zero: '#ffffff',
+    positive: '#ff0000'
   });
   const DEFAULT_VENN_SCIENTIFIC = Object.freeze({
-    colorA: '#e74c3c',
-    colorB: '#2ecc71',
-    colorC: '#3498db',
-    borderColor: '#999999',
+    colorA: '#0000ff',
+    colorB: '#ff0000',
+    colorC: '#00aa00',
+    borderColor: '#000000',
     upset: Object.freeze({
-      barColor: '#2f2f2f',
-      setBarColor: '#2f2f2f',
-      dotColor: '#2f2f2f',
-      inactiveDotColor: '#d6d6d6',
+      barColor: '#000000',
+      setBarColor: '#000000',
+      dotColor: '#000000',
+      inactiveDotColor: '#cfcfcf',
       gridColor: '#e5e7eb',
       axisColor: '#000000'
     })
   });
   const SCIENTIFIC_TYPE_DEFAULTS = Object.freeze({
     box: Object.freeze({
-      fill: '#4472c4',
+      fill: '#0000ff',
       border: '#000000',
       summaryColor: '#ff0000',
       significanceColor: '#000000',
       categorical: DEFAULT_BOX_CLASSIC_CATEGORICAL
     }),
     scatter: Object.freeze({
-      fill: '#377eb8',
+      fill: '#0000ff',
       border: '#000000',
-      overlayTrend: '#d00',
-      overlayConfidence: '#d62728',
-      overlayPrediction: '#d62728',
+      overlayTrend: '#ff0000',
+      overlayConfidence: '#ff8c00',
+      overlayPrediction: '#00aa00',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
     }),
     pca: Object.freeze({
-      fill: '#377eb8',
+      fill: '#0000ff',
       border: '#000000',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
     }),
     line: Object.freeze({
-      fill: '#377eb8',
-      border: '#377eb8',
+      fill: '#0000ff',
+      border: '#0000ff',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
     }),
     roc: Object.freeze({
@@ -85,7 +85,7 @@
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
     }),
     hist: Object.freeze({
-      fill: '#377eb8',
+      fill: '#0000ff',
       border: '#000000',
       distributionColors: DEFAULT_HIST_DISTRIBUTION_COLORS,
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL.slice())
@@ -121,9 +121,9 @@
   const SCHEMES = Object.freeze({
     scientific: Object.freeze({
       id: 'scientific',
-      label: 'Scientific (Classic)',
+      label: 'Color',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL),
-      sequential: Object.freeze(['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']),
+      sequential: Object.freeze(['#0000ff', '#4f4fff', '#ff0000', '#00aa00', '#ff8c00', '#800080']),
       diverging: DEFAULT_HEATMAP_DIVERGING,
       tokens: DEFAULT_SCIENTIFIC_TOKENS,
       densityPalette: 'viridis',
@@ -132,19 +132,19 @@
     grayscale: Object.freeze({
       id: 'grayscale',
       label: 'Grayscale',
-      categorical: Object.freeze(['#111111', '#333333', '#4d4d4d', '#666666', '#808080', '#999999', '#b3b3b3', '#c7c7c7', '#d9d9d9']),
-      sequential: Object.freeze(['#111111', '#333333', '#666666', '#999999', '#cccccc', '#f0f0f0']),
-      diverging: Object.freeze({ negative: '#222222', zero: '#bfbfbf', positive: '#f5f5f5' }),
-      tokens: Object.freeze({ axisColor: '#111111', gridColor: '#c8c8c8', borderColor: '#111111', textColor: '#111111', background: '#ffffff' }),
-      densityPalette: 'cividis',
-      surfaceRamp: 'bluered'
+      categorical: Object.freeze(['#000000', '#333333', '#555555', '#777777', '#999999', '#b3b3b3', '#cccccc', '#e0e0e0', '#f0f0f0']),
+      sequential: Object.freeze(['#000000', '#2e2e2e', '#525252', '#737373', '#969696', '#bdbdbd', '#e0e0e0']),
+      diverging: Object.freeze({ negative: '#7a7a7a', zero: '#ffffff', positive: '#000000' }),
+      tokens: Object.freeze({ axisColor: '#000000', gridColor: '#d0d0d0', borderColor: '#000000', textColor: '#000000', background: '#ffffff' }),
+      densityPalette: 'grayscale',
+      surfaceRamp: 'grayscale'
     }),
     colorblind: Object.freeze({
       id: 'colorblind',
       label: 'Color Blind Safe',
-      categorical: Object.freeze(['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7', '#56B4E9', '#F0E442', '#000000']),
-      sequential: Object.freeze(['#003f5c', '#2f4b7c', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#ffa600']),
-      diverging: Object.freeze({ negative: '#2166ac', zero: '#f7f7f7', positive: '#b2182b' }),
+      categorical: Object.freeze(['#0072b2', '#d55e00', '#009e73', '#cc79a7', '#e69f00', '#56b4e9', '#000000', '#999999', '#f0e442']),
+      sequential: Object.freeze(['#00204c', '#17355e', '#3d5a73', '#657f88', '#91a79c', '#c1d1af', '#f6fbd1']),
+      diverging: Object.freeze({ negative: '#0072b2', zero: '#f7f7f7', positive: '#d55e00' }),
       tokens: Object.freeze({ axisColor: '#111111', gridColor: '#d0d0d0', borderColor: '#111111', textColor: '#111111', background: '#ffffff' }),
       densityPalette: 'cividis',
       surfaceRamp: 'viridis'
@@ -291,18 +291,6 @@
     return darken(source, 0.34);
   }
 
-  function pickBalancedPaletteColor(colors, fallback){
-    const palette = ensureArray(colors);
-    for(let i = 0; i < palette.length; i += 1){
-      const candidate = palette[i];
-      const luminance = relativeLuminance(candidate);
-      if(luminance !== null && luminance >= 0.26 && luminance <= 0.72){
-        return candidate;
-      }
-    }
-    return palette[0] || fallback || null;
-  }
-
   function buildBoxPalette(scheme, categorical, fallback){
     const palette = ensureArray(categorical).slice();
     if(!palette.length){
@@ -310,12 +298,6 @@
         return [fallback];
       }
       return [];
-    }
-    if(scheme?.id === 'grayscale'){
-      const balanced = pickBalancedPaletteColor(palette, fallback || palette[0] || null);
-      if(balanced){
-        palette[0] = balanced;
-      }
     }
     return palette;
   }
@@ -784,6 +766,25 @@
     });
   }
 
+  function syncSharedScatterPalette(type, scheme){
+    const categorical = resolveCategoricalPalette(type, scheme);
+    if(!categorical.length){
+      return;
+    }
+    const palette = Shared.palette = Shared.palette || {};
+    if(typeof palette.setDefaultScatterColors === 'function'){
+      palette.setDefaultScatterColors(categorical);
+      return;
+    }
+    const target = Array.isArray(palette.DEFAULT_SCATTER_COLORS)
+      ? palette.DEFAULT_SCATTER_COLORS
+      : [];
+    target.length = 0;
+    categorical.forEach(color => target.push(color));
+    palette.DEFAULT_SCATTER_COLORS = target;
+    global.DEFAULT_SCATTER_COLORS = target;
+  }
+
   function applySchemeToPayload(type, payload, scheme){
     const next = cloneValue(payload) || { type, config: {} };
     const cfg = next.config = next.config && typeof next.config === 'object' ? next.config : {};
@@ -927,6 +928,7 @@
     }
 
     if(type === 'box'){
+      const grayscaleMode = scheme.id === 'grayscale';
       const boxScientificPalette = scientificDefaults ? ensureArray(scientificDefaults.categorical).slice() : [];
       const boxPalette = boxScientificPalette.length
         ? boxScientificPalette
@@ -935,8 +937,10 @@
       const resolvedBoxPalette = boxPalette.length
         ? boxPalette
         : (categorical.length ? categorical : [primaryFill || '#666666']);
-      const unifiedBorder = (scientificDefaults && scientificDefaults.border)
-        || deriveBorderColor(primaryFill, tokens.borderColor || cfg.border);
+      const unifiedBorder = grayscaleMode
+        ? '#000000'
+        : ((scientificDefaults && scientificDefaults.border)
+          || deriveBorderColor(primaryFill, tokens.borderColor || cfg.border));
       cfg.fill = primaryFill || cfg.fill;
       cfg.border = unifiedBorder || cfg.border;
       const currentLen = Math.max(
@@ -946,7 +950,11 @@
         1
       );
       cfg.colors = Array.from({ length: currentLen }, (_, i) => resolvedBoxPalette[i % resolvedBoxPalette.length]);
-      cfg.borderColors = cfg.colors.map(color => deriveBorderColor(color, tokens.borderColor || darken(color, 0.22)));
+      cfg.borderColors = cfg.colors.map(color => (
+        grayscaleMode
+          ? '#000000'
+          : deriveBorderColor(color, tokens.borderColor || darken(color, 0.22))
+      ));
       cfg.shapeGlobalStyle = patchStyleColorFields(cfg.shapeGlobalStyle, {
         fill: primaryFill || null,
         stroke: unifiedBorder || tokens.borderColor || null,
@@ -972,22 +980,26 @@
         strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
       });
       cfg.summaryGlobalStyle = patchStyleColorFields(cfg.summaryGlobalStyle, {
-        fill: (scientificDefaults && scientificDefaults.summaryColor)
-          || resolvedBoxPalette[1]
-          || resolvedBoxPalette[0]
-          || null,
+        fill: grayscaleMode
+          ? '#000000'
+          : ((scientificDefaults && scientificDefaults.summaryColor)
+            || resolvedBoxPalette[1]
+            || resolvedBoxPalette[0]
+            || null),
         force: true,
         fillFields: ['color']
       });
-      cfg.summaryStyles = recolorIndexedStyleMap(cfg.summaryStyles, resolvedBoxPalette, {
+      cfg.summaryStyles = recolorIndexedStyleMap(cfg.summaryStyles, grayscaleMode ? ['#000000'] : resolvedBoxPalette, {
         force: true,
         fillFields: ['color']
       });
       cfg.significance = ensureObject(cfg.significance);
-      cfg.significance.color = (scientificDefaults && scientificDefaults.significanceColor)
-        || resolvedBoxPalette[3]
-        || resolvedBoxPalette[0]
-        || cfg.significance.color;
+      cfg.significance.color = grayscaleMode
+        ? '#000000'
+        : ((scientificDefaults && scientificDefaults.significanceColor)
+          || resolvedBoxPalette[3]
+          || resolvedBoxPalette[0]
+          || cfg.significance.color);
       applyAxisTokens(cfg, scheme);
       return next;
     }
@@ -1138,6 +1150,7 @@
       || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
 
     const nextPayload = applySchemeToPayload(type, sourcePayload, scheme);
+    syncSharedScatterPalette(type, scheme);
 
     if(typeof session.assignTabPayload === 'function'){
       session.assignTabPayload(tab, cloneValue(nextPayload), { reason: `color-scheme-${type}` });
@@ -1235,6 +1248,7 @@
     if(control && control.value !== schemeId){
       control.value = schemeId;
     }
+    syncSharedScatterPalette(tab.type, getScheme(schemeId));
     applyRenderedTheme(tab.type, schemeId);
     debugLog('Debug: colorSchemes visuals synced', { reason, tabId: tab.id, type: tab.type, scheme: schemeId });
   }

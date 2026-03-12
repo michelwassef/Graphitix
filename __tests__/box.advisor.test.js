@@ -41,6 +41,52 @@ describe('Box plot statistics advisor', () => {
     expect(recommendation.summary).toMatch(/Games–Howell/i);
   });
 
+  test('recommends ratio t test for paired lognormal two-group data', () => {
+    const box = ensureBoxModule();
+    const recommendation = box.getAdvisorRecommendation({
+      groups: 'two',
+      paired: 'paired',
+      distribution: 'lognormal'
+    }, {
+      groupCount: 2
+    });
+    expect(recommendation.ready).toBe(true);
+    expect(recommendation.statsTest).toBe('parametric');
+    expect(recommendation.parametricVariant).toBe('ratioT');
+    expect(recommendation.canApply).toBe(true);
+    expect(recommendation.summary).toMatch(/Ratio t test/i);
+  });
+
+  test('requires geometric SD guidance before recommending unpaired lognormal tests', () => {
+    const box = ensureBoxModule();
+    const recommendation = box.getAdvisorRecommendation({
+      groups: 'two',
+      paired: 'unpaired',
+      distribution: 'lognormal'
+    }, {
+      groupCount: 2
+    });
+    expect(recommendation.ready).toBe(false);
+    expect(recommendation.missing).toContain('equalVariance');
+  });
+
+  test('recommends Prism-style lognormal Welch ANOVA as an applyable workflow', () => {
+    const box = ensureBoxModule();
+    const recommendation = box.getAdvisorRecommendation({
+      groups: 'threePlus',
+      paired: 'unpaired',
+      distribution: 'lognormal',
+      equalVariance: 'no'
+    }, {
+      groupCount: 4,
+      sampleSizes: [5, 5, 6, 7]
+    });
+    expect(recommendation.ready).toBe(true);
+    expect(recommendation.summary).toMatch(/Lognormal Welch ANOVA/i);
+    expect(recommendation.parametricVariant).toBe('lognormalWelch');
+    expect(recommendation.canApply).toBe(true);
+  });
+
   test('flags missing inputs until the user answers required questions', () => {
     const box = ensureBoxModule();
     const recommendation = box.getAdvisorRecommendation({

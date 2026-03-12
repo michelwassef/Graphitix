@@ -162,10 +162,10 @@
         getSummary: ctx => (ctx?.scope === 'series' && seriesKey) ? seriesKey : 'Global',
         getColor: ctx => {
           if(ctx?.scope === 'series' && seriesKey){
-            return state.labelColors[seriesKey] || target.getAttribute('stroke') || '#377eb8';
+            return state.labelColors[seriesKey] || target.getAttribute('stroke') || '#0000ff';
           }
           const keys = Object.keys(state.labelColors || {});
-          return (keys.length ? state.labelColors[keys[0]] : null) || target.getAttribute('stroke') || '#377eb8';
+          return (keys.length ? state.labelColors[keys[0]] : null) || target.getAttribute('stroke') || '#0000ff';
         },
         getThickness: ctx => {
           if(ctx?.scope === 'series' && seriesKey){
@@ -348,7 +348,7 @@
     });
     scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect); wrap.appendChild(scopeField);
 
-    const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || state.labelColors[seriesKey] || '#377eb8'; }catch(e){}
+    const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || state.labelColors[seriesKey] || '#0000ff'; }catch(e){}
     colorInput.addEventListener('input', ()=>{ const v=colorInput.value; if(scopeSelect.value==='series'&&seriesKey){ state.labelColors[seriesKey]=v; } else { Object.keys(state.labelColors).forEach(k=>state.labelColors[k]=v); } try{ target.setAttribute('stroke', v); }catch(e){} state.scheduleDraw?.(); });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
@@ -1669,6 +1669,135 @@
     return graphType === 'roc' ? auc : ap;
   }
 
+  function computeSampleVariance(values){
+    const clean = Array.isArray(values) ? values.map(Number).filter(Number.isFinite) : [];
+    if(clean.length < 2){
+      return 0;
+    }
+    const mean = clean.reduce((sum, value) => sum + value, 0) / clean.length;
+    const ss = clean.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0);
+    return ss / (clean.length - 1);
+  }
+
+  function resolveRocZCritical(alpha = 0.05){
+    const safeAlpha = Number.isFinite(alpha) && alpha > 0 && alpha < 1 ? alpha : 0.05;
+    if(global.jStat?.normal && typeof global.jStat.normal.inv === 'function'){
+      const quantile = global.jStat.normal.inv(1 - (safeAlpha / 2), 0, 1);
+      if(Number.isFinite(quantile)){
+        return quantile;
+      }
+    }
+    return 1.959963984540054;
+  }
+
+  function computeWilsonInterval(successes, total, alpha = 0.05){
+    const n = Number(total);
+    const x = Number(successes);
+    if(!Number.isFinite(n) || !Number.isFinite(x) || n <= 0){
+      return null;
+    }
+    const p = Math.max(0, Math.min(1, x / n));
+    const z = resolveRocZCritical(alpha);
+    const z2 = z * z;
+    const denom = 1 + (z2 / n);
+    const centre = (p + (z2 / (2 * n))) / denom;
+    const spread = (z / denom) * Math.sqrt(((p * (1 - p)) / n) + (z2 / (4 * n * n)));
+    return {
+      low: Math.max(0, centre - spread),
+      high: Math.min(1, centre + spread)
+    };
+  }
+
+  function computeSingleAucUncertainty(pairs, alpha = 0.05){
+    const clean = Array.isArray(pairs) ? pairs.filter(pair => Number.isFinite(pair?.score) && (pair?.label === 0 || pair?.label === 1)) : [];
+    const positives = clean.filter(pair => pair.label === 1).map(pair => pair.score);
+    const negatives = clean.filter(pair => pair.label === 0).map(pair => pair.score);
+    const m = positives.length;
+    const n = negatives.length;
+    if(m < 1 || n < 1){
+      return null;
+    }
+    const kernel = (positive, negative) => {
+      if(positive > negative){ return 1; }
+      if(positive === negative){ return 0.5; }
+      return 0;
+    };
+    const v10 = positives.map(score => negatives.reduce((sum, negative) => sum + kernel(score, negative), 0) / n);
+    const v01 = negatives.map(score => positives.reduce((sum, positive) => sum + kernel(positive, score), 0) / m);
+    const auc = v10.reduce((sum, value) => sum + value, 0) / m;
+    const variance = (computeSampleVariance(v10) / m) + (computeSampleVariance(v01) / n);
+    const se = variance >= 0 ? Math.sqrt(variance) : NaN;
+    const z = resolveRocZCritical(alpha);
+    const ciLow = Number.isFinite(se) ? Math.max(0, auc - (z * se)) : NaN;
+    const ciHigh = Number.isFinite(se) ? Math.min(1, auc + (z * se)) : NaN;
+    return {
+      auc,
+      se,
+      ciLow,
+      ciHigh,
+      method: 'DeLong-style'
+    };
+  }
+
+  function buildRocThresholdMetricsTable(pairs, alpha = 0.05){
+    const clean = Array.isArray(pairs) ? pairs.filter(pair => Number.isFinite(pair?.score) && (pair?.label === 0 || pair?.label === 1)) : [];
+    if(!clean.length){
+      return [];
+    }
+    const sorted = clean.slice().sort((a, b) => b.score - a.score);
+    const positives = sorted.reduce((sum, pair) => sum + (pair.label === 1 ? 1 : 0), 0);
+    const negatives = sorted.length - positives;
+    let tp = 0;
+    let fp = 0;
+    let tn = negatives;
+    let fn = positives;
+    const rows = [];
+    for(let index = 0; index < sorted.length; ){
+      const threshold = sorted[index].score;
+      while(index < sorted.length && sorted[index].score === threshold){
+        const current = sorted[index];
+        if(current.label === 1){
+          tp += 1;
+          fn -= 1;
+        }else{
+          fp += 1;
+          tn -= 1;
+        }
+        index += 1;
+      }
+      const sensitivity = positives > 0 ? tp / positives : NaN;
+      const specificity = negatives > 0 ? tn / negatives : NaN;
+      const ppv = (tp + fp) > 0 ? tp / (tp + fp) : NaN;
+      const npv = (tn + fn) > 0 ? tn / (tn + fn) : NaN;
+      const accuracy = sorted.length > 0 ? (tp + tn) / sorted.length : NaN;
+      const lrPositive = Number.isFinite(sensitivity) && Number.isFinite(specificity) && specificity < 1
+        ? sensitivity / (1 - specificity)
+        : Infinity;
+      const lrNegative = Number.isFinite(sensitivity) && Number.isFinite(specificity) && specificity > 0
+        ? (1 - sensitivity) / specificity
+        : Infinity;
+      rows.push({
+        threshold,
+        tp,
+        fp,
+        tn,
+        fn,
+        sensitivity,
+        specificity,
+        ppv,
+        npv,
+        accuracy,
+        lrPositive,
+        lrNegative,
+        sensitivityCi: computeWilsonInterval(tp, positives, alpha),
+        specificityCi: computeWilsonInterval(tn, negatives, alpha),
+        ppvCi: computeWilsonInterval(tp, tp + fp, alpha),
+        npvCi: computeWilsonInterval(tn, tn + fn, alpha)
+      });
+    }
+    return rows;
+  }
+
   function bootstrapCurveTest(pairs, baseline, graphType, iters = 200){
     let count = 0;
     const n = pairs.length;
@@ -1832,6 +1961,12 @@
   }
 
   function formatRocDecimal(value, digits){
+    if(value === Infinity){
+      return 'Inf';
+    }
+    if(value === -Infinity){
+      return '-Inf';
+    }
     if(!Number.isFinite(value)){
       return '—';
     }
@@ -1847,6 +1982,16 @@
     return `${(value*100).toFixed(places)}%`;
   }
 
+  function formatRocInterval(interval, formatter){
+    if(!interval || !Number.isFinite(interval.low) || !Number.isFinite(interval.high)){
+      return '—';
+    }
+    const formatValue = typeof formatter === 'function'
+      ? formatter
+      : (value => formatRocDecimal(value, 3));
+    return `${formatValue(interval.low)} to ${formatValue(interval.high)}`;
+  }
+
   function renderRocStatsSummary(stats, graphType){
     if(!refs.statsResults){
       return;
@@ -1860,30 +2005,64 @@
       return;
     }
     const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
-    const baseColumns=[
+    const summaryColumns=[
       { key:'series', label:'Series', align:'left' },
       { key:'auc', label:graphType==='roc'?'AUC':'Area', align:'right' }
     ];
-    if(graphType==='pr'){
-      baseColumns.push({ key:'ap', label:'Average Precision', align:'right' });
+    if(graphType==='roc'){
+      summaryColumns.push(
+        { key:'aucSe', label:'AUC SE', align:'right' },
+        { key:'aucCi', label:'AUC 95% CI', align:'right' }
+      );
+    }else{
+      summaryColumns.push({ key:'ap', label:'Average Precision', align:'right' });
     }
-    baseColumns.push(
-      { key:'p', label:'p value', align:'right' },
-      { key:'threshold', label:'Best threshold', align:'right' },
-      { key:'accuracy', label:'Accuracy', align:'right' },
-      { key:'precision', label:'Precision', align:'right' },
-      { key:'recall', label:'Recall', align:'right' },
-      { key:'f1', label:'F1 score', align:'right' }
-    );
+    summaryColumns.push({ key:'p', label:'p value', align:'right' });
+    if(graphType==='roc'){
+      summaryColumns.push(
+        { key:'threshold', label:'Best threshold', align:'right' },
+        { key:'sensitivity', label:'Sensitivity', align:'right' },
+        { key:'specificity', label:'Specificity', align:'right' },
+        { key:'ppv', label:'PPV', align:'right' },
+        { key:'npv', label:'NPV', align:'right' },
+        { key:'lrPositive', label:'LR+', align:'right' },
+        { key:'lrNegative', label:'LR-', align:'right' },
+        { key:'accuracy', label:'Accuracy', align:'right' },
+        { key:'f1', label:'F1 score', align:'right' }
+      );
+    }else{
+      summaryColumns.push(
+        { key:'threshold', label:'Best threshold', align:'right' },
+        { key:'accuracy', label:'Accuracy', align:'right' },
+        { key:'precision', label:'Precision', align:'right' },
+        { key:'recall', label:'Recall', align:'right' },
+        { key:'f1', label:'F1 score', align:'right' }
+      );
+    }
     const rows=stats.map(stat=>({
       series:stat.name,
       auc:formatRocDecimal(stat.auc,3),
+      aucSe:graphType==='roc' ? formatRocDecimal(stat.aucSe,4) : undefined,
+      aucCi:graphType==='roc'
+        ? formatRocInterval(
+          Number.isFinite(stat.aucCiLow) && Number.isFinite(stat.aucCiHigh)
+            ? { low: stat.aucCiLow, high: stat.aucCiHigh }
+            : null,
+          value => formatRocDecimal(value, 3)
+        )
+        : undefined,
       ap:graphType==='pr' && Number.isFinite(stat.avgPrecision)?formatRocDecimal(stat.avgPrecision,3):graphType==='pr'?'—':undefined,
       p:formatPValue(stat.pVal),
       threshold:Number.isFinite(stat.thr)?stat.thr.toFixed(3):'—',
+      sensitivity:graphType==='roc' ? formatRocPercent(stat.recall) : undefined,
+      specificity:graphType==='roc' ? formatRocPercent(stat.specificity) : undefined,
+      ppv:graphType==='roc' ? formatRocPercent(stat.precision) : undefined,
+      npv:graphType==='roc' ? formatRocPercent(stat.npv) : undefined,
+      lrPositive:graphType==='roc' ? formatRocDecimal(stat.lrPositive,3) : undefined,
+      lrNegative:graphType==='roc' ? formatRocDecimal(stat.lrNegative,3) : undefined,
       accuracy:formatRocPercent(stat.accuracy),
-      precision:formatRocPercent(stat.precision),
-      recall:formatRocPercent(stat.recall),
+      precision:graphType==='pr' ? formatRocPercent(stat.precision) : undefined,
+      recall:graphType==='pr' ? formatRocPercent(stat.recall) : undefined,
       f1:formatRocPercent(stat.f1)
     }));
     const footnotes=[
@@ -1892,9 +2071,14 @@
         : 'Area and Average Precision integrate the precision–recall curve relative to the positive rate.',
       'Best threshold is the cutoff that maximizes the F1 score for each series.'
     ];
+    if(graphType==='roc'){
+      footnotes.push('AUC SE and 95% CI use a DeLong-style nonparametric variance estimate.');
+      footnotes.push('Cutoff tables include Wilson 95% confidence intervals for sensitivity, specificity, PPV, and NPV.');
+    }
     const model={
       caption:graphType==='roc'?'ROC metrics':'Precision–Recall metrics',
-      columns:baseColumns,
+      advanced:false,
+      columns:summaryColumns,
       rows,
       footnotes,
       options:{
@@ -1902,8 +2086,65 @@
         contextLabel:'roc-stats-summary'
       }
     };
+    const thresholdTableColumns = [
+      { key:'threshold', label:'Threshold', align:'right' },
+      { key:'sensitivity', label:'Sensitivity (95% CI)', align:'right' },
+      { key:'specificity', label:'Specificity (95% CI)', align:'right' },
+      { key:'ppv', label:'PPV (95% CI)', align:'right' },
+      { key:'npv', label:'NPV (95% CI)', align:'right' },
+      { key:'lrPositive', label:'LR+', align:'right' },
+      { key:'lrNegative', label:'LR-', align:'right' },
+      { key:'accuracy', label:'Accuracy', align:'right' }
+    ];
+    const buildThresholdRows = thresholdRows => thresholdRows.map(row => ({
+      threshold: formatRocDecimal(row.threshold, 3),
+      sensitivity: `${formatRocPercent(row.sensitivity)} (${formatRocInterval(row.sensitivityCi, value => formatRocPercent(value))})`,
+      specificity: `${formatRocPercent(row.specificity)} (${formatRocInterval(row.specificityCi, value => formatRocPercent(value))})`,
+      ppv: `${formatRocPercent(row.ppv)} (${formatRocInterval(row.ppvCi, value => formatRocPercent(value))})`,
+      npv: `${formatRocPercent(row.npv)} (${formatRocInterval(row.npvCi, value => formatRocPercent(value))})`,
+      lrPositive: formatRocDecimal(row.lrPositive, 3),
+      lrNegative: formatRocDecimal(row.lrNegative, 3),
+      accuracy: formatRocPercent(row.accuracy)
+    }));
+    const appendThresholdTables = useSharedTable => {
+      if(graphType !== 'roc'){
+        return;
+      }
+      stats.forEach(stat => {
+        const thresholdRows = Array.isArray(stat.thresholdRows) ? stat.thresholdRows : [];
+        if(!thresholdRows.length){
+          return;
+        }
+        const thresholdModel = {
+          caption: `${stat.name}: cutoff-by-cutoff metrics`,
+          advanced: true,
+          columns: thresholdTableColumns,
+          rows: buildThresholdRows(thresholdRows),
+          footnotes: ['Rows reflect score cutoffs applied as score ≥ threshold.'],
+          options: {
+            fileName: `${String(stat.name || 'roc').replace(/[^a-z0-9_-]+/gi, '_').toLowerCase()}-threshold-metrics`,
+            contextLabel: 'roc-threshold-metrics'
+          }
+        };
+        if(useSharedTable){
+          Shared.statsTable.render({ target: refs.statsResults, ...thresholdModel, append: true });
+          return;
+        }
+        const caption=document.createElement('div');
+        caption.className='stats-table-lead';
+        caption.textContent=thresholdModel.caption;
+        refs.statsResults.appendChild(caption);
+        const table=document.createElement('table');
+        table.className='stats-table stats-table--fallback';
+        table.innerHTML = `<thead><tr>${thresholdModel.columns.map(col => `<th>${col.label}</th>`).join('')}</tr></thead><tbody>${
+          thresholdModel.rows.map(row => `<tr>${thresholdModel.columns.map(col => `<td>${row[col.key] ?? ''}</td>`).join('')}</tr>`).join('')
+        }</tbody>`;
+        refs.statsResults.appendChild(table);
+      });
+    };
     if(hasStatsTable){
       Shared.statsTable.render({ target:refs.statsResults, ...model });
+      appendThresholdTables(true);
       console.debug('Debug: roc stats rendered via Shared.statsTable',{ graphType, rowCount:rows.length });
       return;
     }
@@ -1914,9 +2155,13 @@
         graphType==='pr' && row.ap ? `AP ${row.ap}` : null,
         `p ${row.p}`,
         `Thr ${row.threshold}`,
+        graphType==='roc' ? `Sens ${row.sensitivity}` : null,
+        graphType==='roc' ? `Spec ${row.specificity}` : null,
+        graphType==='roc' ? `PPV ${row.ppv}` : null,
+        graphType==='roc' ? `NPV ${row.npv}` : null,
         `Acc ${row.accuracy}`,
-        `Prec ${row.precision}`,
-        `Recall ${row.recall}`,
+        graphType==='pr' ? `Prec ${row.precision}` : null,
+        graphType==='pr' ? `Recall ${row.recall}` : null,
         `F1 ${row.f1}`
       ].filter(Boolean);
       paragraph.textContent=`${row.series}: ${metrics.join(', ')}`;
@@ -1932,6 +2177,7 @@
     });
     refs.statsResults.appendChild(footnoteBlock);
     console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
+    appendThresholdTables(false);
   }
 
 
@@ -1942,16 +2188,18 @@
     const primary = stats[0] || null;
     const compareText = state.compareResult && state.compareResult.textContent ? state.compareResult.textContent.trim() : '';
     Shared.statsReporting.appendReportPanel(refs.statsResults, {
-      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series. ${graphType === 'roc' ? 'Curve comparison used the selected ROC difference method.' : 'Curve comparison used the selected resampling method when requested.'}`,
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series. ${graphType === 'roc' ? 'AUC uncertainty used a DeLong-style nonparametric variance estimate, and cutoff tables reported Wilson confidence intervals for diagnostic rates.' : 'Curve comparison used the selected resampling method when requested.'}`,
       resultsText: [
         `${stats.length} series were analysed.`,
-        primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'area'} = ${formatRocDecimal(primary.auc,3)} and p = ${formatPValue(primary.pVal)}.` : null,
+        primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'area'} = ${formatRocDecimal(primary.auc,3)}${graphType === 'roc' && Number.isFinite(primary.aucCiLow) && Number.isFinite(primary.aucCiHigh) ? ` (95% CI ${formatRocDecimal(primary.aucCiLow,3)} to ${formatRocDecimal(primary.aucCiHigh,3)})` : ''} and p = ${formatPValue(primary.pVal)}.` : null,
+        graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? `${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
         compareText || null
       ].filter(Boolean).join(' '),
       analysisSpec: {
         component: 'roc',
         graphType,
         seriesCount: stats.length,
+        cutoffRows: stats.reduce((sum, stat) => sum + (Array.isArray(stat.thresholdRows) ? stat.thresholdRows.length : 0), 0),
         diffMethod: state.diffMethod,
         compareSelection: state.compareSelection || state.compareSel?.value || null,
         compared: !!compareText,
@@ -2651,7 +2899,7 @@
         avgPrecision = undefined;
       }
 
-      let best = {thr: Infinity, accuracy: 0, precision: 0, recall: 0, f1: 0};
+      let best = {thr: Infinity, accuracy: 0, precision: 0, recall: 0, specificity: 0, npv: 0, lrPositive: Infinity, lrNegative: Infinity, f1: 0};
       let tpCount = 0;
       let fpCount = 0;
       let tnCount = N;
@@ -2672,24 +2920,38 @@
         const accuracy = (tpCount + tnCount) / Math.max(1, pairs.length);
         const precision = tpCount / Math.max(1, tpCount + fpCount);
         const recall = tpCount / Math.max(1, tpCount + fnCount);
+        const specificity = tnCount / Math.max(1, N);
+        const npv = tnCount / Math.max(1, tnCount + fnCount);
+        const lrPositive = specificity < 1 ? recall / Math.max(1e-12, (1 - specificity)) : Infinity;
+        const lrNegative = specificity > 0 ? (1 - recall) / specificity : Infinity;
         const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
         if(f1 > best.f1){
-          best = {thr: threshold, accuracy, precision, recall, f1};
+          best = {thr: threshold, accuracy, precision, recall, specificity, npv, lrPositive, lrNegative, f1};
         }
       }
 
       const baseline = graphType === 'roc' ? 0.5 : positives / Math.max(1, positives + negatives);
       const pValue = bootstrapCurveTest(pairs, baseline, graphType);
+      const aucUncertainty = graphType === 'roc' ? computeSingleAucUncertainty(pairs) : null;
+      const thresholdRows = graphType === 'roc' ? buildRocThresholdMetricsTable(pairs) : [];
       stats.push({
         name: serie.name,
         auc,
         avgPrecision,
+        aucSe: aucUncertainty?.se,
+        aucCiLow: aucUncertainty?.ciLow,
+        aucCiHigh: aucUncertainty?.ciHigh,
         thr: best.thr,
         accuracy: best.accuracy,
         precision: best.precision,
         recall: best.recall,
+        specificity: best.specificity,
+        npv: best.npv,
+        lrPositive: best.lrPositive,
+        lrNegative: best.lrNegative,
         f1: best.f1,
-        pVal: pValue
+        pVal: pValue,
+        thresholdRows
       });
 
       const color = state.labelColors[serie.name] || DEFAULT_SCATTER_COLORS[seriesIndex % DEFAULT_SCATTER_COLORS.length];
@@ -3376,6 +3638,8 @@
 
   roc.__testHooks = Object.assign({}, roc.__testHooks, {
     computeCurveMetric: (pairs, graphType = 'roc') => computeCurveMetric(Array.isArray(pairs) ? pairs : [], graphType),
+    computeSingleAucUncertainty: (pairs, alpha = 0.05) => computeSingleAucUncertainty(Array.isArray(pairs) ? pairs : [], alpha),
+    buildThresholdMetricsTable: (pairs, alpha = 0.05) => buildRocThresholdMetricsTable(Array.isArray(pairs) ? pairs : [], alpha),
     delongCurveDiff: (pairs1, pairs2) => delongCurveDiff(Array.isArray(pairs1) ? pairs1 : [], Array.isArray(pairs2) ? pairs2 : []),
     bootstrapCurveDiff: (pairs1, pairs2, graphType = 'roc', iters = 200) => bootstrapCurveDiff(
       Array.isArray(pairs1) ? pairs1 : [],

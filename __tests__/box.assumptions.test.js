@@ -3,6 +3,13 @@ describe('Box assumption helpers', () => {
 
   beforeAll(() => {
     jest.resetModules();
+    const jStatModule = require('jstat');
+    const jStat = jStatModule?.jStat || jStatModule;
+    global.jStat = jStat;
+    if (typeof window !== 'undefined') {
+      window.jStat = jStat;
+    }
+    require('../js/vendor.js');
     require('../js/components/box.js');
     hooks = window.Components?.box?.__testHooks;
   });
@@ -111,5 +118,24 @@ describe('Box assumption helpers', () => {
     expect(result.df2).toBe(reference.df2);
     expect(result.pValue).toBeGreaterThanOrEqual(0);
     expect(result.pValue).toBeLessThanOrEqual(1);
+  });
+
+  test('lognormal t test reports a geometric-mean ratio on the original scale', () => {
+    expect(hooks).toBeDefined();
+    const groupA = [2, 4, 8, 16, 32];
+    const groupB = [1, 2, 4, 8, 16];
+    const result = hooks.lognormalTTestEqualVariance(groupA, groupB, { ciLevel: 0.95 });
+    expect(result.scale).toBe('ratio');
+    expect(result.estimateLabel).toMatch(/Geometric mean ratio/i);
+    expect(result.ratio).toBeCloseTo(2, 8);
+    expect(result.ciLow).toBeGreaterThan(0);
+    expect(result.geoMeanA).toBeGreaterThan(result.geoMeanB);
+  });
+
+  test('lognormal Welch t test rejects non-positive values', () => {
+    expect(hooks).toBeDefined();
+    const result = hooks.lognormalWelchTTest([0, 2, 4], [1, 2, 3], { ciLevel: 0.95 });
+    expect(result.available).toBe(false);
+    expect(result.message).toMatch(/strictly positive/i);
   });
 });

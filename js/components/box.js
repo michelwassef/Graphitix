@@ -69,7 +69,7 @@
 
   // PART: UTILS
   const NS='http://www.w3.org/2000/svg';
-  const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
+  const DEFAULT_BOX_COLORS=['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493'];
   const DEFAULT_UNIFIED_SYMBOL_FILL = '#000000';
   const DEFAULT_UNIFIED_SYMBOL_BORDER = 'none';
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
@@ -2086,7 +2086,7 @@
           persistTraceShapeStyle(selectedTraceIndex, patch);
         }
       };
-      const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || '#4472c4';
+      const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || '#0000ff';
       const fallbackBorderColor = target.getAttribute('stroke') || state.borderColors?.[selectedColorIndex] || shadeColor(fallbackFillColor, -30);
       Shared.symbolToolbar.show({
         document: doc,
@@ -2377,7 +2377,7 @@
     wrap.appendChild(scopeField);
 
     const currentStyle = getTraceShapeStyle(traceIndex);
-    const fallbackFill = target.getAttribute('fill') || state.fillColors?.[colorIndex] || state.lastDefaultFill || '#4472c4';
+    const fallbackFill = target.getAttribute('fill') || state.fillColors?.[colorIndex] || state.lastDefaultFill || '#0000ff';
     const fallbackBorder = target.getAttribute('stroke') || state.borderColors?.[colorIndex] || shadeColor(fallbackFill, -30);
 
     const openColorPicker = (inputEl, opts = {}) => {
@@ -5591,7 +5591,7 @@
       label:'Tukey HSD',
       shortLabel:'Tukey',
       tooltip:'Parametric Tukey Honestly Significant Difference using the studentized range distribution (unpaired, ≥3 groups).',
-      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && context.variant!=='welch' && !context.paired && context.groupCount>=3,
+      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && isEqualVarianceParametricVariant(context.variant) && !context.paired && context.groupCount>=3,
       summary:context=>`Tukey HSD on ${context?.groupCount || 0} groups (family-wise adjusted).`
     },
     gamesHowell:{
@@ -5599,8 +5599,16 @@
       label:'Games–Howell',
       shortLabel:'Games–Howell',
       tooltip:'Games–Howell post-hoc test using Welch-standardized differences (unpaired, ≥3 groups, unequal variances).',
-      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && !context.paired && context.groupCount>=3 && (context.variant==='welch' || context.varianceConcern===true),
+      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && !context.paired && context.groupCount>=3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern===true),
       summary:context=>`Games–Howell comparisons across ${context?.groupCount || 0} groups with Welch-standardized SE.`
+    },
+    tamhaneT2:{
+      value:'tamhaneT2',
+      label:'Tamhane T2',
+      shortLabel:'Tamhane T2',
+      tooltip:'Unequal-variance post-hoc based on Welch t tests with Sidak-style family-wise adjustment (unpaired, ≥3 groups).',
+      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && !context.paired && context.groupCount>=3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern===true),
+      summary:context=>`Tamhane T2-style unequal-variance comparisons across ${context?.groupCount || 0} groups.`
     },
     dunn:{
       value:'dunn',
@@ -5623,7 +5631,7 @@
       label:"Dunnett's test",
       shortLabel:'Dunnett',
       tooltip:"Parametric multiple comparison versus a control/reference group (equal variances).",
-      applies:context=>context && context.mode==='reference' && context.test==='parametric' && !context.paired && context.groupCount>=3 && context.variant!=='welch',
+      applies:context=>context && context.mode==='reference' && context.test==='parametric' && !context.paired && context.groupCount>=3 && isEqualVarianceParametricVariant(context.variant),
       summary:context=>`Dunnett-style control comparisons across ${Math.max(0,(context?.groupCount||0)-1)} group${(context?.groupCount||0)===2?'':'s'}.`
     },
     dunnettT3:{
@@ -5635,7 +5643,7 @@
       summary:context=>`Dunnett T3-style control comparisons across ${Math.max(0,(context?.groupCount||0)-1)} group${(context?.groupCount||0)===2?'':'s'}.`
     }
   };
-  const POST_HOC_ORDER=['standard','tukey','gamesHowell','dunn','nemenyi','dunnett','dunnettT3'];
+  const POST_HOC_ORDER=['standard','tukey','gamesHowell','tamhaneT2','dunn','nemenyi','dunnett','dunnettT3'];
   function listPostHocOptions(){
     return POST_HOC_ORDER.map(key=>({
       value:key,
@@ -5659,7 +5667,7 @@
     if(requested && isPostHocSupported(requested,ctx)){
       return requested;
     }
-    if(ctx.mode==='reference' && ctx.variant==='welch' && isPostHocSupported('dunnettT3',ctx)){
+    if(ctx.mode==='reference' && isWelchStyleParametricVariant(ctx.variant) && isPostHocSupported('dunnettT3',ctx)){
       if(requested && requested!=='dunnettT3'){
         console.debug('Debug: box postHoc reference fallback',{ requested, fallback:'dunnettT3', context:ctx });
       }
@@ -5671,7 +5679,7 @@
       }
       return 'dunnett';
     }
-    if(ctx.variant==='welch' && isPostHocSupported('gamesHowell',ctx)){
+    if(isWelchStyleParametricVariant(ctx.variant) && isPostHocSupported('gamesHowell',ctx)){
       if(requested && requested!=='gamesHowell'){
         console.debug('Debug: box postHoc welch fallback',{ requested, fallback:'gamesHowell', context:ctx });
       }
@@ -5713,6 +5721,7 @@
   ];
   const ADVISOR_DISTRIBUTION_OPTIONS=[
     { value:'normal', label:'Yes, roughly bell-shaped' },
+    { value:'lognormal', label:'Positive and right-skewed (log-normal)' },
     { value:'nonnormal', label:'No, noticeably non-normal' },
     { value:'unsure', label:"I am not sure yet" }
   ];
@@ -5749,6 +5758,27 @@
       }
     }
     return sawPass?'normal':null;
+  }
+
+  function inferDistributionAnswerFromLognormalResults(results){
+    const comparisons=Array.isArray(results?.distributionComparisons)
+      ? results.distributionComparisons
+      : Array.isArray(results)
+        ? results
+        : [];
+    const preferred=comparisons
+      .map(entry=>entry?.preferred)
+      .filter(value=>value==='normal' || value==='lognormal');
+    if(!preferred.length){
+      return null;
+    }
+    if(preferred.every(value=>value==='lognormal')){
+      return 'lognormal';
+    }
+    if(preferred.every(value=>value==='normal')){
+      return 'normal';
+    }
+    return null;
   }
 
   function inferEqualVarianceAnswerFromVarianceResults(variance){
@@ -5941,6 +5971,20 @@
     const rationale=[];
     const warnings=[];
     let recommendationVariant='classic';
+    let canApply=true;
+    let applyDisabledReason='';
+
+    if(distributionAnswer==='lognormal' && !paired && equalVarianceAnswer===undefined){
+      return {
+        ready:false,
+        message:groupsAnswer==='two'
+          ? 'For lognormal independent groups, specify whether the geometric SDs can be treated as equal.'
+          : 'For lognormal multi-group analyses, specify whether the geometric SDs can be treated as equal.',
+        missing:['equalVariance'],
+        groups:groupsAnswer,
+        paired:false
+      };
+    }
 
     if(groupsAnswer==='two'){
       if(paired){
@@ -5948,6 +5992,12 @@
           statsTest='parametric';
           primaryLabel='Paired t-test';
           rationale.push('Paired measurements with approximately normal differences favour parametric tests.');
+        }else if(distributionAnswer==='lognormal'){
+          statsTest='parametric';
+          primaryLabel='Ratio t test';
+          recommendationVariant='ratioT';
+          rationale.push('For paired positive data that follow a log-normal pattern, compare geometric means through paired log-ratios.');
+          rationale.push('The ratio t test works on the log-transformed within-pair ratios, then reports the ratio back on the original scale.');
         }else if(distributionAnswer==='nonnormal'){
           statsTest='nonparametric';
           primaryLabel='Wilcoxon signed-rank test';
@@ -5962,6 +6012,19 @@
           statsTest='parametric';
           primaryLabel='Welch t-test';
           rationale.push('Independent groups with roughly normal distributions support the Welch t-test.');
+        }else if(distributionAnswer==='lognormal'){
+          statsTest='parametric';
+          if(equalVarianceAnswer==='yes'){
+            primaryLabel='Lognormal t test';
+            recommendationVariant='lognormalClassic';
+            rationale.push('For positive right-skewed data with similar geometric SDs, Prism compares geometric means with a pooled log-scale t test.');
+          }else{
+            primaryLabel="Lognormal Welch's t test";
+            recommendationVariant='lognormalWelch';
+            rationale.push('When geometric SDs may differ, Prism switches to a Welch-style t test on the log scale.');
+            rationale.push('This preserves the geometric-mean interpretation while relaxing the equal-geometric-SD assumption.');
+          }
+          warnings.push('Lognormal workflows require strictly positive values in both groups; zeros or negative values must be removed or analyzed with a different assumption.');
         }else if(distributionAnswer==='nonnormal'){
           statsTest='nonparametric';
           primaryLabel='Mann–Whitney U test';
@@ -5982,6 +6045,17 @@
           postHocLabel='If the omnibus test is significant, follow with Holm-adjusted paired contrasts.';
           rationale.push('For three or more paired groups, start with a repeated-measures omnibus test rather than isolated paired t-tests.');
           rationale.push('Holm-adjusted paired contrasts provide a practical follow-up when specific pairwise differences are needed.');
+        }else if(distributionAnswer==='lognormal'){
+          statsTest='parametric';
+          primaryLabel='Repeated-measures ANOVA on log-transformed values';
+          postHoc='standard';
+          recommendedCorrection='holm';
+          postHocLabel='If the omnibus test is significant, follow with Holm-adjusted paired contrasts on the log scale.';
+          rationale.push('For repeated positive data with a log-normal pattern, the mean model should be evaluated on the log scale so effects map to geometric means.');
+          canApply=false;
+          applyDisabledReason='A dedicated repeated-measures lognormal workflow is not yet exposed in the Box apply path.';
+          warnings.push('The advisor can identify a repeated-measures lognormal workflow, but Venn does not yet expose it as a dedicated one-click analysis.');
+          warnings.push('Use strictly positive log-transformed values with repeated-measures ANOVA if you need this path today.');
         }else if(distributionAnswer==='nonnormal'){
           statsTest='nonparametric';
           primaryLabel='Friedman test';
@@ -6016,6 +6090,23 @@
               warnings.push('Check variance homogeneity (e.g., Levene/Bartlett). If variances differ, prefer Welch ANOVA or non-parametric tests.');
             }
           }
+        }else if(distributionAnswer==='lognormal'){
+          statsTest='parametric';
+          if(equalVarianceAnswer==='no'){
+            primaryLabel='Lognormal Welch ANOVA';
+            postHoc='gamesHowell';
+            postHocLabel='Use unequal-variance post-hoc comparisons on the log scale.';
+            recommendationVariant='lognormalWelch';
+            rationale.push('For positive right-skewed groups with unequal geometric SDs, Prism uses a Welch-style ANOVA after log transformation.');
+            rationale.push('The follow-up comparisons should stay on the log scale so they compare geometric means consistently.');
+          }else{
+            primaryLabel='Lognormal one-way ANOVA';
+            postHoc='tukey';
+            postHocLabel='Use adjusted pairwise comparisons on the log scale.';
+            recommendationVariant='lognormalClassic';
+            rationale.push('For positive right-skewed groups with similar geometric SDs, Prism uses one-way ANOVA on the log scale to compare geometric means.');
+          }
+          warnings.push('Lognormal ANOVA workflows require strictly positive values in every included group; zeros or negative values invalidate the log transform.');
         }else if(distributionAnswer==='nonnormal'){
           statsTest='nonparametric';
           primaryLabel='Kruskal–Wallis test';
@@ -6077,7 +6168,9 @@
         postHocLabel
       },
       parametricVariant:recommendationVariant,
-      recommendedCorrection
+      recommendedCorrection,
+      canApply,
+      applyDisabledReason
     };
   }
 
@@ -6525,6 +6618,79 @@
       footnote:'Games–Howell adjusted via studentized range (Welch df per pair)'
     };
   }
+  function computeTamhaneT2Comparisons(groups,labels,options={}){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const counts=cleaned.map(group=>group.length);
+    const k=cleaned.length;
+    if(k<2){
+      return { ok:false, message:'Tamhane T2 requires at least two groups.' };
+    }
+    if(counts.some(n=>n<2)){
+      return { ok:false, message:'Tamhane T2 needs at least two observations per group.' };
+    }
+    const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
+    const variances=cleaned.map((group,idx)=>{
+      const mu=means[idx];
+      const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-mu,2),0);
+      const denom=Math.max(group.length-1,1);
+      const variance=sumSq/denom;
+      return variance>0?variance:Number.EPSILON;
+    });
+    const cdf=global.jStat?.studentt && typeof global.jStat.studentt.cdf==='function'
+      ? global.jStat.studentt.cdf
+      : null;
+    if(!cdf){
+      return { ok:false, message:'Student t distribution unavailable for Tamhane T2.' };
+    }
+    const pairCount=Math.max(1,(k*(k-1))/2);
+    const sidakAlpha=1-Math.pow(Math.max(1e-9,1-resolveStatsAlpha({ alpha:options?.alpha })),1/pairCount);
+    const pairs=[];
+    for(let i=0;i<k;i++){
+      for(let j=i+1;j<k;j++){
+        const ni=counts[i];
+        const nj=counts[j];
+        const varI=variances[i];
+        const varJ=variances[j];
+        const se2=(varI/ni)+(varJ/nj);
+        const se=Math.sqrt(se2>0?se2:Number.EPSILON);
+        const diff=means[i]-means[j];
+        const t=Math.abs(diff)/se;
+        const denom=(Math.pow(varI/ni,2)/(ni-1))+(Math.pow(varJ/nj,2)/(nj-1));
+        const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
+        const rawP=Number.isFinite(t) ? Math.max(0,Math.min(1,2*(1-cdf(Math.abs(t),df)))) : NaN;
+        const pAdj=Number.isFinite(rawP) ? Math.max(0,Math.min(1,1-Math.pow(Math.max(0,1-rawP),pairCount))) : NaN;
+        const tCritical=resolveTCritical(df,sidakAlpha);
+        const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
+        pairs.push({
+          i,
+          j,
+          diff,
+          se,
+          t,
+          p:rawP,
+          pAdj,
+          df,
+          ni,
+          nj,
+          varI,
+          varJ,
+          ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
+          ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN,
+          labelA:labels?.[i],
+          labelB:labels?.[j]
+        });
+      }
+    }
+    console.debug('Debug: box computeTamhaneT2 summary',{ pairCount:pairs.length, k, sidakAlpha });
+    return {
+      ok:pairs.length>0,
+      pairs,
+      means,
+      counts,
+      variances,
+      footnote:'Tamhane T2 approximated with Welch t-tests and Sidak family-wise adjustment.'
+    };
+  }
   function computeDunnettComparisons(groups,labels,referenceIndex,options={}){
     const unequalVariances=options?.unequalVariances===true;
     const alpha=Number.isFinite(options?.alpha)?Math.min(0.5,Math.max(1e-6,options.alpha)):0.05;
@@ -6952,7 +7118,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0000ff', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -8450,6 +8616,14 @@
       console.debug('Debug: box updateStatsCorrectionSummary gamesHowell',{ count:safeCount });
       return;
     }
+    if(!oneSampleMode && state.statsPostHoc==='tamhaneT2'){
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
+      noteEl.textContent=`Post-hoc: Tamhane T2 (${detail}, Welch/Sidak).`;
+      noteEl.dataset.method='tamhaneT2';
+      noteEl.dataset.correctionLabel='Tamhane T2';
+      console.debug('Debug: box updateStatsCorrectionSummary tamhaneT2',{ count:safeCount });
+      return;
+    }
     if(!oneSampleMode && state.statsPostHoc==='dunnett'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
       noteEl.textContent=`Post-hoc: Dunnett (${detail}, versus reference).`;
@@ -8683,7 +8857,7 @@
     if(typeof candidate === 'string' && candidate.trim()){
       return candidate;
     }
-    return state.lastDefaultFill || '#4472c4';
+    return state.lastDefaultFill || '#0000ff';
   }
 
   function getBoxBorderColorValue(){
@@ -11537,7 +11711,51 @@
     return value==='greater' || value==='less' ? value : 'two-sided';
   }
   function sanitizeStatsParametricVariant(value, fallback='classic'){
-    return value==='welch' ? 'welch' : (value==='classic' ? 'classic' : fallback);
+    return new Set([
+      'classic',
+      'welch',
+      'ratioT',
+      'lognormalClassic',
+      'lognormalWelch'
+    ]).has(value)
+      ? value
+      : fallback;
+  }
+  function isWelchStyleParametricVariant(value){
+    return value === 'welch' || value === 'lognormalWelch';
+  }
+  function isLognormalParametricVariant(value){
+    return value === 'lognormalClassic' || value === 'lognormalWelch';
+  }
+  function isEqualVarianceParametricVariant(value){
+    return value === 'classic' || value === 'lognormalClassic';
+  }
+  function getParametricPairTestLabel(variant){
+    if(variant === 'ratioT'){
+      return 'Ratio t test';
+    }
+    if(variant === 'lognormalWelch'){
+      return "Lognormal Welch's t test";
+    }
+    if(variant === 'lognormalClassic'){
+      return 'Lognormal t test';
+    }
+    if(variant === 'welch'){
+      return 'Welch t-test';
+    }
+    return 'Unpaired t test';
+  }
+  function getParametricOverallTestLabel(variant, paired=false){
+    if(paired){
+      return 'Repeated-measures ANOVA';
+    }
+    if(variant === 'lognormalWelch'){
+      return 'Lognormal Welch ANOVA';
+    }
+    if(variant === 'lognormalClassic'){
+      return 'Lognormal one-way ANOVA';
+    }
+    return isWelchStyleParametricVariant(variant) ? 'Welch ANOVA' : 'One-way ANOVA';
   }
   function sanitizeStatsNonParametricVariant(value){
     return value==='kolmogorovSmirnov' ? 'kolmogorovSmirnov' : 'mannWhitney';
@@ -11557,6 +11775,30 @@
       return value;
     }
     return 'shapiro-wilk';
+  }
+  function sanitizeVarianceMethod(value){
+    return value === 'bartlett' ? 'bartlett' : 'brown-forsythe';
+  }
+  function sanitizeDistributionDiagnostic(value){
+    return value === 'normal-vs-lognormal' ? 'normal-vs-lognormal' : 'normality-only';
+  }
+  function sanitizeTrendTestEnabled(value){
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+  function sanitizeGroupedComparisonScope(value){
+    const normalized = String(value || '').trim();
+    return new Set([
+      'groupsWithinCondition',
+      'conditionsWithinGroup',
+      'groupMarginals',
+      'conditionMarginals',
+      'cellMeans'
+    ]).has(normalized)
+      ? normalized
+      : 'groupsWithinCondition';
+  }
+  function sanitizeGroupedMultiplicityFamily(value){
+    return value === 'global' ? 'global' : 'within-scope';
   }
   function sanitizeStatsSeed(value,fallback=1337){
     const numeric=Math.round(Number(value));
@@ -11613,6 +11855,15 @@
   }
   function resolveStatsSeed(options){
     return sanitizeStatsSeed(options?.seed ?? state?.statsSeed ?? 1337, 1337);
+  }
+  function resolveVarianceMethodOption(options){
+    return sanitizeVarianceMethod(options?.varianceMethod ?? state?.statsVarianceMethod ?? 'brown-forsythe');
+  }
+  function resolveDistributionDiagnosticOption(options){
+    return sanitizeDistributionDiagnostic(options?.distributionDiagnostic ?? state?.statsDistributionDiagnostic ?? 'normality-only');
+  }
+  function resolveTrendTestEnabled(options){
+    return sanitizeTrendTestEnabled(options?.trendTest ?? state?.statsTrendTest ?? false);
   }
 
   function resolveStatsResamplingMode(options){
@@ -11697,17 +11948,27 @@
         return [{ value:'classic', label:'One-sample t test' }];
       }
       if(paired){
-        return [{ value:'classic', label: pairwiseContext ? 'Paired t-test' : 'Repeated-measures ANOVA' }];
+        if(pairwiseContext){
+          return [
+            { value:'classic', label:'Paired t-test' },
+            { value:'ratioT', label:'Ratio t test' }
+          ];
+        }
+        return [{ value:'classic', label:'Repeated-measures ANOVA' }];
       }
       if(pairwiseContext){
         return [
           { value:'welch', label:'Welch t-test' },
-          { value:'classic', label:'Unpaired t test' }
+          { value:'classic', label:'Unpaired t test' },
+          { value:'lognormalWelch', label:"Lognormal Welch's t test" },
+          { value:'lognormalClassic', label:'Lognormal t test' }
         ];
       }
       return [
         { value:'classic', label:'One-way ANOVA' },
-        { value:'welch', label:'Welch ANOVA' }
+        { value:'welch', label:'Welch ANOVA' },
+        { value:'lognormalClassic', label:'Lognormal one-way ANOVA' },
+        { value:'lognormalWelch', label:'Lognormal Welch ANOVA' }
       ];
     }
     if(oneSample){
@@ -11742,9 +12003,19 @@
     const paired=!!(options?.paired ?? state?.statsPaired);
     if(family==='parametric'){
       if(paired){
+        const variant=resolveStatsParametricVariant(options);
+        if(variant==='ratioT'){
+          return { key:'ratioT', label:'Ratio t test', run:ratioTTest, estimateLabel:'Ratio (A/B)' };
+        }
         return { key:'pairedT', label:'Paired t-test', run:tTestPaired };
       }
       const variant=resolveStatsParametricVariant(options);
+      if(variant==='lognormalWelch'){
+        return { key:'lognormalWelch', label:"Lognormal Welch's t test", run:lognormalWelchTTest, estimateLabel:'Geometric mean ratio (A/B)' };
+      }
+      if(variant==='lognormalClassic'){
+        return { key:'lognormalClassic', label:'Lognormal t test', run:lognormalTTestEqualVariance, estimateLabel:'Geometric mean ratio (A/B)' };
+      }
       if(variant==='welch'){
         return { key:'welch', label:'Welch t-test', run:tTest };
       }
@@ -11763,10 +12034,7 @@
     const family=options?.family ?? state?.statsTest ?? 'parametric';
     const paired=!!(options?.paired ?? state?.statsPaired);
     if(family==='parametric'){
-      if(paired){
-        return 'Repeated-measures ANOVA';
-      }
-      return resolveStatsParametricVariant(options)==='welch' ? 'Welch ANOVA' : 'One-way ANOVA';
+      return getParametricOverallTestLabel(resolveStatsParametricVariant(options),paired);
     }
     return paired ? 'Friedman test' : 'Kruskal-Wallis test';
   }
@@ -11789,6 +12057,80 @@
       return '—';
     }
     return `${low} to ${high}`;
+  }
+  function resolvePairEstimateDetails(result,pairTestMeta,options={}){
+    const metricLabel=(pairTestMeta?.estimateLabel || (result?.scale==='ratio' ? 'Ratio (A/B)' : 'Difference (A-B)'));
+    const ciLevel=formatPercentLabel(result?.ciLevel || options?.ciLevel || state.statsCiLevel);
+    return {
+      label:metricLabel,
+      ciLabel:`${metricLabel} (${ciLevel} CI)`,
+      value:Number.isFinite(result?.ratio)
+        ? result.ratio
+        : (Number.isFinite(result?.diff)
+          ? result.diff
+          : Number.isFinite(options?.fallback)
+            ? options.fallback
+            : NaN),
+      interval:formatConfidenceInterval(result?.ciLow,result?.ciHigh)
+    };
+  }
+  function convertLogEstimateBound(value){
+    if(value===Infinity){
+      return Infinity;
+    }
+    if(value===-Infinity){
+      return 0;
+    }
+    return Number.isFinite(value) ? Math.exp(value) : NaN;
+  }
+  function convertToLognormalRatioResult(result, sampleA, sampleB){
+    const safeResult=result && typeof result==='object' ? result : {};
+    const geometricA=computeGeometricSummary(sampleA);
+    const geometricB=computeGeometricSummary(sampleB);
+    const ratio=Number.isFinite(safeResult.diff) ? Math.exp(safeResult.diff) : NaN;
+    return {
+      ...safeResult,
+      logDiff:safeResult.diff,
+      ratio,
+      diff:ratio,
+      meanDiff:ratio,
+      ciLow:convertLogEstimateBound(safeResult.ciLow),
+      ciHigh:convertLogEstimateBound(safeResult.ciHigh),
+      scale:'ratio',
+      estimateLabel:'Geometric mean ratio (A/B)',
+      geoMeanA:Number.isFinite(geometricA?.geoMean) ? geometricA.geoMean : NaN,
+      geoMeanB:Number.isFinite(geometricB?.geoMean) ? geometricB.geoMean : NaN
+    };
+  }
+  function prepareLognormalGroups(groups,labels){
+    const sourceGroups=Array.isArray(groups) ? groups : [];
+    const logGroups=[];
+    const invalidLabels=[];
+    const geometricSummaries=[];
+    for(let idx=0; idx<sourceGroups.length; idx++){
+      const group=Array.isArray(sourceGroups[idx]) ? sourceGroups[idx].map(Number).filter(Number.isFinite) : [];
+      const nonPositiveCount=group.filter(value=>!(value>0)).length;
+      if(nonPositiveCount>0){
+        invalidLabels.push(`${labels?.[idx] || `Group ${idx + 1}`} (${nonPositiveCount} non-positive value${nonPositiveCount===1?'':'s'})`);
+      }
+      logGroups.push(group.map(value=>Math.log(value)));
+      geometricSummaries.push(computeGeometricSummary(group));
+    }
+    if(invalidLabels.length){
+      return {
+        ok:false,
+        message:`Lognormal workflows require strictly positive values in every included group. Fix: ${invalidLabels.join('; ')}.`,
+        groups:sourceGroups,
+        logGroups:null,
+        geometricSummaries
+      };
+    }
+    return {
+      ok:true,
+      groups:sourceGroups,
+      logGroups,
+      geometricSummaries
+    };
   }
   function resolveTestPValueFromT(cdf,t,df,alternative){
     const safeAlt=sanitizeStatsAlternative(alternative);
@@ -12751,6 +13093,55 @@
       ciLevel:interval.ciLevel,
       alternative:interval.alternative
     };
+  }
+  function ratioTTest(a,b,options){
+    const paired = computePairedSamples(a,b).filter(pair => pair.a > 0 && pair.b > 0);
+    if(paired.length < 2){
+      return createUnavailableStatResult(
+        { t:NaN, df:NaN, p:NaN, ratio:NaN, validPairs: paired.length },
+        'Ratio t test requires at least two paired positive observations.'
+      );
+    }
+    const logRatios = paired.map(pair => Math.log(pair.a / pair.b));
+    const result = tTestOneSample(logRatios, 0, options);
+    const ratio = Number.isFinite(result.mean) ? Math.exp(result.mean) : NaN;
+    const ciLow = Number.isFinite(result.ciLow) ? Math.exp(result.ciLow) : result.ciLow;
+    const ciHigh = Number.isFinite(result.ciHigh) ? Math.exp(result.ciHigh) : result.ciHigh;
+    return {
+      ...result,
+      ratio,
+      diff:ratio,
+      meanDiff:ratio,
+      ciLow,
+      ciHigh,
+      scale:'ratio',
+      estimateLabel:'Ratio (A/B)',
+      validPairs:paired.length
+    };
+  }
+  function lognormalTTestEqualVariance(a,b,options){
+    const arrA=(Array.isArray(a)?a:[]).map(Number).filter(Number.isFinite);
+    const arrB=(Array.isArray(b)?b:[]).map(Number).filter(Number.isFinite);
+    if(arrA.some(value=>!(value>0)) || arrB.some(value=>!(value>0))){
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN, ratio:NaN },'Lognormal t tests require strictly positive values in both groups.');
+    }
+    const result=tTestEqualVariance(arrA.map(Math.log),arrB.map(Math.log),options);
+    if(result?.available===false){
+      return result;
+    }
+    return convertToLognormalRatioResult(result,arrA,arrB);
+  }
+  function lognormalWelchTTest(a,b,options){
+    const arrA=(Array.isArray(a)?a:[]).map(Number).filter(Number.isFinite);
+    const arrB=(Array.isArray(b)?b:[]).map(Number).filter(Number.isFinite);
+    if(arrA.some(value=>!(value>0)) || arrB.some(value=>!(value>0))){
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN, ratio:NaN },'Lognormal Welch t tests require strictly positive values in both groups.');
+    }
+    const result=tTest(arrA.map(Math.log),arrB.map(Math.log),options);
+    if(result?.available===false){
+      return result;
+    }
+    return convertToLognormalRatioResult(result,arrA,arrB);
   }
   function tTestOneSample(values,nullValue,options){
     const jStatLib=global.jStat;
@@ -14176,7 +14567,7 @@
     };
   }
 
-  function computeVarianceDiagnostics(groups,labels,options){
+  function computeBrownForsytheVarianceDiagnostics(groups,labels,options){
     const summaries=[];
     let totalN=0;
     let grandSum=0;
@@ -14247,6 +14638,160 @@
     return { method:'brown-forsythe', statistic:F, pValue, passed, df1, df2, sparkline:sparklineValues };
   }
 
+  function computeBartlettVarianceDiagnostics(groups,labels,options){
+    const cdf=global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf==='function'
+      ? global.jStat.chisquare.cdf
+      : null;
+    if(!cdf){
+      return { method:'bartlett', statistic:NaN, pValue:NaN, passed:null, df1:0, df2:0, sparkline:[], reason:'Chi-square distribution unavailable' };
+    }
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite));
+    const k=cleaned.length;
+    if(k<2){
+      return { method:'bartlett', statistic:NaN, pValue:NaN, passed:null, df1:0, df2:0, sparkline:[], reason:'Need >=2 groups' };
+    }
+    const counts=cleaned.map(group=>group.length);
+    if(counts.some(count=>count < 2)){
+      return { method:'bartlett', statistic:NaN, pValue:NaN, passed:null, df1:k-1, df2:0, sparkline:[], reason:'Each group needs at least two observations' };
+    }
+    const means=cleaned.map(group=>mean(group));
+    const variances=cleaned.map((group,idx)=>{
+      const mu=means[idx];
+      const variance=group.reduce((sum,value)=>sum+Math.pow(value-mu,2),0)/Math.max(group.length-1,1);
+      return variance>0?variance:Number.EPSILON;
+    });
+    const totalN=counts.reduce((sum,value)=>sum+value,0);
+    const df=totalN-k;
+    if(df<=0){
+      return { method:'bartlett', statistic:NaN, pValue:NaN, passed:null, df1:k-1, df2:0, sparkline:[], reason:'Insufficient residual degrees of freedom' };
+    }
+    const pooledVariance=counts.reduce((sum,count,idx)=>sum+((count-1)*variances[idx]),0)/Math.max(df,1);
+    if(!(pooledVariance>0)){
+      return { method:'bartlett', statistic:NaN, pValue:NaN, passed:null, df1:k-1, df2:df, sparkline:[], reason:'Unable to compute pooled variance' };
+    }
+    const numerator=df*Math.log(pooledVariance)-counts.reduce((sum,count,idx)=>sum+((count-1)*Math.log(variances[idx])),0);
+    const correction=1 + (1/(3*Math.max(k-1,1))) * (counts.reduce((sum,count)=>sum+(1/Math.max(count-1,1)),0) - (1/Math.max(df,1)));
+    const chi2=numerator/Math.max(correction,Number.EPSILON);
+    const pValue=Number.isFinite(chi2)?1-cdf(chi2,k-1):NaN;
+    const alpha=resolveStatsAlpha({ alpha: options?.alpha });
+    const passed=Number.isFinite(pValue)?pValue>=alpha:null;
+    return {
+      method:'bartlett',
+      statistic:chi2,
+      pValue,
+      passed,
+      df1:k-1,
+      df2:df,
+      sparkline:(labels||[]).map((label,idx)=>({ label, value: variances[idx] || 0 }))
+    };
+  }
+
+  function computeVarianceDiagnostics(groups,labels,options){
+    const method=resolveVarianceMethodOption(options);
+    return method==='bartlett'
+      ? computeBartlettVarianceDiagnostics(groups,labels,options)
+      : computeBrownForsytheVarianceDiagnostics(groups,labels,options);
+  }
+
+  function computeLognormalComparison(values,options={}){
+    const statsHelpers=Shared.stats;
+    if(!statsHelpers || typeof statsHelpers.fitDistribution!=='function'){
+      return null;
+    }
+    const cleaned=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite);
+    if(cleaned.length < 2){
+      return null;
+    }
+    const normalFit=statsHelpers.fitDistribution(cleaned,{ distribution:'normal' });
+    const lognormalFit=statsHelpers.fitDistribution(cleaned,{ distribution:'lognormal' });
+    const computeAicc=(fit,parameterCount)=>{
+      const logLikelihood=Number(fit?.logLikelihood);
+      const n=cleaned.length;
+      const k=Math.max(1,parameterCount);
+      if(!Number.isFinite(logLikelihood) || n<=k+1){
+        return NaN;
+      }
+      const aic=(2*k)-(2*logLikelihood);
+      return aic + ((2*k*(k+1))/Math.max(n-k-1,1));
+    };
+    const normalAicc=computeAicc(normalFit,2);
+    const lognormalAicc=computeAicc(lognormalFit,2);
+    const preferred=(Number.isFinite(lognormalAicc) && (!Number.isFinite(normalAicc) || lognormalAicc < normalAicc))
+      ? 'lognormal'
+      : 'normal';
+    return {
+      preferred,
+      normalAicc,
+      lognormalAicc,
+      deltaAicc:Number.isFinite(normalAicc) && Number.isFinite(lognormalAicc)
+        ? Math.abs(normalAicc-lognormalAicc)
+        : NaN,
+      normalFit,
+      lognormalFit
+    };
+  }
+
+  function computeLinearTrendTest(groups,labels,options={}){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      return { available:false, message:'Student-t distribution unavailable.' };
+    }
+    const xValues=[];
+    const yValues=[];
+    (Array.isArray(groups)?groups:[]).forEach((group,groupIdx)=>{
+      (Array.isArray(group)?group:[]).forEach(value=>{
+        const numeric=Number(value);
+        if(Number.isFinite(numeric)){
+          xValues.push(groupIdx);
+          yValues.push(numeric);
+        }
+      });
+    });
+    if(xValues.length < 3){
+      return { available:false, message:'Need at least three observations across ordered groups.' };
+    }
+    const meanX=mean(xValues);
+    const meanY=mean(yValues);
+    let sxx=0;
+    let sxy=0;
+    let syy=0;
+    for(let idx=0; idx<xValues.length; idx++){
+      const dx=xValues[idx]-meanX;
+      const dy=yValues[idx]-meanY;
+      sxx+=dx*dx;
+      sxy+=dx*dy;
+      syy+=dy*dy;
+    }
+    if(!(sxx>0)){
+      return { available:false, message:'Ordered groups need more than one distinct position.' };
+    }
+    const slope=sxy/sxx;
+    const intercept=meanY-(slope*meanX);
+    const residualSse=yValues.reduce((sum,value,idx)=>{
+      const fitted=intercept+(slope*xValues[idx]);
+      return sum+Math.pow(value-fitted,2);
+    },0);
+    const df=Math.max(xValues.length-2,1);
+    const mse=residualSse/df;
+    const seSlope=Math.sqrt(mse/sxx);
+    const t=seSlope>0 ? slope/seSlope : NaN;
+    const p=Number.isFinite(t) ? resolveTestPValueFromT(cdf,t,df,resolveStatsAlternative(options)) : NaN;
+    const rSquared=syy>0 ? Math.max(0,Math.min(1,(sxy*sxy)/(sxx*syy))) : NaN;
+    return {
+      available:true,
+      slope,
+      intercept,
+      t,
+      df,
+      p,
+      rSquared,
+      order:Array.isArray(labels)?labels.slice():[]
+    };
+  }
+
   function countFiniteValues(values){
     if(!Array.isArray(values) || !values.length){
       return 0;
@@ -14263,12 +14808,16 @@
   function computeAssumptionDiagnostics(groups,labels,options){
     const resolvedAlpha=resolveStatsAlpha({ alpha: options?.alpha });
     const resolvedNormalityMethod=resolveNormalityMethodOption(options);
+    const resolvedVarianceMethod=resolveVarianceMethodOption(options);
+    const resolvedDistributionDiagnostic=resolveDistributionDiagnosticOption(options);
     const diagnostics={
       normalityMethod:resolvedNormalityMethod,
-      varianceMethod:'brown-forsythe',
+      varianceMethod:resolvedVarianceMethod,
+      distributionDiagnostic:resolvedDistributionDiagnostic,
       alpha:resolvedAlpha,
       groups:[],
-      warnings:[]
+      warnings:[],
+      distributionComparisons:[]
     };
     const qqSampleLimit=Number.isFinite(options?.qqSampleLimit)
       ? Math.max(25,Math.floor(options.qqSampleLimit))
@@ -14294,6 +14843,18 @@
         normality,
         qqPoints
       });
+      if(resolvedDistributionDiagnostic==='normal-vs-lognormal'){
+        const distributionComparison=computeLognormalComparison(group,{ alpha:resolvedAlpha });
+        if(distributionComparison){
+          diagnostics.distributionComparisons.push({
+            label,
+            ...distributionComparison
+          });
+          if(distributionComparison.preferred==='lognormal' && Number.isFinite(distributionComparison.deltaAicc)){
+            failReasons.push(`${label} fit a log-normal model better than a normal model (ΔAICc = ${formatStatNumber(distributionComparison.deltaAicc,2)}).`);
+          }
+        }
+      }
       if(normality && normality.passed===false){
         const formatted=Number.isFinite(normality.pValue)?formatP(normality.pValue):'—';
         failReasons.push(`${label} failed ${normality.method || 'normality testing'} (p = ${formatted})`);
@@ -14302,7 +14863,7 @@
         failReasons.push(`${label} contains tied values; QQ plots remain important even when the normality test passes.`);
       }
     });
-    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList, alpha: resolvedAlpha });
+    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList, alpha: resolvedAlpha, varianceMethod: resolvedVarianceMethod });
     diagnostics.variance=variance;
     const varianceConcern=variance && variance.passed===false;
     if(variance && variance.passed===false){
@@ -14606,7 +15167,7 @@
       varianceRow.style.borderTop='1px solid #d7e0ef';
       varianceRow.style.padding='10px 20px';
       const label=document.createElement('span');
-      label.textContent='Variance test:';
+      label.textContent=`Variance test (${diagnostics.variance?.method==='bartlett' ? 'Bartlett' : 'Brown–Forsythe'}):`;
       label.className='assumption-variance-label';
       varianceRow.appendChild(label);
       varianceRow.appendChild(createAssumptionBadge(diagnostics.variance.passed, diagnostics.variance.passed===false?'FAIL':'PASS'));
@@ -14617,6 +15178,40 @@
       varianceRow.appendChild(detail);
       mountStatsPValueToggle(detail);
       card.appendChild(varianceRow);
+    }
+    if(Array.isArray(diagnostics.distributionComparisons) && diagnostics.distributionComparisons.length){
+      const distributionSection=document.createElement('div');
+      distributionSection.style.borderTop='1px solid #d7e0ef';
+      distributionSection.style.padding='12px 20px';
+      const distributionTitle=document.createElement('div');
+      distributionTitle.className='stats-table-caption';
+      distributionTitle.textContent='Normal vs log-normal fit';
+      distributionSection.appendChild(distributionTitle);
+      const distributionTable=document.createElement('table');
+      distributionTable.className='stats-table stats-assumption-table';
+      distributionTable.innerHTML='<thead><tr><th>Group</th><th>Preferred</th><th>Normal AICc</th><th>Log-normal AICc</th><th>ΔAICc</th></tr></thead>';
+      const distributionBody=document.createElement('tbody');
+      diagnostics.distributionComparisons.forEach(entry=>{
+        const tr=document.createElement('tr');
+        [
+          entry.label || '',
+          entry.preferred==='lognormal' ? 'Log-normal' : 'Normal',
+          Number.isFinite(entry.normalAicc) ? formatStatNumber(entry.normalAicc,2) : '—',
+          Number.isFinite(entry.lognormalAicc) ? formatStatNumber(entry.lognormalAicc,2) : '—',
+          Number.isFinite(entry.deltaAicc) ? formatStatNumber(entry.deltaAicc,2) : '—'
+        ].forEach((value,idx)=>{
+          const cell=document.createElement('td');
+          cell.textContent=String(value);
+          if(idx >= 2){
+            cell.style.textAlign='right';
+          }
+          tr.appendChild(cell);
+        });
+        distributionBody.appendChild(tr);
+      });
+      distributionTable.appendChild(distributionBody);
+      distributionSection.appendChild(distributionTable);
+      card.appendChild(distributionSection);
     }
     if(Array.isArray(diagnostics.warnings) && diagnostics.warnings.length){
       const warningSection=document.createElement('div');
@@ -14643,7 +15238,25 @@
       override.textContent='Parametric results remain visible despite failed assumptions; consider alternative tests if violations persist.';
       card.appendChild(override);
     }
-    if(diagnostics.appliedVariant==='welch'){
+    if(diagnostics.appliedVariant==='lognormalWelch'){
+      const info=document.createElement('div');
+      info.className='assumption-info';
+      info.style.borderTop='1px solid #d7e0ef';
+      info.style.padding='12px 20px';
+      info.style.fontSize='12px';
+      info.style.color='#6b7280';
+      info.textContent='Lognormal Welch workflow applied: tests were performed on log-transformed values and reported as geometric-mean ratios.';
+      card.appendChild(info);
+    } else if(diagnostics.appliedVariant==='lognormalClassic'){
+      const info=document.createElement('div');
+      info.className='assumption-info';
+      info.style.borderTop='1px solid #d7e0ef';
+      info.style.padding='12px 20px';
+      info.style.fontSize='12px';
+      info.style.color='#6b7280';
+      info.textContent='Lognormal workflow applied: tests were performed on log-transformed values and reported as geometric-mean ratios.';
+      card.appendChild(info);
+    } else if(diagnostics.appliedVariant==='welch'){
       const info=document.createElement('div');
       info.className='assumption-info';
       info.style.borderTop='1px solid #d7e0ef';
@@ -14899,6 +15512,7 @@
     return {
       normalityMethod:diag.normalityMethod,
       varianceMethod:diag.variance?.method || null,
+      distributionDiagnostic:diag.distributionDiagnostic || 'normality-only',
       alpha:diag.alpha,
       normalityFailures:Number.isFinite(diag.normalityFailures)?diag.normalityFailures:0,
       varianceConcern:!!diag.varianceConcern,
@@ -14919,6 +15533,15 @@
         df1:diag.variance.df1,
         df2:diag.variance.df2
       }:null,
+      distributionComparisons:Array.isArray(diag.distributionComparisons)
+        ? diag.distributionComparisons.map(entry=>({
+          label:entry.label,
+          preferred:entry.preferred,
+          normalAicc:Number.isFinite(entry.normalAicc)?entry.normalAicc:null,
+          lognormalAicc:Number.isFinite(entry.lognormalAicc)?entry.lognormalAicc:null,
+          deltaAicc:Number.isFinite(entry.deltaAicc)?entry.deltaAicc:null
+        }))
+        : [],
       warnings:Array.isArray(diag.warnings)?diag.warnings.slice():[],
       recommendNonParametric:!!diag.recommendNonParametric
     };
@@ -14928,13 +15551,15 @@
   function parsePairString(str,traces){ return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{ const [a,b]=p.split('-').map(s=>s.trim()); const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1; const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1; return (ai>=0&&bi>=0)?{ai,bi}:null; }).filter(Boolean); }
   function ensureGroupedStatsDefaults(){
     if(!state.groupedStats || typeof state.groupedStats !== 'object'){
-      state.groupedStats = { analysis: 'twoWayAnova' };
+      state.groupedStats = { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' };
     }
-    const allowed = new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests']);
+    const allowed = new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests','multipleComparisons']);
     if(!allowed.has(state.groupedStats.analysis)){
       state.groupedStats.analysis = 'twoWayAnova';
       console.debug('Debug: grouped stats analysis reset to default');
     }
+    state.groupedStats.comparisonScope=sanitizeGroupedComparisonScope(state.groupedStats.comparisonScope);
+    state.groupedStats.multiplicityFamily=sanitizeGroupedMultiplicityFamily(state.groupedStats.multiplicityFamily);
   }
   function formatStatNumber(value, digits){
     const places = Number.isInteger(digits) ? digits : 4;
@@ -15633,6 +16258,286 @@
       ]
     };
   }
+  function estimateGroupedMultipleComparisonCount(data, options={}){
+    const groups=Math.max(0,Number(data?.groupsCount)||0);
+    const conditions=Math.max(0,Number(data?.conditionsCount)||0);
+    const scope=sanitizeGroupedComparisonScope(options?.comparisonScope ?? state.groupedStats?.comparisonScope);
+    if(scope==='groupsWithinCondition'){
+      return conditions * (groups >= 2 ? (groups*(groups-1))/2 : 0);
+    }
+    if(scope==='conditionsWithinGroup'){
+      return groups * (conditions >= 2 ? (conditions*(conditions-1))/2 : 0);
+    }
+    if(scope==='groupMarginals'){
+      return groups >= 2 ? (groups*(groups-1))/2 : 0;
+    }
+    if(scope==='conditionMarginals'){
+      return conditions >= 2 ? (conditions*(conditions-1))/2 : 0;
+    }
+    const cellCount=groups*conditions;
+    return cellCount >= 2 ? (cellCount*(cellCount-1))/2 : 0;
+  }
+  function analyzeGroupedMultipleComparisons(data){
+    const scope=sanitizeGroupedComparisonScope(state.groupedStats?.comparisonScope);
+    const multiplicityFamily=sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily);
+    if(!data || !data.groupsCount || !data.conditionsCount){
+      return { ok:false, message:'Grouped multiple comparisons require grouped data.' };
+    }
+    const rows=[];
+    const familyBuckets=new Map();
+    const registerRow=(row,familyKey)=>{
+      const bucketKey=String(familyKey || 'global');
+      rows.push(row);
+      if(!familyBuckets.has(bucketKey)){
+        familyBuckets.set(bucketKey,[]);
+      }
+      familyBuckets.get(bucketKey).push(row);
+    };
+    const buildPairedSamples=(groupIdx,conditionA,conditionB)=>{
+      const sampleA=[];
+      const sampleB=[];
+      (Array.isArray(data.allRows)?data.allRows:[]).forEach(row=>{
+        const valueA=Number(row?.[groupIdx]?.[conditionA]);
+        const valueB=Number(row?.[groupIdx]?.[conditionB]);
+        if(Number.isFinite(valueA) && Number.isFinite(valueB)){
+          sampleA.push(valueA);
+          sampleB.push(valueB);
+        }
+      });
+      return { sampleA, sampleB };
+    };
+    const computeMarginalGroupValues=groupIdx=>{
+      const values=[];
+      (Array.isArray(data.allRows)?data.allRows:[]).forEach(row=>{
+        const entries=(Array.isArray(row?.[groupIdx])?row[groupIdx]:[]).filter(Number.isFinite);
+        if(entries.length){
+          values.push(mean(entries));
+        }
+      });
+      return values;
+    };
+    const computeMarginalConditionValues=conditionIdx=>{
+      const values=[];
+      (Array.isArray(data.allRows)?data.allRows:[]).forEach(row=>{
+        const entries=[];
+        for(let gIdx=0; gIdx<(data.groupsCount||0); gIdx+=1){
+          const numeric=Number(row?.[gIdx]?.[conditionIdx]);
+          if(Number.isFinite(numeric)){
+            entries.push(numeric);
+          }
+        }
+        if(entries.length){
+          values.push(mean(entries));
+        }
+      });
+      return values;
+    };
+    const addComparison=(config={})=>{
+      const sampleA=(Array.isArray(config.sampleA)?config.sampleA:[]).filter(Number.isFinite);
+      const sampleB=(Array.isArray(config.sampleB)?config.sampleB:[]).filter(Number.isFinite);
+      const paired=config.paired===true;
+      if(sampleA.length < 2 || sampleB.length < 2){
+        return;
+      }
+      const result=(paired ? tTestPaired : tTest)(sampleA,sampleB,{
+        alpha:state.statsAlpha,
+        ciLevel:state.statsCiLevel,
+        alternative:state.statsAlternative
+      });
+      if(result?.available===false || !Number.isFinite(result?.p)){
+        return;
+      }
+      const estimate=resolvePairEstimateDetails(result,null,{
+        ciLevel:state.statsCiLevel,
+        fallback:mean(sampleA)-mean(sampleB)
+      });
+      registerRow({
+        scope:config.scope,
+        comparison:config.comparison,
+        test:paired ? 'Paired t-test' : 'Welch t-test',
+        n:paired
+          ? String(Math.min(sampleA.length,sampleB.length))
+          : `${sampleA.length} / ${sampleB.length}`,
+        statistic:result?.t,
+        df:result?.df,
+        estimate:estimate.value,
+        ci:estimate.interval,
+        p:result.p
+      }, config.familyKey);
+    };
+    if(scope==='groupsWithinCondition'){
+      for(let condIdx=0; condIdx<data.conditionsCount; condIdx+=1){
+        for(let gA=0; gA<data.groupsCount; gA+=1){
+          for(let gB=gA+1; gB<data.groupsCount; gB+=1){
+            addComparison({
+              scope:data.conditionLabels?.[condIdx] || `Condition ${condIdx + 1}`,
+              comparison:`${data.groupLabels?.[gA] || `Group ${gA + 1}`} vs ${data.groupLabels?.[gB] || `Group ${gB + 1}`}`,
+              sampleA:data.observedCellData?.[gA]?.[condIdx] || data.cellData?.[gA]?.[condIdx] || [],
+              sampleB:data.observedCellData?.[gB]?.[condIdx] || data.cellData?.[gB]?.[condIdx] || [],
+              paired:false,
+              familyKey:multiplicityFamily==='within-scope' ? `condition:${condIdx}` : 'global'
+            });
+          }
+        }
+      }
+    }else if(scope==='conditionsWithinGroup'){
+      for(let groupIdx=0; groupIdx<data.groupsCount; groupIdx+=1){
+        for(let cA=0; cA<data.conditionsCount; cA+=1){
+          for(let cB=cA+1; cB<data.conditionsCount; cB+=1){
+            const pairedSamples=buildPairedSamples(groupIdx,cA,cB);
+            addComparison({
+              scope:data.groupLabels?.[groupIdx] || `Group ${groupIdx + 1}`,
+              comparison:`${data.conditionLabels?.[cA] || `Condition ${cA + 1}`} vs ${data.conditionLabels?.[cB] || `Condition ${cB + 1}`}`,
+              sampleA:pairedSamples.sampleA,
+              sampleB:pairedSamples.sampleB,
+              paired:true,
+              familyKey:multiplicityFamily==='within-scope' ? `group:${groupIdx}` : 'global'
+            });
+          }
+        }
+      }
+    }else if(scope==='groupMarginals'){
+      const marginalValues=Array.from({ length:data.groupsCount }, (_, groupIdx)=>computeMarginalGroupValues(groupIdx));
+      for(let gA=0; gA<data.groupsCount; gA+=1){
+        for(let gB=gA+1; gB<data.groupsCount; gB+=1){
+          addComparison({
+            scope:'Group marginal means',
+            comparison:`${data.groupLabels?.[gA] || `Group ${gA + 1}`} vs ${data.groupLabels?.[gB] || `Group ${gB + 1}`}`,
+            sampleA:marginalValues[gA],
+            sampleB:marginalValues[gB],
+            paired:false,
+            familyKey:'group-marginals'
+          });
+        }
+      }
+    }else if(scope==='conditionMarginals'){
+      const marginalValues=Array.from({ length:data.conditionsCount }, (_, conditionIdx)=>computeMarginalConditionValues(conditionIdx));
+      for(let cA=0; cA<data.conditionsCount; cA+=1){
+        for(let cB=cA+1; cB<data.conditionsCount; cB+=1){
+          addComparison({
+            scope:'Condition marginal means',
+            comparison:`${data.conditionLabels?.[cA] || `Condition ${cA + 1}`} vs ${data.conditionLabels?.[cB] || `Condition ${cB + 1}`}`,
+            sampleA:marginalValues[cA],
+            sampleB:marginalValues[cB],
+            paired:true,
+            familyKey:'condition-marginals'
+          });
+        }
+      }
+    }else{
+      const cells=[];
+      for(let groupIdx=0; groupIdx<data.groupsCount; groupIdx+=1){
+        for(let conditionIdx=0; conditionIdx<data.conditionsCount; conditionIdx+=1){
+          cells.push({
+            label:`${data.groupLabels?.[groupIdx] || `Group ${groupIdx + 1}`} / ${data.conditionLabels?.[conditionIdx] || `Condition ${conditionIdx + 1}`}`,
+            values:data.observedCellData?.[groupIdx]?.[conditionIdx] || data.cellData?.[groupIdx]?.[conditionIdx] || []
+          });
+        }
+      }
+      for(let idxA=0; idxA<cells.length; idxA+=1){
+        for(let idxB=idxA+1; idxB<cells.length; idxB+=1){
+          addComparison({
+            scope:'All cell means',
+            comparison:`${cells[idxA].label} vs ${cells[idxB].label}`,
+            sampleA:cells[idxA].values,
+            sampleB:cells[idxB].values,
+            paired:false,
+            familyKey:'cell-means'
+          });
+        }
+      }
+    }
+    if(!rows.length){
+      return { ok:false, message:'Not enough observations to compute the selected grouped comparisons.' };
+    }
+    let showAdjusted=false;
+    if(multiplicityFamily==='global'){
+      if(rows.length > 1){
+        const adjusted=applyPValueCorrection(rows.map(row=>row.p),state.statsCorrection);
+        rows.forEach((row,index)=>{
+          row.adjustedP=Array.isArray(adjusted) && Number.isFinite(adjusted[index]) ? adjusted[index] : row.p;
+        });
+        showAdjusted=true;
+      }else{
+        rows[0].adjustedP=rows[0].p;
+      }
+    }else{
+      familyBuckets.forEach(bucket=>{
+        if(bucket.length > 1){
+          const adjusted=applyPValueCorrection(bucket.map(row=>row.p),state.statsCorrection);
+          bucket.forEach((row,index)=>{
+            row.adjustedP=Array.isArray(adjusted) && Number.isFinite(adjusted[index]) ? adjusted[index] : row.p;
+          });
+          showAdjusted=true;
+        }else if(bucket.length===1){
+          bucket[0].adjustedP=bucket[0].p;
+        }
+      });
+    }
+    const correctionMeta=showAdjusted
+      ? resolveCorrectionMeta(state.statsCorrection,rows.length)
+      : null;
+    updateStatsCorrectionSummary(showAdjusted ? rows.length : 0);
+    const scopeLabelMap={
+      groupsWithinCondition:'Groups within each condition',
+      conditionsWithinGroup:'Conditions within each group',
+      groupMarginals:'Group marginal means',
+      conditionMarginals:'Condition marginal means',
+      cellMeans:'All cell means'
+    };
+    const scopeLabel=scopeLabelMap[scope] || 'Grouped multiple comparisons';
+    const familyDescription=multiplicityFamily==='global'
+      ? 'All displayed grouped comparisons were corrected as one global family.'
+      : 'Grouped comparisons were corrected separately within each displayed scope.';
+    return {
+      ok:true,
+      caption:'Grouped multiple comparisons',
+      columns:[
+        { key:'scope', label:'Scope', align:'left' },
+        { key:'comparison', label:'Comparison', align:'left' },
+        { key:'test', label:'Test', align:'left' },
+        { key:'n', label:'n', align:'right' },
+        { key:'statistic', label:'t', align:'right' },
+        { key:'df', label:'df', align:'right' },
+        { key:'estimate', label:'Difference', align:'right' },
+        { key:'ci', label:`${formatPercentLabel(state.statsCiLevel)} CI`, align:'right' },
+        { key:'p', label:'P value', align:'right' },
+        ...(showAdjusted ? [{ key:'adjustedP', label:`P (adj, ${correctionMeta?.shortLabel || 'adj'})`, align:'right' }] : [])
+      ],
+      rows:rows.map(row=>({
+        scope:row.scope,
+        comparison:row.comparison,
+        test:row.test,
+        n:row.n,
+        statistic:formatStatNumber(row.statistic),
+        df:Number.isFinite(row.df) ? formatStatNumber(row.df,2) : (row.df===Infinity ? '∞' : '—'),
+        estimate:Number.isFinite(row.estimate) ? formatStatNumber(row.estimate) : '—',
+        ci:row.ci,
+        p:formatP(row.p),
+        ...(showAdjusted ? { adjustedP:formatP(row.adjustedP) } : {})
+      })),
+      options:{ fileName:'box-grouped-multiple-comparisons', contextLabel:'box-grouped-multiple-comparisons' },
+      footnotes:[
+        `${scopeLabel} were tested with ${multiplicityFamily==='global' ? 'a global' : 'within-scope'} multiplicity family definition.`,
+        scope==='conditionsWithinGroup' || scope==='conditionMarginals'
+          ? 'Condition contrasts use paired t-tests on matched row-level summaries.'
+          : 'Between-group and cell contrasts use Welch t-tests.',
+        ...(showAdjusted && correctionMeta?.footnote ? [correctionMeta.footnote] : []),
+        familyDescription
+      ],
+      report:{
+        methodsText:`Grouped multiple comparisons were computed for ${scopeLabel.toLowerCase()} using ${scope==='conditionsWithinGroup' || scope==='conditionMarginals' ? 'paired' : 'Welch'} t-tests.${showAdjusted ? ` ${correctionMeta?.label || 'Selected'} multiplicity control was applied with a ${multiplicityFamily==='global' ? 'global' : 'within-scope'} family definition.` : ''}`,
+        resultsText:`${rows.length} grouped comparison${rows.length===1?' was':'s were'} reported for ${scopeLabel.toLowerCase()}.${showAdjusted ? ` Adjusted P values are shown using ${correctionMeta?.shortLabel || correctionMeta?.label || 'the selected correction'}.` : ''}`,
+        analysisSpec:buildStatsAnalysisSpec({
+          grouped:true,
+          groupedAnalysis:'multipleComparisons',
+          groupedComparisonScope:scope,
+          groupedMultiplicityFamily:multiplicityFamily,
+          pairCount:rows.length
+        })
+      }
+    };
+  }
   function getAdvisorState(){
     if(!state.statsAdvisor || typeof state.statsAdvisor!=='object'){
       state.statsAdvisor={ open:false, activated:false, answers:{}, normality:{}, variance:{} };
@@ -15676,10 +16581,13 @@
       }
       return trace.summary;
     });
+    const distributionDiagnostic=resolveDistributionDiagnosticOption({});
     const results={
       normalityMethod:resolveNormalityMethodOption({}),
+      distributionDiagnostic,
       alpha:resolveStatsAlpha({}),
-      groups:[]
+      groups:[],
+      distributionComparisons:[]
     };
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
@@ -15695,9 +16603,22 @@
         size:sampleSize,
         normality
       });
+      if(distributionDiagnostic==='normal-vs-lognormal'){
+        const distributionComparison=computeLognormalComparison(group,{ alpha: resolveStatsAlpha({}) });
+        if(distributionComparison){
+          results.distributionComparisons.push({
+            label,
+            ...distributionComparison
+          });
+        }
+      }
     });
     if(debugEnabled){
-      console.debug('Debug: box stats advisor normality results',{ groupCount: groups.length });
+      console.debug('Debug: box stats advisor normality results',{
+        groupCount: groups.length,
+        distributionDiagnostic,
+        comparisonCount: results.distributionComparisons.length
+      });
     }
     return results;
   }
@@ -15732,7 +16653,9 @@
     const heading=document.createElement('div');
     heading.className='stats-advisor__inline-label';
     const methodLabel=results?.normalityMethod==='dagostino' ? "D’Agostino-Pearson" : results?.normalityMethod==='auto' ? 'Auto-selected normality test' : 'Shapiro-Wilk';
-    heading.textContent=`Normality test results (${methodLabel})`;
+    heading.textContent=results?.distributionDiagnostic==='normal-vs-lognormal'
+      ? `Distribution checks (${methodLabel} + log-normal fit)`
+      : `Normality test results (${methodLabel})`;
     wrapper.appendChild(heading);
     if(!results || !Array.isArray(results.groups) || !results.groups.length){
       const empty=document.createElement('div');
@@ -15741,16 +16664,25 @@
       wrapper.appendChild(empty);
       return wrapper;
     }
+    const fitByLabel=new Map(
+      (Array.isArray(results.distributionComparisons)?results.distributionComparisons:[])
+        .map(entry=>[entry?.label || '', entry])
+    );
+    const showDistributionFit=fitByLabel.size>0;
     const table=document.createElement('table');
     table.className='stats-table stats-advisor__inline-table';
     const thead=document.createElement('thead');
     const headRow=document.createElement('tr');
-    ;[
+    const columns=[
       { label:'Group', align:'left' },
       { label:'Normality', align:'center' },
       { label:'p-value', align:'right' },
       { label:'n', align:'right' }
-    ].forEach(col=>{
+    ];
+    if(showDistributionFit){
+      columns.splice(3,0,{ label:'Preferred fit', align:'left' });
+    }
+    columns.forEach(col=>{
       const th=document.createElement('th');
       th.textContent=col.label;
       if(col.align){
@@ -15774,6 +16706,16 @@
       pCell.style.textAlign='right';
       pCell.textContent=Number.isFinite(group.normality?.pValue) ? formatP(group.normality.pValue) : '-';
       tr.appendChild(pCell);
+      if(showDistributionFit){
+        const fitCell=document.createElement('td');
+        const comparison=fitByLabel.get(group.label || '');
+        fitCell.textContent=comparison?.preferred==='lognormal'
+          ? 'Log-normal'
+          : comparison?.preferred==='normal'
+            ? 'Normal'
+            : '—';
+        tr.appendChild(fitCell);
+      }
       const nCell=document.createElement('td');
       nCell.style.textAlign='right';
       nCell.textContent=Number.isFinite(group.size) ? String(group.size) : '-';
@@ -15789,7 +16731,7 @@
     wrapper.className='stats-advisor__inline-results';
     const heading=document.createElement('div');
     heading.className='stats-advisor__inline-label';
-    heading.textContent='Variance test results (Brown–Forsythe)';
+    heading.textContent=`Variance test results (${variance?.method==='bartlett' ? 'Bartlett' : 'Brown–Forsythe'})`;
     wrapper.appendChild(heading);
     if(!variance){
       const empty=document.createElement('div');
@@ -15908,9 +16850,15 @@
     }
     if(answers.distribution===undefined || answers.distribution==='unsure'){
       let inferredDistribution=null;
-      if(context.assumptions?.recommendNonParametric){
+      if(context.assumptions?.distributionDiagnostic==='normal-vs-lognormal'){
+        inferredDistribution=inferDistributionAnswerFromLognormalResults(context.assumptions);
+      }
+      if(!inferredDistribution && context.normalityResults?.distributionDiagnostic==='normal-vs-lognormal'){
+        inferredDistribution=inferDistributionAnswerFromLognormalResults(context.normalityResults);
+      }
+      if(!inferredDistribution && context.assumptions?.recommendNonParametric){
         inferredDistribution='nonnormal';
-      }else{
+      }else if(!inferredDistribution){
         inferredDistribution=inferDistributionAnswerFromNormalityResults(context.normalityResults);
       }
       if(!inferredDistribution && state.statsTest==='parametric'){
@@ -15987,17 +16935,25 @@
     });
     questions.push({
       id:'distribution',
-      prompt:'Do the group distributions look approximately normal?',
-      help:'Inspect the boxplots, QQ plots, or Shapiro-Wilk diagnostics when available.',
+      prompt:'Which distribution assumption best matches the selected groups?',
+      help:'Inspect the boxplots, QQ plots, and the normal vs log-normal diagnostic when the data are positive and right-skewed.',
       options:ADVISOR_DISTRIBUTION_OPTIONS
     });
     const resolvedGroups=normalizeAdvisorGroupAnswer(answers.groups,context);
     const resolvedPaired=(answers.paired==='paired' || (answers.paired===undefined && state.statsPaired))?'paired':'unpaired';
-    if(resolvedGroups==='threePlus' && resolvedPaired!=='paired'){
+    const needsVarianceQuestion=resolvedPaired!=='paired' && (
+      resolvedGroups==='threePlus'
+      || (resolvedGroups==='two' && answers.distribution==='lognormal')
+    );
+    if(needsVarianceQuestion){
       questions.push({
         id:'equalVariance',
-        prompt:'For parametric tests, can you assume equal variances across groups?',
-        help:'Large variance differences call for Welch-type or non-parametric methods.',
+        prompt:answers.distribution==='lognormal'
+          ? 'For the lognormal workflow, can you assume equal geometric SDs across groups?'
+          : 'For parametric tests, can you assume equal variances across groups?',
+        help:answers.distribution==='lognormal'
+          ? 'Prism chooses between pooled and Welch-style lognormal tests based on geometric SD equality.'
+          : 'Large variance differences call for Welch-type or non-parametric methods.',
         options:ADVISOR_VARIANCE_OPTIONS
       });
     }
@@ -16143,7 +17099,8 @@
           const btn=document.createElement('button');
           btn.type='button';
           btn.className='stats-advisor__inline-button';
-          btn.textContent='Run normality tests';
+          const runDistributionDiagnostic=resolveDistributionDiagnosticOption({})==='normal-vs-lognormal';
+          btn.textContent=runDistributionDiagnostic ? 'Run distribution checks' : 'Run normality tests';
           btn.disabled=selectionIndices.length===0;
           btn.addEventListener('click',()=>{
             const results=computeAdvisorNormalityResults(traces,selectionIndices,debugEnabled);
@@ -16152,7 +17109,9 @@
               results,
               updatedAt: Date.now()
             };
-            const inferredDistribution=inferDistributionAnswerFromNormalityResults(results);
+            const inferredDistribution=results?.distributionDiagnostic==='normal-vs-lognormal'
+              ? inferDistributionAnswerFromLognormalResults(results) || inferDistributionAnswerFromNormalityResults(results)
+              : inferDistributionAnswerFromNormalityResults(results);
             if(inferredDistribution && (answers.distribution===undefined || answers.distribution==='unsure')){
               answers.distribution=inferredDistribution;
               console.debug('Debug: box stats advisor inferred distribution',{ inferredDistribution });
@@ -16171,7 +17130,9 @@
           }else if(selectionIndices.length && normalityState.results){
             const stale=document.createElement('div');
             stale.className='stats-advisor__inline-stale';
-            stale.textContent='Normality results are out of date. Run the tests again to refresh.';
+            stale.textContent=runDistributionDiagnostic
+              ? 'Distribution results are out of date. Run the checks again to refresh.'
+              : 'Normality results are out of date. Run the tests again to refresh.';
             inlineWrap.appendChild(stale);
           }
           fieldset.appendChild(inlineWrap);
@@ -16223,9 +17184,14 @@
       const applyBtn=document.createElement('button');
       applyBtn.type='button';
       applyBtn.textContent='Apply recommendation';
-      applyBtn.disabled=!recommendation.ready;
+      applyBtn.disabled=!recommendation.ready || recommendation.canApply===false;
+      if(recommendation.canApply===false && recommendation.applyDisabledReason){
+        applyBtn.title=recommendation.applyDisabledReason;
+      }else{
+        applyBtn.removeAttribute('title');
+      }
       applyBtn.addEventListener('click',()=>{
-        if(!recommendation.ready){
+        if(!recommendation.ready || recommendation.canApply===false){
           return;
         }
         if(context?.format==='grouped' || recommendation.format==='grouped'){
@@ -16282,6 +17248,12 @@
         state.scheduleDraw();
       });
       actions.appendChild(applyBtn);
+      if(recommendation.ready && recommendation.canApply===false && recommendation.applyDisabledReason){
+        const applyNote=document.createElement('div');
+        applyNote.className='stats-advisor__inline-stale';
+        applyNote.textContent=recommendation.applyDisabledReason;
+        actions.appendChild(applyNote);
+      }
       const resetBtn=document.createElement('button');
       resetBtn.type='button';
       resetBtn.className='stats-advisor__reset';
@@ -16571,7 +17543,7 @@
     mode: state.statsMode,
     selectedCount
   });
-  if(state.statsTest==='parametric' && (selectedTestChoice==='classic' || selectedTestChoice==='welch') && state.statsParametricVariant!==selectedTestChoice){
+  if(state.statsTest==='parametric' && new Set(['classic','welch','ratioT','lognormalClassic','lognormalWelch']).has(selectedTestChoice) && state.statsParametricVariant!==selectedTestChoice){
     state.statsParametricVariant=selectedTestChoice;
   }else if(state.statsTest!=='parametric' && (selectedTestChoice==='mannWhitney' || selectedTestChoice==='kolmogorovSmirnov') && state.statsNonParametricVariant!==selectedTestChoice){
     state.statsNonParametricVariant=selectedTestChoice;
@@ -16682,6 +17654,7 @@
   correctionSel.disabled=supportsPairwiseProcedure && (
     state.statsPostHoc==='tukey'
     || state.statsPostHoc==='gamesHowell'
+    || state.statsPostHoc==='tamhaneT2'
     || state.statsPostHoc==='dunnett'
     || state.statsPostHoc==='dunnettT3'
     || state.statsPostHoc==='nemenyi'
@@ -16692,6 +17665,8 @@
     correctionSel.title='Tukey HSD already adjusts for multiple comparisons.';
   }else if(state.statsPostHoc==='gamesHowell'){
     correctionSel.title='Games–Howell already incorporates unequal-variance adjustment.';
+  }else if(state.statsPostHoc==='tamhaneT2'){
+    correctionSel.title='Tamhane T2 already uses a family-wise unequal-variance adjustment.';
   }else if(state.statsPostHoc==='dunnett'){
     correctionSel.title='Dunnett already controls family-wise error versus the reference group.';
   }else if(state.statsPostHoc==='dunnettT3'){
@@ -16811,6 +17786,71 @@
     state.scheduleDraw();
   });
   appendInline(normalityLabel, normalitySel, true, advancedBody);
+
+  const varianceLabel=document.createElement('label');
+  varianceLabel.textContent='Variance test:';
+  const varianceSel=document.createElement('select');
+  [
+    ['brown-forsythe','Brown-Forsythe'],
+    ['bartlett','Bartlett']
+  ].forEach(([value,label])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=label;
+    if(sanitizeVarianceMethod(state.statsVarianceMethod)===value){
+      option.selected=true;
+    }
+    varianceSel.appendChild(option);
+  });
+  varianceSel.addEventListener('change',()=>{
+    state.statsVarianceMethod=sanitizeVarianceMethod(varianceSel.value);
+    console.debug('Debug: box statsVarianceMethod changed',{ value:state.statsVarianceMethod });
+    requestStatsContextRefresh('stats-variance-method-change');
+    persistTabState('stats-variance-method-change');
+    state.scheduleDraw();
+  });
+  appendInline(varianceLabel, varianceSel, true, advancedBody);
+
+  const distributionLabel=document.createElement('label');
+  distributionLabel.textContent='Distribution check:';
+  const distributionSel=document.createElement('select');
+  [
+    ['normality-only','Normality only'],
+    ['normal-vs-lognormal','Normal vs log-normal']
+  ].forEach(([value,label])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=label;
+    if(sanitizeDistributionDiagnostic(state.statsDistributionDiagnostic)===value){
+      option.selected=true;
+    }
+    distributionSel.appendChild(option);
+  });
+  distributionSel.addEventListener('change',()=>{
+    state.statsDistributionDiagnostic=sanitizeDistributionDiagnostic(distributionSel.value);
+    console.debug('Debug: box statsDistributionDiagnostic changed',{ value:state.statsDistributionDiagnostic });
+    requestStatsContextRefresh('stats-distribution-diagnostic-change');
+    persistTabState('stats-distribution-diagnostic-change');
+    state.scheduleDraw();
+  });
+  appendInline(distributionLabel, distributionSel, true, advancedBody);
+
+  const trendLabel=document.createElement('label');
+  trendLabel.textContent='Linear trend:';
+  const trendInput=document.createElement('input');
+  trendInput.type='checkbox';
+  trendInput.checked=resolveTrendTestEnabled();
+  const trendAvailable=state.statsTest==='parametric' && !state.statsPaired && state.statsMode==='all' && selectedCount>=3;
+  trendInput.disabled=!trendAvailable;
+  trendInput.title=trendAvailable ? '' : 'Trend testing is available for unpaired parametric multi-group analyses.';
+  trendInput.addEventListener('change',()=>{
+    state.statsTrendTest=sanitizeTrendTestEnabled(trendInput.checked);
+    console.debug('Debug: box statsTrendTest changed',{ value:state.statsTrendTest });
+    requestStatsContextRefresh('stats-trend-change');
+    persistTabState('stats-trend-change');
+    state.scheduleDraw();
+  });
+  appendInline(trendLabel, trendInput, true, advancedBody);
 
   const resamplingLabel=document.createElement('label');
   resamplingLabel.textContent='Rank P values:';
@@ -17061,7 +18101,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     { value:'twoWayMixed', text:'Two-way Mixed Model' },
     { value:'threeWayAnova', text:'Three-way ANOVA' },
     { value:'threeWayMixed', text:'Three-way Mixed Model' },
-    { value:'rowTTests', text:'Per-condition pairwise t-tests' }
+    { value:'rowTTests', text:'Per-condition pairwise t-tests' },
+    { value:'multipleComparisons', text:'Grouped multiple comparisons' }
   ];
   const allowed=new Set(options.map(opt=>opt.value));
   if(!allowed.has(state.groupedStats.analysis)){
@@ -17082,6 +18123,66 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   analysisWrap.appendChild(label);
   analysisWrap.appendChild(select);
   controls.appendChild(analysisWrap);
+  if(state.groupedStats.analysis==='multipleComparisons'){
+    const scopeWrap=document.createElement('div');
+    scopeWrap.style.display='flex';
+    scopeWrap.style.gap='8px';
+    scopeWrap.style.alignItems='center';
+    const scopeLabel=document.createElement('label');
+    scopeLabel.textContent='Comparison scope:';
+    const scopeSel=document.createElement('select');
+    [
+      ['groupsWithinCondition','Groups within each condition'],
+      ['conditionsWithinGroup','Conditions within each group'],
+      ['groupMarginals','Group marginal means'],
+      ['conditionMarginals','Condition marginal means'],
+      ['cellMeans','All cell means']
+    ].forEach(([value,text])=>{
+      const option=document.createElement('option');
+      option.value=value;
+      option.textContent=text;
+      if(state.groupedStats.comparisonScope===value){
+        option.selected=true;
+      }
+      scopeSel.appendChild(option);
+    });
+    scopeSel.addEventListener('change',()=>{
+      state.groupedStats.comparisonScope=sanitizeGroupedComparisonScope(scopeSel.value);
+      console.debug('Debug: grouped comparison scope changed',{ scope:state.groupedStats.comparisonScope });
+      state.scheduleDraw();
+    });
+    scopeWrap.appendChild(scopeLabel);
+    scopeWrap.appendChild(scopeSel);
+    controls.appendChild(scopeWrap);
+
+    const familyWrap=document.createElement('div');
+    familyWrap.style.display='flex';
+    familyWrap.style.gap='8px';
+    familyWrap.style.alignItems='center';
+    const familyLabel=document.createElement('label');
+    familyLabel.textContent='Multiplicity family:';
+    const familySel=document.createElement('select');
+    [
+      ['within-scope','Within displayed scope'],
+      ['global','Global across all rows']
+    ].forEach(([value,text])=>{
+      const option=document.createElement('option');
+      option.value=value;
+      option.textContent=text;
+      if(state.groupedStats.multiplicityFamily===value){
+        option.selected=true;
+      }
+      familySel.appendChild(option);
+    });
+    familySel.addEventListener('change',()=>{
+      state.groupedStats.multiplicityFamily=sanitizeGroupedMultiplicityFamily(familySel.value);
+      console.debug('Debug: grouped multiplicity family changed',{ family:state.groupedStats.multiplicityFamily });
+      state.scheduleDraw();
+    });
+    familyWrap.appendChild(familyLabel);
+    familyWrap.appendChild(familySel);
+    controls.appendChild(familyWrap);
+  }
   const correctionWrap=document.createElement('div');
   correctionWrap.style.display='flex';
   correctionWrap.style.gap='8px';
@@ -17104,12 +18205,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     updateStatsCorrectionSummary(0);
     state.scheduleDraw();
   });
-  const correctionRelevant=state.groupedStats.analysis==='rowTTests';
+  const correctionRelevant=state.groupedStats.analysis==='rowTTests' || state.groupedStats.analysis==='multipleComparisons';
   correctionSel.disabled=!correctionRelevant;
   if(correctionRelevant){
     correctionSel.removeAttribute('title');
   }else{
-    correctionSel.title='Multiplicity correction is applied for per-condition pairwise t-tests.';
+    correctionSel.title='Multiplicity correction is applied for grouped pairwise comparison workflows.';
   }
   correctionWrap.appendChild(correctionLabel);
   correctionWrap.appendChild(correctionSel);
@@ -17118,6 +18219,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   analysisHelp.className='stats-help-text';
   if(state.groupedStats.analysis==='rowTTests'){
     analysisHelp.textContent='Per-condition pairwise tests use Welch t-statistics, then apply the selected multiplicity correction.';
+  }else if(state.groupedStats.analysis==='multipleComparisons'){
+    analysisHelp.textContent='Grouped multiple comparisons expose Prism-style scopes: groups within conditions, conditions within groups, marginal means, or all cell means. Multiplicity can be controlled within each displayed scope or across all comparisons globally.';
   }else if(state.groupedStats.analysis==='twoWayMixed' || state.groupedStats.analysis==='threeWayMixed'){
     analysisHelp.textContent='Mixed-effects models treat rows as repeated/random effects. When rows contain missing repeated-measures values, the mixed-effects path retains observed values instead of listwise deletion.';
   }else{
@@ -17125,9 +18228,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }
   controls.appendChild(analysisHelp);
   console.debug('Debug: renderGroupedStatsControls summary',{ analysis: state.groupedStats.analysis, rowsWithData: prepared.rowsWithData });
-  const groupedPairCount=correctionRelevant && prepared.groupsCount>=2
-    ? prepared.conditionsCount * (prepared.groupsCount * (prepared.groupsCount - 1) / 2)
-    : 0;
+  const groupedPairCount=state.groupedStats.analysis==='rowTTests'
+    ? (prepared.groupsCount>=2
+      ? prepared.conditionsCount * (prepared.groupsCount * (prepared.groupsCount - 1) / 2)
+      : 0)
+    : (state.groupedStats.analysis==='multipleComparisons'
+      ? estimateGroupedMultipleComparisonCount(prepared,{ comparisonScope:state.groupedStats.comparisonScope })
+      : 0);
   updateStatsCorrectionSummary(groupedPairCount);
 }
 		  function buildSignificanceBracketGeometry(options){
@@ -17953,11 +19060,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function buildStatsAnalysisSpec(extra){
     const selectedColumns=Array.from(state.selectedCols || []).sort((a,b)=>a-b);
     return {
-      schemaVersion:'box-stats-spec-v4',
+      schemaVersion:'box-stats-spec-v5',
       alpha:sanitizeStatsAlpha(state.statsAlpha,ASSUMPTION_ALPHA),
       ciLevel:sanitizeStatsCiLevel(state.statsCiLevel,0.95),
       alternative:sanitizeStatsAlternative(state.statsAlternative),
       normalityMethod:sanitizeNormalityMethod(state.statsNormalityMethod),
+      varianceMethod:sanitizeVarianceMethod(state.statsVarianceMethod),
+      distributionDiagnostic:sanitizeDistributionDiagnostic(state.statsDistributionDiagnostic),
+      trendTest:resolveTrendTestEnabled(),
       resamplingMode:sanitizeResamplingMode(state.statsResamplingMode),
       monteCarloIterations:sanitizeMonteCarloIterations(state.statsMonteCarloIterations,10000),
       correction:state.statsCorrection,
@@ -17971,6 +19081,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       nonParametricVariant:resolveStatsNonParametricVariant(),
       reportPScientific:getStatsPValueScientificPreference(),
       postHoc:state.statsPostHoc,
+      groupedAnalysis:state.groupedStats?.analysis || null,
+      groupedComparisonScope:sanitizeGroupedComparisonScope(state.groupedStats?.comparisonScope),
+      groupedMultiplicityFamily:sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily),
       oneSampleNullValue:sanitizeOneSampleNullValue(state.statsOneSampleValue),
       referenceIndex:state.statsRef,
       selectedColumns,
@@ -18137,6 +19250,9 @@ Technical analysis record (advanced)
       String(state.statsCiLevel),
       state.statsAlternative,
       state.statsNormalityMethod,
+      state.statsVarianceMethod,
+      state.statsDistributionDiagnostic,
+      resolveTrendTestEnabled() ? 'trend' : 'no-trend',
       String(state.statsSeed),
       state.statsResamplingMode,
       String(state.statsMonteCarloIterations),
@@ -18151,7 +19267,11 @@ Technical analysis record (advanced)
       getStatsPValueScientificPreference() ? 'scientific' : 'decimal',
       state.statsPostHoc,
       state.statsPairsText,
-      state.statsCustomPairs?.length || 0
+      state.statsCustomPairs?.length || 0,
+      state.tableFormat,
+      state.groupedStats?.analysis || 'twoWayAnova',
+      state.groupedStats?.comparisonScope || 'groupsWithinCondition',
+      state.groupedStats?.multiplicityFamily || 'within-scope'
     ].join('|');
     const selectionKey = Array.from(state.selectedCols).sort((a,b)=>a-b).join(',');
     const traceParts = traces.map((trace, idx)=>{
@@ -18236,6 +19356,8 @@ Technical analysis record (advanced)
         mode: 'grouped',
         grouped: {
           analysis: state.groupedStats?.analysis || 'twoWayAnova',
+          comparisonScope: sanitizeGroupedComparisonScope(state.groupedStats?.comparisonScope),
+          multiplicityFamily: sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily),
           data: groupedData
         },
         statsCorrection: state.statsCorrection,
@@ -18265,6 +19387,9 @@ Technical analysis record (advanced)
       statsCiLevel: state.statsCiLevel,
       statsAlternative: state.statsAlternative,
       statsNormalityMethod: state.statsNormalityMethod,
+      statsVarianceMethod: sanitizeVarianceMethod(state.statsVarianceMethod),
+      statsDistributionDiagnostic: sanitizeDistributionDiagnostic(state.statsDistributionDiagnostic),
+      statsTrendTest: resolveTrendTestEnabled(),
       statsSeed: state.statsSeed,
       statsResamplingMode: state.statsResamplingMode,
       statsMonteCarloIterations: state.statsMonteCarloIterations,
@@ -19310,6 +20435,7 @@ Technical analysis record (advanced)
       else if(analysis==='threeWayAnova') resultModel=analyzeThreeWayAnova(prepared);
       else if(analysis==='threeWayMixed') resultModel=analyzeThreeWayMixed(prepared);
       else if(analysis==='rowTTests') resultModel=analyzeRowWiseTTests(prepared);
+      else if(analysis==='multipleComparisons') resultModel=analyzeGroupedMultipleComparisons(prepared);
       if(!resultModel || !resultModel.ok){
         const warn=document.createElement('div');
         warn.textContent=resultModel?.message || 'Unable to compute grouped statistics for the selected analysis.';
@@ -19369,7 +20495,10 @@ Technical analysis record (advanced)
     ];
     const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels,{
       qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
-      summaries: summaryList
+      summaries: summaryList,
+      alpha: state.statsAlpha,
+      varianceMethod: state.statsVarianceMethod,
+      distributionDiagnostic: state.statsDistributionDiagnostic
     });
     state.assumptionDiagnostics=assumptionDiagnostics;
     if(assumptionDiagnostics){
@@ -19401,12 +20530,19 @@ Technical analysis record (advanced)
       const pairTest=pairTestMetaLocal.run;
       const pairs=[];
       state.statsCustomPairs.forEach(pr=>{
-        const aData=groupMapByTrace.get(pr.ai) || traces[pr.ai].rawY; const bData=groupMapByTrace.get(pr.bi) || traces[pr.bi].rawY;
+        const aData=analysisGroupMapByTrace.get(pr.ai) || groupMapByTrace.get(pr.ai) || traces[pr.ai].rawY;
+        const bData=analysisGroupMapByTrace.get(pr.bi) || groupMapByTrace.get(pr.bi) || traces[pr.bi].rawY;
+        const rawAData=groupMapByTrace.get(pr.ai) || traces[pr.ai].rawY;
+        const rawBData=groupMapByTrace.get(pr.bi) || traces[pr.bi].rawY;
         if(state.statsPaired && aData.length!==bData.length) return;
         const r=pairTest(aData,bData,{ alternative: state.statsAlternative, alpha: state.statsAlpha, ciLevel: state.statsCiLevel, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
         const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
         const statVal=r[statName];
-        const effectMetrics=computeEffectSizeMetrics(aData,bData,{ paired:state.statsPaired });
+        const estimate=resolvePairEstimateDetails(r,pairTestMetaLocal,{
+          ciLevel:state.statsCiLevel,
+          fallback:lognormalVariant ? NaN : mean(rawAData)-mean(rawBData)
+        });
+        const effectMetrics=computeEffectSizeMetrics(rawAData,rawBData,{ paired:state.statsPaired });
         const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
         const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
         console.debug('Debug: box custom pair effect metrics',{
@@ -19424,6 +20560,9 @@ Technical analysis record (advanced)
           stat:statVal,
           statName,
           df:r.df,
+          estimateLabel:estimate.label,
+          estimateValue:estimate.value,
+          estimateInterval:estimate.interval,
           effects:effectMetrics,
           effectParametric:formattedParamEffect,
           effectNonParametric:formattedNonParamEffect
@@ -19443,6 +20582,8 @@ Technical analysis record (advanced)
         comparison:`${pr.labelA} vs ${pr.labelB}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
         df:pr.df!=null?pr.df:'—',
+        estimate:Number.isFinite(pr.estimateValue)?formatStatNumber(pr.estimateValue):'—',
+        ci:pr.estimateInterval || '—',
         pValue:formatP(showCustomMultiplicity ? pr.adjP : pr.p),
         effectParametric:pr.effectParametric,
         effectNonParametric:pr.effectNonParametric
@@ -19453,13 +20594,16 @@ Technical analysis record (advanced)
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'pValue',label:showCustomMultiplicity ? `P (adj, ${correctionMeta.shortLabel})` : 'P value',align:'right',index:3},
-          {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:4,tooltip:paramEffectMeta.tooltip},
-          {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:5,tooltip:nonParamEffectMeta.tooltip}
+          {key:'estimate',label:pairs[0]?.estimateLabel || 'Difference (A-B)',align:'right',index:3},
+          {key:'ci',label:`${formatPercentLabel(state.statsCiLevel)} CI`,align:'right',index:4},
+          {key:'pValue',label:showCustomMultiplicity ? `P (adj, ${correctionMeta.shortLabel})` : 'P value',align:'right',index:5},
+          {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:6,tooltip:paramEffectMeta.tooltip},
+          {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:7,tooltip:nonParamEffectMeta.tooltip}
         ],
         rows:tableRows,
         footnotes:[
           ...(showCustomMultiplicity && correctionMeta.footnote ? [correctionMeta.footnote] : []),
+          ...(lognormalVariant ? ['Lognormal workflow: pairwise tests were computed on natural-log transformed values and reported as geometric-mean ratios.'] : []),
           ...effectFootnotes,
           ...dataQualityFootnotes
         ],
@@ -19469,7 +20613,7 @@ Technical analysis record (advanced)
         }
       });
       state.statsLastReport=finalizeStatsReport({
-        methodsText:`User-specified custom pairwise comparisons were tested with ${pairTestMetaLocal.label}${showCustomMultiplicity ? ` and ${correctionMeta.label} multiplicity control across the custom comparison family` : ''}.`,
+        methodsText:`User-specified custom pairwise comparisons were tested with ${pairTestMetaLocal.label}${showCustomMultiplicity ? ` and ${correctionMeta.label} multiplicity control across the custom comparison family` : ''}.${lognormalVariant ? ' The lognormal workflow analyzed natural-log transformed values and reported geometric-mean ratios on the original scale.' : ''}`,
         resultsText:`${pairs.length} custom comparison${pairs.length===1?' was':'s were'} reported${showCustomMultiplicity ? ` with ${correctionMeta.shortLabel} adjusted P values` : ''}.`,
         analysisSpec:buildStatsAnalysisSpec({ customPairs:pairs.length, comparisonMode:'custom' })
       },{
@@ -19482,6 +20626,15 @@ Technical analysis record (advanced)
     }
     const param=state.statsTest==='parametric';
     const paramVariant=param?resolveStatsParametricVariant():'nonparametric';
+    const lognormalVariant=param && isLognormalParametricVariant(paramVariant);
+    const lognormalPreparation=lognormalVariant ? prepareLognormalGroups(groups,labels) : null;
+    if(lognormalVariant && !lognormalPreparation?.ok){
+      updateStatsCorrectionSummary(0);
+      setResultsMessage(lognormalPreparation?.message || 'Lognormal workflows require strictly positive values in every included group.');
+      return;
+    }
+    const analysisGroups=lognormalPreparation?.logGroups || groups;
+    const analysisGroupMapByTrace=new Map(indices.map((traceIndex,groupIdx)=>[traceIndex,analysisGroups[groupIdx]]));
     const pairTestMeta=resolvePairwiseTestMeta({
       family: state.statsTest,
       paired: state.statsPaired,
@@ -19654,9 +20807,13 @@ Technical analysis record (advanced)
     }
     // Two-group case
     if(indices.length===2){
-      const res=pairTest(groups[0],groups[1],{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
+      const res=pairTest(analysisGroups[0],analysisGroups[1],{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
       const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
       const reportedAlternative=formatStatsAlternativeDisplay(res.alternative || state.statsAlternative,{ forceTwoSided: !!pairTestMeta.forceTwoSided });
+      const estimateDetails=resolvePairEstimateDetails(res,pairTestMeta,{
+        ciLevel:state.statsCiLevel,
+        fallback:lognormalVariant ? NaN : mean(groups[0])-mean(groups[1])
+      });
       const effectMetrics=computeEffectSizeMetrics(groups[0],groups[1],{ paired:state.statsPaired });
       console.debug('Debug: box pair summary effect metrics',{
         labels:labels,
@@ -19670,12 +20827,19 @@ Technical analysis record (advanced)
         { metric:'Test', value:pairTestMeta.label },
         { metric:statName, value:Number.isFinite(res[statName]) ? res[statName].toFixed(4) : '—' }
       ];
-      const diffValue=Number.isFinite(res.diff)?res.diff:(mean(groups[0])-mean(groups[1]));
-      if(Number.isFinite(diffValue)){
-        summaryRows.push({ metric:'Difference (A-B)', value:formatStatNumber(diffValue) });
+      if(Number.isFinite(estimateDetails.value)){
+        summaryRows.push({ metric:estimateDetails.label, value:formatStatNumber(estimateDetails.value) });
+      }
+      if(lognormalVariant){
+        if(Number.isFinite(res.geoMeanA)){
+          summaryRows.push({ metric:`Geometric mean (${labels[0]})`, value:formatStatNumber(res.geoMeanA) });
+        }
+        if(Number.isFinite(res.geoMeanB)){
+          summaryRows.push({ metric:`Geometric mean (${labels[1]})`, value:formatStatNumber(res.geoMeanB) });
+        }
       }
       if(Number.isFinite(res.ciLow) || Number.isFinite(res.ciHigh) || res.ciLow===-Infinity || res.ciHigh===Infinity){
-        summaryRows.push({ metric:`Difference (${formatPercentLabel(res.ciLevel || state.statsCiLevel)} CI)`, value:formatConfidenceInterval(res.ciLow,res.ciHigh) });
+        summaryRows.push({ metric:estimateDetails.ciLabel, value:estimateDetails.interval });
       }
       if(res.df!==undefined){ summaryRows.push({ metric:'df', value:res.df.toFixed(4) }); }
       summaryRows.push({ metric:'One- or two-sided P value ?', value:reportedAlternative });
@@ -19686,12 +20850,13 @@ Technical analysis record (advanced)
       summaryRows.push({ metric:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, value:formattedNonParamEffect });
       updateStatsCorrectionSummary(0);
       const footnotes=[
+        ...(lognormalVariant ? ['Lognormal workflow: tests were fit on natural-log transformed values and reported on the original scale as geometric-mean ratios.'] : []),
         ...effectFootnotes,
         ...dataQualityFootnotes
       ];
       state.statsLastReport=finalizeStatsReport({
         methodsText:`${pairTestMeta.label} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, and a ${reportedAlternative.toLowerCase()} P value. Effect sizes were reported as ${paramEffectMeta.shortLabel || paramEffectMeta.label} and ${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label}.`,
-        resultsText:`${labels[0]} vs ${labels[1]}: ${statName} = ${Number.isFinite(res[statName]) ? formatStatNumber(res[statName]) : '—'}, p = ${formatP(res.p)}${Number.isFinite(res.ciLow) || Number.isFinite(res.ciHigh) ? `, difference ${formatConfidenceInterval(res.ciLow,res.ciHigh)}` : ''}.`,
+        resultsText:`${labels[0]} vs ${labels[1]}: ${statName} = ${Number.isFinite(res[statName]) ? formatStatNumber(res[statName]) : '—'}, p = ${formatP(res.p)}${Number.isFinite(res.ciLow) || Number.isFinite(res.ciHigh) ? `, ${estimateDetails.label.toLowerCase()} ${estimateDetails.interval}` : ''}.`,
         analysisSpec:buildStatsAnalysisSpec({ comparison:[labels[0],labels[1]], pMethod:res.method || null })
       },{
         familyDescription:'This two-group analysis comprised a single prespecified comparison.'
@@ -19727,19 +20892,19 @@ Technical analysis record (advanced)
     const overallFootnotes=[];
     if(!state.statsPaired){
       if(param){
-        if(paramVariant==='welch'){
-          const welch=computeWelchAnova(groups);
+        if(isWelchStyleParametricVariant(paramVariant)){
+          const welch=computeWelchAnova(analysisGroups);
           if(welch.ok){
-            overall={ method:'welch', F:welch.F, p:welch.p, df1:welch.df1, df2:welch.df2, etaSquared:welch.etaSquared, omegaSquared:welch.omegaSquared, footnote:welch.footnote };
+            overall={ method:'welch', F:welch.F, p:welch.p, df1:welch.df1, df2:welch.df2, etaSquared:welch.etaSquared, omegaSquared:welch.omegaSquared, footnote:welch.footnote, lognormal:lognormalVariant };
             if(welch.footnote){ overallFootnotes.push(welch.footnote); }
           }else{
             console.debug('Debug: box welchAnova unavailable', welch);
           }
         }
         if(!overall){
-          const classic=anova(groups);
+          const classic=anova(analysisGroups);
           if(classic){
-            overall={ method:'anova', F:classic.F, p:classic.p, df1:classic.dfBetween, df2:classic.dfWithin, etaSquared:computeEtaSquared(classic.ssBetween,classic.ssTotal), omegaSquared:computeOmegaSquared(classic.ssBetween,classic.dfBetween,classic.msWithin,classic.ssTotal) };
+            overall={ method:'anova', F:classic.F, p:classic.p, df1:classic.dfBetween, df2:classic.dfWithin, etaSquared:computeEtaSquared(classic.ssBetween,classic.ssTotal), omegaSquared:computeOmegaSquared(classic.ssBetween,classic.dfBetween,classic.msWithin,classic.ssTotal), lognormal:lognormalVariant };
           }
         }
       }else{
@@ -19763,6 +20928,12 @@ Technical analysis record (advanced)
         console.debug('Debug: box friedman unavailable',friedman);
       }
     }
+    const trendTest=resolveTrendTestEnabled() && param && !state.statsPaired && indices.length>=3
+      ? computeLinearTrendTest(analysisGroups,labels,{
+        alpha:state.statsAlpha,
+        alternative:state.statsAlternative
+      })
+      : null;
     const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
     const xs=indices.map(i=>categoryCenter(i));
     let pairs=[];
@@ -19782,7 +20953,7 @@ Technical analysis record (advanced)
     }
     if(state.statsMode==='all'){
       if(postHocMode==='tukey'){
-        const tukey=computeTukeyComparisons(groups,labels,{ alpha: state.statsAlpha });
+        const tukey=computeTukeyComparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
         if(!tukey.ok){
           setResultsMessage(tukey.message || 'Unable to compute Tukey HSD.');
           updateStatsCorrectionSummary(0);
@@ -19796,7 +20967,7 @@ Technical analysis record (advanced)
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
+          const pairResult={
             a:pr.i,
             b:pr.j,
             ai,
@@ -19817,10 +20988,11 @@ Technical analysis record (advanced)
             rangeMax,
             method:'tukey'
           };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
-        const gh=computeGamesHowellComparisons(groups,labels,{ alpha: state.statsAlpha });
+        const gh=computeGamesHowellComparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
         if(!gh.ok){
           setResultsMessage(gh.message || 'Unable to compute Games–Howell comparisons.');
           updateStatsCorrectionSummary(0);
@@ -19834,7 +21006,7 @@ Technical analysis record (advanced)
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
+          const pairResult={
             a:pr.i,
             b:pr.j,
             ai,
@@ -19855,6 +21027,46 @@ Technical analysis record (advanced)
             rangeMax,
             method:'gamesHowell'
           };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+        });
+        updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='tamhaneT2'){
+        const tamhane=computeTamhaneT2Comparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
+        if(!tamhane.ok){
+          setResultsMessage(tamhane.message || 'Unable to compute Tamhane T2 comparisons.');
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(tamhane.footnote);
+        pairs=tamhane.pairs.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          const rangeMax=getRenderedRangeMax(ai,bi);
+          const pairResult={
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.pAdj,
+            stat:pr.t,
+            statName:'t',
+            df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'tamhaneT2'
+          };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
@@ -19936,12 +21148,14 @@ Technical analysis record (advanced)
         for(let i=0;i<indices.length;i++){
           for(let j=i+1;j<indices.length;j++){
             const aIdx=indices[i],bIdx=indices[j];
-            const aValues=traces[aIdx].rawY;
-            const bValues=traces[bIdx].rawY;
+            const aValues=analysisGroups[i];
+            const bValues=analysisGroups[j];
+            const rawAValues=groups[i];
+            const rawBValues=groups[j];
             const r=pairTest(aValues,bValues,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
             const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
             const statVal=r[statName];
-            const effectMetrics=computeEffectSizeMetrics(aValues,bValues,{ paired:state.statsPaired });
+            const effectMetrics=computeEffectSizeMetrics(rawAValues,rawBValues,{ paired:state.statsPaired });
             const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
             const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
             console.debug('Debug: box pair effect metrics',{ comparison:`${labels[i]} vs ${labels[j]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
@@ -19952,7 +21166,8 @@ Technical analysis record (advanced)
               ai:aIdx,
               bi:bIdx,
               p:r.p,
-              diff:Number.isFinite(r.diff)?r.diff:(mean(aValues)-mean(bValues)),
+              adjP:r.p,
+              diff:Number.isFinite(r.diff)?r.diff:(lognormalVariant ? NaN : (mean(rawAValues)-mean(rawBValues))),
               ciLow:r.ciLow,
               ciHigh:r.ciHigh,
               rangeMax,
@@ -19964,7 +21179,11 @@ Technical analysis record (advanced)
               effects:effectMetrics,
               effectParametric:formattedParamEffect,
               effectNonParametric:formattedNonParamEffect,
-              method:'standard'
+              method:'standard',
+              ratio:r.ratio,
+              scale:r.scale,
+              geoMeanA:r.geoMeanA,
+              geoMeanB:r.geoMeanB
             });
           }
         }
@@ -19976,10 +21195,11 @@ Technical analysis record (advanced)
       }
     } else if(state.statsMode==='reference'){
       const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ setResultsMessage('Select reference column among the chosen groups.'); return; }
-      const refData=groups[refIdx];
+      const refData=analysisGroups[refIdx];
+      const refRawData=groups[refIdx];
       referenceLabel=labels[refIdx];
       if(postHocMode==='tukey'){
-        const tukey=computeTukeyComparisons(groups,labels,{ alpha: state.statsAlpha });
+        const tukey=computeTukeyComparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
         if(!tukey.ok){
           setResultsMessage(tukey.message || 'Unable to compute Tukey HSD.');
           updateStatsCorrectionSummary(0);
@@ -19994,7 +21214,7 @@ Technical analysis record (advanced)
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
+          const pairResult={
             a:pr.i,
             b:pr.j,
             ai,
@@ -20015,10 +21235,11 @@ Technical analysis record (advanced)
             rangeMax,
             method:'tukey'
           };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
-        const gh=computeGamesHowellComparisons(groups,labels,{ alpha: state.statsAlpha });
+        const gh=computeGamesHowellComparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
         if(!gh.ok){
           setResultsMessage(gh.message || 'Unable to compute Games–Howell comparisons.');
           updateStatsCorrectionSummary(0);
@@ -20033,7 +21254,7 @@ Technical analysis record (advanced)
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
+          const pairResult={
             a:pr.i,
             b:pr.j,
             ai,
@@ -20054,6 +21275,47 @@ Technical analysis record (advanced)
             rangeMax,
             method:'gamesHowell'
           };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+        });
+        updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='tamhaneT2'){
+        const tamhane=computeTamhaneT2Comparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
+        if(!tamhane.ok){
+          setResultsMessage(tamhane.message || 'Unable to compute Tamhane T2 comparisons.');
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(tamhane.footnote);
+        const filtered=tamhane.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
+        pairs=filtered.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          const rangeMax=getRenderedRangeMax(ai,bi);
+          const pairResult={
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.pAdj,
+            stat:pr.t,
+            statName:'t',
+            df:pr.df,
+            diff:pr.diff,
+            ciLow:pr.ciLow,
+            ciHigh:pr.ciHigh,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'tamhaneT2'
+          };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
@@ -20134,7 +21396,7 @@ Technical analysis record (advanced)
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunnett' || postHocMode==='dunnettT3'){
-        const dunnett=computeDunnettComparisons(groups,labels,refIdx,{ unequalVariances:postHocMode==='dunnettT3', alpha: state.statsAlpha });
+        const dunnett=computeDunnettComparisons(analysisGroups,labels,refIdx,{ unequalVariances:postHocMode==='dunnettT3', alpha: state.statsAlpha });
         if(!dunnett.ok){
           setResultsMessage(dunnett.message || "Unable to compute Dunnett comparisons.");
           updateStatsCorrectionSummary(0);
@@ -20150,7 +21412,7 @@ Technical analysis record (advanced)
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
+          const pairResult={
             a:pr.i,
             b:pr.j,
             ai,
@@ -20171,16 +21433,18 @@ Technical analysis record (advanced)
             rangeMax,
             method:postHocMode
           };
+          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
         });
         updateStatsCorrectionSummary(pairs.length);
       }else{
         indices.forEach((idx,i)=>{
           if(i===refIdx) return;
-          const compareValues=traces[idx].rawY;
+          const compareValues=analysisGroups[i];
+          const rawCompareValues=groups[i];
           const r=pairTest(refData,compareValues,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
           const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
           const statVal=r[statName];
-          const effectMetrics=computeEffectSizeMetrics(refData,compareValues,{ paired:state.statsPaired });
+          const effectMetrics=computeEffectSizeMetrics(refRawData,rawCompareValues,{ paired:state.statsPaired });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           console.debug('Debug: box reference pair effect metrics',{ comparison:`${labels[refIdx]} vs ${labels[i]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
@@ -20188,23 +21452,28 @@ Technical analysis record (advanced)
           pairs.push({
             a:refIdx,
             b:i,
-            ai:state.statsRef,
-            bi:idx,
-            p:r.p,
-            diff:Number.isFinite(r.diff)?r.diff:(mean(refData)-mean(compareValues)),
-            ciLow:r.ciLow,
-            ciHigh:r.ciHigh,
-            rangeMax,
-            labelA:labels[refIdx],
-            labelB:labels[i],
-            stat:statVal,
-            statName,
-            df:r.df,
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            method:'standard'
-          });
+              ai:state.statsRef,
+              bi:idx,
+              p:r.p,
+              adjP:r.p,
+              diff:Number.isFinite(r.diff)?r.diff:(lognormalVariant ? NaN : (mean(refRawData)-mean(rawCompareValues))),
+              ciLow:r.ciLow,
+              ciHigh:r.ciHigh,
+              rangeMax,
+              labelA:labels[refIdx],
+              labelB:labels[i],
+              stat:statVal,
+              statName,
+              df:r.df,
+              effects:effectMetrics,
+              effectParametric:formattedParamEffect,
+              effectNonParametric:formattedNonParamEffect,
+              method:'standard',
+              ratio:r.ratio,
+              scale:r.scale,
+              geoMeanA:r.geoMeanA,
+              geoMeanB:r.geoMeanB
+            });
         });
         if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
@@ -20220,6 +21489,8 @@ Technical analysis record (advanced)
         correctionMeta={ key:'tukey', label:'Tukey HSD', shortLabel:'Tukey HSD', footnote:null };
       }else if(postHocMode==='gamesHowell'){
         correctionMeta={ key:'gamesHowell', label:'Games–Howell', shortLabel:'Games–Howell', footnote:null };
+      }else if(postHocMode==='tamhaneT2'){
+        correctionMeta={ key:'tamhaneT2', label:'Tamhane T2', shortLabel:'Tamhane T2', footnote:null };
       }else if(postHocMode==='dunnett'){
         correctionMeta={ key:'dunnett', label:'Dunnett', shortLabel:'Dunnett', footnote:null };
       }else if(postHocMode==='dunnettT3'){
@@ -20232,23 +21503,29 @@ Technical analysis record (advanced)
       updateStatsCorrectionSummary(showPairMultiplicity ? pairs.length : 0);
       console.debug('Debug: box pairwise correction applied',{ method:correctionMeta.key, count:pairs.length });
       const footnotes=[`Alpha = ${formatStatNumber(state.statsAlpha,3)}. Alternative hypothesis = ${state.statsAlternative}.`, describeResamplingForMethods({}), describeOutlierWorkflowForMethods({})];
+      if(lognormalVariant){
+        footnotes.push('Lognormal workflow: parametric tests and post-hoc comparisons were computed on natural-log transformed values and reported as geometric-mean ratios.');
+      }
       if(showPairMultiplicity){
         footnotes.push('Selected pairwise comparisons are treated as one multiplicity family in this view.');
       }
       if(showPairMultiplicity && correctionMeta.footnote){ footnotes.push(correctionMeta.footnote); }
       methodFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
+      if(trendTest?.available){
+        footnotes.push(`Linear trend across the displayed group order: slope = ${formatStatNumber(trendTest.slope)}, p = ${formatP(trendTest.p)}.`);
+      }else if(resolveTrendTestEnabled() && param && !state.statsPaired && indices.length>=3 && trendTest?.message){
+        footnotes.push(`Linear trend test unavailable: ${trendTest.message}`);
+      }
       dataQualityFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       let appendForPairs=false;
       if(overall){
-        const overallLabel=overall.method==='welch'
-          ? 'Welch ANOVA'
-          : overall.method==='anova'
-            ? 'ANOVA'
-            : overall.method==='rmAnova'
-              ? 'Repeated-measures ANOVA'
-              : overall.method==='friedman'
-                ? 'Friedman test'
-                : 'Kruskal-Wallis';
+        const overallLabel=overall.method==='rmAnova'
+          ? 'Repeated-measures ANOVA'
+          : overall.method==='friedman'
+            ? 'Friedman test'
+            : overall.method==='kruskal'
+              ? 'Kruskal-Wallis'
+              : getParametricOverallTestLabel(paramVariant,false).replace('one-way ','');
         const overallStatName=overall.method==='kruskal'
           ? 'H'
           : overall.method==='friedman'
@@ -20275,6 +21552,9 @@ Technical analysis record (advanced)
         }
         overallRows.push({ metric:'P value', value:formatP(overall.p) });
         overallRows.push({ metric:formatStatsSignificanceMetric(state.statsAlpha), value:interpretStatsPValue(overall.p,state.statsAlpha) });
+        if(overall.lognormal){
+          overallRows.push({ metric:'Scale', value:'Log-transformed values (geometric means compared)' });
+        }
         if(Number.isFinite(overall.etaSquared)){
           overallRows.push({ metric:'Eta squared (η²)', value:formatStatNumber(overall.etaSquared) });
         }
@@ -20289,6 +21569,15 @@ Technical analysis record (advanced)
         }
         if(Number.isFinite(overall.kendallsW)){
           overallRows.push({ metric:"Kendall's W", value:formatStatNumber(overall.kendallsW) });
+        }
+        if(trendTest?.available){
+          overallRows.push({ metric:'Linear trend slope', value:formatStatNumber(trendTest.slope) });
+          overallRows.push({ metric:'Linear trend t', value:formatStatNumber(trendTest.t) });
+          overallRows.push({ metric:'Linear trend df', value:formatStatNumber(trendTest.df,2) });
+          overallRows.push({ metric:'Linear trend p', value:formatP(trendTest.p) });
+          if(Number.isFinite(trendTest.rSquared)){
+            overallRows.push({ metric:'Linear trend R²', value:formatStatNumber(trendTest.rSquared) });
+          }
         }
         if(overall.method==='rmAnova'){
           if(Number.isFinite(overall.ggEpsilon)){
@@ -20319,18 +21608,25 @@ Technical analysis record (advanced)
         });
         appendForPairs=true;
       }
-      const pairRows=pairs.map(pr=>({
-        comparison:`${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
-        statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
-        df:Number.isFinite(pr.df)?pr.df.toFixed(2):(pr.df===Infinity?'∞':'—'),
-        difference:Number.isFinite(pr.diff)?formatStatNumber(pr.diff):'—',
-        ci:(Number.isFinite(pr.ciLow)||Number.isFinite(pr.ciHigh)||pr.ciLow===-Infinity||pr.ciHigh===Infinity)
-          ? formatConfidenceInterval(pr.ciLow,pr.ciHigh)
-          : '—',
-        pValue:formatP(showPairMultiplicity ? pr.adjP : pr.p),
-        effectParametric:pr.effectParametric,
-        effectNonParametric:pr.effectNonParametric
-      }));
+      const estimateLabel=(pairs[0]?.method==='standard' && pairTestMeta?.estimateLabel)
+        ? pairTestMeta.estimateLabel
+        : (pairs[0]?.scale==='ratio' ? 'Geometric mean ratio (A/B)' : 'Difference');
+      const pairRows=pairs.map(pr=>{
+        const estimate=resolvePairEstimateDetails(pr,pairTestMeta,{
+          ciLevel:state.statsCiLevel,
+          fallback:pr.diff
+        });
+        return {
+          comparison:`${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
+          statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
+          df:Number.isFinite(pr.df)?pr.df.toFixed(2):(pr.df===Infinity?'∞':'—'),
+          difference:Number.isFinite(estimate.value)?formatStatNumber(estimate.value):'—',
+          ci:estimate.interval,
+          pValue:formatP(showPairMultiplicity ? pr.adjP : pr.p),
+          effectParametric:pr.effectParametric,
+          effectNonParametric:pr.effectNonParametric
+        };
+      });
       if(referenceLabel){
         footnotes.push(`Reference group: ${referenceLabel}`);
       }
@@ -20339,6 +21635,8 @@ Technical analysis record (advanced)
         ? 'P (Tukey HSD)'
         : postHocMode==='gamesHowell'
           ? 'P (Games–Howell)'
+          : postHocMode==='tamhaneT2'
+            ? 'P (Tamhane T2)'
           : postHocMode==='dunnett'
             ? 'P (Dunnett)'
             : postHocMode==='dunnettT3'
@@ -20347,20 +21645,18 @@ Technical analysis record (advanced)
                 ? 'P (Nemenyi)'
           : (showPairMultiplicity ? `P (adj, ${correctionMeta.shortLabel})` : 'P value');
       const overallLabelForReport=overall
-        ? (overall.method==='welch'
-            ? 'Welch ANOVA'
-            : overall.method==='anova'
-              ? 'ANOVA'
-              : overall.method==='rmAnova'
-                ? 'Repeated-measures ANOVA'
-                : overall.method==='friedman'
-                  ? 'Friedman test'
-                  : 'Kruskal-Wallis')
+        ? (overall.method==='rmAnova'
+            ? 'Repeated-measures ANOVA'
+            : overall.method==='friedman'
+              ? 'Friedman test'
+              : overall.method==='kruskal'
+                ? 'Kruskal-Wallis'
+                : getParametricOverallTestLabel(paramVariant,false))
         : '';
       state.statsLastReport=finalizeStatsReport({
-        methodsText:`${overall ? (overall.method==='welch' ? 'Welch ANOVA' : overall.method==='anova' ? 'One-way ANOVA' : overall.method==='rmAnova' ? 'Repeated-measures ANOVA' : overall.method==='friedman' ? 'Friedman test' : 'Kruskal-Wallis test') + ' followed by ' : ''}${postHocMode==='standard' ? (param ? (state.statsPaired ? 'paired contrasts' : 'pairwise contrasts') : 'rank-based pairwise contrasts') : (POST_HOC_META[postHocMode]?.label || postHocMode)} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, and a ${formatStatsAlternativeDisplay(state.statsAlternative,{ forceTwoSided: !!pairTestMeta.forceTwoSided }).toLowerCase()} P value for pairwise tests.${showPairMultiplicity ? ` ${correctionMeta.label} multiplicity control${postHocMode==='standard' ? ' was applied to the selected comparison family' : ''}.` : ''}`,
-        resultsText:`${overall ? `${overallLabelForReport}: p = ${formatP(overall.p)}. ` : ''}${pairs.length} pairwise comparison${pairs.length===1?' was':'s were'} reported${showPairMultiplicity ? ` with ${pLabel}` : ''}.`,
-        analysisSpec:buildStatsAnalysisSpec({ overallMethod: overall ? overall.method : null, pairCount:pairs.length, postHoc:postHocMode })
+        methodsText:`${overall ? ((overall.method==='rmAnova' ? 'Repeated-measures ANOVA' : overall.method==='friedman' ? 'Friedman test' : overall.method==='kruskal' ? 'Kruskal-Wallis test' : getParametricOverallTestLabel(paramVariant,false)) + ' followed by ') : ''}${postHocMode==='standard' ? (param ? (state.statsPaired ? 'paired contrasts' : 'pairwise contrasts') : 'rank-based pairwise contrasts') : (POST_HOC_META[postHocMode]?.label || postHocMode)} was used with alpha = ${formatStatNumber(state.statsAlpha,3)}, a ${formatPercentLabel(state.statsCiLevel)} confidence level where applicable, and a ${formatStatsAlternativeDisplay(state.statsAlternative,{ forceTwoSided: !!pairTestMeta.forceTwoSided }).toLowerCase()} P value for pairwise tests.${showPairMultiplicity ? ` ${correctionMeta.label} multiplicity control${postHocMode==='standard' ? ' was applied to the selected comparison family' : ''}.` : ''}${lognormalVariant ? ' The lognormal workflow analyzed natural-log transformed values and reported geometric-mean ratios on the original scale.' : ''}${trendTest?.available ? ' A linear trend test across the displayed group order was also reported.' : ''}`,
+        resultsText:`${overall ? `${overallLabelForReport}: p = ${formatP(overall.p)}. ` : ''}${pairs.length} pairwise comparison${pairs.length===1?' was':'s were'} reported${showPairMultiplicity ? ` with ${pLabel}` : ''}.${trendTest?.available ? ` Linear trend p = ${formatP(trendTest.p)}.` : ''}`,
+        analysisSpec:buildStatsAnalysisSpec({ overallMethod: overall ? overall.method : null, pairCount:pairs.length, postHoc:postHocMode, trendP:trendTest?.available ? trendTest.p : null })
       },{
         familyDescription:showPairMultiplicity ? 'All pairwise contrasts displayed in this table were treated as one multiplicity family.' : ''
       });
@@ -20370,7 +21666,7 @@ Technical analysis record (advanced)
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'difference',label:'Difference',align:'right',index:3},
+          {key:'difference',label:estimateLabel,align:'right',index:3},
           {key:'ci',label:`${formatPercentLabel(state.statsCiLevel)} CI`,align:'right',index:4},
           {key:'pValue',label:pLabel,align:'right',index:5},
           {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:6,tooltip:paramEffectMeta.tooltip},
@@ -25783,6 +27079,9 @@ Technical analysis record (advanced)
           ciLevel: state.statsCiLevel,
           alternative: state.statsAlternative,
           normalityMethod: state.statsNormalityMethod,
+          varianceMethod: sanitizeVarianceMethod(state.statsVarianceMethod),
+          distributionDiagnostic: sanitizeDistributionDiagnostic(state.statsDistributionDiagnostic),
+          trendTest: resolveTrendTestEnabled(),
           seed: state.statsSeed,
           resamplingMode: state.statsResamplingMode,
           monteCarloIterations: state.statsMonteCarloIterations,
@@ -25796,6 +27095,8 @@ Technical analysis record (advanced)
           reportPScientific: getStatsPValueScientificPreference(),
           resultsTab: state.statsResultsTab==='comparisons' ? 'comparisons' : 'overall',
           groupedAnalysis: state.groupedStats?.analysis,
+          groupedComparisonScope: sanitizeGroupedComparisonScope(state.groupedStats?.comparisonScope),
+          groupedMultiplicityFamily: sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily),
           selectedColumns,
           assumptions: serializeAssumptions(state.assumptionDiagnostics),
           // Persist last computed statistics output so each tab can restore its results
@@ -25880,6 +27181,9 @@ Technical analysis record (advanced)
     payload.config.stats.ciLevel = 0.95;
     payload.config.stats.alternative = 'two-sided';
     payload.config.stats.normalityMethod = 'shapiro-wilk';
+    payload.config.stats.varianceMethod = 'brown-forsythe';
+    payload.config.stats.distributionDiagnostic = 'normality-only';
+    payload.config.stats.trendTest = false;
     payload.config.stats.seed = 1337;
     payload.config.stats.resamplingMode = 'auto';
     payload.config.stats.monteCarloIterations = 10000;
@@ -25892,6 +27196,8 @@ Technical analysis record (advanced)
     payload.config.stats.nonParametricVariant = 'mannWhitney';
     payload.config.stats.reportPScientific = false;
     payload.config.stats.groupedAnalysis = 'twoWayAnova';
+    payload.config.stats.groupedComparisonScope = 'groupsWithinCondition';
+    payload.config.stats.groupedMultiplicityFamily = 'within-scope';
     payload.config.stats.selectedColumns = [];
     payload.config.stats.assumptions = null;
     payload.config.stats.resultsHtml = null;
@@ -26371,6 +27677,9 @@ Technical analysis record (advanced)
     state.statsCiLevel=sanitizeStatsCiLevel(statsConfig.ciLevel ?? state.statsCiLevel, 0.95);
     state.statsAlternative=sanitizeStatsAlternative(statsConfig.alternative ?? state.statsAlternative);
     state.statsNormalityMethod=sanitizeNormalityMethod(statsConfig.normalityMethod ?? state.statsNormalityMethod);
+    state.statsVarianceMethod=sanitizeVarianceMethod(statsConfig.varianceMethod ?? state.statsVarianceMethod);
+    state.statsDistributionDiagnostic=sanitizeDistributionDiagnostic(statsConfig.distributionDiagnostic ?? state.statsDistributionDiagnostic);
+    state.statsTrendTest=sanitizeTrendTestEnabled(statsConfig.trendTest ?? state.statsTrendTest);
     state.statsSeed=sanitizeStatsSeed(statsConfig.seed ?? state.statsSeed, 1337);
     state.statsResamplingMode=sanitizeResamplingMode(statsConfig.resamplingMode ?? state.statsResamplingMode);
     state.statsMonteCarloIterations=sanitizeMonteCarloIterations(statsConfig.monteCarloIterations ?? state.statsMonteCarloIterations, 10000);
@@ -26406,12 +27715,14 @@ Technical analysis record (advanced)
       state.statsPairsText='';
     }
     ensureGroupedStatsDefaults();
-    const allowedGroupedAnalyses=new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests']);
+    const allowedGroupedAnalyses=new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests','multipleComparisons']);
     if(typeof statsConfig.groupedAnalysis==='string' && allowedGroupedAnalyses.has(statsConfig.groupedAnalysis)){
       state.groupedStats.analysis=statsConfig.groupedAnalysis;
     }else if(!allowedGroupedAnalyses.has(state.groupedStats.analysis)){
       state.groupedStats.analysis='twoWayAnova';
     }
+    state.groupedStats.comparisonScope=sanitizeGroupedComparisonScope(statsConfig.groupedComparisonScope ?? state.groupedStats.comparisonScope);
+    state.groupedStats.multiplicityFamily=sanitizeGroupedMultiplicityFamily(statsConfig.groupedMultiplicityFamily ?? state.groupedStats.multiplicityFamily);
     const selectedFromFile=Array.isArray(statsConfig.selectedColumns)
       ? statsConfig.selectedColumns
           .map(idx=>Number(idx))
@@ -26444,6 +27755,9 @@ Technical analysis record (advanced)
         variance:statsConfig.assumptions.variance
           ? { ...statsConfig.assumptions.variance }
           : null,
+        distributionComparisons:Array.isArray(statsConfig.assumptions.distributionComparisons)
+          ? statsConfig.assumptions.distributionComparisons.map(entry=>({ ...entry }))
+          : [],
         warnings:Array.isArray(statsConfig.assumptions.warnings)
           ? statsConfig.assumptions.warnings.slice()
           : []
@@ -26461,10 +27775,15 @@ Technical analysis record (advanced)
       statsRef: state.statsRef,
       statsPostHoc: state.statsPostHoc,
       statsCorrection: state.statsCorrection,
+      statsVarianceMethod: state.statsVarianceMethod,
+      statsDistributionDiagnostic: state.statsDistributionDiagnostic,
+      statsTrendTest: state.statsTrendTest,
       statsEffectParametric: state.statsEffectParametric,
       statsEffectNonParametric: state.statsEffectNonParametric,
       statsNonParametricVariant: state.statsNonParametricVariant,
       statsReportPScientific: getStatsPValueScientificPreference(),
+      groupedComparisonScope: state.groupedStats?.comparisonScope,
+      groupedMultiplicityFamily: state.groupedStats?.multiplicityFamily,
       selectedCount: state.selectedCols.size,
       hasPairsText: !!state.statsPairsText
     });
@@ -26860,6 +28179,8 @@ Technical analysis record (advanced)
 	    tTest:(a,b,options={})=>tTest(a,b,options || {}),
       tTestEqualVariance:(a,b,options={})=>tTestEqualVariance(a,b,options || {}),
 	    tTestPaired:(a,b,options={})=>tTestPaired(a,b,options || {}),
+      lognormalTTestEqualVariance:(a,b,options={})=>lognormalTTestEqualVariance(a,b,options || {}),
+      lognormalWelchTTest:(a,b,options={})=>lognormalWelchTTest(a,b,options || {}),
 	    tTestOneSample:(values,nullValue,options={})=>tTestOneSample(values,nullValue,options || {}),
 	    mannWhitney:(a,b,options={})=>mannWhitney(a,b,options || {}),
 	    wilcoxonSignedRank:(a,b,options={})=>wilcoxonSignedRank(a,b,options || {}),
