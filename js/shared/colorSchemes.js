@@ -5,6 +5,7 @@
   const namespace = Shared.colorSchemes = Shared.colorSchemes || {};
 
   const DEFAULT_SCHEME_ID = 'scientific';
+  const CUSTOM_SCHEME_ID = 'custom';
   const TYPE_DEFAULT_SCHEME_IDS = Object.freeze({
     box: 'grayscale'
   });
@@ -193,7 +194,8 @@
     controlsByType: {},
     preferredByType: {},
     monitorTimer: null,
-    lastActiveSignature: null
+    lastActiveSignature: null,
+    pendingSyncTimer: null
   };
 
   function getDefaultSchemeIdForType(type){
@@ -298,6 +300,18 @@
     return darken(source, 0.34);
   }
 
+  function deriveDarkerBorderColor(fill, fallback){
+    const source = typeof fill === 'string' ? fill : null;
+    const luminance = relativeLuminance(source);
+    if(luminance === null){
+      return typeof fallback === 'string' && fallback ? fallback : '#111111';
+    }
+    if(luminance > 0.78){
+      return darken(source, 0.46);
+    }
+    return darken(source, 0.34);
+  }
+
   function buildBoxPalette(scheme, categorical, fallback){
     const palette = ensureArray(categorical).slice();
     if(!palette.length){
@@ -312,6 +326,18 @@
   function getScheme(id){
     const key = typeof id === 'string' ? id.toLowerCase() : '';
     return SCHEMES[key] || SCHEMES[DEFAULT_SCHEME_ID];
+  }
+
+  function isKnownSchemeId(id){
+    const key = typeof id === 'string' ? id.trim().toLowerCase() : '';
+    return !!(key && Object.prototype.hasOwnProperty.call(SCHEMES, key));
+  }
+
+  function normalizePresetSchemeId(id, type){
+    if(isKnownSchemeId(id)){
+      return String(id).trim().toLowerCase();
+    }
+    return state.preferredByType[type] || getDefaultSchemeIdForType(type);
   }
 
   function isScientificScheme(scheme){
@@ -792,9 +818,11 @@
     global.DEFAULT_SCATTER_COLORS = target;
   }
 
-  function applySchemeToPayload(type, payload, scheme){
+  function applySchemeToPayload(type, payload, scheme, options){
     const next = cloneValue(payload) || { type, config: {} };
     const cfg = next.config = next.config && typeof next.config === 'object' ? next.config : {};
+    const opts = ensureObject(options);
+    const forceColors = opts.forceColors === true;
     const categorical = resolveCategoricalPalette(type, scheme);
     const tokens = scheme.tokens || {};
     const scientificDefaults = isScientificScheme(scheme) ? getScientificDefaults(type) : null;
@@ -946,8 +974,7 @@
         : (categorical.length ? categorical : [primaryFill || '#666666']);
       const unifiedBorder = grayscaleMode
         ? '#000000'
-        : ((scientificDefaults && scientificDefaults.border)
-          || deriveBorderColor(primaryFill, tokens.borderColor || cfg.border));
+        : deriveDarkerBorderColor(primaryFill, tokens.borderColor || cfg.border);
       cfg.fill = primaryFill || cfg.fill;
       cfg.border = unifiedBorder || cfg.border;
       const currentLen = Math.max(
@@ -960,12 +987,12 @@
       cfg.borderColors = cfg.colors.map(color => (
         grayscaleMode
           ? '#000000'
-          : deriveBorderColor(color, tokens.borderColor || darken(color, 0.22))
+          : deriveDarkerBorderColor(color, tokens.borderColor || darken(color, 0.22))
       ));
       cfg.shapeGlobalStyle = patchStyleColorFields(cfg.shapeGlobalStyle, {
         fill: primaryFill || null,
         stroke: unifiedBorder || tokens.borderColor || null,
-        force: false,
+        force: forceColors,
         fillFields: ['fill', 'color'],
         strokeFields: ['stroke', 'borderColor', 'border']
       });
@@ -977,7 +1004,7 @@
       cfg.pointGlobalStyle = patchStyleColorFields(cfg.pointGlobalStyle, {
         fill: primaryFill || null,
         stroke: unifiedBorder || tokens.borderColor || null,
-        force: false,
+        force: forceColors,
         fillFields: ['fill', 'color', 'markerFill'],
         strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
       });
@@ -993,7 +1020,7 @@
             || resolvedBoxPalette[1]
             || resolvedBoxPalette[0]
             || null),
-        force: true,
+        force: forceColors,
         fillFields: ['color']
       });
       cfg.summaryStyles = recolorIndexedStyleMap(cfg.summaryStyles, grayscaleMode ? ['#000000'] : resolvedBoxPalette, {
@@ -1097,6 +1124,281 @@
     return session.getActiveTab();
   }
 
+  function getWorkspace(type){
+    const components = global.Main?.components;
+    if(components && typeof components.get === 'function'){
+      return components.get(type) || null;
+    }
+    return global.Components?.[type] || null;
+  }
+
+  function normalizeColorSignatureLeaf(value){
+    if(value === null || value === undefined) return null;
+    if(typeof value === 'string'){
+      return value.trim().toLowerCase();
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value) ? value : null;
+    }
+    if(typeof value === 'boolean'){
+      return value;
+    }
+    return String(value).trim().toLowerCase();
+  }
+
+  function readProjectedMapKeys(value, reference){
+    const source = ensureObject(value);
+    const template = ensureObject(reference);
+    const keys = Object.keys(template).length ? Object.keys(template) : Object.keys(source);
+    return uniqueStrings(keys).sort();
+  }
+
+  function extractColorArray(values, referenceValues){
+    const source = ensureArray(values);
+    const ref = Array.isArray(referenceValues) ? referenceValues : source;
+    if(!ref.length && !source.length){
+      return null;
+    }
+    return ref.map((_, index) => normalizeColorSignatureLeaf(source[index]));
+  }
+
+  function extractColorMap(values, referenceValues){
+    const source = ensureObject(values);
+    const keys = readProjectedMapKeys(source, referenceValues);
+    if(!keys.length){
+      return null;
+    }
+    const out = {};
+    keys.forEach(key => {
+      out[key] = normalizeColorSignatureLeaf(source[key]);
+    });
+    return out;
+  }
+
+  function extractStyleColorFields(style){
+    const source = ensureObject(style);
+    const out = {};
+    ['fill', 'color', 'markerFill', 'lineColor', 'stroke', 'borderColor', 'markerStroke', 'lineStroke', 'textColor', 'labelColor', 'backgroundColor']
+      .forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(source, key)){
+          out[key] = normalizeColorSignatureLeaf(source[key]);
+        }
+      });
+    return Object.keys(out).length ? out : null;
+  }
+
+  function extractStyleMapColorFields(styleMap, referenceMap){
+    const source = ensureObject(styleMap);
+    const keys = readProjectedMapKeys(source, referenceMap);
+    if(!keys.length){
+      return null;
+    }
+    const out = {};
+    keys.forEach(key => {
+      const extracted = extractStyleColorFields(source[key]);
+      if(extracted){
+        out[key] = extracted;
+      }
+    });
+    return Object.keys(out).length ? out : null;
+  }
+
+  function hasOwnPropertyValue(source, key){
+    return !!(source && typeof source === 'object' && Object.prototype.hasOwnProperty.call(source, key));
+  }
+
+  function projectColorScalar(source, key, reference){
+    const sourceObj = ensureObject(source);
+    const referenceObj = reference && typeof reference === 'object' ? reference : null;
+    const shouldInclude = referenceObj ? hasOwnPropertyValue(referenceObj, key) : hasOwnPropertyValue(sourceObj, key);
+    if(!shouldInclude){
+      return null;
+    }
+    return normalizeColorSignatureLeaf(sourceObj[key]);
+  }
+
+  function extractAxisTokenState(config, referenceConfig){
+    const cfg = ensureObject(config);
+    const refCfg = referenceConfig && typeof referenceConfig === 'object' ? referenceConfig : null;
+    const out = {};
+    const axisColor = projectColorScalar(cfg.axis, 'color', refCfg?.axis);
+    if(axisColor !== null){
+      out.axis = { color: axisColor };
+    }
+    const gridColor = projectColorScalar(cfg.gridStyle, 'color', refCfg?.gridStyle);
+    if(gridColor !== null){
+      out.gridStyle = { color: gridColor };
+    }
+    const backgroundColor = projectColorScalar(cfg, 'backgroundColor', refCfg);
+    if(backgroundColor !== null){
+      out.backgroundColor = backgroundColor;
+    }
+    const textColor = projectColorScalar(cfg, 'textColor', refCfg);
+    if(textColor !== null){
+      out.textColor = textColor;
+    }
+    return out;
+  }
+
+  function assignIfPresent(target, key, value){
+    if(value === null || value === undefined){
+      return;
+    }
+    if(typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length){
+      return;
+    }
+    target[key] = value;
+  }
+
+  function buildPayloadColorState(type, payload, referencePayload){
+    if(type === 'venn'){
+      const style = ensureObject(payload?.style);
+      const referenceStyle = ensureObject(referencePayload?.style);
+      const vennState = {
+        colorA: normalizeColorSignatureLeaf(style.colorA),
+        colorB: normalizeColorSignatureLeaf(style.colorB),
+        colorC: normalizeColorSignatureLeaf(style.colorC),
+        borderColor: normalizeColorSignatureLeaf(style.borderColor)
+      };
+      const upset = {};
+      ['barColor', 'setBarColor', 'dotColor', 'inactiveDotColor', 'gridColor', 'axisColor'].forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(style.upset || {}, key) || Object.prototype.hasOwnProperty.call(referenceStyle.upset || {}, key)){
+          upset[key] = normalizeColorSignatureLeaf(style.upset?.[key]);
+        }
+      });
+      assignIfPresent(vennState, 'upset', Object.keys(upset).length ? upset : null);
+      return vennState;
+    }
+
+    const cfg = ensureObject(payload?.config);
+    const refCfg = ensureObject(referencePayload?.config);
+    const out = extractAxisTokenState(cfg, refCfg);
+
+    switch(type){
+      case 'scatter':
+        assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
+        assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
+        assignIfPresent(out, 'densityPalette', projectColorScalar(cfg, 'densityPalette', refCfg));
+        assignIfPresent(out, 'labelColors', extractColorMap(cfg.labelColors, refCfg.labelColors));
+        assignIfPresent(out, 'labelStyles', extractStyleMapColorFields(cfg.labelStyles, refCfg.labelStyles));
+        assignIfPresent(out, 'overlayStyles', extractStyleMapColorFields(cfg.overlayStyles, refCfg.overlayStyles));
+        break;
+      case 'pca':
+        assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
+        assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
+        assignIfPresent(out, 'labelColors', extractColorMap(cfg.labelColors, refCfg.labelColors));
+        assignIfPresent(out, 'labelPointStyles', extractStyleMapColorFields(cfg.labelPointStyles, refCfg.labelPointStyles));
+        if(cfg.grouped || refCfg.grouped){
+          assignIfPresent(out, 'groupedColors', extractColorArray(cfg.grouped?.colors, refCfg.grouped?.colors));
+        }
+        break;
+      case 'line':
+        assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
+        assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
+        assignIfPresent(out, 'labelColors', extractColorMap(cfg.labelColors, refCfg.labelColors));
+        assignIfPresent(out, 'seriesStyles', extractStyleMapColorFields(cfg.seriesStyles, refCfg.seriesStyles));
+        assignIfPresent(out, 'overlayStyles', extractStyleMapColorFields(cfg.overlayStyles, refCfg.overlayStyles));
+        break;
+      case 'box':
+        assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
+        assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
+        assignIfPresent(out, 'colors', extractColorArray(cfg.colors, refCfg.colors));
+        assignIfPresent(out, 'borderColors', extractColorArray(cfg.borderColors, refCfg.borderColors));
+        assignIfPresent(out, 'shapeGlobalStyle', extractStyleColorFields(cfg.shapeGlobalStyle));
+        assignIfPresent(out, 'shapeStyles', extractStyleMapColorFields(cfg.shapeStyles, refCfg.shapeStyles));
+        assignIfPresent(out, 'pointGlobalStyle', extractStyleColorFields(cfg.pointGlobalStyle));
+        assignIfPresent(out, 'pointStyles', extractStyleMapColorFields(cfg.pointStyles, refCfg.pointStyles));
+        assignIfPresent(out, 'summaryGlobalStyle', extractStyleColorFields(cfg.summaryGlobalStyle));
+        assignIfPresent(out, 'summaryStyles', extractStyleMapColorFields(cfg.summaryStyles, refCfg.summaryStyles));
+        if(cfg.significance || refCfg.significance){
+          assignIfPresent(out, 'significance', { color: normalizeColorSignatureLeaf(cfg.significance?.color) });
+        }
+        break;
+      case 'hist': {
+        assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
+        assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
+        const sourceOptions = ensureArray(cfg.distributions?.options);
+        const referenceOptions = ensureArray(refCfg.distributions?.options);
+        const templateOptions = referenceOptions.length ? referenceOptions : sourceOptions;
+        const distributionColors = {};
+        templateOptions.forEach(entry => {
+          const key = String(entry?.key || '').trim();
+          if(!key) return;
+          const match = sourceOptions.find(option => String(option?.key || '').trim() === key) || {};
+          distributionColors[key] = normalizeColorSignatureLeaf(match.color);
+        });
+        assignIfPresent(out, 'distributions', Object.keys(distributionColors).length ? distributionColors : null);
+        break;
+      }
+      case 'pie':
+        assignIfPresent(out, 'borderColor', projectColorScalar(cfg, 'borderColor', refCfg));
+        assignIfPresent(out, 'colors', extractColorMap(cfg.colors, refCfg.colors));
+        break;
+      case 'roc':
+      case 'survival':
+        assignIfPresent(out, 'labelColors', extractColorMap(cfg.labelColors, refCfg.labelColors));
+        break;
+      case 'heatmap':
+        assignIfPresent(out, 'colors', {
+          negative: normalizeColorSignatureLeaf(cfg.colors?.negative),
+          zero: normalizeColorSignatureLeaf(cfg.colors?.zero),
+          positive: normalizeColorSignatureLeaf(cfg.colors?.positive)
+        });
+        if(cfg.dendrogram || refCfg.dendrogram){
+          assignIfPresent(out, 'dendrogram', { color: normalizeColorSignatureLeaf(cfg.dendrogram?.color) });
+        }
+        break;
+      case 'surface':
+        assignIfPresent(out, 'settings', {
+          colorRamp: projectColorScalar(cfg.settings, 'colorRamp', refCfg.settings),
+          axisColor: projectColorScalar(cfg.settings, 'axisColor', refCfg.settings),
+          textColor: projectColorScalar(cfg.settings, 'textColor', refCfg.settings),
+          backgroundColor: projectColorScalar(cfg.settings, 'backgroundColor', refCfg.settings)
+        });
+        assignIfPresent(out, 'textColor', projectColorScalar(cfg, 'textColor', refCfg));
+        assignIfPresent(out, 'backgroundColor', projectColorScalar(cfg, 'backgroundColor', refCfg));
+        break;
+      default:
+        break;
+    }
+
+    return out;
+  }
+
+  function buildPayloadColorSignature(type, payload, referencePayload){
+    return JSON.stringify(buildPayloadColorState(type, payload, referencePayload) || {});
+  }
+
+  function getComparisonPayload(type, options){
+    const opts = ensureObject(options);
+    const active = getActiveTab();
+    if(!active || active.type !== type){
+      return null;
+    }
+    if(opts.preferWorkspace === true){
+      const workspace = getWorkspace(type);
+      if(workspace && typeof workspace.getPayload === 'function'){
+        try{
+          const livePayload = workspace.getPayload();
+          if(livePayload){
+            return cloneValue(livePayload);
+          }
+        }catch(err){
+          debugLog('Debug: colorSchemes live payload read failed', { type, err: err?.message || String(err) });
+        }
+      }
+    }
+    return cloneValue(active.payload);
+  }
+
+  function payloadMatchesPreset(type, payload, schemeId){
+    if(!payload) return true;
+    const actualSchemeId = normalizePresetSchemeId(schemeId, type);
+    const scheme = getScheme(actualSchemeId);
+    const expected = applySchemeToPayload(type, payload, scheme, { forceColors: true });
+    return buildPayloadColorSignature(type, payload, payload) === buildPayloadColorSignature(type, expected, payload);
+  }
+
   function setDefaultForNewTabs(type, scheme){
     const main = global.Main || {};
     const session = main.session;
@@ -1118,7 +1420,7 @@
       console.error('colorSchemes createEmptyPayload error', { type, err });
       return;
     }
-    const patched = applySchemeToPayload(type, emptyPayload, scheme);
+    const patched = applySchemeToPayload(type, emptyPayload, scheme, { forceColors: true });
     domControls.setWorkspaceDefaultPayload(session, type, patched);
   }
 
@@ -1156,7 +1458,7 @@
       || (typeof workspace.getPayload === 'function' ? workspace.getPayload() : null)
       || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
 
-    const nextPayload = applySchemeToPayload(type, sourcePayload, scheme);
+    const nextPayload = applySchemeToPayload(type, sourcePayload, scheme, { forceColors: true });
     syncSharedScatterPalette(type, scheme);
 
     if(typeof session.assignTabPayload === 'function'){
@@ -1235,29 +1537,85 @@
     const active = getActiveTab();
     if(!active || active.type !== type || !active.payload) return state.preferredByType[type] || getDefaultSchemeIdForType(type);
     if(type === 'venn'){
-      return active.payload.style?.colorScheme || state.preferredByType[type] || getDefaultSchemeIdForType(type);
+      return normalizePresetSchemeId(active.payload.style?.colorScheme, type);
     }
-    return active.payload.config?.colorScheme || state.preferredByType[type] || getDefaultSchemeIdForType(type);
+    return normalizePresetSchemeId(active.payload.config?.colorScheme, type);
+  }
+
+  function resolveDisplayedSchemeIdForType(type, options){
+    const actualSchemeId = readActiveSchemeForType(type);
+    const payload = getComparisonPayload(type, options);
+    if(!payload){
+      return actualSchemeId;
+    }
+    return payloadMatchesPreset(type, payload, actualSchemeId) ? actualSchemeId : CUSTOM_SCHEME_ID;
   }
 
   function getActiveSignature(){
     const tab = getActiveTab();
     if(!tab || !tab.type || tab.isWelcome) return null;
     const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
-    return `${tab.id}::${tab.type}::${schemeId}`;
+    const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type) || schemeId;
+    return `${tab.id}::${tab.type}::${schemeId}::${displayedSchemeId}`;
   }
 
-  function syncActiveTabVisuals(reason){
+  function scheduleActiveVisualSync(reason, options){
+    if(state.pendingSyncTimer){
+      global.clearTimeout(state.pendingSyncTimer);
+    }
+    state.pendingSyncTimer = global.setTimeout(() => {
+      state.pendingSyncTimer = null;
+      syncActiveTabVisuals(reason, options);
+    }, 60);
+  }
+
+  function isManualColorEditTarget(target){
+    if(!(target instanceof global.Element)){
+      return false;
+    }
+    if(target.closest('[data-color-scheme-fieldset="1"]')){
+      return false;
+    }
+    if(String(target.getAttribute?.('type') || '').toLowerCase() === 'color'){
+      return true;
+    }
+    const fragments = [
+      target.id || '',
+      target.getAttribute?.('name') || '',
+      typeof target.className === 'string' ? target.className : '',
+      target.getAttribute?.('aria-label') || '',
+      target.getAttribute?.('data-field') || '',
+      target.getAttribute?.('data-style-field') || '',
+      target.getAttribute?.('data-color-target') || ''
+    ];
+    return /color|fill|stroke|border|palette|ramp|background|negative|positive|zero/i.test(fragments.join(' '));
+  }
+
+  function attachManualColorListeners(){
+    const doc = global.document;
+    if(!doc) return;
+    const handlePotentialColorEdit = evt => {
+      if(!isManualColorEditTarget(evt?.target)){
+        return;
+      }
+      scheduleActiveVisualSync('manual-color-edit', { preferWorkspace: true });
+    };
+    doc.addEventListener('input', handlePotentialColorEdit, true);
+    doc.addEventListener('change', handlePotentialColorEdit, true);
+  }
+
+  function syncActiveTabVisuals(reason, options){
     const tab = getActiveTab();
     if(!tab || !tab.type || tab.isWelcome) return;
     const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
+    const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type, options) || schemeId;
     const control = state.controlsByType[tab.type]?.select || null;
-    if(control && control.value !== schemeId){
-      control.value = schemeId;
+    if(control && control.value !== displayedSchemeId){
+      control.value = displayedSchemeId;
     }
     syncSharedScatterPalette(tab.type, getScheme(schemeId));
     applyRenderedTheme(tab.type, schemeId);
-    debugLog('Debug: colorSchemes visuals synced', { reason, tabId: tab.id, type: tab.type, scheme: schemeId });
+    debugLog('Debug: colorSchemes visuals synced', { reason, tabId: tab.id, type: tab.type, scheme: schemeId, displayedScheme: displayedSchemeId });
   }
 
   function startActiveMonitor(){
@@ -1326,8 +1684,13 @@
       option.textContent = SCHEMES[id].label;
       select.appendChild(option);
     });
+    const customOption = doc.createElement('option');
+    customOption.value = CUSTOM_SCHEME_ID;
+    customOption.textContent = 'Custom';
+    customOption.disabled = true;
+    select.appendChild(customOption);
 
-    select.value = readActiveSchemeForType(type);
+    select.value = resolveDisplayedSchemeIdForType(type);
     label.appendChild(select);
     row.appendChild(label);
 
@@ -1400,10 +1763,14 @@
     }
 
     select.addEventListener('focus', () => {
-      select.value = readActiveSchemeForType(type);
+      select.value = resolveDisplayedSchemeIdForType(type);
     });
 
     select.addEventListener('change', () => {
+      if(select.value === CUSTOM_SCHEME_ID){
+        select.value = resolveDisplayedSchemeIdForType(type);
+        return;
+      }
       const selected = getScheme(select.value).id;
       select.value = selected;
       applySchemeToActiveTab(type, selected);
@@ -1460,6 +1827,7 @@
       state.preferredByType[type] = initialScheme.id;
       setDefaultForNewTabs(type, initialScheme);
     });
+    attachManualColorListeners();
     startActiveMonitor();
     syncActiveTabVisuals('init');
     state.initialized = true;
