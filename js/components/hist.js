@@ -2114,6 +2114,7 @@
         title:state.titleText,
         xLabel:state.xLabelText,
         yLabel:state.yLabelText,
+        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('hist') || 'scientific',
         fill:state.barFill,
         border:state.barBorder,
         borderWidth:state.barBorderWidth,
@@ -2375,6 +2376,10 @@
         : Array.from({ length: HIST_DEFAULT_ROWS }, () => Array(HIST_DEFAULT_COLS).fill(''));
       payload.data = emptyData;
       payload.exclusions = [];
+      payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+      if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific';
+      }
       return payload;
     };
     hist.save = async function(){

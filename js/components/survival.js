@@ -4491,6 +4491,7 @@
       data: state.hot.getData(),
       exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
+        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('survival') || 'scientific',
         labelColors: state.labelColors,
         labelStrokeWidth: state.labelStrokeWidth,
         labelOpacity: state.labelOpacity,
@@ -4568,6 +4569,10 @@
     payload.data = emptyData;
     payload.exclusions = [];
     payload.stats = null;
+    payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+    if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('survival') || 'scientific';
+    }
     return payload;
   };
 

@@ -3076,6 +3076,7 @@
       data: state.hot?.getData() || [],
       exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
+        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('roc') || 'scientific',
         borderWidth: state.borderWidth,
         showGrid: !!refs.showGrid?.checked,
         gridStyle: getGridStyle(getAxisStrokeWidthBase()),
@@ -3146,6 +3147,10 @@
     payload.data = emptyData;
     payload.exclusions = [];
     payload.stats = null;
+    payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+    if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('roc') || 'scientific';
+    }
     return payload;
   };
 

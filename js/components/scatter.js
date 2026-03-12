@@ -20872,6 +20872,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const defaultFitMethod = normalizeScatterFitMethod(resolveScatterSelectDefaultValue(scatterFitMethod, 'ols'));
       const defaultStatType = normalizeScatterAssociationSelection(resolveScatterSelectDefaultValue(scatterStatType, 'auto'));
       payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+      if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('scatter') || 'scientific';
+      }
       payload.config.regression = payload.config.regression && typeof payload.config.regression === 'object'
         ? payload.config.regression
         : {};

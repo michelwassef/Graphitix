@@ -12402,6 +12402,10 @@
     payload.data = emptyData;
     payload.exclusions = [];
     payload.series = Array.isArray(payload.series) ? [] : [];
+    payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+    if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('line') || 'scientific';
+    }
     if(payload.config){
       payload.config.series = Array.isArray(payload.config.series) ? [] : [];
     }

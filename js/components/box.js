@@ -70,6 +70,7 @@
   // PART: UTILS
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_BOX_COLORS=['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493'];
+  const DEFAULT_BOX_GRAYSCALE_COLORS=['#000000','#4d4d4d','#7a7a7a','#a6a6a6','#c9c9c9','#e0e0e0'];
   const DEFAULT_UNIFIED_SYMBOL_FILL = '#000000';
   const DEFAULT_UNIFIED_SYMBOL_BORDER = 'none';
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
@@ -108,6 +109,64 @@
   }
   const DEFAULT_VIOLIN_BANDWIDTH=1;
   const DEFAULT_VIOLIN_SAMPLE_COUNT=80;
+
+  function normalizeBoxTableFormat(value){
+    return value === 'grouped' ? 'grouped' : 'single';
+  }
+
+  function getBoxDefaultColorSchemeId(tableFormat){
+    return normalizeBoxTableFormat(tableFormat) === 'grouped' ? 'scientific' : 'grayscale';
+  }
+
+  function getBoxDefaultPalette(tableFormat){
+    return normalizeBoxTableFormat(tableFormat) === 'grouped'
+      ? DEFAULT_BOX_COLORS
+      : DEFAULT_BOX_GRAYSCALE_COLORS;
+  }
+
+  function getBoxDefaultFillColor(tableFormat){
+    const palette = getBoxDefaultPalette(tableFormat);
+    return palette[0] || '#000000';
+  }
+
+  function getBoxSelectedColorSchemeId(){
+    const colorSchemes = Shared.colorSchemes;
+    if(colorSchemes && typeof colorSchemes.getSelectedSchemeId === 'function'){
+      const selected = colorSchemes.getSelectedSchemeId('box');
+      if(typeof selected === 'string' && selected.trim()){
+        return selected.trim().toLowerCase();
+      }
+    }
+    return getBoxDefaultColorSchemeId(state.tableFormat);
+  }
+
+  function syncBoxDefaultColorSchemeForFormat(tableFormat, options = {}){
+    const nextFormat = normalizeBoxTableFormat(tableFormat);
+    const desiredScheme = getBoxDefaultColorSchemeId(nextFormat);
+    const previousFormat = normalizeBoxTableFormat(options.previousFormat || nextFormat);
+    const previousDefaultScheme = getBoxDefaultColorSchemeId(previousFormat);
+    const currentScheme = getBoxSelectedColorSchemeId();
+    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    const explicitScheme = activeTab?.type === 'box' && typeof activeTab?.payload?.config?.colorScheme === 'string'
+      ? activeTab.payload.config.colorScheme.trim().toLowerCase()
+      : '';
+    if(explicitScheme){
+      if(explicitScheme !== previousDefaultScheme){
+        return false;
+      }
+      if(explicitScheme === desiredScheme){
+        return false;
+      }
+    }
+    const colorSchemes = Shared.colorSchemes;
+    if(!colorSchemes || typeof colorSchemes.applyToActiveTab !== 'function'){
+      return false;
+    }
+    if(explicitScheme === desiredScheme || currentScheme === desiredScheme){
+      return false;
+    }
+    return colorSchemes.applyToActiveTab('box', desiredScheme);
+  }
   const VIOLIN_SAMPLE_MIN=8;
   const VIOLIN_SAMPLE_MAX=2048;
   const SEPARATED_GROUP_GAP_MULTIPLIER = 1.5;
@@ -2086,7 +2145,7 @@
           persistTraceShapeStyle(selectedTraceIndex, patch);
         }
       };
-      const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || '#0000ff';
+      const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
       const fallbackBorderColor = target.getAttribute('stroke') || state.borderColors?.[selectedColorIndex] || shadeColor(fallbackFillColor, -30);
       Shared.symbolToolbar.show({
         document: doc,
@@ -2377,7 +2436,7 @@
     wrap.appendChild(scopeField);
 
     const currentStyle = getTraceShapeStyle(traceIndex);
-    const fallbackFill = target.getAttribute('fill') || state.fillColors?.[colorIndex] || state.lastDefaultFill || '#0000ff';
+    const fallbackFill = target.getAttribute('fill') || state.fillColors?.[colorIndex] || state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
     const fallbackBorder = target.getAttribute('stroke') || state.borderColors?.[colorIndex] || shadeColor(fallbackFill, -30);
 
     const openColorPicker = (inputEl, opts = {}) => {
@@ -7118,7 +7177,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0000ff', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#000000', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: { color: DEFAULT_SUMMARY_OVERLAY_COLOR }, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -8857,7 +8916,7 @@
     if(typeof candidate === 'string' && candidate.trim()){
       return candidate;
     }
-    return state.lastDefaultFill || '#0000ff';
+    return state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
   }
 
   function getBoxBorderColorValue(){
@@ -10273,7 +10332,8 @@
 
   function setTableFormat(mode, options){
     const opts = options || {};
-    const normalized = mode === 'grouped' ? 'grouped' : 'single';
+    const normalized = normalizeBoxTableFormat(mode);
+    const previousFormat = state.tableFormat;
     if(state.tableFormat === normalized){
       console.debug('Debug: setTableFormat no change',{ mode: normalized });
       if(!opts.skipUI){
@@ -10298,6 +10358,7 @@
       updateTableFormatUI();
     }
     applyTableFormatToHot();
+    syncBoxDefaultColorSchemeForFormat(normalized, { previousFormat });
     if(!opts.skipDraw){
       state.scheduleDraw();
     }
@@ -10873,7 +10934,10 @@
     els.boxColorPerBox.innerHTML='';
     labels.forEach((lab,i)=>{
       const colorIndex=i;
-      if(!state.fillColors[colorIndex]) state.fillColors[colorIndex]=DEFAULT_BOX_COLORS[colorIndex%DEFAULT_BOX_COLORS.length];
+      if(!state.fillColors[colorIndex]){
+        const palette = getBoxDefaultPalette(state.tableFormat);
+        state.fillColors[colorIndex]=palette[colorIndex%palette.length];
+      }
       if(!state.borderColors[colorIndex]) state.borderColors[colorIndex]=shadeColor(state.fillColors[colorIndex],-30);
       const fillInput=document.createElement('input');
       fillInput.type='color';
@@ -21903,7 +21967,8 @@ Technical analysis record (advanced)
           if(isGroupedMode && trace?.groupName && groupColorAssignments.has(trace.groupName)){
             fillColor = groupColorAssignments.get(trace.groupName).fill;
           }else{
-            fillColor = DEFAULT_BOX_COLORS[colorIndex % DEFAULT_BOX_COLORS.length];
+            const palette = getBoxDefaultPalette(state.tableFormat);
+            fillColor = palette[colorIndex % palette.length];
           }
           state.fillColors[colorIndex] = fillColor;
         }
@@ -26976,6 +27041,7 @@ Technical analysis record (advanced)
       config: {
         title:state.titleText,
         yLabel:state.yLabelText,
+        colorScheme:getBoxSelectedColorSchemeId(),
         colorMode:getBoxColorMode(),
         fill:getBoxFillColorValue(),
         border:getBoxBorderColorValue(),
@@ -27165,6 +27231,18 @@ Technical analysis record (advanced)
     payload.data = emptyData;
     payload.exclusions = [];
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+    const tableFormat = normalizeBoxTableFormat(payload.config.tableFormat || state.tableFormat);
+    payload.config.tableFormat = tableFormat;
+    if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+      payload.config.colorScheme = getBoxDefaultColorSchemeId(tableFormat);
+      payload.config.fill = getBoxDefaultFillColor(tableFormat);
+      payload.config.border = shadeColor(payload.config.fill, -30);
+      payload.config.colors = [];
+      payload.config.borderColors = [];
+      if(typeof payload.config.colorMode !== 'string' || !payload.config.colorMode.trim()){
+        payload.config.colorMode = tableFormat === 'grouped' ? 'individual' : 'unified';
+      }
+    }
     payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
       ? payload.config.stats
       : {};
@@ -27337,6 +27415,10 @@ Technical analysis record (advanced)
       syncBoxActiveDataViewFromHot(state.hot, 'payload-load');
     }
     const c=obj.config||{};
+    const incomingTableFormat = normalizeBoxTableFormat(c.tableFormat || state.tableFormat);
+    if(typeof c.colorScheme !== 'string' || !c.colorScheme.trim()){
+      c.colorScheme = getBoxDefaultColorSchemeId(incomingTableFormat);
+    }
     if(c.notes && typeof c.notes === 'object'){
       notesState.text = c.notes.text == null ? '' : String(c.notes.text);
       notesState.open = !!c.notes.open;
@@ -27354,10 +27436,13 @@ Technical analysis record (advanced)
     importFontStyles('box', c.fontStyles || null);
     state.titleText=c.title||state.titleText;
     state.yLabelText=c.yLabel||state.yLabelText;
-    if(els.boxFill){
-      els.boxFill.value = c.fill || els.boxFill.value;
-    }else if(typeof c.fill === 'string' && c.fill.trim()){
+    if(typeof c.fill === 'string' && c.fill.trim()){
       state.lastDefaultFill = c.fill.trim();
+    }else{
+      state.lastDefaultFill = getBoxDefaultFillColor(incomingTableFormat);
+    }
+    if(els.boxFill){
+      els.boxFill.value = state.lastDefaultFill;
     }
     if(els.boxBorder){
       els.boxBorder.value = c.border || els.boxBorder.value;
@@ -27522,7 +27607,7 @@ Technical analysis record (advanced)
     }
     toggleColorMode();
     if(!styleOnly){
-      const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
+      const restoredFormat = normalizeBoxTableFormat(c.tableFormat);
       let restoredGroupedLabels = [];
       let restoredConditionLabels = [];
       if(c.grouped && typeof c.grouped === 'object'){
@@ -27542,6 +27627,9 @@ Technical analysis record (advanced)
         }
       }
       setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
+      if(typeof obj?.config?.colorScheme !== 'string' || !obj.config.colorScheme.trim()){
+        syncBoxDefaultColorSchemeForFormat(restoredFormat, { previousFormat: state.tableFormat });
+      }
       if(restoredFormat === 'grouped' && (restoredGroupedLabels.length || restoredConditionLabels.length)){
         const activeHot = state.ensureHotForActiveTab?.() || state.hot;
         if(activeHot){
@@ -28071,6 +28159,7 @@ Technical analysis record (advanced)
     state.scheduleDraw = scheduleDrawBoxRaw;
     console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: false }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
+    syncBoxDefaultColorSchemeForFormat(state.tableFormat);
     ensureEmptyPayloadTemplate();
     box.ready = true;
     try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }

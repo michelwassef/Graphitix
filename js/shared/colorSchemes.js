@@ -5,6 +5,9 @@
   const namespace = Shared.colorSchemes = Shared.colorSchemes || {};
 
   const DEFAULT_SCHEME_ID = 'scientific';
+  const TYPE_DEFAULT_SCHEME_IDS = Object.freeze({
+    box: 'grayscale'
+  });
   const DEFAULT_CLASSIC_CATEGORICAL = (() => {
     const fromShared = Array.isArray(Shared?.palette?.DEFAULT_SCATTER_COLORS) && Shared.palette.DEFAULT_SCATTER_COLORS.length
       ? Shared.palette.DEFAULT_SCATTER_COLORS
@@ -192,6 +195,10 @@
     monitorTimer: null,
     lastActiveSignature: null
   };
+
+  function getDefaultSchemeIdForType(type){
+    return TYPE_DEFAULT_SCHEME_IDS[type] || DEFAULT_SCHEME_ID;
+  }
 
   function isDebugEnabled(){
     try{
@@ -1226,11 +1233,11 @@
 
   function readActiveSchemeForType(type){
     const active = getActiveTab();
-    if(!active || active.type !== type || !active.payload) return state.preferredByType[type] || DEFAULT_SCHEME_ID;
+    if(!active || active.type !== type || !active.payload) return state.preferredByType[type] || getDefaultSchemeIdForType(type);
     if(type === 'venn'){
-      return active.payload.style?.colorScheme || state.preferredByType[type] || DEFAULT_SCHEME_ID;
+      return active.payload.style?.colorScheme || state.preferredByType[type] || getDefaultSchemeIdForType(type);
     }
-    return active.payload.config?.colorScheme || state.preferredByType[type] || DEFAULT_SCHEME_ID;
+    return active.payload.config?.colorScheme || state.preferredByType[type] || getDefaultSchemeIdForType(type);
   }
 
   function getActiveSignature(){
@@ -1410,6 +1417,14 @@
     return cloneValue(SCHEMES);
   };
 
+  namespace.getDefaultSchemeId = function getDefaultSchemeId(type){
+    return getDefaultSchemeIdForType(type);
+  };
+
+  namespace.getSelectedSchemeId = function getSelectedSchemeId(type){
+    return readActiveSchemeForType(type) || getDefaultSchemeIdForType(type);
+  };
+
   namespace.applyToActiveTab = function applyToActiveTab(type, schemeId){
     return applySchemeToActiveTab(type, schemeId);
   };
@@ -1441,7 +1456,7 @@
     }
     Object.keys(TYPE_TO_PAGE).forEach(type => {
       renderControlForType(type, TYPE_TO_PAGE[type]);
-      const initialScheme = getScheme(readActiveSchemeForType(type) || state.preferredByType[type] || DEFAULT_SCHEME_ID);
+      const initialScheme = getScheme(readActiveSchemeForType(type) || state.preferredByType[type] || getDefaultSchemeIdForType(type));
       state.preferredByType[type] = initialScheme.id;
       setDefaultForNewTabs(type, initialScheme);
     });

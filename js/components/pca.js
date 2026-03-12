@@ -10916,6 +10916,9 @@
       payload.exclusions = [];
       payload.stats = null;
       if(payload.config){
+        if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+          payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('pca') || 'scientific';
+        }
         payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
           ? payload.config.stats
           : {};

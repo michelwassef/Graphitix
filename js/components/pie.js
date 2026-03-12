@@ -712,6 +712,9 @@
         config: collectConfig()
       };
       payload.config = payload.config || {};
+      payload.config.colorScheme = payload.config.colorScheme
+        || Shared.colorSchemes?.getSelectedSchemeId?.('pie')
+        || 'scientific';
       payload.config.notes = {
         text: notesText,
         open: notesOpen
@@ -750,6 +753,10 @@
         : Array.from({ length: PIE_DEFAULT_ROWS }, () => Array(PIE_DEFAULT_COLS).fill(''));
       payload.data = emptyData;
       payload.exclusions = [];
+      payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+      if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
+        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'scientific';
+      }
       return payload;
     };
     function applyPiePayload(payload, meta){
