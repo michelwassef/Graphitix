@@ -3633,7 +3633,7 @@
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
       x: { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      y: { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -7611,10 +7611,11 @@
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
     if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
     settings.x.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.x.datasetSpacing);
+    settings.y.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.y.datasetSpacing);
     if(typeof settings.x.minorTicks !== 'boolean'){ settings.x.minorTicks = false; }
     if(typeof settings.y.minorTicks !== 'boolean'){ settings.y.minorTicks = false; }
     settings.x.minorTickSubdivisions = clampMinorTickSubdivisions(settings.x.minorTickSubdivisions);
@@ -7709,6 +7710,13 @@
     return false;
   }
 
+  function isAxisCategorical(axis){
+    if(axis !== 'x' && axis !== 'y'){
+      return false;
+    }
+    return !isAxisNumeric(axis);
+  }
+
   function getAxisMinorTicksEnabled(axis){
     if(axis !== 'x' && axis !== 'y'){ return false; }
     const settings = ensureAxisSettings();
@@ -7798,22 +7806,58 @@
     }
   }
 
-  function getXAxisDatasetSpacing(){
+  function getAxisDatasetSpacing(axis){
+    if(axis !== 'x' && axis !== 'y'){
+      return DEFAULT_X_DATASET_SPACING;
+    }
     const settings = ensureAxisSettings();
-    return sanitizeXAxisDatasetSpacing(settings.x?.datasetSpacing);
+    return sanitizeXAxisDatasetSpacing(settings[axis]?.datasetSpacing);
+  }
+
+  function updateAxisDatasetSpacing(axis, value){
+    if(axis !== 'x' && axis !== 'y'){
+      return;
+    }
+    const settings = ensureAxisSettings();
+    const nextValue = sanitizeXAxisDatasetSpacing(value);
+    if(settings[axis].datasetSpacing === nextValue){
+      return;
+    }
+    settings[axis].datasetSpacing = nextValue;
+    boxDebug('Debug: box axis dataset spacing updated',{ axis, value: nextValue, requested: value });
+    if(typeof state.scheduleDraw === 'function'){
+      scheduleBoxViewRefresh(`axis-dataset-spacing-${axis}`);
+    }
+  }
+
+  function getXAxisDatasetSpacing(){
+    return getAxisDatasetSpacing('x');
   }
 
   function updateXAxisDatasetSpacing(value){
-    const settings = ensureAxisSettings();
-    const nextValue = sanitizeXAxisDatasetSpacing(value);
-    if(settings.x.datasetSpacing === nextValue){
+    updateAxisDatasetSpacing('x', value);
+  }
+
+  function syncDatasetSpacingAcrossFlip(previousFlip, nextFlip){
+    if(previousFlip === nextFlip){
       return;
     }
-    settings.x.datasetSpacing = nextValue;
-    boxDebug('Debug: box x dataset spacing updated',{ value: nextValue, requested: value });
-    if(typeof state.scheduleDraw === 'function'){
-      scheduleBoxViewRefresh('axis-dataset-spacing');
+    const fromAxis = previousFlip ? 'y' : 'x';
+    const toAxis = nextFlip ? 'y' : 'x';
+    const settings = ensureAxisSettings();
+    const fromValue = sanitizeXAxisDatasetSpacing(settings[fromAxis]?.datasetSpacing);
+    const toValue = sanitizeXAxisDatasetSpacing(settings[toAxis]?.datasetSpacing);
+    if(toValue === fromValue){
+      return;
     }
+    settings[toAxis].datasetSpacing = fromValue;
+    boxDebug('Debug: box dataset spacing synced across flip',{
+      previousFlip,
+      nextFlip,
+      fromAxis,
+      toAxis,
+      value: fromValue
+    });
   }
 
   function getAxisStrokeWidthBase(){
@@ -11442,7 +11486,10 @@
     if(els.boxFlipAxes){
       state.flipAxes = !!els.boxFlipAxes.checked;
       els.boxFlipAxes.addEventListener('change',()=>{
-        state.flipAxes = !!els.boxFlipAxes.checked;
+        const previousFlip = !!state.flipAxes;
+        const nextFlip = !!els.boxFlipAxes.checked;
+        syncDatasetSpacingAcrossFlip(previousFlip, nextFlip);
+        state.flipAxes = nextFlip;
         console.debug('Debug: box flipAxes toggled',{ flipAxes: state.flipAxes }); // Debug: flip axis change trace
         scheduleBoxViewRefresh('flip-axes-change');
       });
@@ -21959,7 +22006,8 @@ Technical analysis record (advanced)
       color: axisSettings.color,
       tickIntervalX: axisSettings.x?.tickInterval || null,
       tickIntervalY: axisSettings.y?.tickInterval || null,
-      datasetSpacingX: axisSettings.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
+      datasetSpacingX: axisSettings.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING,
+      datasetSpacingY: axisSettings.y?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
     });
     const axisStrokeBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeBase, styleScaleInfo, { context: 'box-axis', min: 0, exact: true });
@@ -23345,9 +23393,9 @@ Technical analysis record (advanced)
       },
       tickPlaceholder: 'Auto',
       onTickIntervalChange: value => updateAxisTickInterval(axis, value),
-      getDatasetSpacing: () => getXAxisDatasetSpacing(),
-      onDatasetSpacingChange: value => updateXAxisDatasetSpacing(value),
-      isDatasetSpacingSupported: () => axis === 'x' && !state.flipAxes,
+      getDatasetSpacing: () => getAxisDatasetSpacing(axis),
+      onDatasetSpacingChange: value => updateAxisDatasetSpacing(axis, value),
+      isDatasetSpacingSupported: () => isAxisCategorical(axis),
       datasetSpacingLabel: 'Dataset Spacing',
       datasetSpacingMin: MIN_X_DATASET_SPACING,
       datasetSpacingMax: MAX_X_DATASET_SPACING,
@@ -23557,7 +23605,8 @@ Technical analysis record (advanced)
       const datasetGapPxCandidate = rawBandW * datasetGapFraction;
       let datasetGapPx = Math.max(2, Math.min(40, datasetGapPxCandidate));
       let bandW = (plotWLocal - datasetGapPx * Math.max(0, axisCount - 1)) / axisCount;
-      const requestedDatasetSpacing = getXAxisDatasetSpacing();
+      const categoricalAxis = state.flipAxes ? 'y' : 'x';
+      const requestedDatasetSpacing = getAxisDatasetSpacing(categoricalAxis);
       let datasetSpacingScale = sanitizeXAxisDatasetSpacing(requestedDatasetSpacing);
       if(datasetSpacingScale !== 1){
         datasetGapPx *= datasetSpacingScale;
@@ -23568,7 +23617,8 @@ Technical analysis record (advanced)
           datasetGapPx *= fitScale;
           bandW *= fitScale;
           datasetSpacingScale *= fitScale;
-          boxDebug('Debug: box x dataset spacing clamped to fit',{
+          boxDebug('Debug: box categorical axis dataset spacing clamped to fit',{
+            axis: categoricalAxis,
             requested: requestedDatasetSpacing,
             applied: datasetSpacingScale,
             fitScale,
@@ -23576,7 +23626,8 @@ Technical analysis record (advanced)
             plotWidth: plotWLocal
           });
         }else{
-          boxDebug('Debug: box x dataset spacing applied',{
+          boxDebug('Debug: box categorical axis dataset spacing applied',{
+            axis: categoricalAxis,
             requested: requestedDatasetSpacing,
             applied: datasetSpacingScale,
             requestedSpan,
@@ -25736,14 +25787,56 @@ Technical analysis record (advanced)
       // Add a small gap between adjacent category bands so datasets don't touch
       const rawBandH = plotHLocal / axisCount;
       const datasetGapFractionH = 0.06;
-      const datasetGapPxH = Math.max(2, Math.min(40, rawBandH * datasetGapFractionH));
+      let datasetGapPxH = Math.max(2, Math.min(40, rawBandH * datasetGapFractionH));
       let bandH = (plotHLocal - datasetGapPxH * Math.max(0, axisCount - 1)) / axisCount;
+      const categoricalAxis = state.flipAxes ? 'y' : 'x';
+      const requestedDatasetSpacing = getAxisDatasetSpacing(categoricalAxis);
+      let datasetSpacingScale = sanitizeXAxisDatasetSpacing(requestedDatasetSpacing);
+      if(datasetSpacingScale !== 1){
+        datasetGapPxH *= datasetSpacingScale;
+        bandH *= datasetSpacingScale;
+        const requestedSpan = bandH * axisCount + datasetGapPxH * Math.max(0, axisCount - 1);
+        if(requestedSpan > plotHLocal && requestedSpan > 0){
+          const fitScale = plotHLocal / requestedSpan;
+          datasetGapPxH *= fitScale;
+          bandH *= fitScale;
+          datasetSpacingScale *= fitScale;
+          boxDebug('Debug: box categorical axis dataset spacing clamped to fit',{
+            axis: categoricalAxis,
+            requested: requestedDatasetSpacing,
+            applied: datasetSpacingScale,
+            fitScale,
+            requestedSpan,
+            plotHeight: plotHLocal
+          });
+        }else{
+          boxDebug('Debug: box categorical axis dataset spacing applied',{
+            axis: categoricalAxis,
+            requested: requestedDatasetSpacing,
+            applied: datasetSpacingScale,
+            requestedSpan,
+            plotHeight: plotHLocal
+          });
+        }
+      }
+      const totalGapSpaceH = datasetGapPxH * Math.max(0, axisCount - 1);
+      const separatedSpanScaleH = Math.min(1, datasetSpacingScale);
+      const plotHForSpacing = Math.max(0, (plotHLocal - totalGapSpaceH) * separatedSpanScaleH);
+      const plotSpacingTop = marginLocal.top + Math.max(0, plotHLocal - plotHForSpacing);
       const separatedSpacing = separatedCategoryUnits
-        ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotHLocal, marginLocal.top)
+        ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotHForSpacing, plotSpacingTop)
         : null;
       if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
         bandH = separatedSpacing.bandWidth;
       }
+      const computedPlotSpanH = separatedSpacing
+        ? Number(separatedSpacing.end) - Number(separatedSpacing.start)
+        : (bandH * axisCount + datasetGapPxH * Math.max(0, axisCount - 1));
+      const plotHUsed = Number.isFinite(computedPlotSpanH) && computedPlotSpanH > 0
+        ? Math.min(plotHLocal, computedPlotSpanH)
+        : plotHLocal;
+      const plotTopY = marginLocal.top + Math.max(0, plotHLocal - plotHUsed);
+      const plotBottomY = plotTopY + plotHUsed;
       const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
       const clusterGap = usesGroupedSpacing ? Math.min(bandH * 0.25, 16) : 0;
       let perGroupBand = usesGroupedSpacing ? (bandH - clusterGap) / groupCountLocal : bandH;
@@ -25883,7 +25976,7 @@ Technical analysis record (advanced)
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
           const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
-          const top = marginLocal.top + categoryIdx * bandH + groupOffset;
+          const top = plotTopY + categoryIdx * bandH + groupOffset;
           return top + (groupIdx + 0.5) * perGroupBand;
         }
         if(separatedSpacing){
@@ -25894,7 +25987,7 @@ Technical analysis record (advanced)
         }
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         // account for vertical gap between bands
-        return marginLocal.top + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
+        return plotTopY + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
       };
       const computeMinTraceCenterPitch = () => {
         if(!Array.isArray(traces) || traces.length < 2){
@@ -25995,7 +26088,7 @@ Technical analysis record (advanced)
       console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
       const yAxisLeft = marginLocal.left;
       const xAxisBottom = marginLocal.top + plotHLocal;
-      const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
       }
@@ -26006,7 +26099,7 @@ Technical analysis record (advanced)
         if(yInterval && i % yInterval !== 0){
           return;
         }
-        const y = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.top + (i + 0.5) * bandH;
+        const y = separatedSpacing ? separatedSpacing.centers[i] : plotTopY + (i + 0.5) * bandH;
         addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
         const t = addAxisElement('text',{ x: yAxisLeft - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
@@ -26212,7 +26305,7 @@ Technical analysis record (advanced)
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             const svgY = ev.clientY - svgRect.top;
-            let targetIdx = Math.floor((svgY - marginLocal.top) / bandH);
+            let targetIdx = Math.floor((svgY - plotTopY) / Math.max(1e-6, bandH + datasetGapPxH));
             targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
             if(targetIdx !== idx){
               const moved = state.colOrder.splice(idx, 1)[0];
@@ -26875,7 +26968,7 @@ Technical analysis record (advanced)
         if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
           return separatedSpacing.centers[idx];
         }
-        return marginLocal.top + (idx + 0.5) * bandH;
+        return plotTopY + (idx + 0.5) * bandH;
       };
       return {
         margin: marginLocal,
@@ -27248,7 +27341,8 @@ Technical analysis record (advanced)
             y: axisSnapshot.y?.tickInterval ?? null
           },
           datasetSpacing: {
-            x: axisSnapshot.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
+            x: axisSnapshot.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING,
+            y: axisSnapshot.y?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
           },
           minorTicks: {
             x: axisSnapshot.x?.minorTicks ?? false,
@@ -27340,6 +27434,7 @@ Technical analysis record (advanced)
       whiskerRule: payload.config.whisker?.rule,
       whiskerMultiplier: payload.config.whisker?.customMultiplier,
       datasetSpacingX: payload.config.axis?.datasetSpacing?.x ?? DEFAULT_X_DATASET_SPACING,
+      datasetSpacingY: payload.config.axis?.datasetSpacing?.y ?? DEFAULT_X_DATASET_SPACING,
       additionalTicksX: payload.config.axis?.additionalTicks?.x?.length || 0,
       additionalTicksY: payload.config.axis?.additionalTicks?.y?.length || 0
     });
@@ -27829,7 +27924,9 @@ Technical analysis record (advanced)
       axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
       const datasetSpacingCfg = axisCfg.datasetSpacing || {};
       const datasetSpacingX = datasetSpacingCfg.x ?? axisCfg.datasetSpacingX;
+      const datasetSpacingY = datasetSpacingCfg.y ?? axisCfg.datasetSpacingY;
       axisState.x.datasetSpacing = sanitizeXAxisDatasetSpacing(datasetSpacingX);
+      axisState.y.datasetSpacing = sanitizeXAxisDatasetSpacing(datasetSpacingY);
       if(axisCfg.minorTicks){
         axisState.x.minorTicks = !!axisCfg.minorTicks.x;
         axisState.y.minorTicks = !!axisCfg.minorTicks.y;
@@ -27890,6 +27987,7 @@ Technical analysis record (advanced)
         tickIntervalX: axisState.x.tickInterval,
         tickIntervalY: axisState.y.tickInterval,
         datasetSpacingX: axisState.x.datasetSpacing,
+        datasetSpacingY: axisState.y.datasetSpacing,
         additionalTicksX: axisState.x?.additionalTicks?.length || 0,
         additionalTicksY: axisState.y?.additionalTicks?.length || 0,
         brokenAxisEnabled: axisState.y?.brokenAxis?.enabled,
