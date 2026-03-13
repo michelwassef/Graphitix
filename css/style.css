@@ -3786,6 +3786,102 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel .control label,
 .config-panel .config-panel__line label{font-size:var(--graph-control-font-size,12px);font-weight:400;text-transform:none;letter-spacing:0;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
 .config-panel .control label.color-picker{width:auto;min-width:0}
+.config-panel .color-scheme-picker{
+  position:relative;
+  display:inline-flex;
+  min-width:220px;
+}
+.config-panel .color-scheme-picker__button{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:26px;
+  min-width:220px;
+  padding:2px 8px;
+  border:1px solid #9098a6;
+  background:#ffffff;
+  color:#0f1625;
+  font-size:13px;
+  line-height:1.2;
+  cursor:pointer;
+}
+.config-panel .color-scheme-picker__button:focus-visible{
+  outline:2px solid #0b63d1;
+  outline-offset:1px;
+}
+.config-panel .color-scheme-picker__label{
+  flex:0 1 auto;
+  min-width:0;
+  white-space:nowrap;
+}
+.config-panel .color-scheme-picker__current-swatches{
+  display:inline-flex;
+  align-items:center;
+}
+.config-panel .color-scheme-picker__caret{
+  margin-left:auto;
+  font-size:10px;
+  color:#3d4656;
+}
+.config-panel .color-scheme-picker__menu{
+  position:absolute;
+  z-index:70;
+  top:calc(100% + 2px);
+  left:0;
+  min-width:100%;
+  max-height:260px;
+  overflow:auto;
+  border:1px solid #9098a6;
+  background:#ffffff;
+  box-shadow:0 4px 10px rgba(0,0,0,0.14);
+}
+.config-panel .color-scheme-picker__option{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  border:0;
+  border-bottom:1px solid #edf0f4;
+  background:#ffffff;
+  color:#111b2c;
+  text-align:left;
+  padding:6px 8px;
+  cursor:pointer;
+  font-size:13px;
+}
+.config-panel .color-scheme-picker__option:last-child{
+  border-bottom:0;
+}
+.config-panel .color-scheme-picker__option:hover{
+  background:#f4f7ff;
+}
+.config-panel .color-scheme-picker__option.is-selected{
+  background:#eaf2ff;
+}
+.config-panel .color-scheme-picker__option:disabled{
+  opacity:0.65;
+  cursor:default;
+  background:#f8f9fb;
+}
+.config-panel .color-scheme-picker__option-label{
+  white-space:nowrap;
+}
+.config-panel .color-scheme-picker__swatches{
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  min-width:52px;
+}
+.config-panel .color-scheme-picker__swatch{
+  width:10px;
+  height:10px;
+  border:1px solid rgba(0,0,0,0.28);
+  box-sizing:border-box;
+}
+.config-panel .color-scheme-picker__swatches--custom::before{
+  content:'-';
+  color:#737f91;
+}
 .config-panel__range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
 .config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
 .config-panel .config-panel__checkbox,

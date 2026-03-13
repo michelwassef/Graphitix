@@ -125,11 +125,31 @@
   const SCHEMES = Object.freeze({
     scientific: Object.freeze({
       id: 'scientific',
-      label: 'Color',
+      label: 'Color (high contrast)',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL),
       sequential: Object.freeze(['#0000ff', '#4f4fff', '#ff0000', '#00aa00', '#ff8c00', '#800080']),
       diverging: DEFAULT_HEATMAP_DIVERGING,
       tokens: DEFAULT_SCIENTIFIC_TOKENS,
+      densityPalette: 'viridis',
+      surfaceRamp: 'viridis'
+    }),
+    soft: Object.freeze({
+      id: 'soft',
+      label: 'Color (soft)',
+      categorical: Object.freeze(['#4e79a7', '#e15759', '#59a14f', '#f28e2b', '#b07aa1', '#76b7b2', '#edc948', '#ff9da7', '#9c755f']),
+      sequential: Object.freeze(['#2f4b7c', '#4e79a7', '#76b7b2', '#a0cbe8', '#f4b183', '#e15759']),
+      diverging: Object.freeze({ negative: '#4e79a7', zero: '#f7f7f7', positive: '#e15759' }),
+      tokens: Object.freeze({ axisColor: '#222222', gridColor: '#d8d8d8', borderColor: '#222222', textColor: '#222222', background: '#ffffff' }),
+      densityPalette: 'cividis',
+      surfaceRamp: 'viridis'
+    }),
+    normal: Object.freeze({
+      id: 'normal',
+      label: 'Color (normal)',
+      categorical: Object.freeze(['#377eb8', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999']),
+      sequential: Object.freeze(['#377eb8', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#a65628']),
+      diverging: Object.freeze({ negative: '#377eb8', zero: '#f7f7f7', positive: '#e41a1c' }),
+      tokens: Object.freeze({ axisColor: '#111111', gridColor: '#d4d4d4', borderColor: '#111111', textColor: '#111111', background: '#ffffff' }),
       densityPalette: 'viridis',
       surfaceRamp: 'viridis'
     }),
@@ -163,16 +183,6 @@
       densityPalette: 'inferno',
       surfaceRamp: 'magma'
     }),
-    highcontrast: Object.freeze({
-      id: 'highcontrast',
-      label: 'High Contrast',
-      categorical: Object.freeze(['#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#7a00cc', '#00b7c7', '#cc007a', '#333333']),
-      sequential: Object.freeze(['#000000', '#0022aa', '#0066ff', '#00aa66', '#88cc00', '#ffcc00']),
-      diverging: Object.freeze({ negative: '#0033cc', zero: '#ffffff', positive: '#cc0000' }),
-      tokens: Object.freeze({ axisColor: '#000000', gridColor: '#bcbcbc', borderColor: '#000000', textColor: '#000000', background: '#ffffff' }),
-      densityPalette: 'turbo',
-      surfaceRamp: 'turbo'
-    })
   });
 
   const TYPE_TO_PAGE = Object.freeze({
@@ -197,6 +207,7 @@
     lastActiveSignature: null,
     pendingSyncTimer: null
   };
+  let openPaletteMenu = null;
 
   function getDefaultSchemeIdForType(type){
     return TYPE_DEFAULT_SCHEME_IDS[type] || DEFAULT_SCHEME_ID;
@@ -334,6 +345,10 @@
   }
 
   function normalizePresetSchemeId(id, type){
+    const normalized = typeof id === 'string' ? id.trim().toLowerCase() : '';
+    if(normalized === 'highcontrast' || normalized === 'high-contrast' || normalized === 'high_contrast'){
+      return 'scientific';
+    }
     if(isKnownSchemeId(id)){
       return String(id).trim().toLowerCase();
     }
@@ -370,6 +385,42 @@
 
   function ensureObject(input){
     return input && typeof input === 'object' ? input : {};
+  }
+
+  function renderSchemeSwatches(doc, schemeId, options){
+    const opts = options || {};
+    const limit = Number.isFinite(opts.limit) ? Math.max(1, Math.floor(opts.limit)) : 5;
+    const swatches = doc.createElement('span');
+    swatches.className = 'color-scheme-picker__swatches';
+    if(schemeId === CUSTOM_SCHEME_ID){
+      swatches.classList.add('color-scheme-picker__swatches--custom');
+      return swatches;
+    }
+    const scheme = getScheme(schemeId);
+    const colors = ensureArray(scheme?.categorical).slice(0, limit);
+    colors.forEach(color => {
+      const chip = doc.createElement('span');
+      chip.className = 'color-scheme-picker__swatch';
+      chip.style.background = color;
+      chip.title = color;
+      swatches.appendChild(chip);
+    });
+    return swatches;
+  }
+
+  function closePaletteMenu(){
+    if(!openPaletteMenu) return;
+    const menu = openPaletteMenu;
+    openPaletteMenu = null;
+    menu.hidden = true;
+    const owner = menu.__pickerOwner || null;
+    if(owner){
+      owner.classList.remove('is-open');
+      const button = owner.querySelector('.color-scheme-picker__button');
+      if(button){
+        button.setAttribute('aria-expanded', 'false');
+      }
+    }
   }
 
   function uniqueStrings(values){
@@ -1647,9 +1698,13 @@
     if(!tab || !tab.type || tab.isWelcome) return;
     const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
     const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type, options) || schemeId;
-    const control = state.controlsByType[tab.type]?.select || null;
+    const controlState = state.controlsByType[tab.type] || {};
+    const control = controlState.select || null;
     if(control && control.value !== displayedSchemeId){
       control.value = displayedSchemeId;
+    }
+    if(typeof controlState.syncPicker === 'function'){
+      controlState.syncPicker(displayedSchemeId);
     }
     syncSharedScatterPalette(tab.type, getScheme(schemeId));
     applyRenderedTheme(tab.type, schemeId);
@@ -1728,8 +1783,135 @@
     customOption.disabled = true;
     select.appendChild(customOption);
 
-    select.value = resolveDisplayedSchemeIdForType(type);
+    const initialDisplayedSchemeId = resolveDisplayedSchemeIdForType(type);
+    select.value = initialDisplayedSchemeId;
+    select.classList.add('visually-hidden');
+
+    const picker = doc.createElement('div');
+    picker.className = 'color-scheme-picker';
+
+    const pickerButton = doc.createElement('button');
+    pickerButton.type = 'button';
+    pickerButton.className = 'color-scheme-picker__button';
+    pickerButton.setAttribute('aria-haspopup', 'listbox');
+    pickerButton.setAttribute('aria-expanded', 'false');
+
+    const pickerButtonLabel = doc.createElement('span');
+    pickerButtonLabel.className = 'color-scheme-picker__label';
+
+    const pickerButtonSwatches = doc.createElement('span');
+    pickerButtonSwatches.className = 'color-scheme-picker__current-swatches';
+
+    const pickerButtonCaret = doc.createElement('span');
+    pickerButtonCaret.className = 'color-scheme-picker__caret';
+    pickerButtonCaret.textContent = '\u25be';
+
+    pickerButton.appendChild(pickerButtonLabel);
+    pickerButton.appendChild(pickerButtonSwatches);
+    pickerButton.appendChild(pickerButtonCaret);
+
+    const pickerMenu = doc.createElement('div');
+    pickerMenu.className = 'color-scheme-picker__menu';
+    pickerMenu.setAttribute('role', 'listbox');
+    pickerMenu.hidden = true;
+    pickerMenu.__pickerOwner = picker;
+
+    Object.keys(SCHEMES).forEach(id => {
+      const optionButton = doc.createElement('button');
+      optionButton.type = 'button';
+      optionButton.className = 'color-scheme-picker__option';
+      optionButton.setAttribute('role', 'option');
+      optionButton.dataset.schemeId = id;
+      optionButton.appendChild(renderSchemeSwatches(doc, id, { limit: 4 }));
+      const optionLabel = doc.createElement('span');
+      optionLabel.className = 'color-scheme-picker__option-label';
+      optionLabel.textContent = SCHEMES[id].label;
+      optionButton.appendChild(optionLabel);
+      pickerMenu.appendChild(optionButton);
+    });
+    const customButton = doc.createElement('button');
+    customButton.type = 'button';
+    customButton.className = 'color-scheme-picker__option';
+    customButton.setAttribute('role', 'option');
+    customButton.dataset.schemeId = CUSTOM_SCHEME_ID;
+    customButton.disabled = true;
+    customButton.appendChild(renderSchemeSwatches(doc, CUSTOM_SCHEME_ID, { limit: 4 }));
+    const customLabel = doc.createElement('span');
+    customLabel.className = 'color-scheme-picker__option-label';
+    customLabel.textContent = 'Custom';
+    customButton.appendChild(customLabel);
+    pickerMenu.appendChild(customButton);
+
+    picker.appendChild(pickerButton);
+    picker.appendChild(pickerMenu);
+
+    function syncPicker(displayedSchemeId){
+      const value = displayedSchemeId === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : getScheme(displayedSchemeId).id;
+      const scheme = value === CUSTOM_SCHEME_ID ? null : SCHEMES[value];
+      pickerButtonLabel.textContent = value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color');
+      pickerButtonSwatches.replaceChildren(renderSchemeSwatches(doc, value, { limit: 4 }));
+      pickerMenu.querySelectorAll('.color-scheme-picker__option').forEach(node => {
+        const selected = node.dataset?.schemeId === value;
+        if(selected){
+          node.setAttribute('aria-selected', 'true');
+          node.classList.add('is-selected');
+        }else{
+          node.setAttribute('aria-selected', 'false');
+          node.classList.remove('is-selected');
+        }
+      });
+    }
+
+    function openMenu(){
+      if(openPaletteMenu && openPaletteMenu !== pickerMenu){
+        closePaletteMenu();
+      }
+      openPaletteMenu = pickerMenu;
+      picker.classList.add('is-open');
+      pickerButton.setAttribute('aria-expanded', 'true');
+      pickerMenu.hidden = false;
+    }
+
+    function toggleMenu(){
+      if(pickerMenu.hidden){
+        openMenu();
+      }else{
+        closePaletteMenu();
+      }
+    }
+
+    pickerButton.addEventListener('click', toggleMenu);
+    pickerMenu.addEventListener('click', evt => {
+      const target = evt.target instanceof global.Element
+        ? evt.target.closest('.color-scheme-picker__option')
+        : null;
+      if(!target || target.disabled) return;
+      const nextScheme = target.dataset?.schemeId || '';
+      if(!nextScheme || nextScheme === CUSTOM_SCHEME_ID){
+        closePaletteMenu();
+        return;
+      }
+      select.value = nextScheme;
+      select.dispatchEvent(new global.Event('change', { bubbles: true }));
+      syncPicker(resolveDisplayedSchemeIdForType(type));
+      closePaletteMenu();
+    });
+    doc.addEventListener('click', evt => {
+      if(!(evt.target instanceof global.Element)) return;
+      if(picker.contains(evt.target)) return;
+      if(openPaletteMenu === pickerMenu){
+        closePaletteMenu();
+      }
+    });
+    doc.addEventListener('keydown', evt => {
+      if(evt.key === 'Escape' && openPaletteMenu === pickerMenu){
+        closePaletteMenu();
+      }
+    });
+    syncPicker(initialDisplayedSchemeId);
+
     label.appendChild(select);
+    label.appendChild(picker);
     row.appendChild(label);
 
     const hint = doc.createElement('div');
@@ -1802,6 +1984,7 @@
 
     select.addEventListener('focus', () => {
       select.value = resolveDisplayedSchemeIdForType(type);
+      syncPicker(select.value);
     });
 
     select.addEventListener('change', () => {
@@ -1811,10 +1994,11 @@
       }
       const selected = getScheme(select.value).id;
       select.value = selected;
+      syncPicker(selected);
       applySchemeToActiveTab(type, selected);
     });
 
-    state.controlsByType[type] = { select };
+    state.controlsByType[type] = { select, syncPicker };
     debugLog('Debug: colorSchemes control mounted', { type, pageId: descriptor.pageId });
   }
 
