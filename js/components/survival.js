@@ -5166,6 +5166,10 @@
     collectSeries: () => collectSeries(),
     computeKaplanMeier: records => computeKaplanMeier(Array.isArray(records) ? records : []),
     computeLogRank: series => computeLogRank(Array.isArray(series) ? series : []),
+    computeGehanBreslowWilcoxon: series => computeGehanBreslowWilcoxon(Array.isArray(series) ? series : []),
+    computeLogRankTrend: series => computeLogRankTrend(Array.isArray(series) ? series : []),
+    computePairwiseComparisons: (series, method) => computePairwiseSurvivalComparisons(Array.isArray(series) ? series : [], method || 'holm-sidak'),
+    computeMedianSurvivalRatios: series => computeMedianSurvivalRatios(Array.isArray(series) ? series : []),
     fitCoxModel: (summary, options) => fitCoxModel(summary, options || {}),
     computeHazardRatios: (series, coxModel, options) => computeHazardRatios(
       Array.isArray(series) ? series : [],

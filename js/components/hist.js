@@ -164,6 +164,23 @@
     };
   }
 
+  function createDefaultHistStatsSettings(){
+    return {
+      diagnosticsMode: 'normal-vs-lognormal',
+      comparisonMode: 'ks'
+    };
+  }
+
+  function sanitizeHistDiagnosticsMode(value){
+    return value === 'off' || value === 'normal-fit'
+      ? value
+      : 'normal-vs-lognormal';
+  }
+
+  function sanitizeHistComparisonMode(value){
+    return value === 'off' ? 'off' : 'ks';
+  }
+
   function mergeDistributionSelections(current, options){
     const merged = { ...current };
     options.forEach((opt, index) => {
@@ -310,6 +327,11 @@
       showPdf: null,
       showCdf: null
     },
+    statsSettings: createDefaultHistStatsSettings(),
+    statsInputs: {
+      diagnosticsMode: null,
+      comparisonMode: null
+    },
     notes: {
       text: '',
       open: false,
@@ -408,6 +430,32 @@
     }
     if(options.schedule !== false && typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
+    }
+  }
+
+  function syncHistStatsControls(seriesCount){
+    if(typeof document === 'undefined'){
+      return;
+    }
+    const diagnosticsSelect = document.getElementById('histStatsDiagnosticsMode');
+    const comparisonSelect = document.getElementById('histStatsComparisonMode');
+    const resolvedDiagnostics = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
+    const resolvedComparison = sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
+    if(diagnosticsSelect && diagnosticsSelect.value !== resolvedDiagnostics){
+      diagnosticsSelect.value = resolvedDiagnostics;
+    }
+    if(comparisonSelect && comparisonSelect.value !== resolvedComparison){
+      comparisonSelect.value = resolvedComparison;
+    }
+    const comparisonLabel = comparisonSelect?.closest('label') || null;
+    const count = Number.isFinite(seriesCount) ? Number(seriesCount) : NaN;
+    const needsTwoSeries = resolvedComparison === 'ks' && Number.isFinite(count) && count !== 2;
+    const title = needsTwoSeries ? 'Kolmogorov-Smirnov comparison requires exactly two visible series.' : '';
+    if(comparisonSelect){
+      comparisonSelect.title = title;
+    }
+    if(comparisonLabel){
+      comparisonLabel.title = title;
     }
   }
 
@@ -2075,6 +2123,7 @@
 
   function initControls(){
     const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
+    const histStatsDiagnosticsMode=$('#histStatsDiagnosticsMode'), histStatsComparisonMode=$('#histStatsComparisonMode');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
       console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
@@ -2097,6 +2146,24 @@
         state.showLegend = !!histShowLegend.checked;
         state.scheduleDraw();
       });
+    }
+    if(histStatsDiagnosticsMode){
+      histStatsDiagnosticsMode.value = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
+      histStatsDiagnosticsMode.addEventListener('change',()=>{
+        state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(histStatsDiagnosticsMode.value);
+        syncHistStatsControls();
+        state.scheduleDraw();
+      });
+      state.statsInputs.diagnosticsMode = histStatsDiagnosticsMode;
+    }
+    if(histStatsComparisonMode){
+      histStatsComparisonMode.value = sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
+      histStatsComparisonMode.addEventListener('change',()=>{
+        state.statsSettings.comparisonMode = sanitizeHistComparisonMode(histStatsComparisonMode.value);
+        syncHistStatsControls();
+        state.scheduleDraw();
+      });
+      state.statsInputs.comparisonMode = histStatsComparisonMode;
     }
     if(distListEl){
       distListEl.innerHTML='';
@@ -2157,6 +2224,7 @@
       state.distributionInputs.showCdf=histShowCdfInput;
     }
     syncHistPlotModeControls();
+    syncHistStatsControls();
     [histBins,histShowGrid,histLogY].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
     histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{
@@ -2309,6 +2377,10 @@
           options: Array.isArray(state.distributionOptions)
             ? state.distributionOptions.map((entry, index) => sanitizeDistributionOptionEntry(entry, index, entry))
             : []
+        },
+        stats: {
+          diagnosticsMode: sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode),
+          comparisonMode: sanitizeHistComparisonMode(state.statsSettings?.comparisonMode)
         },
         notes: {
           text: notesText,
@@ -2485,6 +2557,15 @@
       if(state.distributionInputs?.showCdf){
         state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
       }
+      state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(config.stats?.diagnosticsMode);
+      state.statsSettings.comparisonMode = sanitizeHistComparisonMode(config.stats?.comparisonMode);
+      if(state.statsInputs?.diagnosticsMode){
+        state.statsInputs.diagnosticsMode.value = state.statsSettings.diagnosticsMode;
+      }
+      if(state.statsInputs?.comparisonMode){
+        state.statsInputs.comparisonMode.value = state.statsSettings.comparisonMode;
+      }
+      syncHistStatsControls();
       if(config.notes && typeof config.notes === 'object'){
         state.notes.text = config.notes.text == null ? '' : String(config.notes.text);
         state.notes.open = !!config.notes.open;
@@ -2721,6 +2802,249 @@
     return num <= 0 ? '0' : num.toExponential(5);
   }
 
+  function computeHistPercentile(sorted, p){
+    if(!Array.isArray(sorted) || !sorted.length){
+      return NaN;
+    }
+    const pos = (sorted.length - 1) * p;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    const baseVal = sorted[base];
+    const nextVal = sorted[base + 1] !== undefined ? sorted[base + 1] : baseVal;
+    return baseVal + rest * (nextVal - baseVal);
+  }
+
+  function computeHistAicc(fit, parameterCount, sampleSize){
+    const logLikelihood = Number(fit?.logLikelihood);
+    const n = Number(sampleSize);
+    const k = Math.max(1, Number(parameterCount) || 1);
+    if(!Number.isFinite(logLikelihood) || !Number.isFinite(n) || n <= k + 1){
+      return NaN;
+    }
+    const aic = (2 * k) - (2 * logLikelihood);
+    return aic + ((2 * k * (k + 1)) / Math.max(n - k - 1, 1));
+  }
+
+  function computeHistSummary(values){
+    const cleaned = Array.isArray(values)
+      ? values.map(Number).filter(Number.isFinite).slice().sort((a, b) => a - b)
+      : [];
+    const n = cleaned.length;
+    if(!n){
+      return null;
+    }
+    const mean = cleaned.reduce((sum, value) => sum + value, 0) / n;
+    const median = global.jStat?.median ? global.jStat.median(cleaned) : computeHistPercentile(cleaned, 0.5);
+    const variance = n > 1
+      ? cleaned.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / (n - 1)
+      : NaN;
+    const sd = Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
+    const sem = n > 1 && Number.isFinite(sd) ? sd / Math.sqrt(n) : NaN;
+    const q1 = computeHistPercentile(cleaned, 0.25);
+    const q3 = computeHistPercentile(cleaned, 0.75);
+    const iqr = Number.isFinite(q1) && Number.isFinite(q3) ? q3 - q1 : NaN;
+    const cv = Number.isFinite(sd) && mean !== 0 ? (sd / Math.abs(mean)) * 100 : NaN;
+    let skewness = NaN;
+    let kurtosis = NaN;
+    if(n >= 3 && Number.isFinite(sd) && sd > 0){
+      const zPowers = cleaned.map(value => (value - mean) / sd);
+      const z3 = zPowers.reduce((sum, value) => sum + Math.pow(value, 3), 0);
+      skewness = (n / ((n - 1) * (n - 2))) * z3;
+      if(n >= 4){
+        const z4 = zPowers.reduce((sum, value) => sum + Math.pow(value, 4), 0);
+        kurtosis = ((n * (n + 1)) / ((n - 1) * (n - 2) * (n - 3))) * z4
+          - ((3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3)));
+      }
+    }
+    const strictlyPositive = cleaned.every(value => value > 0);
+    const geometricMean = strictlyPositive
+      ? Math.exp(cleaned.reduce((sum, value) => sum + Math.log(value), 0) / n)
+      : NaN;
+    const harmonicMean = strictlyPositive
+      ? n / cleaned.reduce((sum, value) => sum + (1 / value), 0)
+      : NaN;
+    return {
+      values: cleaned,
+      n,
+      mean,
+      median,
+      variance,
+      sd,
+      sem,
+      min: cleaned[0],
+      q1,
+      q3,
+      max: cleaned[n - 1],
+      iqr,
+      cv,
+      skewness,
+      kurtosis,
+      geometricMean,
+      harmonicMean
+    };
+  }
+
+  function computeHistNormalFitDiagnostic(values, options = {}){
+    const statsHelpers = Shared.stats || {};
+    if(typeof statsHelpers.fitDistribution !== 'function' || typeof statsHelpers.goodnessOfFit !== 'function'){
+      return null;
+    }
+    const fit = statsHelpers.fitDistribution(values, { distribution: 'normal' });
+    if(!fit || fit.valid === false){
+      return {
+        available: false,
+        fit,
+        gof: null,
+        message: fit?.message || 'Normal fit unavailable.'
+      };
+    }
+    const alpha = Number.isFinite(options.alpha) && options.alpha > 0 ? Number(options.alpha) : 0.05;
+    const gof = statsHelpers.goodnessOfFit(values, {
+      distribution: 'normal',
+      fit,
+      params: fit.params,
+      pdf: fit.pdf,
+      cdf: fit.cdf,
+      alpha
+    });
+    return {
+      available: !!gof,
+      fit,
+      gof: gof || null,
+      message: gof ? null : 'Normal goodness-of-fit unavailable.'
+    };
+  }
+
+  function computeHistLognormalComparison(values){
+    const statsHelpers = Shared.stats || {};
+    if(typeof statsHelpers.fitDistribution !== 'function'){
+      return null;
+    }
+    const cleaned = Array.isArray(values) ? values.map(Number).filter(Number.isFinite) : [];
+    if(cleaned.length < 2){
+      return null;
+    }
+    const normalFit = statsHelpers.fitDistribution(cleaned, { distribution: 'normal' });
+    const lognormalFit = statsHelpers.fitDistribution(cleaned, { distribution: 'lognormal' });
+    const normalAicc = computeHistAicc(normalFit, 2, cleaned.length);
+    const lognormalAicc = computeHistAicc(lognormalFit, 2, cleaned.length);
+    const preferred = (Number.isFinite(lognormalAicc) && (!Number.isFinite(normalAicc) || lognormalAicc < normalAicc))
+      ? 'lognormal'
+      : 'normal';
+    return {
+      preferred,
+      normalAicc,
+      lognormalAicc,
+      deltaAicc: Number.isFinite(normalAicc) && Number.isFinite(lognormalAicc)
+        ? Math.abs(normalAicc - lognormalAicc)
+        : NaN,
+      normalFit,
+      lognormalFit
+    };
+  }
+
+  function computeHistKolmogorovSmirnovTwoSample(a, b){
+    const arrA = (Array.isArray(a) ? a : []).map(Number).filter(Number.isFinite).sort((x, y) => x - y);
+    const arrB = (Array.isArray(b) ? b : []).map(Number).filter(Number.isFinite).sort((x, y) => x - y);
+    const na = arrA.length;
+    const nb = arrB.length;
+    if(!na || !nb){
+      return {
+        available: false,
+        D: NaN,
+        p: NaN,
+        nA: na,
+        nB: nb,
+        method: 'asymptotic',
+        alternative: 'two-sided',
+        message: 'Kolmogorov-Smirnov test needs at least one observation per group.'
+      };
+    }
+    let i = 0;
+    let j = 0;
+    let d = 0;
+    while(i < na || j < nb){
+      const nextA = i < na ? arrA[i] : Infinity;
+      const nextB = j < nb ? arrB[j] : Infinity;
+      const x = Math.min(nextA, nextB);
+      while(i < na && arrA[i] <= x){
+        i += 1;
+      }
+      while(j < nb && arrB[j] <= x){
+        j += 1;
+      }
+      d = Math.max(d, Math.abs((i / na) - (j / nb)));
+    }
+    const effectiveN = (na * nb) / (na + nb);
+    const sqrtN = Math.sqrt(Math.max(effectiveN, 0));
+    const lambda = (sqrtN + 0.12 + (0.11 / (sqrtN || 1))) * d;
+    let sum = 0;
+    for(let k = 1; k <= 100; k += 1){
+      const term = Math.exp(-2 * k * k * lambda * lambda);
+      sum += ((k % 2 ? 1 : -1) * term);
+      if(term < 1e-10){
+        break;
+      }
+    }
+    return {
+      available: true,
+      D: d,
+      p: Math.max(0, Math.min(1, 2 * sum)),
+      nA: na,
+      nB: nb,
+      method: 'asymptotic',
+      alternative: 'two-sided'
+    };
+  }
+
+  function renderHistStatsModel(target, model, append){
+    if(!target || !model){
+      return;
+    }
+    if(Shared.statsTable && typeof Shared.statsTable.render === 'function'){
+      Shared.statsTable.render({ target, append: !!append, ...model });
+      return;
+    }
+    const table = document.createElement('table');
+    table.className = 'stats-table';
+    if(model.caption){
+      const caption = document.createElement('caption');
+      caption.textContent = model.caption;
+      table.appendChild(caption);
+    }
+    const headerRow = document.createElement('tr');
+    (model.columns || []).forEach(col => {
+      const th = document.createElement('th');
+      th.textContent = col.label;
+      headerRow.appendChild(th);
+    });
+    table.appendChild(headerRow);
+    (model.rows || []).forEach(row => {
+      const bodyRow = document.createElement('tr');
+      (model.columns || []).forEach(col => {
+        const td = document.createElement('td');
+        td.textContent = Array.isArray(row) ? row[col.key] : row[col.key];
+        bodyRow.appendChild(td);
+      });
+      table.appendChild(bodyRow);
+    });
+    if(!append){
+      target.innerHTML = '';
+    }
+    target.appendChild(table);
+    if(Array.isArray(model.footnotes) && model.footnotes.length){
+      const footnoteList = document.createElement('div');
+      footnoteList.className = 'stats-table-footnotes';
+      model.footnotes.forEach(note => {
+        const item = document.createElement('div');
+        item.className = 'stats-table-footnote';
+        item.textContent = note;
+        footnoteList.appendChild(item);
+      });
+      target.appendChild(footnoteList);
+    }
+  }
+
   function updateHistStats(seriesEntries){
     const target = document.getElementById('histStatsResults');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -2732,6 +3056,7 @@
       return;
     }
     const entries = Array.isArray(seriesEntries) ? seriesEntries.filter(entry => Array.isArray(entry?.values) && entry.values.some(Number.isFinite)) : [];
+    syncHistStatsControls(entries.length);
     target.innerHTML = '';
     if(!entries.length){
       target.textContent = 'No data';
@@ -2740,45 +3065,56 @@
       }
       return;
     }
-    const percentile = (list, p) => {
-      if(!list.length) return NaN;
-      const pos = (list.length - 1) * p;
-      const base = Math.floor(pos);
-      const rest = pos - base;
-      const baseVal = list[base];
-      const nextVal = list[base + 1] !== undefined ? list[base + 1] : baseVal;
-      return baseVal + rest * (nextVal - baseVal);
-    };
-    const statsRows = entries.map(entry => {
-      const sorted = entry.values.filter(Number.isFinite).slice().sort((a, b) => a - b);
-      const mean = (global.jStat?.mean ? global.jStat.mean(sorted) : sorted.reduce((s, v) => s + v, 0) / sorted.length) || 0;
-      const median = global.jStat?.median ? global.jStat.median(sorted) : percentile(sorted, 0.5);
-      const sd = global.jStat?.stdev ? global.jStat.stdev(sorted, true) : Math.sqrt(sorted.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (sorted.length || 1));
-      const min = sorted[0];
-      const max = sorted[sorted.length - 1];
-      const q1 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.25])?.[0] : percentile(sorted, 0.25);
-      const q3 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.75])?.[0] : percentile(sorted, 0.75);
+    const alpha = Number(state.distributionSettings?.alpha);
+    const diagnosticsMode = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
+    const comparisonMode = sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
+    const summaries = entries.map(entry => {
+      const summary = computeHistSummary(entry.values);
       const bestFit = Array.isArray(entry.distributionSummaries)
-        ? entry.distributionSummaries.find(summary => summary?.fit?.valid !== false && summary?.fit)
+        ? entry.distributionSummaries.find(candidate => candidate?.fit?.valid !== false && candidate?.fit)
         : null;
       return {
-        column: entry.label || `Column ${Number(entry.colIndex) + 1}`,
-        n: sorted.length,
-        mean: formatNumber(mean, 2),
-        median: formatNumber(median, 2),
-        sd: formatNumber(sd, 2),
-        min: formatNumber(min, 2),
-        q1: formatNumber(q1, 2),
-        q3: formatNumber(q3, 2),
-        max: formatNumber(max, 2),
-        bestFit: bestFit?.fit?.label || null
+        key: entry.key,
+        colIndex: entry.colIndex,
+        label: entry.label || `Column ${Number(entry.colIndex) + 1}`,
+        summary,
+        bestFit: bestFit?.fit?.label || null,
+        diagnostics: diagnosticsMode !== 'off'
+          ? computeHistNormalFitDiagnostic(entry.values, { alpha: Number.isFinite(alpha) && alpha > 0 ? alpha : 0.05 })
+          : null,
+        modelComparison: diagnosticsMode === 'normal-vs-lognormal'
+          ? computeHistLognormalComparison(entry.values)
+          : null
       };
-    });
-    const totalObservations = statsRows.reduce((sum, row) => sum + (Number(row.n) || 0), 0);
-    const footnotes = statsRows
-      .filter(row => row.bestFit)
-      .map(row => `${row.column}: best fit ${row.bestFit}`);
-    const statsModel = {
+    }).filter(entry => !!entry.summary);
+    const totalObservations = summaries.reduce((sum, entry) => sum + entry.summary.n, 0);
+    const descriptiveRows = summaries.map(entry => ({
+      column: entry.label,
+      n: entry.summary.n,
+      mean: formatNumber(entry.summary.mean, 2),
+      median: formatNumber(entry.summary.median, 2),
+      sd: formatNumber(entry.summary.sd, 2),
+      sem: formatNumber(entry.summary.sem, 2),
+      variance: formatNumber(entry.summary.variance, 2),
+      cv: formatNumber(entry.summary.cv, 2),
+      min: formatNumber(entry.summary.min, 2),
+      q1: formatNumber(entry.summary.q1, 2),
+      q3: formatNumber(entry.summary.q3, 2),
+      max: formatNumber(entry.summary.max, 2),
+      iqr: formatNumber(entry.summary.iqr, 2)
+    }));
+    const shapeRows = summaries.map(entry => ({
+      column: entry.label,
+      skewness: formatNumber(entry.summary.skewness, 3),
+      kurtosis: formatNumber(entry.summary.kurtosis, 3),
+      geometricMean: formatNumber(entry.summary.geometricMean, 2),
+      harmonicMean: formatNumber(entry.summary.harmonicMean, 2),
+      bestFit: entry.bestFit || '\u2014'
+    }));
+    const bestFitFootnotes = summaries
+      .filter(entry => entry.bestFit)
+      .map(entry => `${entry.label}: best fit ${entry.bestFit}`);
+    renderHistStatsModel(target, {
       caption: 'Descriptive statistics',
       columns: [
         { key: 'column', label: 'Column' },
@@ -2786,75 +3122,158 @@
         { key: 'mean', label: 'Mean', align: 'right' },
         { key: 'median', label: 'Median', align: 'right' },
         { key: 'sd', label: 'SD', align: 'right' },
+        { key: 'sem', label: 'SEM', align: 'right' },
+        { key: 'variance', label: 'Variance', align: 'right' },
+        { key: 'cv', label: 'CV (%)', align: 'right' },
         { key: 'min', label: 'Min', align: 'right' },
         { key: 'q1', label: 'Q1', align: 'right' },
         { key: 'q3', label: 'Q3', align: 'right' },
-        { key: 'max', label: 'Max', align: 'right' }
+        { key: 'max', label: 'Max', align: 'right' },
+        { key: 'iqr', label: 'IQR', align: 'right' }
       ],
-      rows: statsRows,
-      footnotes,
+      rows: descriptiveRows,
+      footnotes: bestFitFootnotes,
       options: {
         fileName: 'histogram-stats',
         contextLabel: 'hist-stats'
-      },
-      target,
-      append: false
-    };
-    if(Shared.statsTable && typeof Shared.statsTable.render === 'function'){
-      Shared.statsTable.render(statsModel);
-      if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
-        Shared.statsReporting.appendReportPanel(target, {
-          methodsText: `${graphLabel} descriptive statistics were computed for ${statsRows.length} series spanning ${totalObservations} numeric observations${footnotes.length ? ` with per-series distribution fitting assessed (${footnotes.join('; ')})` : ''}.`,
-          resultsText: statsRows.map(row => `${row.column}: mean = ${row.mean}, median = ${row.median}, SD = ${row.sd}, range = ${row.min} to ${row.max}`).join(' '),
-          analysisSpec: {
-            component: 'hist',
-            n: totalObservations,
-            seriesCount: statsRows.length,
-            bestFit: footnotes.length ? footnotes.join('; ') : null,
-            distributionsTried: entries.reduce((sum, entry) => sum + (Array.isArray(entry.distributionSummaries) ? entry.distributionSummaries.length : 0), 0)
-          }
-        }, { title: 'Reporting and reproducibility' });
       }
-      if(debugEnabled){
-        console.debug('Debug: hist stats rendered via Shared.statsTable', { rows: statsModel.rows.length });
+    }, false);
+    renderHistStatsModel(target, {
+      caption: 'Distribution shape',
+      columns: [
+        { key: 'column', label: 'Column' },
+        { key: 'skewness', label: 'Skewness', align: 'right' },
+        { key: 'kurtosis', label: 'Kurtosis', align: 'right' },
+        { key: 'geometricMean', label: 'Geometric mean', align: 'right' },
+        { key: 'harmonicMean', label: 'Harmonic mean', align: 'right' },
+        { key: 'bestFit', label: 'Best fit' }
+      ],
+      rows: shapeRows,
+      footnotes: ['Geometric and harmonic means are shown only for strictly positive series.'],
+      options: {
+        fileName: 'histogram-shape-stats',
+        contextLabel: 'hist-shape-stats'
       }
-      return;
+    }, true);
+    const diagnosticRows = diagnosticsMode === 'off'
+      ? []
+      : summaries.map(entry => ({
+        column: entry.label,
+        ksStatistic: formatNumber(entry.diagnostics?.gof?.ks?.statistic, 4),
+        ksPValue: formatPValue(entry.diagnostics?.gof?.ks?.pValue),
+        adStatistic: formatNumber(entry.diagnostics?.gof?.ad?.statistic, 4),
+        adPValue: formatPValue(entry.diagnostics?.gof?.ad?.pValue),
+        preferred: entry.modelComparison?.preferred === 'lognormal' ? 'Log-normal' : 'Normal',
+        normalAicc: formatNumber(entry.modelComparison?.normalAicc, 2),
+        lognormalAicc: formatNumber(entry.modelComparison?.lognormalAicc, 2),
+        deltaAicc: formatNumber(entry.modelComparison?.deltaAicc, 2)
+      }));
+    if(diagnosticRows.length){
+      const diagnosticColumns = [
+        { key: 'column', label: 'Column' },
+        { key: 'ksStatistic', label: 'Normal KS D', align: 'right' },
+        { key: 'ksPValue', label: 'Normal KS p', align: 'right' },
+        { key: 'adStatistic', label: 'Normal AD A\u00b2', align: 'right' },
+        { key: 'adPValue', label: 'Normal AD p', align: 'right' }
+      ];
+      if(diagnosticsMode === 'normal-vs-lognormal'){
+        diagnosticColumns.push(
+          { key: 'preferred', label: 'Preferred model' },
+          { key: 'normalAicc', label: 'Normal AICc', align: 'right' },
+          { key: 'lognormalAicc', label: 'Log-normal AICc', align: 'right' },
+          { key: 'deltaAicc', label: '\u0394AICc', align: 'right' }
+        );
+      }
+      renderHistStatsModel(target, {
+        caption: diagnosticsMode === 'normal-vs-lognormal' ? 'Fit diagnostics' : 'Normal fit diagnostics',
+        columns: diagnosticColumns,
+        rows: diagnosticRows,
+        footnotes: diagnosticsMode === 'normal-vs-lognormal'
+          ? ['Lower AICc indicates the preferred parametric model for that series.']
+          : [],
+        options: {
+          fileName: 'histogram-fit-diagnostics',
+          contextLabel: 'hist-fit-diagnostics'
+        }
+      }, true);
     }
-    // Fallback plain table if statsTable is unavailable
-    const table = document.createElement('table');
-    table.className = 'stats-table';
-    const headerRow = document.createElement('tr');
-    statsModel.columns.forEach(col => {
-      const th = document.createElement('th');
-      th.textContent = col.label;
-      headerRow.appendChild(th);
-    });
-    table.appendChild(headerRow);
-    statsRows.forEach(row => {
-      const bodyRow = document.createElement('tr');
-      statsModel.columns.forEach(col => {
-        const td = document.createElement('td');
-        td.textContent = row[col.key];
-        bodyRow.appendChild(td);
-      });
-      table.appendChild(bodyRow);
-    });
-    target.appendChild(table);
+    let ksResult = null;
+    if(comparisonMode === 'ks'){
+      if(summaries.length === 2){
+        ksResult = computeHistKolmogorovSmirnovTwoSample(summaries[0].summary.values, summaries[1].summary.values);
+        renderHistStatsModel(target, {
+          caption: 'Distribution comparison',
+          columns: [
+            { key: 'seriesA', label: 'Series A' },
+            { key: 'seriesB', label: 'Series B' },
+            { key: 'd', label: 'KS D', align: 'right' },
+            { key: 'p', label: 'P value', align: 'right' },
+            { key: 'method', label: 'Method' }
+          ],
+          rows: [{
+            seriesA: summaries[0].label,
+            seriesB: summaries[1].label,
+            d: formatNumber(ksResult.D, 4),
+            p: formatPValue(ksResult.p),
+            method: ksResult.method || '\u2014'
+          }],
+          footnotes: ['Two-sample Kolmogorov-Smirnov compares the full empirical distributions, not only their means or medians.'],
+          options: {
+            fileName: 'histogram-distribution-comparison',
+            contextLabel: 'hist-distribution-comparison'
+          }
+        }, true);
+      }else{
+        renderHistStatsModel(target, {
+          caption: 'Distribution comparison',
+          columns: [{ key: 'note', label: 'Note' }],
+          rows: [{ note: 'Kolmogorov-Smirnov comparison is available only when exactly two series are visible.' }],
+          options: {
+            fileName: 'histogram-distribution-comparison',
+            contextLabel: 'hist-distribution-comparison'
+          }
+        }, true);
+      }
+    }
     if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+      const methods = [
+        `${graphLabel} descriptive statistics were computed for ${summaries.length} series spanning ${totalObservations} numeric observations.`,
+        'Expanded summaries include SEM, variance, CV, IQR, skewness, kurtosis, and positive-only geometric and harmonic means.'
+      ];
+      if(diagnosticsMode === 'normal-fit'){
+        methods.push('Normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted normal model.');
+      }else if(diagnosticsMode === 'normal-vs-lognormal'){
+        methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc.');
+      }
+      if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
+        methods.push('A two-sample Kolmogorov-Smirnov test compared the two visible series.');
+      }
+      const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${formatNumber(entry.summary.skewness, 3)}.`);
+      if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
+        resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, p = ${formatPValue(ksResult.p)}.`);
+      }
       Shared.statsReporting.appendReportPanel(target, {
-        methodsText: `${graphLabel} descriptive statistics were computed for ${statsRows.length} series spanning ${totalObservations} numeric observations${footnotes.length ? ` with per-series distribution fitting assessed (${footnotes.join('; ')})` : ''}.`,
-        resultsText: statsRows.map(row => `${row.column}: mean = ${row.mean}, median = ${row.median}, SD = ${row.sd}, range = ${row.min} to ${row.max}`).join(' '),
+        methodsText: methods.join(' '),
+        resultsText: resultFragments.join(' '),
         analysisSpec: {
           component: 'hist',
           n: totalObservations,
-          seriesCount: statsRows.length,
-          bestFit: footnotes.length ? footnotes.join('; ') : null,
-          distributionsTried: entries.reduce((sum, entry) => sum + (Array.isArray(entry.distributionSummaries) ? entry.distributionSummaries.length : 0), 0)
+          seriesCount: summaries.length,
+          diagnosticsMode,
+          comparisonMode,
+          bestFit: bestFitFootnotes.length ? bestFitFootnotes.join('; ') : null,
+          ksStatistic: ksResult?.available ? ksResult.D : null,
+          ksPValue: ksResult?.available ? ksResult.p : null
         }
       }, { title: 'Reporting and reproducibility' });
     }
     if(debugEnabled){
-      console.debug('Debug: hist stats rendered via fallback table', { rows: statsModel.rows.length });
+      console.debug('Debug: hist stats rendered', {
+        summaryRows: descriptiveRows.length,
+        diagnosticsMode,
+        comparisonMode,
+        hasKs: !!ksResult?.available
+      });
     }
   }
 
@@ -3904,5 +4323,12 @@
     }
     return restored;
   };
+
+  hist.__testHooks = Object.assign({}, hist.__testHooks, {
+    computeSummary: values => computeHistSummary(values),
+    computeNormalFitDiagnostic: (values, options = {}) => computeHistNormalFitDiagnostic(values, options || {}),
+    computeLognormalComparison: values => computeHistLognormalComparison(values),
+    kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b)
+  });
 
 })(window);

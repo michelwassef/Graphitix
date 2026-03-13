@@ -297,9 +297,15 @@
     svgBox: null,
     layout: null,
     minSvgWidth: 0,
-    legendGuardWidth: 0,
     axisSettings: createDefaultAxisSettings(),
-    labelPositions: { title: null, legend: null }
+    labelPositions: { title: null, legend: null },
+    columnSignature: null,
+    statsSignature: null,
+    colorSignature: null,
+    resizeState: {
+      active: false,
+      phase: null
+    }
   };
   const pieUndoManager = Shared.undoManager || null;
   function recordPieChange(label, previous, next, apply){
@@ -417,7 +423,7 @@
     textNodes.forEach((node, index) => {
       markFontEditable(node,'legend',`legend-${index}`);
     });
-    if(typeof Shared.enableLegendDrag === 'function'){
+    if(!state.resizeState?.active && typeof Shared.enableLegendDrag === 'function'){
       Shared.enableLegendDrag(legendGroup, svg, {
         undoLabel: 'pie-legend',
         onDragEnd: pos => {
@@ -455,41 +461,6 @@
     }
   }
 
-  function resolvePieLegendGuardCap(){
-    const svgBox = state.svgBox || state.layout?.elements?.svgBox || null;
-    const datasetMin = Number(svgBox?.dataset?.resizerMinWidth);
-    if(Number.isFinite(datasetMin) && datasetMin > 0){
-      return datasetMin;
-    }
-    return null;
-  }
-
-  function applyPieLegendGuardWidth(requiredWidth){
-    const normalized = Number.isFinite(requiredWidth) ? Math.max(0, Math.round(requiredWidth)) : 0;
-    const cap = resolvePieLegendGuardCap();
-    const effectiveWidth = Number.isFinite(cap) && cap > 0
-      ? Math.max(normalized, cap)
-      : normalized;
-    if(effectiveWidth === state.legendGuardWidth){
-      return;
-    }
-    state.legendGuardWidth = effectiveWidth;
-    state.minSvgWidth = effectiveWidth;
-    try{
-      state.layout?.updateMinSvgWidth?.(effectiveWidth);
-      state.layout?.syncPanels?.({ skipSchedule: true, reason: 'pie-legend-guard' });
-    }catch(err){
-      console.error('pie legend guard update error', err);
-    }
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: pie legend guard width applied', {
-        requestedWidth: normalized,
-        appliedWidth: effectiveWidth,
-        cap
-      });
-    }
-  }
-
   // Return a default color palette for slices
   // Prefer globally defined palettes if available; fallback to local palette
   function getDefaultPalette(){
@@ -507,6 +478,9 @@
 
   const markFontEditable = (node, role, key) => {
     if (!node) { return; }
+    if(state.resizeState?.active){
+      return;
+    }
     const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
     if (fontControls && typeof fontControls.markText === 'function') {
       fontControls.markText(node, { scopeId: 'pie', role, key });
@@ -997,6 +971,17 @@
     console.log('ensurePieColors sync',state.colors); // Debug: resulting color map
   }
 
+  function ensurePieColorsIfNeeded(labels){
+    const signature = Array.isArray(labels)
+      ? labels.map(value => value == null ? '' : String(value)).join('\u0001')
+      : '';
+    if(signature === state.colorSignature){
+      return;
+    }
+    state.colorSignature = signature;
+    ensurePieColors(Array.isArray(labels) ? labels : []);
+  }
+
   function computePieChiSquare(observed, expected){
     const values = (Array.isArray(observed) ? observed : []).map(Number);
     const expectedValues = (Array.isArray(expected) ? expected : []).map(Number);
@@ -1077,6 +1062,19 @@
     }catch(err){ console.error('updatePieStats error',err); }
   }
 
+  function updatePieStatsIfNeeded(labels, observed, expected){
+    const signature = JSON.stringify({
+      labels: Array.isArray(labels) ? labels : [],
+      observed: Array.isArray(observed) ? observed : [],
+      expected: Array.isArray(expected) ? expected : []
+    });
+    if(signature === state.statsSignature){
+      return;
+    }
+    state.statsSignature = signature;
+    updatePieStats(labels, observed, expected);
+  }
+
   function updatePieColumns(header){
     const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn');
     const prevVal=valueColumn.value; const prevExp=expectedColumn.value; valueColumn.innerHTML=''; expectedColumn.innerHTML='';
@@ -1091,9 +1089,21 @@
     console.log('updatePieColumns',{val:valueColumn.value,exp:expectedColumn.value});
   }
 
+  function updatePieColumnsIfNeeded(header){
+    const signature = Array.isArray(header)
+      ? header.map(value => value == null ? '' : String(value)).join('\u0001')
+      : '';
+    if(signature === state.columnSignature){
+      return;
+    }
+    state.columnSignature = signature;
+    updatePieColumns(Array.isArray(header) ? header : []);
+  }
+
   function draw(){
     const plotEl=document.getElementById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     const type=$('#pieChartType').value;
+    const isResizePreview = !!state.resizeState?.active;
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const pieFontInput=$('#pieFontSize');
     const fontInfo=chartStyle.resolveScaledFontSize({
@@ -1131,7 +1141,9 @@
     console.debug('Debug: pie showLegend state',{showLegend, chartType:type});
     const startDeg=parseFloat($('#pieStartAngle').value)||0;
     const data=state.hot.getData();
-    updatePieColumns(data[0]||[]);
+    if(!isResizePreview){
+      updatePieColumnsIfNeeded(data[0]||[]);
+    }
 
 
     if(type==='stacked'){
@@ -1160,7 +1172,7 @@
         }
         return;
       }
-      ensurePieColors(segmentLabels);
+      ensurePieColorsIfNeeded(segmentLabels);
       const palette = getDefaultPalette();
       const stackedLegendEntries = showLegend ? segmentLabels.map((lab,i)=>({
         label: lab,
@@ -1174,7 +1186,6 @@
         onSwatchClick: handlePieLegendSwatchClick
       });
       const stackedLegendVisible = showLegend && stackedLegendLayout.renderer.entries.length > 0;
-      applyPieLegendGuardWidth(stackedLegendVisible ? stackedLegendLayout.minSvgWidth : 0);
       state.legendWidth = stackedLegendVisible ? Math.ceil(stackedLegendLayout.renderer.width) : 0;
       const stackedLegendMargin = stackedLegendVisible ? Math.max(stackedLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
       const stackedLegendGap = stackedLegendVisible ? stackedLegendLayout.legendGapPx : 0;
@@ -1188,7 +1199,7 @@
       });
       plotEl.style.display='flex';
       plotEl.style.alignItems='flex-start';
-      const svgWidth=Math.max(state.minSvgWidth || 50, Math.floor(plotEl.clientWidth||50));
+      const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
       const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
       const svg=document.createElementNS(NS,'svg');
       svg.setAttribute('id','pieSvg');
@@ -1215,10 +1226,10 @@
         // Append after bars and axes so text stays on top
         svg.appendChild(labelLayer);
       }
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      if(!isResizePreview && fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg,{ scopeId: 'pie' });
         console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
-      } else {
+      } else if(!isResizePreview) {
         console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
       }
       const axisSettings = ensureAxisSettings();
@@ -1434,7 +1445,7 @@
       title.setAttribute('font-size',fs);
       title.textContent=state.titleText;
       markFontEditable(title,'graphTitle','graphTitle');
-      if(global.makeEditable){
+      if(!isResizePreview && global.makeEditable){
         makeEditable(title,txt=>{
           const previous=state.titleText!=null?String(state.titleText):'';
           const nextValue=txt!=null?String(txt):'';
@@ -1446,7 +1457,7 @@
         });
       }
       // Enable drag for title
-      if(typeof Shared.enableLabelDrag === 'function'){
+      if(!isResizePreview && typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(title, svg, {
           onDragEnd: pos => {
             state.labelPositions.title = { x: pos.x, y: pos.y };
@@ -1455,13 +1466,17 @@
         });
       }
       svg.appendChild(title);
-      ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
+      if(!isResizePreview){
+        ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
+      }
       const vi=(parseInt($('#pieValueColumn').value||'1',10)-1);
       const ei=(parseInt($('#pieExpectedColumn').value||'2',10)-1);
       const observed=segmentValues.map(row=>{ const v=row[vi]; return (typeof v==='number' && isFinite(v))?v:parseFloat(v)||0; });
       const expected=segmentValues.map(row=>{ const v=row[ei]; return (typeof v==='number' && isFinite(v))?v:parseFloat(v); });
       console.debug('Debug: stacked pie stats data',{vi,ei,observed,expected});
-      updatePieStats(segmentLabels,observed,expected);
+      if(!isResizePreview){
+        updatePieStatsIfNeeded(segmentLabels,observed,expected);
+      }
       return;
     }
 
@@ -1508,7 +1523,7 @@
       }
       return;
     }
-    ensurePieColors(labels);
+    ensurePieColorsIfNeeded(labels);
     const palette2 = getDefaultPalette();
     const radialLegendEntries = showLegend ? labels.map((lab,i)=>({
       label: lab,
@@ -1522,7 +1537,6 @@
       onSwatchClick: handlePieLegendSwatchClick
     });
     const radialLegendVisible = showLegend && radialLegendLayout.renderer.entries.length > 0;
-    applyPieLegendGuardWidth(radialLegendVisible ? radialLegendLayout.minSvgWidth : 0);
     state.legendWidth = radialLegendVisible ? Math.ceil(radialLegendLayout.renderer.width) : 0;
     const radialLegendMargin = radialLegendVisible ? Math.max(radialLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
     const radialLegendGap = radialLegendVisible ? radialLegendLayout.legendGapPx : 0;
@@ -1538,7 +1552,7 @@
     plotEl.style.alignItems='flex-start';
     const plotWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const plotHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
-    const svgWidth=Math.max(state.minSvgWidth || 50, plotWidth);
+    const svgWidth=Math.max(50, plotWidth);
     const svgHeight=Math.max(50,plotHeight);
     console.debug('Debug: pie radial layout metrics', {
       plotWidth,
@@ -1560,15 +1574,20 @@
     chartStyle.applySvgDefaults(svg);
     const svgWrapper=document.createElement('div');
     svgWrapper.style.flex='1 1 auto';
+    svgWrapper.style.width='100%';
+    svgWrapper.style.minWidth='0';
     svgWrapper.style.display='flex';
     svgWrapper.style.alignItems='flex-start';
     svgWrapper.style.justifyContent='center';
+    svgWrapper.style.overflow='hidden';
+    svg.style.display='block';
+    svg.style.minWidth='0';
     svgWrapper.appendChild(svg);
     plotEl.appendChild(svgWrapper);
-    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+    if(!isResizePreview && fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'pie' });
       console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
-    } else {
+    } else if(!isResizePreview) {
       console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
     }
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
@@ -1725,7 +1744,7 @@
     title.setAttribute('font-size',fs);
     title.textContent=state.titleText;
     markFontEditable(title,'graphTitle','graphTitle');
-    if(global.makeEditable){
+    if(!isResizePreview && global.makeEditable){
       makeEditable(title,txt=>{
         const previous=state.titleText!=null?String(state.titleText):'';
         const nextValue=txt!=null?String(txt):'';
@@ -1736,7 +1755,7 @@
         recordPieChange('pie:title',previous,nextValue,value=>applyPieTitleValue(title,value));
       });
     }
-    if(typeof Shared.enableLabelDrag === 'function'){
+    if(!isResizePreview && typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(title, svg, {
         onDragEnd: pos => {
           // Store both absolute and relative positions
@@ -1753,7 +1772,9 @@
       });
     }
     svg.appendChild(title);
-    ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
+    if(!isResizePreview){
+      ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
+    }
     if(radialLegendVisible){
       const legendRenderer = radialLegendLayout.renderer;
       let defaultLegendX = contentRight + radialLegendLayout.legendGapPx;
@@ -1768,7 +1789,9 @@
     }else{
       console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
     }
-    updatePieStats(labels, values, expected);
+    if(!isResizePreview){
+      updatePieStatsIfNeeded(labels, values, expected);
+    }
   }
   pie.draw = draw;
   function initNotes(){
@@ -1835,6 +1858,28 @@
     console.debug('Debug: Components.pie.init');
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
+    const schedulePieLayoutDraw = () => {
+      const phase = state.resizeState?.phase;
+      if(phase === 'move' || phase === 'observe'){
+        return;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+    const schedulePieResizeDraw = phase => {
+      state.resizeState.phase = phase || null;
+      state.resizeState.active = phase === 'move';
+      if(phase === 'observe'){
+        return;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+      if(phase !== 'move'){
+        state.resizeState.active = false;
+      }
+    };
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'pie',
         selectors: {
@@ -1846,11 +1891,17 @@
           svgBox: () => document.querySelector('#pieGraphPanel .svgbox'),
           resizeTarget: () => document.querySelector('#pieGraphPanel .svgbox')
         },
-        scheduleDraw: state.scheduleDraw,
+        scheduleDraw: schedulePieLayoutDraw,
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
+        },
+        resizableBoxOptions: {
+          onResize: phase => {
+            console.debug('Debug: pie layout onResize schedule trigger', { phase });
+            schedulePieResizeDraw(phase);
+          }
         },
         onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
@@ -1858,7 +1909,7 @@
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
     state.layout?.syncPanels?.();
     ensurePieLegendControlPlacement();
     const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
@@ -1874,7 +1925,7 @@
     initNotes();
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
     ensureEmptyPayloadTemplate();
     pie.ready = true;
   };

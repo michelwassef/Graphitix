@@ -60,19 +60,31 @@ Current differential coverage includes:
   - Welch t-test
   - pooled-variance unpaired t-test
   - paired t-test
+  - ratio t-test
+  - lognormal t-test
+  - lognormal Welch t-test
   - one-sample t-test
   - Mann-Whitney U
   - Wilcoxon signed-rank (paired and one-sample)
   - Kolmogorov-Smirnov two-sample
   - one-way ANOVA
   - Welch ANOVA
+  - lognormal one-way ANOVA
+  - lognormal Welch ANOVA
   - Kruskal-Wallis (tie-corrected)
   - Friedman test
   - repeated-measures ANOVA
+  - Brown-Forsythe variance diagnostic
+  - Bartlett variance diagnostic
+  - normal-vs-lognormal AICc comparison
+  - linear trend test across ordered groups
+  - Tamhane T2 unequal-variance post-hoc approximation
 - Pie/proportion:
   - chi-square goodness-of-fit
 - ROC/PR:
   - ROC AUC
+  - ROC AUC standard error and confidence interval
+  - ROC cutoff-by-cutoff threshold metrics
   - PR average precision
   - paired DeLong ROC AUC difference
 - Correlation engines:
@@ -81,6 +93,8 @@ Current differential coverage includes:
   - exact-permutation Spearman branch in `line.js` when eligible
 - Survival:
   - log-rank test
+  - Gehan-Breslow-Wilcoxon weighted log-rank test
+  - log-rank trend test for ordered groups
 
 ## Component Matrix Coverage
 
@@ -89,13 +103,18 @@ Current differential coverage includes:
 - `box.js`
   - parametric vs non-parametric
   - paired vs unpaired vs one-sample
-  - pooled-variance vs Welch
+  - pooled-variance vs Welch vs ratio vs lognormal branches
   - exact-eligible vs asymptotic rank-test branches
-  - ANOVA / Welch ANOVA / Kruskal / Friedman / repeated-measures ANOVA
+  - ANOVA / Welch ANOVA / lognormal ANOVA / lognormal Welch ANOVA / Kruskal / Friedman / repeated-measures ANOVA
+  - Brown-Forsythe and Bartlett variance diagnostics
+  - normal-vs-lognormal AICc comparison
+  - ordered-group linear trend testing
+  - Tamhane T2 pairwise engine
   - Monte Carlo seed and iteration wiring checks
 - `line.js`
   - Pearson and Spearman correlation across all visible regression modes
   - visible regression modes: linear, quadratic, cubic, exponential, power, spline, logistic
+  - shared nonlinear regression families continue to be validated primarily through the regression oracle and `scatter.js` matrix coverage because `line.js` delegates to the shared regression engine
   - exact Spearman permutation branch
   - oracle-backed ARIMA and Holt-Winters forecast validation, including manual and auto-tuned parameter branches
 - `scatter.js`
@@ -104,6 +123,21 @@ Current differential coverage includes:
   - auto-association policy checks
   - logistic-to-4PL routing for non-binary responses
   - fit-method wiring checks, including LOWESS span propagation
+- `roc.js`
+  - ROC AUC, DeLong AUC difference, AUC uncertainty, and threshold-table diagnostic metrics
+- `survival.js`
+  - log-rank, Gehan-Breslow-Wilcoxon, and ordered log-rank trend engines
+
+## Current Scope Boundary
+
+The Python oracle intentionally focuses on deterministic numerical outputs.
+
+Currently excluded from oracle coverage:
+
+- config-only or UI-only options such as grouped multiple-comparison scopes
+- report layout choices and advanced-card placement
+- PCA graphics such as scree overlays, loadings plots, and biplots, unless a stable numeric hook is exposed
+- Cox-model secondary summaries such as Harrell's C and residual cards, until dedicated deterministic hooks/oracle implementations are added
 
 ## Running
 

@@ -1802,6 +1802,23 @@
         <div id="histStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
+            <div class="control idx-inline-031" id="histStatsControls">
+              <label class="idx-inline-023">
+                Fit diagnostics
+                <select id="histStatsDiagnosticsMode">
+                  <option value="normal-vs-lognormal" selected>Normal vs Log-normal</option>
+                  <option value="normal-fit">Normal fit only</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <label class="idx-inline-023">
+                Distribution comparison
+                <select id="histStatsComparisonMode">
+                  <option value="ks" selected>Kolmogorov-Smirnov</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+            </div>
             <div id="histStatsResults"></div>
           </fieldset>
         </div>

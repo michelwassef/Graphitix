@@ -155,10 +155,12 @@ def _fit_normal(values: List[Any]) -> Dict[str, Any]:
     mu = float(np.mean(arr))
     variance = float(np.mean((arr - mu) ** 2))
     sigma = float(math.sqrt(max(variance, 0.0)))
+    log_likelihood = float(np.sum(stats.norm.logpdf(arr, loc=mu, scale=max(sigma, np.finfo(float).eps))))
     return {
         "valid": sigma > 0,
         "usedCount": count,
         "params": {"mu": mu, "sigma": sigma, "variance": variance},
+        "logLikelihood": log_likelihood,
     }
 
 
@@ -171,6 +173,9 @@ def _fit_lognormal(values: List[Any]) -> Dict[str, Any]:
     mu = float(np.mean(logs))
     variance_log = float(np.mean((logs - mu) ** 2))
     sigma = float(math.sqrt(max(variance_log, 0.0)))
+    arr = np.asarray(numeric, dtype=float)
+    safe_sigma = max(sigma, np.finfo(float).eps)
+    log_likelihood = float(np.sum(stats.lognorm.logpdf(arr, s=safe_sigma, scale=math.exp(mu), loc=0)))
     return {
         "valid": sigma > 0,
         "usedCount": count,
@@ -180,6 +185,7 @@ def _fit_lognormal(values: List[Any]) -> Dict[str, Any]:
             "mean": float(math.exp(mu + variance_log / 2)),
             "median": float(math.exp(mu)),
         },
+        "logLikelihood": log_likelihood,
     }
 
 
@@ -1629,7 +1635,23 @@ def box_ttest_welch(payload: Dict[str, Any]) -> Dict[str, Any]:
         t_stat = diff / se
         df = ((va / na + vb / nb) ** 2) / (((va / na) ** 2) / (na - 1) + ((vb / nb) ** 2) / (nb - 1))
         p_value = _p_from_t_stat(t_stat, df, alternative)
-    return {"available": True, "t": t_stat, "df": df, "p": p_value, "se": se, "diff": diff, "meanA": ma, "meanB": mb}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    t_crit = float(stats.t.ppf(1 - alpha / 2, df)) if math.isfinite(df) and df > 0 else float("nan")
+    ci_half = t_crit * se if math.isfinite(t_crit) and math.isfinite(se) else float("nan")
+    return {
+        "available": True,
+        "t": t_stat,
+        "df": df,
+        "p": p_value,
+        "se": se,
+        "diff": diff,
+        "meanA": ma,
+        "meanB": mb,
+        "ciLow": diff - ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciHigh": diff + ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciLevel": 1 - alpha,
+        "alternative": alternative,
+    }
 
 
 def box_ttest_equal_variance(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1658,7 +1680,23 @@ def box_ttest_equal_variance(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         t_stat = diff / se
         p_value = _p_from_t_stat(t_stat, df, alternative)
-    return {"available": True, "t": t_stat, "df": df, "p": p_value, "se": se, "diff": diff, "meanA": ma, "meanB": mb}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    t_crit = float(stats.t.ppf(1 - alpha / 2, df)) if math.isfinite(df) and df > 0 else float("nan")
+    ci_half = t_crit * se if math.isfinite(t_crit) and math.isfinite(se) else float("nan")
+    return {
+        "available": True,
+        "t": t_stat,
+        "df": df,
+        "p": p_value,
+        "se": se,
+        "diff": diff,
+        "meanA": ma,
+        "meanB": mb,
+        "ciLow": diff - ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciHigh": diff + ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciLevel": 1 - alpha,
+        "alternative": alternative,
+    }
 
 
 def box_ttest_paired(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1681,7 +1719,48 @@ def box_ttest_paired(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         t_stat = mean_diff / se
         p_value = _p_from_t_stat(t_stat, n - 1, alternative)
-    return {"available": True, "t": t_stat, "df": float(n - 1), "p": p_value, "diff": mean_diff, "se": se}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    t_crit = float(stats.t.ppf(1 - alpha / 2, n - 1)) if n > 1 else float("nan")
+    ci_half = t_crit * se if math.isfinite(t_crit) and math.isfinite(se) else float("nan")
+    return {
+        "available": True,
+        "t": t_stat,
+        "df": float(n - 1),
+        "p": p_value,
+        "diff": mean_diff,
+        "se": se,
+        "ciLow": mean_diff - ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciHigh": mean_diff + ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciLevel": 1 - alpha,
+        "alternative": alternative,
+    }
+
+
+def box_ratio_ttest(payload: Dict[str, Any]) -> Dict[str, Any]:
+    a, b = _clean_paired_vectors(payload.get("a"), payload.get("b"))
+    pairs = [(x, y) for x, y in zip(a, b) if x > 0 and y > 0]
+    if len(pairs) < 2:
+        return {"available": False, "message": "Ratio t test requires at least two paired positive observations."}
+    log_ratios = [math.log(x / y) for x, y in pairs]
+    result = box_ttest_one_sample({
+        "values": log_ratios,
+        "nullValue": 0.0,
+        "alternative": payload.get("alternative"),
+    })
+    if not result.get("available"):
+        return result
+    ci_low = result.get("ciLow")
+    ci_high = result.get("ciHigh")
+    return {
+        **result,
+        "ratio": float(math.exp(result["mean"])) if _is_finite_number(result.get("mean")) else float("nan"),
+        "diff": float(math.exp(result["mean"])) if _is_finite_number(result.get("mean")) else float("nan"),
+        "meanDiff": float(math.exp(result["mean"])) if _is_finite_number(result.get("mean")) else float("nan"),
+        "ciLow": float(math.exp(ci_low)) if _is_finite_number(ci_low) else None,
+        "ciHigh": float(math.exp(ci_high)) if _is_finite_number(ci_high) else None,
+        "scale": "ratio",
+        "validPairs": len(pairs),
+    }
 
 
 def box_ttest_one_sample(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1706,7 +1785,80 @@ def box_ttest_one_sample(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         t_stat = diff / se
         p_value = _p_from_t_stat(t_stat, n - 1, alternative)
-    return {"available": True, "t": t_stat, "df": float(n - 1), "p": p_value, "diff": diff, "se": se, "mean": mean_val, "sd": sd}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    t_crit = float(stats.t.ppf(1 - alpha / 2, n - 1)) if n > 1 else float("nan")
+    ci_half = t_crit * se if math.isfinite(t_crit) else float("nan")
+    return {
+        "available": True,
+        "t": t_stat,
+        "df": float(n - 1),
+        "p": p_value,
+        "diff": diff,
+        "se": se,
+        "mean": mean_val,
+        "sd": sd,
+        "ciLow": mean_val - ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciHigh": mean_val + ci_half if math.isfinite(ci_half) else float("nan"),
+        "ciLevel": 1 - alpha,
+        "alternative": alternative,
+    }
+
+
+def _box_require_positive_groups(groups: List[List[float]], message: str) -> Tuple[bool, Dict[str, Any]]:
+    if any(any(value <= 0 for value in group) for group in groups):
+        return False, {"available": False, "message": message}
+    return True, {}
+
+
+def _convert_lognormal_two_group_result(result: Dict[str, Any], a: List[float], b: List[float]) -> Dict[str, Any]:
+    mean_a_log = float(np.mean(np.log(np.asarray(a, dtype=float))))
+    mean_b_log = float(np.mean(np.log(np.asarray(b, dtype=float))))
+    ratio = math.exp(mean_a_log - mean_b_log)
+    ci_low = result.get("ciLow")
+    ci_high = result.get("ciHigh")
+    return {
+        **result,
+        "ratio": ratio,
+        "diff": ratio,
+        "meanDiff": ratio,
+        "meanA": float(math.exp(mean_a_log)),
+        "meanB": float(math.exp(mean_b_log)),
+        "ciLow": float(math.exp(ci_low)) if _is_finite_number(ci_low) else None,
+        "ciHigh": float(math.exp(ci_high)) if _is_finite_number(ci_high) else None,
+        "scale": "ratio",
+    }
+
+
+def box_lognormal_ttest_equal_variance(payload: Dict[str, Any]) -> Dict[str, Any]:
+    a = _clean_vector(payload.get("a"))
+    b = _clean_vector(payload.get("b"))
+    if len(a) < 2 or len(b) < 2:
+        return {"available": False, "message": "Need at least two observations per group."}
+    ok, failure = _box_require_positive_groups([a, b], "Lognormal t tests require strictly positive values in both groups.")
+    if not ok:
+        return failure
+    result = box_ttest_equal_variance({
+        "a": [math.log(v) for v in a],
+        "b": [math.log(v) for v in b],
+        "alternative": payload.get("alternative"),
+    })
+    return _convert_lognormal_two_group_result(result, a, b) if result.get("available") else result
+
+
+def box_lognormal_ttest_welch(payload: Dict[str, Any]) -> Dict[str, Any]:
+    a = _clean_vector(payload.get("a"))
+    b = _clean_vector(payload.get("b"))
+    if len(a) < 2 or len(b) < 2:
+        return {"available": False, "message": "Need at least two observations per group."}
+    ok, failure = _box_require_positive_groups([a, b], "Lognormal Welch t tests require strictly positive values in both groups.")
+    if not ok:
+        return failure
+    result = box_ttest_welch({
+        "a": [math.log(v) for v in a],
+        "b": [math.log(v) for v in b],
+        "alternative": payload.get("alternative"),
+    })
+    return _convert_lognormal_two_group_result(result, a, b) if result.get("available") else result
 
 
 def box_mann_whitney(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1820,6 +1972,211 @@ def box_welch_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "F": f_stat, "p": p_value, "df1": df1, "df2": df2, "means": means, "counts": counts}
 
 
+def box_lognormal_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    groups = [group for group in groups if len(group) > 0]
+    if len(groups) < 2:
+        return {"available": False, "message": "Need at least two groups."}
+    ok, failure = _box_require_positive_groups(groups, "Lognormal ANOVA requires strictly positive values in every included group.")
+    if not ok:
+        return failure
+    result = box_anova({"groups": [[math.log(v) for v in group] for group in groups]})
+    if not result.get("available"):
+        return result
+    return {
+        **result,
+        "lognormal": True,
+        "means": [float(math.exp(np.mean(np.log(np.asarray(group, dtype=float))))) for group in groups],
+        "counts": [len(group) for group in groups],
+    }
+
+
+def box_lognormal_welch_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    groups = [group for group in groups if len(group) > 0]
+    if len(groups) < 2:
+        return {"available": False, "message": "Need at least two groups."}
+    ok, failure = _box_require_positive_groups(groups, "Lognormal Welch ANOVA requires strictly positive values in every included group.")
+    if not ok:
+        return failure
+    result = box_welch_anova({"groups": [[math.log(v) for v in group] for group in groups]})
+    if not result.get("available"):
+        return result
+    return {
+        **result,
+        "lognormal": True,
+        "means": [float(math.exp(np.mean(np.log(np.asarray(group, dtype=float))))) for group in groups],
+        "counts": [len(group) for group in groups],
+    }
+
+
+def box_brown_forsythe(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    labels = payload.get("labels") or []
+    groups = [group for group in groups if len(group) > 0]
+    if len(groups) < 2:
+        return {"method": "brown-forsythe", "statistic": None, "pValue": None, "passed": None, "df1": 0, "df2": 0, "sparkline": [], "reason": "Need >=2 groups"}
+    summaries = []
+    total_n = 0
+    grand_sum = 0.0
+    sparkline = []
+    for idx, group in enumerate(groups):
+        median = float(np.median(group)) if group else float("nan")
+        deviations = [abs(value - median) for value in group]
+        count = len(deviations)
+        total_n += count
+        sum_dev = float(sum(deviations))
+        sum_sq = float(sum(value * value for value in deviations))
+        mean_dev = sum_dev / count if count else 0.0
+        grand_sum += sum_dev
+        sparkline.append({"label": labels[idx] if idx < len(labels) else None, "value": mean_dev})
+        summaries.append({"count": count, "sum": sum_dev, "sumSquares": sum_sq, "mean": mean_dev})
+    k = len(summaries)
+    if total_n <= k:
+        return {"method": "brown-forsythe", "statistic": None, "pValue": None, "passed": None, "df1": k - 1, "df2": max(total_n - k, 0), "sparkline": sparkline, "reason": "Insufficient observations"}
+    grand_mean = grand_sum / total_n
+    ss_between = 0.0
+    ss_within = 0.0
+    for summary in summaries:
+        count = summary["count"]
+        if count <= 0:
+            continue
+        ss_between += count * ((summary["mean"] - grand_mean) ** 2)
+        ss_within += summary["sumSquares"] - ((summary["sum"] ** 2) / count)
+    df1 = k - 1
+    df2 = total_n - k
+    ms_between = ss_between / max(df1, 1)
+    ms_within = ss_within / max(df2, 1)
+    f_stat = float("inf") if ms_within == 0 and ms_between > 0 else (0.0 if ms_within == 0 else (ms_between / ms_within))
+    p_value = 0.0 if math.isinf(f_stat) else float(1 - stats.f.cdf(f_stat, df1, df2))
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    return {"method": "brown-forsythe", "statistic": f_stat, "pValue": p_value, "passed": p_value >= alpha, "df1": df1, "df2": df2, "sparkline": sparkline}
+
+
+def box_bartlett(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    labels = payload.get("labels") or []
+    groups = [group for group in groups if len(group) > 0]
+    if len(groups) < 2:
+        return {"method": "bartlett", "statistic": None, "pValue": None, "passed": None, "df1": 0, "df2": 0, "sparkline": [], "reason": "Need >=2 groups"}
+    if any(len(group) < 2 for group in groups):
+        return {"method": "bartlett", "statistic": None, "pValue": None, "passed": None, "df1": len(groups) - 1, "df2": 0, "sparkline": [], "reason": "Each group needs at least two observations"}
+    result = stats.bartlett(*groups)
+    counts = [len(group) for group in groups]
+    total_n = sum(counts)
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    variances = [float(np.var(group, ddof=1)) for group in groups]
+    return {
+        "method": "bartlett",
+        "statistic": float(result.statistic),
+        "pValue": float(result.pvalue),
+        "passed": float(result.pvalue) >= alpha,
+        "df1": len(groups) - 1,
+        "df2": total_n - len(groups),
+        "sparkline": [{"label": labels[idx] if idx < len(labels) else None, "value": variances[idx]} for idx in range(len(groups))],
+    }
+
+
+def box_lognormal_comparison(payload: Dict[str, Any]) -> Dict[str, Any]:
+    values = _clean_vector(payload.get("values"))
+    if len(values) < 2:
+        return {"valid": False}
+    normal_fit = fit_distribution("normal", values)
+    lognormal_fit = fit_distribution("lognormal", values)
+    if not normal_fit.get("valid") or not lognormal_fit.get("valid"):
+        return {"valid": False}
+    n = len(values)
+
+    def _aicc(log_likelihood: Any, parameter_count: int) -> float:
+        if not _is_finite_number(log_likelihood):
+            return float("nan")
+        k = max(1, int(parameter_count))
+        if n <= k + 1:
+            return float("nan")
+        aic = (2 * k) - (2 * float(log_likelihood))
+        return float(aic + ((2 * k * (k + 1)) / max(n - k - 1, 1)))
+
+    normal_aicc = _aicc(normal_fit.get("logLikelihood"), 2)
+    lognormal_aicc = _aicc(lognormal_fit.get("logLikelihood"), 2)
+    preferred = "lognormal" if math.isfinite(lognormal_aicc) and (not math.isfinite(normal_aicc) or lognormal_aicc < normal_aicc) else "normal"
+    delta = abs(normal_aicc - lognormal_aicc) if math.isfinite(normal_aicc) and math.isfinite(lognormal_aicc) else float("nan")
+    return {
+        "valid": True,
+        "preferred": preferred,
+        "normalAicc": normal_aicc,
+        "lognormalAicc": lognormal_aicc,
+        "deltaAicc": delta,
+    }
+
+
+def box_linear_trend(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = payload.get("groups") or []
+    labels = payload.get("labels") or []
+    alternative = _resolve_alternative(payload.get("alternative"))
+    x_values: List[float] = []
+    y_values: List[float] = []
+    for group_idx, group in enumerate(groups):
+        for value in _clean_vector(group):
+            x_values.append(float(group_idx))
+            y_values.append(float(value))
+    if len(x_values) < 3:
+        return {"available": False, "message": "Need at least three observations across ordered groups."}
+    x = np.asarray(x_values, dtype=float)
+    y = np.asarray(y_values, dtype=float)
+    mean_x = float(np.mean(x))
+    mean_y = float(np.mean(y))
+    dx = x - mean_x
+    dy = y - mean_y
+    sxx = float(np.sum(dx * dx))
+    sxy = float(np.sum(dx * dy))
+    syy = float(np.sum(dy * dy))
+    if not sxx > 0:
+        return {"available": False, "message": "Ordered groups need more than one distinct position."}
+    slope = sxy / sxx
+    intercept = mean_y - (slope * mean_x)
+    residuals = y - (intercept + (slope * x))
+    df = max(len(x_values) - 2, 1)
+    mse = float(np.sum(residuals * residuals) / df)
+    se_slope = math.sqrt(mse / sxx)
+    t_stat = slope / se_slope if se_slope > 0 else float("nan")
+    p_value = _p_from_t_stat(t_stat, df, alternative) if math.isfinite(t_stat) else float("nan")
+    r_squared = max(0.0, min(1.0, (sxy * sxy) / (sxx * syy))) if syy > 0 else float("nan")
+    return {"available": True, "slope": slope, "intercept": intercept, "t": t_stat, "df": float(df), "p": p_value, "rSquared": r_squared, "order": list(labels)}
+
+
+def box_tamhane_t2(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    labels = payload.get("labels") or []
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    if len(groups) < 2:
+        return {"ok": False, "message": "Tamhane T2 requires at least two groups."}
+    if any(len(group) < 2 for group in groups):
+        return {"ok": False, "message": "Tamhane T2 needs at least two observations per group."}
+    pair_count = (len(groups) * (len(groups) - 1)) // 2
+    sidak_alpha = 1 - ((1 - alpha) ** (1 / max(pair_count, 1)))
+    pairs = []
+    for i in range(len(groups)):
+        for j in range(i + 1, len(groups)):
+            raw = box_ttest_welch({"a": groups[i], "b": groups[j], "alternative": "two-sided"})
+            if not raw.get("available"):
+                continue
+            p_raw = float(raw["p"])
+            adjusted = 1 - ((1 - p_raw) ** max(pair_count, 1))
+            pairs.append({
+                "i": i,
+                "j": j,
+                "groupA": labels[i] if i < len(labels) else f"Group {i + 1}",
+                "groupB": labels[j] if j < len(labels) else f"Group {j + 1}",
+                "diff": float(raw.get("diff")),
+                "t": float(raw.get("t")),
+                "df": float(raw.get("df")),
+                "p": p_raw,
+                "adjustedP": _clamp_unit(adjusted),
+                "significant": adjusted <= alpha,
+            })
+    return {"ok": True, "pairs": pairs, "sidakAlpha": sidak_alpha, "footnote": "Tamhane T2 approximated with Welch t-tests and Sidak family-wise adjustment."}
+
+
 def box_kruskal(payload: Dict[str, Any]) -> Dict[str, Any]:
     groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
     groups = [group for group in groups if len(group) > 0]
@@ -1916,6 +2273,96 @@ def box_kolmogorov_smirnov(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "D": float(result.statistic), "p": float(result.pvalue), "method": "asymptotic"}
 
 
+def _quantile_linear(values: np.ndarray, q: float) -> float:
+    try:
+        return float(np.quantile(values, q, method="linear"))
+    except TypeError:
+        return float(np.quantile(values, q, interpolation="linear"))
+
+
+def hist_descriptive_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
+    values = _clean_vector(payload.get("values"))
+    if not values:
+        return {"available": False, "message": "Need at least one numeric value."}
+    arr = np.asarray(sorted(values), dtype=float)
+    n = int(arr.size)
+    mean = float(np.mean(arr))
+    median = float(np.median(arr))
+    variance = float(np.var(arr, ddof=1)) if n > 1 else float("nan")
+    sd = float(math.sqrt(variance)) if math.isfinite(variance) and variance >= 0 else float("nan")
+    sem = float(sd / math.sqrt(n)) if n > 1 and math.isfinite(sd) else float("nan")
+    q1 = _quantile_linear(arr, 0.25)
+    q3 = _quantile_linear(arr, 0.75)
+    iqr = float(q3 - q1)
+    cv = float((sd / abs(mean)) * 100.0) if math.isfinite(sd) and mean != 0 else float("nan")
+    skewness = float("nan")
+    kurtosis = float("nan")
+    if n >= 3 and math.isfinite(sd) and sd > 0:
+        z = (arr - mean) / sd
+        z3 = float(np.sum(z ** 3))
+        skewness = float((n / ((n - 1) * (n - 2))) * z3)
+        if n >= 4:
+            z4 = float(np.sum(z ** 4))
+            kurtosis = float(((n * (n + 1)) / ((n - 1) * (n - 2) * (n - 3))) * z4 - ((3 * (n - 1) ** 2) / ((n - 2) * (n - 3))))
+    strictly_positive = bool(np.all(arr > 0))
+    geometric_mean = float(math.exp(np.mean(np.log(arr)))) if strictly_positive else float("nan")
+    harmonic_mean = float(n / np.sum(1.0 / arr)) if strictly_positive else float("nan")
+    return {
+        "available": True,
+        "n": n,
+        "mean": mean,
+        "median": median,
+        "variance": variance,
+        "sd": sd,
+        "sem": sem,
+        "min": float(arr[0]),
+        "q1": q1,
+        "q3": q3,
+        "max": float(arr[-1]),
+        "iqr": iqr,
+        "cv": cv,
+        "skewness": skewness,
+        "kurtosis": kurtosis,
+        "geometricMean": geometric_mean,
+        "harmonicMean": harmonic_mean,
+    }
+
+
+def _compute_aicc(log_likelihood: float, parameter_count: int, sample_size: int) -> float:
+    if not math.isfinite(log_likelihood) or sample_size <= parameter_count + 1:
+        return float("nan")
+    aic = (2 * parameter_count) - (2 * log_likelihood)
+    return float(aic + ((2 * parameter_count * (parameter_count + 1)) / max(sample_size - parameter_count - 1, 1)))
+
+
+def hist_lognormal_comparison(payload: Dict[str, Any]) -> Dict[str, Any]:
+    values = _clean_vector(payload.get("values"))
+    if len(values) < 2:
+        return {"available": False, "message": "Need at least two numeric values."}
+    normal_fit = fit_distribution("normal", values)
+    lognormal_fit = fit_distribution("lognormal", values)
+    normal_aicc = _compute_aicc(float(normal_fit.get("logLikelihood", float("nan"))), 2, len(values))
+    lognormal_aicc = _compute_aicc(float(lognormal_fit.get("logLikelihood", float("nan"))), 2, len(values))
+    preferred = "lognormal" if math.isfinite(lognormal_aicc) and (not math.isfinite(normal_aicc) or lognormal_aicc < normal_aicc) else "normal"
+    delta = abs(normal_aicc - lognormal_aicc) if math.isfinite(normal_aicc) and math.isfinite(lognormal_aicc) else float("nan")
+    return {
+        "available": True,
+        "preferred": preferred,
+        "normalAicc": float(normal_aicc),
+        "lognormalAicc": float(lognormal_aicc),
+        "deltaAicc": float(delta),
+    }
+
+
+def hist_kolmogorov_smirnov(payload: Dict[str, Any]) -> Dict[str, Any]:
+    a = _clean_vector(payload.get("a"))
+    b = _clean_vector(payload.get("b"))
+    if not a or not b:
+        return {"available": False, "message": "Need at least one observation per group."}
+    result = stats.ks_2samp(a, b, alternative="two-sided", method="asymp")
+    return {"available": True, "D": float(result.statistic), "p": float(result.pvalue), "method": "asymptotic"}
+
+
 def pie_chi_square(payload: Dict[str, Any]) -> Dict[str, Any]:
     observed = _clean_vector(payload.get("observed"))
     expected = _clean_vector(payload.get("expected"))
@@ -1985,6 +2432,103 @@ def roc_curve_metric(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         metric = _average_precision_binary(y_true, y_score)
     return {"available": True, "metric": metric}
+
+
+def _sample_variance(values: List[float]) -> float:
+    if len(values) <= 1:
+        return 0.0
+    return float(np.var(np.asarray(values, dtype=float), ddof=1))
+
+
+def _resolve_z_critical(alpha: float) -> float:
+    bounded = min(max(float(alpha), 1e-12), 0.5)
+    return float(stats.norm.ppf(1 - (bounded / 2)))
+
+
+def _wilson_interval(successes: float, total: float, alpha: float = 0.05) -> Dict[str, float] | None:
+    if total <= 0:
+        return None
+    p_hat = successes / total
+    z = _resolve_z_critical(alpha)
+    z2_over_n = (z * z) / total
+    denom = 1 + z2_over_n
+    center = (p_hat + (z2_over_n / 2)) / denom
+    margin = (z / denom) * math.sqrt(max((p_hat * (1 - p_hat) / total) + ((z * z) / (4 * total * total)), 0.0))
+    return {"low": max(0.0, center - margin), "high": min(1.0, center + margin)}
+
+
+def roc_auc_uncertainty(payload: Dict[str, Any]) -> Dict[str, Any]:
+    pairs = _prepare_pairs(payload.get("pairs"))
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    positives = [pair["score"] for pair in pairs if pair["label"] == 1]
+    negatives = [pair["score"] for pair in pairs if pair["label"] == 0]
+    m = len(positives)
+    n = len(negatives)
+    if m < 1 or n < 1:
+        return {"available": False, "message": "Need at least one positive and one negative score."}
+    kernel = lambda pos, neg: 1.0 if pos > neg else (0.5 if pos == neg else 0.0)
+    v10 = [sum(kernel(score, neg) for neg in negatives) / n for score in positives]
+    v01 = [sum(kernel(pos, score) for pos in positives) / m for score in negatives]
+    auc = sum(v10) / m
+    variance = (_sample_variance(v10) / m) + (_sample_variance(v01) / n)
+    se = math.sqrt(variance) if variance >= 0 else float("nan")
+    z = _resolve_z_critical(alpha)
+    ci_low = max(0.0, auc - (z * se)) if math.isfinite(se) else float("nan")
+    ci_high = min(1.0, auc + (z * se)) if math.isfinite(se) else float("nan")
+    return {"available": True, "auc": auc, "se": se, "ciLow": ci_low, "ciHigh": ci_high, "method": "DeLong-style"}
+
+
+def roc_threshold_table(payload: Dict[str, Any]) -> Dict[str, Any]:
+    pairs = _prepare_pairs(payload.get("pairs"))
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    if not pairs:
+        return {"available": False, "message": "No valid pairs supplied."}
+    sorted_pairs = sorted(pairs, key=lambda pair: pair["score"], reverse=True)
+    positives = sum(1 for pair in sorted_pairs if pair["label"] == 1)
+    negatives = len(sorted_pairs) - positives
+    tp = 0
+    fp = 0
+    tn = negatives
+    fn = positives
+    rows = []
+    index = 0
+    while index < len(sorted_pairs):
+        threshold = sorted_pairs[index]["score"]
+        while index < len(sorted_pairs) and sorted_pairs[index]["score"] == threshold:
+            current = sorted_pairs[index]
+            if current["label"] == 1:
+                tp += 1
+                fn -= 1
+            else:
+                fp += 1
+                tn -= 1
+            index += 1
+        sensitivity = (tp / positives) if positives > 0 else float("nan")
+        specificity = (tn / negatives) if negatives > 0 else float("nan")
+        ppv = (tp / (tp + fp)) if (tp + fp) > 0 else float("nan")
+        npv = (tn / (tn + fn)) if (tn + fn) > 0 else float("nan")
+        accuracy = ((tp + tn) / len(sorted_pairs)) if sorted_pairs else float("nan")
+        lr_positive = (sensitivity / (1 - specificity)) if math.isfinite(sensitivity) and math.isfinite(specificity) and specificity < 1 else float("inf")
+        lr_negative = ((1 - sensitivity) / specificity) if math.isfinite(sensitivity) and math.isfinite(specificity) and specificity > 0 else float("inf")
+        rows.append({
+            "threshold": threshold,
+            "tp": tp,
+            "fp": fp,
+            "tn": tn,
+            "fn": fn,
+            "sensitivity": sensitivity,
+            "specificity": specificity,
+            "ppv": ppv,
+            "npv": npv,
+            "accuracy": accuracy,
+            "lrPositive": lr_positive,
+            "lrNegative": lr_negative,
+            "sensitivityCi": _wilson_interval(tp, positives, alpha),
+            "specificityCi": _wilson_interval(tn, negatives, alpha),
+            "ppvCi": _wilson_interval(tp, tp + fp, alpha),
+            "npvCi": _wilson_interval(tn, tn + fn, alpha),
+        })
+    return {"available": True, "rows": rows}
 
 
 def _calc_delong_v(pos: List[float], neg: List[float]) -> Tuple[np.ndarray, np.ndarray, float]:
@@ -2093,11 +2637,9 @@ def correlation(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "method": "pearson", "r": float(stat.statistic), "p": float(stat.pvalue), "n": int(x.size), "pMethod": "Student t approximation"}
 
 
-def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
-    series = payload.get("series") or []
+def _prepare_survival_groups(series: Any) -> Tuple[List[List[Dict[str, Any]]], str | None]:
     if not isinstance(series, list) or len(series) < 2:
-        return {"available": False, "message": "Log-rank requires at least two groups."}
-
+        return [], "Log-rank requires at least two groups."
     groups: List[List[Dict[str, Any]]] = []
     for group in series:
         records = []
@@ -2108,8 +2650,11 @@ def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
                 records.append({"time": float(time), "event": bool(event)})
         groups.append(records)
     if any(len(group) == 0 for group in groups):
-        return {"available": False, "message": "Each group must contain records."}
+        return [], "Each group must contain records."
+    return groups, None
 
+
+def _weighted_survival_logrank(groups: List[List[Dict[str, Any]]], label: str, weight_mode: str = "logrank", scores: List[float] | None = None) -> Dict[str, Any]:
     event_times = sorted({
         rec["time"]
         for group in groups
@@ -2117,7 +2662,7 @@ def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
         if rec["event"] and _is_finite_number(rec["time"])
     })
     if not event_times:
-        return {"available": False, "message": "No events detected for log-rank."}
+        return {"available": False, "message": f"No events detected for {label.lower()}."}
 
     k = len(groups)
     at_risk = [len(group) for group in groups]
@@ -2141,11 +2686,12 @@ def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
         censored = np.array([event_maps[idx].get(time, {}).get("censored", 0) for idx in range(k)], dtype=float)
         total_events = float(np.sum(events))
         total_at_risk = float(np.sum(at_risk))
+        weight = total_at_risk if weight_mode == "gehan" else 1.0
         if total_events > 0 and total_at_risk > 0:
             expected = (np.asarray(at_risk, dtype=float) / total_at_risk) * total_events
-            diff += events - expected
+            diff += weight * (events - expected)
             if total_at_risk > 1:
-                common = total_events * (total_at_risk - total_events) / (total_at_risk * (total_at_risk - 1))
+                common = weight * weight * total_events * (total_at_risk - total_events) / (total_at_risk * (total_at_risk - 1))
                 p = np.asarray(at_risk, dtype=float) / total_at_risk
                 for i in range(k):
                     for j in range(k):
@@ -2155,15 +2701,51 @@ def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
                             variance[i, j] -= common * p[i] * p[j]
         at_risk = [max(0, int(at_risk[idx] - events[idx] - censored[idx])) for idx in range(k)]
 
+    if scores is not None:
+        score_vec = np.asarray(scores, dtype=float)
+        numerator = float(score_vec @ diff)
+        denom = float(score_vec @ variance @ score_vec)
+        if denom <= 0:
+            return {"available": False, "message": "Unable to estimate log-rank trend variance."}
+        chi2 = (numerator * numerator) / denom
+        p_value = float(1 - stats.chi2.cdf(chi2, 1))
+        return {"available": True, "chi2": chi2, "df": 1, "p": p_value, "scores": list(scores)}
+
     df = k - 1
     if df <= 0:
-        return {"available": False, "message": "Invalid log-rank degrees of freedom."}
+        return {"available": False, "message": f"Invalid {label.lower()} degrees of freedom."}
     reduced = variance[:df, :df]
     inv = np.linalg.pinv(reduced)
     diff_vec = diff[:df]
     chi2 = float(diff_vec.T @ inv @ diff_vec)
     p_value = float(1 - stats.chi2.cdf(chi2, df))
     return {"available": True, "chi2": chi2, "df": df, "p": p_value}
+
+
+def survival_logrank(payload: Dict[str, Any]) -> Dict[str, Any]:
+    series = payload.get("series") or []
+    groups, error = _prepare_survival_groups(series)
+    if error:
+        return {"available": False, "message": error}
+    return _weighted_survival_logrank(groups, "Log-rank", "logrank")
+
+
+def survival_gehan_breslow(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups, error = _prepare_survival_groups(payload.get("series") or [])
+    if error:
+        return {"available": False, "message": error}
+    return _weighted_survival_logrank(groups, "Gehan-Breslow-Wilcoxon", "gehan")
+
+
+def survival_logrank_trend(payload: Dict[str, Any]) -> Dict[str, Any]:
+    series = payload.get("series") or []
+    groups, error = _prepare_survival_groups(series)
+    if error:
+        return {"available": False, "message": error}
+    if len(groups) < 3:
+        return {"available": False, "message": "Trend test requires at least three ordered groups."}
+    scores = [idx + 1 for idx in range(len(groups))]
+    return _weighted_survival_logrank(groups, "Log-rank trend", "logrank", scores=scores)
 
 
 def _clean_json(value: Any) -> Any:
@@ -2259,6 +2841,12 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_ttest_equal_variance(payload)
     elif operation == "box_ttest_paired":
         result = box_ttest_paired(payload)
+    elif operation == "box_ratio_ttest":
+        result = box_ratio_ttest(payload)
+    elif operation == "box_lognormal_ttest_equal_variance":
+        result = box_lognormal_ttest_equal_variance(payload)
+    elif operation == "box_lognormal_ttest_welch":
+        result = box_lognormal_ttest_welch(payload)
     elif operation == "box_ttest_one_sample":
         result = box_ttest_one_sample(payload)
     elif operation == "box_mann_whitney":
@@ -2271,6 +2859,20 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_anova(payload)
     elif operation == "box_welch_anova":
         result = box_welch_anova(payload)
+    elif operation == "box_lognormal_anova":
+        result = box_lognormal_anova(payload)
+    elif operation == "box_lognormal_welch_anova":
+        result = box_lognormal_welch_anova(payload)
+    elif operation == "box_brown_forsythe":
+        result = box_brown_forsythe(payload)
+    elif operation == "box_bartlett":
+        result = box_bartlett(payload)
+    elif operation == "box_lognormal_comparison":
+        result = box_lognormal_comparison(payload)
+    elif operation == "box_linear_trend":
+        result = box_linear_trend(payload)
+    elif operation == "box_tamhane_t2":
+        result = box_tamhane_t2(payload)
     elif operation == "box_kruskal":
         result = box_kruskal(payload)
     elif operation == "box_friedman":
@@ -2279,16 +2881,30 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_repeated_measures_anova(payload)
     elif operation == "box_kolmogorov_smirnov":
         result = box_kolmogorov_smirnov(payload)
+    elif operation == "hist_descriptive_summary":
+        result = hist_descriptive_summary(payload)
+    elif operation == "hist_lognormal_comparison":
+        result = hist_lognormal_comparison(payload)
+    elif operation == "hist_kolmogorov_smirnov":
+        result = hist_kolmogorov_smirnov(payload)
     elif operation == "pie_chi_square":
         result = pie_chi_square(payload)
     elif operation == "roc_curve_metric":
         result = roc_curve_metric(payload)
+    elif operation == "roc_auc_uncertainty":
+        result = roc_auc_uncertainty(payload)
+    elif operation == "roc_threshold_table":
+        result = roc_threshold_table(payload)
     elif operation == "roc_delong_diff":
         result = roc_delong_diff(payload)
     elif operation == "correlation":
         result = correlation(payload)
     elif operation == "survival_logrank":
         result = survival_logrank(payload)
+    elif operation == "survival_gehan_breslow":
+        result = survival_gehan_breslow(payload)
+    elif operation == "survival_logrank_trend":
+        result = survival_logrank_trend(payload)
     else:
         raise ValueError(f"Unsupported operation: {operation}")
 

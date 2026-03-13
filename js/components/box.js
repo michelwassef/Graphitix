@@ -9262,8 +9262,17 @@
     const useUnifiedStripDefaults = colorMode !== 'individual' && isBoxGrayscaleScheme(schemeId);
     let applied = false;
     nodes.forEach(node => {
-      const colorIndexRaw = Number(node.getAttribute('data-color-index'));
-      const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : 0;
+      const pointGroup = typeof node.closest === 'function'
+        ? node.closest('g[data-export-layer="box-points"][data-trace]')
+        : node.parentElement;
+      const traceIndexRaw = Number(pointGroup?.getAttribute?.('data-trace') ?? node.getAttribute('data-trace'));
+      const traceIndex = Number.isInteger(traceIndexRaw) && traceIndexRaw >= 0 ? traceIndexRaw : 0;
+      const colorIndexRaw = Number(
+        pointGroup?.getAttribute?.('data-color-index')
+        ?? node.getAttribute('data-color-index')
+        ?? traceIndex
+      );
+      const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : traceIndex;
       if(colorMode === 'individual'){
         if(fills.length){
           node.setAttribute('fill', fills[colorIndex % fills.length]);
@@ -28330,6 +28339,7 @@ Technical analysis record (advanced)
 	    tTest:(a,b,options={})=>tTest(a,b,options || {}),
       tTestEqualVariance:(a,b,options={})=>tTestEqualVariance(a,b,options || {}),
 	    tTestPaired:(a,b,options={})=>tTestPaired(a,b,options || {}),
+      ratioTTest:(a,b,options={})=>ratioTTest(a,b,options || {}),
       lognormalTTestEqualVariance:(a,b,options={})=>lognormalTTestEqualVariance(a,b,options || {}),
       lognormalWelchTTest:(a,b,options={})=>lognormalWelchTTest(a,b,options || {}),
 	    tTestOneSample:(values,nullValue,options={})=>tTestOneSample(values,nullValue,options || {}),
@@ -28346,6 +28356,13 @@ Technical analysis record (advanced)
         seed: options?.seed ?? state.statsSeed
       }),
 	    kruskalWallis:groups=>kruskalWallis(groups),
+      brownForsytheVarianceDiagnostics:(groups,labels,options={})=>computeBrownForsytheVarianceDiagnostics(groups,labels,options || {}),
+      bartlettVarianceDiagnostics:(groups,labels,options={})=>computeBartlettVarianceDiagnostics(groups,labels,options || {}),
+      lognormalComparison:(values,options={})=>computeLognormalComparison(values,options || {}),
+      linearTrendTest:(groups,labels,options={})=>computeLinearTrendTest(groups,labels,options || {}),
+      tamhaneT2Comparisons:(groups,labels,options={})=>computeTamhaneT2Comparisons(groups,labels,options || {}),
+      lognormalAnova:groups=>anova((Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite).map(Math.log))),
+      lognormalWelchAnova:groups=>computeWelchAnova((Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite).map(Math.log))),
 	    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
 	    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
 	    computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),

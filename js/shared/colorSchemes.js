@@ -476,6 +476,31 @@
     return out;
   }
 
+  function clearStyleColorFields(style, options){
+    const source = ensureObject(style);
+    const opts = ensureObject(options);
+    const fillFields = uniqueStrings(opts.fillFields || ['fill', 'color', 'markerFill', 'lineColor']);
+    const strokeFields = uniqueStrings(opts.strokeFields || ['stroke', 'borderColor', 'markerStroke', 'lineStroke']);
+    const textFields = uniqueStrings(opts.textFields || ['textColor', 'labelColor']);
+    const out = { ...source };
+    fillFields.forEach(field => {
+      if(Object.prototype.hasOwnProperty.call(out, field)){
+        delete out[field];
+      }
+    });
+    strokeFields.forEach(field => {
+      if(Object.prototype.hasOwnProperty.call(out, field)){
+        delete out[field];
+      }
+    });
+    textFields.forEach(field => {
+      if(Object.prototype.hasOwnProperty.call(out, field)){
+        delete out[field];
+      }
+    });
+    return out;
+  }
+
   function recolorStyleMap(styleMap, keys, palette, options){
     const map = ensureObject(styleMap);
     const keyList = uniqueStrings(keys);
@@ -989,40 +1014,54 @@
           ? '#000000'
           : deriveDarkerBorderColor(color, tokens.borderColor || darken(color, 0.22))
       ));
-      cfg.shapeGlobalStyle = patchStyleColorFields(cfg.shapeGlobalStyle, {
-        fill: primaryFill || null,
-        stroke: unifiedBorder || tokens.borderColor || null,
-        force: forceColors,
-        fillFields: ['fill', 'color'],
-        strokeFields: ['stroke', 'borderColor', 'border']
-      });
+      cfg.shapeGlobalStyle = forceColors
+        ? clearStyleColorFields(cfg.shapeGlobalStyle, {
+          fillFields: ['fill', 'color'],
+          strokeFields: ['stroke', 'borderColor', 'border']
+        })
+        : patchStyleColorFields(cfg.shapeGlobalStyle, {
+          fill: primaryFill || null,
+          stroke: unifiedBorder || tokens.borderColor || null,
+          force: false,
+          fillFields: ['fill', 'color'],
+          strokeFields: ['stroke', 'borderColor', 'border']
+        });
       cfg.shapeStyles = recolorIndexedStyleMap(cfg.shapeStyles, resolvedBoxPalette, {
         fillFields: ['fill', 'color'],
         stroke: unifiedBorder || tokens.borderColor || null,
         strokeFields: ['stroke', 'borderColor', 'border']
       });
-      cfg.pointGlobalStyle = patchStyleColorFields(cfg.pointGlobalStyle, {
-        fill: primaryFill || null,
-        stroke: unifiedBorder || tokens.borderColor || null,
-        force: forceColors,
-        fillFields: ['fill', 'color', 'markerFill'],
-        strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
-      });
+      cfg.pointGlobalStyle = forceColors
+        ? clearStyleColorFields(cfg.pointGlobalStyle, {
+          fillFields: ['fill', 'color', 'markerFill'],
+          strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
+        })
+        : patchStyleColorFields(cfg.pointGlobalStyle, {
+          fill: primaryFill || null,
+          stroke: unifiedBorder || tokens.borderColor || null,
+          force: false,
+          fillFields: ['fill', 'color', 'markerFill'],
+          strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
+        });
       cfg.pointStyles = recolorIndexedStyleMap(cfg.pointStyles, resolvedBoxPalette, {
         fillFields: ['fill', 'color', 'markerFill'],
         stroke: unifiedBorder || tokens.borderColor || null,
         strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
       });
-      cfg.summaryGlobalStyle = patchStyleColorFields(cfg.summaryGlobalStyle, {
-        fill: grayscaleMode
-          ? '#000000'
-          : ((scientificDefaults && scientificDefaults.summaryColor)
-            || resolvedBoxPalette[1]
-            || resolvedBoxPalette[0]
-            || null),
-        force: forceColors,
-        fillFields: ['color']
-      });
+      cfg.summaryGlobalStyle = forceColors
+        ? clearStyleColorFields(cfg.summaryGlobalStyle, {
+          fillFields: ['color']
+        })
+        : patchStyleColorFields(cfg.summaryGlobalStyle, {
+          fill: grayscaleMode
+            ? '#000000'
+            : ((scientificDefaults && scientificDefaults.summaryColor)
+              || resolvedBoxPalette[1]
+              || resolvedBoxPalette[0]
+              || null),
+          force: false,
+          fillFields: ['color']
+        });
       cfg.summaryStyles = recolorIndexedStyleMap(cfg.summaryStyles, grayscaleMode ? ['#000000'] : resolvedBoxPalette, {
         force: true,
         fillFields: ['color']
@@ -1301,7 +1340,6 @@
         break;
       case 'box':
         assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
-        assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
         assignIfPresent(out, 'colors', extractColorArray(cfg.colors, refCfg.colors));
         assignIfPresent(out, 'borderColors', extractColorArray(cfg.borderColors, refCfg.borderColors));
         assignIfPresent(out, 'shapeGlobalStyle', extractStyleColorFields(cfg.shapeGlobalStyle));
