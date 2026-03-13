@@ -1040,17 +1040,24 @@
 
     if(type === 'box'){
       const grayscaleMode = scheme.id === 'grayscale';
+      const darkMode = scheme.id === 'dark';
+      const darkContrastColor = '#ffffff';
       const boxScientificPalette = scientificDefaults ? ensureArray(scientificDefaults.categorical).slice() : [];
       const boxPalette = boxScientificPalette.length
         ? boxScientificPalette
         : buildBoxPalette(scheme, categorical, cfg.fill);
-      const primaryFill = (scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill;
-      const resolvedBoxPalette = boxPalette.length
+      const primaryFill = darkMode
+        ? darkContrastColor
+        : ((scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill);
+      const resolvedBoxPaletteBase = boxPalette.length
         ? boxPalette
         : (categorical.length ? categorical : [primaryFill || '#666666']);
-      const unifiedBorder = grayscaleMode
+      const resolvedBoxPalette = darkMode ? [darkContrastColor] : resolvedBoxPaletteBase;
+      const unifiedBorder = darkMode
+        ? darkContrastColor
+        : (grayscaleMode
         ? '#000000'
-        : deriveDarkerBorderColor(primaryFill, tokens.borderColor || cfg.border);
+        : deriveDarkerBorderColor(primaryFill, tokens.borderColor || cfg.border));
       cfg.fill = primaryFill || cfg.fill;
       cfg.border = unifiedBorder || cfg.border;
       const currentLen = Math.max(
@@ -1061,9 +1068,11 @@
       );
       cfg.colors = Array.from({ length: currentLen }, (_, i) => resolvedBoxPalette[i % resolvedBoxPalette.length]);
       cfg.borderColors = cfg.colors.map(color => (
-        grayscaleMode
+        darkMode
+          ? darkContrastColor
+          : (grayscaleMode
           ? '#000000'
-          : deriveDarkerBorderColor(color, tokens.borderColor || darken(color, 0.22))
+          : deriveDarkerBorderColor(color, tokens.borderColor || darken(color, 0.22)))
       ));
       cfg.shapeGlobalStyle = forceColors
         ? clearStyleColorFields(cfg.shapeGlobalStyle, {
@@ -1117,13 +1126,6 @@
         force: true,
         fillFields: ['color']
       });
-      cfg.significance = ensureObject(cfg.significance);
-      cfg.significance.color = grayscaleMode
-        ? '#000000'
-        : ((scientificDefaults && scientificDefaults.significanceColor)
-          || resolvedBoxPalette[3]
-          || resolvedBoxPalette[0]
-          || cfg.significance.color);
       applyAxisTokens(cfg, scheme);
       return next;
     }
@@ -1399,9 +1401,6 @@
         assignIfPresent(out, 'pointStyles', extractStyleMapColorFields(cfg.pointStyles, refCfg.pointStyles));
         assignIfPresent(out, 'summaryGlobalStyle', extractStyleColorFields(cfg.summaryGlobalStyle));
         assignIfPresent(out, 'summaryStyles', extractStyleMapColorFields(cfg.summaryStyles, refCfg.summaryStyles));
-        if(cfg.significance || refCfg.significance){
-          assignIfPresent(out, 'significance', { color: normalizeColorSignatureLeaf(cfg.significance?.color) });
-        }
         break;
       case 'hist': {
         assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
