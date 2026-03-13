@@ -139,8 +139,10 @@
     return getBoxDefaultColorSchemeId(state.tableFormat);
   }
 
-  function syncBoxThemeSurfaceForCurrentScheme(){
-    const schemeId = getBoxSelectedColorSchemeId();
+  function syncBoxThemeSurfaceForCurrentScheme(overrideSchemeId){
+    const schemeId = typeof overrideSchemeId === 'string' && overrideSchemeId.trim()
+      ? overrideSchemeId.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
     const isDarkScheme = schemeId === 'dark';
     const surfaceColor = isDarkScheme ? '#000000' : '';
     if(els?.svgBox?.style){
@@ -157,6 +159,30 @@
         els.plotDiv.style.removeProperty('background-color');
       }
     }
+  }
+
+  function tryApplyBoxThemeBackgroundLive(schemeIdRaw){
+    const schemeId = typeof schemeIdRaw === 'string' && schemeIdRaw.trim()
+      ? schemeIdRaw.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
+    const svg = els?.plotDiv?.querySelector?.('svg') || null;
+    syncBoxThemeSurfaceForCurrentScheme(schemeId);
+    if(!svg){
+      return false;
+    }
+    const backgroundRect = svg.querySelector?.('[data-color-scheme-background="1"]') || null;
+    if(schemeId === 'dark'){
+      if(backgroundRect){
+        backgroundRect.setAttribute('fill', '#000000');
+        return true;
+      }
+      return false;
+    }
+    if(backgroundRect && backgroundRect.parentNode){
+      backgroundRect.parentNode.removeChild(backgroundRect);
+      return true;
+    }
+    return true;
   }
 
   function syncBoxDefaultColorSchemeForFormat(tableFormat, options = {}){
@@ -9610,6 +9636,10 @@
         failed = true;
       }
     };
+
+    if(typeof config.colorScheme === 'string' && config.colorScheme.trim()){
+      markAttempt(tryApplyBoxThemeBackgroundLive(config.colorScheme));
+    }
 
     if(typeof config.showGrid === 'boolean'){
       markAttempt(tryToggleBoxGridVisibility(!!config.showGrid));
