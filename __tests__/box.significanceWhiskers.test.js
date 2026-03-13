@@ -128,6 +128,63 @@ describe('Box significance whisker modes', () => {
     expect(bRight.annotationCoord).toBeCloseTo(woRight.annotationCoord, 6);
   });
 
+  test('converging whiskers also separate in flipped orientation (horizontal)', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildPairAnnotationLayout).toBe('function');
+    const pairs = [
+      { ai: 0, bi: 1, rangeMax: 10, id: '0-1' },
+      { ai: 1, bi: 2, rangeMax: 11, id: '1-2' },
+      { ai: 0, bi: 2, rangeMax: 12, id: '0-2' }
+    ];
+    const centers = [100, 200, 300];
+    const withSeparation = hooks.buildPairAnnotationLayout(pairs, {
+      orientation: 'horizontal',
+      categoryCenter: idx => centers[idx],
+      valueToCoord: value => value,
+      baseOffset: 25,
+      levelGap: 25,
+      strokeWidth: 1,
+      fontSize: 12,
+      separateConvergingEndpoints: true,
+      endpointSeparationStep: 6,
+      endpointSeparationMax: 12
+    });
+    const withoutSeparation = hooks.buildPairAnnotationLayout(pairs, {
+      orientation: 'horizontal',
+      categoryCenter: idx => centers[idx],
+      valueToCoord: value => value,
+      baseOffset: 25,
+      levelGap: 25,
+      strokeWidth: 1,
+      fontSize: 12,
+      separateConvergingEndpoints: false,
+      endpointSeparationStep: 6,
+      endpointSeparationMax: 12
+    });
+    const getGeom = (layout, id) => {
+      const pair = layout.sorted.find(item => item.id === id);
+      return pair ? layout.geometryByPair.get(pair) : null;
+    };
+    const aLeft = getGeom(withSeparation, '0-1');
+    const aTop = getGeom(withSeparation, '0-2');
+    const bRight = getGeom(withSeparation, '1-2');
+    expect(aLeft).toBeTruthy();
+    expect(aTop).toBeTruthy();
+    expect(bRight).toBeTruthy();
+    expect(aLeft.x1).toBeCloseTo(aTop.x1, 6);
+    expect(bRight.x2).toBeCloseTo(aTop.x2, 6);
+    expect(bRight.x1 - aLeft.x2).toBeGreaterThan(0);
+    const woLeft = getGeom(withoutSeparation, '0-1');
+    const woTop = getGeom(withoutSeparation, '0-2');
+    const woRight = getGeom(withoutSeparation, '1-2');
+    expect(woLeft).toBeTruthy();
+    expect(woTop).toBeTruthy();
+    expect(woRight).toBeTruthy();
+    expect(aLeft.annotationCoord).toBeCloseTo(woLeft.annotationCoord, 6);
+    expect(aTop.annotationCoord).toBeCloseTo(woTop.annotationCoord, 6);
+    expect(bRight.annotationCoord).toBeCloseTo(woRight.annotationCoord, 6);
+  });
+
   test('adaptive whisker obstacle gap stays pixel-stable after resize for bars and labels', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveSvgAxisUnitsPerPixel).toBe('function');

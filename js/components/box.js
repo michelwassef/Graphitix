@@ -11631,8 +11631,9 @@
         }
       });
     }
-    if(separateConvergingEndpoints && orientation === 'vertical'){
+    if(separateConvergingEndpoints){
       // Keep convergence spacing local to annotation endpoints only; trace/category centers remain unchanged.
+      // x1/x2 are category-axis endpoints for both orientations, so the same de-confliction applies when axes are flipped.
       const endpointGroups = new Map();
       const addEndpoint = (traceIndex, geom, edge, level) => {
         if(!Number.isFinite(traceIndex) || !geom || !Number.isFinite(geom[edge])){
