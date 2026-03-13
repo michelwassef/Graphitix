@@ -191,9 +191,6 @@
     tsne: 't-SNE Plot',
     umap: 'UMAP Plot'
   });
-  const PCA_AUTO_DRAW_ROW_THRESHOLD = 5000;
-  const PCA_AUTO_DRAW_FEATURE_THRESHOLD = 5000;
-  const PCA_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const PCA_DATA_VIEW_MAX = 12;
   const PCA_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
     headerRows: 2,
@@ -796,11 +793,9 @@
   let pcaSvgBoxRef = null;
   let pcaPointContextMenu = null;
   let pcaPointContextMenuGlobalBound = false;
-  let pcaLiveUpdateToggle = null;
   let pcaRenderRowEl = null;
   let pcaRenderButtonEl = null;
   let pcaAutoDrawNoticeEl = null;
-  let pcaNoticeBoundWidth = null;
   let syncPcaAutoDrawNoticeWidth = () => {};
   let schedulePcaNoticeWidth = () => {};
   let pcaHotInstance = null;
@@ -3489,6 +3484,10 @@
 
   let scheduleDrawPcaRaw = () => {};
   let pendingDrawOptions = {};
+  let pcaDataDrawTimer = null;
+  const PCA_DATA_DRAW_DEBOUNCE_SMALL_MS = 24;
+  const PCA_DATA_DRAW_DEBOUNCE_MEDIUM_MS = 72;
+  const PCA_DATA_DRAW_DEBOUNCE_LARGE_MS = 180;
   function normalizeDrawOptions(options){
     if(!options){
       return {};
@@ -3501,98 +3500,25 @@
     }
     return {};
   }
-  function setAutoDrawEnabled(enabled, meta = {}){
-    const nextEnabled = !!enabled;
-    const previousEnabled = !!pcaState.autoDrawEnabled;
-    let disabledNow = false;
-    pcaState.autoDrawEnabled = nextEnabled;
-    if(!nextEnabled){
-      if(previousEnabled && meta.renderImmediate !== false){
-        disabledNow = true;
-      }
-      if(meta.reason === 'threshold'){
-        const rows = Number(meta.rows ?? meta.totalRows);
-        const cols = Number(meta.cols ?? meta.totalCols);
-        pcaState.autoDrawReason = {
-          type: 'threshold',
-          rows: Number.isFinite(rows) ? rows : null,
-          cols: Number.isFinite(cols) ? cols : null
-        };
-      }else if(meta.reason === 'user-disable'){
-        pcaState.autoDrawReason = { type: 'user-disable' };
-      }else if(meta.reason){
-        pcaState.autoDrawReason = { type: meta.reason };
-      }else if(!pcaState.autoDrawReason){
-        pcaState.autoDrawReason = { type: 'manual' };
-      }
-    }else{
-      if(meta.reason === 'user-enable' || meta.reason === 'threshold-cleared' || !meta.preserveReason){
-        pcaState.autoDrawReason = null;
-      }
-    }
-    if(nextEnabled){
-      pcaState.drawPending = false;
-    }
-    updateAutoDrawUi(meta);
-    if(previousEnabled !== nextEnabled){
-      debugLog('Debug: pca autoDraw toggled', {
-        enabled: nextEnabled,
-        reason: meta.reason || null,
-        userOverride: pcaState.autoDrawUserOverride || null
-      });
-    }
-    return {
-      changed: previousEnabled !== nextEnabled,
-      disabledNow
-    };
-  }
   function updateAutoDrawUi(meta = {}){
-    if(pcaLiveUpdateToggle && pcaLiveUpdateToggle.checked !== !!pcaState.autoDrawEnabled){
-      pcaLiveUpdateToggle.checked = !!pcaState.autoDrawEnabled;
+    if(pcaRenderRowEl && pcaRenderRowEl.hidden !== true){
+      pcaRenderRowEl.hidden = true;
     }
-    const manualMode = !pcaState.autoDrawEnabled;
-    const pendingWhileAuto = !manualMode && !!pcaState.drawPending;
-    const shouldShowRenderRow = manualMode || pendingWhileAuto;
-    if(pcaRenderRowEl && pcaRenderRowEl.hidden === shouldShowRenderRow){
-      pcaRenderRowEl.hidden = !shouldShowRenderRow;
-    }
-    if(pcaRenderButtonEl){
-      const shouldDisable = !manualMode && !pcaState.drawPending;
-      if(pcaRenderButtonEl.disabled !== shouldDisable){
-        pcaRenderButtonEl.disabled = shouldDisable;
-      }
-      if(pcaRenderButtonEl.hidden === shouldShowRenderRow){
-        pcaRenderButtonEl.hidden = !shouldShowRenderRow;
-      }
+    if(pcaRenderButtonEl && pcaRenderButtonEl.hidden !== true){
+      pcaRenderButtonEl.hidden = true;
+      pcaRenderButtonEl.disabled = true;
     }
     if(pcaAutoDrawNoticeEl){
-      let text = '';
-      let hidden = !shouldShowRenderRow;
-      if(!hidden && manualMode){
-        const reason = pcaState.autoDrawReason?.type || 'manual';
-        if(reason === 'threshold'){
-          const rows = pcaState.autoDrawReason?.rows;
-          const summary = Number.isFinite(rows) ? ` (${rows.toLocaleString()} rows)` : '';
-          text = `Live updates are paused for large datasets${summary}. Use Update Plot after making changes.`;
-        }else if(reason === 'user-disable'){
-          text = 'Live updates are disabled. Use Update Plot after making changes.';
-        }else{
-          text = 'Live updates are disabled. Use Update Plot after making changes.';
-        }
-        if(pcaState.drawPending){
-          text += ' Changes are waiting to be rendered.';
-        }
-      }else if(!hidden && pendingWhileAuto){
-        hidden = false;
-        text = 'Changes are waiting to be rendered. Use Update Plot to redraw immediately.';
+      if(pcaAutoDrawNoticeEl.hidden !== true){
+        pcaAutoDrawNoticeEl.hidden = true;
       }
-      if(!hidden && pcaAutoDrawNoticeEl.textContent !== text){
-        pcaAutoDrawNoticeEl.textContent = text;
-      }
-      if(pcaAutoDrawNoticeEl.hidden !== hidden){
-        pcaAutoDrawNoticeEl.hidden = hidden;
+      if(pcaAutoDrawNoticeEl.textContent){
+        pcaAutoDrawNoticeEl.textContent = '';
       }
       schedulePcaNoticeWidth('ui-update');
+    }
+    if(meta && meta.reason){
+      debugLog('Debug: pca live-update UI normalized', { reason: meta.reason });
     }
   }
   function updatePcaDataShape(shape){
@@ -3614,135 +3540,71 @@
     const perfStart = nowMs();
     let totalRows = 0;
     let totalCols = 0;
-    let featureEstimate = 0;
-    let cellEstimate = 0;
-    let thresholdExceeded = false;
-    const finalize = (result, overrides = {}) => {
-      const payload = {
-        source: meta?.source || null,
-        rows: overrides.rows ?? totalRows,
-        cols: overrides.cols ?? totalCols,
-        featureEstimate: overrides.featureEstimate ?? featureEstimate,
-        cellEstimate: overrides.cellEstimate ?? cellEstimate,
-        thresholdExceeded: overrides.thresholdExceeded ?? thresholdExceeded,
-        totalMs: nowMs() - perfStart
-      };
-      recordPcaPerformance('evaluation', payload);
-      return result;
-    };
-    if(!hot){
-      return finalize({ autoDrawEnabled: pcaState.autoDrawEnabled, disabledNow: false, reason: null });
-    }
-    const previousLock = !!pcaState.autoDrawLockedByThreshold;
-    let disabledNow = false;
-    let disabledReason = null;
-    let rawRows = 0;
-    let rawCols = 0;
-    let sourceData = null;
-    const shapeRows = Number(meta?.shape?.rows);
-    const shapeCols = Number(meta?.shape?.cols);
-    if(Number.isFinite(shapeRows) && shapeRows >= 0){
-      rawRows = shapeRows;
-    }
-    if(Number.isFinite(shapeCols) && shapeCols >= 0){
-      rawCols = shapeCols;
-    }
-    if(rawRows === 0 || rawCols === 0){
-      if(rawRows === 0){
-        if(typeof hot.countSourceRows === 'function'){
-          rawRows = hot.countSourceRows();
-        }else if(typeof hot.getSourceData === 'function'){
-          sourceData = hot.getSourceData();
-          rawRows = Array.isArray(sourceData) ? sourceData.length : 0;
-        }else if(typeof hot.countRows === 'function'){
-          rawRows = hot.countRows();
-        }
+    if(hot){
+      if(typeof hot.countSourceRows === 'function'){
+        totalRows = Number(hot.countSourceRows()) || 0;
+      }else if(typeof hot.countRows === 'function'){
+        totalRows = Number(hot.countRows()) || 0;
       }
-      if(rawCols === 0){
-        if(typeof hot.countSourceCols === 'function'){
-          rawCols = hot.countSourceCols();
-        }else if(typeof hot.getSourceData === 'function'){
-          sourceData = sourceData || hot.getSourceData();
-          const firstRow = Array.isArray(sourceData) && sourceData.length ? sourceData[0] : null;
-          rawCols = Array.isArray(firstRow) ? firstRow.length : 0;
-        }else if(typeof hot.countCols === 'function'){
-          rawCols = hot.countCols();
+      if(typeof hot.countSourceCols === 'function'){
+        totalCols = Number(hot.countSourceCols()) || 0;
+      }else if(typeof hot.countCols === 'function'){
+        totalCols = Number(hot.countCols()) || 0;
+      }
+      if(typeof Shared.hot?.estimateFilledShape === 'function'){
+        const filled = Shared.hot.estimateFilledShape(hot);
+        if(Number.isFinite(filled?.rows) && filled.rows >= 0){
+          totalRows = filled.rows;
+        }
+        if(Number.isFinite(filled?.cols) && filled.cols >= 0){
+          totalCols = filled.cols;
         }
       }
     }
-    const fallbackRows = Number.isFinite(pcaState.lastDataShape?.rows) ? pcaState.lastDataShape.rows : 0;
-    const fallbackCols = Number.isFinite(pcaState.lastDataShape?.cols) ? pcaState.lastDataShape.cols : 0;
-    if(!Number.isFinite(rawRows) || rawRows < 0){
-      rawRows = fallbackRows;
-    }
-    if(!Number.isFinite(rawCols) || rawCols < 0){
-      rawCols = fallbackCols;
-    }
-    totalRows = Number.isFinite(rawRows) ? rawRows : 0;
-    totalCols = Number.isFinite(rawCols) ? rawCols : 0;
-    // Re-evaluate shape using filled cells to avoid stale counts after large->small dataset swaps
-    if(typeof Shared.hot?.estimateFilledShape === 'function'){
-      const filled = Shared.hot.estimateFilledShape(hot);
-      if(Number.isFinite(filled?.rows) && filled.rows >= 0 && filled.rows < totalRows){
-        totalRows = filled.rows;
-      }
-      if(Number.isFinite(filled?.cols) && filled.cols >= 0 && filled.cols < totalCols){
-        totalCols = filled.cols;
-      }
-    }
-    featureEstimate = totalRows > 0 ? totalRows - 1 : 0;
-    cellEstimate = totalRows * Math.max(1, totalCols);
-    thresholdExceeded = featureEstimate >= PCA_AUTO_DRAW_FEATURE_THRESHOLD
-      || totalRows >= PCA_AUTO_DRAW_ROW_THRESHOLD
-      || cellEstimate >= PCA_AUTO_DRAW_CELL_THRESHOLD;
-    pcaState.lastAutoDrawEvaluation = {
-      totalRows,
-      totalCols,
-      featureEstimate,
-      cellEstimate,
-      thresholdExceeded
-    };
     updatePcaDataShape({ rows: totalRows, cols: totalCols });
-      debugLog('Debug: pca autoDraw evaluation', {
-        totalRows,
-        totalCols,
-        featureEstimate,
-        cellEstimate,
-        thresholdExceeded,
-        userOverride: pcaState.autoDrawUserOverride || null
-      });
-    if(thresholdExceeded){
-      pcaState.autoDrawLockedByThreshold = true;
-      if(pcaState.autoDrawUserOverride === 'on'){
-        updateAutoDrawUi(meta);
-        return finalize({ autoDrawEnabled: pcaState.autoDrawEnabled, disabledNow, reason: disabledReason });
-      }
-      const toggleResult = setAutoDrawEnabled(false, {
-        reason: 'threshold',
-        rows: totalRows,
-        cols: totalCols,
-        preserveReason: true
-      });
-      if(toggleResult?.disabledNow){
-        disabledNow = true;
-        disabledReason = 'threshold';
-      }
-      return finalize({ autoDrawEnabled: pcaState.autoDrawEnabled, disabledNow, reason: disabledReason });
+    recordPcaPerformance('evaluation', {
+      source: meta?.source || null,
+      rows: totalRows,
+      cols: totalCols,
+      featureEstimate: Math.max(0, totalRows - 1),
+      cellEstimate: totalRows * Math.max(1, totalCols),
+      thresholdExceeded: false,
+      totalMs: nowMs() - perfStart
+    });
+    updateAutoDrawUi(meta);
+    return { autoDrawEnabled: true, disabledNow: false, reason: null };
+  }
+  function resolvePcaDataDrawDebounceMs(reason){
+    if(global.__PCA_DISABLE_DATA_COALESCE === true){
+      return 0;
     }
-    const needsUnlock = !thresholdExceeded
-      && pcaState.autoDrawReason?.type === 'threshold'
-      && !pcaState.autoDrawEnabled
-      && pcaState.autoDrawUserOverride !== 'off';
-    pcaState.autoDrawLockedByThreshold = false;
-    if((previousLock || needsUnlock) && pcaState.autoDrawUserOverride !== 'off'){
-      setAutoDrawEnabled(true, { reason: 'threshold-cleared' });
-    }else{
-      updateAutoDrawUi(meta);
+    const normalizedReason = String(reason || '').trim();
+    if(normalizedReason === 'afterLoadData'
+      || normalizedReason === 'afterCreateRow'
+      || normalizedReason === 'afterCreateCol'){
+      return 420;
     }
-    if(pcaState.autoDrawUserOverride === 'on'){
-      pcaState.autoDrawUserOverride = null;
+    const rows = Number.isFinite(pcaState.lastDataShape?.rows) ? Number(pcaState.lastDataShape.rows) : 0;
+    const cols = Number.isFinite(pcaState.lastDataShape?.cols) ? Number(pcaState.lastDataShape.cols) : 0;
+    const cells = rows * Math.max(1, cols);
+    if(rows >= 20000 || cells >= 200000){
+      return PCA_DATA_DRAW_DEBOUNCE_LARGE_MS;
     }
-    return finalize({ autoDrawEnabled: pcaState.autoDrawEnabled, disabledNow, reason: disabledReason });
+    if(rows >= 4000 || cells >= 60000){
+      return PCA_DATA_DRAW_DEBOUNCE_MEDIUM_MS;
+    }
+    return PCA_DATA_DRAW_DEBOUNCE_SMALL_MS;
+  }
+  function flushCoalescedPcaDataDraw(reason){
+    if(pcaDataDrawTimer){
+      (global.clearTimeout || clearTimeout)(pcaDataDrawTimer);
+      pcaDataDrawTimer = null;
+    }
+    evaluateAutoDrawThresholds({ reason: reason || 'data-draw' });
+    updateAutoDrawUi({ reason: reason || 'data-draw' });
+    if(typeof scheduleDrawPcaRaw === 'function'){
+      scheduleDrawPcaRaw();
+    }
   }
   function mergePendingDrawOptions(opts){
     const previous = pendingDrawOptions || {};
@@ -3771,52 +3633,38 @@
   }
   function scheduleDrawPcaWrapper(options){
     const opts = normalizeDrawOptions(options);
+    if(!opts.force
+      && !Object.prototype.hasOwnProperty.call(opts, 'viewOnly')
+      && !pcaState.dataDirty){
+      opts.viewOnly = true;
+    }
     mergePendingDrawOptions(opts);
-    const shouldMarkPending = opts.markPending !== false;
     if(opts.viewOnly){
+      if(pcaDataDrawTimer){
+        (global.clearTimeout || clearTimeout)(pcaDataDrawTimer);
+        pcaDataDrawTimer = null;
+      }
       if(typeof scheduleDrawPcaRaw === 'function'){
         scheduleDrawPcaRaw();
       }
       return;
     }
     if(opts.force){
-      if(!opts.skipThresholdEvaluation){
-        evaluateAutoDrawThresholds();
-      }
-      pcaState.drawPending = false;
-      updateAutoDrawUi(opts);
-      if(typeof scheduleDrawPcaRaw === 'function'){
-        scheduleDrawPcaRaw();
-      }
+      flushCoalescedPcaDataDraw(opts.reason || 'force');
       return;
     }
-    const evalResult = evaluateAutoDrawThresholds({ markPending: true });
-    if(evalResult?.disabledNow){
-      pcaState.drawPending = false;
-      const reason = evalResult.reason || opts.reason || 'auto-draw-disabled';
-      updateAutoDrawUi({ reason });
-      if(typeof scheduleDrawPcaRaw === 'function'){
-        scheduleDrawPcaRaw();
-      }
-      debugLog('Debug: pca draw executed after auto-draw disabled', { reason });
+    const debounceMs = resolvePcaDataDrawDebounceMs(opts.reason);
+    if(debounceMs <= 0){
+      flushCoalescedPcaDataDraw(opts.reason || 'data-draw');
       return;
     }
-    if(!pcaState.autoDrawEnabled){
-      if(shouldMarkPending){
-        pcaState.drawPending = true;
-      }
-      updateAutoDrawUi(opts);
-      debugLog('Debug: pca draw suppressed', {
-        reason: opts.reason || 'auto-draw-disabled',
-        markPending: shouldMarkPending
-      });
-      return;
+    if(pcaDataDrawTimer){
+      (global.clearTimeout || clearTimeout)(pcaDataDrawTimer);
     }
-    pcaState.drawPending = false;
-    updateAutoDrawUi(opts);
-    if(typeof scheduleDrawPcaRaw === 'function'){
-      scheduleDrawPcaRaw();
-    }
+    pcaDataDrawTimer = (global.setTimeout || setTimeout)(() => {
+      pcaDataDrawTimer = null;
+      flushCoalescedPcaDataDraw(opts.reason || 'data-draw');
+    }, debounceMs);
   }
   let scheduleDrawPca = scheduleDrawPcaWrapper;
   let lastPcaStats = null;
@@ -3845,11 +3693,6 @@
     loadingsLimit: PCA_LOADINGS_ROW_LIMIT,
     labels: { title: getDefaultTitleForMethod('pca') },
     lastMethod: 'pca',
-    autoDrawEnabled: true,
-    autoDrawUserOverride: null,
-    autoDrawReason: null,
-    autoDrawLockedByThreshold: false,
-    drawPending: false,
     lastAutoDrawEvaluation: null,
     lastDataShape: { rows: 0, cols: 0 },
     performance: { loadData: null, draw: null, evaluation: null },
@@ -4685,48 +4528,11 @@
         groupedAdd: null,
         groupedRemove: null
       };
-      pcaLiveUpdateToggle = document.getElementById('pcaLiveUpdate');
-      pcaRenderRowEl = document.getElementById('pcaRenderRow');
-      pcaRenderButtonEl = document.getElementById('pcaRenderButton');
-      pcaAutoDrawNoticeEl = document.getElementById('pcaAutoDrawNotice');
-      if(pcaAutoDrawNoticeEl && !pcaAutoDrawNoticeEl.getAttribute('aria-live')){
-        pcaAutoDrawNoticeEl.setAttribute('aria-live', 'polite');
-      }
-      syncPcaAutoDrawNoticeWidth = (reason) => {
-        const svgBox = pcaSvgBox || pcaGraphPanel?.querySelector?.('.svgbox');
-        const renderRow = pcaRenderRowEl || document.getElementById('pcaRenderRow');
-        if(!svgBox || !renderRow){
-          return;
-        }
-        const rect = svgBox.getBoundingClientRect?.();
-        const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
-        if(!width){
-          return;
-        }
-        const widthPx = `${width}px`;
-        if(renderRow.style.maxWidth !== widthPx){
-          renderRow.style.maxWidth = widthPx;
-          renderRow.style.width = '100%';
-        }
-        if(pcaAutoDrawNoticeEl && pcaAutoDrawNoticeEl.style.maxWidth !== widthPx){
-          pcaAutoDrawNoticeEl.style.maxWidth = widthPx;
-        }
-        if(pcaNoticeBoundWidth !== width){
-          pcaNoticeBoundWidth = width;
-          debugLog('Debug: pca auto draw notice width synced', { width, reason: reason || null });
-        }
-      };
-      schedulePcaNoticeWidth = (() => {
-        if(typeof Shared.debounceFrame === 'function'){
-          let lastReason = 'frame';
-          const debounced = Shared.debounceFrame(() => syncPcaAutoDrawNoticeWidth(lastReason));
-          return reason => {
-            lastReason = reason || 'frame';
-            debounced();
-          };
-        }
-        return reason => syncPcaAutoDrawNoticeWidth(reason || 'immediate');
-      })();
+      pcaRenderRowEl = null;
+      pcaRenderButtonEl = null;
+      pcaAutoDrawNoticeEl = null;
+      syncPcaAutoDrawNoticeWidth = () => {};
+      schedulePcaNoticeWidth = () => {};
       const pcaLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'pca',
         selectors: {
@@ -4784,36 +4590,6 @@
       bindPcaDataToolbar();
       updateAutoDrawUi();
       evaluateAutoDrawThresholds();
-      if(pcaRenderButtonEl){
-        pcaRenderButtonEl.addEventListener('click',()=>{
-          debugLog('Debug: pca manual render button');
-          const overlayReason = 'manual-render';
-          markPcaOverlayPending(overlayReason);
-          forcePcaOverlay(overlayReason, { message: 'Rendering PCA view...' });
-          markPcaDataDirty('manual-button');
-          scheduleDrawPca({ force: true, reason: 'manual-render' });
-        });
-      }
-      if(pcaLiveUpdateToggle){
-        pcaLiveUpdateToggle.addEventListener('change',event=>{
-          const enabled = !!event?.target?.checked;
-          if(enabled){
-            pcaState.autoDrawUserOverride = 'on';
-            setAutoDrawEnabled(true,{ reason: 'user-enable', preserveReason: false });
-            evaluateAutoDrawThresholds();
-            if(pcaState.drawPending){
-              scheduleDrawPca({ force: true, reason: 'user-enable' });
-            }else{
-              updateAutoDrawUi();
-            }
-          }else{
-            pcaState.autoDrawUserOverride = 'off';
-            setAutoDrawEnabled(false,{ reason: 'user-disable', preserveReason: true });
-            updateAutoDrawUi();
-            scheduleDrawPca({ force: true, reason: 'user-disable-initial', skipThresholdEvaluation: true });
-          }
-        });
-      }
 
       function syncPcaGroupedControls(){
         if(pcaEls.groupedReplicates){
@@ -7253,9 +7029,11 @@
       let groupMeta = null;
       let cachePayload = null;
       let usingCache = false;
+      let skipPerfRecord = false;
       try{
       if(viewOnly && !pcaState.viewDirty && !pcaState.dataDirty){
         debugLog('Debug: pca view refresh skipped',{ reason: drawOpts.reason || 'view-clean' });
+        skipPerfRecord = true;
         return;
       }
       if(pcaState.rotationPending){
@@ -8379,6 +8157,39 @@
           statsSnapshot: lastPcaStats
         };
       }
+      }
+
+      if(!cachePayload && !usingCache){
+        cachePayload = {
+          method,
+          statsSummaryLines,
+          screeData,
+          componentSelectionSummary,
+          parallelAnalysisPercent,
+          statsMethod,
+          eigenSummaryData,
+          dimensionMeta,
+          points,
+          points3d,
+          labels,
+          sampleColumnIndices,
+          groupedHeaderRow: groupedHeaderRowCache,
+          loadingsRows,
+          loadingsComponents,
+          loadingsTotalCount,
+          loadingsTruncated,
+          sampleCount: sampleCountSnapshot,
+          featureCount: featureCountSnapshot,
+          axisIndices,
+          pcaXLabelText,
+          pcaYLabelText,
+          pcaZLabelText,
+          biplotSnapshot: null,
+          parseEnd,
+          computeStart,
+          computeEnd,
+          statsSnapshot: lastPcaStats
+        };
       }
 
       if(usingCache){
@@ -10243,23 +10054,25 @@
         pcaState.dataDirty = false;
       }
       pcaState.viewDirty = false;
-      recordPcaPerformance('draw', {
-        method: methodSnapshot,
-        totalMs: totalEnd - totalStart,
-        parseMs: effectiveParseEnd - totalStart,
-        computeMs,
-        renderMs,
-        samples: sampleCountSnapshot,
-        features: featureCountSnapshot,
-        fastMode: fastPointModeActive,
-        points: Array.isArray(points) ? points.length : 0,
-        loadingsRendered: Array.isArray(loadingsRows) ? loadingsRows.length : 0,
-        loadingsTotal: Number.isFinite(loadingsTotalCount) ? loadingsTotalCount : (Array.isArray(loadingsRows) ? loadingsRows.length : 0),
-        loadingsTruncated,
-        viewOnly,
-        cacheReused: usingCache,
-        reason: drawOpts.reason || null
-      });
+      if(!skipPerfRecord){
+        recordPcaPerformance('draw', {
+          method: methodSnapshot,
+          totalMs: totalEnd - totalStart,
+          parseMs: effectiveParseEnd - totalStart,
+          computeMs,
+          renderMs,
+          samples: sampleCountSnapshot,
+          features: featureCountSnapshot,
+          fastMode: fastPointModeActive,
+          points: Array.isArray(points) ? points.length : 0,
+          loadingsRendered: Array.isArray(loadingsRows) ? loadingsRows.length : 0,
+          loadingsTotal: Number.isFinite(loadingsTotalCount) ? loadingsTotalCount : (Array.isArray(loadingsRows) ? loadingsRows.length : 0),
+          loadingsTruncated,
+          viewOnly,
+          cacheReused: usingCache,
+          reason: drawOpts.reason || null
+        });
+      }
     }
     }
     function getPcaGraphPayload(){
@@ -11168,7 +10981,12 @@
     getPerformance: () => ({
       performance: cloneSimple(pcaState.performance),
       lastAutoDrawEvaluation: cloneSimple(pcaState.lastAutoDrawEvaluation),
-      lastDataShape: cloneSimple(pcaState.lastDataShape)
+      lastDataShape: cloneSimple(pcaState.lastDataShape),
+      state: {
+        dataDirty: !!pcaState.dataDirty,
+        viewDirty: !!pcaState.viewDirty,
+        hasCachedRender: !!pcaState.cachedRender
+      }
     })
   });
 

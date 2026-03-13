@@ -1617,7 +1617,12 @@
     const rowHeight=contentHeight/Math.max(1,rows);
     const rHoriz=colWidth*0.35;
     const rVert=rowHeight*0.35;
-    let r=Math.max(10,Math.min(rHoriz,rVert));
+    const minReadableRadius = 10;
+    const minSafeRadius = 2;
+    let r=Math.max(minReadableRadius,Math.min(rHoriz,rVert));
+    const seriesLabelOffset = fs * 1.05;
+    const seriesLabelDescender = Math.max(2, fs * 0.35);
+    const seriesLabelBottomPadding = Math.max(2, fs * 0.3);
     const centers=[];
     seriesColumns.forEach((_series,idx)=>{
       const row=Math.floor(idx/cols);
@@ -1632,7 +1637,7 @@
       const leftLimit=contentLeft + fs; // padding from left edge
       const rightLimit=contentRight - fs; // keep charts clear of the legend lane
       const topLimit=contentTop + fs*0.2;
-      const bottomLimit=svgHeight - fs*2; // leave space for viewport padding
+      const bottomLimit=contentBottom; // respect bottom chart padding
       let maxAllowedR=r;
       centers.forEach(center=>{
         if(!center){ return; }
@@ -1642,13 +1647,23 @@
         localMax=Math.min(localMax, rightLimit-center.cx);
         // Keep circle and label inside top/bottom bounds
         localMax=Math.min(localMax, center.cy-topLimit);
-        localMax=Math.min(localMax, bottomLimit-center.cy-fs*1.0);
+        localMax=Math.min(localMax, bottomLimit-center.cy-seriesLabelOffset-seriesLabelDescender-seriesLabelBottomPadding);
         if(localMax<maxAllowedR){
           maxAllowedR=localMax;
         }
       });
-      if(Number.isFinite(maxAllowedR) && maxAllowedR>0){
-        r=Math.max(10,Math.min(r,maxAllowedR));
+      if(Number.isFinite(maxAllowedR)){
+        r=Math.max(minSafeRadius,Math.min(r,maxAllowedR));
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: pie radial radius constraints',{
+          requestedRadius: Math.max(minReadableRadius,Math.min(rHoriz,rVert)),
+          maxAllowedR,
+          appliedRadius: r,
+          chartCount,
+          rows,
+          cols
+        });
       }
     }
     if(type==='donut'){
@@ -1708,7 +1723,8 @@
       });
       const seriesLabel=document.createElementNS(NS,'text');
       seriesLabel.setAttribute('x',cx);
-      seriesLabel.setAttribute('y',cy + effectiveR + fs*1.0);
+      const seriesLabelY = cy + effectiveR + seriesLabelOffset;
+      seriesLabel.setAttribute('y',seriesLabelY);
       seriesLabel.setAttribute('text-anchor','middle');
       seriesLabel.setAttribute('font-size',Math.max(8,fs*0.9));
       seriesLabel.textContent=series.label;
