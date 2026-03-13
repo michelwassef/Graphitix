@@ -5197,33 +5197,136 @@
     logDebug('downloadBlob triggered', { contextLabel, fileName });
   }
 
+  async function blobToBase64(blob) {
+    if (!blob || typeof blob.arrayBuffer !== 'function') {
+      return '';
+    }
+    try {
+      const buffer = await blob.arrayBuffer();
+      if (!buffer || !buffer.byteLength) {
+        return '';
+      }
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 1) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      if (typeof global.btoa === 'function') {
+        return global.btoa(binary);
+      }
+      return '';
+    } catch (err) {
+      warn('blobToBase64 error', { message: err?.message });
+      return '';
+    }
+  }
+
+  async function readBlobAsText(blob) {
+    if (!blob || typeof blob.text !== 'function') {
+      return '';
+    }
+    try {
+      const value = await blob.text();
+      return typeof value === 'string' ? value : '';
+    } catch (err) {
+      warn('readBlobAsText error', { message: err?.message });
+      return '';
+    }
+  }
+
+  async function copyBlobMapViaDesktopBridge(blobMap, contextLabel) {
+    const desktopApi = global.desktop;
+    if (!desktopApi || typeof desktopApi.writeClipboard !== 'function') {
+      return false;
+    }
+    const payload = { text: '', html: '', formats: {} };
+    let svgText = '';
+    for (const [type, blob] of Object.entries(blobMap || {})) {
+      if (!type || !blob) {
+        continue;
+      }
+      const normalized = String(type).toLowerCase();
+      if (normalized === 'text/plain') {
+        if (!payload.text) {
+          payload.text = await readBlobAsText(blob);
+        }
+        continue;
+      }
+      if (normalized === 'text/html') {
+        if (!payload.html) {
+          payload.html = await readBlobAsText(blob);
+        }
+        continue;
+      }
+      if (normalized === SVG_MIME_TYPE && !svgText) {
+        svgText = await readBlobAsText(blob);
+      }
+      const base64 = await blobToBase64(blob);
+      if (base64) {
+        payload.formats[type] = base64;
+      }
+    }
+    if (!payload.text && svgText) {
+      payload.text = svgText;
+    }
+    const formatCount = Object.keys(payload.formats).length;
+    if (!payload.text && !payload.html && !formatCount) {
+      warn('copyBlobMap desktop payload empty', { contextLabel });
+      return false;
+    }
+    try {
+      debugLog('copyBlobMap desktop fallback attempt', {
+        contextLabel,
+        hasText: !!payload.text,
+        hasHtml: !!payload.html,
+        formats: Object.keys(payload.formats)
+      });
+      const result = await desktopApi.writeClipboard(payload);
+      const success = !!(result && result.ok);
+      if (!success) {
+        warn('copyBlobMap desktop fallback failed', { contextLabel, result });
+      }
+      return success;
+    } catch (err) {
+      warn('copyBlobMap desktop fallback error', { contextLabel, error: err?.message });
+      return false;
+    }
+  }
+
   async function copyBlobMap(blobMap, contextLabel) {
     if (!blobMap || !Object.keys(blobMap).length) {
       logDebug('copyBlobMap skipped', { contextLabel, reason: 'empty map' });
       return false;
     }
     const nav = global.navigator;
-    if (!nav?.clipboard?.write || typeof global.ClipboardItem !== 'function') {
-      warn('copyBlobMap clipboard unavailable', { contextLabel });
-      return false;
-    }
-    const supportedEntries = Object.entries(blobMap).filter(([type]) => clipboardTypeSupports(type));
-    if (!supportedEntries.length) {
-      warn('copyBlobMap no supported types', { contextLabel, requestedTypes: Object.keys(blobMap) });
-      return false;
-    }
-    const filteredMap = Object.fromEntries(supportedEntries);
     let success = false;
-    try {
-      const item = new global.ClipboardItem(filteredMap);
-      await nav.clipboard.write([item]);
-      success = true;
-    } catch (err) {
-      console.error('exporter clipboard write error', err);
-      success = false;
+    const canUseNavigatorClipboard = !!(nav?.clipboard?.write && typeof global.ClipboardItem === 'function');
+    if (canUseNavigatorClipboard) {
+      const supportedEntries = Object.entries(blobMap).filter(([type]) => clipboardTypeSupports(type));
+      if (!supportedEntries.length) {
+        warn('copyBlobMap no supported browser types', { contextLabel, requestedTypes: Object.keys(blobMap) });
+      } else {
+        const filteredMap = Object.fromEntries(supportedEntries);
+        try {
+          const item = new global.ClipboardItem(filteredMap);
+          await nav.clipboard.write([item]);
+          success = true;
+        } catch (err) {
+          console.error('exporter clipboard write error', err);
+          success = false;
+        }
+        if (success) {
+          logDebug('copyBlobMap success', { contextLabel, types: Object.keys(filteredMap) });
+        }
+      }
+    } else {
+      warn('copyBlobMap browser clipboard unavailable', { contextLabel });
     }
-    if (success) {
-      logDebug('copyBlobMap success', { contextLabel, types: Object.keys(filteredMap) });
+    if (!success) {
+      success = await copyBlobMapViaDesktopBridge(blobMap, contextLabel);
+      if (success) {
+        logDebug('copyBlobMap success via desktop bridge', { contextLabel, types: Object.keys(blobMap) });
+      }
     }
     return success;
   }

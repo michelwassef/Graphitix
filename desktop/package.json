@@ -18,8 +18,11 @@
     "chart.js": "^4.4.7",
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3",
-    "jszip": "^3.10.1",
     "jstat": "^1.9.5",
+    "jszip": "^3.10.1",
     "svd-js": "^1.1.1"
+  },
+  "dependencies": {
+    "venn": "file:.."
   }
 }

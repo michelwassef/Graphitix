@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('desktop', {
   showSaveDialog: (options) => ipcRenderer.invoke('desktop:showSaveDialog', options),
   readFile: (filePath) => ipcRenderer.invoke('desktop:readFile', filePath),
   writeFile: (payload) => ipcRenderer.invoke('desktop:writeFile', payload),
+  writeClipboard: (payload) => ipcRenderer.invoke('desktop:writeClipboard', payload),
   revealItem: (filePath) => ipcRenderer.invoke('desktop:revealItem', filePath),
   getPath: (name) => ipcRenderer.invoke('desktop:getPath', name)
 });

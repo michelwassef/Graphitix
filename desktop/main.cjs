@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
@@ -224,6 +224,51 @@ app.whenReady().then(() => {
     const buf = Buffer.from(payload.dataBase64, 'base64');
     await fs.writeFile(filePath, buf);
     return { ok: true };
+  });
+
+  ipcMain.handle('desktop:writeClipboard', async (_event, payload = {}) => {
+    const text = typeof payload.text === 'string' ? payload.text : '';
+    const html = typeof payload.html === 'string' ? payload.html : '';
+    const formats = payload && typeof payload.formats === 'object' && payload.formats
+      ? payload.formats
+      : {};
+
+    clipboard.clear();
+    if (text || html) {
+      clipboard.write({
+        ...(text ? { text } : {}),
+        ...(html ? { html } : {})
+      });
+    }
+
+    const writtenFormats = [];
+    for (const [format, dataBase64] of Object.entries(formats)) {
+      if (!format || typeof dataBase64 !== 'string' || !dataBase64) {
+        continue;
+      }
+      const buf = Buffer.from(dataBase64, 'base64');
+      if (!buf.length) {
+        continue;
+      }
+      const normalized = String(format).toLowerCase();
+      if (normalized === 'image/png') {
+        const image = nativeImage.createFromBuffer(buf);
+        if (!image.isEmpty()) {
+          clipboard.writeImage(image);
+          writtenFormats.push(format);
+        }
+        continue;
+      }
+      clipboard.writeBuffer(format, buf);
+      writtenFormats.push(format);
+    }
+
+    return {
+      ok: !!(text || html || writtenFormats.length),
+      hasText: !!text,
+      hasHtml: !!html,
+      formats: writtenFormats
+    };
   });
 
   ipcMain.handle('desktop:revealItem', async (_event, filePath) => {

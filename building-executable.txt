@@ -1,0 +1,9 @@
+From the repo root (C:\Users\33683\Venn), paste this:
+
+npm run desktop:build:installer
+This builds an updated Windows .exe installer (NSIS) for the Electron app.
+
+If you want a standalone portable .exe instead, use:
+
+npm --prefix desktop install (> only once, to install the needed package)
+npm run desktop:build:portable
