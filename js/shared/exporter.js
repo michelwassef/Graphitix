@@ -5260,6 +5260,7 @@
       }
       if (normalized === SVG_MIME_TYPE && !svgText) {
         svgText = await readBlobAsText(blob);
+        continue;
       }
       const base64 = await blobToBase64(blob);
       if (base64) {
@@ -5293,10 +5294,119 @@
     }
   }
 
+  async function copyTextFallbackFromBlobMap(blobMap, contextLabel) {
+    const textBlob = blobMap?.['text/plain'] || blobMap?.[SVG_MIME_TYPE] || null;
+    const text = await readBlobAsText(textBlob);
+    if (!text) {
+      return false;
+    }
+    const nav = global.navigator;
+    if (typeof nav?.clipboard?.writeText === 'function') {
+      try {
+        await nav.clipboard.writeText(text);
+        logDebug('copyBlobMap text fallback success via navigator.writeText', { contextLabel, length: text.length });
+        return true;
+      } catch (err) {
+        warn('copyBlobMap text fallback navigator.writeText error', { contextLabel, error: err?.message });
+      }
+    }
+    const desktopApi = global.desktop;
+    if (desktopApi && typeof desktopApi.writeClipboard === 'function') {
+      try {
+        const result = await desktopApi.writeClipboard({ text, html: '', formats: {} });
+        if (result && result.ok) {
+          logDebug('copyBlobMap text fallback success via desktop bridge', { contextLabel, length: text.length });
+          return true;
+        }
+      } catch (err) {
+        warn('copyBlobMap text fallback desktop bridge error', { contextLabel, error: err?.message });
+      }
+    }
+    return false;
+  }
+
+  function svgClipboardDebug(label, payload) {
+    if (!isDebugEnabled()) return;
+    try {
+      console.debug(`Debug: SVG clipboard ${label}`, payload || {});
+    } catch (_err) {
+      // Ignore debug logging errors.
+    }
+  }
+
+  function normalizeSvgStringForClipboard(svgText) {
+    if (typeof svgText !== 'string') {
+      throw new Error('SVG text must be a string.');
+    }
+    let normalized = svgText.trim();
+    if (!normalized.startsWith('<svg')) {
+      throw new Error('SVG content is invalid: does not start with <svg');
+    }
+    if (!/\sxmlns\s*=/.test(normalized)) {
+      normalized = normalized.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+      svgClipboardDebug('added missing xmlns attribute');
+    }
+    return normalized;
+  }
+
+  async function copySvgBlobMapWithAsyncClipboard(blobMap, contextLabel) {
+    const svgBlobLike = blobMap?.[SVG_MIME_TYPE];
+    svgClipboardDebug('starting copy attempt', { contextLabel, hasSvgBlob: !!svgBlobLike });
+    if (!svgBlobLike) {
+      throw new Error('SVG blob is unavailable.');
+    }
+    const rawSvgText = await readBlobAsText(svgBlobLike);
+    svgClipboardDebug('retrieved SVG text', { contextLabel, length: rawSvgText ? rawSvgText.length : 0 });
+    const svgText = normalizeSvgStringForClipboard(rawSvgText);
+
+    if (!global.isSecureContext) {
+      svgClipboardDebug('failed insecure context', { contextLabel });
+      throw new Error('Clipboard.write requires a secure context.');
+    }
+    const nav = global.navigator;
+    if (!nav?.clipboard || typeof nav.clipboard.write !== 'function') {
+      svgClipboardDebug('failed navigator.clipboard.write unavailable', { contextLabel });
+      throw new Error('navigator.clipboard.write is not available.');
+    }
+    if (typeof global.ClipboardItem !== 'function') {
+      svgClipboardDebug('failed ClipboardItem unavailable', { contextLabel });
+      throw new Error('ClipboardItem is not available.');
+    }
+    if (typeof global.ClipboardItem.supports === 'function' && !global.ClipboardItem.supports(SVG_MIME_TYPE)) {
+      svgClipboardDebug('failed ClipboardItem does not support image/svg+xml', { contextLabel });
+      throw new Error('ClipboardItem does not support image/svg+xml in this environment.');
+    }
+
+    const BlobCtor = global.Blob || (typeof Blob !== 'undefined' ? Blob : null);
+    if (!BlobCtor) {
+      svgClipboardDebug('failed Blob unavailable', { contextLabel });
+      throw new Error('Blob is not available.');
+    }
+    const svgBlob = new BlobCtor([svgText], { type: SVG_MIME_TYPE });
+    svgClipboardDebug('blob created', { contextLabel, size: svgBlob.size, type: svgBlob.type });
+    const item = new global.ClipboardItem({ [SVG_MIME_TYPE]: svgBlob });
+    await nav.clipboard.write([item]);
+    svgClipboardDebug('success', { contextLabel, mode: 'svg-async-clipboard' });
+    return true;
+  }
+
   async function copyBlobMap(blobMap, contextLabel) {
     if (!blobMap || !Object.keys(blobMap).length) {
       logDebug('copyBlobMap skipped', { contextLabel, reason: 'empty map' });
       return false;
+    }
+    const hasSvgPayload = Object.prototype.hasOwnProperty.call(blobMap, SVG_MIME_TYPE);
+    if (hasSvgPayload) {
+      try {
+        const svgSuccess = await copySvgBlobMapWithAsyncClipboard(blobMap, contextLabel);
+        if (svgSuccess) {
+          svgClipboardDebug('primary path complete', { contextLabel, mode: 'svg' });
+          return true;
+        }
+      } catch (err) {
+        console.error('Debug: SVG clipboard primary SVG copy failed', { contextLabel, error: err?.message || String(err) });
+        svgClipboardDebug('falling back to existing clipboard paths', { contextLabel });
+      }
     }
     const nav = global.navigator;
     let success = false;
@@ -5326,6 +5436,12 @@
       success = await copyBlobMapViaDesktopBridge(blobMap, contextLabel);
       if (success) {
         logDebug('copyBlobMap success via desktop bridge', { contextLabel, types: Object.keys(blobMap) });
+      }
+    }
+    if (!success) {
+      success = await copyTextFallbackFromBlobMap(blobMap, contextLabel);
+      if (success && hasSvgPayload) {
+        svgClipboardDebug('text fallback success', { contextLabel, mode: 'text-fallback' });
       }
     }
     return success;
@@ -5367,36 +5483,42 @@
         return viewportHeight;
       }
       const dock = doc.getElementById('workspaceTabsDock') || doc.querySelector?.('.workspace-tabs-dock');
-      if (!dock || typeof dock.getBoundingClientRect !== 'function') {
+      if (!dock || !dock.getBoundingClientRect) {
         return viewportHeight;
       }
       const rect = dock.getBoundingClientRect();
-      if (!rect || rect.height <= 0) {
+      if (!Number.isFinite(rect.top)) {
         return viewportHeight;
       }
-      const styles = global.getComputedStyle ? global.getComputedStyle(dock) : null;
-      if (styles && (styles.display === 'none' || styles.visibility === 'hidden')) {
-        return viewportHeight;
-      }
-      return Math.min(viewportHeight, rect.top);
+      return Math.min(viewportHeight, Math.max(0, rect.top - 8));
     };
-    let menuRect = null;
-    const prevVisibility = menu.style.visibility;
-    menu.style.visibility = 'hidden';
-    menuRect = menu.getBoundingClientRect();
-    menu.style.visibility = prevVisibility || '';
-    const triggerRect = trigger.getBoundingClientRect();
     const bottomBoundary = resolveBottomBoundary();
+    menu.style.maxHeight = '';
+    menu.style.overflowY = '';
+    menu.style.top = '';
+    menu.style.bottom = '';
+    menu.classList.remove('open-up');
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
     const spaceBelow = bottomBoundary - triggerRect.bottom;
     const spaceAbove = triggerRect.top;
-    let direction = 'down';
-    if (menuRect?.height && (menuRect.height > spaceBelow) && spaceAbove >= menuRect.height) {
-      direction = 'up';
-    } else if (menuRect?.height && (spaceBelow < menuRect.height) && spaceAbove > spaceBelow) {
-      direction = 'up';
+    if (menuRect.height > spaceBelow && spaceAbove > spaceBelow) {
+      menu.classList.add('open-up');
+      menu.style.bottom = 'calc(100% + 6px)';
+      menu.style.top = 'auto';
+      const maxHeight = Math.max(120, spaceAbove - 10);
+      menu.style.maxHeight = `${Math.floor(maxHeight)}px`;
+      menu.style.overflowY = 'auto';
+    } else {
+      menu.classList.remove('open-up');
+      menu.style.top = 'calc(100% + 6px)';
+      menu.style.bottom = 'auto';
+      if (menuRect.height > spaceBelow) {
+        const maxHeight = Math.max(120, spaceBelow - 10);
+        menu.style.maxHeight = `${Math.floor(maxHeight)}px`;
+        menu.style.overflowY = 'auto';
+      }
     }
-    state.wrapper.dataset.menuDirection = direction;
-    logDebug('menuDirection', { contextLabel: state.contextLabel, actionKey: state.actionKey, direction, spaceAbove, spaceBelow, menuHeight: menuRect?.height || 0, bottomBoundary });
   }
 
   function ensureDocumentListeners() {

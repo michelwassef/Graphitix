@@ -227,21 +227,16 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('desktop:writeClipboard', async (_event, payload = {}) => {
-    const text = typeof payload.text === 'string' ? payload.text : '';
-    const html = typeof payload.html === 'string' ? payload.html : '';
+    let text = typeof payload.text === 'string' ? payload.text : '';
+    let html = typeof payload.html === 'string' ? payload.html : '';
     const formats = payload && typeof payload.formats === 'object' && payload.formats
       ? payload.formats
       : {};
 
     clipboard.clear();
-    if (text || html) {
-      clipboard.write({
-        ...(text ? { text } : {}),
-        ...(html ? { html } : {})
-      });
-    }
 
     const writtenFormats = [];
+    let wroteImage = false;
     for (const [format, dataBase64] of Object.entries(formats)) {
       if (!format || typeof dataBase64 !== 'string' || !dataBase64) {
         continue;
@@ -256,18 +251,40 @@ app.whenReady().then(() => {
         if (!image.isEmpty()) {
           clipboard.writeImage(image);
           writtenFormats.push(format);
+          wroteImage = true;
         }
+        continue;
+      }
+      if (normalized === 'image/svg+xml') {
+        // For SVG copy we prefer text/html payloads; custom SVG clipboard buffers
+        // are inconsistently consumed on Windows and can hide plain-text paste.
+        const svgText = buf.toString('utf8');
+        if (!text) {
+          text = svgText;
+        }
+        if (!html && svgText.trim().startsWith('<svg')) {
+          html = svgText;
+        }
+        writtenFormats.push('image/svg+xml');
         continue;
       }
       clipboard.writeBuffer(format, buf);
       writtenFormats.push(format);
     }
 
+    if (!wroteImage && (text || html)) {
+      clipboard.write({
+        ...(text ? { text } : {}),
+        ...(html ? { html } : {})
+      });
+    }
+
     return {
       ok: !!(text || html || writtenFormats.length),
       hasText: !!text,
       hasHtml: !!html,
-      formats: writtenFormats
+      formats: writtenFormats,
+      availableFormats: clipboard.availableFormats()
     };
   });
 

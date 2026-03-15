@@ -665,6 +665,13 @@
     const el = evt?.currentTarget;
     if(!el){ return; }
     try{ evt.stopPropagation(); }catch(e){}
+    try{
+      console.debug('Debug: box overlay toolbar requested', {
+        traceIndex: resolveBoxTraceIndexFromNode(el),
+        tagName: String(el.tagName || '').toLowerCase(),
+        overlayKind: el.getAttribute ? (el.getAttribute('data-box-overlay-kind') || null) : null
+      });
+    }catch(debugErr){ console.warn('box overlay toolbar debug log failed', debugErr); }
     openBoxPointAndSummaryControls({ summaryTarget: el, source: 'summary' });
   }
 
@@ -704,7 +711,7 @@
       return fallbackNode || null;
     }
     if(traceIndex != null){
-      const scoped = plot.querySelector(`g[data-trace="${traceIndex}"] line[data-summary-line="1"]`);
+      const scoped = plot.querySelector(`g[data-trace="${traceIndex}"] line[data-summary-line="1"], line[data-summary-line="1"][data-trace="${traceIndex}"]`);
       if(scoped){
         return scoped;
       }
@@ -763,10 +770,154 @@
     node.addEventListener('click', handleBoxShapeClick);
   }
 
+  function getBoxBodyShapeSelector(){
+    return '[data-box-shape="body"]:not([data-summary-line="1"])';
+  }
+
+  function attachBoxOverlayHandler(node){
+    if(!node){ return; }
+    try{
+      node.style.cursor = 'pointer';
+      if((node.tagName || '').toLowerCase() === 'line'){
+        node.style.pointerEvents = 'stroke';
+      }
+    }catch(e){}
+    node.addEventListener('click', handleBoxSummaryClick);
+  }
+
+  function buildBoxOverlayStrokeHelper(config){
+    const options = config || {};
+    const traceIndex = options.traceIndex == null ? null : String(options.traceIndex);
+    const colorIndex = options.colorIndex == null ? null : Number(options.colorIndex);
+    const fillColor = options.fillColor;
+    const borderColor = options.borderColor;
+    const fallbackOpacity = clampSummaryOpacity(options.fallbackOpacity);
+    const summaryStyle = getSummaryStyle(traceIndex);
+    const preferredDefaultColor = typeof options.defaultColor === 'string' && options.defaultColor.trim() && options.defaultColor !== 'none'
+      ? options.defaultColor.trim()
+      : null;
+    const summaryColor = resolveBoxSummaryOverlayColor(
+      summaryStyle,
+      preferredDefaultColor || fillColor,
+      preferredDefaultColor ? fillColor : borderColor,
+      { schemeId: options.schemeId }
+    );
+    const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
+    const summaryOpacity = summaryOpacityRaw == null ? (fallbackOpacity == null ? 1 : fallbackOpacity) : summaryOpacityRaw;
+    const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
+    const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
+    const numericBaseStroke = Number(options.baseStroke);
+    const baseStroke = Math.max(0.2, Number.isFinite(numericBaseStroke) ? numericBaseStroke : 0.8);
+    return {
+      traceIndex,
+      colorIndex,
+      style: summaryStyle,
+      color: summaryColor,
+      opacity: summaryOpacity,
+      pattern: summaryPattern,
+      thickness: summaryThicknessRaw,
+      baseStroke,
+      attrs(width, extraAttrs){
+        const requestedWidth = Number(width);
+        const fallbackWidth = Number.isFinite(requestedWidth) ? requestedWidth : baseStroke;
+        const effectiveWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : fallbackWidth);
+        const patternAttrs = getSummaryStrokePatternAttrs(effectiveWidth, summaryPattern);
+        const attrs = Object.assign({}, extraAttrs || {}, {
+          stroke: summaryColor,
+          'stroke-width': effectiveWidth,
+          'data-summary-line': '1',
+          'data-box-shape': 'body'
+        });
+        if(traceIndex != null && attrs['data-trace'] == null){
+          attrs['data-trace'] = traceIndex;
+        }
+        if(Number.isFinite(colorIndex) && attrs['data-color-index'] == null){
+          attrs['data-color-index'] = colorIndex;
+        }
+        if(patternAttrs['stroke-dasharray']){
+          attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
+        }else{
+          delete attrs['stroke-dasharray'];
+        }
+        if(patternAttrs['stroke-linecap']){
+          attrs['stroke-linecap'] = patternAttrs['stroke-linecap'];
+        }else{
+          delete attrs['stroke-linecap'];
+        }
+        if(summaryOpacity !== 1){
+          attrs['stroke-opacity'] = summaryOpacity;
+        }else{
+          delete attrs['stroke-opacity'];
+        }
+        return attrs;
+      }
+    };
+  }
+
+  function readSvgOpacityAttr(node, attrName){
+    if(!node || typeof node.getAttribute !== 'function'){
+      return null;
+    }
+    const raw = node.getAttribute(attrName);
+    if(raw == null){
+      try{
+        if(global && global.__BOX_DEBUG_OPACITY__ === true){
+          console.debug('Debug: box opacity attribute missing, using SVG default opacity', {
+            attrName,
+            tagName: node.tagName || null,
+            trace: node.getAttribute && node.getAttribute('data-trace')
+          });
+        }
+      }catch(e){}
+      return null;
+    }
+    const normalized = String(raw).trim();
+    if(!normalized){
+      return null;
+    }
+    const numeric = Number(normalized);
+    if(!Number.isFinite(numeric)){
+      try{
+        if(global && global.__BOX_DEBUG_OPACITY__ === true){
+          console.debug('Debug: box opacity attribute invalid, ignoring value', {
+            attrName,
+            raw,
+            tagName: node.tagName || null,
+            trace: node.getAttribute && node.getAttribute('data-trace')
+          });
+        }
+      }catch(e){}
+      return null;
+    }
+    return Math.min(1, Math.max(0, numeric));
+  }
+
   function clampSummaryOpacity(value){
+    if(value == null || String(value).trim() === ''){ return null; }
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){ return null; }
     return Math.min(1, Math.max(0, numeric));
+  }
+
+  function resolveBoxOverlayDefaultColor(fillColor, borderColor, options = {}){
+    if(isBoxGrayscaleScheme(options.schemeId)){
+      return '#000000';
+    }
+    const normalize = value => (typeof value === 'string' && value.trim() && value !== 'none') ? value.trim().toLowerCase() : '';
+    const rawFill = typeof fillColor === 'string' && fillColor.trim() && fillColor !== 'none' ? fillColor.trim() : '';
+    const rawBorder = typeof borderColor === 'string' && borderColor.trim() && borderColor !== 'none' ? borderColor.trim() : '';
+    const normalizedFill = normalize(rawFill);
+    const normalizedBorder = normalize(rawBorder);
+    if(rawBorder && (!rawFill || normalizedBorder !== normalizedFill)){
+      return rawBorder;
+    }
+    if(rawFill){
+      return '#000000';
+    }
+    if(rawBorder){
+      return rawBorder;
+    }
+    return '#000000';
   }
   function sanitizeSummaryLinePattern(value){
     const normalized = String(value || '').trim().toLowerCase();
@@ -1285,7 +1436,8 @@
             return Number(sourcePoint.getAttribute('r')) || 4;
           },
           onChange(value, ctx){
-            const next = Math.max(0, Number(value) || 0);
+            const rounded = roundStripPointControlValue(value, 0.1);
+            const next = Math.max(0, Number.isFinite(rounded) ? rounded : (Number(value) || 0));
             if(ctx.scope === 'trace'){
               applyTracePatch({ size: next });
             }else{
@@ -1300,8 +1452,8 @@
             if(Number.isFinite(Number(style.opacity))){
               return 1 - Math.min(1, Math.max(0, Number(style.opacity)));
             }
-            const raw = Number(sourcePoint.getAttribute('fill-opacity'));
-            const opacity = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 1;
+            const attrOpacity = readSvgOpacityAttr(sourcePoint, 'fill-opacity');
+            const opacity = attrOpacity == null ? 1 : attrOpacity;
             return 1 - opacity;
           },
           onChange(value, ctx){
@@ -1319,6 +1471,11 @@
         || doc.querySelector('.font-toolbar-host[data-font-toolbar-scope="box"]')
         || toolbarHost
         || null;
+      if(hostNode && hostNode.querySelectorAll){
+        hostNode.querySelectorAll('input.shared-color-picker__scatter-style-input[aria-label="Size"]').forEach(input => {
+          input.step = '0.1';
+        });
+      }
       return { host: hostNode, traceIndex, scopeSelect: symbolToolbarState?.scopeSelect || null };
     }
     const shouldApplyPointStyleDirectly = () => true;
@@ -1801,7 +1958,7 @@
     const sizeInput = doc.createElement('input');
     sizeInput.type = 'number';
     sizeInput.min = '0';
-    sizeInput.step = '0.5';
+    sizeInput.step = '0.1';
     const normalizedDerived = Number.isFinite(derivedSize) ? Math.round(derivedSize * 10) / 10 : 4;
     sizeInput.value = String(normalizedDerived);
 
@@ -1818,15 +1975,20 @@
         };
 
     const applySizeValue = (value, persist) => {
-      const v = Number(value);
+      const roundedValue = roundStripPointControlValue(value, 0.1);
+      const v = Number.isFinite(roundedValue) ? roundedValue : Number(value);
       if(!Number.isFinite(v) || v <= 0){ return; }
-      updatePointsSize(resolveTargetPoints(), v);
+      const normalized = Math.round(v * 10) / 10;
+      if(sizeInput.value !== String(normalized)){
+        sizeInput.value = String(normalized);
+      }
+      updatePointsSize(resolveTargetPoints(), normalized);
       schedulePointSizeRelayout();
       if(persist){
         if(scopeSelect.value === 'trace'){
-          try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
+          try{ persistTraceStyle({ size: normalized }); }catch(e){console.warn(e);} 
         }else{
-          applyPointStyleGlobal({ size: v });
+          applyPointStyleGlobal({ size: normalized });
         }
       }
     };
@@ -1839,8 +2001,8 @@
     // Transparency slider (compact): 0 = opaque, 100 = fully transparent
     const opInput = doc.createElement('input');
     opInput.type = 'range'; opInput.min = '0'; opInput.max = '100';
-    const currentOpacity = Number(el.getAttribute('fill-opacity'));
-    const initialTransparency = Number.isFinite(currentOpacity) ? Math.round((1 - currentOpacity) * 100) : 0;
+    const currentOpacity = readSvgOpacityAttr(el, 'fill-opacity');
+    const initialTransparency = Math.round((1 - (currentOpacity == null ? 1 : currentOpacity)) * 100);
     opInput.value = String(initialTransparency);
     const opValue = doc.createElement('span');
     opValue.className = 'workspace-toolbar__input-value';
@@ -1927,7 +2089,9 @@
     const parentGroup = target.closest && target.closest('g[data-trace]') ? target.closest('g[data-trace]') : null;
     let traceIndex = opts.traceIndex != null
       ? String(opts.traceIndex)
-      : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null);
+      : (target?.getAttribute?.('data-trace') != null && target.getAttribute('data-trace') !== '' && target.getAttribute('data-trace') !== 'null'
+        ? String(target.getAttribute('data-trace'))
+        : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null));
     const summaryScopeLabel = resolveBoxTraceDisplayLabel(traceIndex);
     const knownSummaryTraceIndices = () => {
       const keys = new Set();
@@ -1943,6 +2107,7 @@
       const plot = doc ? doc.getElementById('boxPlot') : null;
       if(plot && plot.querySelectorAll){
         plot.querySelectorAll('g[data-trace]').forEach(group => addKey(group.getAttribute('data-trace')));
+        plot.querySelectorAll('line[data-summary-line="1"][data-trace]').forEach(line => addKey(line.getAttribute('data-trace')));
       }
       return Array.from(keys);
     };
@@ -1963,7 +2128,7 @@
         return sourceLine ? [sourceLine] : [];
       }
       if(scopeValue === 'trace' && traceIndex != null){
-        return Array.from(plot.querySelectorAll(`g[data-trace="${traceIndex}"] line[data-summary-line="1"]`));
+        return Array.from(plot.querySelectorAll(`g[data-trace="${traceIndex}"] line[data-summary-line="1"], line[data-summary-line="1"][data-trace="${traceIndex}"]`));
       }
       return Array.from(plot.querySelectorAll('line[data-summary-line="1"]'));
     };
@@ -2107,8 +2272,8 @@
           return Math.round((1 - opacity) * 100);
         }
         const node = resolveSummaryTargets(resolveScope(ctx))[0] || sourceLine;
-        const attrOpacity = clampSummaryOpacity(node?.getAttribute ? node.getAttribute('stroke-opacity') : null);
-        return Number.isFinite(attrOpacity) ? Math.round((1 - attrOpacity) * 100) : 0;
+        const attrOpacity = readSvgOpacityAttr(node, 'stroke-opacity');
+        return attrOpacity == null ? 0 : Math.round((1 - attrOpacity) * 100);
       },
       onColorInput: (value, ctx) => {
         const scopeValue = resolveScope(ctx);
@@ -2177,7 +2342,7 @@
         Object.keys(state.traceShapeStyles || {}).forEach(addKey);
         const plotRoot = doc.getElementById('boxPlot');
         if(plotRoot && plotRoot.querySelectorAll){
-          plotRoot.querySelectorAll('[data-box-shape="body"][data-trace]').forEach(node => addKey(node.getAttribute('data-trace')));
+          plotRoot.querySelectorAll(`${getBoxBodyShapeSelector()}[data-trace]`).forEach(node => addKey(node.getAttribute('data-trace')));
         }
         return Array.from(keys);
       };
@@ -2193,13 +2358,13 @@
       const plotRootNode = doc.getElementById('boxPlot');
       const resolveBodyTargets = scopeValue => {
         if(scopeValue === 'global'){
-          return plotRootNode ? Array.from(plotRootNode.querySelectorAll('[data-box-shape="body"]')) : [target];
+          return plotRootNode ? Array.from(plotRootNode.querySelectorAll(getBoxBodyShapeSelector())) : [target];
         }
         if(selectedTraceIndex == null){
-          return plotRootNode ? Array.from(plotRootNode.querySelectorAll('[data-box-shape="body"]')) : [target];
+          return plotRootNode ? Array.from(plotRootNode.querySelectorAll(getBoxBodyShapeSelector())) : [target];
         }
         return plotRootNode
-          ? Array.from(plotRootNode.querySelectorAll(`[data-box-shape="body"][data-trace="${selectedTraceIndex}"]`))
+          ? Array.from(plotRootNode.querySelectorAll(`${getBoxBodyShapeSelector()}[data-trace="${selectedTraceIndex}"]`))
           : [target];
       };
       const resolveScope = ctx => (ctx?.scope === 'global' ? 'global' : 'trace');
@@ -2220,7 +2385,7 @@
       };
       const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
       const fallbackBorderColor = target.getAttribute('stroke') || state.borderColors?.[selectedColorIndex] || shadeColor(fallbackFillColor, -30);
-      Shared.symbolToolbar.show({
+      const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
         target,
         anchorId: 'boxFontHost',
@@ -2367,9 +2532,9 @@
               return Math.round((1 - Math.min(1, Math.max(0, opacity))) * 100);
             }
             const node = resolveBodyTargets(scopeValue)[0] || target;
-            const attrOpacity = Number(node?.getAttribute ? node.getAttribute('fill-opacity') : null);
-            const resolved = Number.isFinite(attrOpacity) ? attrOpacity : 1;
-            return Math.round((1 - Math.min(1, Math.max(0, resolved))) * 100);
+            const attrOpacity = readSvgOpacityAttr(node, 'fill-opacity');
+            const resolved = attrOpacity == null ? 1 : attrOpacity;
+            return Math.round((1 - resolved) * 100);
           },
           onChange(value, ctx){
             const bounded = Math.min(100, Math.max(0, Number(value) || 0));
@@ -2387,6 +2552,22 @@
           }
         }
       });
+      if(symbolToolbarState?.host){
+        try{
+          showSummaryFormatControls(target, {
+            skipHideAll: true,
+            host: symbolToolbarState.host,
+            appendToHost: true,
+            keepOpenWithinHost: true,
+            keepHostVisible: true,
+            hostClass: 'font-toolbar-host--box-dual',
+            hostDisplay: 'grid',
+            traceIndex: Number.isFinite(selectedTraceIndex) ? String(selectedTraceIndex) : null
+          });
+        }catch(summaryErr){
+          console.warn('box shape overlay controls failed', summaryErr);
+        }
+      }
       return;
     }
     const anchor = doc.getElementById('boxFontHost');
@@ -2443,7 +2624,7 @@
       addKey(traceIndex);
       Object.keys(state.traceShapeStyles || {}).forEach(addKey);
       if(plotRoot && plotRoot.querySelectorAll){
-        plotRoot.querySelectorAll('[data-box-shape="body"][data-trace]').forEach(node => addKey(node.getAttribute('data-trace')));
+        plotRoot.querySelectorAll(`${getBoxBodyShapeSelector()}[data-trace]`).forEach(node => addKey(node.getAttribute('data-trace')));
       }
       return Array.from(keys);
     };
@@ -2457,9 +2638,9 @@
     };
     const resolveTargets = () => {
       if(traceIndex == null){
-        return plotRoot ? Array.from(plotRoot.querySelectorAll('[data-box-shape=\"body\"]')) : [target];
+        return plotRoot ? Array.from(plotRoot.querySelectorAll(getBoxBodyShapeSelector())) : [target];
       }
-      return plotRoot ? Array.from(plotRoot.querySelectorAll(`[data-box-shape=\"body\"][data-trace=\"${traceIndex}\"]`)) : [target];
+      return plotRoot ? Array.from(plotRoot.querySelectorAll(`${getBoxBodyShapeSelector()}[data-trace="${traceIndex}"]`)) : [target];
     };
     const scopeName = `boxShapeScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
@@ -2630,7 +2811,7 @@
     opacityInput.min = '0';
     opacityInput.max = '100';
     opacityInput.step = '1';
-    const currentOpacity = currentStyle?.opacity != null ? currentStyle.opacity : target.getAttribute('fill-opacity');
+    const currentOpacity = currentStyle?.opacity != null ? currentStyle.opacity : readSvgOpacityAttr(target, 'fill-opacity');
     const derivedOpacity = Number.isFinite(Number(currentOpacity)) ? Number(currentOpacity) : 1;
     const initialTransparency = Math.round((1 - derivedOpacity) * 100);
     opacityInput.value = String(initialTransparency);
@@ -4160,6 +4341,208 @@
     return Number.isFinite(limit) && limit > 0 ? limit : null;
   }
 
+  function roundStripPointControlValue(value, step = 0.1, mode = 'nearest'){
+    const numeric = Number(value);
+    const resolvedStep = Number(step);
+    if(!Number.isFinite(numeric)){
+      return null;
+    }
+    const safeStep = Number.isFinite(resolvedStep) && resolvedStep > 0 ? resolvedStep : 0.1;
+    const scaled = numeric / safeStep;
+    if(mode === 'down'){
+      return Math.floor(scaled + 1e-9) * safeStep;
+    }
+    if(mode === 'up'){
+      return Math.ceil(scaled - 1e-9) * safeStep;
+    }
+    return Math.round(scaled) * safeStep;
+  }
+
+  function resolveStripAvailableHalfWidth(config){
+    const axisSpacing = Number(config?.axisSpacing);
+    const pointRadius = Number(config?.pointRadius);
+    if(!Number.isFinite(axisSpacing) || axisSpacing <= 0 || !Number.isFinite(pointRadius) || pointRadius <= 0){
+      return null;
+    }
+    const axisBoundary = Math.max(0, axisSpacing / 2 - pointRadius);
+    const pitchHalfExtentLimit = computeStripHalfExtentLimit({
+      minCenterPitch: config?.minCenterPitch,
+      gapFactor: config?.gapFactor,
+      minGapPx: config?.minGapPx
+    });
+    let availableHalfWidth = axisBoundary;
+    if(Number.isFinite(pitchHalfExtentLimit) && pitchHalfExtentLimit > 0){
+      availableHalfWidth = Math.min(availableHalfWidth, Math.max(0, pitchHalfExtentLimit - pointRadius));
+    }
+    if(!Number.isFinite(availableHalfWidth)){
+      return null;
+    }
+    return Math.max(0, availableHalfWidth);
+  }
+
+  function validateStripSwarmFit(config){
+    const coordsSource = config?.coords;
+    const offsetsSource = config?.offsets;
+    const coords = (Array.isArray(coordsSource) || ArrayBuffer.isView(coordsSource)) ? coordsSource : null;
+    const offsets = Array.isArray(offsetsSource) ? offsetsSource : null;
+    const pointRadius = Number(config?.pointRadius);
+    const sampleSize = Number(config?.sampleSize) || (coords ? coords.length : 0);
+    const maxHalfWidth = Number(config?.maxHalfWidth);
+    if(!coords || !offsets || !coords.length || coords.length !== offsets.length){
+      return false;
+    }
+    if(!Number.isFinite(pointRadius) || pointRadius <= 0){
+      return false;
+    }
+    if(Number.isFinite(maxHalfWidth) && maxHalfWidth >= 0){
+      for(let i = 0; i < offsets.length; i++){
+        const offset = Number(offsets[i]);
+        if(!Number.isFinite(offset) || Math.abs(offset) > maxHalfWidth + 0.25){
+          return false;
+        }
+      }
+    }
+    const spacingProfile = computeSwarmSpacingProfile({ sampleSize, enforceNonOverlap: true });
+    const collisionDistance = Math.max(0.5, pointRadius * spacingProfile.collisionGapFactor);
+    const collisionDistanceSq = collisionDistance * collisionDistance - 0.0001;
+    const sorted = new Array(coords.length);
+    for(let i = 0; i < coords.length; i++){
+      sorted[i] = i;
+    }
+    sorted.sort((a, b) => (Number(coords[a]) - Number(coords[b])) || (a - b));
+    for(let i = 0; i < sorted.length; i++){
+      const a = sorted[i];
+      const ay = Number(coords[a]);
+      const ax = Number(offsets[a]) || 0;
+      for(let j = i + 1; j < sorted.length; j++){
+        const b = sorted[j];
+        const dy = (Number(coords[b]) || 0) - ay;
+        if(dy >= collisionDistance){
+          break;
+        }
+        const dx = (Number(offsets[b]) || 0) - ax;
+        if((dx * dx + dy * dy) < collisionDistanceSq){
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  async function computeStripTraceFeasibleRadius(config){
+    const values = Array.isArray(config?.values) ? config.values : [];
+    const coordsSource = config?.coords;
+    const coords = (Array.isArray(coordsSource) || ArrayBuffer.isView(coordsSource)) ? coordsSource : null;
+    const axisSpacing = Number(config?.axisSpacing);
+    const baseRadius = Number(config?.baseRadius);
+    const sampleSize = Number(config?.sampleSize) || values.length || (coords ? coords.length : 0);
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const minCenterPitch = config?.minCenterPitch;
+    const gapFactor = config?.gapFactor;
+    const minGapPx = config?.minGapPx;
+    const radiusStep = Number(config?.radiusStep);
+    const onProbe = typeof config?.onProbe === 'function' ? config.onProbe : null;
+    if(!coords || !coords.length || !Number.isFinite(axisSpacing) || axisSpacing <= 0 || !Number.isFinite(baseRadius) || baseRadius <= 0){
+      return null;
+    }
+    const minRadius = Math.max(0.2, baseRadius * 0.08);
+    const probeRadius = async radiusValue => {
+      const radius = Number(radiusValue);
+      if(!Number.isFinite(radius) || radius <= 0){
+        return { fit: false, radius: null, availableHalfWidth: null };
+      }
+      if(onProbe && onProbe() === false){
+        return { fit: false, cancelled: true, radius, availableHalfWidth: null };
+      }
+      const availableHalfWidth = resolveStripAvailableHalfWidth({
+        axisSpacing,
+        pointRadius: radius,
+        minCenterPitch,
+        gapFactor,
+        minGapPx
+      });
+      if(!Number.isFinite(availableHalfWidth) || availableHalfWidth < 0){
+        return { fit: false, radius, availableHalfWidth };
+      }
+      const swarm = await resolveSwarmOffsets({ coords, raws: values }, {
+        axisSpacing,
+        pointRadius: radius,
+        sampleSize,
+        orientation,
+        widthScaleMode: 'density',
+        maxHalfWidth: availableHalfWidth,
+        hardMaxHalfWidth: availableHalfWidth,
+        allowRadiusAdjustment: false,
+        skipBucketCentering: false,
+        enforceNonOverlap: true,
+        radiusCountExponent: 0.85,
+        debug: false
+      });
+      if(onProbe && onProbe() === false){
+        return { fit: false, cancelled: true, radius, availableHalfWidth };
+      }
+      const fit = validateStripSwarmFit({
+        coords,
+        offsets: swarm?.offsets,
+        pointRadius: radius,
+        sampleSize,
+        maxHalfWidth: availableHalfWidth
+      });
+      return { fit, radius, availableHalfWidth, swarm };
+    };
+    let baseProbe = await probeRadius(baseRadius);
+    if(baseProbe?.cancelled){
+      return null;
+    }
+    if(baseProbe?.fit){
+      const roundedRadius = roundStripPointControlValue(baseProbe.radius, radiusStep, 'down');
+      return {
+        radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : baseProbe.radius,
+        halfWidthCap: baseProbe.availableHalfWidth,
+        sampleSize,
+        fitted: true
+      };
+    }
+    let low = minRadius;
+    let lowProbe = await probeRadius(low);
+    if(lowProbe?.cancelled){
+      return null;
+    }
+    if(!lowProbe?.fit){
+      const fallbackRadius = roundStripPointControlValue(low, radiusStep, 'down');
+      return {
+        radius: Number.isFinite(fallbackRadius) && fallbackRadius > 0 ? fallbackRadius : low,
+        halfWidthCap: lowProbe?.availableHalfWidth,
+        sampleSize,
+        fitted: false
+      };
+    }
+    let high = baseRadius;
+    for(let iter = 0; iter < 12; iter++){
+      if((high - low) <= 0.05){
+        break;
+      }
+      const mid = (low + high) / 2;
+      const midProbe = await probeRadius(mid);
+      if(midProbe?.cancelled){
+        return null;
+      }
+      if(midProbe?.fit){
+        low = mid;
+        lowProbe = midProbe;
+      }else{
+        high = mid;
+      }
+    }
+    const roundedRadius = roundStripPointControlValue(low, radiusStep, 'down');
+    return {
+      radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : low,
+      halfWidthCap: lowProbe?.availableHalfWidth,
+      sampleSize,
+      fitted: true
+    };
+  }
+
   function computeSwarmSpacingProfile(config){
     const sampleSizeRaw = Number(config?.sampleSize);
     const sampleSize = Number.isFinite(sampleSizeRaw) && sampleSizeRaw > 0 ? sampleSizeRaw : 1;
@@ -5373,6 +5756,180 @@
       ciHigh: Number.isFinite(ciHigh) ? ciHigh : NaN,
       gsdLow: Number.isFinite(gsd) ? geoMean / gsd : NaN,
       gsdHigh: Number.isFinite(gsd) ? geoMean * gsd : NaN
+    };
+  }
+
+  function resolveBarSummaryConfig(mode, summary, valueList){
+    const normalized = normalizeIndividualSummaryValue(mode);
+    const sampleCount = Number(summary?.count) || (Array.isArray(valueList) ? valueList.filter(v=>Number.isFinite(v)).length : 0);
+    const mean = summary?.mean;
+    const sd = summary?.sd;
+    const q1 = summary?.q1;
+    const q3 = summary?.q3;
+    const median = summary?.median;
+    const minVal = summary?.min;
+    const maxVal = summary?.max;
+    const sortedValues = Array.isArray(summary?.sortedValues) && summary.sortedValues.length
+      ? summary.sortedValues
+      : computeSortedNumericValues(valueList);
+    let centerValue = NaN;
+    let lowValue = NaN;
+    let highValue = NaN;
+    let hasInterval = false;
+    const getGeoStats = () => {
+      if(summary && typeof summary === 'object'){
+        if(!summary.__barGeoSummary){
+          summary.__barGeoSummary = computeGeometricSummary(valueList);
+        }
+        return summary.__barGeoSummary;
+      }
+      return computeGeometricSummary(valueList);
+    };
+    switch(normalized){
+      case 'mean-point':
+        centerValue = mean;
+        break;
+      case 'mean-sd':
+        centerValue = mean;
+        if(sampleCount > 1 && Number.isFinite(sd)){
+          lowValue = mean - sd;
+          highValue = mean + sd;
+          hasInterval = true;
+        }
+        break;
+      case 'mean-sem':
+        centerValue = mean;
+        if(sampleCount > 1 && Number.isFinite(sd)){
+          const semValue = sd / Math.sqrt(sampleCount);
+          lowValue = mean - semValue;
+          highValue = mean + semValue;
+          hasInterval = true;
+        }
+        break;
+      case 'mean-ci':{
+        centerValue = mean;
+        const ci = computeMeanCI95(summary);
+        if(ci){
+          lowValue = ci.low;
+          highValue = ci.high;
+          hasInterval = true;
+        }
+        break;
+      }
+      case 'mean-range':
+        centerValue = mean;
+        lowValue = minVal;
+        highValue = maxVal;
+        hasInterval = Number.isFinite(lowValue) && Number.isFinite(highValue);
+        break;
+      case 'geo-mean':{
+        const geo = getGeoStats();
+        centerValue = geo?.geoMean;
+        break;
+      }
+      case 'geo-mean-ci':{
+        const geo = getGeoStats();
+        centerValue = geo?.geoMean;
+        lowValue = geo?.ciLow;
+        highValue = geo?.ciHigh;
+        hasInterval = Number.isFinite(lowValue) && Number.isFinite(highValue);
+        break;
+      }
+      case 'geo-mean-gsd':{
+        const geo = getGeoStats();
+        centerValue = geo?.geoMean;
+        lowValue = geo?.gsdLow;
+        highValue = geo?.gsdHigh;
+        hasInterval = Number.isFinite(lowValue) && Number.isFinite(highValue);
+        break;
+      }
+      case 'median-point':
+        centerValue = median;
+        break;
+      case 'median-ci':{
+        centerValue = median;
+        const ci = computeMedianCIApprox(sortedValues);
+        if(ci){
+          lowValue = ci.low;
+          highValue = ci.high;
+          hasInterval = true;
+        }
+        break;
+      }
+      case 'median-range':
+        centerValue = median;
+        lowValue = minVal;
+        highValue = maxVal;
+        hasInterval = Number.isFinite(lowValue) && Number.isFinite(highValue);
+        break;
+      case 'median-iqr':
+        centerValue = median;
+        lowValue = q1;
+        highValue = q3;
+        hasInterval = Number.isFinite(lowValue) && Number.isFinite(highValue);
+        break;
+      case 'none':
+        centerValue = Number.isFinite(mean) ? mean : median;
+        console.debug('Debug: box bar summary mode none mapped to center only',{
+          mode: normalized,
+          mean,
+          median,
+          resolved: centerValue
+        });
+        break;
+      default:
+        centerValue = mean;
+        break;
+    }
+    if(!Number.isFinite(centerValue)){
+      const fallbackCenter = [mean, median, minVal, maxVal, 0].find(v => Number.isFinite(v));
+      centerValue = Number.isFinite(fallbackCenter) ? fallbackCenter : 0;
+      console.debug('Debug: box bar summary fallback center',{
+        mode: normalized,
+        centerValue,
+        mean,
+        median,
+        minVal,
+        maxVal
+      });
+    }
+    if(hasInterval){
+      if(!Number.isFinite(lowValue) || !Number.isFinite(highValue)){
+        hasInterval = false;
+        lowValue = centerValue;
+        highValue = centerValue;
+        console.debug('Debug: box bar summary interval skipped',{
+          mode: normalized,
+          lowValue,
+          highValue,
+          centerValue
+        });
+      }else if(highValue < lowValue){
+        const temp = highValue;
+        highValue = lowValue;
+        lowValue = temp;
+        console.debug('Debug: box bar summary interval swapped',{
+          mode: normalized,
+          lowValue,
+          highValue,
+          centerValue
+        });
+      }
+    }else{
+      lowValue = centerValue;
+      highValue = centerValue;
+    }
+    const lowerError = hasInterval ? Math.max(0, centerValue - lowValue) : 0;
+    const upperError = hasInterval ? Math.max(0, highValue - centerValue) : 0;
+    return {
+      mode: normalized,
+      sampleCount,
+      centerValue,
+      lowValue,
+      highValue,
+      lowerError,
+      upperError,
+      hasInterval
     };
   }
 
@@ -8916,6 +9473,7 @@
       console.debug('Debug: box individual summary initialised',{ value: els.boxIndividualSummary.value });
     }
     els.boxPointMode=global.$('#boxPointMode');
+    els.boxPointModeCtl=els.boxPointMode?.closest('.control') || null;
     els.boxShowCaps=global.$('#boxShowCaps');
     els.boxShowSignificance=global.$('#boxShowSignificance');
     els.boxSignificanceLabelCtl=global.$('#boxSignificanceLabelCtl');
@@ -11373,17 +11931,22 @@
         console.debug('Debug: box showCaps visibility updated',{ graphTypeValue, capsVisible });
       }
       if(els.boxIndividualSummaryCtl){
-        const summaryVisible = graphTypeValue === 'strip';
+        const summaryVisible = graphTypeValue === 'strip' || graphTypeValue === 'bar';
         els.boxIndividualSummaryCtl.style.display = summaryVisible ? '' : 'none';
         if(summaryVisible && els.boxIndividualSummary){
           const summaryValue = normalizeIndividualSummaryValue(state.individualSummary);
           state.individualSummary = summaryValue;
           if(els.boxIndividualSummary.value !== summaryValue){
             els.boxIndividualSummary.value = summaryValue;
-            console.debug('Debug: box individual summary sync',{ summaryValue });
+            console.debug('Debug: box individual summary sync',{ summaryValue, graphTypeValue });
           }
         }
         console.debug('Debug: box individual summary visibility',{ graphTypeValue, summaryVisible });
+      }
+      if(els.boxPointModeCtl){
+        const pointModeVisible = graphTypeValue !== 'strip';
+        els.boxPointModeCtl.style.display = pointModeVisible ? '' : 'none';
+        console.debug('Debug: box point mode visibility',{ graphTypeValue, pointModeVisible });
       }
       ensureBoxSignificanceControlPlacement();
       if(els.boxLayoutModeCtl){
@@ -22143,21 +22706,22 @@ Technical analysis record (advanced)
       console.debug('Debug: box violin draw settings',{ auto: violinState.autoBandwidth !== false, manualBandwidth: violinState.bandwidth, sampleCount: violinState.sampleCount });
     }
     const isIndividualValues = graphTypeRaw === 'strip';
+    const usesSummarySelector = isIndividualValues || graphTypeRaw === 'bar';
     let individualSummaryMode = 'none';
-    if(isIndividualValues){
+    if(usesSummarySelector){
       const domValue = els.boxIndividualSummary?.value;
       const normalizedDom = domValue ? normalizeIndividualSummaryValue(domValue) : null;
       const summaryValue = normalizedDom || normalizeIndividualSummaryValue(state.individualSummary);
       individualSummaryMode = summaryValue;
       if(summaryValue !== state.individualSummary){
         state.individualSummary = summaryValue;
-        console.debug('Debug: box individual summary state sync',{ summaryValue });
+        console.debug('Debug: box summary selector state sync',{ summaryValue, graphTypeRaw });
       }
       if(els.boxIndividualSummary && els.boxIndividualSummary.value !== summaryValue){
         els.boxIndividualSummary.value = summaryValue;
       }
     }
-    console.debug('Debug: box individual summary mode',{ graphTypeRaw, individualSummaryMode });
+    console.debug('Debug: box summary selector mode',{ graphTypeRaw, individualSummaryMode });
     const pointMode = els.boxPointMode.value;
     const showCaps = els.boxShowCaps.checked;
     const errorMode = els.boxErrorMode.value;
@@ -22827,39 +23391,32 @@ Technical analysis record (advanced)
       return;
     }
     boxLog('boxplot ymin/ymax',{ ymin, ymax });
-    const computeStackedErrorExtents = (baseValue, meanValue, sdValue, mode) => {
-      if(!Number.isFinite(baseValue) || !Number.isFinite(meanValue)){
+    const computeStackedErrorExtents = (baseValue, centerValue, lowerErrorValue, upperErrorValue, mode) => {
+      if(!Number.isFinite(baseValue) || !Number.isFinite(centerValue)){
         return null;
       }
-      const safeSd = Number.isFinite(sdValue) && sdValue > 0 ? sdValue : 0;
-      const segmentEnd = baseValue + meanValue;
+      const safeLower = Number.isFinite(lowerErrorValue) && lowerErrorValue > 0 ? lowerErrorValue : 0;
+      const safeUpper = Number.isFinite(upperErrorValue) && upperErrorValue > 0 ? upperErrorValue : 0;
+      const segmentEnd = baseValue + centerValue;
       let highValue = segmentEnd;
       let lowValue = segmentEnd;
-      if(meanValue >= 0){
-        highValue = Math.max(segmentEnd, baseValue + meanValue + safeSd);
+      if(centerValue >= 0){
+        highValue = Math.max(segmentEnd, segmentEnd + safeUpper);
         if(mode === 'both'){
-          const proposed = baseValue + meanValue - safeSd;
+          const proposed = segmentEnd - safeLower;
           if(proposed < baseValue){
-            console.debug('Debug: box stacked bar lower clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
+            console.debug('Debug: box stacked bar lower clamp',{ baseValue, centerValue, lowerError: safeLower, proposed, clamp: baseValue });
             lowValue = baseValue;
           }else{
             lowValue = Math.min(segmentEnd, proposed);
           }
         }
       }else{
-        lowValue = Math.min(segmentEnd, baseValue + meanValue - safeSd);
-        if(mode === 'both'){
-          const proposed = baseValue + meanValue + safeSd;
+        lowValue = Math.min(segmentEnd, segmentEnd - safeLower);
+        if(mode === 'both' || mode === 'upper'){
+          const proposed = segmentEnd + safeUpper;
           if(proposed > baseValue){
-            console.debug('Debug: box stacked bar upper clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
-            highValue = baseValue;
-          }else{
-            highValue = Math.max(segmentEnd, proposed);
-          }
-        }else if(mode === 'upper'){
-          const proposed = baseValue + meanValue + safeSd;
-          if(proposed > baseValue){
-            console.debug('Debug: box stacked bar upper-only clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
+            console.debug('Debug: box stacked bar upper clamp',{ baseValue, centerValue, upperError: safeUpper, proposed, clamp: baseValue, mode });
             highValue = baseValue;
           }else{
             highValue = Math.max(segmentEnd, proposed);
@@ -22868,7 +23425,7 @@ Technical analysis record (advanced)
       }
       if(highValue < lowValue){
         const mid = (highValue + lowValue) / 2;
-        console.debug('Debug: box stacked bar extent swap',{ baseValue, mean: meanValue, sd: safeSd, highValue, lowValue, mode });
+        console.debug('Debug: box stacked bar extent swap',{ baseValue, centerValue, lowerError: safeLower, upperError: safeUpper, highValue, lowValue, mode });
         highValue = mid;
         lowValue = mid;
       }
@@ -22880,33 +23437,36 @@ Technical analysis record (advanced)
       const stackedPreview = isStackedLayout ? new Map() : null;
       traces.forEach((t, traceIndex) => {
         const stats = t.__barStats;
-        const sampleCount = stats?.sampleCount ?? t.y.length;
+        const summarySpec = t.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, t.__distribution, t.y);
+        t.__barSummarySpec = summarySpec;
+        const sampleCount = summarySpec?.sampleCount ?? stats?.sampleCount ?? t.y.length;
         if(!sampleCount){
           return;
         }
-        const mean = stats?.mean ?? 0;
-        const hasSpread = !!(stats && stats.hasSpread);
-        const sd = stats?.sd ?? 0;
+        const centerValue = summarySpec?.centerValue ?? stats?.mean ?? 0;
+        const hasSpread = !!summarySpec?.hasInterval;
+        const lowerError = summarySpec?.lowerError ?? 0;
+        const upperError = summarySpec?.upperError ?? 0;
         if(isStackedLayout){
           const key = Number.isFinite(t.categoryIndex) ? t.categoryIndex : traceIndex;
           if(!stackedPreview.has(key)){
             stackedPreview.set(key, { pos: 0, neg: 0 });
           }
           const entry = stackedPreview.get(key);
-          const baseValue = mean >= 0 ? entry.pos : entry.neg;
-          const segmentEnd = baseValue + mean;
+          const baseValue = centerValue >= 0 ? entry.pos : entry.neg;
+          const segmentEnd = baseValue + centerValue;
           if(hasSpread){
-            const extents = computeStackedErrorExtents(baseValue, mean, sd, errorMode);
+            const extents = computeStackedErrorExtents(baseValue, centerValue, lowerError, upperError, errorMode);
             if(extents){
               barErrorMin = Math.min(barErrorMin, extents.lowValue);
               barErrorMax = Math.max(barErrorMax, extents.highValue);
             }
           }else{
-            console.debug('Debug: box stacked bar extent single value',{ trace: t.name, sampleCount, mean });
+            console.debug('Debug: box stacked bar extent single value',{ trace: t.name, sampleCount, centerValue, summaryMode: summarySpec?.mode });
             barErrorMin = Math.min(barErrorMin, baseValue, segmentEnd);
             barErrorMax = Math.max(barErrorMax, baseValue, segmentEnd);
           }
-          if(mean >= 0){
+          if(centerValue >= 0){
             entry.pos = segmentEnd;
             barErrorMax = Math.max(barErrorMax, entry.pos);
           }else{
@@ -22914,10 +23474,10 @@ Technical analysis record (advanced)
             barErrorMin = Math.min(barErrorMin, entry.neg);
           }
         }else{
-          const lowerCandidate = hasSpread ? mean - sd : mean;
-          const upperCandidate = hasSpread ? mean + sd : mean;
+          const lowerCandidate = hasSpread && errorMode === 'both' ? (summarySpec?.lowValue ?? centerValue) : centerValue;
+          const upperCandidate = hasSpread ? (summarySpec?.highValue ?? centerValue) : centerValue;
           if(!hasSpread){
-            console.debug('Debug: box skip bar extent for single value',{ trace: t.name, sampleCount, mean });
+            console.debug('Debug: box skip bar extent for center-only summary',{ trace: t.name, sampleCount, centerValue, summaryMode: summarySpec?.mode });
           }
           barErrorMin = Math.min(barErrorMin, lowerCandidate);
           barErrorMax = Math.max(barErrorMax, upperCandidate);
@@ -23839,17 +24399,10 @@ Technical analysis record (advanced)
           }
           return null;
         }
-        const referenceHalfWidth = Math.max(
-          STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
-          pointRadius * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
-        );
-        const referenceBand = Math.max(1, referenceHalfWidth / 0.36);
-        const baseOverlapDistance = Math.max(0.5, pointRadius * 2.1);
-        let selectedIndex = null;
-        let selectedCount = 0;
-        let selectedOverlapCount = 0;
-        let selectedValues = null;
-        let selectedPointCoords = null;
+        const axisSpacing = localBandWidthForTrace();
+        const traceProfiles = [];
+        let limitingRadius = Infinity;
+        let limitingTraceIndex = null;
         for(let i = 0; i < traces.length; i++){
           if(hasExplicitPointSize(i)){
             if(debugEnabled){
@@ -23863,118 +24416,74 @@ Technical analysis record (advanced)
             continue;
           }
           const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
-          if(values.length <= 1){
+          if(!values.length){
             continue;
           }
           const pointCoords = new Float64Array(values.length);
           for(let idx = 0; idx < values.length; idx++){
             pointCoords[idx] = y2px(values[idx]);
           }
-          const overlapCount = estimateSwarmOverlapCount(pointCoords, baseOverlapDistance);
-          const betterCandidate = selectedIndex == null
-            || overlapCount > selectedOverlapCount
-            || (overlapCount === selectedOverlapCount && values.length > selectedCount);
-          if(!betterCandidate){
+          const profile = await computeStripTraceFeasibleRadius({
+            values,
+            coords: pointCoords,
+            axisSpacing,
+            baseRadius: pointRadius,
+            sampleSize: values.length,
+            orientation: 'vertical',
+            minCenterPitch: stripMinCenterPitch,
+            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
+            radiusStep: 0.1,
+            onProbe: () => token === state.drawToken
+          });
+          if(token !== state.drawToken){
+            return null;
+          }
+          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
             continue;
           }
-          selectedIndex = i;
-          selectedCount = values.length;
-          selectedOverlapCount = overlapCount;
-          selectedValues = values;
-          selectedPointCoords = pointCoords;
+          traceProfiles.push({
+            traceIndex: i,
+            pointCount: values.length,
+            radius: Number(profile.radius),
+            halfWidthCap: Number(profile.halfWidthCap),
+            fitted: profile.fitted !== false
+          });
+          if(Number(profile.radius) < limitingRadius){
+            limitingRadius = Number(profile.radius);
+            limitingTraceIndex = i;
+          }
         }
-        if(selectedIndex == null || selectedCount <= 1 || !selectedValues || !selectedPointCoords){
+        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
           return null;
         }
-        const resolvedHalfWidth = referenceHalfWidth;
-        const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
-          axisSpacing: referenceBand,
-          pointRadius,
-          sampleSize: selectedCount,
-          orientation: 'vertical',
-          widthScaleMode: 'density',
-          maxHalfWidth: resolvedHalfWidth,
-          hardMaxHalfWidth: resolvedHalfWidth,
-          allowRadiusAdjustment: true,
-          enforceNonOverlap: true,
-          radiusCountExponent: 0.85,
-          debug: debugEnabled
-        });
-        if(token !== state.drawToken){
-          return null;
-        }
-        const adjusted = Number(swarm?.adjustedRadius);
-        const sampleCompression = Math.max(0, Math.min(1, Math.log10(selectedCount + 1) / 3));
-        const minResolvedRadius = Math.max(0.2, pointRadius * (0.12 + (0.26 - 0.12) * (1 - sampleCompression)));
-        const countRadiusCap = computeStripRadiusCapForLargeSamples(selectedCount, pointRadius);
-        const rawResolvedRadius = Number.isFinite(adjusted) && adjusted > 0
-          ? adjusted
-          : null;
-        const cappedRadius = Number.isFinite(rawResolvedRadius) && Number.isFinite(countRadiusCap)
-          ? Math.min(rawResolvedRadius, countRadiusCap)
-          : rawResolvedRadius;
-        const resolvedRadius = Number.isFinite(cappedRadius) && cappedRadius > 0
-          ? Math.max(minResolvedRadius, cappedRadius)
-          : null;
+        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
+        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
         if(debugEnabled){
-          console.debug('Debug: box strip auto size base',{
+          console.debug('Debug: box strip auto size feasibility',{
             orientation: 'vertical',
-            traceIndex: selectedIndex,
-            pointCount: selectedCount,
-            overlapCount: selectedOverlapCount,
-            strict: true,
-            halfWidthCap: resolvedHalfWidth,
-            referenceHalfWidth,
-            referenceBand,
-            adjustedRadiusRaw: Number.isFinite(adjusted) ? adjusted : null,
-            adjustedRadius: resolvedRadius,
-            countRadiusCap,
-            minResolvedRadius,
-            baseRadius: pointRadius
+            axisSpacing,
+            limitingTraceIndex,
+            limitingRadius: resolvedRadius,
+            traceProfiles
           });
         }
         return {
           radius: resolvedRadius,
-          halfWidthCap: resolvedHalfWidth
+          halfWidthCap: null
         };
       };
       const stripAutoSizeProfile = await computeStripAutoSizeRadius();
-      const stripAutoSizeRadius = Number.isFinite(Number(stripAutoSizeProfile?.radius))
+      const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
         ? Number(stripAutoSizeProfile.radius)
         : null;
-      const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
-        ? Number(stripAutoSizeProfile.halfWidthCap)
-        : null;
-      const stripPitchHalfExtentLimit = graphTypeRaw === 'strip'
-        ? computeStripHalfExtentLimit({
-            minCenterPitch: stripMinCenterPitch,
-            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
-            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX
-          })
-        : null;
-      let stripPitchScale = 1;
-      if(graphTypeRaw === 'strip'
-        && Number.isFinite(stripPitchHalfExtentLimit) && stripPitchHalfExtentLimit > 0
-        && Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0
-        && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0){
-        const baselineHalfExtent = stripAutoSizeRadius + stripAutoSizeHalfWidth;
-        if(Number.isFinite(baselineHalfExtent) && baselineHalfExtent > stripPitchHalfExtentLimit){
-          stripPitchScale = Math.max(0.1, stripPitchHalfExtentLimit / baselineHalfExtent);
-        }
-      }
-      const stripAutoSizeRadiusConstrained = Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0
-        ? stripAutoSizeRadius * stripPitchScale
-        : stripAutoSizeRadius;
-      const stripAutoSizeHalfWidthConstrained = Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0
-        ? stripAutoSizeHalfWidth * stripPitchScale
-        : stripAutoSizeHalfWidth;
+      const stripAutoSizeHalfWidthConstrained = null;
       if(debugEnabled && graphTypeRaw === 'strip'){
         console.debug('Debug: box strip auto size resolved',{
           orientation: 'vertical',
           radius: stripAutoSizeRadiusConstrained,
           halfWidthCap: stripAutoSizeHalfWidthConstrained,
-          stripPitchHalfExtentLimit,
-          stripPitchScale
+          strategy: 'feasibility'
         });
       }
       if(token !== state.drawToken){
@@ -24402,15 +24911,6 @@ Technical analysis record (advanced)
         const explicitMaxHalfWidth = Number(maxHalfWidth);
         const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
         const useStrictStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual';
-        const defaultStrictHalfWidth = useStrictStripSpacing
-          ? Math.max(
-              STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
-              Math.max(0.1, Number(spacingRadius) || 0) * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
-            )
-          : null;
-        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
-          ? explicitMaxHalfWidth
-          : defaultStrictHalfWidth;
         const pitchHalfExtentLimit = useStrictStripSpacing
           ? computeStripHalfExtentLimit({
               minCenterPitch,
@@ -24418,16 +24918,18 @@ Technical analysis record (advanced)
               minGapPx: minInterDatasetGapPx
             })
           : null;
-        if(useStrictStripSpacing && Number.isFinite(pitchHalfExtentLimit) && pitchHalfExtentLimit > 0){
-          const pitchMaxHalfWidth = pitchHalfExtentLimit - Math.max(0, spacingRadius);
-          if(Number.isFinite(pitchMaxHalfWidth)){
-            if(resolvedMaxHalfWidth == null || !Number.isFinite(resolvedMaxHalfWidth) || resolvedMaxHalfWidth <= 0){
-              resolvedMaxHalfWidth = Math.max(0, pitchMaxHalfWidth);
-            }else{
-              resolvedMaxHalfWidth = Math.max(0, Math.min(resolvedMaxHalfWidth, pitchMaxHalfWidth));
-            }
-          }
-        }
+        const availableStrictHalfWidth = useStrictStripSpacing
+          ? resolveStripAvailableHalfWidth({
+              axisSpacing: localBand,
+              pointRadius: spacingRadius,
+              minCenterPitch,
+              gapFactor: interDatasetGapFactor,
+              minGapPx: minInterDatasetGapPx
+            })
+          : null;
+        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+          ? explicitMaxHalfWidth
+          : availableStrictHalfWidth;
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
@@ -24802,6 +25304,27 @@ Technical analysis record (advanced)
           : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
         const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
         const yMean = y2px(mean);
+        const overlayStroke = buildBoxOverlayStrokeHelper({
+          traceIndex: i,
+          colorIndex: colorInfo.colorIndex,
+          fillColor,
+          borderColor,
+          fallbackOpacity: opacityOverride,
+          baseStroke: Math.max(errorBarWidthPx || 0, strokeWidthEffective || borderWidthPx || 0.8, 0.8),
+          schemeId: getBoxSelectedColorSchemeId(),
+          defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
+        });
+        if(debugEnabled && overlayStroke.style){
+          console.debug('Debug: box overlay style resolved', {
+            index: i,
+            graphType: graphTypeRaw,
+            color: overlayStroke.color,
+            thickness: overlayStroke.thickness,
+            pattern: overlayStroke.pattern,
+            opacity: overlayStroke.opacity,
+            defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
+          });
+        }
         let violinPointBounds = null;
         let violinPointMaxHalfHeight = null;
         let violinPointMaxHalfWidth = null;
@@ -24816,10 +25339,14 @@ Technical analysis record (advanced)
             const boxRect = add('rect', boxAttrs);
             attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianAttrs = { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){ medianAttrs['stroke-opacity'] = opacityOverride; }
-            const medianLine = add('line', medianAttrs);
-            attachBoxShapeHandler(medianLine);
+            const medianLine = add('line', overlayStroke.attrs(strokeWidthEffective, {
+              x1: x0,
+              y1: yMed,
+              x2: x1,
+              y2: yMed,
+              'data-box-overlay-kind': 'box-median'
+            }));
+            attachBoxOverlayHandler(medianLine);
             annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
             const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
@@ -24855,42 +25382,68 @@ Technical analysis record (advanced)
             const notchPath = add('path', notchAttrs);
             attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedianAttrs = { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){ notchMedianAttrs['stroke-opacity'] = opacityOverride; }
-            const notchMedian = add('line', notchMedianAttrs);
-            attachBoxShapeHandler(notchMedian);
+            const notchMedian = add('line', overlayStroke.attrs(strokeWidthEffective, {
+              x1: xNL,
+              y1: yMed,
+              x2: xNR,
+              y2: yMed,
+              'data-box-overlay-kind': 'notched-median'
+            }));
+            attachBoxOverlayHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
           }
-          const whiskerUpperAttrs = { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-          if(opacityOverride != null){ whiskerUpperAttrs['stroke-opacity'] = opacityOverride; }
-          const whiskerUpperLine = add('line', whiskerUpperAttrs);
-          attachBoxShapeHandler(whiskerUpperLine);
+          const whiskerLineWidth = strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx;
+          const whiskerUpperLine = add('line', overlayStroke.attrs(whiskerLineWidth, {
+            x1: cx,
+            y1: yQ3,
+            x2: cx,
+            y2: yWMax,
+            'data-box-overlay-kind': 'box-whisker-upper'
+          }));
+          attachBoxOverlayHandler(whiskerUpperLine);
           annotateWithTitle(whiskerUpperLine, whiskerAnnotation);
-          const whiskerLowerAttrs = { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-          if(opacityOverride != null){ whiskerLowerAttrs['stroke-opacity'] = opacityOverride; }
-          const whiskerLowerLine = add('line', whiskerLowerAttrs);
-          attachBoxShapeHandler(whiskerLowerLine);
+          const whiskerLowerLine = add('line', overlayStroke.attrs(whiskerLineWidth, {
+            x1: cx,
+            y1: yQ1,
+            x2: cx,
+            y2: yWMin,
+            'data-box-overlay-kind': 'box-whisker-lower'
+          }));
+          attachBoxOverlayHandler(whiskerLowerLine);
           annotateWithTitle(whiskerLowerLine, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxW * 0.4);
-            const capAttrsTop = { x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){ capAttrsTop['stroke-opacity'] = opacityOverride; }
-            const capTop = add('line', capAttrsTop);
-            attachBoxShapeHandler(capTop);
+            const capLineWidth = strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx;
+            const capTop = add('line', overlayStroke.attrs(capLineWidth, {
+              x1: cx - cap / 2,
+              y1: yWMax,
+              x2: cx + cap / 2,
+              y2: yWMax,
+              'data-box-overlay-kind': 'box-whisker-cap-top'
+            }));
+            attachBoxOverlayHandler(capTop);
             annotateWithTitle(capTop, whiskerAnnotation);
-            const capAttrsBottom = { x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){ capAttrsBottom['stroke-opacity'] = opacityOverride; }
-            const capBottom = add('line', capAttrsBottom);
-            attachBoxShapeHandler(capBottom);
+            const capBottom = add('line', overlayStroke.attrs(capLineWidth, {
+              x1: cx - cap / 2,
+              y1: yWMin,
+              x2: cx + cap / 2,
+              y2: yWMin,
+              'data-box-overlay-kind': 'box-whisker-cap-bottom'
+            }));
+            attachBoxOverlayHandler(capBottom);
             annotateWithTitle(capBottom, whiskerAnnotation);
           }
         }else if(graphTypeRaw === 'bar'){
           const stats = t.__barStats;
-          const sampleCountBar = stats?.sampleCount ?? sampleCount;
-          const hasSpread = !!(stats && stats.hasSpread);
-          const sd = stats?.sd ?? 0;
+          const summarySpec = t.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, t.__distribution, t.y);
+          t.__barSummarySpec = summarySpec;
+          const sampleCountBar = summarySpec?.sampleCount ?? stats?.sampleCount ?? sampleCount;
+          const hasSpread = !!summarySpec?.hasInterval;
+          const centerValue = summarySpec?.centerValue ?? stats?.mean ?? mean;
+          const lowerError = summarySpec?.lowerError ?? 0;
+          const upperError = summarySpec?.upperError ?? 0;
           let barStartValue = 0;
-          let barEndValue = mean;
+          let barEndValue = centerValue;
           if(isStackedLayout){
             if(!stackOffsets){
               stackOffsets = new Map();
@@ -24900,13 +25453,13 @@ Technical analysis record (advanced)
               stackOffsets.set(stackKey, { pos: 0, neg: 0 });
             }
             const entry = stackOffsets.get(stackKey);
-            if(mean >= 0){
+            if(centerValue >= 0){
               barStartValue = entry.pos;
-              barEndValue = entry.pos + mean;
+              barEndValue = entry.pos + centerValue;
               entry.pos = barEndValue;
             }else{
               barStartValue = entry.neg;
-              barEndValue = entry.neg + mean;
+              barEndValue = entry.neg + centerValue;
               entry.neg = barEndValue;
             }
           }
@@ -24941,17 +25494,17 @@ Technical analysis record (advanced)
           }
           const barRect = add('rect', barAttrs);
           attachBoxShapeHandler(barRect);
-          console.debug('Debug: box bar vertical bounds adjusted',{ index: i, rawTop, rawBottom, rectY, rectBottom, strokeInset });
+          console.debug('Debug: box bar vertical bounds adjusted',{ index: i, rawTop, rawBottom, rectY, rectBottom, strokeInset, summaryMode: summarySpec?.mode, centerValue, hasSpread });
           {
             let maxVisualValue = Math.max(barStartValue, barEndValue);
             if(hasSpread){
               if(isStackedLayout){
-                const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+                const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
                 if(errorExtents && Number.isFinite(errorExtents.highValue)){
                   maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
                 }
               }else{
-                maxVisualValue = Math.max(maxVisualValue, mean + sd);
+                maxVisualValue = Math.max(maxVisualValue, summarySpec?.highValue ?? barEndValue);
               }
             }
             annotationMaxByTrace[i] = maxVisualValue;
@@ -24959,7 +25512,7 @@ Technical analysis record (advanced)
           if(hasSpread){
             const cap = Math.max(6, boxW * 0.4);
             if(isStackedLayout){
-              const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+              const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
               if(errorExtents){
                 const yHigh = y2px(errorExtents.highValue);
                 const yLowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
@@ -24969,23 +25522,60 @@ Technical analysis record (advanced)
                   yHigh,
                   yLow,
                   cap,
-                  borderColor,
+                  overlayStroke,
+                  whiskerAnnotation,
                   showLowerCap: errorMode === 'both'
                 });
               }
             }else{
-              const ySdTop = y2px(mean + sd);
+              const yTopValue = summarySpec?.highValue ?? centerValue;
+              const yBottomValue = errorMode === 'both' ? (summarySpec?.lowValue ?? centerValue) : centerValue;
+              const yTop = y2px(yTopValue);
+              const yBottom = y2px(yBottomValue);
+              const yBarCenter = y2px(centerValue);
+              const errorLineWidth = strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx;
               if(errorMode === 'both'){
-                const ySdBottom = y2px(mean - sd);
-                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-                add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
+                  x1: cx,
+                  y1: yTop,
+                  x2: cx,
+                  y2: yBottom,
+                  'data-box-overlay-kind': 'bar-error-spine'
+                }));
+                attachBoxOverlayHandler(errorSpine);
+                annotateWithTitle(errorSpine, whiskerAnnotation);
+                const errorCapBottom = add('line', overlayStroke.attrs(errorLineWidth, {
+                  x1: cx - cap / 2,
+                  y1: yBottom,
+                  x2: cx + cap / 2,
+                  y2: yBottom,
+                  'data-box-overlay-kind': 'bar-error-cap-bottom'
+                }));
+                attachBoxOverlayHandler(errorCapBottom);
+                annotateWithTitle(errorCapBottom, whiskerAnnotation);
               }else{
-                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
+                  x1: cx,
+                  y1: yTop,
+                  x2: cx,
+                  y2: yBarCenter,
+                  'data-box-overlay-kind': 'bar-error-spine'
+                }));
+                attachBoxOverlayHandler(errorSpine);
+                annotateWithTitle(errorSpine, whiskerAnnotation);
               }
-              add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+              const errorCapTop = add('line', overlayStroke.attrs(errorLineWidth, {
+                x1: cx - cap / 2,
+                y1: yTop,
+                x2: cx + cap / 2,
+                y2: yTop,
+                'data-box-overlay-kind': 'bar-error-cap-top'
+              }));
+              attachBoxOverlayHandler(errorCapTop);
+              annotateWithTitle(errorCapTop, whiskerAnnotation);
             }
           }else{
-            console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
+            console.debug('Debug: box bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
           }
         }else if(graphTypeRaw === 'violin'){
           const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
@@ -25040,9 +25630,6 @@ Technical analysis record (advanced)
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
             ? stripAutoSizeRadiusConstrained
             : null;
-          const overrideHalfWidth = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidthConstrained) && stripAutoSizeHalfWidthConstrained > 0
-            ? stripAutoSizeHalfWidthConstrained
-            : null;
           const swarmResult = await renderSwarmPointsVertical({
             valueList,
             cx,
@@ -25059,7 +25646,6 @@ Technical analysis record (advanced)
             debugLabel: 'individual',
             mean,
             widthScaleMode: 'density',
-            maxHalfWidth: overrideHalfWidth,
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
@@ -25355,10 +25941,34 @@ Technical analysis record (advanced)
       }
       if(isStackedLayout && stackedErrorQueue.length){
         stackedErrorQueue.forEach(item => {
-          add('line',{ x1: item.cx, y1: item.yHigh, x2: item.cx, y2: item.yLow, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
-          add('line',{ x1: item.cx - item.cap / 2, y1: item.yHigh, x2: item.cx + item.cap / 2, y2: item.yHigh, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
+            x1: item.cx,
+            y1: item.yHigh,
+            x2: item.cx,
+            y2: item.yLow,
+            'data-box-overlay-kind': 'bar-error-spine'
+          }));
+          attachBoxOverlayHandler(errorSpine);
+          annotateWithTitle(errorSpine, item.whiskerAnnotation);
+          const errorCapTop = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
+            x1: item.cx - item.cap / 2,
+            y1: item.yHigh,
+            x2: item.cx + item.cap / 2,
+            y2: item.yHigh,
+            'data-box-overlay-kind': 'bar-error-cap-top'
+          }));
+          attachBoxOverlayHandler(errorCapTop);
+          annotateWithTitle(errorCapTop, item.whiskerAnnotation);
           if(item.showLowerCap){
-            add('line',{ x1: item.cx - item.cap / 2, y1: item.yLow, x2: item.cx + item.cap / 2, y2: item.yLow, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+            const errorCapBottom = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
+              x1: item.cx - item.cap / 2,
+              y1: item.yLow,
+              x2: item.cx + item.cap / 2,
+              y2: item.yLow,
+              'data-box-overlay-kind': 'bar-error-cap-bottom'
+            }));
+            attachBoxOverlayHandler(errorCapBottom);
+            annotateWithTitle(errorCapBottom, item.whiskerAnnotation);
           }
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'vertical' });
@@ -25489,15 +26099,6 @@ Technical analysis record (advanced)
         const explicitMaxHalfWidth = Number(maxHalfWidth);
         const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
         const useStrictStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual';
-        const defaultStrictHalfWidth = useStrictStripSpacing
-          ? Math.max(
-              STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
-              Math.max(0.1, Number(spacingRadius) || 0) * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
-            )
-          : null;
-        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
-          ? explicitMaxHalfWidth
-          : defaultStrictHalfWidth;
         const pitchHalfExtentLimit = useStrictStripSpacing
           ? computeStripHalfExtentLimit({
               minCenterPitch,
@@ -25505,16 +26106,18 @@ Technical analysis record (advanced)
               minGapPx: minInterDatasetGapPx
             })
           : null;
-        if(useStrictStripSpacing && Number.isFinite(pitchHalfExtentLimit) && pitchHalfExtentLimit > 0){
-          const pitchMaxHalfWidth = pitchHalfExtentLimit - Math.max(0, spacingRadius);
-          if(Number.isFinite(pitchMaxHalfWidth)){
-            if(resolvedMaxHalfWidth == null || !Number.isFinite(resolvedMaxHalfWidth) || resolvedMaxHalfWidth <= 0){
-              resolvedMaxHalfWidth = Math.max(0, pitchMaxHalfWidth);
-            }else{
-              resolvedMaxHalfWidth = Math.max(0, Math.min(resolvedMaxHalfWidth, pitchMaxHalfWidth));
-            }
-          }
-        }
+        const availableStrictHalfWidth = useStrictStripSpacing
+          ? resolveStripAvailableHalfWidth({
+              axisSpacing: localBand,
+              pointRadius: spacingRadius,
+              minCenterPitch,
+              gapFactor: interDatasetGapFactor,
+              minGapPx: minInterDatasetGapPx
+            })
+          : null;
+        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+          ? explicitMaxHalfWidth
+          : availableStrictHalfWidth;
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
@@ -25881,6 +26484,7 @@ Technical analysis record (advanced)
         }
         return usesGroupedSpacing ? perGroupBand : bandH;
       };
+      const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
       const computeStripAutoSizeRadius = async () => {
         if(graphTypeRaw !== 'strip'){
           return null;
@@ -25894,17 +26498,10 @@ Technical analysis record (advanced)
           }
           return null;
         }
-        const referenceHalfWidth = Math.max(
-          STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_MIN,
-          pointRadius * STRIP_AUTO_SIZE_REFERENCE_HALF_WIDTH_FACTOR
-        );
-        const referenceBand = Math.max(1, referenceHalfWidth / 0.36);
-        const baseOverlapDistance = Math.max(0.5, pointRadius * 2.1);
-        let selectedIndex = null;
-        let selectedCount = 0;
-        let selectedOverlapCount = 0;
-        let selectedValues = null;
-        let selectedPointCoords = null;
+        const axisSpacing = localBandHeightForTrace();
+        const traceProfiles = [];
+        let limitingRadius = Infinity;
+        let limitingTraceIndex = null;
         for(let i = 0; i < traces.length; i++){
           if(hasExplicitPointSize(i)){
             if(debugEnabled){
@@ -25917,168 +26514,80 @@ Technical analysis record (advanced)
             }
             continue;
           }
-          const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
-          if(values.length <= 1){
+          const values = Array.isArray(traces[i]?.x) ? traces[i].x : [];
+          if(!values.length){
             continue;
           }
           const pointCoords = new Float64Array(values.length);
           for(let idx = 0; idx < values.length; idx++){
-            pointCoords[idx] = valueToX(values[idx]);
+            pointCoords[idx] = x2px(values[idx]);
           }
-          const overlapCount = estimateSwarmOverlapCount(pointCoords, baseOverlapDistance);
-          const betterCandidate = selectedIndex == null
-            || overlapCount > selectedOverlapCount
-            || (overlapCount === selectedOverlapCount && values.length > selectedCount);
-          if(!betterCandidate){
+          const profile = await computeStripTraceFeasibleRadius({
+            values,
+            coords: pointCoords,
+            axisSpacing,
+            baseRadius: pointRadius,
+            sampleSize: values.length,
+            orientation: 'horizontal',
+            minCenterPitch: stripMinCenterPitch,
+            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
+            radiusStep: 0.1,
+            onProbe: () => token === state.drawToken
+          });
+          if(token !== state.drawToken){
+            return null;
+          }
+          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
             continue;
           }
-          selectedIndex = i;
-          selectedCount = values.length;
-          selectedOverlapCount = overlapCount;
-          selectedValues = values;
-          selectedPointCoords = pointCoords;
+          traceProfiles.push({
+            traceIndex: i,
+            pointCount: values.length,
+            radius: Number(profile.radius),
+            halfWidthCap: Number(profile.halfWidthCap),
+            fitted: profile.fitted !== false
+          });
+          if(Number(profile.radius) < limitingRadius){
+            limitingRadius = Number(profile.radius);
+            limitingTraceIndex = i;
+          }
         }
-        if(selectedIndex == null || selectedCount <= 1 || !selectedValues || !selectedPointCoords){
+        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
           return null;
         }
-        const resolvedHalfWidth = referenceHalfWidth;
-        const swarm = await resolveSwarmOffsets({ coords: selectedPointCoords, raws: selectedValues }, {
-          axisSpacing: referenceBand,
-          pointRadius,
-          sampleSize: selectedCount,
-          orientation: 'horizontal',
-          widthScaleMode: 'density',
-          maxHalfWidth: resolvedHalfWidth,
-          hardMaxHalfWidth: resolvedHalfWidth,
-          allowRadiusAdjustment: true,
-          enforceNonOverlap: true,
-          radiusCountExponent: 0.85,
-          debug: debugEnabled
-        });
-        if(token !== state.drawToken){
-          return null;
-        }
-        const adjusted = Number(swarm?.adjustedRadius);
-        const sampleCompression = Math.max(0, Math.min(1, Math.log10(selectedCount + 1) / 3));
-        const minResolvedRadius = Math.max(0.2, pointRadius * (0.12 + (0.26 - 0.12) * (1 - sampleCompression)));
-        const countRadiusCap = computeStripRadiusCapForLargeSamples(selectedCount, pointRadius);
-        const rawResolvedRadius = Number.isFinite(adjusted) && adjusted > 0
-          ? adjusted
-          : null;
-        const cappedRadius = Number.isFinite(rawResolvedRadius) && Number.isFinite(countRadiusCap)
-          ? Math.min(rawResolvedRadius, countRadiusCap)
-          : rawResolvedRadius;
-        const resolvedRadius = Number.isFinite(cappedRadius) && cappedRadius > 0
-          ? Math.max(minResolvedRadius, cappedRadius)
-          : null;
+        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
+        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
         if(debugEnabled){
-          console.debug('Debug: box strip auto size base',{
+          console.debug('Debug: box strip auto size feasibility',{
             orientation: 'horizontal',
-            traceIndex: selectedIndex,
-            pointCount: selectedCount,
-            overlapCount: selectedOverlapCount,
-            strict: true,
-            halfWidthCap: resolvedHalfWidth,
-            referenceHalfWidth,
-            referenceBand,
-            adjustedRadiusRaw: Number.isFinite(adjusted) ? adjusted : null,
-            adjustedRadius: resolvedRadius,
-            countRadiusCap,
-            minResolvedRadius,
-            baseRadius: pointRadius
+            axisSpacing,
+            limitingTraceIndex,
+            limitingRadius: resolvedRadius,
+            traceProfiles
           });
         }
         return {
           radius: resolvedRadius,
-          halfWidthCap: resolvedHalfWidth
+          halfWidthCap: null
         };
       };
       const stripAutoSizeProfile = await computeStripAutoSizeRadius();
-      const stripAutoSizeRadius = Number.isFinite(Number(stripAutoSizeProfile?.radius))
+      const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
         ? Number(stripAutoSizeProfile.radius)
         : null;
-      const stripAutoSizeHalfWidth = Number.isFinite(Number(stripAutoSizeProfile?.halfWidthCap))
-        ? Number(stripAutoSizeProfile.halfWidthCap)
-        : null;
-      let stripAutoSizeRadiusConstrained = stripAutoSizeRadius;
-      let stripAutoSizeHalfWidthConstrained = stripAutoSizeHalfWidth;
-      const categoryCenter = (trace, traceIndex) => {
-        if(usesGroupedSpacing){
-          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-          const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
-          const top = plotTopY + categoryIdx * bandH + groupOffset;
-          return top + (groupIdx + 0.5) * perGroupBand;
-        }
-        if(separatedSpacing){
-          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-          if(categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
-            return separatedSpacing.centers[categoryIdx];
-          }
-        }
-        const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-        // account for vertical gap between bands
-        return plotTopY + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
-      };
-      const computeMinTraceCenterPitch = () => {
-        if(!Array.isArray(traces) || traces.length < 2){
-          return null;
-        }
-        const centers = new Array(traces.length);
-        for(let i = 0; i < traces.length; i++){
-          centers[i] = Number(categoryCenter(traces[i], i));
-        }
-        centers.sort((a, b) => a - b);
-        let minPitch = Infinity;
-        for(let i = 1; i < centers.length; i++){
-          const delta = centers[i] - centers[i - 1];
-          if(Number.isFinite(delta) && delta > 0 && delta < minPitch){
-            minPitch = delta;
-          }
-        }
-        return Number.isFinite(minPitch) ? minPitch : null;
-      };
-      const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
+      const stripAutoSizeHalfWidthConstrained = null;
       if(debugEnabled && graphTypeRaw === 'strip'){
         console.debug('Debug: box strip center pitch',{
           orientation: 'horizontal',
           minCenterPitch: stripMinCenterPitch,
-          gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
-          minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
           traceCount: traces.length
         });
-      }
-      const stripPitchHalfExtentLimit = graphTypeRaw === 'strip'
-        ? computeStripHalfExtentLimit({
-            minCenterPitch: stripMinCenterPitch,
-            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
-            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX
-          })
-        : null;
-      let stripPitchScale = 1;
-      if(graphTypeRaw === 'strip'
-        && Number.isFinite(stripPitchHalfExtentLimit) && stripPitchHalfExtentLimit > 0
-        && Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0
-        && Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0){
-        const baselineHalfExtent = stripAutoSizeRadius + stripAutoSizeHalfWidth;
-        if(Number.isFinite(baselineHalfExtent) && baselineHalfExtent > stripPitchHalfExtentLimit){
-          stripPitchScale = Math.max(0.1, stripPitchHalfExtentLimit / baselineHalfExtent);
-        }
-      }
-      if(Number.isFinite(stripAutoSizeRadius) && stripAutoSizeRadius > 0){
-        stripAutoSizeRadiusConstrained = stripAutoSizeRadius * stripPitchScale;
-      }
-      if(Number.isFinite(stripAutoSizeHalfWidth) && stripAutoSizeHalfWidth > 0){
-        stripAutoSizeHalfWidthConstrained = stripAutoSizeHalfWidth * stripPitchScale;
-      }
-      if(debugEnabled && graphTypeRaw === 'strip'){
         console.debug('Debug: box strip auto size resolved',{
           orientation: 'horizontal',
-          radiusBase: stripAutoSizeRadius,
-          halfWidthCapBase: stripAutoSizeHalfWidth,
           radius: stripAutoSizeRadiusConstrained,
           halfWidthCap: stripAutoSizeHalfWidthConstrained,
-          stripPitchHalfExtentLimit,
-          stripPitchScale
+          strategy: 'feasibility'
         });
       }
       const addAxisElement = (tag, attrs) => {
@@ -26424,6 +26933,28 @@ Technical analysis record (advanced)
           : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
         const opacityOverride = colorInfoH.opacity != null ? Math.min(1, Math.max(0, Number(colorInfoH.opacity))) : null;
         const xMean = valueToX(mean);
+        const overlayStroke = buildBoxOverlayStrokeHelper({
+          traceIndex: i,
+          colorIndex: colorInfoH.colorIndex,
+          fillColor,
+          borderColor,
+          fallbackOpacity: opacityOverride,
+          baseStroke: Math.max(errorBarWidthPx || 0, strokeWidthEffectiveH || borderWidthPx || 0.8, 0.8),
+          schemeId: getBoxSelectedColorSchemeId(),
+          defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
+        });
+        if(debugEnabled && overlayStroke.style){
+          console.debug('Debug: box overlay style resolved', {
+            index: i,
+            graphType: graphTypeRaw,
+            orientation: 'horizontal',
+            color: overlayStroke.color,
+            thickness: overlayStroke.thickness,
+            pattern: overlayStroke.pattern,
+            opacity: overlayStroke.opacity,
+            defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
+          });
+        }
         let violinPointBounds = null;
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
@@ -26438,10 +26969,14 @@ Technical analysis record (advanced)
             const boxRect = add('rect', boxAttrs);
             attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianAttrs = { x1: xMed, y1: y0, x2: xMed, y2: y1, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){ medianAttrs['stroke-opacity'] = opacityOverride; }
-            const medianLine = add('line', medianAttrs);
-            attachBoxShapeHandler(medianLine);
+            const medianLine = add('line', overlayStroke.attrs(strokeWidthEffectiveH, {
+              x1: xMed,
+              y1: y0,
+              x2: xMed,
+              y2: y1,
+              'data-box-overlay-kind': 'box-median'
+            }));
+            attachBoxOverlayHandler(medianLine);
             annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
             const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
@@ -26484,34 +27019,70 @@ Technical analysis record (advanced)
             const notchPath = add('path', notchAttrs);
             attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedianAttrs = { x1: xMed, y1: yNotchTop, x2: xMed, y2: yNotchBottom, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){ notchMedianAttrs['stroke-opacity'] = opacityOverride; }
-            const notchMedian = add('line', notchMedianAttrs);
-            attachBoxShapeHandler(notchMedian);
+            const notchMedian = add('line', overlayStroke.attrs(strokeWidthEffectiveH, {
+              x1: xMed,
+              y1: yNotchTop,
+              x2: xMed,
+              y2: yNotchBottom,
+              'data-box-overlay-kind': 'notched-median'
+            }));
+            attachBoxOverlayHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
             // Debug: log the horizontal notch geometry so future tweaks keep parity with vertical boxes.
             console.debug('Debug: box horizontal notch path',{ notchLower, notchUpper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: boxH, token });
           }
-          const whiskerLeft = add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(whiskerLeft);
+          const whiskerLineWidth = strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx;
+          const whiskerLeft = add('line', overlayStroke.attrs(whiskerLineWidth, {
+            x1: xWMin,
+            y1: cy,
+            x2: left,
+            y2: cy,
+            'data-box-overlay-kind': 'box-whisker-left'
+          }));
+          attachBoxOverlayHandler(whiskerLeft);
           annotateWithTitle(whiskerLeft, whiskerAnnotation);
-          const whiskerRight = add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(whiskerRight);
+          const whiskerRight = add('line', overlayStroke.attrs(whiskerLineWidth, {
+            x1: right,
+            y1: cy,
+            x2: xWMax,
+            y2: cy,
+            'data-box-overlay-kind': 'box-whisker-right'
+          }));
+          attachBoxOverlayHandler(whiskerRight);
           annotateWithTitle(whiskerRight, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxH * 0.4);
-            const capLeft = add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+            const capLineWidth = strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx;
+            const capLeft = add('line', overlayStroke.attrs(capLineWidth, {
+              x1: xWMin,
+              y1: cy - cap / 2,
+              x2: xWMin,
+              y2: cy + cap / 2,
+              'data-box-overlay-kind': 'box-whisker-cap-left'
+            }));
+            attachBoxOverlayHandler(capLeft);
             annotateWithTitle(capLeft, whiskerAnnotation);
-            const capRight = add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+            const capRight = add('line', overlayStroke.attrs(capLineWidth, {
+              x1: xWMax,
+              y1: cy - cap / 2,
+              x2: xWMax,
+              y2: cy + cap / 2,
+              'data-box-overlay-kind': 'box-whisker-cap-right'
+            }));
+            attachBoxOverlayHandler(capRight);
             annotateWithTitle(capRight, whiskerAnnotation);
           }
         }else if(graphTypeRaw === 'bar'){
           const stats = t.__barStats;
-          const sampleCountBar = stats?.sampleCount ?? sampleCount;
-          const hasSpread = !!(stats && stats.hasSpread);
-          const sd = stats?.sd ?? 0;
+          const summarySpec = t.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, t.__distribution, t.y);
+          t.__barSummarySpec = summarySpec;
+          const sampleCountBar = summarySpec?.sampleCount ?? stats?.sampleCount ?? sampleCount;
+          const hasSpread = !!summarySpec?.hasInterval;
+          const centerValue = summarySpec?.centerValue ?? stats?.mean ?? mean;
+          const lowerError = summarySpec?.lowerError ?? 0;
+          const upperError = summarySpec?.upperError ?? 0;
           let barStartValue = 0;
-          let barEndValue = mean;
+          let barEndValue = centerValue;
           if(isStackedLayout){
             if(!stackOffsets){
               stackOffsets = new Map();
@@ -26521,13 +27092,13 @@ Technical analysis record (advanced)
               stackOffsets.set(stackKey, { pos: 0, neg: 0 });
             }
             const entry = stackOffsets.get(stackKey);
-            if(mean >= 0){
+            if(centerValue >= 0){
               barStartValue = entry.pos;
-              barEndValue = entry.pos + mean;
+              barEndValue = entry.pos + centerValue;
               entry.pos = barEndValue;
             }else{
               barStartValue = entry.neg;
-              barEndValue = entry.neg + mean;
+              barEndValue = entry.neg + centerValue;
               entry.neg = barEndValue;
             }
           }
@@ -26570,17 +27141,17 @@ Technical analysis record (advanced)
           }
           const barRectH = add('rect', barAttrsH);
           attachBoxShapeHandler(barRectH);
-          console.debug('Debug: box bar horizontal bounds adjusted',{ index: i, rawLeft, rawRight, rectX, rectRight, strokeInset, rectY, rectBottom });
+          console.debug('Debug: box bar horizontal bounds adjusted',{ index: i, rawLeft, rawRight, rectX, rectRight, strokeInset, rectY, rectBottom, summaryMode: summarySpec?.mode, centerValue, hasSpread });
           {
             let maxVisualValue = Math.max(barStartValue, barEndValue);
             if(hasSpread){
               if(isStackedLayout){
-                const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+                const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
                 if(errorExtents && Number.isFinite(errorExtents.highValue)){
                   maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
                 }
               }else{
-                maxVisualValue = Math.max(maxVisualValue, mean + sd);
+                maxVisualValue = Math.max(maxVisualValue, summarySpec?.highValue ?? barEndValue);
               }
             }
             annotationMaxByTrace[i] = maxVisualValue;
@@ -26588,7 +27159,7 @@ Technical analysis record (advanced)
           if(hasSpread){
             const cap = Math.max(6, boxH * 0.4);
             if(isStackedLayout){
-              const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+              const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
               if(errorExtents){
                 const xHigh = valueToX(errorExtents.highValue);
                 const xLowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
@@ -26598,23 +27169,60 @@ Technical analysis record (advanced)
                   xHigh,
                   xLow,
                   cap,
-                  borderColor,
+                  overlayStroke,
+                  whiskerAnnotation,
                   showLowerCap: errorMode === 'both'
                 });
               }
             }else{
-              const xSdPos = valueToX(mean + sd);
+              const xRightValue = summarySpec?.highValue ?? centerValue;
+              const xLeftValue = errorMode === 'both' ? (summarySpec?.lowValue ?? centerValue) : centerValue;
+              const xRight = valueToX(xRightValue);
+              const xLeft = valueToX(xLeftValue);
+              const xBarCenter = valueToX(centerValue);
+              const errorLineWidth = strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx;
               if(errorMode === 'both'){
-              const xSdNeg = valueToX(mean - sd);
-                add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-                add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
+                  x1: xLeft,
+                  y1: cy,
+                  x2: xRight,
+                  y2: cy,
+                  'data-box-overlay-kind': 'bar-error-spine'
+                }));
+                attachBoxOverlayHandler(errorSpine);
+                annotateWithTitle(errorSpine, whiskerAnnotation);
+                const errorCapLeft = add('line', overlayStroke.attrs(errorLineWidth, {
+                  x1: xLeft,
+                  y1: cy - cap / 2,
+                  x2: xLeft,
+                  y2: cy + cap / 2,
+                  'data-box-overlay-kind': 'bar-error-cap-left'
+                }));
+                attachBoxOverlayHandler(errorCapLeft);
+                annotateWithTitle(errorCapLeft, whiskerAnnotation);
               }else{
-                add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
+                  x1: xBarCenter,
+                  y1: cy,
+                  x2: xRight,
+                  y2: cy,
+                  'data-box-overlay-kind': 'bar-error-spine'
+                }));
+                attachBoxOverlayHandler(errorSpine);
+                annotateWithTitle(errorSpine, whiskerAnnotation);
               }
-              add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+              const errorCapRight = add('line', overlayStroke.attrs(errorLineWidth, {
+                x1: xRight,
+                y1: cy - cap / 2,
+                x2: xRight,
+                y2: cy + cap / 2,
+                'data-box-overlay-kind': 'bar-error-cap-right'
+              }));
+              attachBoxOverlayHandler(errorCapRight);
+              annotateWithTitle(errorCapRight, whiskerAnnotation);
             }
           }else{
-            console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
+            console.debug('Debug: box horizontal bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
           }
         }else if(graphTypeRaw === 'violin'){
           const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
@@ -26671,9 +27279,6 @@ Technical analysis record (advanced)
           const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
             ? stripAutoSizeRadiusConstrained
             : null;
-          const overrideHalfHeight = useGlobalAutoSize && Number.isFinite(stripAutoSizeHalfWidthConstrained) && stripAutoSizeHalfWidthConstrained > 0
-            ? stripAutoSizeHalfWidthConstrained
-            : null;
           const swarmResult = await renderSwarmPointsHorizontal({
             valueList,
             cy,
@@ -26690,7 +27295,6 @@ Technical analysis record (advanced)
             debugLabel: 'individual',
             mean,
             widthScaleMode: 'density',
-            maxHalfWidth: overrideHalfHeight,
             pointRadiusOverride: overrideRadius,
             autoSize: !useGlobalAutoSize,
             allowRadiusAdjustment: useGlobalAutoSize ? false : null,
@@ -26982,10 +27586,34 @@ Technical analysis record (advanced)
       }
       if(isStackedLayout && stackedErrorQueue.length){
         stackedErrorQueue.forEach(item => {
-          add('line',{ x1: item.xLow, y1: item.cy, x2: item.xHigh, y2: item.cy, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
-          add('line',{ x1: item.xHigh, y1: item.cy - item.cap / 2, x2: item.xHigh, y2: item.cy + item.cap / 2, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
+            x1: item.xLow,
+            y1: item.cy,
+            x2: item.xHigh,
+            y2: item.cy,
+            'data-box-overlay-kind': 'bar-error-spine'
+          }));
+          attachBoxOverlayHandler(errorSpine);
+          annotateWithTitle(errorSpine, item.whiskerAnnotation);
+          const errorCapRight = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
+            x1: item.xHigh,
+            y1: item.cy - item.cap / 2,
+            x2: item.xHigh,
+            y2: item.cy + item.cap / 2,
+            'data-box-overlay-kind': 'bar-error-cap-right'
+          }));
+          attachBoxOverlayHandler(errorCapRight);
+          annotateWithTitle(errorCapRight, item.whiskerAnnotation);
           if(item.showLowerCap){
-            add('line',{ x1: item.xLow, y1: item.cy - item.cap / 2, x2: item.xLow, y2: item.cy + item.cap / 2, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+            const errorCapLeft = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
+              x1: item.xLow,
+              y1: item.cy - item.cap / 2,
+              x2: item.xLow,
+              y2: item.cy + item.cap / 2,
+              'data-box-overlay-kind': 'bar-error-cap-left'
+            }));
+            attachBoxOverlayHandler(errorCapLeft);
+            annotateWithTitle(errorCapLeft, item.whiskerAnnotation);
           }
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'horizontal' });
@@ -27857,7 +28485,10 @@ Technical analysis record (advanced)
       els.boxErrorBarWidthCtl.style.display = showErrorThickness ? 'inline-flex' : 'none';
     }
     if(els.boxIndividualSummaryCtl){
-      els.boxIndividualSummaryCtl.style.display = graphTypeValue==='strip' ? '' : 'none';
+      els.boxIndividualSummaryCtl.style.display = (graphTypeValue==='strip' || graphTypeValue==='bar') ? '' : 'none';
+    }
+    if(els.boxPointModeCtl){
+      els.boxPointModeCtl.style.display = graphTypeValue==='strip' ? 'none' : '';
     }
     ensureBoxSignificanceControlPlacement();
     state.fillColors=c.colors||[];
