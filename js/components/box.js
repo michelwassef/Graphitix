@@ -855,6 +855,20 @@
     };
   }
 
+  function resolveBoxBodyStrokeStyle(requestedWidth, fallbackWidth, borderColor){
+    const requested = Number(requestedWidth);
+    const fallback = Number(fallbackWidth);
+    const resolvedWidth = Number.isFinite(requested)
+      ? requested
+      : (Number.isFinite(fallback) ? fallback : 0);
+    const safeWidth = Math.max(0, resolvedWidth);
+    return {
+      width: safeWidth,
+      stroke: safeWidth > 0 ? (borderColor || '#000') : 'none',
+      visible: safeWidth > 0
+    };
+  }
+
   function readSvgOpacityAttr(node, attrName){
     if(!node || typeof node.getAttribute !== 'function'){
       return null;
@@ -25383,10 +25397,13 @@ Technical analysis record (advanced)
         const strokeOverrideRaw = Number.isFinite(Number(colorInfo.strokeWidth))
           ? Number(colorInfo.strokeWidth)
           : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
-        const strokeWidthEffective = Number.isFinite(strokeOverrideRaw) && strokeOverrideRaw > 0
-          ? strokeOverrideRaw
-          : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
+        const bodyStrokeStyle = resolveBoxBodyStrokeStyle(strokeOverrideRaw, borderWidthPx, borderColor);
+        const strokeWidthEffective = bodyStrokeStyle.width;
+        const bodyStrokeColor = bodyStrokeStyle.stroke;
         const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
+        if(debugEnabled){
+          console.debug('Debug: box body stroke resolved', { index: i, graphType: graphTypeRaw, orientation: 'vertical', requested: strokeOverrideRaw, borderWidthPx, strokeWidthEffective, bodyStrokeColor });
+        }
         const yMean = y2px(mean);
         const overlayStroke = buildBoxOverlayStrokeHelper({
           traceIndex: i,
@@ -25415,15 +25432,17 @@ Technical analysis record (advanced)
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
           if(graphTypeRaw === 'box'){
-            const boxAttrs = { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            const boxAttrs = { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: bodyStrokeColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
             if(opacityOverride != null){
               boxAttrs['fill-opacity'] = opacityOverride;
-              boxAttrs['stroke-opacity'] = opacityOverride;
+              if(strokeWidthEffective > 0){
+                boxAttrs['stroke-opacity'] = opacityOverride;
+              }
             }
             const boxRect = add('rect', boxAttrs);
             attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianLine = add('line', overlayStroke.attrs(strokeWidthEffective, {
+            const medianLine = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
               x1: x0,
               y1: yMed,
               x2: x1,
@@ -25458,15 +25477,17 @@ Technical analysis record (advanced)
               `L ${x0} ${yNU}`,
               'Z'
             ].join(' ');
-            const notchAttrs = { d, fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            const notchAttrs = { d, fill: fillColor, stroke: bodyStrokeColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
             if(opacityOverride != null){
               notchAttrs['fill-opacity'] = opacityOverride;
-              notchAttrs['stroke-opacity'] = opacityOverride;
+              if(strokeWidthEffective > 0){
+                notchAttrs['stroke-opacity'] = opacityOverride;
+              }
             }
             const notchPath = add('path', notchAttrs);
             attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedian = add('line', overlayStroke.attrs(strokeWidthEffective, {
+            const notchMedian = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
               x1: xNL,
               y1: yMed,
               x2: xNR,
@@ -25476,7 +25497,7 @@ Technical analysis record (advanced)
             attachBoxOverlayHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
           }
-          const whiskerLineWidth = strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx;
+          const whiskerLineWidth = overlayStroke.baseStroke;
           const whiskerUpperLine = add('line', overlayStroke.attrs(whiskerLineWidth, {
             x1: cx,
             y1: yQ3,
@@ -25497,7 +25518,7 @@ Technical analysis record (advanced)
           annotateWithTitle(whiskerLowerLine, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxW * 0.4);
-            const capLineWidth = strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx;
+            const capLineWidth = overlayStroke.baseStroke;
             const capTop = add('line', overlayStroke.attrs(capLineWidth, {
               x1: cx - cap / 2,
               y1: yWMax,
@@ -25566,7 +25587,7 @@ Technical analysis record (advanced)
             width: boxW,
             height: rectH,
             fill: fillColor,
-            stroke: borderColor,
+            stroke: bodyStrokeColor,
             'stroke-width': strokeWidthEffective,
             'data-trace': i,
             'data-color-index': colorInfo.colorIndex,
@@ -25574,7 +25595,9 @@ Technical analysis record (advanced)
           };
           if(opacityOverride != null){
             barAttrs['fill-opacity'] = opacityOverride;
-            barAttrs['stroke-opacity'] = opacityOverride;
+            if(strokeWidthEffective > 0){
+              barAttrs['stroke-opacity'] = opacityOverride;
+            }
           }
           const barRect = add('rect', barAttrs);
           attachBoxShapeHandler(barRect);
@@ -25617,7 +25640,7 @@ Technical analysis record (advanced)
               const yTop = y2px(yTopValue);
               const yBottom = y2px(yBottomValue);
               const yBarCenter = y2px(centerValue);
-              const errorLineWidth = strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx;
+              const errorLineWidth = overlayStroke.baseStroke;
               if(errorMode === 'both'){
                 const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
                   x1: cx,
@@ -27012,10 +27035,13 @@ Technical analysis record (advanced)
         const strokeOverrideRawH = Number.isFinite(Number(colorInfoH.strokeWidth))
           ? Number(colorInfoH.strokeWidth)
           : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
-        const strokeWidthEffectiveH = Number.isFinite(strokeOverrideRawH) && strokeOverrideRawH > 0
-          ? strokeOverrideRawH
-          : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
+        const bodyStrokeStyleH = resolveBoxBodyStrokeStyle(strokeOverrideRawH, borderWidthPx, borderColor);
+        const strokeWidthEffectiveH = bodyStrokeStyleH.width;
+        const bodyStrokeColorH = bodyStrokeStyleH.stroke;
         const opacityOverride = colorInfoH.opacity != null ? Math.min(1, Math.max(0, Number(colorInfoH.opacity))) : null;
+        if(debugEnabled){
+          console.debug('Debug: box body stroke resolved', { index: i, graphType: graphTypeRaw, orientation: 'horizontal', requested: strokeOverrideRawH, borderWidthPx, strokeWidthEffective: strokeWidthEffectiveH, bodyStrokeColor: bodyStrokeColorH });
+        }
         const xMean = valueToX(mean);
         const overlayStroke = buildBoxOverlayStrokeHelper({
           traceIndex: i,
@@ -27045,15 +27071,17 @@ Technical analysis record (advanced)
           const left = Math.min(xQ1, xQ3);
           const right = Math.max(xQ1, xQ3);
           if(graphTypeRaw === 'box'){
-            const boxAttrs = { x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+            const boxAttrs = { x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: bodyStrokeColorH, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
             if(opacityOverride != null){
               boxAttrs['fill-opacity'] = opacityOverride;
-              boxAttrs['stroke-opacity'] = opacityOverride;
+              if(strokeWidthEffectiveH > 0){
+                boxAttrs['stroke-opacity'] = opacityOverride;
+              }
             }
             const boxRect = add('rect', boxAttrs);
             attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianLine = add('line', overlayStroke.attrs(strokeWidthEffectiveH, {
+            const medianLine = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
               x1: xMed,
               y1: y0,
               x2: xMed,
@@ -27095,15 +27123,17 @@ Technical analysis record (advanced)
               `L ${left} ${y1}`,
               'Z'
             ].join(' ');
-            const notchAttrs = { d, fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+            const notchAttrs = { d, fill: fillColor, stroke: bodyStrokeColorH, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
             if(opacityOverride != null){
               notchAttrs['fill-opacity'] = opacityOverride;
-              notchAttrs['stroke-opacity'] = opacityOverride;
+              if(strokeWidthEffectiveH > 0){
+                notchAttrs['stroke-opacity'] = opacityOverride;
+              }
             }
             const notchPath = add('path', notchAttrs);
             attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedian = add('line', overlayStroke.attrs(strokeWidthEffectiveH, {
+            const notchMedian = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
               x1: xMed,
               y1: yNotchTop,
               x2: xMed,
@@ -27115,7 +27145,7 @@ Technical analysis record (advanced)
             // Debug: log the horizontal notch geometry so future tweaks keep parity with vertical boxes.
             console.debug('Debug: box horizontal notch path',{ notchLower, notchUpper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: boxH, token });
           }
-          const whiskerLineWidth = strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx;
+          const whiskerLineWidth = overlayStroke.baseStroke;
           const whiskerLeft = add('line', overlayStroke.attrs(whiskerLineWidth, {
             x1: xWMin,
             y1: cy,
@@ -27136,7 +27166,7 @@ Technical analysis record (advanced)
           annotateWithTitle(whiskerRight, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxH * 0.4);
-            const capLineWidth = strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx;
+            const capLineWidth = overlayStroke.baseStroke;
             const capLeft = add('line', overlayStroke.attrs(capLineWidth, {
               x1: xWMin,
               y1: cy - cap / 2,
@@ -27213,7 +27243,7 @@ Technical analysis record (advanced)
             width: rectW,
             height: rectH,
             fill: fillColor,
-            stroke: borderColor,
+            stroke: bodyStrokeColorH,
             'stroke-width': strokeWidthEffectiveH,
             'data-trace': i,
             'data-color-index': colorInfoH.colorIndex,
@@ -27221,7 +27251,9 @@ Technical analysis record (advanced)
           };
           if(opacityOverride != null){
             barAttrsH['fill-opacity'] = opacityOverride;
-            barAttrsH['stroke-opacity'] = opacityOverride;
+            if(strokeWidthEffectiveH > 0){
+              barAttrsH['stroke-opacity'] = opacityOverride;
+            }
           }
           const barRectH = add('rect', barAttrsH);
           attachBoxShapeHandler(barRectH);
@@ -27264,7 +27296,7 @@ Technical analysis record (advanced)
               const xRight = valueToX(xRightValue);
               const xLeft = valueToX(xLeftValue);
               const xBarCenter = valueToX(centerValue);
-              const errorLineWidth = strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx;
+              const errorLineWidth = overlayStroke.baseStroke;
               if(errorMode === 'both'){
                 const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
                   x1: xLeft,
