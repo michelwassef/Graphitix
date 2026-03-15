@@ -397,6 +397,7 @@
     { value:'none', label:'No line or error bar' }
   ]);
   const INDIVIDUAL_SUMMARY_DEFAULT = 'median-point';
+  const BAR_SUMMARY_DEFAULT = 'mean-sd';
   const INDIVIDUAL_SUMMARY_SET = new Set(INDIVIDUAL_SUMMARY_OPTIONS.map(opt=>opt.value));
 
   function normalizeIndividualSummaryValue(rawValue){
@@ -7812,7 +7813,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#000000', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#000000', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -9468,10 +9469,14 @@
     if(els.boxIndividualSummary){
       populateIndividualSummarySelect(els.boxIndividualSummary);
       const fallbackSummary = normalizeIndividualSummaryValue(state.individualSummary);
+      const fallbackBarSummary = normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT);
       state.individualSummary = fallbackSummary;
+      state.barSummary = fallbackBarSummary;
       els.boxIndividualSummary.value = fallbackSummary;
-      console.debug('Debug: box individual summary initialised',{ value: els.boxIndividualSummary.value });
+      console.debug('Debug: box individual summary initialised',{ value: els.boxIndividualSummary.value, barValue: state.barSummary });
     }
+    ensureBoxBorderWidthState();
+    syncBoxBorderWidthControlForGraphType(els.boxGraphType?.value || 'box');
     els.boxPointMode=global.$('#boxPointMode');
     els.boxPointModeCtl=els.boxPointMode?.closest('.control') || null;
     els.boxShowCaps=global.$('#boxShowCaps');
@@ -9559,12 +9564,65 @@
 	    return meta;
 	  }
 
-  function getBoxBorderWidthValue(){
-    const candidate = els?.boxBorderWidth?.value;
-    if(candidate == null || candidate === ''){
-      return '1';
+  function getBoxGraphTypeDefaultBorderWidth(graphTypeCandidate){
+    const graphType = typeof graphTypeCandidate === 'string' && graphTypeCandidate.trim()
+      ? graphTypeCandidate.trim()
+      : (els?.boxGraphType?.value || 'box');
+    return (graphType === 'bar' || graphType === 'box' || graphType === 'notched') ? '0' : '1';
+  }
+
+  function normalizeBoxBorderWidthByGraphTypeMap(rawMap){
+    const allowedGraphTypes = ['box','notched','bar','violin','strip'];
+    const normalized = {};
+    const source = rawMap && typeof rawMap === 'object' ? rawMap : null;
+    allowedGraphTypes.forEach(graphType => {
+      const candidate = source && source[graphType] != null ? source[graphType] : getBoxGraphTypeDefaultBorderWidth(graphType);
+      const numeric = Number(candidate);
+      normalized[graphType] = Number.isFinite(numeric) && numeric >= 0
+        ? String(numeric)
+        : getBoxGraphTypeDefaultBorderWidth(graphType);
+    });
+    return normalized;
+  }
+
+  function ensureBoxBorderWidthState(){
+    state.graphTypeBorderWidths = normalizeBoxBorderWidthByGraphTypeMap(state.graphTypeBorderWidths);
+    return state.graphTypeBorderWidths;
+  }
+
+  function getCurrentBoxGraphTypeForStyle(){
+    const graphType = els?.boxGraphType?.value;
+    return typeof graphType === 'string' && graphType.trim() ? graphType.trim() : 'box';
+  }
+
+  function syncBoxBorderWidthControlForGraphType(graphTypeCandidate, options = {}){
+    const graphType = typeof graphTypeCandidate === 'string' && graphTypeCandidate.trim()
+      ? graphTypeCandidate.trim()
+      : getCurrentBoxGraphTypeForStyle();
+    const borderWidthMap = ensureBoxBorderWidthState();
+    const fallback = getBoxGraphTypeDefaultBorderWidth(graphType);
+    const nextValue = borderWidthMap[graphType] != null ? borderWidthMap[graphType] : fallback;
+    borderWidthMap[graphType] = nextValue;
+    if(els?.boxBorderWidth && options.updateControl !== false){
+      els.boxBorderWidth.value = String(nextValue);
     }
-    return String(candidate);
+    console.debug('Debug: box graph-type border width sync',{ graphType, value: String(nextValue) });
+    return String(nextValue);
+  }
+
+  function getBoxBorderWidthValue(){
+    const graphType = getCurrentBoxGraphTypeForStyle();
+    const borderWidthMap = ensureBoxBorderWidthState();
+    const candidate = els?.boxBorderWidth?.value;
+    if(candidate != null && candidate !== ''){
+      const numeric = Number(candidate);
+      const normalized = Number.isFinite(numeric) && numeric >= 0
+        ? String(numeric)
+        : getBoxGraphTypeDefaultBorderWidth(graphType);
+      borderWidthMap[graphType] = normalized;
+      return normalized;
+    }
+    return syncBoxBorderWidthControlForGraphType(graphType, { updateControl: false });
   }
 
   function getBoxErrorBarWidthValue(){
@@ -11934,8 +11992,14 @@
         const summaryVisible = graphTypeValue === 'strip' || graphTypeValue === 'bar';
         els.boxIndividualSummaryCtl.style.display = summaryVisible ? '' : 'none';
         if(summaryVisible && els.boxIndividualSummary){
-          const summaryValue = normalizeIndividualSummaryValue(state.individualSummary);
-          state.individualSummary = summaryValue;
+          const summaryValue = graphTypeValue === 'bar'
+            ? normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT)
+            : normalizeIndividualSummaryValue(state.individualSummary);
+          if(graphTypeValue === 'bar'){
+            state.barSummary = summaryValue;
+          }else{
+            state.individualSummary = summaryValue;
+          }
           if(els.boxIndividualSummary.value !== summaryValue){
             els.boxIndividualSummary.value = summaryValue;
             console.debug('Debug: box individual summary sync',{ summaryValue, graphTypeValue });
@@ -11943,6 +12007,7 @@
         }
         console.debug('Debug: box individual summary visibility',{ graphTypeValue, summaryVisible });
       }
+      syncBoxBorderWidthControlForGraphType(graphTypeValue);
       if(els.boxPointModeCtl){
         const pointModeVisible = graphTypeValue !== 'strip';
         els.boxPointModeCtl.style.display = pointModeVisible ? '' : 'none';
@@ -12017,8 +12082,13 @@
     if(els.boxIndividualSummary){
       els.boxIndividualSummary.addEventListener('change',()=>{
         const summaryValue = normalizeIndividualSummaryValue(els.boxIndividualSummary.value);
-        state.individualSummary = summaryValue;
-        console.debug('Debug: box individual summary change',{ summaryValue });
+        const activeGraphType = els.boxGraphType?.value;
+        if(activeGraphType === 'bar'){
+          state.barSummary = summaryValue;
+        }else{
+          state.individualSummary = summaryValue;
+        }
+        console.debug('Debug: box individual summary change',{ summaryValue, activeGraphType });
         scheduleBoxViewRefresh('individual-summary-change');
       });
     }
@@ -12117,8 +12187,14 @@
     }
     if(els.boxBorderWidth){
       els.boxBorderWidth.addEventListener('input',()=>{
-        boxLog('boxBorderWidth changed', els.boxBorderWidth.value);
-        if(tryApplyBoxStripPointStyleLive({ borderWidth: Number(els.boxBorderWidth.value) })){
+        const activeGraphType = getCurrentBoxGraphTypeForStyle();
+        const numeric = Number(els.boxBorderWidth.value);
+        const normalized = Number.isFinite(numeric) && numeric >= 0
+          ? String(numeric)
+          : getBoxGraphTypeDefaultBorderWidth(activeGraphType);
+        ensureBoxBorderWidthState()[activeGraphType] = normalized;
+        boxLog('boxBorderWidth changed', normalized);
+        if(tryApplyBoxStripPointStyleLive({ borderWidth: Number(normalized) })){
           return;
         }
         scheduleBoxViewRefresh('border-width-change');
@@ -22711,9 +22787,17 @@ Technical analysis record (advanced)
     if(usesSummarySelector){
       const domValue = els.boxIndividualSummary?.value;
       const normalizedDom = domValue ? normalizeIndividualSummaryValue(domValue) : null;
-      const summaryValue = normalizedDom || normalizeIndividualSummaryValue(state.individualSummary);
+      const fallbackSummary = graphTypeRaw === 'bar'
+        ? normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT)
+        : normalizeIndividualSummaryValue(state.individualSummary);
+      const summaryValue = normalizedDom || fallbackSummary;
       individualSummaryMode = summaryValue;
-      if(summaryValue !== state.individualSummary){
+      if(graphTypeRaw === 'bar'){
+        if(summaryValue !== state.barSummary){
+          state.barSummary = summaryValue;
+          console.debug('Debug: box summary selector state sync',{ summaryValue, graphTypeRaw });
+        }
+      }else if(summaryValue !== state.individualSummary){
         state.individualSummary = summaryValue;
         console.debug('Debug: box summary selector state sync',{ summaryValue, graphTypeRaw });
       }
@@ -27951,6 +28035,8 @@ Technical analysis record (advanced)
         graphType:els.boxGraphType.value,
         groupLayout: state.groupLayout,
         individualSummary: state.individualSummary,
+        barSummary: state.barSummary,
+        borderWidths: ensureBoxBorderWidthState(),
         pointMode:els.boxPointMode.value,
         showCaps:els.boxShowCaps.checked,
         showSignificanceBars: state.showSignificanceBars,
@@ -28342,8 +28428,13 @@ Technical analysis record (advanced)
     if(els.boxBorder){
       els.boxBorder.value = c.border || els.boxBorder.value;
     }
+    state.graphTypeBorderWidths = normalizeBoxBorderWidthByGraphTypeMap(c.borderWidths);
+    if(c.borderWidth != null){
+      const activeGraphTypeForPayload = c.graphType || els.boxGraphType?.value || 'box';
+      state.graphTypeBorderWidths[activeGraphTypeForPayload] = String(c.borderWidth);
+    }
     if(els.boxBorderWidth){
-      els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
+      syncBoxBorderWidthControlForGraphType(c.graphType || els.boxGraphType?.value || 'box');
     }
     if(els.boxErrorBarWidth){
       if(c.errorBarWidth != null){
@@ -28409,12 +28500,16 @@ Technical analysis record (advanced)
     const restoredSummary = typeof c.individualSummary === 'string'
       ? normalizeIndividualSummaryValue(c.individualSummary)
       : normalizeIndividualSummaryValue(state.individualSummary);
+    const restoredBarSummary = typeof c.barSummary === 'string'
+      ? normalizeIndividualSummaryValue(c.barSummary)
+      : normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT);
     state.individualSummary = restoredSummary;
+    state.barSummary = restoredBarSummary;
     if(els.boxIndividualSummary){
       if(!els.boxIndividualSummary.options?.length){
         populateIndividualSummarySelect(els.boxIndividualSummary);
       }
-      els.boxIndividualSummary.value = restoredSummary;
+      els.boxIndividualSummary.value = (els.boxGraphType.value === 'bar') ? restoredBarSummary : restoredSummary;
     }
     els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
     els.boxShowCaps.checked=!!c.showCaps;
