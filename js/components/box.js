@@ -4558,6 +4558,217 @@
     };
   }
 
+  async function computeBoundedPointTraceFeasibleRadius(config){
+    const values = Array.isArray(config?.values) ? config.values : [];
+    const coordsSource = config?.coords;
+    const coords = (Array.isArray(coordsSource) || ArrayBuffer.isView(coordsSource)) ? coordsSource : null;
+    const axisSpacingRaw = Number(config?.axisSpacing);
+    const baseRadius = Number(config?.baseRadius);
+    const maxHalfWidth = Number(config?.maxHalfWidth);
+    const sampleSize = Number(config?.sampleSize) || values.length || (coords ? coords.length : 0);
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const radiusStep = Number(config?.radiusStep);
+    const onProbe = typeof config?.onProbe === 'function' ? config.onProbe : null;
+    if(!coords || !coords.length || !Number.isFinite(baseRadius) || baseRadius <= 0 || !Number.isFinite(maxHalfWidth) || maxHalfWidth < 0){
+      return null;
+    }
+    const resolvedAxisSpacing = Number.isFinite(axisSpacingRaw) && axisSpacingRaw > 0
+      ? axisSpacingRaw
+      : Math.max(maxHalfWidth * 2 + baseRadius * 2 + 1, baseRadius * 4);
+    const minRadius = Math.max(0.2, baseRadius * 0.08);
+    const probeRadius = async radiusValue => {
+      const radius = Number(radiusValue);
+      if(!Number.isFinite(radius) || radius <= 0){
+        return { fit: false, radius: null, maxHalfWidth: null };
+      }
+      if(onProbe && onProbe() === false){
+        return { fit: false, cancelled: true, radius, maxHalfWidth };
+      }
+      const swarm = await resolveSwarmOffsets({ coords, raws: values }, {
+        axisSpacing: Math.max(resolvedAxisSpacing, maxHalfWidth * 2 + radius * 2 + 1),
+        pointRadius: radius,
+        sampleSize,
+        orientation,
+        widthScaleMode: 'density',
+        maxHalfWidth,
+        hardMaxHalfWidth: maxHalfWidth,
+        allowRadiusAdjustment: false,
+        skipBucketCentering: false,
+        enforceNonOverlap: true,
+        radiusCountExponent: 0.85,
+        debug: false
+      });
+      if(onProbe && onProbe() === false){
+        return { fit: false, cancelled: true, radius, maxHalfWidth };
+      }
+      const fit = validateStripSwarmFit({
+        coords,
+        offsets: swarm?.offsets,
+        pointRadius: radius,
+        sampleSize,
+        maxHalfWidth
+      });
+      return { fit, radius, maxHalfWidth, swarm };
+    };
+    let baseProbe = await probeRadius(baseRadius);
+    if(baseProbe?.cancelled){
+      return null;
+    }
+    if(baseProbe?.fit){
+      const roundedRadius = roundStripPointControlValue(baseProbe.radius, radiusStep, 'down');
+      return {
+        radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : baseProbe.radius,
+        halfWidthCap: maxHalfWidth,
+        sampleSize,
+        fitted: true
+      };
+    }
+    let low = minRadius;
+    let lowProbe = await probeRadius(low);
+    if(lowProbe?.cancelled){
+      return null;
+    }
+    if(!lowProbe?.fit){
+      const fallbackRadius = roundStripPointControlValue(low, radiusStep, 'down');
+      return {
+        radius: Number.isFinite(fallbackRadius) && fallbackRadius > 0 ? fallbackRadius : low,
+        halfWidthCap: maxHalfWidth,
+        sampleSize,
+        fitted: false
+      };
+    }
+    let high = baseRadius;
+    for(let iter = 0; iter < 12; iter++){
+      if((high - low) <= 0.05){
+        break;
+      }
+      const mid = (low + high) / 2;
+      const midProbe = await probeRadius(mid);
+      if(midProbe?.cancelled){
+        return null;
+      }
+      if(midProbe?.fit){
+        low = mid;
+        lowProbe = midProbe;
+      }else{
+        high = mid;
+      }
+    }
+    const roundedRadius = roundStripPointControlValue(low, radiusStep, 'down');
+    return {
+      radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : low,
+      halfWidthCap: maxHalfWidth,
+      sampleSize,
+      fitted: true
+    };
+  }
+
+
+  function resolveOverlayPointBorderWidthRaw(style, effectiveRadius, options = {}){
+    const explicitStyleWidth = style && Number.isFinite(Number(style.borderWidth))
+      ? Number(style.borderWidth)
+      : (style && Number.isFinite(Number(style.strokeWidth)) ? Number(style.strokeWidth) : null);
+    if(Number.isFinite(explicitStyleWidth)){
+      return explicitStyleWidth;
+    }
+    const requestedMinimum = Number(options?.minimumWidth);
+    const fallbackMinimum = Number.isFinite(requestedMinimum) && requestedMinimum > 0
+      ? requestedMinimum
+      : 0.8;
+    const radiusBasedWidth = Number.isFinite(Number(effectiveRadius)) && Number(effectiveRadius) > 0
+      ? Math.max(fallbackMinimum, Math.min(1.2, Number(effectiveRadius) * 0.4))
+      : fallbackMinimum;
+    return radiusBasedWidth;
+  }
+
+  function resolveScientificOverlayPointColors(fillColor, borderColor){
+    const resolvedFill = typeof fillColor === 'string' && fillColor.trim() ? fillColor.trim() : '#666666';
+    const stroke = (typeof borderColor === 'string' && borderColor.trim() && borderColor !== 'none')
+      ? borderColor
+      : (typeof shadeColor === 'function' ? shadeColor(resolvedFill, -35) : '#000000');
+    return {
+      fill: '#FFFFFF',
+      stroke: stroke || '#000000'
+    };
+  }
+
+  function resolveVerticalSideDisplaySlot(config){
+    const cx = Number(config?.cx);
+    const localBand = Number(config?.localBand);
+    const boxW = Number(config?.boxW);
+    const pointRadius = Number(config?.pointRadius);
+    const requestedHalfWidth = Number(config?.requestedHalfWidth);
+    const plotLeft = Number(config?.plotLeft);
+    const plotRight = Number(config?.plotRight);
+    const marginPx = Number.isFinite(Number(config?.marginPx)) ? Number(config.marginPx) : Math.max(4, pointRadius * 0.75);
+    const boxGapPx = Number.isFinite(Number(config?.boxGapPx)) ? Number(config.boxGapPx) : Math.max(2, pointRadius * 0.35);
+    const bandLeft = Number.isFinite(localBand) ? (cx - localBand / 2) : (cx - boxW);
+    const bandRight = Number.isFinite(localBand) ? (cx + localBand / 2) : (cx + boxW);
+    const centerMin = Math.max(plotLeft + marginPx + pointRadius, bandLeft + marginPx + pointRadius);
+    const centerMax = Math.min(plotRight - marginPx - pointRadius, cx - boxW / 2 - boxGapPx - pointRadius);
+    if(!Number.isFinite(centerMin) || !Number.isFinite(centerMax) || centerMax <= centerMin){
+      return {
+        centerX: Number.isFinite(cx) ? cx : 0,
+        halfWidth: 0,
+        bandLeft,
+        bandRight,
+        centerMin,
+        centerMax,
+        collapsed: true
+      };
+    }
+    const maxAllowedHalfWidth = Math.max(0, (centerMax - centerMin) / 2);
+    const halfWidth = Math.min(Math.max(0, requestedHalfWidth), maxAllowedHalfWidth);
+    return {
+      centerX: (centerMin + centerMax) / 2,
+      halfWidth,
+      bandLeft,
+      bandRight,
+      centerMin,
+      centerMax,
+      collapsed: false
+    };
+  }
+
+  function resolveHorizontalSideDisplaySlot(config){
+    const cy = Number(config?.cy);
+    const localBand = Number(config?.localBand);
+    const boxH = Number(config?.boxH);
+    const pointRadius = Number(config?.pointRadius);
+    const requestedHalfHeight = Number(config?.requestedHalfHeight);
+    const plotTop = Number(config?.plotTop);
+    const plotBottom = Number(config?.plotBottom);
+    const marginPx = Number.isFinite(Number(config?.marginPx)) ? Number(config.marginPx) : Math.max(4, pointRadius * 0.75);
+    const boxGapPx = Number.isFinite(Number(config?.boxGapPx)) ? Number(config.boxGapPx) : Math.max(2, pointRadius * 0.35);
+    const bandTop = Number.isFinite(localBand) ? (cy - localBand / 2) : (cy - boxH);
+    const bandBottom = Number.isFinite(localBand) ? (cy + localBand / 2) : (cy + boxH);
+    const centerMin = Math.max(plotTop + marginPx + pointRadius, bandTop + marginPx + pointRadius);
+    const centerMax = Math.min(plotBottom - marginPx - pointRadius, cy - boxH / 2 - boxGapPx - pointRadius);
+    if(!Number.isFinite(centerMin) || !Number.isFinite(centerMax) || centerMax <= centerMin){
+      return {
+        centerY: Number.isFinite(cy) ? cy : 0,
+        halfHeight: 0,
+        bandTop,
+        bandBottom,
+        centerMin,
+        centerMax,
+        collapsed: true
+      };
+    }
+    const maxAllowedHalfHeight = Math.max(0, (centerMax - centerMin) / 2);
+    const halfHeight = Math.min(Math.max(0, requestedHalfHeight), maxAllowedHalfHeight);
+    return {
+      centerY: (centerMin + centerMax) / 2,
+      halfHeight,
+      bandTop,
+      bandBottom,
+      centerMin,
+      centerMax,
+      collapsed: false
+    };
+  }
+
+
   function computeSwarmSpacingProfile(config){
     const sampleSizeRaw = Number(config?.sampleSize);
     const sampleSize = Number.isFinite(sampleSizeRaw) && sampleSizeRaw > 0 ? sampleSizeRaw : 1;
@@ -24584,6 +24795,90 @@ Technical analysis record (advanced)
           strategy: 'feasibility'
         });
       }
+      const computeDisplayedPointSharedRadius = async () => {
+        if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
+          return null;
+        }
+        if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+          return null;
+        }
+        if(hasExplicitPointSize(null)){
+          return null;
+        }
+        const overlayMode = pointMode === 'overlay';
+        const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
+        const traceProfiles = [];
+        let limitingRadius = Infinity;
+        let limitingTraceIndex = null;
+        for(let i = 0; i < traces.length; i++){
+          if(hasExplicitPointSize(i)){
+            continue;
+          }
+          const trace = traces[i];
+          const values = Array.isArray(trace?.y) ? trace.y : [];
+          if(!values.length){
+            continue;
+          }
+          const pointCoords = new Float64Array(values.length);
+          for(let idx = 0; idx < values.length; idx++){
+            pointCoords[idx] = y2px(values[idx]);
+          }
+          const localBand = localBandWidthForTrace();
+          const cx = xCenter(trace, i);
+          const boxW = Math.max(6, Math.min(60, localBand * 0.6));
+          const requestedHalfWidth = overlayMode
+            ? Math.max(pointRadius * 1.1, boxW * 0.3)
+            : Math.max(pointRadius * 1.1, boxW * 0.1);
+          let maxHalfWidth = requestedHalfWidth;
+          if(!overlayMode){
+            const sideSlot = resolveVerticalSideDisplaySlot({
+              cx,
+              localBand,
+              boxW,
+              pointRadius: baseRadius,
+              requestedHalfWidth,
+              plotLeft: yAxisX,
+              plotRight: plotRightX
+            });
+            maxHalfWidth = sideSlot.halfWidth;
+          }
+          const profile = await computeBoundedPointTraceFeasibleRadius({
+            values,
+            coords: pointCoords,
+            axisSpacing: localBand,
+            baseRadius,
+            maxHalfWidth,
+            sampleSize: values.length,
+            orientation: 'vertical',
+            radiusStep: 0.1,
+            onProbe: () => token === state.drawToken
+          });
+          if(token !== state.drawToken){
+            return null;
+          }
+          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
+            continue;
+          }
+          traceProfiles.push({ traceIndex: i, pointCount: values.length, radius: Number(profile.radius), halfWidthCap: Number(profile.halfWidthCap), fitted: profile.fitted !== false });
+          if(Number(profile.radius) < limitingRadius){
+            limitingRadius = Number(profile.radius);
+            limitingTraceIndex = i;
+          }
+        }
+        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
+          return null;
+        }
+        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
+        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
+        if(debugEnabled){
+          console.debug('Debug: box displayed point shared radius',{ orientation: 'vertical', pointMode, limitingTraceIndex, limitingRadius: resolvedRadius, traceProfiles });
+        }
+        return { radius: resolvedRadius };
+      };
+      const displayedPointSharedRadiusProfile = await computeDisplayedPointSharedRadius();
+      const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
+        ? Number(displayedPointSharedRadiusProfile.radius)
+        : null;
       if(token !== state.drawToken){
         return null;
       }
@@ -25117,7 +25412,10 @@ Technical analysis record (advanced)
             graphFontColor: themedPointDefaults?.graphFontColor || ''
           });
         }
-        const traceStrokeWidthRaw = resolveStripPointStrokeWidthRaw(traceStyle, borderWidthRaw);
+        const isOverlayPointMode = debugLabel === 'overlay' || debugLabel === 'violin-overlay';
+        const traceStrokeWidthRaw = isOverlayPointMode
+          ? resolveOverlayPointBorderWidthRaw(traceStyle, effectiveRadius, { minimumWidth: 0.8 })
+          : resolveStripPointStrokeWidthRaw(traceStyle, borderWidthRaw);
         const rawStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
         const strokeWidthCap = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
         const effectiveStrokeWidth = Math.max(0, Math.min(rawStrokeWidth, strokeWidthCap));
@@ -25928,31 +26226,29 @@ Technical analysis record (advanced)
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
           if(pointMode === 'outliers'){
-            const frag = document.createDocumentFragment();
-            let ptIdx = 0;
-            for(const v of outliers){
-              const c = document.createElementNS(NS, 'circle');
-              c.setAttribute('cx', cx);
-              c.setAttribute('cy', y2px(v));
-              c.setAttribute('r', pointRadius);
-              c.setAttribute('fill', fillColor);
-              c.setAttribute('stroke', borderColor);
-              annotateWithTitle(c, outlierAnnotation);
-              attachBoxPointTooltip(c, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: v,
-                rawValue: v,
-                index: ptIdx
-              });
-              frag.appendChild(c);
-              ptIdx++;
-              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
-              }
+            const outlierResult = await renderSwarmPointsVertical({
+              valueList: outliers,
+              cx,
+              localBand,
+              sampleCount: outliers.length,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor,
+              borderColor,
+              groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
+              opacityMultiplier: 1,
+              debugLabel: 'outliers',
+              mean,
+              pointRadiusOverride: null,
+              maxHalfWidth: 0,
+              allowRadiusAdjustment: false,
+              drawToken: token
+            });
+            if(!outlierResult){
+              return null;
             }
-            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
             const overlayResult = await renderSwarmPointsVertical({
@@ -25968,7 +26264,7 @@ Technical analysis record (advanced)
               borderColor,
               violinBounds: violinPointBounds,
               groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: 0.6,
+              opacityMultiplier: 0.85,
               debugLabel: 'violin-overlay',
               mean,
               widthScaleMode: 'density',
@@ -25981,28 +26277,43 @@ Technical analysis record (advanced)
             }
           }else{
             const overlayMode = pointMode === 'overlay';
-            const centerX = overlayMode ? cx : (x0 - boxW * 0.3);
-            const halfWidth = overlayMode
+            const requestedHalfWidth = overlayMode
               ? Math.max(pointRadius * 1.1, boxW * 0.3)
               : Math.max(pointRadius * 1.1, boxW * 0.1);
-            const overlayRadius = overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null;
+            const resolvedPointRadius = !hasExplicitPointSize(i) && Number.isFinite(displayedPointSharedRadius)
+              ? displayedPointSharedRadius
+              : (overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null);
+            const overlayPointColors = overlayMode ? resolveScientificOverlayPointColors(fillColor, borderColor) : null;
+            const slotRadius = Number.isFinite(Number(resolvedPointRadius)) && Number(resolvedPointRadius) > 0
+              ? Number(resolvedPointRadius)
+              : pointRadius;
+            const sideSlot = overlayMode ? null : resolveVerticalSideDisplaySlot({
+              cx,
+              localBand,
+              boxW,
+              pointRadius: slotRadius,
+              requestedHalfWidth,
+              plotLeft: yAxisX,
+              plotRight: plotRightX
+            });
             const overlayResult = await renderSwarmPointsVertical({
               valueList,
-              cx: centerX,
+              cx: overlayMode ? cx : (sideSlot?.centerX ?? cx),
               localBand,
               sampleCount,
               traceIndex: i,
               tooltipSeriesName,
               tooltipCategoryName,
               tooltipGroupName,
-              fillColor,
-              borderColor,
+              fillColor: overlayMode ? overlayPointColors.fill : fillColor,
+              borderColor: overlayMode ? overlayPointColors.stroke : borderColor,
               groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: overlayMode ? 0.6 : 1,
+              opacityMultiplier: 1,
               debugLabel: overlayMode ? 'overlay' : 'side',
               mean,
-              pointRadiusOverride: overlayRadius,
-              maxHalfWidth: halfWidth,
+              pointRadiusOverride: resolvedPointRadius,
+              maxHalfWidth: overlayMode ? requestedHalfWidth : (sideSlot?.halfWidth ?? 0),
+              allowRadiusAdjustment: false,
               drawToken: token
             });
             if(!overlayResult){
@@ -26312,7 +26623,10 @@ Technical analysis record (advanced)
             graphFontColor: themedPointDefaultsH?.graphFontColor || ''
           });
         }
-        const traceStrokeWidthRawH = resolveStripPointStrokeWidthRaw(traceStyleH, borderWidthRaw);
+        const isOverlayPointModeH = debugLabel === 'overlay' || debugLabel === 'violin-overlay';
+        const traceStrokeWidthRawH = isOverlayPointModeH
+          ? resolveOverlayPointBorderWidthRaw(traceStyleH, effectiveRadius, { minimumWidth: 0.8 })
+          : resolveStripPointStrokeWidthRaw(traceStyleH, borderWidthRaw);
         const rawStrokeWidthH = chartStyle.scaleStrokeWidth(traceStrokeWidthRawH, styleScaleInfo, { context: 'box-point-border', min: 0 });
         const strokeWidthCapH = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
         const effectiveStrokeWidthH = Math.max(0, Math.min(rawStrokeWidthH, strokeWidthCapH));
@@ -26697,6 +27011,90 @@ Technical analysis record (advanced)
           strategy: 'feasibility'
         });
       }
+      const computeDisplayedPointSharedRadius = async () => {
+        if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
+          return null;
+        }
+        if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+          return null;
+        }
+        if(hasExplicitPointSize(null)){
+          return null;
+        }
+        const overlayMode = pointMode === 'overlay';
+        const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
+        const traceProfiles = [];
+        let limitingRadius = Infinity;
+        let limitingTraceIndex = null;
+        for(let i = 0; i < traces.length; i++){
+          if(hasExplicitPointSize(i)){
+            continue;
+          }
+          const trace = traces[i];
+          const values = Array.isArray(trace?.y) ? trace.y : [];
+          if(!values.length){
+            continue;
+          }
+          const pointCoords = new Float64Array(values.length);
+          for(let idx = 0; idx < values.length; idx++){
+            pointCoords[idx] = valueToX(values[idx]);
+          }
+          const localBand = localBandHeightForTrace();
+          const cy = categoryCenter(trace, i);
+          const boxH = Math.max(6, Math.min(60, localBand * 0.6));
+          const requestedHalfHeight = overlayMode
+            ? Math.max(pointRadius * 1.1, boxH * 0.3)
+            : Math.max(pointRadius * 1.1, boxH * 0.1);
+          let maxHalfWidth = requestedHalfHeight;
+          if(!overlayMode){
+            const sideSlot = resolveHorizontalSideDisplaySlot({
+              cy,
+              localBand,
+              boxH,
+              pointRadius: baseRadius,
+              requestedHalfHeight,
+              plotTop: marginLocal.top,
+              plotBottom: marginLocal.top + plotHLocal
+            });
+            maxHalfWidth = sideSlot.halfHeight;
+          }
+          const profile = await computeBoundedPointTraceFeasibleRadius({
+            values,
+            coords: pointCoords,
+            axisSpacing: localBand,
+            baseRadius,
+            maxHalfWidth,
+            sampleSize: values.length,
+            orientation: 'horizontal',
+            radiusStep: 0.1,
+            onProbe: () => token === state.drawToken
+          });
+          if(token !== state.drawToken){
+            return null;
+          }
+          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
+            continue;
+          }
+          traceProfiles.push({ traceIndex: i, pointCount: values.length, radius: Number(profile.radius), halfWidthCap: Number(profile.halfWidthCap), fitted: profile.fitted !== false });
+          if(Number(profile.radius) < limitingRadius){
+            limitingRadius = Number(profile.radius);
+            limitingTraceIndex = i;
+          }
+        }
+        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
+          return null;
+        }
+        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
+        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
+        if(debugEnabled){
+          console.debug('Debug: box displayed point shared radius',{ orientation: 'horizontal', pointMode, limitingTraceIndex, limitingRadius: resolvedRadius, traceProfiles });
+        }
+        return { radius: resolvedRadius };
+      };
+      const displayedPointSharedRadiusProfile = await computeDisplayedPointSharedRadius();
+      const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
+        ? Number(displayedPointSharedRadiusProfile.radius)
+        : null;
       const addAxisElement = (tag, attrs) => {
         const attrMap = attrs && typeof attrs === 'object' ? attrs : {};
         const node = appendToLayer(axisLayer || svg, tag, attrMap);
@@ -27582,31 +27980,29 @@ Technical analysis record (advanced)
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
           if(pointMode === 'outliers'){
-            const frag = document.createDocumentFragment();
-            let ptIdx = 0;
-            for(const v of outliers){
-              const c = document.createElementNS(NS, 'circle');
-              c.setAttribute('cx', valueToX(v));
-              c.setAttribute('cy', cy);
-              c.setAttribute('r', pointRadius);
-              c.setAttribute('fill', fillColor);
-              c.setAttribute('stroke', borderColor);
-              annotateWithTitle(c, outlierAnnotation);
-              attachBoxPointTooltip(c, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: v,
-                rawValue: v,
-                index: ptIdx
-              });
-              frag.appendChild(c);
-              ptIdx++;
-              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
-              }
+            const outlierResult = await renderSwarmPointsHorizontal({
+              valueList: outliers,
+              cy,
+              localBand,
+              sampleCount: outliers.length,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor,
+              borderColor,
+              groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
+              opacityMultiplier: 1,
+              debugLabel: 'outliers',
+              mean,
+              pointRadiusOverride: null,
+              maxHalfWidth: 0,
+              allowRadiusAdjustment: false,
+              drawToken: token
+            });
+            if(!outlierResult){
+              return null;
             }
-            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
             const overlayResult = await renderSwarmPointsHorizontal({
@@ -27622,7 +28018,7 @@ Technical analysis record (advanced)
               borderColor,
               violinBounds: violinPointBounds,
               groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: 0.6,
+              opacityMultiplier: 0.85,
               debugLabel: 'violin-overlay',
               mean,
               widthScaleMode: 'density',
@@ -27635,28 +28031,43 @@ Technical analysis record (advanced)
             }
           }else{
             const overlayMode = pointMode === 'overlay';
-            const centerY = overlayMode ? cy : (y0 - boxH * 0.3);
-            const halfHeight = overlayMode
+            const requestedHalfHeight = overlayMode
               ? Math.max(pointRadius * 1.1, boxH * 0.3)
               : Math.max(pointRadius * 1.1, boxH * 0.1);
-            const overlayRadius = overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null;
+            const resolvedPointRadius = !hasExplicitPointSize(i) && Number.isFinite(displayedPointSharedRadius)
+              ? displayedPointSharedRadius
+              : (overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null);
+            const overlayPointColors = overlayMode ? resolveScientificOverlayPointColors(fillColor, borderColor) : null;
+            const slotRadius = Number.isFinite(Number(resolvedPointRadius)) && Number(resolvedPointRadius) > 0
+              ? Number(resolvedPointRadius)
+              : pointRadius;
+            const sideSlot = overlayMode ? null : resolveHorizontalSideDisplaySlot({
+              cy,
+              localBand,
+              boxH,
+              pointRadius: slotRadius,
+              requestedHalfHeight,
+              plotTop: marginLocal.top,
+              plotBottom: marginLocal.top + plotHLocal
+            });
             const overlayResult = await renderSwarmPointsHorizontal({
               valueList,
-              cy: centerY,
+              cy: overlayMode ? cy : (sideSlot?.centerY ?? cy),
               localBand,
               sampleCount,
               traceIndex: i,
               tooltipSeriesName,
               tooltipCategoryName,
               tooltipGroupName,
-              fillColor,
-              borderColor,
+              fillColor: overlayMode ? overlayPointColors.fill : fillColor,
+              borderColor: overlayMode ? overlayPointColors.stroke : borderColor,
               groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: overlayMode ? 0.6 : 1,
+              opacityMultiplier: 1,
               debugLabel: overlayMode ? 'overlay' : 'side',
               mean,
-              pointRadiusOverride: overlayRadius,
-              maxHalfWidth: halfHeight,
+              pointRadiusOverride: resolvedPointRadius,
+              maxHalfWidth: overlayMode ? requestedHalfHeight : (sideSlot?.halfHeight ?? 0),
+              allowRadiusAdjustment: false,
               drawToken: token
             });
             if(!overlayResult){
