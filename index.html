@@ -387,7 +387,7 @@
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
               <legend>Graph</legend>
-              <div class="control-row">
+              <div class="control-row box-graph-row box-graph-row--primary" id="boxGraphPrimaryRow">
                 <div class="control">
                   <label>Graph type</label>
                   <select id="boxGraphType">
@@ -407,7 +407,9 @@
                     <option value="outliers">Outliers</option>
                   </select>
                 </div>
-              <div class="control" id="boxWhiskerRuleCtl" style="display:none">
+              </div>
+              <div class="control-row box-graph-row box-graph-row--whisker" id="boxGraphWhiskerRow" style="display:none">
+                <div class="control" id="boxWhiskerRuleCtl" style="display:none">
                   <label for="boxWhiskerRule">Whisker Rule</label>
                   <select id="boxWhiskerRule">
                     <option value="iqr15">1.5×IQR (Tukey)</option>
@@ -420,7 +422,13 @@
                     <input type="number" id="boxWhiskerCustomMultiplier" min="0.1" step="0.1" value="1.5" />
                   </label>
                 </div>
+                <div class="control idx-inline-022" id="boxShowCapsCtl" style="display:none">
+                  <label class="idx-inline-023" id="boxShowCapsLabel">
+                    <input type="checkbox" id="boxShowCaps" checked /> Show whisker caps
+                  </label>
+                </div>
               </div>
+              <div class="control-row box-graph-row box-graph-row--significance" id="boxGraphSignificanceRow" style="display:none"></div>
               <div class="control idx-inline-001" id="boxLayoutModeCtl" style="display:none">
                 <label>View</label>
                 <select id="boxLayoutMode">
@@ -460,9 +468,6 @@
                 <output id="boxViolinSamplesVal" class="idx-inline-029">80</output>
               </div>
               <div class="control idx-inline-022" id="boxLegacySignificanceControls" hidden aria-hidden="true">
-                <label class="idx-inline-023" id="boxShowCapsLabel" style="display:none">
-                  <input type="checkbox" id="boxShowCaps" checked /> Show whisker caps
-                </label>
                 <label class="idx-inline-024">
                   <input type="checkbox" id="boxShowSignificance" /> Show pairwise comparisons
                 </label>

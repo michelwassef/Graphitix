@@ -799,140 +799,6 @@
     }
   }
 
-  function ensureBoxDualToolbarHost(preferredHost){
-    if(preferredHost && preferredHost.nodeType === 1){
-      return preferredHost;
-    }
-    const doc = global.document;
-    if(!doc){ return null; }
-    const anchor = doc.getElementById('boxFontHost');
-    if(!anchor){ return null; }
-    let host = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
-      ? anchor.nextElementSibling
-      : null;
-    if(!host){
-      host = doc.createElement('div');
-      host.className = 'font-toolbar-host';
-      host.dataset.fontToolbarScope = 'box';
-      host.style.display = 'none';
-      anchor.insertAdjacentElement('afterend', host);
-    }
-    return host;
-  }
-
-  function getBoxDualToolbarHosts(){
-    const doc = global.document;
-    if(!doc || !doc.querySelectorAll){ return []; }
-    const scopedHosts = Array.from(doc.querySelectorAll('.font-toolbar-host[data-font-toolbar-scope="box"]')).filter(node => node && node.nodeType === 1);
-    if(scopedHosts.length){
-      return scopedHosts;
-    }
-    return Array.from(doc.querySelectorAll('.font-toolbar-host')).filter(node => node && node.nodeType === 1);
-  }
-
-  function findBoxDualToolbarHostByContents(selector, options){
-    const opts = options || {};
-    const hosts = getBoxDualToolbarHosts();
-    const matchSelector = typeof selector === 'string' ? selector : '';
-    if(!matchSelector){ return null; }
-    if(opts.preferVisible){
-      const visibleMatch = hosts.find(host => host && host.classList && host.classList.contains('font-toolbar-host--visible') && host.querySelector && host.querySelector(matchSelector));
-      if(visibleMatch){
-        return visibleMatch;
-      }
-    }
-    return hosts.find(host => host && host.querySelector && host.querySelector(matchSelector)) || null;
-  }
-
-  function detachBoxDualToolbarBlocks(host, selector){
-    if(!host || !host.querySelectorAll){ return []; }
-    const blockSet = new Set();
-    Array.from(host.querySelectorAll(selector)).forEach(node => {
-      if(!node || node.nodeType !== 1){ return; }
-      let block = node;
-      while(block && block.parentNode && block.parentNode !== host){
-        block = block.parentNode;
-      }
-      if(block && block.nodeType === 1 && block.parentNode === host){
-        blockSet.add(block);
-      }
-    });
-    const blocks = Array.from(blockSet);
-    blocks.forEach(block => {
-      if(block.parentNode){
-        block.parentNode.removeChild(block);
-      }
-    });
-    return blocks;
-  }
-
-  function insertBoxDualToolbarBlocksAtStart(host, blocks){
-    if(!host || !host.insertBefore || !Array.isArray(blocks) || !blocks.length){
-      return;
-    }
-    blocks.slice().reverse().forEach(block => {
-      host.insertBefore(block, host.firstChild || null);
-    });
-  }
-
-  function ensureBoxDualToolbarDivider(host){
-    if(!host || !host.insertBefore){ return []; }
-    Array.from(host.querySelectorAll(':scope > .box-dual-toolbar-divider')).forEach(node => {
-      if(node.parentNode === host){
-        node.parentNode.removeChild(node);
-      }
-    });
-    const blocks = Array.from(host.children || []).filter(node => node && node.nodeType === 1 && !node.classList.contains('box-dual-toolbar-divider'));
-    if(blocks.length < 2){
-      return blocks;
-    }
-    const divider = host.ownerDocument.createElement('div');
-    divider.className = 'box-dual-toolbar-divider';
-    divider.setAttribute('aria-hidden', 'true');
-    divider.style.width = '0';
-    divider.style.minWidth = '0';
-    divider.style.margin = '0 10px';
-    divider.style.borderLeft = '1px solid rgba(0,0,0,0.15)';
-    divider.style.alignSelf = 'stretch';
-    divider.style.justifySelf = 'stretch';
-    divider.style.pointerEvents = 'none';
-    host.insertBefore(divider, blocks[1] || null);
-    return Array.from(host.children || []).filter(node => node && node.nodeType === 1);
-  }
-
-  function applyBoxDualToolbarLayout(host, options){
-    const opts = options || {};
-    if(!host){ return; }
-    host.classList.add('font-toolbar-host--box-dual');
-    host.style.display = 'flex';
-    host.style.flexWrap = 'nowrap';
-    host.style.alignItems = 'stretch';
-    host.style.columnGap = '0';
-    host.style.rowGap = '0';
-    host.classList.add('font-toolbar-host--visible');
-    let forms = ensureBoxDualToolbarDivider(host);
-    forms.forEach(node => {
-      if(!node || node.nodeType !== 1){ return; }
-      if(node.classList.contains('box-dual-toolbar-divider')){
-        return;
-      }
-      node.style.margin = '0';
-      node.style.paddingLeft = '';
-      node.style.borderLeft = 'none';
-      node.style.alignSelf = 'flex-start';
-    });
-    try{
-      console.debug('Debug: box dual toolbar layout applied', {
-        reason: opts.reason || 'unknown',
-        childCount: forms.filter(node => !node.classList.contains('box-dual-toolbar-divider')).length,
-        dividerCount: forms.filter(node => node.classList.contains('box-dual-toolbar-divider')).length,
-        hasPointControls: !!host.querySelector('.box-point-controls, [data-point-controls="1"]'),
-        hasShapeControls: !!host.querySelector('.box-shape-controls, [data-shape-controls="1"]'),
-        hasSummaryControls: !!host.querySelector('.box-summary-controls, [data-summary-controls="1"]')
-      });
-    }catch(debugErr){ console.warn('box dual toolbar layout debug log failed', debugErr); }
-  }
-
   function openBoxPointAndTraceControls(options){
     const opts = options || {};
     const sourcePoint = opts.pointTarget || null;
@@ -943,35 +809,17 @@
     if(!pointTarget && !shapeTarget){
       return;
     }
-
     const pointState = pointTarget
       ? showPointFormatControls(pointTarget, opts.pointData || pointTarget.__boxPointData || null, {
           skipHideAll: false
         })
       : null;
-
-    let pointHost = pointState?.host
-      || findBoxDualToolbarHostByContents('.box-point-controls, [data-point-controls="1"]', { preferVisible: true })
-      || null;
-
-    const preservedPointBlocks = pointHost
-      ? detachBoxDualToolbarBlocks(pointHost, '.box-point-controls, [data-point-controls="1"]')
-      : [];
-
-    try{
-      console.debug('Debug: box point toolbar preserved', {
-        traceIndex: sourceTrace == null ? null : String(sourceTrace),
-        preservedCount: preservedPointBlocks.length,
-        pointHostVisible: !!(pointHost && pointHost.classList && pointHost.classList.contains('font-toolbar-host--visible'))
-      });
-    }catch(debugErr){ console.warn('box point toolbar preserve debug log failed', debugErr); }
-
-    const preferredHost = ensureBoxDualToolbarHost(pointHost);
+    const hostForTrace = pointState?.host || null;
     const traceState = shapeTarget
       ? showBoxShapeFormatControls(shapeTarget, {
           skipHideAll: true,
-          host: preferredHost || undefined,
-          appendToHost: !!preferredHost,
+          host: hostForTrace,
+          appendToHost: !!hostForTrace,
           keepOpenWithinHost: true,
           keepHostVisible: true,
           hostClass: 'font-toolbar-host--box-dual',
@@ -979,48 +827,20 @@
           secondaryMode: 'none'
         })
       : null;
-
-    let host = traceState?.host
-      || findBoxDualToolbarHostByContents('.box-shape-controls, [data-shape-controls="1"]', { preferVisible: true })
-      || preferredHost
-      || pointHost
-      || null;
-
-    if(host && preservedPointBlocks.length){
-      insertBoxDualToolbarBlocksAtStart(host, preservedPointBlocks);
-    }
-
-    if(host && !host.querySelector('.box-point-controls, [data-point-controls="1"]') && pointTarget){
-      const retryPointState = showPointFormatControls(pointTarget, opts.pointData || pointTarget.__boxPointData || null, {
-        skipHideAll: true,
-        host,
-        appendToHost: true,
-        keepOpenWithinHost: true,
-        keepHostVisible: true,
-        hostClass: 'font-toolbar-host--box-dual',
-        hostDisplay: 'grid',
-        panelTitle: 'Symbol'
-      });
-      if(retryPointState?.host){
-        host = retryPointState.host;
-      }
-    }
-
+    const host = pointState?.host || traceState?.host || null;
     if(host){
-      applyBoxDualToolbarLayout(host, {
-        reason: opts.source || 'point-trace-controls'
+      host.classList.add('font-toolbar-host--box-dual');
+      host.style.display = 'grid';
+      host.style.gridAutoFlow = 'column';
+      host.style.gridAutoColumns = 'max-content';
+      host.style.columnGap = '10px';
+      host.style.alignItems = 'flex-start';
+      const forms = Array.from(host.children || []).filter(node => node && node.nodeType === 1);
+      forms.forEach((node, index) => {
+        node.style.margin = '0';
+        node.style.paddingLeft = index > 0 ? '10px' : '';
+        node.style.borderLeft = index > 0 ? '1px solid rgba(0,0,0,0.15)' : 'none';
       });
-      try{
-        console.debug('Debug: box point+trace toolbar opened', {
-          source: opts.source || 'unknown',
-          traceIndex: sourceTrace == null ? null : String(sourceTrace),
-          pointTargetTag: pointTarget ? String(pointTarget.tagName || '').toLowerCase() : null,
-          shapeTargetTag: shapeTarget ? String(shapeTarget.tagName || '').toLowerCase() : null,
-          preservedPointCount: preservedPointBlocks.length,
-          hasPointControls: !!host.querySelector('.box-point-controls, [data-point-controls="1"]'),
-          hasShapeControls: !!host.querySelector('.box-shape-controls, [data-shape-controls="1"]')
-        });
-      }catch(debugErr){ console.warn('box point+trace toolbar debug log failed', debugErr); }
     }
   }
 
@@ -9491,7 +9311,21 @@
     const controls = els.boxLegacySignificanceControls
       || global.document?.getElementById?.('boxLegacySignificanceControls')
       || null;
+    const summaryCtl = els.boxIndividualSummaryCtl || global.document?.getElementById?.('boxIndividualSummaryCtl') || null;
+    const signRow = els.boxGraphSignificanceRow || global.document?.getElementById?.('boxGraphSignificanceRow') || null;
+    const whiskerRow = els.boxGraphWhiskerRow || global.document?.getElementById?.('boxGraphWhiskerRow') || null;
+    const graphTypeValue = String(els.boxGraphType?.value || '').toLowerCase();
+    const useGraphSectionRows = graphTypeValue === 'box' || graphTypeValue === 'notched' || graphTypeValue === 'violin';
+    if(whiskerRow && whiskerRow.style){
+      whiskerRow.style.display = useGraphSectionRows ? 'flex' : 'none';
+    }
+    if(signRow && signRow.style){
+      signRow.style.display = useGraphSectionRows ? 'flex' : 'none';
+    }
     if(!controls){
+      if(boxDebugEnabled()){
+        console.debug('Debug: box significance placement skipped (controls missing)', { graphTypeValue, useGraphSectionRows });
+      }
       return;
     }
     if(controls.hidden){
@@ -9502,18 +9336,34 @@
     if(controls.style){
       controls.style.display = 'flex';
     }
-    const summaryCtl = els.boxIndividualSummaryCtl || global.document?.getElementById?.('boxIndividualSummaryCtl') || null;
+    if(useGraphSectionRows && signRow){
+      if(controls.parentNode !== signRow || signRow.lastElementChild !== controls){
+        signRow.appendChild(controls);
+      }
+      if(boxDebugEnabled()){
+        console.debug('Debug: box significance controls placed in graph section row', { graphTypeValue });
+      }
+      return;
+    }
     if(!summaryCtl || !summaryCtl.parentNode || summaryCtl.parentNode !== controls.parentNode){
+      if(summaryCtl && summaryCtl.parentNode && controls.parentNode !== summaryCtl.parentNode){
+        summaryCtl.parentNode.insertBefore(controls, summaryCtl.nextSibling);
+      }
+      if(boxDebugEnabled()){
+        console.debug('Debug: box significance placement fallback applied', {
+          graphTypeValue,
+          controlsParentMatchesSummaryParent: !!(summaryCtl && summaryCtl.parentNode && controls.parentNode === summaryCtl.parentNode)
+        });
+      }
       return;
     }
     const parent = summaryCtl.parentNode;
     const anchor = summaryCtl.nextSibling;
-    if(anchor === controls){
-      return;
+    if(anchor !== controls){
+      parent.insertBefore(controls, anchor);
     }
-    parent.insertBefore(controls, anchor);
     if(boxDebugEnabled()){
-      console.debug('Debug: box significance controls placed below summary overlay');
+      console.debug('Debug: box significance controls placed below summary overlay', { graphTypeValue });
     }
   }
 
@@ -9910,6 +9760,8 @@
     els.boxWhiskerRule=global.$('#boxWhiskerRule');
     els.boxWhiskerCustom=global.$('#boxWhiskerCustomMultiplier');
     els.boxWhiskerCustomLabel=global.$('#boxWhiskerCustomLabel');
+    els.boxGraphWhiskerRow=global.$('#boxGraphWhiskerRow');
+    els.boxGraphSignificanceRow=global.$('#boxGraphSignificanceRow');
     els.boxGraphType=global.$('#boxGraphType');
     els.boxLayoutModeCtl=global.$('#boxLayoutModeCtl');
     els.boxLayoutMode=global.$('#boxLayoutMode');
@@ -9937,6 +9789,7 @@
     syncBoxBorderWidthControlForGraphType(els.boxGraphType?.value || 'box');
     els.boxPointMode=global.$('#boxPointMode');
     els.boxPointModeCtl=els.boxPointMode?.closest('.control') || null;
+    els.boxShowCapsCtl=global.$('#boxShowCapsCtl');
     els.boxShowCaps=global.$('#boxShowCaps');
     els.boxShowSignificance=global.$('#boxShowSignificance');
     els.boxSignificanceLabelCtl=global.$('#boxSignificanceLabelCtl');
@@ -12438,10 +12291,10 @@
         els.boxWhiskerRuleCtl.style.display = whiskerVisible ? '' : 'none';
         console.debug('Debug: box whisker rule visibility',{ graphTypeValue, whiskerVisible });
       }
-      const showCapsLabel = els.boxShowCaps?.closest('label');
-      if(showCapsLabel){
+      const showCapsCtl = els.boxShowCapsCtl || els.boxShowCaps?.closest('.control') || els.boxShowCaps?.closest('label');
+      if(showCapsCtl){
         const capsVisible = graphTypeValue === 'box' || graphTypeValue === 'notched';
-        showCapsLabel.style.display = capsVisible ? '' : 'none';
+        showCapsCtl.style.display = capsVisible ? '' : 'none';
         console.debug('Debug: box showCaps visibility updated',{ graphTypeValue, capsVisible });
       }
       if(els.boxIndividualSummaryCtl){

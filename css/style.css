@@ -4347,6 +4347,16 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #boxPage .diagram-area .config-panel{flex:0 0 auto}
 #boxWhiskerRuleCtl .whisker-custom-input{display:flex;align-items:center;gap:6px;font-size:11px;color:#111b29;white-space:nowrap}
 #boxWhiskerRuleCtl .whisker-custom-input input[type=number]{width:60px;max-width:64px;flex:0 0 auto}
+#boxPage .box-graph-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+#boxPage .box-graph-row>.control{margin-top:0;flex:0 0 auto}
+#boxPage #boxGraphWhiskerRow,#boxPage #boxGraphSignificanceRow{margin-top:6px}
+#boxPage #boxGraphWhiskerRow #boxShowCapsCtl{margin-top:0}
+#boxPage #boxGraphWhiskerRow #boxShowCapsLabel{min-height:26px}
+#boxPage #boxLegacySignificanceControls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+#boxPage #boxLegacySignificanceControls>label{display:inline-flex;align-items:center;gap:6px;min-height:26px;margin:0}
+#boxPage #boxLegacySignificanceControls>#boxSignificanceLabelCtl{display:inline-flex;align-items:center;gap:6px}
+#boxPage #boxLegacySignificanceControls>#boxSignificanceLabelCtl select{margin:0;align-self:center}
+#boxPage #boxGraphSignificanceRow>#boxLegacySignificanceControls{margin-top:0}
 #boxPage .panel{display:flex;flex-direction:column;min-width:0}
 #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 #boxPage .table-format-controls,#pcaPage .table-format-controls,#linePage .table-format-controls,#scatterPage .table-format-controls{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:nowrap}
