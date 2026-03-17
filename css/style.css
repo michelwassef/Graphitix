@@ -5708,6 +5708,7 @@ input[type="number"],
 .idx-inline-024 { width: auto; display: flex; align-items: center; gap: 4px; }
 .idx-inline-025 { flex-wrap: wrap; display: none; }
 .idx-inline-026 { display: none; flex-wrap: wrap; align-items: center; gap: 8px; }
+.idx-inline-026 input[type="range"] { width: 120px; min-width: 120px; max-width: 120px; flex: 0 0 120px; }
 .idx-inline-027 { width: 70px; }
 .idx-inline-028 { min-width: 48px; }
 .idx-inline-029 { min-width: 40px; }
