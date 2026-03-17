@@ -5709,9 +5709,35 @@ input[type="number"],
 .idx-inline-025 { flex-wrap: wrap; display: none; }
 .idx-inline-026 { display: none; flex-wrap: wrap; align-items: center; gap: 8px; }
 .idx-inline-026 input[type="range"] { width: 120px; min-width: 120px; max-width: 120px; flex: 0 0 120px; }
-.idx-inline-027 { width: 70px; }
+.idx-inline-027 { width: 50px; }
 .idx-inline-028 { min-width: 48px; }
 .idx-inline-029 { min-width: 40px; }
+#boxPage #boxViolinBandwidthCtl,
+#boxPage #boxViolinSamplesCtl{
+    display:grid;
+    grid-template-columns: 120px 120px 70px auto;
+    align-items:center;
+    column-gap:8px;
+}
+#boxPage #boxViolinBandwidthCtl > label:first-child,
+#boxPage #boxViolinSamplesCtl > label:first-child{
+    white-space:nowrap;
+    margin:0;
+}
+#boxPage #boxViolinBandwidthCtl input[type="range"],
+#boxPage #boxViolinSamplesCtl input[type="range"]{
+    width:120px;
+    min-width:120px;
+    max-width:120px;
+    justify-self:end;
+}
+#boxPage #boxViolinBandwidthValue,
+#boxPage #boxViolinSamplesValue{
+    width:50px;
+    min-width:50px;
+    max-width:50px;
+    justify-self:end;
+}
 .idx-inline-030 { display: none; align-items: center; gap: 6px; }
 .idx-inline-031 { flex-wrap: wrap; }
 .idx-inline-032 { flex-wrap: wrap; gap: 6px; align-items: center; }
