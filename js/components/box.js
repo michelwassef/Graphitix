@@ -71,6 +71,7 @@
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_BOX_COLORS=['#0072B2','#D55E00','#009E73','#CC79A7','#E69F00','#56B4E9','#F0E442','#000000'];
   const DEFAULT_BOX_GRAYSCALE_COLORS=['#000000','#4d4d4d','#7a7a7a','#a6a6a6','#c9c9c9','#e0e0e0'];
+  const DEFAULT_GRAYSCALE_UNIFIED_FILL = '#7a7a7a';
   const DEFAULT_UNIFIED_SYMBOL_FILL = '#000000';
   const DEFAULT_UNIFIED_SYMBOL_BORDER = 'none';
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
@@ -126,28 +127,57 @@
     return palette[0] || '#000000';
   }
 
+  function getThemeAwareDefaultPalette(options = {}){
+    const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
+      ? options.schemeId.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
+    if(schemeId === 'dark'){
+      return DEFAULT_BOX_COLORS;
+    }
+    return getBoxDefaultPalette(options.tableFormat);
+  }
+
+  function getGrayscaleUnifiedFillColor(){
+    return DEFAULT_GRAYSCALE_UNIFIED_FILL;
+  }
+
   function resolveThemeAwareDefaultTraceColors(options = {}){
     const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
       ? options.schemeId.trim().toLowerCase()
       : getBoxSelectedColorSchemeId();
     const tableFormat = normalizeBoxTableFormat(options.tableFormat || state.tableFormat);
-    const palette = getBoxDefaultPalette(tableFormat);
+    const palette = getThemeAwareDefaultPalette({ schemeId, tableFormat });
     const colorIndexRaw = Number(options.colorIndex);
     const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : 0;
     const paletteColor = palette[colorIndex % Math.max(1, palette.length)] || getBoxDefaultFillColor(tableFormat);
     const rawFill = typeof options.fillColor === 'string' ? options.fillColor.trim() : '';
     const rawBorder = typeof options.borderColor === 'string' ? options.borderColor.trim() : '';
-    if(schemeId !== 'dark'){
-      const fillColor = rawFill || paletteColor;
-      const borderSeed = fillColor || paletteColor;
-      const borderColor = rawBorder || shadeColor(borderSeed, -30);
-      return { fillColor: fillColor || paletteColor, borderColor: borderColor || shadeColor(borderSeed, -30) };
+    const preferUnifiedDefault = options.preferUnifiedDefault === true;
+    const darkPaletteFallback = DEFAULT_BOX_COLORS[colorIndex % Math.max(1, DEFAULT_BOX_COLORS.length)] || paletteColor;
+    const grayscaleUnifiedFill = getGrayscaleUnifiedFillColor();
+
+    if(schemeId === 'dark'){
+      const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill) || rawFill.toLowerCase() === '#ffffff' || rawFill.toLowerCase() === 'white';
+      const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder) || rawBorder.toLowerCase() === '#ffffff' || rawBorder.toLowerCase() === 'white';
+      const fillColor = fillNeedsThemeDefault ? darkPaletteFallback : rawFill;
+      const borderSeed = fillColor || darkPaletteFallback;
+      const borderColor = borderNeedsThemeDefault ? shadeColor(borderSeed, -30) : rawBorder;
+      return { fillColor: fillColor || darkPaletteFallback, borderColor: borderColor || shadeColor(borderSeed, -30) };
     }
-    const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill);
-    const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder);
-    const fillColor = fillNeedsThemeDefault ? paletteColor : rawFill;
+
+    if(isBoxGrayscaleScheme(schemeId)){
+      const fallbackFill = preferUnifiedDefault ? grayscaleUnifiedFill : paletteColor;
+      const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill) || isColorTokenWhite(rawFill);
+      const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder) || isColorTokenWhite(rawBorder);
+      const fillColor = fillNeedsThemeDefault ? fallbackFill : rawFill;
+      const borderSeed = fillColor || fallbackFill;
+      const borderColor = borderNeedsThemeDefault ? shadeColor(borderSeed, -30) : rawBorder;
+      return { fillColor: fillColor || fallbackFill, borderColor: borderColor || shadeColor(borderSeed, -30) };
+    }
+
+    const fillColor = rawFill || paletteColor;
     const borderSeed = fillColor || paletteColor;
-    const borderColor = borderNeedsThemeDefault ? shadeColor(borderSeed, -30) : rawBorder;
+    const borderColor = rawBorder || shadeColor(borderSeed, -30);
     return { fillColor: fillColor || paletteColor, borderColor: borderColor || shadeColor(borderSeed, -30) };
   }
 
@@ -274,6 +304,121 @@
       || token === '#000000'
       || token === 'rgb(0,0,0)'
       || token === 'rgba(0,0,0,1)';
+  }
+
+  function isColorTokenWhite(value){
+    const token = normalizeColorToken(value);
+    return token === '#fff'
+      || token === '#ffffff'
+      || token === 'rgb(255,255,255)'
+      || token === 'rgba(255,255,255,1)'
+      || token === 'white';
+  }
+
+  function isBoxThemeNeutralColorToken(value, options = {}){
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if(!raw || raw === 'none' || raw === 'transparent'){
+      return true;
+    }
+    const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
+      ? options.schemeId.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
+    if(schemeId === 'dark'){
+      return isColorTokenBlack(raw) || isColorTokenWhite(raw);
+    }
+    if(isBoxGrayscaleScheme(schemeId)){
+      return isColorTokenBlack(raw) || isColorTokenWhite(raw);
+    }
+    return false;
+  }
+
+  function resolveBoxThemeAwareStyleColor(styleValue, fallbackColor, options = {}){
+    const raw = typeof styleValue === 'string' ? styleValue.trim() : '';
+    if(!raw || isBoxThemeNeutralColorToken(raw, options)){
+      return fallbackColor;
+    }
+    return raw;
+  }
+
+  function normalizeTraceStyleColorOverridesForScheme(style, options = {}){
+    const normalized = normalizeStyleObject(style);
+    if(!normalized){
+      return null;
+    }
+    const next = { ...normalized };
+    const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
+      ? options.schemeId.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
+    if(typeof next.fill === 'string' && isBoxThemeNeutralColorToken(next.fill, { schemeId })){
+      delete next.fill;
+    }
+    const borderKeys = ['stroke', 'border', 'borderColor'];
+    borderKeys.forEach(key => {
+      if(typeof next[key] === 'string' && isBoxThemeNeutralColorToken(next[key], { schemeId })){
+        delete next[key];
+      }
+    });
+    return isEmptyStyleObject(next) ? null : next;
+  }
+
+  function normalizeBoxStoredColorsForScheme(options = {}){
+    const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
+      ? options.schemeId.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
+    const colorMode = typeof options.colorMode === 'string' && options.colorMode.trim()
+      ? options.colorMode.trim().toLowerCase()
+      : getBoxColorMode();
+    const tableFormat = normalizeBoxTableFormat(options.tableFormat || state.tableFormat);
+    const preferUnifiedDefault = colorMode !== 'individual' && isBoxGrayscaleScheme(schemeId);
+    const fillSource = (els?.boxFill?.value || state.lastDefaultFill || '').trim();
+    const borderSource = (els?.boxBorder?.value || '').trim();
+    const unifiedDefaults = resolveThemeAwareDefaultTraceColors({
+      schemeId,
+      tableFormat,
+      colorIndex: 0,
+      fillColor: fillSource,
+      borderColor: borderSource,
+      preferUnifiedDefault
+    });
+    if(isBoxThemeNeutralColorToken(fillSource, { schemeId })){
+      state.lastDefaultFill = unifiedDefaults.fillColor;
+      if(els?.boxFill){
+        els.boxFill.value = unifiedDefaults.fillColor;
+      }
+    }
+    if(els?.boxBorder && isBoxThemeNeutralColorToken(borderSource, { schemeId })){
+      els.boxBorder.value = unifiedDefaults.borderColor;
+    }
+    const colorCount = Math.max(state.fillColors?.length || 0, state.borderColors?.length || 0, 1);
+    for(let colorIndex = 0; colorIndex < colorCount; colorIndex += 1){
+      const currentFill = typeof state.fillColors?.[colorIndex] === 'string' ? state.fillColors[colorIndex] : '';
+      const currentBorder = typeof state.borderColors?.[colorIndex] === 'string' ? state.borderColors[colorIndex] : '';
+      const themed = resolveThemeAwareDefaultTraceColors({
+        schemeId,
+        tableFormat,
+        colorIndex,
+        fillColor: currentFill,
+        borderColor: currentBorder,
+        preferUnifiedDefault: false
+      });
+      if(isBoxThemeNeutralColorToken(currentFill, { schemeId })){
+        state.fillColors[colorIndex] = themed.fillColor;
+      }
+      if(isBoxThemeNeutralColorToken(currentBorder, { schemeId })){
+        state.borderColors[colorIndex] = themed.borderColor;
+      }
+    }
+    state.traceShapeGlobalStyle = normalizeTraceStyleColorOverridesForScheme(state.traceShapeGlobalStyle, { schemeId });
+    if(state.traceShapeStyles && typeof state.traceShapeStyles === 'object'){
+      Object.keys(state.traceShapeStyles).forEach(key => {
+        const normalizedStyle = normalizeTraceStyleColorOverridesForScheme(state.traceShapeStyles[key], { schemeId });
+        if(normalizedStyle){
+          state.traceShapeStyles[key] = normalizedStyle;
+        }else{
+          delete state.traceShapeStyles[key];
+        }
+      });
+    }
   }
 
   function resolveBoxSignificanceAnnotationColor(colorValue, options = {}){
@@ -958,6 +1103,29 @@
       stroke: safeWidth > 0 ? (borderColor || '#000') : 'none',
       visible: safeWidth > 0
     };
+  }
+
+  function insetBoxOverlaySegment(bounds, overlayWidth, bodyStrokeWidth){
+    const start = Number(bounds?.start);
+    const end = Number(bounds?.end);
+    const overlay = Number(overlayWidth);
+    const bodyStroke = Number(bodyStrokeWidth);
+    if(!Number.isFinite(start) || !Number.isFinite(end)){
+      return { start, end, inset: 0 };
+    }
+    const lineHalf = Number.isFinite(overlay) && overlay > 0 ? overlay / 2 : 0;
+    const bodyHalf = Number.isFinite(bodyStroke) && bodyStroke > 0 ? bodyStroke / 2 : 0;
+    const inset = Math.max(0, lineHalf + bodyHalf);
+    const min = Math.min(start, end);
+    const max = Math.max(start, end);
+    if((max - min) <= inset * 2){
+      const mid = (start + end) / 2;
+      return { start: mid, end: mid, inset };
+    }
+    if(start <= end){
+      return { start: start + inset, end: end - inset, inset };
+    }
+    return { start: start - inset, end: end + inset, inset };
   }
 
   function readSvgOpacityAttr(node, attrName){
@@ -4369,45 +4537,32 @@
   function resolveIndividualPointThemeDefaults(config){
     const fillColor = String(config?.fillColor == null ? '' : config.fillColor).trim();
     const borderColor = String(config?.borderColor == null ? '' : config.borderColor).trim();
-    const isDarkScheme = getBoxSelectedColorSchemeId() === 'dark';
-    const fontStyles = exportFontStyles('box') || null;
-    const graphFontColor = String(fontStyles?.__graph__?.fill == null ? '' : fontStyles.__graph__.fill).trim();
-    const graphFontLuminance = getColorLuminance(graphFontColor);
-    const fillLuminance = getColorLuminance(fillColor);
-    const borderLuminance = getColorLuminance(borderColor);
-    const monochromePalette =
-      isNearNeutralColor(fillColor) ||
-      isNearNeutralColor(borderColor) ||
-      (!fillColor && !borderColor) ||
-      ((fillLuminance != null && fillLuminance >= 0.88) && (borderLuminance == null || borderLuminance >= 0.55));
+    const schemeId = typeof config?.schemeId === 'string' && config.schemeId.trim()
+      ? config.schemeId.trim().toLowerCase()
+      : getBoxSelectedColorSchemeId();
+    const tableFormat = normalizeBoxTableFormat(config?.tableFormat || state.tableFormat);
+    const colorIndexRaw = Number(config?.colorIndex);
+    const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : 0;
+    const themeDefaults = resolveThemeAwareDefaultTraceColors({
+      schemeId,
+      tableFormat,
+      colorIndex,
+      fillColor,
+      borderColor,
+      preferUnifiedDefault: false
+    });
 
-    let resolvedFill = fillColor || '#000000';
-    let resolvedStroke = borderColor || resolvedFill;
-    let mode = 'palette';
+    const fillMissingOrNeutral = !fillColor || (schemeId === 'dark' && (isColorTokenBlack(fillColor) || fillColor.toLowerCase() === '#ffffff' || fillColor.toLowerCase() === 'white'));
+    const borderMissingOrNeutral = !borderColor || (schemeId === 'dark' && (isColorTokenBlack(borderColor) || borderColor.toLowerCase() === '#ffffff' || borderColor.toLowerCase() === 'white'));
 
-    if(isDarkScheme){
-      resolvedFill = '#ffffff';
-      resolvedStroke = '#ffffff';
-      mode = 'dark-scheme';
-    }else if(graphFontLuminance != null && graphFontLuminance >= 0.72){
-      resolvedFill = '#ffffff';
-      resolvedStroke = '#ffffff';
-      mode = 'dark-theme';
-    }else if(monochromePalette){
-      resolvedFill = '#000000';
-      resolvedStroke = '#000000';
-      mode = 'monochrome-theme';
-    }else{
-      resolvedFill = fillColor || resolvedFill;
-      resolvedStroke = borderColor || (fillColor ? shadeColor(fillColor, -30) : resolvedStroke);
-      mode = 'palette-theme';
-    }
+    const resolvedFill = fillMissingOrNeutral ? themeDefaults.fillColor : fillColor;
+    const resolvedStroke = borderMissingOrNeutral ? themeDefaults.borderColor : borderColor;
 
     return {
       fill: resolvedFill,
       stroke: resolvedStroke,
-      graphFontColor,
-      mode
+      graphFontColor: '',
+      mode: schemeId + '-theme'
     };
   }
 
@@ -9965,19 +10120,35 @@
   }
 
   function getBoxFillColorValue(){
-    const candidate = els?.boxFill?.value;
-    if(typeof candidate === 'string' && candidate.trim()){
-      return candidate;
-    }
-    return state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
+    const candidate = typeof els?.boxFill?.value === 'string' && els.boxFill.value.trim()
+      ? els.boxFill.value.trim()
+      : (typeof state.lastDefaultFill === 'string' && state.lastDefaultFill.trim() ? state.lastDefaultFill.trim() : '');
+    const schemeId = getBoxSelectedColorSchemeId();
+    const themed = resolveThemeAwareDefaultTraceColors({
+      schemeId,
+      tableFormat: state.tableFormat,
+      colorIndex: 0,
+      fillColor: candidate,
+      borderColor: typeof els?.boxBorder?.value === 'string' ? els.boxBorder.value.trim() : '',
+      preferUnifiedDefault: isBoxGrayscaleScheme(schemeId)
+    });
+    return themed.fillColor || candidate || state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
   }
 
   function getBoxBorderColorValue(){
-    const candidate = els?.boxBorder?.value;
-    if(typeof candidate === 'string' && candidate.trim()){
-      return candidate;
-    }
-    return shadeColor(getBoxFillColorValue(), -30);
+    const candidate = typeof els?.boxBorder?.value === 'string' && els.boxBorder.value.trim()
+      ? els.boxBorder.value.trim()
+      : '';
+    const schemeId = getBoxSelectedColorSchemeId();
+    const themed = resolveThemeAwareDefaultTraceColors({
+      schemeId,
+      tableFormat: state.tableFormat,
+      colorIndex: 0,
+      fillColor: getBoxFillColorValue(),
+      borderColor: candidate,
+      preferUnifiedDefault: isBoxGrayscaleScheme(schemeId)
+    });
+    return themed.borderColor || candidate || shadeColor(getBoxFillColorValue(), -30);
   }
 
   function resolveStripPointStrokeWidthRaw(style, fallbackWidth){
@@ -10328,33 +10499,36 @@
       );
       const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : traceIndex;
       if(colorMode === 'individual'){
-        if(fills.length){
-          node.setAttribute('fill', fills[colorIndex % fills.length]);
-          applied = true;
-        }else if(unifiedFill){
-          node.setAttribute('fill', unifiedFill);
+        const themedColors = resolveThemeAwareDefaultTraceColors({
+          schemeId,
+          tableFormat: state.tableFormat,
+          colorIndex,
+          fillColor: fills.length ? fills[colorIndex % fills.length] : unifiedFill,
+          borderColor: borders.length ? borders[colorIndex % borders.length] : unifiedBorder
+        });
+        if(themedColors.fillColor){
+          node.setAttribute('fill', themedColors.fillColor);
           applied = true;
         }
-        if(borders.length){
-          node.setAttribute('stroke', borders[colorIndex % borders.length]);
-          applied = true;
-        }else if(unifiedBorder){
-          node.setAttribute('stroke', unifiedBorder);
+        if(themedColors.borderColor){
+          node.setAttribute('stroke', themedColors.borderColor);
           applied = true;
         }
       }else{
-        const nextFill = useUnifiedStripDefaults
-          ? DEFAULT_UNIFIED_SYMBOL_FILL
-          : (unifiedFill || node.getAttribute('fill') || DEFAULT_UNIFIED_SYMBOL_FILL);
-        const nextBorder = useUnifiedStripDefaults
-          ? '#000000'
-          : (unifiedBorder || node.getAttribute('stroke') || DEFAULT_UNIFIED_SYMBOL_BORDER);
-        if(nextFill){
-          node.setAttribute('fill', nextFill);
+        const themedColors = resolveThemeAwareDefaultTraceColors({
+          schemeId,
+          tableFormat: state.tableFormat,
+          colorIndex,
+          fillColor: useUnifiedStripDefaults ? '' : (unifiedFill || node.getAttribute('fill') || ''),
+          borderColor: useUnifiedStripDefaults ? '' : (unifiedBorder || node.getAttribute('stroke') || ''),
+          preferUnifiedDefault: isBoxGrayscaleScheme(schemeId)
+        });
+        if(themedColors.fillColor){
+          node.setAttribute('fill', themedColors.fillColor);
           applied = true;
         }
-        if(nextBorder){
-          node.setAttribute('stroke', nextBorder);
+        if(themedColors.borderColor){
+          node.setAttribute('stroke', themedColors.borderColor);
           applied = true;
         }
       }
@@ -10376,13 +10550,19 @@
         ? (opts.summaryStyles[traceIndex] || opts.summaryStyles[String(traceIndex)] || null)
         : null;
       const summaryStyle = traceSummaryStyle || (opts.summaryGlobalStyle && typeof opts.summaryGlobalStyle === 'object' ? opts.summaryGlobalStyle : null);
-      const liveFill = colorMode === 'individual'
-        ? (fills.length ? fills[colorIndex % fills.length] : (unifiedFill || null))
-        : (useUnifiedStripDefaults ? DEFAULT_UNIFIED_SYMBOL_FILL : (unifiedFill || DEFAULT_UNIFIED_SYMBOL_FILL));
-      const liveBorder = colorMode === 'individual'
-        ? (borders.length ? borders[colorIndex % borders.length] : (unifiedBorder || null))
-        : (useUnifiedStripDefaults ? '#000000' : (unifiedBorder || DEFAULT_UNIFIED_SYMBOL_BORDER));
-      node.setAttribute('stroke', resolveBoxSummaryOverlayColor(summaryStyle, liveFill, liveBorder, { schemeId }));
+      const themedSummaryColors = resolveThemeAwareDefaultTraceColors({
+        schemeId,
+        tableFormat: state.tableFormat,
+        colorIndex,
+        fillColor: colorMode === 'individual'
+          ? (fills.length ? fills[colorIndex % fills.length] : (unifiedFill || ''))
+          : (useUnifiedStripDefaults ? '' : (unifiedFill || '')),
+        borderColor: colorMode === 'individual'
+          ? (borders.length ? borders[colorIndex % borders.length] : (unifiedBorder || ''))
+          : (useUnifiedStripDefaults ? '' : (unifiedBorder || '')),
+        preferUnifiedDefault: colorMode !== 'individual' && isBoxGrayscaleScheme(schemeId)
+      });
+      node.setAttribute('stroke', resolveBoxSummaryOverlayColor(summaryStyle, themedSummaryColors.fillColor, themedSummaryColors.borderColor, { schemeId }));
       applied = true;
     });
     return applied;
@@ -10397,6 +10577,12 @@
       return show ? false : true;
     }
     gridLayer.style.display = show ? '' : 'none';
+    try{
+      gridLayer.style.pointerEvents = show ? 'auto' : 'none';
+    }catch(e){}
+    if(show){
+      registerBoxGridControlTarget(gridLayer, { fallbackThickness: getAxisStrokeWidthBase() });
+    }
     return true;
   }
 
@@ -12069,11 +12255,19 @@
     els.boxColorPerBox.innerHTML='';
     labels.forEach((lab,i)=>{
       const colorIndex=i;
-      if(!state.fillColors[colorIndex]){
-        const palette = getBoxDefaultPalette(state.tableFormat);
-        state.fillColors[colorIndex]=palette[colorIndex%palette.length];
+      const schemeId = getBoxSelectedColorSchemeId();
+      const themedDefaults = resolveThemeAwareDefaultTraceColors({
+        schemeId,
+        tableFormat: state.tableFormat,
+        colorIndex,
+        fillColor: state.fillColors[colorIndex],
+        borderColor: state.borderColors[colorIndex],
+        preferUnifiedDefault: false
+      });
+      if(!state.fillColors[colorIndex] || isBoxThemeNeutralColorToken(state.fillColors[colorIndex], { schemeId })){
+        state.fillColors[colorIndex]=themedDefaults.fillColor;
       }
-      if(!state.borderColors[colorIndex]) state.borderColors[colorIndex]=shadeColor(state.fillColors[colorIndex],-30);
+      if(!state.borderColors[colorIndex] || isBoxThemeNeutralColorToken(state.borderColors[colorIndex], { schemeId })) state.borderColors[colorIndex]=themedDefaults.borderColor;
       const fillInput=document.createElement('input');
       fillInput.type='color';
       fillInput.value=state.fillColors[colorIndex];
@@ -22920,6 +23114,11 @@ Technical analysis record (advanced)
       : DEFAULT_SIGNIFICANCE_THICKNESS;
     const annotationStrokeWidth = chartStyle.scaleStrokeWidth(annotationStrokeWidthBase, styleScaleInfo, { context: 'box-annotation', min: 0.5 });
     const activeColorSchemeId = getBoxSelectedColorSchemeId();
+    normalizeBoxStoredColorsForScheme({
+      schemeId: activeColorSchemeId,
+      colorMode,
+      tableFormat: state.tableFormat
+    });
     const annotationColor = resolveBoxSignificanceAnnotationColor(significanceStyle.color, {
       schemeId: activeColorSchemeId
     });
@@ -23030,10 +23229,10 @@ Technical analysis record (advanced)
       const rawColorIndex = isGroupedMode && Number.isInteger(trace?.groupIndex) ? trace.groupIndex : index;
       const colorIndex = Number.isInteger(rawColorIndex) && rawColorIndex >= 0 ? rawColorIndex : 0;
       console.debug('Debug: box resolveTraceColor',{ traceIndex: index, colorIndex, rawColorIndex, groupName: trace?.groupName, grouped: isGroupedMode });
-      const styleOverride = getTraceShapeStyle(index);
+      const styleOverride = normalizeTraceStyleColorOverridesForScheme(getTraceShapeStyle(index), { schemeId: activeColorSchemeId });
       if(colorMode === 'individual'){
         let fillColor = state.fillColors[colorIndex];
-        if(!fillColor || (activeColorSchemeId === 'dark' && isColorTokenBlack(fillColor))){
+        if(!fillColor || isBoxThemeNeutralColorToken(fillColor, { schemeId: activeColorSchemeId })){
           if(isGroupedMode && trace?.groupName && groupColorAssignments.has(trace.groupName)){
             fillColor = groupColorAssignments.get(trace.groupName).fill;
           }else{
@@ -23048,7 +23247,7 @@ Technical analysis record (advanced)
           state.fillColors[colorIndex] = fillColor;
         }
         let borderColor = state.borderColors[colorIndex];
-        if(!borderColor || (activeColorSchemeId === 'dark' && isColorTokenBlack(borderColor))){
+        if(!borderColor || isBoxThemeNeutralColorToken(borderColor, { schemeId: activeColorSchemeId })){
           if(isGroupedMode && trace?.groupName && groupColorAssignments.has(trace.groupName)){
             borderColor = groupColorAssignments.get(trace.groupName).border;
           }else{
@@ -23068,8 +23267,8 @@ Technical analysis record (advanced)
         }
         const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
         const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
-        const fillResolved = styleOverride && styleOverride.fill ? styleOverride.fill : fillColor;
-        const borderResolved = styleOverride && styleOverride.border ? styleOverride.border : borderColor;
+        const fillResolved = resolveBoxThemeAwareStyleColor(styleOverride && styleOverride.fill, fillColor, { schemeId: activeColorSchemeId });
+        const borderResolved = resolveBoxThemeAwareStyleColor(styleOverride && (styleOverride.border || styleOverride.stroke || styleOverride.borderColor), borderColor, { schemeId: activeColorSchemeId });
         return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
       }
       const themeUnifiedDefaults = resolveThemeAwareDefaultTraceColors({
@@ -23077,18 +23276,11 @@ Technical analysis record (advanced)
         tableFormat: state.tableFormat,
         colorIndex,
         fillColor: defaultFill,
-        borderColor: defaultBorder
+        borderColor: defaultBorder,
+        preferUnifiedDefault: isBoxGrayscaleScheme(activeColorSchemeId)
       });
-      const useDarkSymbolDefaults = isIndividualValues && activeColorSchemeId === 'dark';
-      const useUnifiedSymbolDefaults = isIndividualValues
-        && isBoxGrayscaleScheme(activeColorSchemeId)
-        && isColorTokenBlack(defaultFill);
-      const fillColor = useDarkSymbolDefaults
-        ? '#ffffff'
-        : (useUnifiedSymbolDefaults ? DEFAULT_UNIFIED_SYMBOL_FILL : themeUnifiedDefaults.fillColor);
-      const borderColor = useDarkSymbolDefaults
-        ? '#ffffff'
-        : (useUnifiedSymbolDefaults ? DEFAULT_UNIFIED_SYMBOL_BORDER : themeUnifiedDefaults.borderColor);
+      const fillColor = themeUnifiedDefaults.fillColor;
+      const borderColor = themeUnifiedDefaults.borderColor;
       if(isGroupedMode && trace?.groupName){
         if(!groupColorAssignments.has(trace.groupName)){
           groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
@@ -23096,8 +23288,8 @@ Technical analysis record (advanced)
       }
       const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
       const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
-      const fillResolved = styleOverride && styleOverride.fill ? styleOverride.fill : fillColor;
-      const borderResolved = styleOverride && styleOverride.border ? styleOverride.border : borderColor;
+      const fillResolved = resolveBoxThemeAwareStyleColor(styleOverride && styleOverride.fill, fillColor, { schemeId: activeColorSchemeId });
+      const borderResolved = resolveBoxThemeAwareStyleColor(styleOverride && (styleOverride.border || styleOverride.stroke || styleOverride.borderColor), borderColor, { schemeId: activeColorSchemeId });
       return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
     };
     const isGroupedMode = state.tableFormat === 'grouped';
@@ -23598,6 +23790,9 @@ Technical analysis record (advanced)
     const significanceLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     if(gridLayer){
       gridLayer.dataset.layer = 'box-grid';
+      try{
+        gridLayer.style.pointerEvents = showGrid ? 'auto' : 'none';
+      }catch(e){}
       svg.appendChild(gridLayer);
     }
     if(referenceLayer){
@@ -25389,7 +25584,7 @@ Technical analysis record (advanced)
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
         const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
         const themedPointDefaults = useClassicStripDefaults
-          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor })
+          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
           : null;
         const effectiveFill = (traceStyle && traceStyle.fill)
           ? traceStyle.fill
@@ -25746,12 +25941,17 @@ Technical analysis record (advanced)
             const boxRect = add('rect', boxAttrs);
             attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianLine = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
-              x1: x0,
+            const medianStrokeAttrs = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'box-median' });
+            const medianStrokeWidth = Number(medianStrokeAttrs['stroke-width']);
+            const medianBounds = insetBoxOverlaySegment({ start: x0, end: x1 }, medianStrokeWidth, strokeWidthEffective);
+            if(debugEnabled){
+              console.debug('Debug: box median bounds adjusted',{ orientation: 'vertical', graphType: 'box', index: i, x0, x1, inset: medianBounds.inset, strokeWidthEffective, medianStrokeWidth, adjustedStart: medianBounds.start, adjustedEnd: medianBounds.end });
+            }
+            const medianLine = add('line', Object.assign({}, medianStrokeAttrs, {
+              x1: medianBounds.start,
               y1: yMed,
-              x2: x1,
-              y2: yMed,
-              'data-box-overlay-kind': 'box-median'
+              x2: medianBounds.end,
+              y2: yMed
             }));
             attachBoxOverlayHandler(medianLine);
             annotateWithTitle(medianLine, whiskerAnnotation);
@@ -25791,12 +25991,17 @@ Technical analysis record (advanced)
             const notchPath = add('path', notchAttrs);
             attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedian = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
-              x1: xNL,
+            const notchMedianStrokeAttrs = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'notched-median' });
+            const notchMedianStrokeWidth = Number(notchMedianStrokeAttrs['stroke-width']);
+            const notchMedianBounds = insetBoxOverlaySegment({ start: xNL, end: xNR }, notchMedianStrokeWidth, strokeWidthEffective);
+            if(debugEnabled){
+              console.debug('Debug: box median bounds adjusted',{ orientation: 'vertical', graphType: 'notched', index: i, start: xNL, end: xNR, inset: notchMedianBounds.inset, strokeWidthEffective, medianStrokeWidth: notchMedianStrokeWidth, adjustedStart: notchMedianBounds.start, adjustedEnd: notchMedianBounds.end });
+            }
+            const notchMedian = add('line', Object.assign({}, notchMedianStrokeAttrs, {
+              x1: notchMedianBounds.start,
               y1: yMed,
-              x2: xNR,
-              y2: yMed,
-              'data-box-overlay-kind': 'notched-median'
+              x2: notchMedianBounds.end,
+              y2: yMed
             }));
             attachBoxOverlayHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
@@ -26634,7 +26839,7 @@ Technical analysis record (advanced)
           : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
         const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
         const themedPointDefaultsH = useClassicStripDefaults
-          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor })
+          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
           : null;
         const effectiveFill = (traceStyleH && traceStyleH.fill)
           ? traceStyleH.fill
@@ -27575,12 +27780,17 @@ Technical analysis record (advanced)
             const boxRect = add('rect', boxAttrs);
             attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianLine = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
+            const medianStrokeAttrsH = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'box-median' });
+            const medianStrokeWidthH = Number(medianStrokeAttrsH['stroke-width']);
+            const medianBoundsH = insetBoxOverlaySegment({ start: y0, end: y1 }, medianStrokeWidthH, strokeWidthEffectiveH);
+            if(debugEnabled){
+              console.debug('Debug: box median bounds adjusted',{ orientation: 'horizontal', graphType: 'box', index: i, y0, y1, inset: medianBoundsH.inset, strokeWidthEffective: strokeWidthEffectiveH, medianStrokeWidth: medianStrokeWidthH, adjustedStart: medianBoundsH.start, adjustedEnd: medianBoundsH.end });
+            }
+            const medianLine = add('line', Object.assign({}, medianStrokeAttrsH, {
               x1: xMed,
-              y1: y0,
+              y1: medianBoundsH.start,
               x2: xMed,
-              y2: y1,
-              'data-box-overlay-kind': 'box-median'
+              y2: medianBoundsH.end
             }));
             attachBoxOverlayHandler(medianLine);
             annotateWithTitle(medianLine, whiskerAnnotation);
@@ -27627,12 +27837,17 @@ Technical analysis record (advanced)
             const notchPath = add('path', notchAttrs);
             attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedian = add('line', overlayStroke.attrs(overlayStroke.baseStroke, {
+            const notchMedianStrokeAttrsH = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'notched-median' });
+            const notchMedianStrokeWidthH = Number(notchMedianStrokeAttrsH['stroke-width']);
+            const notchMedianBoundsH = insetBoxOverlaySegment({ start: yNotchTop, end: yNotchBottom }, notchMedianStrokeWidthH, strokeWidthEffectiveH);
+            if(debugEnabled){
+              console.debug('Debug: box median bounds adjusted',{ orientation: 'horizontal', graphType: 'notched', index: i, start: yNotchTop, end: yNotchBottom, inset: notchMedianBoundsH.inset, strokeWidthEffective: strokeWidthEffectiveH, medianStrokeWidth: notchMedianStrokeWidthH, adjustedStart: notchMedianBoundsH.start, adjustedEnd: notchMedianBoundsH.end });
+            }
+            const notchMedian = add('line', Object.assign({}, notchMedianStrokeAttrsH, {
               x1: xMed,
-              y1: yNotchTop,
+              y1: notchMedianBoundsH.start,
               x2: xMed,
-              y2: yNotchBottom,
-              'data-box-overlay-kind': 'notched-median'
+              y2: notchMedianBoundsH.end
             }));
             attachBoxOverlayHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
@@ -28512,7 +28727,14 @@ Technical analysis record (advanced)
       const newY = Math.max(spacing, topMost - spacing);
       titleText.setAttribute('y', newY);
     }
-    registerBoxGridControlTarget(svg, { fallbackThickness: axisStrokeBase });
+    if(showGrid && gridLayer){
+      registerBoxGridControlTarget(gridLayer, { fallbackThickness: axisStrokeBase });
+      if(debugEnabled){
+        console.debug('Debug: box grid toolbar target registered',{ target: 'grid-layer', visible: true, fallbackThickness: axisStrokeBase });
+      }
+    }else if(debugEnabled){
+      console.debug('Debug: box grid toolbar target skipped',{ target: 'grid-layer', visible: false, fallbackThickness: axisStrokeBase });
+    }
     const disableViewportAspectNormalization = showSignificance
       && Number.isFinite(Number(state.significanceViewportExtensionPx))
       && Number(state.significanceViewportExtensionPx) > 0;
@@ -29172,6 +29394,11 @@ Technical analysis record (advanced)
     }else{
       state.summaryGlobalStyle = null;
     }
+    normalizeBoxStoredColorsForScheme({
+      schemeId: c.colorScheme,
+      colorMode: c.colorMode,
+      tableFormat: incomingTableFormat
+    });
     if(els.boxColorIndividual && els.boxColorUnified){
       if(c.colorMode==='individual'){
         els.boxColorIndividual.checked=true;
