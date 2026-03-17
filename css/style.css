@@ -5715,9 +5715,9 @@ input[type="number"],
 #boxPage #boxViolinBandwidthCtl,
 #boxPage #boxViolinSamplesCtl{
     display:grid;
-    grid-template-columns: 120px 120px 70px auto;
+    grid-template-columns: 108px 120px 50px auto;
     align-items:center;
-    column-gap:8px;
+    column-gap:6px;
 }
 #boxPage #boxViolinBandwidthCtl > label:first-child,
 #boxPage #boxViolinSamplesCtl > label:first-child{
