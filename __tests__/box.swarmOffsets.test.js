@@ -51,6 +51,24 @@ describe('Box swarm offset constraints', () => {
     expect(Math.abs(p19.collisionGapFactor - p20.collisionGapFactor)).toBeLessThan(0.05);
   });
 
+  test('strip min radius floor decays smoothly from low to medium density', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveStripMinRadiusFloor).toBe('function');
+    const baseRadius = 5;
+    const r11 = Number(hooks.resolveStripMinRadiusFloor(11, baseRadius));
+    const r140 = Number(hooks.resolveStripMinRadiusFloor(140, baseRadius));
+    expect(r11).toBeCloseTo(5, 4);
+    expect(r140).toBeCloseTo(2, 2);
+    const sampleSizes = [11, 20, 40, 80, 140, 300, 1000];
+    const radii = sampleSizes.map(size => Number(hooks.resolveStripMinRadiusFloor(size, baseRadius)));
+    for(let i = 1; i < radii.length; i += 1){
+      expect(radii[i]).toBeLessThanOrEqual(radii[i - 1] + 1e-6);
+    }
+    const r139 = Number(hooks.resolveStripMinRadiusFloor(139, baseRadius));
+    const r141 = Number(hooks.resolveStripMinRadiusFloor(141, baseRadius));
+    expect(Math.abs(r141 - r139)).toBeLessThan(0.1);
+  });
+
   test('hard max half-width keeps strict swarm capped without collapsing points', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmOffsets).toBe('function');

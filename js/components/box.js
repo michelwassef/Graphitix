@@ -93,6 +93,14 @@
   const X_DATASET_SPACING_STEP = 0.05;
   const STRIP_INTER_DATASET_GAP_FACTOR = 0.70;
   const STRIP_INTER_DATASET_MIN_GAP_PX = 4;
+  const STRIP_MIN_RADIUS_ASYMPTOTE = 0.2;
+  const STRIP_RADIUS_REFERENCE_COUNT = 11;
+  const STRIP_RADIUS_MEDIUM_COUNT = 140;
+  const STRIP_RADIUS_MEDIUM_TARGET = 2;
+  const STRIP_RADIUS_COUNT_OFFSET = 20;
+  const STRIP_MEDIUM_SPREAD_MIN_SCALE = 0.5;
+  const STRIP_MEDIUM_SPREAD_LOG_CENTER = Math.log10(140 + 1);
+  const STRIP_MEDIUM_SPREAD_LOG_SIGMA = 0.32;
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
@@ -3736,6 +3744,30 @@
     return Math.round(scaled) * safeStep;
   }
 
+  function resolveStripMinRadiusFloor(sampleSize, baseRadius){
+    const count = Math.max(1, Number(sampleSize) || 1);
+    const base = Math.max(0.1, Number(baseRadius) || 5);
+    const referenceCount = Math.max(1, Number(STRIP_RADIUS_REFERENCE_COUNT) || 11);
+    const mediumCount = Math.max(referenceCount + 1, Number(STRIP_RADIUS_MEDIUM_COUNT) || 140);
+    const countOffset = Math.max(0, Number(STRIP_RADIUS_COUNT_OFFSET) || 20);
+    const floorAsymptote = Math.max(0.05, Math.min(base - 0.01, Number(STRIP_MIN_RADIUS_ASYMPTOTE) || 0.2));
+    const mediumTargetRaw = Number(STRIP_RADIUS_MEDIUM_TARGET);
+    const mediumTarget = Math.max(
+      floorAsymptote + 0.01,
+      Math.min(base - 0.01, Number.isFinite(mediumTargetRaw) && mediumTargetRaw > 0 ? mediumTargetRaw : 2)
+    );
+    const mediumScaleRaw = (mediumTarget - floorAsymptote) / Math.max(1e-9, base - floorAsymptote);
+    const mediumScale = Math.max(0.01, Math.min(0.99, mediumScaleRaw));
+    const denom = Math.log((mediumCount + countOffset) / (referenceCount + countOffset));
+    const exponent = Number.isFinite(denom) && Math.abs(denom) > 1e-9
+      ? (-Math.log(mediumScale) / denom)
+      : 1;
+    const ratio = (count + countOffset) / (referenceCount + countOffset);
+    const densityScaleRaw = Math.pow(Math.max(1e-9, ratio), -exponent);
+    const densityScale = Math.max(0, Math.min(1, densityScaleRaw));
+    return floorAsymptote + (base - floorAsymptote) * densityScale;
+  }
+
   function resolveStripAvailableHalfWidth(config){
     const axisSpacing = Number(config?.axisSpacing);
     const pointRadius = Number(config?.pointRadius);
@@ -3823,7 +3855,8 @@
     if(!coords || !coords.length || !Number.isFinite(axisSpacing) || axisSpacing <= 0 || !Number.isFinite(baseRadius) || baseRadius <= 0){
       return null;
     }
-    const minRadius = Math.max(0.2, baseRadius * 0.08);
+    const minRadiusFloor = resolveStripMinRadiusFloor(sampleSize, baseRadius);
+    const minRadius = Math.max(minRadiusFloor, baseRadius * 0.08);
     const probeRadius = async radiusValue => {
       const radius = Number(radiusValue);
       if(!Number.isFinite(radius) || radius <= 0){
@@ -3938,7 +3971,8 @@
     const resolvedAxisSpacing = Number.isFinite(axisSpacingRaw) && axisSpacingRaw > 0
       ? axisSpacingRaw
       : Math.max(maxHalfWidth * 2 + baseRadius * 2 + 1, baseRadius * 4);
-    const minRadius = Math.max(0.2, baseRadius * 0.08);
+    const minRadiusFloor = resolveStripMinRadiusFloor(sampleSize, baseRadius);
+    const minRadius = Math.max(minRadiusFloor, baseRadius * 0.08);
     const probeRadius = async radiusValue => {
       const radius = Number(radiusValue);
       if(!Number.isFinite(radius) || radius <= 0){
@@ -24579,9 +24613,10 @@ Technical analysis record (advanced)
           ? overrideRadius
           : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
         const fallbackRadius = pointRadius;
-        const allowAdjustment = allowRadiusAdjustment != null
+        const allowAdjustmentBase = allowRadiusAdjustment != null
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
+        const allowAdjustment = allowAdjustmentBase;
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
         const explicitMaxHalfWidth = Number(maxHalfWidth);
         const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
@@ -24605,6 +24640,21 @@ Technical analysis record (advanced)
         let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
           : availableStrictHalfWidth;
+        if(useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0){
+          let stripSpreadFactor = computeSampleSpreadFactor(sampleCount, debugEnabled);
+          const sampleCountValue = Math.max(0, Number(sampleCount) || 0);
+          if(sampleCountValue > 0){
+            const logCount = Math.log10(sampleCountValue + 1);
+            const normalizedDelta = (logCount - STRIP_MEDIUM_SPREAD_LOG_CENTER) / STRIP_MEDIUM_SPREAD_LOG_SIGMA;
+            const mediumCompression = Math.exp(-0.5 * normalizedDelta * normalizedDelta);
+            const countScale = 1 - (1 - STRIP_MEDIUM_SPREAD_MIN_SCALE) * mediumCompression;
+            stripSpreadFactor *= countScale;
+          }
+          stripSpreadFactor = Math.max(0.2, Math.min(1, stripSpreadFactor));
+          const stripScaledHalfWidth = resolvedMaxHalfWidth * stripSpreadFactor;
+          const stripMinHalfWidth = Math.max(spacingRadius * 1.05, 0.5);
+          resolvedMaxHalfWidth = Math.max(stripMinHalfWidth, stripScaledHalfWidth);
+        }
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
@@ -25850,9 +25900,10 @@ Technical analysis record (advanced)
           ? overrideRadius
           : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
         const fallbackRadius = pointRadius;
-        const allowAdjustment = allowRadiusAdjustment != null
+        const allowAdjustmentBase = allowRadiusAdjustment != null
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
+        const allowAdjustment = allowAdjustmentBase;
         const radiusCountExponent = allowAutoSize ? 0.85 : null;
         const explicitMaxHalfWidth = Number(maxHalfWidth);
         const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
@@ -25876,6 +25927,21 @@ Technical analysis record (advanced)
         let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
           ? explicitMaxHalfWidth
           : availableStrictHalfWidth;
+        if(useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0){
+          let stripSpreadFactor = computeSampleSpreadFactor(sampleCount, debugEnabled);
+          const sampleCountValue = Math.max(0, Number(sampleCount) || 0);
+          if(sampleCountValue > 0){
+            const logCount = Math.log10(sampleCountValue + 1);
+            const normalizedDelta = (logCount - STRIP_MEDIUM_SPREAD_LOG_CENTER) / STRIP_MEDIUM_SPREAD_LOG_SIGMA;
+            const mediumCompression = Math.exp(-0.5 * normalizedDelta * normalizedDelta);
+            const countScale = 1 - (1 - STRIP_MEDIUM_SPREAD_MIN_SCALE) * mediumCompression;
+            stripSpreadFactor *= countScale;
+          }
+          stripSpreadFactor = Math.max(0.2, Math.min(1, stripSpreadFactor));
+          const stripScaledHalfWidth = resolvedMaxHalfWidth * stripSpreadFactor;
+          const stripMinHalfWidth = Math.max(spacingRadius * 1.05, 0.5);
+          resolvedMaxHalfWidth = Math.max(stripMinHalfWidth, stripScaledHalfWidth);
+        }
         const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
           ? resolvedMaxHalfWidth
           : null;
@@ -29248,6 +29314,7 @@ Technical analysis record (advanced)
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
 	    computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
+      resolveStripMinRadiusFloor:(sampleSize,baseRadius)=>resolveStripMinRadiusFloor(sampleSize,baseRadius),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
