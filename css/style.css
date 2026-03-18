@@ -2518,7 +2518,7 @@ select {
     justify-content:flex-start;
     align-items:stretch;
     overflow:visible;
-    padding-top:22px;
+    padding-top:28px;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__buttons{
     display:flex;
@@ -2587,7 +2587,7 @@ select {
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__caption{
     display:block;
     position:absolute;
-    top:4px;
+    top:10px;
     left:50%;
     transform:translateX(-50%);
     margin:0;
