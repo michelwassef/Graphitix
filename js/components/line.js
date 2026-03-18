@@ -9725,8 +9725,9 @@
         // Draw each segment separately
         let combinedLeft = Infinity;
         let combinedRight = -Infinity;
+        let xBreakCapCount = 0;
         
-        brokenXScale.segments.forEach(seg => {
+        brokenXScale.segments.forEach((seg, segIndex) => {
           const segLeft = x2px(seg.start);
           const segRight = x2px(seg.end);
           add('line',{
@@ -9738,9 +9739,34 @@
             'stroke-linecap': 'square',
             'stroke-width': axisStrokeWidth
           });
+          if(segIndex > 0){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            add('line',{
+              x1: segLeft,
+              y1: xAxisY - breakCapHalfLen,
+              x2: segLeft,
+              y2: xAxisY + breakCapHalfLen,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            xBreakCapCount += 1;
+          }
+          if(segIndex < brokenXScale.segments.length - 1){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            add('line',{
+              x1: segRight,
+              y1: xAxisY - breakCapHalfLen,
+              x2: segRight,
+              y2: xAxisY + breakCapHalfLen,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            xBreakCapCount += 1;
+          }
           combinedLeft = Math.min(combinedLeft, segLeft);
           combinedRight = Math.max(combinedRight, segRight);
         });
+        lineDebug('Debug: line broken X axis caps rendered',{ count: xBreakCapCount, segmentCount: brokenXScale.segments.length });
         
         // Single transparent hit area covering the whole broken axis range
         if(isFinite(combinedLeft) && isFinite(combinedRight)){
@@ -9769,8 +9795,9 @@
         // Draw each segment separately
         let combinedTop = Infinity;
         let combinedBottom = -Infinity;
+        let yBreakCapCount = 0;
         
-        brokenYScale.segments.forEach(seg => {
+        brokenYScale.segments.forEach((seg, segIndex) => {
           const segTop = y2px(seg.end);
           const segBottom = y2px(seg.start);
           add('line',{
@@ -9782,9 +9809,34 @@
             'stroke-linecap': 'square',
             'stroke-width': axisStrokeWidth
           });
+          if(segIndex > 0){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            add('line',{
+              x1: yAxisX - breakCapHalfLen,
+              y1: segBottom,
+              x2: yAxisX + breakCapHalfLen,
+              y2: segBottom,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            yBreakCapCount += 1;
+          }
+          if(segIndex < brokenYScale.segments.length - 1){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            add('line',{
+              x1: yAxisX - breakCapHalfLen,
+              y1: segTop,
+              x2: yAxisX + breakCapHalfLen,
+              y2: segTop,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            yBreakCapCount += 1;
+          }
           combinedTop = Math.min(combinedTop, segTop);
           combinedBottom = Math.max(combinedBottom, segBottom);
         });
+        lineDebug('Debug: line broken Y axis caps rendered',{ count: yBreakCapCount, segmentCount: brokenYScale.segments.length });
         
         // Single transparent hit area covering the whole broken axis range
         if(isFinite(combinedTop) && isFinite(combinedBottom)){

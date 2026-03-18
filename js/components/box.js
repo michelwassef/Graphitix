@@ -8028,13 +8028,15 @@
   }
 
   function getBrokenAxisEnabled(axis){
-    if(axis !== 'y'){ return false; }
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    if(!isAxisNumeric(axis)){ return false; }
     const settings = ensureAxisSettings();
     return !!settings.y?.brokenAxis?.enabled;
   }
 
   function updateBrokenAxisEnabled(axis, enabled){
-    if(axis !== 'y'){ return; }
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    if(!isAxisNumeric(axis)){ return; }
     const settings = ensureAxisSettings();
     settings.y.brokenAxis.enabled = !!enabled;
     console.debug('Debug: box broken axis enabled updated',{ axis, enabled: settings.y.brokenAxis.enabled });
@@ -8044,13 +8046,15 @@
   }
 
   function getBrokenAxisSegments(axis){
-    if(axis !== 'y'){ return []; }
+    if(axis !== 'x' && axis !== 'y'){ return []; }
+    if(!isAxisNumeric(axis)){ return []; }
     const settings = ensureAxisSettings();
-    return settings.y?.brokenAxis?.segments || [];
+    return Array.isArray(settings.y?.brokenAxis?.segments) ? settings.y.brokenAxis.segments.slice() : [];
   }
 
   function updateBrokenAxisSegments(axis, segments){
-    if(axis !== 'y'){ return; }
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    if(!isAxisNumeric(axis)){ return; }
     const settings = ensureAxisSettings();
     if(!Array.isArray(segments)){
       settings.y.brokenAxis.segments = [];
@@ -23638,7 +23642,7 @@ Technical analysis record (advanced)
         onAdditionalTickChange: (axisName, index, entry) => updateAxisAdditionalTick(axisName, index, entry),
         onAdditionalTickAdd: axisName => addAxisAdditionalTick(axisName),
         onAdditionalTickRemove: (axisName, index) => removeAxisAdditionalTick(axisName, index),
-        isBrokenAxisSupported: () => axis === 'y',
+        isBrokenAxisSupported: () => isAxisNumeric(axis),
         getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
         onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
         getBrokenAxisSegments: () => getBrokenAxisSegments(axis),
@@ -24245,8 +24249,9 @@ Technical analysis record (advanced)
 
         let combinedTop = Infinity;
         let combinedBottom = -Infinity;
+        let breakCapCount = 0;
 
-        brokenScale.segments.forEach(seg => {
+        brokenScale.segments.forEach((seg, segIndex) => {
           const { top: segYTop, bottom: segYBottom } = segmentCoords(seg);
 
           // Visible axis line for this segment
@@ -24259,10 +24264,35 @@ Technical analysis record (advanced)
             'stroke-linecap': 'square',
             'stroke-width': axisStrokeWidth
           });
+          if(segIndex > 0){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            addAxisElement('line',{
+              x1: yAxisX - breakCapHalfLen,
+              y1: segYBottom,
+              x2: yAxisX + breakCapHalfLen,
+              y2: segYBottom,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            breakCapCount += 1;
+          }
+          if(segIndex < brokenScale.segments.length - 1){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            addAxisElement('line',{
+              x1: yAxisX - breakCapHalfLen,
+              y1: segYTop,
+              x2: yAxisX + breakCapHalfLen,
+              y2: segYTop,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            breakCapCount += 1;
+          }
 
           combinedTop = Math.min(combinedTop, segYTop);
           combinedBottom = Math.max(combinedBottom, segYBottom);
         });
+        boxDebug('Debug: box broken axis caps rendered',{ count: breakCapCount, segmentCount: brokenScale.segments.length });
 
         // Single transparent hit area covering the whole broken axis range.
         if(isFinite(combinedTop) && isFinite(combinedBottom)){
@@ -25841,8 +25871,65 @@ Technical analysis record (advanced)
         applyLogTickOverride(yScale);
         ensureNegativeAutoAxisLowerPadding(yScale);
       }
+      const brokenAxisEnabled = getBrokenAxisEnabled('x');
+      const brokenAxisSegments = brokenAxisEnabled ? getBrokenAxisSegments('x') : [];
+      const brokenScaleX = brokenAxisEnabled && brokenAxisSegments.length > 0
+        ? computeBrokenAxisScale({
+            dataMin: yScale.min,
+            dataMax: yScale.max,
+            segments: brokenAxisSegments,
+            plotHeight: plotWLocal
+          })
+        : null;
+      const isXValueVisible = value => {
+        if(!brokenScaleX || !brokenScaleX.isBroken){ return true; }
+        return brokenScaleX.segments.some(seg => value >= seg.start && value <= seg.end);
+      };
+      console.debug('Debug: box broken axis',{ axis: 'x', enabled: brokenAxisEnabled, segments: brokenAxisSegments, isBroken: brokenScaleX?.isBroken });
       const valueRange = yScale.max - yScale.min || 1;
-      const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
+      const clampToScale = v => {
+        if(!Number.isFinite(v)){ return yScale.min; }
+        if(v < yScale.min){
+          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box value clamped below axis',{ value: v, min: yScale.min });
+          }
+          return yScale.min;
+        }
+        if(v > yScale.max){
+          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box value clamped above axis',{ value: v, max: yScale.max });
+          }
+          return yScale.max;
+        }
+        return v;
+      };
+      const valueToX = v => {
+        const safeV = clampToScale(v);
+        if(brokenScaleX && brokenScaleX.isBroken){
+          for(let i = 0; i < brokenScaleX.segments.length; i++){
+            const seg = brokenScaleX.segments[i];
+            if(safeV >= seg.start && safeV <= seg.end){
+              const fraction = (safeV - seg.start) / (seg.dataRange || 1);
+              return marginLocal.left + seg.pixelStart + fraction * seg.heightPx;
+            }
+          }
+          if(safeV < brokenScaleX.segments[0].start){
+            return marginLocal.left;
+          }
+          if(safeV > brokenScaleX.segments[brokenScaleX.segments.length - 1].end){
+            return marginLocal.left + plotWLocal;
+          }
+          for(let i = 0; i < brokenScaleX.segments.length - 1; i++){
+            const currentSeg = brokenScaleX.segments[i];
+            const nextSeg = brokenScaleX.segments[i + 1];
+            if(safeV > currentSeg.end && safeV < nextSeg.start){
+              return marginLocal.left + currentSeg.pixelEnd;
+            }
+          }
+          return marginLocal.left + plotWLocal / 2;
+        }
+        return marginLocal.left + ((safeV - yScale.min) / valueRange) * plotWLocal;
+      };
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
       const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
       const minorTicksX = getAxisMinorTicksEnabled('x')
@@ -25855,7 +25942,7 @@ Technical analysis record (advanced)
             domainMax: logScale ? ymax : null,
             logBase: 10,
             subdivisions: minorSubdivisionsX
-          })
+          }).filter(value => isXValueVisible(value))
         : [];
       const renderSwarmPointsHorizontal = async params => {
         const {
@@ -26574,7 +26661,7 @@ Technical analysis record (advanced)
         }
         return node;
       };
-      const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale);
+      const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isXValueVisible(0);
       const additionalXTicks = syncAutoZeroAxisAdditionalTick('x', shouldAutoRenderZeroReferenceLine);
       syncAutoZeroAxisAdditionalTick('y', false);
       const showZeroReferenceLine = additionalXTicks.some(entry => isAxisValueNearZero(entry?.value) && entry?.showLine !== false);
@@ -26587,6 +26674,9 @@ Technical analysis record (advanced)
         if(showZeroReferenceLine && isNearZeroScaleValue(t)){
           return;
         }
+        if(!isXValueVisible(t)){
+          return;
+        }
         const x = valueToX(t);
         const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: xAxisBottom }, gridStrokeAttrs));
         gridLine.setAttribute('data-grid-control','1');
@@ -26595,7 +26685,7 @@ Technical analysis record (advanced)
       const yAxisLeft = marginLocal.left;
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
       }
       const yIntervalSetting = getAxisTickInterval('y');
       const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
@@ -26637,6 +26727,9 @@ Technical analysis record (advanced)
       }
       const xMajorTickLabels = [];
       yScale.ticks.forEach(t => {
+        if(!isXValueVisible(t)){
+          return;
+        }
         const x = valueToX(t);
         addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
@@ -26657,6 +26750,7 @@ Technical analysis record (advanced)
             axisMax: yScale.max,
             majorTicks: yScale.ticks,
             showGrid: false,
+            isValueVisible: value => isXValueVisible(value),
             toPixel: value => valueToX(value),
             onSkip: ({ reason, index, entry }) => {
               boxDebug('Debug: box additional axis tick skipped', {
@@ -26719,9 +26813,71 @@ Technical analysis record (advanced)
           });
         }
       }
-      const xAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      if(brokenScaleX && brokenScaleX.isBroken){
+        let combinedLeft = Infinity;
+        let combinedRight = -Infinity;
+        let breakCapCount = 0;
+        brokenScaleX.segments.forEach((seg, segIndex) => {
+          const rawLeft = marginLocal.left + seg.pixelStart;
+          const rawRight = marginLocal.left + seg.pixelEnd;
+          const segLeft = Math.max(marginLocal.left, Math.min(marginLocal.left + plotWLocal, rawLeft));
+          const segRight = Math.max(marginLocal.left, Math.min(marginLocal.left + plotWLocal, rawRight));
+          addAxisElement('line',{
+            x1: Math.min(segLeft, segRight),
+            y1: xAxisBottom,
+            x2: Math.max(segLeft, segRight),
+            y2: xAxisBottom,
+            stroke: axisStroke,
+            'stroke-linecap': 'square',
+            'stroke-width': axisStrokeWidth
+          });
+          if(segIndex > 0){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            addAxisElement('line',{
+              x1: segLeft,
+              y1: xAxisBottom - breakCapHalfLen,
+              x2: segLeft,
+              y2: xAxisBottom + breakCapHalfLen,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            breakCapCount += 1;
+          }
+          if(segIndex < brokenScaleX.segments.length - 1){
+            const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
+            addAxisElement('line',{
+              x1: segRight,
+              y1: xAxisBottom - breakCapHalfLen,
+              x2: segRight,
+              y2: xAxisBottom + breakCapHalfLen,
+              stroke: axisStroke,
+              'stroke-width': axisStrokeWidth
+            });
+            breakCapCount += 1;
+          }
+          combinedLeft = Math.min(combinedLeft, segLeft, segRight);
+          combinedRight = Math.max(combinedRight, segLeft, segRight);
+        });
+        boxDebug('Debug: box broken X axis caps rendered',{ count: breakCapCount, segmentCount: brokenScaleX.segments.length });
+        if(isFinite(combinedLeft) && isFinite(combinedRight)){
+          const hitLine = addAxisElement('line',{
+            x1: combinedLeft,
+            y1: xAxisBottom,
+            x2: combinedRight,
+            y2: xAxisBottom,
+            stroke: 'transparent',
+            'stroke-width': 20,
+            'pointer-events': 'stroke'
+          });
+          if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+            axisControls.registerAxisElement(hitLine, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
+          }
+        }
+      }else{
+        const xAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(xAxisLine, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
+        }
       }
       console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
       const doc = svg.ownerDocument || global.document;
