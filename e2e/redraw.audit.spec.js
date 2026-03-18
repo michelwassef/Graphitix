@@ -26,6 +26,22 @@ async function getPcaDrawPerf(page) {
   });
 }
 
+async function getHeatmapDrawPerf(page) {
+  return page.evaluate(() => {
+    const hook = window.Components?.heatmap?.__testHooks?.getPerformance?.();
+    return hook?.performance?.draw || null;
+  });
+}
+
+async function waitForHeatmapDrawAdvance(page, previousTimestamp, timeout = 60_000) {
+  await page.waitForFunction(prev => {
+    const hook = window.Components?.heatmap?.__testHooks?.getPerformance?.();
+    const draw = hook?.performance?.draw || null;
+    return Number(draw?.timestamp || 0) > Number(prev || 0);
+  }, previousTimestamp, { timeout });
+  return getHeatmapDrawPerf(page);
+}
+
 test.describe('Redraw minimization audit', () => {
   test('box and scatter style changes avoid data collection, data edits trigger collection', async ({ page }) => {
     test.setTimeout(180_000);
@@ -204,5 +220,49 @@ test.describe('Redraw minimization audit', () => {
     current = await getPcaDrawPerf(page);
     expect(current?.timestamp).toBeGreaterThan(previous?.timestamp || 0);
     expect(Boolean(current?.cacheReused), 'pca data edit should not reuse cache').toBe(false);
+  });
+
+  test('heatmap keeps style updates view-only and uses full draw only for table edits', async ({ page }) => {
+    test.setTimeout(120_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+    await openComponentFromWelcome(page, { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' }, { first: true });
+    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await page.waitForTimeout(1200);
+
+    await expect(page.locator('#heatmapRenderButton')).toHaveCount(0);
+    await expect(page.locator('#heatmapAutoDrawNotice')).toHaveCount(0);
+
+    let previous = await getHeatmapDrawPerf(page);
+    expect(previous).toBeTruthy();
+
+    await runUiAction(page, () => {
+      const input = document.getElementById('heatmapShowValues');
+      if(input){
+        input.checked = !input.checked;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    let current = await waitForHeatmapDrawAdvance(page, previous?.timestamp || 0);
+    expect(current?.viewOnly, 'heatmap show-values toggle should use view-only draw').toBe(true);
+    previous = current;
+
+    await runUiAction(page, () => {
+      const hot = window.__LAST_HEATMAP_HOT__;
+      if(!hot || typeof hot.getData !== 'function' || typeof hot.loadData !== 'function'){
+        return;
+      }
+      const matrix = (hot.getData() || []).map(row => Array.isArray(row) ? row.slice() : []);
+      const width = Number.isInteger(hot.countCols?.()) ? hot.countCols() : (matrix[0]?.length || 3);
+      const nextRow = Array.from({ length: Math.max(3, width) }, (_, idx) => {
+        if(idx === 0){ return `row-${Date.now()}`; }
+        return String(1 + idx);
+      });
+      matrix.push(nextRow);
+      hot.loadData(matrix);
+    });
+    current = await waitForHeatmapDrawAdvance(page, previous?.timestamp || 0);
+    expect(current?.viewOnly, 'heatmap table edit must trigger full draw').toBe(false);
   });
 });

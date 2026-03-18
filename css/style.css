@@ -4638,8 +4638,6 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #heatmapPage .heatmap-plot-stack .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .config-panel{flex:0 0 auto}
-#heatmapPage .heatmap-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
-#heatmapPage .heatmap-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
 #heatmapPage .heatmap-lower-panels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:16px}
 #heatmapPage .heatmap-lower-left{flex:1 1 420px;display:flex;flex-direction:column;gap:16px;min-width:280px}
 #heatmapPage .heatmap-lower-right{flex:1 1 300px;min-width:260px;display:flex;flex-direction:column}

@@ -332,9 +332,6 @@
   const HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE = 'heatmap-correlation-tab-activate';
   const HEATMAP_LOAD_SOURCE_CORRELATION_SYNC = 'heatmap-correlation-view-sync';
 
-  let heatmapRenderRowEl = null;
-  let heatmapRenderButtonEl = null;
-  let heatmapAutoDrawNoticeEl = null;
   let heatmapDataToolbarBound = false;
   let heatmapDataToolbarLastActivation = 0;
   let heatmapDataViewsManager = null;
@@ -350,10 +347,6 @@
     statsEl: null,
     layout: null,
     minSvgWidth: 0,
-    autoDrawEnabled: true,
-    autoDrawReason: null,
-    autoDrawLockedByThreshold: false,
-    drawPending: false,
     lastDataShape: { rows: 0, cols: 0 },
     lastAutoDrawEvaluation: null,
     performance: { loadData: null, draw: null, evaluation: null },
@@ -779,43 +772,6 @@
       onColorChange: updateDendrogramColor
     };
   }
-
-  let heatmapNoticeBoundWidth = null;
-  const syncHeatmapAutoDrawNoticeWidth = (reason) => {
-    const svgBox = state.svgBox || state.layout?.elements?.svgBox || state.svg?.closest?.('.svgbox');
-    const renderRow = heatmapRenderRowEl || global.document?.getElementById?.('heatmapRenderRow');
-    if(!svgBox || !renderRow){
-      return;
-    }
-    const rect = svgBox.getBoundingClientRect?.();
-    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
-    if(!width){
-      return;
-    }
-    const widthPx = `${width}px`;
-    if(renderRow.style.maxWidth !== widthPx){
-      renderRow.style.maxWidth = widthPx;
-      renderRow.style.width = '100%';
-    }
-    if(heatmapAutoDrawNoticeEl && heatmapAutoDrawNoticeEl.style.maxWidth !== widthPx){
-      heatmapAutoDrawNoticeEl.style.maxWidth = widthPx;
-    }
-    if(heatmapNoticeBoundWidth !== width){
-      heatmapNoticeBoundWidth = width;
-      debugLog('Debug: heatmap auto draw notice width synced', { width, reason: reason || null });
-    }
-  };
-  const scheduleHeatmapNoticeWidth = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncHeatmapAutoDrawNoticeWidth(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncHeatmapAutoDrawNoticeWidth(reason || 'immediate');
-  })();
 
   function runWithHeatmapControlSuspension(callback){
     const previousSchedule = !!state.suspendControlSchedule;
@@ -1390,9 +1346,7 @@
     state.lastViewOptions = null;
     state.lastStats = null;
     state.textAspectMetrics = null;
-    if(!state.drawPending){
-      debugLog('Debug: heatmap cached render cleared');
-    }
+    debugLog('Debug: heatmap cached render cleared');
   }
 
   function normalizeDrawOptions(options){
@@ -1548,89 +1502,7 @@
     debugLog('Debug: heatmap data shape updated', { rows: normalizedRows, cols: normalizedCols });
   }
 
-  function setAutoDrawEnabled(enabled, meta = {}){
-    const nextEnabled = !!enabled;
-    const previousEnabled = !!state.autoDrawEnabled;
-    let disabledNow = false;
-    state.autoDrawEnabled = nextEnabled;
-    if(!nextEnabled){
-      if(previousEnabled && meta.renderImmediate !== false){
-        disabledNow = true;
-      }
-      if(meta.reason === 'threshold'){
-        const rows = Number(meta.rows ?? meta.totalRows);
-        const cols = Number(meta.cols ?? meta.totalCols);
-        state.autoDrawReason = {
-          type: 'threshold',
-          rows: Number.isFinite(rows) ? rows : null,
-          cols: Number.isFinite(cols) ? cols : null
-        };
-      }else if(meta.reason){
-        state.autoDrawReason = { type: meta.reason };
-      }else if(!state.autoDrawReason){
-        state.autoDrawReason = { type: 'manual' };
-      }
-    }else if(meta.reason === 'threshold-cleared' || !meta.preserveReason){
-      state.autoDrawReason = null;
-    }
-    if(nextEnabled){
-      state.drawPending = false;
-    }
-    updateAutoDrawUi(meta);
-    if(previousEnabled !== nextEnabled){
-      debugLog('Debug: heatmap autoDraw toggled', {
-        enabled: nextEnabled,
-        reason: meta.reason || null
-      });
-    }
-    return {
-      changed: previousEnabled !== nextEnabled,
-      disabledNow
-    };
-  }
-
-  function updateAutoDrawUi(){
-    const manualMode = !state.autoDrawEnabled;
-    const pendingWhileAuto = !manualMode && !!state.drawPending;
-    const shouldShowRenderRow = manualMode || pendingWhileAuto;
-    if(heatmapRenderRowEl && heatmapRenderRowEl.hidden === shouldShowRenderRow){
-      heatmapRenderRowEl.hidden = !shouldShowRenderRow;
-    }
-    if(heatmapRenderButtonEl){
-      const shouldDisable = !manualMode && !state.drawPending;
-      if(heatmapRenderButtonEl.disabled !== shouldDisable){
-        heatmapRenderButtonEl.disabled = shouldDisable;
-      }
-      if(heatmapRenderButtonEl.hidden === shouldShowRenderRow){
-        heatmapRenderButtonEl.hidden = !shouldShowRenderRow;
-      }
-    }
-    if(heatmapAutoDrawNoticeEl){
-      let text = '';
-      let hidden = !shouldShowRenderRow;
-      if(!hidden && manualMode){
-        const reason = state.autoDrawReason?.type || 'manual';
-        if(reason === 'threshold'){
-          const rows = state.autoDrawReason?.rows;
-          const summary = Number.isFinite(rows) ? ` (${rows.toLocaleString()} rows)` : '';
-          text = `Live updates are paused for large datasets${summary}. Use Update Plot after making changes.`;
-        }else{
-          text = 'Live updates are disabled. Use Update Plot after making changes.';
-        }
-        if(state.drawPending){
-          text += ' Changes are waiting to be rendered.';
-        }
-      }else if(!hidden && pendingWhileAuto){
-        hidden = false;
-        text = 'Changes are waiting to be rendered. Use Update Plot to redraw immediately.';
-      }
-      heatmapAutoDrawNoticeEl.textContent = text;
-      heatmapAutoDrawNoticeEl.hidden = hidden || !text;
-    }
-    scheduleHeatmapNoticeWidth('ui-update');
-  }
-
-  function evaluateAutoDrawThresholds(meta = {}){
+  function evaluateHeatmapDataShape(meta = {}){
     const hot = state.hot;
     const perfStart = nowMs();
     let totalRows = Number(meta?.shape?.rows);
@@ -1650,7 +1522,7 @@
       return result;
     };
     if(!hot){
-      return finalize({ autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null }, {
+      return finalize({ liveUpdateEnabled: true, reason: null, thresholdExceeded: false }, {
         rows: Number.isFinite(totalRows) ? totalRows : 0,
         cols: Number.isFinite(totalCols) ? totalCols : 0
       });
@@ -1701,30 +1573,12 @@
       totalMs: nowMs() - perfStart
     };
     updateHeatmapDataShape({ rows: totalRows, cols: totalCols });
-    debugLog('Debug: heatmap autoDraw evaluation', state.lastAutoDrawEvaluation);
-    if(thresholdExceeded){
-      state.autoDrawLockedByThreshold = true;
-      const toggleResult = setAutoDrawEnabled(false, {
-        reason: 'threshold',
-        rows: totalRows,
-        cols: totalCols,
-        preserveReason: true
-      });
-      return finalize({
-        autoDrawEnabled: state.autoDrawEnabled,
-        disabledNow: !!toggleResult?.disabledNow,
-        reason: 'threshold'
-      });
-    }
-    const needsUnlock = !thresholdExceeded
-      && state.autoDrawReason?.type === 'threshold'
-      && !state.autoDrawEnabled;
-    const previouslyLocked = !!state.autoDrawLockedByThreshold;
-    state.autoDrawLockedByThreshold = false;
-    if(previouslyLocked || needsUnlock){
-      setAutoDrawEnabled(true, { reason: 'threshold-cleared', preserveReason: false });
-    }
-    return finalize({ autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null });
+    debugLog('Debug: heatmap draw evaluation', state.lastAutoDrawEvaluation);
+    return finalize({
+      liveUpdateEnabled: true,
+      reason: thresholdExceeded ? 'threshold-exceeded' : null,
+      thresholdExceeded
+    });
   }
 
   function scheduleDrawHeatmap(options){
@@ -1747,32 +1601,14 @@
     }
     if(opts.force){
       if(!opts.skipThresholdEvaluation){
-        evaluateAutoDrawThresholds();
+        evaluateHeatmapDataShape({ source: opts.reason || 'force' });
       }
-      state.drawPending = false;
-      updateAutoDrawUi();
       if(typeof scheduleDrawHeatmapRaw === 'function'){
         scheduleDrawHeatmapRaw();
       }
       return;
     }
-    const evalResult = evaluateAutoDrawThresholds({ markPending: true });
-    if(evalResult?.disabledNow){
-      state.drawPending = false;
-      updateAutoDrawUi();
-      if(typeof scheduleDrawHeatmapRaw === 'function'){
-        scheduleDrawHeatmapRaw();
-      }
-      return;
-    }
-    if(!state.autoDrawEnabled){
-      state.drawPending = true;
-      updateAutoDrawUi();
-      debugLog('Debug: heatmap draw suppressed', { reason: opts.reason || 'auto-draw-disabled' });
-      return;
-    }
-    state.drawPending = false;
-    updateAutoDrawUi();
+    evaluateHeatmapDataShape({ source: opts.reason || 'schedule' });
     if(typeof scheduleDrawHeatmapRaw === 'function'){
       scheduleDrawHeatmapRaw();
     }
@@ -1926,7 +1762,7 @@
         const start = nowMs();
         const result = originalLoadData.apply(this, arguments);
         const afterLoad = nowMs();
-        evaluateAutoDrawThresholds(
+        evaluateHeatmapDataShape(
           rows || cols
             ? { source: 'load-data', shape: { rows, cols } }
             : { source: 'load-data' }
@@ -5279,7 +5115,6 @@
       ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
-    syncHeatmapAutoDrawNoticeWidth('draw');
   }
 
   function appendStatRow(labelText, strongValueText, options = {}){
@@ -6287,7 +6122,6 @@
       }
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
-    syncHeatmapAutoDrawNoticeWidth('draw');
     console.debug('Debug: heatmap drawHeatmap complete', {
       rows: rowCount,
       columns: columnCount,
@@ -7354,21 +7188,20 @@
     }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'heatmap',
-        selectors: {
-          tablePanel: '#heatmapTablePanel',
-          graphPanel: '#heatmapGraphPanel',
-          panelResizer: '#heatmapPanelResizer',
-          hotWrapper: '#heatmapHotWrapper',
-          hotContainer: '#heatmapHot',
-          svgBox: () => state.svg?.closest('.svgbox'),
-          resizeTarget: () => state.svg?.closest('.svgbox')
-        },
-        preserveGraphContent: false,
-        panelSyncOptions: {
-          disableAutoWidthClamp: true,
-          lockGraphPanelWidth: false
-        },
-        onAfterSync: () => syncHeatmapAutoDrawNoticeWidth('panel-sync'),
+      selectors: {
+        tablePanel: '#heatmapTablePanel',
+        graphPanel: '#heatmapGraphPanel',
+        panelResizer: '#heatmapPanelResizer',
+        hotWrapper: '#heatmapHotWrapper',
+        hotContainer: '#heatmapHot',
+        svgBox: () => state.svg?.closest('.svgbox'),
+        resizeTarget: () => state.svg?.closest('.svgbox')
+      },
+      preserveGraphContent: false,
+      panelSyncOptions: {
+        disableAutoWidthClamp: true,
+        lockGraphPanelWidth: false
+      },
       onMinSvgWidth: value => {
         state.minSvgWidth = value;
         console.debug('Debug: heatmap layout minSvgWidth updated', { value });
@@ -7376,25 +7209,12 @@
       resizableBoxOptions: {
         onResize: () => {
           debugLog('Debug: heatmap layout onResize schedule trigger');
-          scheduleHeatmapNoticeWidth('resize');
           scheduleHeatmapTextAspect('resize');
         }
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svg?.closest('.svgbox') || null;
     ensureHeatmapTextResizeObserver();
-    heatmapRenderRowEl = $('heatmapRenderRow');
-    heatmapRenderButtonEl = $('heatmapRenderButton');
-    heatmapAutoDrawNoticeEl = $('heatmapAutoDrawNotice');
-    if(heatmapRenderButtonEl){
-      heatmapRenderButtonEl.addEventListener('click', () => {
-        debugLog('Debug: heatmap manual render button');
-        const overlayReason = 'manual-render';
-        markHeatmapOverlayPending(overlayReason);
-        forceHeatmapOverlay(overlayReason, { message: 'Rendering heatmap...' });
-        state.scheduleDraw({ force: true, reason: 'manual-render' });
-      });
-    }
     initHot();
     initControls();
     bindHeatmapDataToolbar();
@@ -7437,7 +7257,7 @@
       const shouldDelayForOverlay = heatmapOverlayController?.isActive?.() && !nextOpts.viewOnly;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
-          debugLog('Debug: heatmap autoDraw deferred for overlay',{ reason: overlayReason });
+          debugLog('Debug: heatmap draw deferred for overlay', { reason: overlayReason });
           runSchedule();
         };
         if(typeof global.requestAnimationFrame === 'function'){
@@ -7453,9 +7273,7 @@
     debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     state.layout?.syncPanels?.();
-    syncHeatmapAutoDrawNoticeWidth('init');
-    updateAutoDrawUi();
-    evaluateAutoDrawThresholds();
+    evaluateHeatmapDataShape();
     ensureEmptyPayloadTemplate();
     heatmap.ready = true;
     state.scheduleDraw();
