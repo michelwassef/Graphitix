@@ -2555,7 +2555,14 @@ select {
     box-sizing:border-box;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__checkbox--toolbar{
+    display:inline-flex;
+    align-items:center;
     justify-content:center;
+    min-height:32px;
+    border:none;
+    background:transparent;
+    box-shadow:none;
+    padding:0;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button--text-only{
     min-height:32px;
@@ -2575,7 +2582,7 @@ select {
     padding-right:2px;
 }
 .workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__button[data-transform-option] .workspace-toolbar__label{
-    text-align:left;
+    text-align:center;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__caption{
     display:block;
@@ -2595,6 +2602,13 @@ select {
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-apply="1"],
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-clear="1"]{
     font-weight:600;
+    justify-content:center;
+    align-items:center;
+}
+.workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-apply="1"] .workspace-toolbar__label,
+.workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-clear="1"] .workspace-toolbar__label{
+    text-align:center;
+    line-height:1.2;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-option="custom"]{
     border-color:#8ea1bb;
@@ -2623,7 +2637,7 @@ select {
     justify-content:center;
 }
 .workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__button[data-transform-option]{
-    justify-content:flex-start;
+    justify-content:center;
 }
 .workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="0"] .workspace-toolbar__button[data-transform-option]{
     padding-left:6px;
@@ -2668,10 +2682,10 @@ select {
     border-color:#5f7391;
 }
 .workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__button[data-transform-option]{
-    padding-left:20px;
+    padding-left:7px;
 }
 .workspace-toolbar__section[data-transform-section="1"][data-transform-multi-mode="1"] .workspace-toolbar__transform-option-check{
-    display:block;
+    display:none;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__transform-option-check{
     display:none;
