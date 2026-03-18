@@ -2518,21 +2518,22 @@ select {
     justify-content:flex-start;
     align-items:stretch;
     overflow:visible;
+    padding-top:22px;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__buttons{
-    display:grid;
-    grid-template-columns:repeat(6, minmax(0, 1fr));
-    column-gap:8px;
-    row-gap:6px;
-    width:100%;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    width:auto;
     padding:2px 0;
-    align-items:stretch;
-    justify-items:stretch;
+    align-items:flex-start;
+    justify-content:start;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button{
     border:1px solid #b7c2d1;
     background:#f7f9fc;
     box-shadow:none;
+    border-radius:4px;
     transition:border-color .14s ease, background-color .14s ease, color .14s ease;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button:hover{
@@ -2549,7 +2550,7 @@ select {
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button,
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__checkbox--toolbar{
-    width:100%;
+    width:auto;
     min-width:0;
     box-sizing:border-box;
 }
@@ -2577,7 +2578,19 @@ select {
     text-align:left;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__caption{
-    display:none;
+    display:block;
+    position:absolute;
+    top:4px;
+    left:50%;
+    transform:translateX(-50%);
+    margin:0;
+    font-size:11px;
+    font-weight:400;
+    letter-spacing:0.01em;
+    text-transform:none;
+    color:#334155;
+    white-space:nowrap;
+    line-height:1.1;
 }
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-apply="1"],
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button[data-transform-clear="1"]{
@@ -5926,6 +5939,15 @@ input[type="reset"],
     border-top-right-radius: 0 !important;
     border-bottom-left-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
+}
+
+/* Exception: keep transform-toolbar buttons slightly rounded for better affordance. */
+.workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button{
+    border-radius:4px !important;
+    border-top-left-radius:4px !important;
+    border-top-right-radius:4px !important;
+    border-bottom-left-radius:4px !important;
+    border-bottom-right-radius:4px !important;
 }
 
 /* Welcome page section tiles: keep a slight rounding for card affordance. */

@@ -1498,7 +1498,8 @@
     });
     const dataTransformsSection = (key) => ({
       type: 'buttons',
-      caption: 'Data',
+      tabLabel: 'Data',
+      caption: 'Data transformation',
       ariaLabel: 'Input data transforms',
       transformSection: true,
       transformKey: key,
