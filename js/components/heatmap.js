@@ -1991,6 +1991,12 @@
     const updateViewControlState = () => {
       const view = refs.view?.value || 'corr-columns';
       const isCorrelation = view.startsWith('corr');
+      const correlationOnlyRows = global.document?.querySelectorAll?.('#heatmapPage .heatmap-correlation-only') || [];
+      correlationOnlyRows.forEach(row => {
+        if(row){
+          row.hidden = !isCorrelation;
+        }
+      });
       if(refs.method){
         refs.method.disabled = !isCorrelation;
       }
