@@ -290,12 +290,18 @@
     if(!doc){ return null; }
     const anchor = typeof cfg.anchorId === 'string' ? doc.getElementById(cfg.anchorId) : cfg.anchor;
     if(!anchor){ return null; }
-    const host = ensureToolbarHost(anchor, cfg.scopeId, doc);
+    const hostOverride = cfg.host && cfg.host.nodeType === 1 ? cfg.host : null;
+    const host = hostOverride || ensureToolbarHost(anchor, cfg.scopeId, doc);
     if(!host){ return null; }
-
-    resetHostPresentation(host, { keepVisible: false });
+    const appendToHost = cfg.appendToHost === true;
+    const shouldClearHost = cfg.clearHost === true || (!appendToHost && cfg.clearHost !== false);
+    if(!appendToHost){
+      resetHostPresentation(host, { keepVisible: false });
+    }
     hideOtherVisibleHosts(host, doc);
-    host.innerHTML = '';
+    if(shouldClearHost){
+      host.innerHTML = '';
+    }
 
     const panel = doc.createElement('div');
     panel.className = 'workspace-toolbar__panel workspace-toolbar__panel--symbol';
@@ -1158,7 +1164,12 @@
 
     panel.appendChild(wrap);
     host.appendChild(panel);
-    host.style.display = 'block';
+    if(typeof cfg.hostClass === 'string' && cfg.hostClass.trim()){
+      host.classList.add(cfg.hostClass.trim());
+    }
+    host.style.display = (typeof cfg.hostDisplay === 'string' && cfg.hostDisplay.trim())
+      ? cfg.hostDisplay.trim()
+      : 'block';
     host.classList.add('font-toolbar-host--visible');
     const dock = host.closest('.workspace-toolbar__dock');
     if(dock){
