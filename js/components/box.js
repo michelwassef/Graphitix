@@ -25602,7 +25602,7 @@ Technical analysis record (advanced)
             graphFontColor: themedPointDefaults?.graphFontColor || ''
           });
         }
-        const isOverlayPointMode = debugLabel === 'overlay' || debugLabel === 'violin-overlay';
+        const isOverlayPointMode = debugLabel === 'overlay' || debugLabel === 'violin-overlay' || debugLabel === 'outliers';
         const traceStrokeWidthRaw = isOverlayPointMode
           ? resolveOverlayPointBorderWidthRaw(traceStyle, effectiveRadius, { minimumWidth: 0.8 })
           : resolveStripPointStrokeWidthRaw(traceStyle, borderWidthRaw);
@@ -26459,6 +26459,20 @@ Technical analysis record (advanced)
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
           if(pointMode === 'outliers'){
+            const outlierOverlayColors = graphTypeRaw === 'violin'
+              ? { fill: fillColor, stroke: borderColor }
+              : resolveScientificOverlayPointColors(fillColor, borderColor);
+            const outlierPointRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
+            if(debugEnabled){
+              console.debug('Debug: box outlier point defaults aligned to overlay', {
+                orientation: 'vertical',
+                traceIndex: i,
+                graphType: graphTypeRaw,
+                fill: outlierOverlayColors.fill,
+                stroke: outlierOverlayColors.stroke,
+                pointRadius: outlierPointRadius
+              });
+            }
             const outlierResult = await renderSwarmPointsVertical({
               valueList: outliers,
               cx,
@@ -26468,13 +26482,13 @@ Technical analysis record (advanced)
               tooltipSeriesName,
               tooltipCategoryName,
               tooltipGroupName,
-              fillColor,
-              borderColor,
+              fillColor: outlierOverlayColors.fill,
+              borderColor: outlierOverlayColors.stroke,
               groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
               opacityMultiplier: 1,
               debugLabel: 'outliers',
               mean,
-              pointRadiusOverride: null,
+              pointRadiusOverride: outlierPointRadius,
               maxHalfWidth: 0,
               allowRadiusAdjustment: false,
               drawToken: token
@@ -26857,7 +26871,7 @@ Technical analysis record (advanced)
             graphFontColor: themedPointDefaultsH?.graphFontColor || ''
           });
         }
-        const isOverlayPointModeH = debugLabel === 'overlay' || debugLabel === 'violin-overlay';
+        const isOverlayPointModeH = debugLabel === 'overlay' || debugLabel === 'violin-overlay' || debugLabel === 'outliers';
         const traceStrokeWidthRawH = isOverlayPointModeH
           ? resolveOverlayPointBorderWidthRaw(traceStyleH, effectiveRadius, { minimumWidth: 0.8 })
           : resolveStripPointStrokeWidthRaw(traceStyleH, borderWidthRaw);
@@ -28323,6 +28337,20 @@ Technical analysis record (advanced)
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
           if(pointMode === 'outliers'){
+            const outlierOverlayColors = graphTypeRaw === 'violin'
+              ? { fill: fillColor, stroke: borderColor }
+              : resolveScientificOverlayPointColors(fillColor, borderColor);
+            const outlierPointRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
+            if(debugEnabled){
+              console.debug('Debug: box outlier point defaults aligned to overlay', {
+                orientation: 'horizontal',
+                traceIndex: i,
+                graphType: graphTypeRaw,
+                fill: outlierOverlayColors.fill,
+                stroke: outlierOverlayColors.stroke,
+                pointRadius: outlierPointRadius
+              });
+            }
             const outlierResult = await renderSwarmPointsHorizontal({
               valueList: outliers,
               cy,
@@ -28332,13 +28360,13 @@ Technical analysis record (advanced)
               tooltipSeriesName,
               tooltipCategoryName,
               tooltipGroupName,
-              fillColor,
-              borderColor,
+              fillColor: outlierOverlayColors.fill,
+              borderColor: outlierOverlayColors.stroke,
               groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
               opacityMultiplier: 1,
               debugLabel: 'outliers',
               mean,
-              pointRadiusOverride: null,
+              pointRadiusOverride: outlierPointRadius,
               maxHalfWidth: 0,
               allowRadiusAdjustment: false,
               drawToken: token
