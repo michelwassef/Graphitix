@@ -26216,7 +26216,7 @@ Technical analysis record (advanced)
       const totalGapSpaceH = datasetGapPxH * Math.max(0, axisCount - 1);
       const separatedSpanScaleH = Math.min(1, datasetSpacingScale);
       const plotHForSpacing = Math.max(0, (plotHLocal - totalGapSpaceH) * separatedSpanScaleH);
-      const plotSpacingTop = marginLocal.top + Math.max(0, plotHLocal - plotHForSpacing);
+      const plotSpacingTop = marginLocal.top;
       const separatedSpacing = separatedCategoryUnits
         ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotHForSpacing, plotSpacingTop)
         : null;
@@ -26229,7 +26229,7 @@ Technical analysis record (advanced)
       const plotHUsed = Number.isFinite(computedPlotSpanH) && computedPlotSpanH > 0
         ? Math.min(plotHLocal, computedPlotSpanH)
         : plotHLocal;
-      const plotTopY = marginLocal.top + Math.max(0, plotHLocal - plotHUsed);
+      const plotTopY = marginLocal.top;
       const plotBottomY = plotTopY + plotHUsed;
       const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
       const clusterGap = usesGroupedSpacing ? Math.min(bandH * 0.25, 16) : 0;
@@ -26516,17 +26516,17 @@ Technical analysis record (advanced)
       if(gridLayer){
         gridLayer.style.display = showGrid ? '' : 'none';
       }
+      const xAxisBottom = plotBottomY;
       yScale.ticks.forEach(t => {
         if(showZeroReferenceLine && isNearZeroScaleValue(t)){
           return;
         }
         const x = valueToX(t);
-        const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal }, gridStrokeAttrs));
+        const gridLine = addGrid('line',Object.assign({ x1: x, y1: marginLocal.top, x2: x, y2: xAxisBottom }, gridStrokeAttrs));
         gridLine.setAttribute('data-grid-control','1');
       });
       console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
       const yAxisLeft = marginLocal.left;
-      const xAxisBottom = marginLocal.top + plotHLocal;
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
