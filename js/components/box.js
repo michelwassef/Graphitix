@@ -23749,7 +23749,8 @@ Technical analysis record (advanced)
           fontSize: fs,
           plotWidth,
           baseBottom: safeBaseBottom,
-          axisMetrics
+          axisMetrics,
+          reserveRotatedLabelSpace: true
         });
         const appliedDownShift = 0;
         const unresolvedDownShift = significanceDownShiftTarget > 0

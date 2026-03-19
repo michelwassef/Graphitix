@@ -1303,15 +1303,19 @@
     const widths = labels.map(label => chartStyle.measureText(label || '', font));
     const maxLabelWidth = widths.length ? Math.max(...widths) : 0;
     const bandWidth = labels.length ? plotWidth / labels.length : plotWidth;
+    const reserveRotatedLabelSpace = options?.reserveRotatedLabelSpace === true;
     const shouldRotate = labels.length > 1 && widths.some(w => w > bandWidth * 0.9);
-    const extra = shouldRotate ? Math.min(220, Math.max(fontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + fontSize)) : 0;
+    const rotatedExtra = Math.min(220, Math.max(fontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + fontSize));
+    const extra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
     const bottom = Math.max(baseBottom, titleOffset + outerPadding + extra);
     console.debug('Debug: chartStyle.computeBottomLayout', {
       labelCount: labels.length,
       fontSize,
       plotWidth,
       shouldRotate,
+      reserveRotatedLabelSpace,
       extra,
+      rotatedExtra,
       bottom,
       labelOffset,
       titleOffset,
