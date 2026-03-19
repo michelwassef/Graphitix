@@ -59,6 +59,8 @@ describe('Box swarm offset constraints', () => {
     const r140 = Number(hooks.resolveStripMinRadiusFloor(140, baseRadius));
     expect(r11).toBeCloseTo(5, 4);
     expect(r140).toBeCloseTo(2, 2);
+    const r140Scaled = Number(hooks.resolveStripMinRadiusFloor(140, 8));
+    expect(r140Scaled).toBeGreaterThan(r140);
     const sampleSizes = [11, 20, 40, 80, 140, 300, 1000];
     const radii = sampleSizes.map(size => Number(hooks.resolveStripMinRadiusFloor(size, baseRadius)));
     for(let i = 1; i < radii.length; i += 1){
@@ -67,6 +69,40 @@ describe('Box swarm offset constraints', () => {
     const r139 = Number(hooks.resolveStripMinRadiusFloor(139, baseRadius));
     const r141 = Number(hooks.resolveStripMinRadiusFloor(141, baseRadius));
     expect(Math.abs(r141 - r139)).toBeLessThan(0.1);
+  });
+
+  test('responsive point radius reacts to horizontal and vertical resize', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveResponsivePointRadius).toBe('function');
+    const base = 5;
+    const unit = Number(hooks.resolveResponsivePointRadius(base, {
+      scaleW: 1,
+      scaleH: 1,
+      styleScale: 1,
+      styleUnclamped: 1
+    }, { min: 0.75, context: 'test-point' }));
+    expect(unit).toBeCloseTo(base, 4);
+    const shrunkBoth = Number(hooks.resolveResponsivePointRadius(base, {
+      scaleW: 0.64,
+      scaleH: 0.56,
+      styleScale: Math.sqrt(0.64 * 0.56),
+      styleUnclamped: Math.sqrt(0.64 * 0.56)
+    }, { min: 0.75, context: 'test-point' }));
+    expect(shrunkBoth).toBeLessThan(unit * 0.8);
+    const anisotropic = Number(hooks.resolveResponsivePointRadius(base, {
+      scaleW: 2,
+      scaleH: 0.5,
+      styleScale: Math.sqrt(2 * 0.5),
+      styleUnclamped: Math.sqrt(2 * 0.5)
+    }, { min: 0.75, context: 'test-point' }));
+    expect(anisotropic).toBeLessThan(unit);
+    const grownBoth = Number(hooks.resolveResponsivePointRadius(base, {
+      scaleW: 1.5,
+      scaleH: 1.4,
+      styleScale: Math.sqrt(1.5 * 1.4),
+      styleUnclamped: Math.sqrt(1.5 * 1.4)
+    }, { min: 0.75, context: 'test-point' }));
+    expect(grownBoth).toBeGreaterThan(unit);
   });
 
   test('hard max half-width keeps strict swarm capped without collapsing points', () => {

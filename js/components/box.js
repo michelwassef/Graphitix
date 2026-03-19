@@ -96,8 +96,8 @@
   const STRIP_MIN_RADIUS_ASYMPTOTE = 0.2;
   const STRIP_RADIUS_REFERENCE_COUNT = 11;
   const STRIP_RADIUS_MEDIUM_COUNT = 140;
-  const STRIP_RADIUS_MEDIUM_TARGET = 2;
   const STRIP_RADIUS_COUNT_OFFSET = 20;
+  const STRIP_RADIUS_MEDIUM_RELATIVE_SCALE = 0.375;
   const STRIP_MEDIUM_SPREAD_MIN_SCALE = 0.5;
   const STRIP_MEDIUM_SPREAD_LOG_CENTER = Math.log10(140 + 1);
   const STRIP_MEDIUM_SPREAD_LOG_SIGMA = 0.32;
@@ -120,6 +120,55 @@
       return DEFAULT_X_DATASET_SPACING;
     }
     return Math.max(MIN_X_DATASET_SPACING, Math.min(MAX_X_DATASET_SPACING, numeric));
+  }
+  function resolveResponsivePointRadius(baseRadius, scaleInfo, options = {}){
+    const base = Number(baseRadius);
+    const minRadius = Number.isFinite(Number(options?.min)) ? Number(options.min) : 0;
+    const context = typeof options?.context === 'string' && options.context.trim()
+      ? options.context.trim()
+      : 'box-point';
+    const scaleRadiusFn = chartStyle && typeof chartStyle.scaleRadius === 'function'
+      ? chartStyle.scaleRadius
+      : null;
+    const legacyRadius = scaleRadiusFn
+      ? scaleRadiusFn(base, scaleInfo, { context, min: minRadius })
+      : Math.max(minRadius, Number.isFinite(base) && base > 0 ? base : minRadius);
+    if(!Number.isFinite(base) || base <= 0){
+      return legacyRadius;
+    }
+    const scaleWRaw = Number(scaleInfo?.scaleW);
+    const scaleHRaw = Number(scaleInfo?.scaleH);
+    if(!Number.isFinite(scaleWRaw) || scaleWRaw <= 0 || !Number.isFinite(scaleHRaw) || scaleHRaw <= 0){
+      return legacyRadius;
+    }
+    const minScaleBound = Number.isFinite(Number(chartStyle?.RESIZE_MIN_SCALE)) ? Number(chartStyle.RESIZE_MIN_SCALE) : 0.3;
+    const maxScaleBound = Number.isFinite(Number(chartStyle?.RESIZE_MAX_SCALE)) ? Number(chartStyle.RESIZE_MAX_SCALE) : 3;
+    const clampScale = value => {
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric)){
+        return 1;
+      }
+      return Math.max(minScaleBound, Math.min(maxScaleBound, numeric));
+    };
+    const scaleW = clampScale(scaleWRaw);
+    const scaleH = clampScale(scaleHRaw);
+    const areaScale = Math.max(1e-9, scaleW * scaleH);
+    const legacyResizeScale = Math.pow(areaScale, 0.25);
+    const geometricScale = Math.sqrt(areaScale);
+    const minAxisScale = Math.min(scaleW, scaleH);
+    const maxAxisScale = Math.max(scaleW, scaleH);
+    const anisotropyRatio = maxAxisScale > 0
+      ? Math.max(0.05, Math.min(1, minAxisScale / maxAxisScale))
+      : 1;
+    const anisotropyCompensation = Math.pow(anisotropyRatio, 0.3);
+    const targetResizeScale = clampScale(geometricScale * anisotropyCompensation);
+    const correction = targetResizeScale / Math.max(1e-6, legacyResizeScale);
+    const correctedRadius = legacyRadius * correction;
+    const maxRadius = Math.max(minRadius, base * maxScaleBound);
+    if(!Number.isFinite(correctedRadius) || correctedRadius <= 0){
+      return legacyRadius;
+    }
+    return Math.max(minRadius, Math.min(maxRadius, correctedRadius));
   }
   const DEFAULT_VIOLIN_BANDWIDTH=1;
   const DEFAULT_VIOLIN_SAMPLE_COUNT=80;
@@ -3751,13 +3800,7 @@
     const mediumCount = Math.max(referenceCount + 1, Number(STRIP_RADIUS_MEDIUM_COUNT) || 140);
     const countOffset = Math.max(0, Number(STRIP_RADIUS_COUNT_OFFSET) || 20);
     const floorAsymptote = Math.max(0.05, Math.min(base - 0.01, Number(STRIP_MIN_RADIUS_ASYMPTOTE) || 0.2));
-    const mediumTargetRaw = Number(STRIP_RADIUS_MEDIUM_TARGET);
-    const mediumTarget = Math.max(
-      floorAsymptote + 0.01,
-      Math.min(base - 0.01, Number.isFinite(mediumTargetRaw) && mediumTargetRaw > 0 ? mediumTargetRaw : 2)
-    );
-    const mediumScaleRaw = (mediumTarget - floorAsymptote) / Math.max(1e-9, base - floorAsymptote);
-    const mediumScale = Math.max(0.01, Math.min(0.99, mediumScaleRaw));
+    const mediumScale = Math.max(0.01, Math.min(0.99, Number(STRIP_RADIUS_MEDIUM_RELATIVE_SCALE) || 0.375));
     const denom = Math.log((mediumCount + countOffset) / (referenceCount + countOffset));
     const exponent = Number.isFinite(denom) && Math.abs(denom) > 1e-9
       ? (-Math.log(mediumScale) / denom)
@@ -22186,8 +22229,8 @@ Technical analysis record (advanced)
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
     const errorBarWidthPx = chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'box-errorbar', min: 0 });
     const DEFAULT_POINT_SIZE = 5;
-    const pointRadius = chartStyle.scaleRadius(DEFAULT_POINT_SIZE, styleScaleInfo, { context: 'box-point', min: 0.75 });
-    const overlayPointRadius = chartStyle.scaleRadius(2, styleScaleInfo, { context: 'box-point-overlay', min: 0.5 });
+    const pointRadius = resolveResponsivePointRadius(DEFAULT_POINT_SIZE, styleScaleInfo, { context: 'box-point', min: 0.75 });
+    const overlayPointRadius = resolveResponsivePointRadius(2, styleScaleInfo, { context: 'box-point-overlay', min: 0.5 });
     const isAutoDefaultPointSize = rawSize => {
       const sizeValue = Number(rawSize);
       if(!Number.isFinite(sizeValue) || sizeValue <= 0){
@@ -22278,6 +22321,8 @@ Technical analysis record (advanced)
       axisStrokeWidth,
       gridStrokeStyle,
       pointRadius,
+      pointScaleW: styleScaleInfo?.scaleW,
+      pointScaleH: styleScaleInfo?.scaleH,
       annotationStrokeWidth,
       annotationStrokeWidthBase,
       annotationColor,
@@ -29468,9 +29513,10 @@ Technical analysis record (advanced)
 	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
 	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
-	    computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
+      computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
       resolveStripMinRadiusFloor:(sampleSize,baseRadius)=>resolveStripMinRadiusFloor(sampleSize,baseRadius),
+      resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
