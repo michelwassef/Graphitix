@@ -161,7 +161,12 @@
       ? Math.max(0.05, Math.min(1, minAxisScale / maxAxisScale))
       : 1;
     const anisotropyCompensation = Math.pow(anisotropyRatio, 0.3);
-    const targetResizeScale = clampScale(geometricScale * anisotropyCompensation);
+    let targetResizeScaleRaw = geometricScale * anisotropyCompensation;
+    if(scaleW < 1 && scaleH < 1){
+      const combinedShrinkExponent = 0.2 * anisotropyRatio;
+      targetResizeScaleRaw *= Math.pow(Math.max(1e-9, geometricScale), combinedShrinkExponent);
+    }
+    const targetResizeScale = clampScale(targetResizeScaleRaw);
     const correction = targetResizeScale / Math.max(1e-6, legacyResizeScale);
     const correctedRadius = legacyRadius * correction;
     const maxRadius = Math.max(minRadius, base * maxScaleBound);
