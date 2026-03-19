@@ -163,7 +163,7 @@
     const anisotropyCompensation = Math.pow(anisotropyRatio, 0.3);
     let targetResizeScaleRaw = geometricScale * anisotropyCompensation;
     if(scaleW < 1 && scaleH < 1){
-      const combinedShrinkExponent = 0.2 * anisotropyRatio;
+      const combinedShrinkExponent = 0.35 * anisotropyRatio;
       targetResizeScaleRaw *= Math.pow(Math.max(1e-9, geometricScale), combinedShrinkExponent);
     }
     const targetResizeScale = clampScale(targetResizeScaleRaw);
