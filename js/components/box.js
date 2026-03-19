@@ -9420,7 +9420,7 @@
     return ensureSignificanceStyle().pDecimals;
   }
 
-  function parseSignificanceFontSizePx(value){
+  function parseStoredFontSizePx(value){
     if(value === null || value === undefined || value === ''){
       return NaN;
     }
@@ -9450,6 +9450,62 @@
     return numeric;
   }
 
+  function resolveScopedFontMeasurementProfile(styles, roleKey, fallbackPx){
+    const fallbackSizePx = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
+    const defaultFamily = (typeof chartStyle.FONT_FAMILY === 'string' && chartStyle.FONT_FAMILY.trim())
+      ? chartStyle.FONT_FAMILY.trim()
+      : 'Arial, Helvetica, sans-serif';
+    let fontStyle = 'normal';
+    let fontWeight = 'normal';
+    let fontFamily = defaultFamily;
+    let fontSizePx = fallbackSizePx;
+    const applyStyle = style => {
+      if(!style || typeof style !== 'object'){
+        return;
+      }
+      const parsedSize = parseStoredFontSizePx(style.fontSize);
+      if(Number.isFinite(parsedSize) && parsedSize > 0){
+        fontSizePx = parsedSize;
+      }
+      const nextFamily = typeof style.fontFamily === 'string' ? style.fontFamily.trim() : '';
+      if(nextFamily){
+        fontFamily = nextFamily;
+      }
+      const nextStyle = typeof style.fontStyle === 'string' ? style.fontStyle.trim() : '';
+      if(nextStyle){
+        fontStyle = nextStyle;
+      }
+      if(style.fontWeight !== null && style.fontWeight !== undefined){
+        const nextWeight = String(style.fontWeight).trim();
+        if(nextWeight){
+          fontWeight = nextWeight;
+        }
+      }
+    };
+    const scopedStyles = styles && typeof styles === 'object' ? styles : null;
+    if(scopedStyles){
+      const graphStyle = scopedStyles.__graph__ && typeof scopedStyles.__graph__ === 'object'
+        ? scopedStyles.__graph__
+        : null;
+      const roleStyle = roleKey && scopedStyles[roleKey] && typeof scopedStyles[roleKey] === 'object'
+        ? scopedStyles[roleKey]
+        : null;
+      applyStyle(graphStyle);
+      applyStyle(roleStyle);
+    }
+    const safeSizePx = Number.isFinite(fontSizePx) && fontSizePx > 0 ? fontSizePx : fallbackSizePx;
+    const safeFamily = fontFamily || defaultFamily;
+    const safeStyle = fontStyle || 'normal';
+    const safeWeight = fontWeight || 'normal';
+    return {
+      fontSizePx: safeSizePx,
+      fontFamily: safeFamily,
+      fontStyle: safeStyle,
+      fontWeight: safeWeight,
+      fontSpec: `${safeStyle} ${safeWeight} ${safeSizePx}px ${safeFamily}`
+    };
+  }
+
   function resolveSignificanceLabelFontSizePx(fallbackPx){
     const fallback = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
     const fontControlsApi = Shared && Shared.fontControls;
@@ -9474,11 +9530,11 @@
     const graphStyle = styles.__graph__ && typeof styles.__graph__ === 'object'
       ? styles.__graph__
       : null;
-    const labelPx = parseSignificanceFontSizePx(labelStyle?.fontSize);
+    const labelPx = parseStoredFontSizePx(labelStyle?.fontSize);
     if(Number.isFinite(labelPx) && labelPx > 0){
       return labelPx;
     }
-    const graphPx = parseSignificanceFontSizePx(graphStyle?.fontSize);
+    const graphPx = parseStoredFontSizePx(graphStyle?.fontSize);
     if(Number.isFinite(graphPx) && graphPx > 0){
       return graphPx;
     }
@@ -22212,6 +22268,24 @@ Technical analysis record (advanced)
     });
     const fs = fontInfo.scaledPx;
     const styleScaleInfo = fontInfo.scaleInfo;
+    let scopedFontStyles = null;
+    try{
+      scopedFontStyles = exportFontStyles('box');
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: box export scope font styles failed', { error: err?.message || String(err) });
+      }
+    }
+    const xTickMeasureProfile = resolveScopedFontMeasurementProfile(scopedFontStyles, 'xTick', fs);
+    if(debugEnabled){
+      console.debug('Debug: box xTick measurement profile', {
+        fontSpec: xTickMeasureProfile.fontSpec,
+        fontSizePx: xTickMeasureProfile.fontSizePx,
+        fontFamily: xTickMeasureProfile.fontFamily,
+        fontStyle: xTickMeasureProfile.fontStyle,
+        fontWeight: xTickMeasureProfile.fontWeight
+      });
+    }
     const axisSettings = ensureAxisSettings();
     console.debug('Debug: box axis settings current',{
       strokeWidth: axisSettings.strokeWidth,
@@ -23748,14 +23822,15 @@ Technical analysis record (advanced)
         const nextBottomLayout = chartStyle.computeBottomLayout({
           labels: labelTexts,
           fontSize: fs,
+          labelMeasureFont: xTickMeasureProfile.fontSpec,
           plotWidth,
           baseBottom: safeBaseBottom,
           axisMetrics,
           reserveRotatedLabelSpace: true,
           rotationHysteresis: {
             previousRotate,
-            enterRatio: 0.92,
-            exitRatio: 0.82
+            enterRatio: 1.01,
+            exitRatio: 1.00
           }
         });
         state.xTickRotateVertical = nextBottomLayout.shouldRotate === true;

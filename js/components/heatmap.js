@@ -159,7 +159,10 @@
     heatmapFontObserver.observe(state.svg, {
       subtree: true,
       attributes: true,
-      attributeFilter: ['font-size', 'style', 'font-family', 'font-weight', 'font-style', 'text-decoration', 'baseline-shift']
+      // Ignore generic `style` mutations: fontControls text highlight uses style.filter on click,
+      // and observing that causes a redraw loop/flicker. Real font updates are handled by
+      // explicit fontControls:styleChanged events and direct font-* attributes.
+      attributeFilter: ['font-size', 'font-family', 'font-weight', 'font-style', 'text-decoration', 'baseline-shift']
     });
     debugLog('Debug: heatmap font observer attached');
   };

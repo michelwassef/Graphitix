@@ -44,9 +44,11 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     const fontSize = 12;
     const labels = ['Treatment A', 'B', 'C'];
     const font = chartStyle.makeFont(fontSize);
-    const maxLabelWidth = chartStyle.measureText('Treatment A', font);
+    const wA = chartStyle.measureText('Treatment A', font);
+    const wB = chartStyle.measureText('B', font);
     const targetRatio = 0.88; // between enter=0.92 and exit=0.82
-    const plotWidth = (maxLabelWidth * labels.length) / targetRatio;
+    const pitch = ((wA + wB) / 2) / targetRatio;
+    const plotWidth = pitch * labels.length;
 
     const fromRotated = chartStyle.computeBottomLayout({
       labels,

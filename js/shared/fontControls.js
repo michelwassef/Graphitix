@@ -2843,17 +2843,8 @@
       setScopeMode(currentScope, scopeSelectEl.value);
       refreshScopeFooter();
       updatePanelContext();
-      if(currentTarget){
-        const snapshot = captureStyleSnapshot(currentTarget);
-        if(snapshot){
-          const ctx = resolveStoreContext(currentTarget, {
-            scopeId: currentScope,
-            key: currentKey,
-            mode: scopeSelectEl.value
-          });
-          storeStyleForNode(currentTarget, snapshot, ctx);
-        }
-      }
+      // Scope switching must be non-destructive. Do not persist the current node style
+      // into the newly selected scope just by changing the dropdown.
     });
 
     const fontField = doc.createElement('label');

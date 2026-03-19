@@ -1299,13 +1299,26 @@
     const labelOffset = baseLabelOffset + fontSize;
     const titleOffset = labelOffset + axisTitleGap + fontSize;
     const baseBottom = options?.baseBottom || Math.max(titleOffset + outerPadding, Math.round(fontSize * BASE_BOTTOM_FACTOR) + fontSize + 8);
-    const font = chartStyle.makeFont(fontSize);
-    const widths = labels.map(label => chartStyle.measureText(label || '', font));
+    const customMeasureFontRaw = typeof options?.labelMeasureFont === 'string' ? options.labelMeasureFont.trim() : '';
+    const labelMeasureFont = customMeasureFontRaw || chartStyle.makeFont(fontSize);
+    const widths = labels.map(label => chartStyle.measureText(label || '', labelMeasureFont));
     const maxLabelWidth = widths.length ? Math.max(...widths) : 0;
     const bandWidth = labels.length ? plotWidth / labels.length : plotWidth;
     const maxLabelWidthRatio = labels.length > 1 && Number.isFinite(bandWidth) && bandWidth > 0
       ? (maxLabelWidth / bandWidth)
       : 0;
+    let maxAdjacentOverlapRatio = 0;
+    if(labels.length > 1 && Number.isFinite(bandWidth) && bandWidth > 0){
+      for(let i = 1; i < widths.length; i += 1){
+        const leftWidth = Number(widths[i - 1]) || 0;
+        const rightWidth = Number(widths[i]) || 0;
+        const pairHalfSpan = (leftWidth + rightWidth) / 2;
+        const overlapRatio = pairHalfSpan / bandWidth;
+        if(overlapRatio > maxAdjacentOverlapRatio){
+          maxAdjacentOverlapRatio = overlapRatio;
+        }
+      }
+    }
     const rotationHysteresis = options?.rotationHysteresis && typeof options.rotationHysteresis === 'object'
       ? options.rotationHysteresis
       : null;
@@ -1313,7 +1326,7 @@
     const baseRotateRatioRaw = Number(options?.rotateRatioThreshold);
     const baseRotateRatio = Number.isFinite(baseRotateRatioRaw) && baseRotateRatioRaw > 0
       ? baseRotateRatioRaw
-      : 0.9;
+      : 1.0;
     const enterRatioRaw = Number(rotationHysteresis?.enterRatio);
     const enterRatio = Number.isFinite(enterRatioRaw) && enterRatioRaw > 0
       ? enterRatioRaw
@@ -1327,12 +1340,12 @@
       exitRatio = Math.max(0.1, enterRatio - 0.01);
     }
     const reserveRotatedLabelSpace = options?.reserveRotatedLabelSpace === true;
-    const shouldRotateRaw = labels.length > 1 && widths.some(w => w > bandWidth * baseRotateRatio);
+    const shouldRotateRaw = labels.length > 1 && maxAdjacentOverlapRatio > baseRotateRatio;
     const shouldRotate = labels.length > 1
       ? (
           previousRotate === true
-            ? (maxLabelWidthRatio > exitRatio)
-            : (maxLabelWidthRatio > enterRatio)
+            ? (maxAdjacentOverlapRatio > exitRatio)
+            : (maxAdjacentOverlapRatio > enterRatio)
         )
       : false;
     const rotatedExtra = Math.min(220, Math.max(fontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + fontSize));
@@ -1345,10 +1358,12 @@
       shouldRotate,
       shouldRotateRaw,
       maxLabelWidthRatio,
+      maxAdjacentOverlapRatio,
       previousRotate,
       enterRatio,
       exitRatio,
       reserveRotatedLabelSpace,
+      labelMeasureFont,
       extra,
       rotatedExtra,
       bottom,
@@ -1356,7 +1371,7 @@
       titleOffset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, labelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding};
+    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, labelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont};
   };
 
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
