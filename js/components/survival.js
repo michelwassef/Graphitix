@@ -3457,6 +3457,10 @@
 
     const xTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(width, { axis: 'x', fallback: 6 }) : 6;
     const yTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(height, { axis: 'y', fallback: 6 }) : 6;
+    const survivalFontStyles = exportFontStyles('survival');
+    const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: survivalFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
+      : (chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`);
 
     const tickFont = chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`;
     let margin = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
@@ -3471,6 +3475,7 @@
     let bottomLayout = chartStyle.computeBottomLayout ? chartStyle.computeBottomLayout({
       labels: [],
       fontSize: fs,
+      labelMeasureFont: xTickMeasureFont,
       plotWidth: plotW,
       baseBottom: margin.bottom,
       axisMetrics
@@ -3536,6 +3541,7 @@
       bottomLayout = chartStyle.computeBottomLayout ? chartStyle.computeBottomLayout({
         labels: xTickLabels,
         fontSize: fs,
+        labelMeasureFont: xTickMeasureFont,
         plotWidth: plotW,
         baseBottom: margin.bottom,
         axisMetrics

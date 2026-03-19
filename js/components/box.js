@@ -9450,62 +9450,6 @@
     return numeric;
   }
 
-  function resolveScopedFontMeasurementProfile(styles, roleKey, fallbackPx){
-    const fallbackSizePx = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
-    const defaultFamily = (typeof chartStyle.FONT_FAMILY === 'string' && chartStyle.FONT_FAMILY.trim())
-      ? chartStyle.FONT_FAMILY.trim()
-      : 'Arial, Helvetica, sans-serif';
-    let fontStyle = 'normal';
-    let fontWeight = 'normal';
-    let fontFamily = defaultFamily;
-    let fontSizePx = fallbackSizePx;
-    const applyStyle = style => {
-      if(!style || typeof style !== 'object'){
-        return;
-      }
-      const parsedSize = parseStoredFontSizePx(style.fontSize);
-      if(Number.isFinite(parsedSize) && parsedSize > 0){
-        fontSizePx = parsedSize;
-      }
-      const nextFamily = typeof style.fontFamily === 'string' ? style.fontFamily.trim() : '';
-      if(nextFamily){
-        fontFamily = nextFamily;
-      }
-      const nextStyle = typeof style.fontStyle === 'string' ? style.fontStyle.trim() : '';
-      if(nextStyle){
-        fontStyle = nextStyle;
-      }
-      if(style.fontWeight !== null && style.fontWeight !== undefined){
-        const nextWeight = String(style.fontWeight).trim();
-        if(nextWeight){
-          fontWeight = nextWeight;
-        }
-      }
-    };
-    const scopedStyles = styles && typeof styles === 'object' ? styles : null;
-    if(scopedStyles){
-      const graphStyle = scopedStyles.__graph__ && typeof scopedStyles.__graph__ === 'object'
-        ? scopedStyles.__graph__
-        : null;
-      const roleStyle = roleKey && scopedStyles[roleKey] && typeof scopedStyles[roleKey] === 'object'
-        ? scopedStyles[roleKey]
-        : null;
-      applyStyle(graphStyle);
-      applyStyle(roleStyle);
-    }
-    const safeSizePx = Number.isFinite(fontSizePx) && fontSizePx > 0 ? fontSizePx : fallbackSizePx;
-    const safeFamily = fontFamily || defaultFamily;
-    const safeStyle = fontStyle || 'normal';
-    const safeWeight = fontWeight || 'normal';
-    return {
-      fontSizePx: safeSizePx,
-      fontFamily: safeFamily,
-      fontStyle: safeStyle,
-      fontWeight: safeWeight,
-      fontSpec: `${safeStyle} ${safeWeight} ${safeSizePx}px ${safeFamily}`
-    };
-  }
-
   function resolveSignificanceLabelFontSizePx(fallbackPx){
     const fallback = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
     const fontControlsApi = Shared && Shared.fontControls;
@@ -22276,7 +22220,15 @@ Technical analysis record (advanced)
         console.debug('Debug: box export scope font styles failed', { error: err?.message || String(err) });
       }
     }
-    const xTickMeasureProfile = resolveScopedFontMeasurementProfile(scopedFontStyles, 'xTick', fs);
+    const xTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: scopedFontStyles, role: 'xTick', fallbackPx: fs })
+      : {
+          fontSpec: chartStyle.makeFont(fs),
+          fontSizePx: fs,
+          fontFamily: chartStyle.FONT_FAMILY || 'Arial, Helvetica, sans-serif',
+          fontStyle: 'normal',
+          fontWeight: 'normal'
+        };
     if(debugEnabled){
       console.debug('Debug: box xTick measurement profile', {
         fontSpec: xTickMeasureProfile.fontSpec,

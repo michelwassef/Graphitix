@@ -1025,6 +1025,86 @@
     return width;
   };
 
+  function parseFontSizePx(value, fallbackPx){
+    const fallback = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
+    if(value === null || value === undefined || value === ''){
+      return fallback;
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value) && value > 0 ? value : fallback;
+    }
+    const raw = String(value).trim();
+    if(!raw){
+      return fallback;
+    }
+    const match = raw.match(/^(-?\d*\.?\d+)\s*(px|pt)?$/i);
+    if(!match){
+      return fallback;
+    }
+    const numeric = Number(match[1]);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return fallback;
+    }
+    const unit = (match[2] || 'px').toLowerCase();
+    if(unit === 'pt'){
+      return numeric * PT_TO_PX;
+    }
+    return numeric;
+  }
+
+  chartStyle.resolveScopedLabelMeasureFont = function resolveScopedLabelMeasureFont(options){
+    const opts = options || {};
+    const styles = opts.styles && typeof opts.styles === 'object' ? opts.styles : null;
+    const role = typeof opts.role === 'string' ? opts.role.trim() : '';
+    const fallbackPxRaw = Number(opts.fallbackPx);
+    const fallbackPx = Number.isFinite(fallbackPxRaw) && fallbackPxRaw > 0 ? fallbackPxRaw : 12;
+    const defaultFamily = typeof chartStyle.FONT_FAMILY === 'string' && chartStyle.FONT_FAMILY.trim()
+      ? chartStyle.FONT_FAMILY.trim()
+      : 'Arial, Helvetica, sans-serif';
+    let fontSizePx = fallbackPx;
+    let fontFamily = defaultFamily;
+    let fontStyle = 'normal';
+    let fontWeight = 'normal';
+    const applyStyle = style => {
+      if(!style || typeof style !== 'object'){
+        return;
+      }
+      fontSizePx = parseFontSizePx(style.fontSize, fontSizePx);
+      const family = typeof style.fontFamily === 'string' ? style.fontFamily.trim() : '';
+      if(family){
+        fontFamily = family;
+      }
+      const nextStyle = typeof style.fontStyle === 'string' ? style.fontStyle.trim() : '';
+      if(nextStyle){
+        fontStyle = nextStyle;
+      }
+      if(style.fontWeight !== null && style.fontWeight !== undefined){
+        const nextWeight = String(style.fontWeight).trim();
+        if(nextWeight){
+          fontWeight = nextWeight;
+        }
+      }
+    };
+    if(styles){
+      applyStyle(styles.__graph__);
+      if(role){
+        applyStyle(styles[role]);
+      }
+    }
+    const safeSize = Number.isFinite(fontSizePx) && fontSizePx > 0 ? fontSizePx : fallbackPx;
+    const safeFamily = fontFamily || defaultFamily;
+    const safeStyle = fontStyle || 'normal';
+    const safeWeight = fontWeight || 'normal';
+    const fontSpec = `${safeStyle} ${safeWeight} ${safeSize}px ${safeFamily}`;
+    return {
+      fontSpec,
+      fontSizePx: safeSize,
+      fontFamily: safeFamily,
+      fontStyle: safeStyle,
+      fontWeight: safeWeight
+    };
+  };
+
   /**
    * Unicode superscript digits for rendering exponents.
    * @type {Object<string, string>}
@@ -2131,10 +2211,12 @@
     });
     const width = normalizedEntries.length ? Math.max(minWidth, swatchSize + swatchGap + maxLabelWidth) : 0;
     // Keep row spacing large enough for either text or swatch content to avoid overlap at small fonts.
-    const rowHeight = Math.max(fontSize, swatchSize) + rowGap;
+    const rowContentHeight = Math.max(fontSize, swatchSize);
+    const rowHeight = rowContentHeight + rowGap;
     const baselineOffset = Number.isFinite(opts.baselineOffset) ? Number(opts.baselineOffset) : 0;
-    const rowBottomOffset = Math.max(fontSize, (swatchSize - fontSize) + rowGap);
-    const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + rowBottomOffset : 0;
+    const textCenterOffset = rowContentHeight / 2;
+    const swatchOffsetY = (rowContentHeight - swatchSize) / 2;
+    const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + rowContentHeight : 0;
     const debugSummary = {
       entryCount: normalizedEntries.length,
       fontSize,
@@ -2147,12 +2229,12 @@
       maxLabelWidth
     };
     console.debug('Debug: chartStyle.createLegendRenderer metrics', debugSummary);
-    const createLegendSwatch = (doc, entry, idx, baselineY) => {
+    const createLegendSwatch = (doc, entry, idx, swatchCenterY) => {
       const rawShape = entry?.raw?.shape;
       const shape = typeof rawShape === 'string' ? rawShape : 'square';
-      const swatchTop = baselineY - fontSize + rowGap;
+      const swatchTop = swatchCenterY - (swatchSize / 2);
       const centerX = swatchSize / 2;
-      const centerY = swatchTop + (swatchSize / 2);
+      const centerY = swatchCenterY;
       const radius = Math.max(1, swatchSize * 0.42);
       let node = null;
       if(shape === 'circle'){
@@ -2242,6 +2324,7 @@
       fontSize,
       rowGap,
       rowHeight,
+      rowContentHeight,
       swatchSize,
       swatchGap,
       baselineOffset,
@@ -2262,8 +2345,10 @@
         const posY = Number.isFinite(position?.y) ? Number(position.y) : 0;
         group.setAttribute('transform', `translate(${posX},${posY})`);
         normalizedEntries.forEach((entry, idx) => {
-          const baselineY = idx * rowHeight + baselineOffset;
-          const swatch = createLegendSwatch(doc, entry, idx, baselineY);
+          const rowStartY = idx * rowHeight + baselineOffset;
+          const textCenterY = rowStartY + textCenterOffset;
+          const swatchCenterY = rowStartY + swatchOffsetY + (swatchSize / 2);
+          const swatch = createLegendSwatch(doc, entry, idx, swatchCenterY);
           if(entry.editable && typeof opts.onSwatchClick === 'function'){
             swatch.style.cursor = 'pointer';
             swatch.addEventListener('click', (evt) => {
@@ -2286,10 +2371,10 @@
           group.appendChild(swatch);
           const text = doc.createElementNS(NS, 'text');
           text.setAttribute('x', swatchSize + swatchGap);
-          text.setAttribute('y', baselineY);
+          text.setAttribute('y', textCenterY);
           text.setAttribute('font-size', fontSize);
           text.setAttribute('fill', textColor);
-          text.setAttribute('dominant-baseline', 'alphabetic');
+          text.setAttribute('dominant-baseline', 'middle');
           text.textContent = entry.label;
           if(entry.editable && typeof opts.onSwatchClick === 'function'){
             text.dataset.legendIndex = String(idx);

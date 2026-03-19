@@ -2361,6 +2361,10 @@
     };
     let tickCount = chartStyle.estimateTickCount(Math.min(width, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
     const formatTick = value => chartStyle.formatScientific(value,{maxDecimals:2});
+    const rocFontStyles = exportFontStyles('roc');
+    const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: rocFontStyles, role: 'xTick', fallbackPx: fontSize }).fontSpec
+      : chartStyle.makeFont(fontSize);
     const tickFont = chartStyle.makeFont(fontSize);
     const axisLabelFont = chartStyle.makeFont(fontSize);
     const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
@@ -2379,7 +2383,7 @@
     let margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
     let plotWidth = Math.max(20, width - margin.left - margin.right);
     let plotHeight = Math.max(20, height - margin.top - margin.bottom);
-    let bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom, axisMetrics});
+    let bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth, baseBottom: margin.bottom, axisMetrics});
     margin.bottom = bottomLayout.bottom;
     plotWidth = Math.max(20, width - margin.left - margin.right);
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
@@ -2399,7 +2403,7 @@
       margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
       plotWidth = Math.max(20, width - margin.left - margin.right);
       plotHeight = Math.max(20, height - margin.top - margin.bottom);
-      bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom, axisMetrics});
+      bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth, baseBottom: margin.bottom, axisMetrics});
       margin.bottom = bottomLayout.bottom;
       plotWidth = Math.max(20, width - margin.left - margin.right);
       plotHeight = Math.max(20, height - margin.top - margin.bottom);

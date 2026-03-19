@@ -16615,6 +16615,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const scatterNotationY = getScatterAxisNotation('y');
         const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationX, maxDecimals: 2 });
         const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationY, maxDecimals: 2 });
+        const scatterFontStyles = exportFontStyles('scatter');
+        const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+          ? chartStyle.resolveScopedLabelMeasureFont({ styles: scatterFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
+          : chartStyle.makeFont(fs);
         const tickFont=chartStyle.makeFont(fs);
         const axisLabelFont=chartStyle.makeFont(fs);
         const yTitleWidthBase=chartStyle.measureText(scatterYLabelText,axisLabelFont);
@@ -16624,7 +16628,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         margin.left=Math.max(margin.left,fs*0.5);
         let plotW=Math.max(20,W-margin.left-margin.right);
         let plotH=Math.max(20,H-margin.top-margin.bottom);
-        let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+        let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
         margin.bottom=bottomLayout.bottom;
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -16703,7 +16707,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+fs*0.5);
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);
-          bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+          bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
           margin.bottom=bottomLayout.bottom;
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);

@@ -1258,6 +1258,10 @@
       const percentTicks = percentScale.ticks.map(t => Math.max(0, Math.min(100, t)));
       console.debug('Debug: pie stacked axis stroke',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke, manualIntervalY });
       const yTickLabels=percentTicks.map(v=>`${Number.isInteger(v) ? v : Number(v).toFixed(1)}%`);
+      const pieFontStyles = exportFontStyles('pie');
+      const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+        ? chartStyle.resolveScopedLabelMeasureFont({ styles: pieFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
+        : chartStyle.makeFont(fs);
       const tickFont=chartStyle.makeFont(fs);
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       const maxYLabelWidth=Math.max(...yLabelWidths,0);
@@ -1268,7 +1272,7 @@
       let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth:stackedLegendWidthForMargin,maxYLabelWidth,yTitleWidth,axisMetrics});
       let chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       let chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
-      const bottomLayout=chartStyle.computeBottomLayout({labels:barHeaders,fontSize:fs,plotWidth:chartWidth,baseBottom:margin.bottom,axisMetrics});
+      const bottomLayout=chartStyle.computeBottomLayout({labels:barHeaders,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:chartWidth,baseBottom:margin.bottom,axisMetrics});
       margin.bottom=bottomLayout.bottom;
       chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);

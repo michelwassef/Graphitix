@@ -9217,6 +9217,10 @@
       const lineNotationY = getLineAxisNotation('y');
       const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: lineNotationX, maxDecimals: 2 });
       const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: lineNotationY, maxDecimals: 2 });
+      const lineFontStyles = exportFontStyles('line');
+      const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+        ? chartStyle.resolveScopedLabelMeasureFont({ styles: lineFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
+        : chartStyle.makeFont(fs);
       const tickFont=chartStyle.makeFont(fs);
       const axisLabelFont=chartStyle.makeFont(fs);
       const yTitleWidthBase=chartStyle.measureText(lineYLabelText,axisLabelFont);
@@ -9226,7 +9230,7 @@
       margin.left=Math.max(margin.left,fs*0.5);
       let plotW=Math.max(20,W-margin.left-margin.right);
       let plotH=Math.max(20,H-margin.top-margin.bottom);
-      let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+      let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
       margin.bottom=bottomLayout.bottom;
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -9325,7 +9329,7 @@
         margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+fs*0.5);
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
-        bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+        bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
         margin.bottom=bottomLayout.bottom;
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);

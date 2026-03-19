@@ -3242,6 +3242,10 @@
     let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
     let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
     console.debug('Debug: hist initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
+    const histFontStyles = exportFontStyles('hist');
+    const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: histFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
+      : chartStyle.makeFont(fs);
     const tickFont=chartStyle.makeFont(fs);
     const axisLabelFont=chartStyle.makeFont(fs);
     const yTitleWidthBase=chartStyle.measureText(state.yLabelText,axisLabelFont);
@@ -3255,7 +3259,7 @@
     let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
     let plotW=Math.max(20,W-margin.left-margin.right);
     let plotH=Math.max(20,H-margin.top-margin.bottom);
-    let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+    let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
     margin.bottom=bottomLayout.bottom;
     plotW=Math.max(20,W-margin.left-margin.right);
     plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -3392,7 +3396,7 @@
       margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
-      bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+      bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
       margin.bottom=bottomLayout.bottom;
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
