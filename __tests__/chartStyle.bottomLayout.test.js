@@ -38,4 +38,38 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(narrowReserved.shouldRotate).toBe(true);
     expect(wideReserved.bottom).toBe(narrowReserved.bottom);
   });
+
+  test('rotation hysteresis avoids flip-flop near threshold', () => {
+    const { chartStyle } = window.Shared;
+    const fontSize = 12;
+    const labels = ['Treatment A', 'B', 'C'];
+    const font = chartStyle.makeFont(fontSize);
+    const maxLabelWidth = chartStyle.measureText('Treatment A', font);
+    const targetRatio = 0.88; // between enter=0.92 and exit=0.82
+    const plotWidth = (maxLabelWidth * labels.length) / targetRatio;
+
+    const fromRotated = chartStyle.computeBottomLayout({
+      labels,
+      fontSize,
+      plotWidth,
+      rotationHysteresis: {
+        previousRotate: true,
+        enterRatio: 0.92,
+        exitRatio: 0.82
+      }
+    });
+    const fromHorizontal = chartStyle.computeBottomLayout({
+      labels,
+      fontSize,
+      plotWidth,
+      rotationHysteresis: {
+        previousRotate: false,
+        enterRatio: 0.92,
+        exitRatio: 0.82
+      }
+    });
+
+    expect(fromRotated.shouldRotate).toBe(true);
+    expect(fromHorizontal.shouldRotate).toBe(false);
+  });
 });

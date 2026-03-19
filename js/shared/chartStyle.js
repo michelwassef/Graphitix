@@ -1303,8 +1303,38 @@
     const widths = labels.map(label => chartStyle.measureText(label || '', font));
     const maxLabelWidth = widths.length ? Math.max(...widths) : 0;
     const bandWidth = labels.length ? plotWidth / labels.length : plotWidth;
+    const maxLabelWidthRatio = labels.length > 1 && Number.isFinite(bandWidth) && bandWidth > 0
+      ? (maxLabelWidth / bandWidth)
+      : 0;
+    const rotationHysteresis = options?.rotationHysteresis && typeof options.rotationHysteresis === 'object'
+      ? options.rotationHysteresis
+      : null;
+    const previousRotate = rotationHysteresis ? (rotationHysteresis.previousRotate === true) : null;
+    const baseRotateRatioRaw = Number(options?.rotateRatioThreshold);
+    const baseRotateRatio = Number.isFinite(baseRotateRatioRaw) && baseRotateRatioRaw > 0
+      ? baseRotateRatioRaw
+      : 0.9;
+    const enterRatioRaw = Number(rotationHysteresis?.enterRatio);
+    const enterRatio = Number.isFinite(enterRatioRaw) && enterRatioRaw > 0
+      ? enterRatioRaw
+      : baseRotateRatio;
+    const exitRatioRaw = Number(rotationHysteresis?.exitRatio);
+    const fallbackExitRatio = Math.max(0.1, enterRatio - 0.08);
+    let exitRatio = Number.isFinite(exitRatioRaw) && exitRatioRaw > 0
+      ? exitRatioRaw
+      : fallbackExitRatio;
+    if(exitRatio >= enterRatio){
+      exitRatio = Math.max(0.1, enterRatio - 0.01);
+    }
     const reserveRotatedLabelSpace = options?.reserveRotatedLabelSpace === true;
-    const shouldRotate = labels.length > 1 && widths.some(w => w > bandWidth * 0.9);
+    const shouldRotateRaw = labels.length > 1 && widths.some(w => w > bandWidth * baseRotateRatio);
+    const shouldRotate = labels.length > 1
+      ? (
+          previousRotate === true
+            ? (maxLabelWidthRatio > exitRatio)
+            : (maxLabelWidthRatio > enterRatio)
+        )
+      : false;
     const rotatedExtra = Math.min(220, Math.max(fontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + fontSize));
     const extra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
     const bottom = Math.max(baseBottom, titleOffset + outerPadding + extra);
@@ -1313,6 +1343,11 @@
       fontSize,
       plotWidth,
       shouldRotate,
+      shouldRotateRaw,
+      maxLabelWidthRatio,
+      previousRotate,
+      enterRatio,
+      exitRatio,
       reserveRotatedLabelSpace,
       extra,
       rotatedExtra,
@@ -1321,7 +1356,7 @@
       titleOffset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, shouldRotate, widths, bandWidth, maxLabelWidth, labelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding};
+    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, labelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding};
   };
 
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
@@ -1334,8 +1369,9 @@
     const anchor = options?.anchor ?? 'end';
     const dy = options?.dy ?? '0.35em';
     const force = options?.force ?? false;
+    const disableAuto = options?.disableAuto === true;
     let rotate = !!force;
-    if(!rotate){
+    if(!rotate && !disableAuto){
       for(let i=1;i<list.length;i+=1){
         const prev = list[i-1];
         const curr = list[i];
@@ -1362,7 +1398,7 @@
         }
       });
     }
-    console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle}); // Debug: label orientation summary
+    console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle, disableAuto}); // Debug: label orientation summary
     return rotate;
   };
 
