@@ -4614,8 +4614,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #surfacePage #surfaceGraphPanel{flex:2 1 67%;min-width:0;max-width:none;display:flex;flex-direction:column;gap:12px;align-items:stretch}
 #surfacePage #surfaceHotWrapper{flex:1 1 auto;min-height:0}
 #surfacePage .diagram-area .config-panel{flex:0 1 320px;min-width:220px}
-#surfacePage .surface-message{position:absolute;top:12px;left:12px;right:12px;bottom:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#3b4758;background:rgba(255,255,255,0.86);border:1px dashed #b6c2d3;border-radius:4px;padding:12px;pointer-events:none}
-#surfacePage .surface-message[hidden]{display:none}
+#surfacePage .surface-message,#vennPage .venn-message{position:absolute;top:40px;left:14px;right:14px;bottom:auto;display:block;text-align:left;font-size:inherit;color:inherit;background:transparent;border:0;border-radius:0;padding:0;pointer-events:none;z-index:5}
+#surfacePage .surface-message[hidden],#vennPage .venn-message[hidden]{display:none}
 #surfacePage .surface-stats .stats-summary{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#3b4758}
 #surfacePage .surface-stats .stats-summary strong{font-weight:600;color:#1f2a3d}
 #surfacePage .surface-legend{pointer-events:auto}

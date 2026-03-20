@@ -1223,6 +1223,26 @@
     }
   }
 
+  function renderSurfaceEmptyPlotNotice(message){
+    if(!state.messageEl){
+      return;
+    }
+    const noticeMessage = (Shared.getEmptyPlotNoticeMessage
+      ? Shared.getEmptyPlotNoticeMessage(message)
+      : (String(message || '').trim() || 'Add data to the input table to generate a plot.'));
+    state.messageEl.hidden = false;
+    if(typeof Shared.renderPlotNotice === 'function'){
+      Shared.renderPlotNotice(state.messageEl, noticeMessage, { resetAspect: false, show: true });
+    }else{
+      while(state.messageEl.firstChild){
+        state.messageEl.removeChild(state.messageEl.firstChild);
+      }
+      const notice = (state.messageEl.ownerDocument || global.document).createElement('i');
+      notice.textContent = noticeMessage;
+      state.messageEl.appendChild(notice);
+    }
+  }
+
   function updateStats(info){
     const container = state.statsEl;
     if(!container){ return; }
@@ -1746,7 +1766,7 @@
     const parsed = parseSurfaceTable();
     if(!parsed.points.length){
       while(svg.firstChild){ svg.removeChild(svg.firstChild); }
-      displayMessage('Add at least three rows of numeric X, Y, Z values to render a surface.');
+      renderSurfaceEmptyPlotNotice();
       updateStats(parsed.stats);
       removeLegend(svg);
       return;

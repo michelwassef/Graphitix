@@ -571,6 +571,7 @@
         syncInputsFromTable: null,
         graphPanel: null,
         svgBox: null,
+        emptyNotice: null,
         layout: null,
         minSvgWidth: 0,
       },
@@ -1484,6 +1485,55 @@
     const stage = state.ui.stage;
     if (!stage) return;
     while (stage.firstChild) stage.removeChild(stage.firstChild);
+  }
+
+  function ensureVennEmptyNoticeElement() {
+    const stage = state.ui.stage;
+    const svgBox = state.ui.svgBox || stage?.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
+    if (!state.ui.svgBox && svgBox) {
+      state.ui.svgBox = svgBox;
+    }
+    if (!svgBox) return null;
+    let noticeEl = state.ui.emptyNotice;
+    if (noticeEl && noticeEl.isConnected) {
+      return noticeEl;
+    }
+    noticeEl = svgBox.querySelector('#vennMessage');
+    if (!noticeEl) {
+      noticeEl = document.createElement('div');
+      noticeEl.id = 'vennMessage';
+      noticeEl.className = 'venn-message plot-empty-notice';
+      noticeEl.setAttribute('role', 'status');
+      noticeEl.setAttribute('aria-live', 'polite');
+      noticeEl.hidden = true;
+      svgBox.appendChild(noticeEl);
+    }
+    state.ui.emptyNotice = noticeEl;
+    return noticeEl;
+  }
+
+  function hideVennEmptyPlotNotice() {
+    const noticeEl = state.ui.emptyNotice || ensureVennEmptyNoticeElement();
+    if (!noticeEl) return;
+    noticeEl.textContent = '';
+    noticeEl.hidden = true;
+  }
+
+  function renderVennEmptyPlotNotice(message) {
+    const noticeEl = ensureVennEmptyNoticeElement();
+    if (!noticeEl) return;
+    const noticeMessage = (Shared.getEmptyPlotNoticeMessage
+      ? Shared.getEmptyPlotNoticeMessage(message)
+      : (String(message || '').trim() || 'Add data to the input table to generate a plot.'));
+    noticeEl.hidden = false;
+    if (typeof Shared.renderPlotNotice === 'function') {
+      Shared.renderPlotNotice(noticeEl, noticeMessage, { resetAspect: false, show: true });
+      return;
+    }
+    while (noticeEl.firstChild) noticeEl.removeChild(noticeEl.firstChild);
+    const notice = document.createElement('i');
+    notice.textContent = noticeMessage;
+    noticeEl.appendChild(notice);
   }
 
   const markFontEditable = (node, role, key) => {
@@ -3729,6 +3779,7 @@
 
   function configureStage(style) {
     clearSVG();
+    hideVennEmptyPlotNotice();
     const stage = state.ui.stage;
     if (!stage) return null;
     if (typeof chartStyle.applySvgDefaults === 'function') {
@@ -5224,6 +5275,7 @@
       }
       if (!mode) {
         clearSVG();
+        renderVennEmptyPlotNotice();
         if (state.ui.regionList) state.ui.regionList.innerHTML = '';
         if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
         state.analysis.lastRegions = null;

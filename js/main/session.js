@@ -612,21 +612,19 @@
       console.debug('Debug: tab data inspection skipped', { tabId, reason: 'no-tab-or-payload' });
       return false;
     }
-    // Special-case: treat empty Venn workspaces (no input lists and zero counts)
-    // as having no data so they can be closed without prompting to save.
+    // Special-case: treat Venn workspaces as having data only when list/count
+    // inputs contain user values. Default labels (A/B/C) should not trigger
+    // unsaved-close prompts on an otherwise empty tab.
     if (tab.type === 'venn') {
       try {
         const d = tab.payload.data || {};
-        const hasLabel = (d.labelA || '').toString().trim().length > 0
-          || (d.labelB || '').toString().trim().length > 0
-          || (d.labelC || '').toString().trim().length > 0;
         const hasList = (d.listA || '').toString().trim().length > 0
           || (d.listB || '').toString().trim().length > 0
           || (d.listC || '').toString().trim().length > 0;
         const counts = [d.nA, d.nB, d.nC, d.nAB, d.nAC, d.nBC, d.nABC];
         const hasCounts = counts.some(n => Number(n) > 0);
-        if (!hasLabel && !hasList && !hasCounts) {
-          console.debug('Debug: venn tab considered empty (no input lists, labels, or counts)', { tabId });
+        if (!hasList && !hasCounts) {
+          console.debug('Debug: venn tab considered empty (no input lists or counts)', { tabId });
           return false;
         }
         // otherwise fall through to generic inspection
