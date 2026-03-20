@@ -3324,6 +3324,38 @@
       Shared.attachColorPickerNear(colorInput);
     }
 
+    function resolveStorePayloadForPatch(storeContext, nextStyle, patch, options){
+      const opts = options || {};
+      const normalizedPatch = (patch && typeof patch === 'object') ? patch : {};
+      const nextSnapshot = cloneStyleSnapshot(nextStyle || null) || {};
+      if(storeContext?.mode === FONT_SCOPE_GRAPH){
+        const existingSnapshot = cloneStyleSnapshot(styleStore.get(storeContext.storeKey)) || {};
+        const merged = { ...existingSnapshot };
+        Object.keys(normalizedPatch).forEach(key => {
+          if(!Object.prototype.hasOwnProperty.call(normalizedPatch, key)){ return; }
+          const value = normalizedPatch[key];
+          if(value === undefined){ return; }
+          if(value === null || value === ''){
+            delete merged[key];
+            return;
+          }
+          merged[key] = value;
+        });
+        return cloneStyleSnapshot(merged);
+      }
+      const payload = { ...nextSnapshot };
+      if(
+        opts.includeFallbackFill
+        && (payload.fill === undefined || payload.fill === null || payload.fill === '')
+      ){
+        const fallbackFill = opts.fallbackFill;
+        if(fallbackFill !== undefined && fallbackFill !== null && fallbackFill !== ''){
+          payload.fill = fallbackFill;
+        }
+      }
+      return cloneStyleSnapshot(payload);
+    }
+
     function commitFontFamily(rawValue, meta){
       if(!currentTarget){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
@@ -3339,10 +3371,15 @@
       }
       applyDirectStyleToken(currentTarget, 'font-family', value || null);
       const nextStyle = captureStyleSnapshot(currentTarget);
-      const storePayload = {
-        ...nextStyle,
-        fill: nextStyle?.fill || colorInput?.value || null
-      };
+      const storePayload = resolveStorePayloadForPatch(
+        storeContext,
+        nextStyle,
+        { fontFamily: value || null },
+        {
+          includeFallbackFill: true,
+          fallbackFill: colorInput?.value || null
+        }
+      );
       storeStyleForNode(currentTarget, storePayload, storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
@@ -3415,7 +3452,12 @@
       }
       applyDirectStyleToken(currentTarget, 'fill', val);
       const nextStyle = captureStyleSnapshot(currentTarget);
-      storeStyleForNode(currentTarget, nextStyle, storeContext);
+      const storePayload = resolveStorePayloadForPatch(
+        storeContext,
+        nextStyle,
+        { fill: val }
+      );
+      storeStyleForNode(currentTarget, storePayload, storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -3454,10 +3496,15 @@
       }
       applyDirectStyleToken(currentTarget, 'font-size', val || null);
       const nextStyle = captureStyleSnapshot(currentTarget);
-      const storePayload = {
-        ...nextStyle,
-        fill: nextStyle?.fill || colorInput?.value || null
-      };
+      const storePayload = resolveStorePayloadForPatch(
+        storeContext,
+        nextStyle,
+        { fontSize: val || null },
+        {
+          includeFallbackFill: true,
+          fallbackFill: colorInput?.value || null
+        }
+      );
       storeStyleForNode(currentTarget, storePayload, storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
@@ -3513,10 +3560,15 @@
         }
         applyDirectStyleToken(currentTarget, attr, nextActive ? activeValue : null);
         const nextStyle = captureStyleSnapshot(currentTarget);
-        const storePayload = {
-          ...nextStyle,
-          fill: nextStyle?.fill || colorInput?.value || null
-        };
+        const storePayload = resolveStorePayloadForPatch(
+          storeContext,
+          nextStyle,
+          patch,
+          {
+            includeFallbackFill: true,
+            fallbackFill: colorInput?.value || null
+          }
+        );
         storeStyleForNode(currentTarget, storePayload, storeContext);
         if(inlineResult.entire && propKey){
           const inlineState = getInlineState(currentTarget);
