@@ -433,6 +433,38 @@
   };
   let rocAutoDrawManager = null;
   let scheduleDrawRocRaw = () => {};
+  let rocFontEventBound = false;
+
+  function scheduleRocViewRefresh(reason){
+    if(typeof state.scheduleDraw !== 'function'){
+      return;
+    }
+    state.scheduleDraw({
+      viewOnly: true,
+      reason: reason || 'roc-view-refresh'
+    });
+  }
+
+  function isRocFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'roc' || storeKey.startsWith('roc::');
+  }
+
+  function ensureRocFontEventListener(){
+    if(rocFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isRocFontStyleEvent(detail)){
+        return;
+      }
+      scheduleRocViewRefresh('font-style-change');
+    });
+    rocFontEventBound = true;
+  }
+
   const rocUndoManager = Shared.undoManager || null;
   function persistRocTabState(reason){
     try{
@@ -2365,7 +2397,10 @@
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: rocFontStyles, role: 'xTick', fallbackPx: fontSize }).fontSpec
       : chartStyle.makeFont(fontSize);
-    const tickFont = chartStyle.makeFont(fontSize);
+    const yTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: rocFontStyles, role: 'yTick', fallbackPx: fontSize }).fontSpec
+      : chartStyle.makeFont(fontSize);
+    const tickFont = yTickMeasureFont;
     const axisLabelFont = chartStyle.makeFont(fontSize);
     const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
     const yAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
@@ -3451,6 +3486,7 @@
       global.requestAnimationFrame(() => ensureRocLegendControlPlacement());
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    ensureRocFontEventListener();
     state.layout?.syncPanels?.();
     scheduleRocNoticeWidth('init');
     ensureHotForActiveTab();

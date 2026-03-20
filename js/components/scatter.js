@@ -312,6 +312,28 @@
     scheduleDrawScatter(options);
   }
 
+  let scatterFontEventBound = false;
+  function isScatterFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'scatter' || storeKey.startsWith('scatter::');
+  }
+
+  function ensureScatterFontEventListener(){
+    if(scatterFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isScatterFontStyleEvent(detail)){
+        return;
+      }
+      scheduleScatterViewRefresh('font-style-change');
+    });
+    scatterFontEventBound = true;
+    console.debug('Debug: scatter font style listener attached');
+  }
+
   function isScatterHeaderScheduleSource(source){
     if(typeof source !== 'string'){
       return false;
@@ -4710,8 +4732,14 @@
       }
       const target = resolveTarget(evt);
       if(!target){
-        try{ evt.stopPropagation(); }catch(e){}
-        showScatterOverlayFormatControls({ target: clickTarget });
+        const overlayConfig = showScatterOverlayFormatControls({ target: clickTarget });
+        if(overlayConfig){
+          try{ evt.stopPropagation(); }catch(e){}
+        }else{
+          scatterDebug('Debug: scatter overlay click bubbled (no overlay panel opened)', {
+            reason: 'delegated-click-no-point'
+          });
+        }
         return;
       }
       try{ evt.stopPropagation(); }catch(e){}
@@ -14364,8 +14392,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(clickTarget.closest && clickTarget.closest('.scatter-point-context-menu')){
             return;
           }
-          try{ evt.stopPropagation(); }catch(e){}
-          showScatterOverlayFormatControls({ target: clickTarget });
+          const overlayConfig = showScatterOverlayFormatControls({ target: clickTarget });
+          if(overlayConfig){
+            try{ evt.stopPropagation(); }catch(e){}
+          }else{
+            scatterDebug('Debug: scatter plot click bubbled (no overlay panel opened)', {
+              reason: 'plot-click-no-overlay'
+            });
+          }
         };
         scatterPlotDiv.addEventListener('click', onPlotClick);
         scatterPlotDiv.__scatterOverlayToolbarClickHandler = onPlotClick;
@@ -16616,19 +16650,27 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationX, maxDecimals: 2 });
         const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationY, maxDecimals: 2 });
         const scatterFontStyles = exportFontStyles('scatter');
-        const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
-          ? chartStyle.resolveScopedLabelMeasureFont({ styles: scatterFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
-          : chartStyle.makeFont(fs);
-        const tickFont=chartStyle.makeFont(fs);
+        const xTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+          ? chartStyle.resolveScopedLabelMeasureFont({ styles: scatterFontStyles, role: 'xTick', fallbackPx: fs })
+          : { fontSpec: chartStyle.makeFont(fs), fontSizePx: fs };
+        const yTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+          ? chartStyle.resolveScopedLabelMeasureFont({ styles: scatterFontStyles, role: 'yTick', fallbackPx: fs })
+          : { fontSpec: chartStyle.makeFont(fs), fontSizePx: fs };
+        const xTickMeasureFont = xTickMeasureProfile.fontSpec;
+        const yTickMeasureFont = yTickMeasureProfile.fontSpec;
+        const xTickFontSize = Number.isFinite(Number(xTickMeasureProfile.fontSizePx)) ? Number(xTickMeasureProfile.fontSizePx) : fs;
+        const yTickFontSize = Number.isFinite(Number(yTickMeasureProfile.fontSizePx)) ? Number(yTickMeasureProfile.fontSizePx) : fs;
+        const yTitleSeparation = (axisMetrics.axisTitleGap || Math.max(4, Math.round(fs * 0.75))) + Math.max(2, yTickFontSize * 0.5);
+        const tickFont=yTickMeasureFont;
         const axisLabelFont=chartStyle.makeFont(fs);
         const yTitleWidthBase=chartStyle.measureText(scatterYLabelText,axisLabelFont);
         const tickLen=axisMetrics.tickLength;
         const tickGap=axisMetrics.tickLabelGap;
-        let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
-        margin.left=Math.max(margin.left,fs*0.5);
+        let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics,xTickFontSize,yTickFontSize});
+        margin.left=Math.max(margin.left,yTickFontSize*0.5);
         let plotW=Math.max(20,W-margin.left-margin.right);
         let plotH=Math.max(20,H-margin.top-margin.bottom);
-        let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+        let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
         margin.bottom=bottomLayout.bottom;
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -16701,13 +16743,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
           const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
           maxYLabelWidth=Math.max(...yLabelWidths,0);
-          const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
+          const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,xTickMeasureFont));
           maxXLabelWidth=Math.max(...xLabelWidths,0);
-          margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
-          margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+fs*0.5);
+          margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics,xTickFontSize,yTickFontSize});
+          margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+yTitleSeparation);
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);
-          bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+          bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
           margin.bottom=bottomLayout.bottom;
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -18481,7 +18523,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             }
           });
         }
-        const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+        const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + yTitleSeparation);
         const defaultYX = margin.left - yLabelOffsetSpan;
         const defaultYY = margin.top+plotH/2;
         const yLabelPos = scatterLabelPositions?.yLabel;
@@ -18495,9 +18537,28 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
             absoluteYTextY = margin.top + yLabelPos.relY * plotH;
           } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
-            // Use absolute positioning (backward compatibility)
-            absoluteYTextX = yLabelPos.x;
-            absoluteYTextY = yLabelPos.y;
+            // Migrate legacy absolute-only positions to relative so font/layout changes stay responsive.
+            const legacyX = Number(yLabelPos.x);
+            const legacyY = Number(yLabelPos.y);
+            if(Number.isFinite(legacyX) && Number.isFinite(legacyY)){
+              const relX = (legacyX - margin.left) / Math.max(yLabelOffsetSpan, 1);
+              const relY = (legacyY - margin.top) / Math.max(plotH, 1);
+              absoluteYTextX = margin.left + relX * yLabelOffsetSpan;
+              absoluteYTextY = margin.top + relY * plotH;
+              scatterLabelPositions.yLabel = {
+                x: absoluteYTextX,
+                y: absoluteYTextY,
+                relX,
+                relY
+              };
+              debug('Debug: scatter y-label legacy absolute position migrated', {
+                legacy: { x: legacyX, y: legacyY },
+                relative: { relX, relY }
+              });
+            }else{
+              absoluteYTextX = defaultYX;
+              absoluteYTextY = defaultYY;
+            }
           }
         }
         
@@ -20324,6 +20385,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     };
     scatter.serialize = serializeSvg;
     initNotes();
+    ensureScatterFontEventListener();
     ensureEmptyPayloadTemplate();
     scatter.ready = true;
     console.debug('Debug: Components.scatter.setup complete');

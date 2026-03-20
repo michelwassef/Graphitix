@@ -168,6 +168,37 @@
   let surfaceDataViewsManager = null;
   let surfaceDataToolbarBound = false;
   let surfaceDataToolbarLastActivation = 0;
+  let surfaceFontEventBound = false;
+
+  function scheduleSurfaceViewRefresh(reason){
+    if(typeof state.scheduleDraw !== 'function'){
+      return;
+    }
+    state.scheduleDraw({
+      viewOnly: true,
+      reason: reason || 'surface-view-refresh'
+    });
+  }
+
+  function isSurfaceFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'surface' || storeKey.startsWith('surface::');
+  }
+
+  function ensureSurfaceFontEventListener(){
+    if(surfaceFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isSurfaceFontStyleEvent(detail)){
+        return;
+      }
+      scheduleSurfaceViewRefresh('font-style-change');
+    });
+    surfaceFontEventBound = true;
+  }
 
   function getAxisStrokeWidthBase(){
     const numeric = Number(state.settings?.axisStroke);
@@ -2452,6 +2483,7 @@
     if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
       state.layout.setScheduleDraw(state.scheduleDraw);
     }
+    ensureSurfaceFontEventListener();
     if(state.layout && typeof state.layout.syncPanels === 'function'){
       state.layout.syncPanels();
     }

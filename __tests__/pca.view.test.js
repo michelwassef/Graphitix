@@ -188,6 +188,46 @@ describe('PCA view controls', () => {
     expect(document.querySelector('#pcaLoadingsTable table')).toBeTruthy();
   });
 
+  test('PCA empty workspace is not treated as unsaved table data', async () => {
+    const session = window.Main?.session;
+    expect(typeof session?.tabHasTableData).toBe('function');
+    const payload = window.Components?.pca?.getPayload?.();
+    expect(payload).toBeTruthy();
+    const hasData = session.tabHasTableData({
+      id: 'pca-empty-tab',
+      type: 'pca',
+      payload
+    });
+    expect(hasData).toBe(false);
+  });
+
+  test('PCA workspace with user-entered values is treated as unsaved table data', async () => {
+    const session = window.Main?.session;
+    const component = window.Components?.pca;
+    expect(typeof session?.tabHasTableData).toBe('function');
+    expect(component).toBeTruthy();
+    const hot = component.getHotInstance?.();
+    expect(hot).toBeTruthy();
+    if (typeof hot.setDataAtCell === 'function') {
+      hot.setDataAtCell([[2, 1, 42]], 'test:pca-has-data');
+    } else if (typeof hot.getData === 'function' && typeof hot.loadData === 'function') {
+      const data = hot.getData() || [];
+      if (!Array.isArray(data[2])) {
+        data[2] = [];
+      }
+      data[2][1] = 42;
+      hot.loadData(data);
+    }
+    await flushAll(5);
+    const payload = component.getPayload();
+    const hasData = session.tabHasTableData({
+      id: 'pca-filled-tab',
+      type: 'pca',
+      payload
+    });
+    expect(hasData).toBe(true);
+  });
+
   test('PCA payload restore keeps reporting and reproducibility panel', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();

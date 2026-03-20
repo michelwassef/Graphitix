@@ -224,11 +224,42 @@
 
   let scheduleLineDraw = () => {};
   let scheduleLineDrawRaw = () => {};
+  let lineFontEventBound = false;
   let lineAutoDrawManager = null;
   let lineHot = null;
   let lineDataViewsManager = null;
   let lineDataToolbarBound = false;
   let lineDataToolbarLastActivation = 0;
+  function scheduleLineViewRefresh(reason){
+    if(typeof scheduleLineDraw !== 'function'){
+      return;
+    }
+    scheduleLineDraw({
+      viewOnly: true,
+      reason: reason || 'line-view-refresh'
+    });
+  }
+
+  function isLineFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'line' || storeKey.startsWith('line::');
+  }
+
+  function ensureLineFontEventListener(){
+    if(lineFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isLineFontStyleEvent(detail)){
+        return;
+      }
+      scheduleLineViewRefresh('font-style-change');
+    });
+    lineFontEventBound = true;
+  }
+
   const lineViewState = {
     viewMode: '2d',
     requestedViewMode: null,
@@ -9221,7 +9252,10 @@
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
         ? chartStyle.resolveScopedLabelMeasureFont({ styles: lineFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
         : chartStyle.makeFont(fs);
-      const tickFont=chartStyle.makeFont(fs);
+      const yTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+        ? chartStyle.resolveScopedLabelMeasureFont({ styles: lineFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
+        : chartStyle.makeFont(fs);
+      const tickFont=yTickMeasureFont;
       const axisLabelFont=chartStyle.makeFont(fs);
       const yTitleWidthBase=chartStyle.measureText(lineYLabelText,axisLabelFont);
       const tickLen=axisMetrics.tickLength;
@@ -9323,7 +9357,7 @@
         yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
         const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
         maxYLabelWidth=Math.max(...yLabelWidths,0);
-        const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
+        const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,xTickMeasureFont));
         maxXLabelWidth=Math.max(...xLabelWidths,0);
         margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
         margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+fs*0.5);
@@ -12280,6 +12314,7 @@
       scheduleLineDraw = scheduleLineDrawRaw;
     }
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
+    ensureLineFontEventListener();
     console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
     initNotes();
     ensureEmptyPayloadTemplate();

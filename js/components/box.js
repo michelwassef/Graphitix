@@ -7437,6 +7437,7 @@
   let boxDataToolbarLastActivation = 0;
   let boxSignificanceFontEventBound = false;
   let boxSignificanceFontRefreshDebounced = null;
+  let boxFontEventBound = false;
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -9539,6 +9540,26 @@
       viewOnly: true,
       reason: reason || 'box-view-refresh'
     });
+  }
+
+  function isBoxFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'box' || storeKey.startsWith('box::');
+  }
+
+  function ensureBoxFontEventListener(){
+    if(boxFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isBoxFontStyleEvent(detail)){
+        return;
+      }
+      scheduleBoxViewRefresh('font-style-change');
+    });
+    boxFontEventBound = true;
   }
 
   function isBoxLiveStyleDisabled(){
@@ -22229,6 +22250,15 @@ Technical analysis record (advanced)
           fontStyle: 'normal',
           fontWeight: 'normal'
         };
+    const yTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: scopedFontStyles, role: 'yTick', fallbackPx: fs })
+      : {
+          fontSpec: chartStyle.makeFont(fs),
+          fontSizePx: fs,
+          fontFamily: chartStyle.FONT_FAMILY || 'Arial, Helvetica, sans-serif',
+          fontStyle: 'normal',
+          fontWeight: 'normal'
+        };
     if(debugEnabled){
       console.debug('Debug: box xTick measurement profile', {
         fontSpec: xTickMeasureProfile.fontSpec,
@@ -23744,7 +23774,7 @@ Technical analysis record (advanced)
     });
 
     async function renderVertical(){
-      const tickFont = chartStyle.makeFont(fs);
+      const tickFont = yTickMeasureProfile.fontSpec;
       const axisLabelFont = chartStyle.makeFont(fs);
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
@@ -23775,6 +23805,7 @@ Technical analysis record (advanced)
           labels: labelTexts,
           fontSize: fs,
           labelMeasureFont: xTickMeasureProfile.fontSpec,
+          labelFontSizePx: xTickMeasureProfile.fontSizePx,
           plotWidth,
           baseBottom: safeBaseBottom,
           axisMetrics,
@@ -23806,7 +23837,7 @@ Technical analysis record (advanced)
           unresolvedDownShift
         };
       };
-      let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
+      let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin, yTickFontSize: yTickMeasureProfile.fontSizePx, xTickFontSize: xTickMeasureProfile.fontSizePx });
       marginLocal.top += topExtra + titleBand + titleGap;
       marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
@@ -23862,7 +23893,7 @@ Technical analysis record (advanced)
         tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
         maxTickWidth = Math.max(...tickWidths, 0);
         yLabelGap = maxTickWidth + tickLen + tickGap;
-        marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxTickWidth, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
+        marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxTickWidth, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin, yTickFontSize: yTickMeasureProfile.fontSizePx, xTickFontSize: xTickMeasureProfile.fontSizePx });
         marginLocal.top += topExtra;
         // Keep enough room for rotated y-title center + glyph thickness with a small safety buffer.
         const yTitleSafetyPad = Math.max(2, Math.round((axisMetrics.yTitleGap || 0) * 0.5));
@@ -25922,8 +25953,9 @@ Technical analysis record (advanced)
     }
 
     async function renderHorizontal(){
-      const tickFont = chartStyle.makeFont(fs);
+      const tickFont = xTickMeasureProfile.fontSpec;
       const axisLabelFont = chartStyle.makeFont(fs);
+      const xTickFontSize = Number.isFinite(Number(xTickMeasureProfile.fontSizePx)) ? Number(xTickMeasureProfile.fontSizePx) : fs;
       const categoryWidths = labelTexts.map(lbl => chartStyle.measureText(lbl, axisLabelFont));
       const maxCategoryWidth = Math.max(...categoryWidths, 0);
       const tickLen = axisMetrics.tickLength;
@@ -25934,7 +25966,7 @@ Technical analysis record (advanced)
       marginLocal.top = Math.max(marginLocal.top, fs * 2);
       marginLocal.left = Math.max(marginLocal.left, maxCategoryWidth + tickLen + tickGap + fs * 0.5);
       marginLocal.right = Math.max(marginLocal.right, rightExtra + fs);
-      marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + fs + axisMetrics.axisTitleGap + fs);
+      marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
       const xIntervalSetting = getAxisTickInterval('x');
@@ -26982,7 +27014,7 @@ Technical analysis record (advanced)
         chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
       }
       const defaultXLabelX = marginLocal.left + plotWLocal / 2;
-      const defaultXLabelY = xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8;
+      const defaultXLabelY = xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + xTickFontSize * 0.8;
       const xLabelPos = state.labelPositions?.xLabel;
       
       // Convert relative positions to absolute if needed for xLabel
@@ -29410,6 +29442,7 @@ Technical analysis record (advanced)
     state.scheduleDraw = scheduleDrawBoxRaw;
     console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: false }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
+    ensureBoxFontEventListener();
     syncBoxDefaultColorSchemeForFormat(state.tableFormat);
     ensureEmptyPayloadTemplate();
     box.ready = true;

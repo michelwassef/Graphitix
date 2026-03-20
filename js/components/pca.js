@@ -3483,6 +3483,7 @@
   }
 
   let scheduleDrawPcaRaw = () => {};
+  let pcaFontEventBound = false;
   let pendingDrawOptions = {};
   let pcaDataDrawTimer = null;
   const PCA_DATA_DRAW_DEBOUNCE_SMALL_MS = 24;
@@ -4079,6 +4080,27 @@
     if(reason){ options.reason = reason; }
     scheduleDrawPca(options);
   }
+
+  function isPcaFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'pca' || storeKey.startsWith('pca::');
+  }
+
+  function ensurePcaFontEventListener(){
+    if(pcaFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isPcaFontStyleEvent(detail)){
+        return;
+      }
+      requestPcaViewRefresh('font-style-change');
+    });
+    pcaFontEventBound = true;
+  }
+
   const pcaUndoManager = Shared.undoManager || null;
   function recordPcaChange(label, previous, next, apply){
     if(!pcaUndoManager || typeof pcaUndoManager.recordStateChange !== 'function'){
@@ -9228,7 +9250,10 @@
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
         ? chartStyle.resolveScopedLabelMeasureFont({ styles: pcaFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
         : chartStyle.makeFont(fs);
-      const tickFont = chartStyle.makeFont(fs);
+      const yTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+        ? chartStyle.resolveScopedLabelMeasureFont({ styles: pcaFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
+        : chartStyle.makeFont(fs);
+      const tickFont = yTickMeasureFont;
       const axisLabelFont = chartStyle.makeFont(fs);
       const yTitleWidthBase = chartStyle.measureText(pcaYLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
@@ -9274,7 +9299,7 @@
         yTickLabels = yScale.ticks.map(t => formatTick(t));
         const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
         maxYLabelWidth = Math.max(...yLabelWidths, 0);
-        const xLabelWidths = xTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+        const xLabelWidths = xTickLabels.map(lbl => chartStyle.measureText(lbl, xTickMeasureFont));
         maxXLabelWidth = Math.max(...xLabelWidths, 0);
         margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth: effectiveLegendWidth, maxYLabelWidth, yTitleWidth: yTitleWidthBase, axisMetrics});
         margin.left = Math.max(margin.left, maxYLabelWidth + tickLen + tickGap + fs * 0.5);
@@ -10681,6 +10706,7 @@
     };
     scheduleDrawPcaRaw = schedulePcaInstrumented;
     pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
+    ensurePcaFontEventListener();
     debugLog('Debug: pca scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     pca.save = savePcaFile;
     pca.saveAs = saveAsPcaFile;

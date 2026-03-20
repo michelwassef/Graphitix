@@ -347,6 +347,38 @@
   let histDataViewsManager = null;
   let histDataToolbarBound = false;
   let histDataToolbarLastActivation = 0;
+  let histFontEventBound = false;
+
+  function scheduleHistViewRefresh(reason){
+    if(typeof state.scheduleDraw !== 'function'){
+      return;
+    }
+    state.scheduleDraw({
+      viewOnly: true,
+      reason: reason || 'hist-view-refresh'
+    });
+  }
+
+  function isHistFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'hist' || storeKey.startsWith('hist::');
+  }
+
+  function ensureHistFontEventListener(){
+    if(histFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isHistFontStyleEvent(detail)){
+        return;
+      }
+      scheduleHistViewRefresh('font-style-change');
+    });
+    histFontEventBound = true;
+  }
+
   const histOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'hist',
     message: 'Rendering histogram...',
@@ -3246,7 +3278,10 @@
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: histFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
       : chartStyle.makeFont(fs);
-    const tickFont=chartStyle.makeFont(fs);
+    const yTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: histFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
+      : chartStyle.makeFont(fs);
+    const tickFont=yTickMeasureFont;
     const axisLabelFont=chartStyle.makeFont(fs);
     const yTitleWidthBase=chartStyle.measureText(state.yLabelText,axisLabelFont);
     const tickLen=axisMetrics.tickLength;
@@ -4025,6 +4060,7 @@
     }
     console.debug('Debug: hist scheduleDraw configured via Shared.debounceFrame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    ensureHistFontEventListener();
     ensureEmptyPayloadTemplate();
     hist.ready = true;
   };

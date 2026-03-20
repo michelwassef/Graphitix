@@ -559,6 +559,37 @@
     gridStyle: null,
     labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
   };
+  let survivalFontEventBound = false;
+
+  function scheduleSurvivalViewRefresh(reason){
+    if(typeof state.scheduleDraw !== 'function'){
+      return;
+    }
+    state.scheduleDraw({
+      viewOnly: true,
+      reason: reason || 'survival-view-refresh'
+    });
+  }
+
+  function isSurvivalFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'survival' || storeKey.startsWith('survival::');
+  }
+
+  function ensureSurvivalFontEventListener(){
+    if(survivalFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isSurvivalFontStyleEvent(detail)){
+        return;
+      }
+      scheduleSurvivalViewRefresh('font-style-change');
+    });
+    survivalFontEventBound = true;
+  }
 
   function recordSurvivalChange(label, previous, next, apply){
     if(!survivalUndoManager || typeof survivalUndoManager.recordStateChange !== 'function'){
@@ -3461,8 +3492,10 @@
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: survivalFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
       : (chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`);
-
-    const tickFont = chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`;
+    const yTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: survivalFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
+      : (chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`);
+    const tickFont = yTickMeasureFont;
     let margin = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
       fontSize: fs,
       legendWidth,
@@ -4933,6 +4966,7 @@
     initNotes();
     initExampleAndImport();
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    ensureSurvivalFontEventListener();
     state.layout?.syncPanels?.();
     initExportsAndFiles();
     renderSurvivalStatsAdvisor({

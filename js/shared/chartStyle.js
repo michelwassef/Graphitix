@@ -1052,6 +1052,26 @@
     return numeric;
   }
 
+  function extractFontSizePxFromFontSpec(fontSpec, fallbackPx){
+    const fallback = Number.isFinite(fallbackPx) && fallbackPx > 0 ? fallbackPx : 12;
+    if(typeof fontSpec !== 'string'){
+      return fallback;
+    }
+    const raw = fontSpec.trim();
+    if(!raw){
+      return fallback;
+    }
+    const matches = raw.match(/(-?\d*\.?\d+)\s*(px|pt)\b/ig);
+    if(!matches || !matches.length){
+      return fallback;
+    }
+    const token = String(matches[matches.length - 1] || '').trim();
+    if(!token){
+      return fallback;
+    }
+    return parseFontSizePx(token, fallback);
+  }
+
   chartStyle.resolveScopedLabelMeasureFont = function resolveScopedLabelMeasureFont(options){
     const opts = options || {};
     const styles = opts.styles && typeof opts.styles === 'object' ? opts.styles : null;
@@ -1376,11 +1396,15 @@
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
     const baseLabelOffset = tickLength + tickLabelGap;
-    const labelOffset = baseLabelOffset + fontSize;
-    const titleOffset = labelOffset + axisTitleGap + fontSize;
-    const baseBottom = options?.baseBottom || Math.max(titleOffset + outerPadding, Math.round(fontSize * BASE_BOTTOM_FACTOR) + fontSize + 8);
     const customMeasureFontRaw = typeof options?.labelMeasureFont === 'string' ? options.labelMeasureFont.trim() : '';
     const labelMeasureFont = customMeasureFontRaw || chartStyle.makeFont(fontSize);
+    const explicitLabelFontSize = Number(options?.labelFontSizePx);
+    const tickLabelFontSize = (Number.isFinite(explicitLabelFontSize) && explicitLabelFontSize > 0)
+      ? explicitLabelFontSize
+      : extractFontSizePxFromFontSpec(labelMeasureFont, fontSize);
+    const adjustedLabelOffset = baseLabelOffset + tickLabelFontSize;
+    const titleOffset = adjustedLabelOffset + axisTitleGap + fontSize;
+    const baseBottom = options?.baseBottom || Math.max(titleOffset + outerPadding, Math.round(fontSize * BASE_BOTTOM_FACTOR) + tickLabelFontSize + 8);
     const widths = labels.map(label => chartStyle.measureText(label || '', labelMeasureFont));
     const maxLabelWidth = widths.length ? Math.max(...widths) : 0;
     const bandWidth = labels.length ? plotWidth / labels.length : plotWidth;
@@ -1428,7 +1452,7 @@
             : (maxAdjacentOverlapRatio > enterRatio)
         )
       : false;
-    const rotatedExtra = Math.min(220, Math.max(fontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + fontSize));
+    const rotatedExtra = Math.min(220, Math.max(tickLabelFontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + tickLabelFontSize));
     const extra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
     const bottom = Math.max(baseBottom, titleOffset + outerPadding + extra);
     console.debug('Debug: chartStyle.computeBottomLayout', {
@@ -1444,14 +1468,15 @@
       exitRatio,
       reserveRotatedLabelSpace,
       labelMeasureFont,
+      tickLabelFontSize,
       extra,
       rotatedExtra,
       bottom,
-      labelOffset,
+      labelOffset: adjustedLabelOffset,
       titleOffset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, labelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont};
+    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, labelOffset: adjustedLabelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
   };
 
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
@@ -2021,6 +2046,10 @@
     const legendWidth = options?.legendWidth || 0;
     const maxYLabelWidth = options?.maxYLabelWidth || 0;
     const yTitleWidth = options?.yTitleWidth || 0;
+    const yTickFontSizeRaw = Number(options?.yTickFontSize);
+    const yTickFontSize = Number.isFinite(yTickFontSizeRaw) && yTickFontSizeRaw > 0 ? yTickFontSizeRaw : fontSize;
+    const xTickFontSizeRaw = Number(options?.xTickFontSize);
+    const xTickFontSize = Number.isFinite(xTickFontSizeRaw) && xTickFontSizeRaw > 0 ? xTickFontSizeRaw : fontSize;
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
     const tickLength = axisMetrics.tickLength ?? 6;
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
@@ -2028,16 +2057,18 @@
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
     const yTitleGap = axisMetrics.yTitleGap ?? Math.max(4, Math.round(fontSize * 0.5));
     const top = Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR));
-    const leftBase = maxYLabelWidth + tickLength + tickLabelGap + fontSize + outerPadding;
+    const leftBase = maxYLabelWidth + tickLength + tickLabelGap + yTickFontSize + outerPadding;
     const left = Math.max(56, Math.round(fontSize * 3.2), leftBase, yTitleWidth * 0.5 + yTitleGap + outerPadding);
     const right = 24 + legendWidth;
-    const bottomSpacing = tickLength + tickLabelGap + fontSize + axisTitleGap + fontSize + outerPadding;
+    const bottomSpacing = tickLength + tickLabelGap + xTickFontSize + axisTitleGap + fontSize + outerPadding;
     const bottom = Math.max(bottomSpacing, Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR)) + fontSize * 0.5);
     console.debug('Debug: chartStyle.computeBaseMargins', {
       fontSize,
       legendWidth,
       maxYLabelWidth,
       yTitleWidth,
+      xTickFontSize,
+      yTickFontSize,
       axisMetrics,
       top,
       left,

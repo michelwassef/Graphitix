@@ -307,6 +307,38 @@
       phase: null
     }
   };
+  let pieFontEventBound = false;
+
+  function schedulePieViewRefresh(reason){
+    if(typeof state.scheduleDraw !== 'function'){
+      return;
+    }
+    state.scheduleDraw({
+      viewOnly: true,
+      reason: reason || 'pie-view-refresh'
+    });
+  }
+
+  function isPieFontStyleEvent(detail){
+    const scopeId = detail?.scopeId || null;
+    const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
+    return scopeId === 'pie' || storeKey.startsWith('pie::');
+  }
+
+  function ensurePieFontEventListener(){
+    if(pieFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      const detail = event?.detail || {};
+      if(!isPieFontStyleEvent(detail)){
+        return;
+      }
+      schedulePieViewRefresh('font-style-change');
+    });
+    pieFontEventBound = true;
+  }
+
   const pieUndoManager = Shared.undoManager || null;
   function recordPieChange(label, previous, next, apply){
     if(!pieUndoManager || typeof pieUndoManager.recordStateChange !== 'function'){
@@ -1262,7 +1294,10 @@
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
         ? chartStyle.resolveScopedLabelMeasureFont({ styles: pieFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
         : chartStyle.makeFont(fs);
-      const tickFont=chartStyle.makeFont(fs);
+      const yTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+        ? chartStyle.resolveScopedLabelMeasureFont({ styles: pieFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
+        : chartStyle.makeFont(fs);
+      const tickFont=yTickMeasureFont;
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       const maxYLabelWidth=Math.max(...yLabelWidths,0);
       const axisLabelFont=chartStyle.makeFont(fs);
@@ -1944,6 +1979,7 @@
     initControls();
     initNotes();
     state.scheduleDraw = Shared.debounceFrame(draw);
+    ensurePieFontEventListener();
     console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
     ensureEmptyPayloadTemplate();

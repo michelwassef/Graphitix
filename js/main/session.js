@@ -533,6 +533,79 @@
     return true;
   }
 
+  function isPcaDefaultLabelFlagValue(value) {
+    if (value === null || value === undefined) {
+      return true;
+    }
+    if (typeof value === 'boolean') {
+      return value === false;
+    }
+    if (typeof value === 'number') {
+      return value === 0;
+    }
+    if (typeof value === 'string') {
+      const text = value.trim().toLowerCase();
+      return text === '' || text === 'false' || text === '0';
+    }
+    return false;
+  }
+
+  function pcaTabHasMeaningfulData(matrix, tableFormat, tabId) {
+    if (!Array.isArray(matrix)) {
+      return false;
+    }
+    const grouped = tableFormat === 'grouped';
+    const labelRowIndex = 0;
+    const groupRowIndex = 1;
+    const sampleRowIndex = grouped ? 2 : 1;
+    const dataStartRow = grouped ? 3 : 2;
+
+    for (let r = dataStartRow; r < matrix.length; r += 1) {
+      const row = matrix[r];
+      if (!Array.isArray(row)) {
+        continue;
+      }
+      for (let c = 0; c < row.length; c += 1) {
+        if (hasMeaningfulCellValue(row[c])) {
+          console.debug('Debug: pca tab data detected in matrix body', { tabId, rowIndex: r, colIndex: c });
+          return true;
+        }
+      }
+    }
+
+    const sampleRow = Array.isArray(matrix[sampleRowIndex]) ? matrix[sampleRowIndex] : [];
+    for (let c = 1; c < sampleRow.length; c += 1) {
+      if (hasMeaningfulCellValue(sampleRow[c])) {
+        console.debug('Debug: pca tab data detected in sample header row', { tabId, rowIndex: sampleRowIndex, colIndex: c });
+        return true;
+      }
+    }
+
+    if (grouped) {
+      const groupRow = Array.isArray(matrix[groupRowIndex]) ? matrix[groupRowIndex] : [];
+      for (let c = 1; c < groupRow.length; c += 1) {
+        if (hasMeaningfulCellValue(groupRow[c])) {
+          console.debug('Debug: pca tab data detected in group header row', { tabId, rowIndex: groupRowIndex, colIndex: c });
+          return true;
+        }
+      }
+    }
+
+    const labelRow = Array.isArray(matrix[labelRowIndex]) ? matrix[labelRowIndex] : [];
+    for (let c = 1; c < labelRow.length; c += 1) {
+      if (!isPcaDefaultLabelFlagValue(labelRow[c])) {
+        console.debug('Debug: pca tab data detected in label-point row', { tabId, rowIndex: labelRowIndex, colIndex: c });
+        return true;
+      }
+    }
+
+    console.debug('Debug: pca tab considered empty after structural row check', {
+      tabId,
+      tableFormat: grouped ? 'grouped' : 'standard'
+    });
+    return false;
+  }
+
   function tabHasTableData(tab) {
     const tabId = tab?.id || null;
     if (!tab || !tab.payload) {
@@ -559,6 +632,16 @@
         // otherwise fall through to generic inspection
       } catch (err) {
         console.debug('Debug: venn empty-check error', { tabId, err });
+      }
+    }
+    if (tab.type === 'pca') {
+      try {
+        const matrix = tab.payload.data;
+        if (Array.isArray(matrix)) {
+          return pcaTabHasMeaningfulData(matrix, tab.payload?.config?.tableFormat, tabId);
+        }
+      } catch (err) {
+        console.debug('Debug: pca empty-check error', { tabId, err });
       }
     }
     // General header-detection heuristic for table-like payloads across
