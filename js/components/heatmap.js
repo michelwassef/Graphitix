@@ -5442,6 +5442,7 @@
     };
     const rowLabelFontSizes = orderedRowLabels.map((_, index) => resolveLabelFontSize(`row-label-${index}`, baseLabelFontSize));
     const columnLabelFontSizes = orderedColumnLabels.map((_, index) => resolveLabelFontSize(`column-label-${index}`, baseLabelFontSize));
+    const titleFontSize = resolveLabelFontSize('graphTitle', Number.isFinite(graphFontSize) ? graphFontSize : scaledFontSize);
     const maxRowLabelFontSize = rowLabelFontSizes.reduce((acc, value) => Math.max(acc, value), baseLabelFontSize);
     const maxColumnLabelFontSize = columnLabelFontSizes.reduce((acc, value) => Math.max(acc, value), baseLabelFontSize);
     // Define label measurement helpers early for margin calculation
@@ -5465,8 +5466,8 @@
     let marginRight = 120;
     let marginBottom = 120;
     const outerPadding = Math.max(24, Math.round(scaledFontSize * 1.25));
-    const titleGap = Math.max(8, Math.round(scaledFontSize * 0.6));
-    const titleHeight = Math.max(16, Math.round(scaledFontSize * 1.1));
+    const titleGap = Math.max(8, Math.round(titleFontSize * 0.6));
+    const titleHeight = Math.max(16, Math.round(titleFontSize * 1.1));
     const matrixLeft = outerPadding;
     const matrixTop = outerPadding + titleHeight + titleGap;
     const dendroHeatmapGap = 0;
@@ -5594,7 +5595,7 @@
     title.setAttribute('x', String(absoluteTitleX));
     title.setAttribute('y', String(absoluteTitleY));
     title.setAttribute('text-anchor', 'middle');
-    title.setAttribute('font-size', String(scaledFontSize));
+    title.setAttribute('font-size', String(titleFontSize));
     title.textContent = state.titleText != null ? String(state.titleText) : 'Heatmap';
     markFontEditable(title, 'graphTitle', 'graphTitle');
     const applyHeatmapTitle = value => {
@@ -6143,8 +6144,31 @@
           )
           : (Number.isFinite(rawScaleYNow) && rawScaleYNow > 0 ? rawScaleYNow : 1);
         const overlapViewUnits = overlapPx / Math.max(1e-6, effectiveScaleY);
-        nextExtraRow += overlapViewUnits + safety;
-        needsReflow = true;
+        const currentTitleY = Number(title.getAttribute('y'));
+        if(Number.isFinite(currentTitleY)){
+          const minTitleY = Math.max(
+            Math.ceil(titleFontSize + 2),
+            Math.round(outerPadding * 0.35)
+          );
+          const nextTitleY = Math.max(minTitleY, currentTitleY - overlapViewUnits - safety);
+          if(nextTitleY < currentTitleY){
+            title.setAttribute('y', String(nextTitleY));
+            if(state.labelPositions?.title){
+              state.labelPositions.title.y = nextTitleY;
+              state.labelPositions.title.relY = nextTitleY / Math.max(matrixTop, 1);
+            }
+            debugLog('Debug: heatmap title clearance adjusted', {
+              overlapPx,
+              overlapViewUnits,
+              currentTitleY,
+              nextTitleY,
+              minTitleY
+            });
+          }
+        }else{
+          nextExtraRow += overlapViewUnits + safety;
+          needsReflow = true;
+        }
       }
       if(columnLabelBounds && Number.isFinite(columnLabelBounds.minY) && columnLabelBounds.minY < 0.5){
         const overflow = 0.5 - columnLabelBounds.minY;
@@ -6186,6 +6210,133 @@
         return;
       }
     }
+    const finalSvgRect = state.svg?.getBoundingClientRect?.();
+    applyTextAspectCorrection({
+      svg: state.svg,
+      svgBox,
+      viewBoxWidth: state.svg?.viewBox?.baseVal?.width ?? totalWidth,
+      viewBoxHeight: state.svg?.viewBox?.baseVal?.height ?? totalHeight,
+      displayWidth: finalSvgRect?.width,
+      displayHeight: finalSvgRect?.height,
+      debugLabel: 'heatmap-text-correction-final',
+      textScaleMode: HEATMAP_TEXT_SCALE_MODE
+    });
+    ensureGraphViewport(state.svg, {
+      padding: Math.max(fontSize, 16),
+      minWidth: totalWidth,
+      minHeight: totalHeight,
+      debugLabel: 'heatmap-graph-final',
+      remeasure: false
+    });
+    const ensureTitleColumnLabelClearance = () => {
+      if(!title || !columnLabelGroup || typeof title.getBoundingClientRect !== 'function'){
+        return false;
+      }
+      const columnLabelNodes = columnLabelGroup.querySelectorAll ? columnLabelGroup.querySelectorAll('text') : null;
+      if(!columnLabelNodes || !columnLabelNodes.length){
+        return false;
+      }
+      const minGapPx = Math.max(6, Math.round(Math.max(baseLabelFontSize, titleFontSize) * 0.35));
+      let adjusted = false;
+      for(let pass = 0; pass < 2; pass += 1){
+        const titleBounds = (() => {
+          try{
+            return title.getBoundingClientRect();
+          }catch(err){
+            return null;
+          }
+        })();
+        const columnBounds = measureTextScreenBounds(columnLabelNodes);
+        if(!titleBounds || !columnBounds){
+          break;
+        }
+        if(!Number.isFinite(titleBounds.bottom) || !Number.isFinite(columnBounds.minY)){
+          break;
+        }
+        const overlapPx = (titleBounds.bottom + minGapPx) - columnBounds.minY;
+        if(!(overlapPx > 0.5)){
+          break;
+        }
+        const rectNow = state.svg?.getBoundingClientRect ? state.svg.getBoundingClientRect() : finalSvgRect;
+        const viewScaleNow = typeof chartStyle.computeViewBoxScale === 'function'
+          ? chartStyle.computeViewBoxScale({
+            svg: state.svg,
+            svgBox,
+            viewBoxWidth: state.svg?.viewBox?.baseVal?.width ?? totalWidth,
+            viewBoxHeight: state.svg?.viewBox?.baseVal?.height ?? totalHeight,
+            displayWidth: rectNow?.width,
+            displayHeight: rectNow?.height,
+            debugLabel: `heatmap-title-clearance-final-${pass}`
+          })
+          : null;
+        const rawScaleXNow = Number(viewScaleNow?.scaleX);
+        const rawScaleYNow = Number(viewScaleNow?.scaleY);
+        const effectiveScaleY = aspectLocked
+          ? Math.min(
+            Number.isFinite(rawScaleXNow) && rawScaleXNow > 0 ? rawScaleXNow : 1,
+            Number.isFinite(rawScaleYNow) && rawScaleYNow > 0 ? rawScaleYNow : 1
+          )
+          : (Number.isFinite(rawScaleYNow) && rawScaleYNow > 0 ? rawScaleYNow : 1);
+        let remainingShiftView = overlapPx / Math.max(1e-6, effectiveScaleY);
+        const currentTitleY = Number(title.getAttribute('y'));
+        if(Number.isFinite(currentTitleY)){
+          const minTitleY = Math.max(
+            Math.ceil(titleFontSize + 2),
+            Math.round(outerPadding * 0.35)
+          );
+          const nextTitleY = Math.max(minTitleY, currentTitleY - remainingShiftView);
+          const shiftedTitle = currentTitleY - nextTitleY;
+          if(shiftedTitle > 0.01){
+            title.setAttribute('y', String(nextTitleY));
+            if(state.labelPositions?.title){
+              state.labelPositions.title.y = nextTitleY;
+              state.labelPositions.title.relY = nextTitleY / Math.max(matrixTop, 1);
+            }
+            remainingShiftView = Math.max(0, remainingShiftView - shiftedTitle);
+            adjusted = true;
+          }
+        }
+        if(remainingShiftView > 0.01){
+          const currentShift = Number(g.dataset?.heatmapTitleClearanceShift || 0);
+          const nextShift = currentShift + remainingShiftView;
+          g.setAttribute('transform', `translate(0 ${nextShift})`);
+          if(g.dataset){
+            g.dataset.heatmapTitleClearanceShift = String(nextShift);
+          }
+          adjusted = true;
+        }
+        if(!adjusted){
+          break;
+        }
+        const correctedRect = state.svg?.getBoundingClientRect?.();
+        applyTextAspectCorrection({
+          svg: state.svg,
+          svgBox,
+          viewBoxWidth: state.svg?.viewBox?.baseVal?.width ?? totalWidth,
+          viewBoxHeight: state.svg?.viewBox?.baseVal?.height ?? totalHeight,
+          displayWidth: correctedRect?.width,
+          displayHeight: correctedRect?.height,
+          debugLabel: `heatmap-text-correction-clearance-${pass}`,
+          textScaleMode: HEATMAP_TEXT_SCALE_MODE
+        });
+        ensureGraphViewport(state.svg, {
+          padding: Math.max(fontSize, 16),
+          minWidth: totalWidth,
+          minHeight: totalHeight,
+          debugLabel: `heatmap-graph-clearance-${pass}`,
+          remeasure: false
+        });
+      }
+      if(adjusted){
+        debugLog('Debug: heatmap title/column clearance enforced', {
+          minGapPx,
+          titleY: Number(title.getAttribute('y')),
+          bodyShift: Number(g.dataset?.heatmapTitleClearanceShift || 0)
+        });
+      }
+      return adjusted;
+    };
+    ensureTitleColumnLabelClearance();
     state.layout?.syncPanels?.({ skipSchedule: true });
     console.debug('Debug: heatmap drawHeatmap complete', {
       rows: rowCount,
