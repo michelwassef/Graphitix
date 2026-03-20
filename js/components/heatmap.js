@@ -4854,6 +4854,52 @@
     }
   }
 
+  function resolveEmptyViewportSize(svgBox){
+    const toPositiveInt = value => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? Math.max(1, Math.round(numeric)) : NaN;
+    };
+    const dataset = svgBox?.dataset || null;
+    let width = NaN;
+    let height = NaN;
+    let source = 'unset';
+
+    if(dataset?.resizerResized === 'true'){
+      width = toPositiveInt(dataset.resizerWidth);
+      height = toPositiveInt(dataset.resizerHeight);
+      source = 'resizer-manual';
+    }
+    if((!Number.isFinite(width) || !Number.isFinite(height)) && dataset){
+      width = toPositiveInt(dataset.resizerDefaultWidth);
+      height = toPositiveInt(dataset.resizerDefaultHeight);
+      source = 'resizer-default';
+    }
+    if(!Number.isFinite(width) || !Number.isFinite(height)){
+      try{
+        const sizing = (typeof chartStyle.getSquareGraphSizing === 'function')
+          ? chartStyle.getSquareGraphSizing({ context: 'heatmap-empty', refresh: false })
+          : null;
+        width = toPositiveInt(sizing?.width);
+        height = toPositiveInt(sizing?.height);
+        source = 'chartStyle-square';
+      }catch(err){
+        console.error('heatmap resolveEmptyViewportSize chartStyle sizing error', err);
+      }
+    }
+    if((!Number.isFinite(width) || !Number.isFinite(height)) && svgBox?.getBoundingClientRect){
+      const rect = svgBox.getBoundingClientRect();
+      width = toPositiveInt(rect?.width);
+      height = toPositiveInt(rect?.height);
+      source = 'svgbox-rect';
+    }
+    if(!Number.isFinite(width) || !Number.isFinite(height)){
+      width = 400;
+      height = 400;
+      source = 'fallback';
+    }
+    return { width, height, source };
+  }
+
   function computeHeatmapTextScaleLimit(metrics, scaleX, scaleY){
     if(!metrics || !Number.isFinite(scaleX) || !Number.isFinite(scaleY)){
       return { limit: NaN, constraints: null };
@@ -5076,13 +5122,20 @@
     while(state.svg.firstChild){
       state.svg.removeChild(state.svg.firstChild);
     }
-    state.svg.setAttribute('viewBox', '0 0 400 200');
-
     const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
+    const emptyViewport = resolveEmptyViewportSize(svgBox);
+    state.svg.setAttribute('viewBox', `0 0 ${emptyViewport.width} ${emptyViewport.height}`);
     const aspectLocked = isSvgBoxAspectLocked(svgBox);
     state.svg.setAttribute('preserveAspectRatio', aspectLocked ? 'xMidYMid meet' : 'none');
-    applySvgBoxAspect(svgBox, { locked: aspectLocked, width: 400, height: 200 });
+    applySvgBoxAspect(svgBox, {
+      locked: aspectLocked,
+      width: emptyViewport.width,
+      height: emptyViewport.height
+    });
     console.debug('Debug: heatmap empty viewBox set', {
+      width: emptyViewport.width,
+      height: emptyViewport.height,
+      source: emptyViewport.source,
       aspectLocked,
       preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio')
     });
