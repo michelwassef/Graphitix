@@ -1472,6 +1472,36 @@
       return { x: clientX, y: clientY };
     };
 
+    const updateTransformForPosition = (x, y) => {
+      const transform = el.getAttribute('transform');
+      if (!transform) {
+        return;
+      }
+      // Keep matrix-based aspect correction anchored to the updated x/y so drag
+      // movement remains 1:1 with the pointer.
+      const matrixMatch = transform.match(/^\s*matrix\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*0\s*,\s*0\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*\)\s*(.*)$/i);
+      if (matrixMatch) {
+        const scaleX = Number.parseFloat(matrixMatch[1]);
+        const scaleY = Number.parseFloat(matrixMatch[2]);
+        const tail = (matrixMatch[5] || '').trim();
+        if (Number.isFinite(scaleX) && Number.isFinite(scaleY)) {
+          const tx = x - (scaleX * x);
+          const ty = y - (scaleY * y);
+          const nextMatrix = `matrix(${scaleX},0,0,${scaleY},${tx},${ty})`;
+          el.setAttribute('transform', tail ? `${nextMatrix} ${tail}` : nextMatrix);
+          return;
+        }
+      }
+      // Update transform for rotated elements (like y-axis labels)
+      if (transform.includes('rotate')) {
+        const rotateMatch = transform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
+        if (rotateMatch) {
+          const angle = rotateMatch[1];
+          el.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
+        }
+      }
+    };
+
     const handleMouseDown = (e) => {
       // Don't start drag if user is editing text
       if (el.dataset.editing === 'true') return;
@@ -1499,16 +1529,7 @@
       el.setAttribute('x', String(newX));
       el.setAttribute('y', String(newY));
       applyChildAnchors(newX);
-      // Update transform for rotated elements (like y-axis labels)
-      const transform = el.getAttribute('transform');
-      if (transform && transform.includes('rotate')) {
-        // More robust regex to handle whitespace variations in rotate transform
-        const rotateMatch = transform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
-        if (rotateMatch) {
-          const angle = rotateMatch[1];
-          el.setAttribute('transform', `rotate(${angle} ${newX} ${newY})`);
-        }
-      }
+      updateTransformForPosition(newX, newY);
     };
 
     const handleMouseUp = () => {
@@ -1528,14 +1549,7 @@
             el.setAttribute('x', String(pos.x));
             el.setAttribute('y', String(pos.y));
             applyChildAnchors(pos.x);
-            const currentTransform = el.getAttribute('transform');
-            if (currentTransform && currentTransform.includes('rotate')) {
-              const rotateMatch = currentTransform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
-              if (rotateMatch) {
-                const angle = rotateMatch[1];
-                el.setAttribute('transform', `rotate(${angle} ${pos.x} ${pos.y})`);
-              }
-            }
+            updateTransformForPosition(pos.x, pos.y);
             logDebug('enableLabelDrag apply position', { reason, x: pos.x, y: pos.y });
             return true;
           } catch (applyErr) {

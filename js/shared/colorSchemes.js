@@ -6,8 +6,11 @@
 
   const DEFAULT_SCHEME_ID = 'scientific';
   const CUSTOM_SCHEME_ID = 'custom';
+  const BASE_SCHEME_OPTION_IDS = Object.freeze(['scientific', 'soft', 'normal', 'grayscale', 'colorblind', 'dark']);
+  const SURFACE_SCHEME_OPTION_IDS = Object.freeze(['surface-viridis', 'surface-plasma', 'surface-magma', 'surface-turbo', 'surface-bluered', 'surface-grayscale', 'dark']);
   const TYPE_DEFAULT_SCHEME_IDS = Object.freeze({
-    box: 'grayscale'
+    box: 'grayscale',
+    surface: 'surface-viridis'
   });
   const DEFAULT_CLASSIC_CATEGORICAL = (() => {
     const fromShared = Array.isArray(Shared?.palette?.DEFAULT_SCATTER_COLORS) && Shared.palette.DEFAULT_SCATTER_COLORS.length
@@ -24,6 +27,13 @@
     axisColor: '#000000',
     gridColor: '#dddddd',
     borderColor: '#000000',
+    textColor: '#000000',
+    background: '#ffffff'
+  });
+  const SURFACE_LIGHT_TOKENS = Object.freeze({
+    axisColor: '#3b3b3b',
+    gridColor: '#dddddd',
+    borderColor: '#3b3b3b',
     textColor: '#000000',
     background: '#ffffff'
   });
@@ -183,6 +193,66 @@
       densityPalette: 'inferno',
       surfaceRamp: 'magma'
     }),
+    'surface-viridis': Object.freeze({
+      id: 'surface-viridis',
+      label: 'Viridis',
+      categorical: Object.freeze(['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725']),
+      sequential: Object.freeze(['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725']),
+      diverging: Object.freeze({ negative: '#440154', zero: '#21908d', positive: '#fde725' }),
+      tokens: SURFACE_LIGHT_TOKENS,
+      densityPalette: 'viridis',
+      surfaceRamp: 'viridis'
+    }),
+    'surface-plasma': Object.freeze({
+      id: 'surface-plasma',
+      label: 'Plasma',
+      categorical: Object.freeze(['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']),
+      sequential: Object.freeze(['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']),
+      diverging: Object.freeze({ negative: '#0d0887', zero: '#b12a90', positive: '#f0f921' }),
+      tokens: SURFACE_LIGHT_TOKENS,
+      densityPalette: 'plasma',
+      surfaceRamp: 'plasma'
+    }),
+    'surface-magma': Object.freeze({
+      id: 'surface-magma',
+      label: 'Magma',
+      categorical: Object.freeze(['#0c081b', '#2a115b', '#5c1f78', '#933d6c', '#c75b54', '#f48834', '#fbf671']),
+      sequential: Object.freeze(['#0c081b', '#2a115b', '#5c1f78', '#933d6c', '#c75b54', '#f48834', '#fbf671']),
+      diverging: Object.freeze({ negative: '#0c081b', zero: '#5c1f78', positive: '#fbf671' }),
+      tokens: SURFACE_LIGHT_TOKENS,
+      densityPalette: 'magma',
+      surfaceRamp: 'magma'
+    }),
+    'surface-turbo': Object.freeze({
+      id: 'surface-turbo',
+      label: 'Turbo',
+      categorical: Object.freeze(['#30123b', '#4145ab', '#2f9df4', '#43ecb0', '#fde54c', '#f45f2a', '#821529']),
+      sequential: Object.freeze(['#30123b', '#4145ab', '#2f9df4', '#43ecb0', '#fde54c', '#f45f2a', '#821529']),
+      diverging: Object.freeze({ negative: '#30123b', zero: '#43ecb0', positive: '#f45f2a' }),
+      tokens: SURFACE_LIGHT_TOKENS,
+      densityPalette: 'turbo',
+      surfaceRamp: 'turbo'
+    }),
+    'surface-bluered': Object.freeze({
+      id: 'surface-bluered',
+      label: 'Blue-Red',
+      categorical: Object.freeze(['#1f77b4', '#6baed6', '#c7e9ff', '#fee0d2', '#fcbba1', '#ef3b2c']),
+      sequential: Object.freeze(['#1f77b4', '#6baed6', '#c7e9ff', '#fee0d2', '#fcbba1', '#ef3b2c']),
+      diverging: Object.freeze({ negative: '#1f77b4', zero: '#c7e9ff', positive: '#ef3b2c' }),
+      tokens: SURFACE_LIGHT_TOKENS,
+      densityPalette: 'bluered',
+      surfaceRamp: 'bluered'
+    }),
+    'surface-grayscale': Object.freeze({
+      id: 'surface-grayscale',
+      label: 'Grayscale',
+      categorical: Object.freeze(['#000000', '#2e2e2e', '#525252', '#737373', '#969696', '#bdbdbd', '#e0e0e0', '#ffffff']),
+      sequential: Object.freeze(['#000000', '#2e2e2e', '#525252', '#737373', '#969696', '#bdbdbd', '#e0e0e0', '#ffffff']),
+      diverging: Object.freeze({ negative: '#000000', zero: '#737373', positive: '#ffffff' }),
+      tokens: SURFACE_LIGHT_TOKENS,
+      densityPalette: 'grayscale',
+      surfaceRamp: 'grayscale'
+    })
   });
 
   const TYPE_TO_PAGE = Object.freeze({
@@ -353,6 +423,11 @@
       return String(id).trim().toLowerCase();
     }
     return state.preferredByType[type] || getDefaultSchemeIdForType(type);
+  }
+
+  function normalizeSurfaceSchemeId(id){
+    const normalized = normalizePresetSchemeId(id, 'surface');
+    return SURFACE_SCHEME_OPTION_IDS.includes(normalized) ? normalized : 'surface-viridis';
   }
 
   function isScientificScheme(scheme){
@@ -1170,39 +1245,45 @@
     }
 
     if(type === 'surface'){
+      const requestedId = normalizeSurfaceSchemeId(scheme?.id);
+      const surfaceScheme = SCHEMES[requestedId] || SCHEMES.dark || scheme;
+      const scientificSurface = getScientificDefaults('surface') || {};
+      const surfaceTokens = surfaceScheme?.tokens || {};
       cfg.settings = cfg.settings && typeof cfg.settings === 'object' ? cfg.settings : {};
-      cfg.settings.colorRamp = (scientificDefaults && scientificDefaults.surfaceRamp) || scheme.surfaceRamp || cfg.settings.colorRamp;
-      if(scientificDefaults && scientificDefaults.axisColor){
-        cfg.settings.axisColor = scientificDefaults.axisColor;
-      }else if(tokens.axisColor){
-        cfg.settings.axisColor = tokens.axisColor;
-      }else if(tokens.borderColor){
-        cfg.settings.axisColor = tokens.borderColor;
+      cfg.settings.colorRamp = surfaceScheme?.surfaceRamp || (scientificDefaults && scientificDefaults.surfaceRamp) || cfg.settings.colorRamp;
+      if(surfaceTokens.axisColor){
+        cfg.settings.axisColor = surfaceTokens.axisColor;
+      }else if(surfaceTokens.borderColor){
+        cfg.settings.axisColor = surfaceTokens.borderColor;
+      }else if(scientificSurface.axisColor){
+        cfg.settings.axisColor = scientificSurface.axisColor;
       }
-      if(scientificDefaults && scientificDefaults.textColor){
-        cfg.settings.textColor = scientificDefaults.textColor;
-      }else if(tokens.textColor){
-        cfg.settings.textColor = tokens.textColor;
+      if(surfaceTokens.textColor){
+        cfg.settings.textColor = surfaceTokens.textColor;
+      }else if(scientificSurface.textColor){
+        cfg.settings.textColor = scientificSurface.textColor;
       }
-      if(scientificDefaults && scientificDefaults.backgroundColor){
-        cfg.settings.backgroundColor = scientificDefaults.backgroundColor;
-      }else if(tokens.background){
-        cfg.settings.backgroundColor = tokens.background;
+      if(surfaceTokens.background){
+        cfg.settings.backgroundColor = surfaceTokens.background;
+      }else if(scientificSurface.backgroundColor){
+        cfg.settings.backgroundColor = scientificSurface.backgroundColor;
       }
-      cfg.settings.colorScheme = scheme.id;
-      cfg.colorScheme = scheme.id;
-      if(scientificDefaults && scientificDefaults.textColor){
-        cfg.textColor = scientificDefaults.textColor;
-      }else if(tokens.textColor){
-        cfg.textColor = tokens.textColor;
+      cfg.settings.colorScheme = surfaceScheme.id;
+      cfg.colorScheme = surfaceScheme.id;
+      if(surfaceTokens.textColor){
+        cfg.textColor = surfaceTokens.textColor;
+      }else if(scientificSurface.textColor){
+        cfg.textColor = scientificSurface.textColor;
       }
-      if(scientificDefaults && scientificDefaults.backgroundColor){
-        cfg.backgroundColor = scientificDefaults.backgroundColor;
-      }else if(tokens.background){
-        cfg.backgroundColor = tokens.background;
+      if(surfaceTokens.background){
+        cfg.backgroundColor = surfaceTokens.background;
+      }else if(scientificSurface.backgroundColor){
+        cfg.backgroundColor = scientificSurface.backgroundColor;
       }
-      if(cfg.gridStyle && typeof cfg.gridStyle === 'object' && tokens.gridColor){
-        cfg.gridStyle.color = tokens.gridColor;
+      if(cfg.gridStyle && typeof cfg.gridStyle === 'object' && surfaceTokens.gridColor){
+        cfg.gridStyle.color = surfaceTokens.gridColor;
+      }else if(cfg.gridStyle && typeof cfg.gridStyle === 'object'){
+        cfg.gridStyle.color = SURFACE_LIGHT_TOKENS.gridColor;
       }
       return next;
     }
@@ -1627,10 +1708,16 @@
     if(type === 'venn'){
       return normalizePresetSchemeId(active.payload.style?.colorScheme, type);
     }
+    if(type === 'surface'){
+      return normalizeSurfaceSchemeId(active.payload.config?.colorScheme);
+    }
     return normalizePresetSchemeId(active.payload.config?.colorScheme, type);
   }
 
   function resolveDisplayedSchemeIdForType(type, options){
+    if(type === 'surface'){
+      return normalizeSurfaceSchemeId(readActiveSchemeForType(type));
+    }
     const actualSchemeId = readActiveSchemeForType(type);
     const payload = getComparisonPayload(type, options);
     if(!payload){
@@ -1770,17 +1857,22 @@
 
     const select = doc.createElement('select');
     select.id = `${type}ColorSchemeSelect`;
-    Object.keys(SCHEMES).forEach(id => {
+    const schemeIds = (type === 'surface')
+      ? SURFACE_SCHEME_OPTION_IDS
+      : BASE_SCHEME_OPTION_IDS;
+    schemeIds.forEach(id => {
       const option = doc.createElement('option');
       option.value = id;
       option.textContent = SCHEMES[id].label;
       select.appendChild(option);
     });
-    const customOption = doc.createElement('option');
-    customOption.value = CUSTOM_SCHEME_ID;
-    customOption.textContent = 'Custom';
-    customOption.disabled = true;
-    select.appendChild(customOption);
+    if(type !== 'surface'){
+      const customOption = doc.createElement('option');
+      customOption.value = CUSTOM_SCHEME_ID;
+      customOption.textContent = 'Custom';
+      customOption.disabled = true;
+      select.appendChild(customOption);
+    }
 
     const initialDisplayedSchemeId = resolveDisplayedSchemeIdForType(type);
     select.value = initialDisplayedSchemeId;
@@ -1815,7 +1907,7 @@
     pickerMenu.hidden = true;
     pickerMenu.__pickerOwner = picker;
 
-    Object.keys(SCHEMES).forEach(id => {
+    schemeIds.forEach(id => {
       const optionButton = doc.createElement('button');
       optionButton.type = 'button';
       optionButton.className = 'color-scheme-picker__option';
@@ -1828,24 +1920,29 @@
       optionButton.appendChild(optionLabel);
       pickerMenu.appendChild(optionButton);
     });
-    const customButton = doc.createElement('button');
-    customButton.type = 'button';
-    customButton.className = 'color-scheme-picker__option';
-    customButton.setAttribute('role', 'option');
-    customButton.dataset.schemeId = CUSTOM_SCHEME_ID;
-    customButton.disabled = true;
-    customButton.appendChild(renderSchemeSwatches(doc, CUSTOM_SCHEME_ID, { limit: 4 }));
-    const customLabel = doc.createElement('span');
-    customLabel.className = 'color-scheme-picker__option-label';
-    customLabel.textContent = 'Custom';
-    customButton.appendChild(customLabel);
-    pickerMenu.appendChild(customButton);
+    if(type !== 'surface'){
+      const customButton = doc.createElement('button');
+      customButton.type = 'button';
+      customButton.className = 'color-scheme-picker__option';
+      customButton.setAttribute('role', 'option');
+      customButton.dataset.schemeId = CUSTOM_SCHEME_ID;
+      customButton.disabled = true;
+      customButton.appendChild(renderSchemeSwatches(doc, CUSTOM_SCHEME_ID, { limit: 4 }));
+      const customLabel = doc.createElement('span');
+      customLabel.className = 'color-scheme-picker__option-label';
+      customLabel.textContent = 'Custom';
+      customButton.appendChild(customLabel);
+      pickerMenu.appendChild(customButton);
+    }
 
     picker.appendChild(pickerButton);
     picker.appendChild(pickerMenu);
 
     function syncPicker(displayedSchemeId){
-      const value = displayedSchemeId === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : getScheme(displayedSchemeId).id;
+      const safeDisplayed = (type === 'surface')
+        ? normalizeSurfaceSchemeId(displayedSchemeId)
+        : displayedSchemeId;
+      const value = safeDisplayed === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : getScheme(safeDisplayed).id;
       const scheme = value === CUSTOM_SCHEME_ID ? null : SCHEMES[value];
       pickerButtonLabel.textContent = value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color');
       pickerButtonSwatches.replaceChildren(renderSchemeSwatches(doc, value, { limit: 4 }));
@@ -1987,6 +2084,13 @@
     });
 
     select.addEventListener('change', () => {
+      if(type === 'surface'){
+        const selectedSurface = normalizeSurfaceSchemeId(select.value);
+        select.value = selectedSurface;
+        syncPicker(selectedSurface);
+        applySchemeToActiveTab(type, selectedSurface);
+        return;
+      }
       if(select.value === CUSTOM_SCHEME_ID){
         select.value = resolveDisplayedSchemeIdForType(type);
         return;

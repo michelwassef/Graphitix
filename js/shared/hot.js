@@ -7697,8 +7697,54 @@
         }catch(e){
           console.debug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
         }
-      }else if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: hot.js paste handler disabled', { containerId: container?.id || null, debugLabel });
+      }else{
+        const handleDocumentPasteRelay = (event)=>{
+          if(!event || event.defaultPrevented){
+            return;
+          }
+          const targetNode = resolveTargetElement(event.target);
+          if(targetNode && container.contains(targetNode)){
+            return;
+          }
+          const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(!activeEl || !container.contains(activeEl)){
+            return;
+          }
+          if(isEditableTarget(activeEl) || isInlineEditorActive()){
+            return;
+          }
+          let relayed = null;
+          try{
+            relayed = new Event('paste', { bubbles: true, cancelable: true });
+            Object.defineProperty(relayed, 'clipboardData', {
+              value: event.clipboardData || event.originalEvent?.clipboardData || null
+            });
+          }catch(err){
+            relayed = null;
+          }
+          if(!relayed){
+            return;
+          }
+          container.dispatchEvent(relayed);
+          if(relayed.defaultPrevented){
+            try{
+              event.preventDefault?.();
+              event.stopImmediatePropagation?.();
+              event.stopPropagation?.();
+            }catch(err){}
+          }
+        };
+        try{
+          doc.addEventListener('paste', handleDocumentPasteRelay, true);
+          cleanupFns.push(()=>{ try{ doc.removeEventListener('paste', handleDocumentPasteRelay, true); }catch(e){}; });
+          if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: hot.js registered document paste relay (disablePaste)', { containerId: container?.id || null, debugLabel });
+          }
+        }catch(e){
+          if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: hot.js failed to register document paste relay (disablePaste)', { message: e?.message || String(e), debugLabel });
+          }
+        }
       }
       cleanupFns.push(()=>{
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);

@@ -148,9 +148,9 @@
       fontSize: 13,
       axisStroke: 1.2,
       axisColor: '#3b3b3b',
-      textColor: chartStyle.TEXT_COLOR || '#1f2a3d',
+      textColor: '#000000',
       backgroundColor: '#ffffff',
-      colorScheme: 'scientific',
+      colorScheme: 'surface-viridis',
       showGrid: false,
       showFrame: true,
       showPoints: false,
@@ -851,7 +851,6 @@
     state.axisSelects.x = doc.getElementById('surfaceXAxis') || state.axisSelects.x;
     state.axisSelects.y = doc.getElementById('surfaceYAxis') || state.axisSelects.y;
     state.axisSelects.z = doc.getElementById('surfaceZAxis') || state.axisSelects.z;
-    state.controls.colorRamp = doc.getElementById('surfaceColorRamp') || state.controls.colorRamp;
     state.controls.interpolation = doc.getElementById('surfaceInterpolation') || state.controls.interpolation;
     state.controls.fontSize = doc.getElementById('surfaceFontSize') || state.controls.fontSize;
     state.controls.fontSizeVal = doc.getElementById('surfaceFontSizeVal') || state.controls.fontSizeVal;
@@ -861,7 +860,6 @@
     state.controls.showGrid = doc.getElementById('surfaceShowGrid') || state.controls.showGrid;
     state.controls.showFrame = doc.getElementById('surfaceShowFrame') || state.controls.showFrame;
     state.controls.showPoints = doc.getElementById('surfaceShowPoints') || state.controls.showPoints;
-    state.controls.showLegend = doc.getElementById('surfaceShowLegend') || state.controls.showLegend;
     state.controls.loadExample = doc.getElementById('surfaceLoadExample') || state.controls.loadExample;
     state.controls.importBtn = doc.getElementById('surfaceImport') || state.controls.importBtn;
     state.controls.importFile = doc.getElementById('surfaceFile') || state.controls.importFile;
@@ -1315,9 +1313,6 @@
   }
 
   function renderLegend(svg, options){
-    const pos = options.position;
-    const positionSummary = pos ? `x:${pos.x},y:${pos.y},relX:${pos.relX},relY:${pos.relY}` : 'null';
-    console.log(`SURFACE: renderLegend function called - position: ${positionSummary}, width: ${options.width}, height: ${options.height}`);
     if(!svg || !options){ return; }
     const legendTextColor = normalizeSurfaceThemeColor(
       options.textColor,
@@ -1555,7 +1550,6 @@
   }
 
   function applySettingsToControls(){
-    if(state.controls.colorRamp){ state.controls.colorRamp.value = state.settings.colorRamp; }
     if(state.controls.interpolation){ state.controls.interpolation.value = state.settings.interpolation; }
     if(state.controls.fontSize){ state.controls.fontSize.value = String(state.settings.fontSize); }
     if(state.controls.fontSize && chartStyle.renderFontSizeLabel){
@@ -1569,7 +1563,6 @@
     if(state.controls.showGrid){ state.controls.showGrid.checked = !!state.settings.showGrid; }
     if(state.controls.showFrame){ state.controls.showFrame.checked = !!state.settings.showFrame; }
     if(state.controls.showPoints){ state.controls.showPoints.checked = !!state.settings.showPoints; }
-    if(state.controls.showLegend){ state.controls.showLegend.checked = !!state.settings.showLegend; }
   }
 
   function buildExampleDataset(){
@@ -1600,15 +1593,6 @@
   function initControls(){
     cacheDom();
     applySettingsToControls();
-    const colorRampSelect = state.controls.colorRamp;
-    if(colorRampSelect){
-      attachListener(colorRampSelect, 'change', () => {
-        const value = colorRampSelect.value;
-        state.settings.colorRamp = COLOR_RAMPS[value] ? value : 'viridis';
-        debugLog('Debug: surface color ramp updated', { value: state.settings.colorRamp });
-        state.scheduleDraw();
-      });
-    }
     const interpolationSelect = state.controls.interpolation;
     if(interpolationSelect){
       attachListener(interpolationSelect, 'change', () => {
@@ -1643,7 +1627,7 @@
         state.scheduleDraw();
       });
     }
-    ['showGrid', 'showFrame', 'showPoints', 'showLegend'].forEach(key => {
+    ['showGrid', 'showFrame', 'showPoints'].forEach(key => {
       const control = state.controls[key];
       if(!control){ return; }
       attachListener(control, 'change', () => {
@@ -1854,14 +1838,17 @@
       ? normalizeSurfaceThemeColor(state.settings?.axisColor, '#d1d5db')
       : 'rgba(0,0,0,0.25)';
     const surfaceGeometryStrokeOpacity = surfaceThemeDark ? 0.65 : 1;
+    const canShowLegend = Number.isFinite(parsed.stats.zMin)
+      && Number.isFinite(parsed.stats.zMax)
+      && parsed.stats.zMin !== parsed.stats.zMax;
     const margin = {
       top: Math.max(fs * 3.2, 42),
-      right: Math.max(fs * 6.5, state.settings.showLegend ? 140 : 60),
+      right: Math.max(fs * 6.5, canShowLegend ? 140 : 60),
       bottom: Math.max(fs * 3.4, 44),
       left: Math.max(fs * 3.6, 58)
     };
     const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-      ? plot3d.resolveLegendShiftX({ legendVisible: state.settings.showLegend, margin, fontSize: fs })
+      ? plot3d.resolveLegendShiftX({ legendVisible: canShowLegend, margin, fontSize: fs })
       : 0;
     const plotWidth = Math.max(40, width - margin.left - margin.right);
     const plotHeight = Math.max(40, height - margin.top - margin.bottom);
@@ -2302,18 +2289,9 @@
         });
       }
     }
-    // Render legend and capture its dimensions for layout calculations
-    let legendDimensions = { width: 0, height: 0 };
-    if(state.settings.showLegend && Number.isFinite(parsed.stats.zMin) && Number.isFinite(parsed.stats.zMax) && parsed.stats.zMin !== parsed.stats.zMax){
+    if(canShowLegend){
       const legendPosition = state.labelPositions.legend || state.legendPosition;
-      const positionSummary = legendPosition ? `x:${legendPosition.x},y:${legendPosition.y},relX:${legendPosition.relX},relY:${legendPosition.relY}` : 'null';
-      console.log(`SURFACE: renderLegend called - position: ${positionSummary}`);
-      debugLog('Debug: surface renderLegend called', {
-        legendPosition,
-        stateLabelPositions: state.labelPositions,
-        stateLegendPosition: state.legendPosition
-      });
-      legendDimensions = renderLegend(svg, {
+      renderLegend(svg, {
         min: parsed.stats.zMin,
         max: parsed.stats.zMax,
         colorRamp: state.settings.colorRamp,
@@ -2325,9 +2303,8 @@
         textColor: surfaceTextColor,
         axisColor: state.settings.axisColor,
         position: legendPosition
-      }) || { width: 0, height: 0 };
-    } else {
-      console.log('SURFACE: removeLegend called');
+      });
+    }else{
       removeLegend(svg);
     }
     registerSurfaceGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
