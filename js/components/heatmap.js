@@ -325,6 +325,7 @@
   });
   const DEFAULT_DENDROGRAM_COLOR = '#3d3d3d';
   const DEFAULT_DENDROGRAM_THICKNESS = 1;
+  const HEATMAP_MAX_LAYOUT_REFLOW_PASSES = 1;
   const HEATMAP_CLUSTER_WORKER = {
     url: 'js/workers/heatmap.worker.js',
     minItems: 60,
@@ -5984,7 +5985,8 @@
         padding: Math.max(fontSize, 16),
         minWidth: totalWidth,
         minHeight: totalHeight,
-        debugLabel: 'heatmap-graph-corrected'
+        debugLabel: 'heatmap-graph-corrected',
+        remeasure: false
       });
       applyTextAspectCorrection({
         svg: state.svg,
@@ -6001,7 +6003,8 @@
         padding: Math.max(fontSize, 16),
         minWidth: totalWidth,
         minHeight: totalHeight,
-        debugLabel: 'heatmap-graph'
+        debugLabel: 'heatmap-graph',
+        remeasure: false
       });
       applyTextAspectCorrection({
         svg: state.svg,
@@ -6065,7 +6068,7 @@
       return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
     };
     const reflowCount = Number.isFinite(layoutAdjust?.reflowed) ? Number(layoutAdjust.reflowed) : 0;
-    const maxReflowPasses = 8;
+    const maxReflowPasses = HEATMAP_MAX_LAYOUT_REFLOW_PASSES;
     if(reflowCount < maxReflowPasses){
       const getLabelBounds = (group) => {
         if(!group){ return null; }
@@ -7260,6 +7263,7 @@
         resizeTarget: () => state.svg?.closest('.svgbox')
       },
       preserveGraphContent: false,
+      skipScheduleOnObserver: true,
       panelSyncOptions: {
         disableAutoWidthClamp: true,
         lockGraphPanelWidth: false

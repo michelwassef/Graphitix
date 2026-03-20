@@ -196,10 +196,19 @@
 
     const evaluateScheduleFlags = (options = {}) => {
       let skipSchedule = options && options.skipSchedule === true;
+      const source = typeof options?.source === 'string' ? options.source : '';
       const now = Date.now();
       const visibility = resolveVisibility();
       let forceDeferActive = false;
       let forceSkipActive = false;
+      if(source === 'observer' && config?.skipScheduleOnObserver === true && !options.forceSchedule){
+        skipSchedule = true;
+        if(isDebugEnabled()){
+          console.debug('Debug: componentLayout schedule skipped on observer source', {
+            component: componentName
+          });
+        }
+      }
       if(panelState.forceSkipSchedules > 0 && !options.forceSchedule){
         panelState.forceSkipSchedules -= 1;
         skipSchedule = true;
