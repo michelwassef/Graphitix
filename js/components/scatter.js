@@ -274,8 +274,21 @@
     useDelegatedPointEvents: true,
     dataDirty: true,
     cachedCollect: null,
-    cachedGeometry: null
+    cachedGeometry: null,
+    axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' }
   };
+  function normalizeScatterAxisLabelMode(value){
+    return String(value || '').toLowerCase() === 'manual' ? 'manual' : 'auto';
+  }
+  function normalizeScatterAxisLabelModes(value, fallback){
+    const base = (fallback && typeof fallback === 'object') ? fallback : scatterState.axisLabelModes;
+    const raw = (value && typeof value === 'object') ? value : {};
+    return {
+      x: normalizeScatterAxisLabelMode(raw.x ?? base?.x),
+      y: normalizeScatterAxisLabelMode(raw.y ?? base?.y),
+      z: normalizeScatterAxisLabelMode(raw.z ?? base?.z)
+    };
+  }
   let scatterColorSchemeId = 'scientific';
   let scatterTextColor = chartStyle.TEXT_COLOR || '#000000';
   let scatterBackgroundColor = '#ffffff';
@@ -14747,9 +14760,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             ? cachedCollect.manualLabelSignature
             : selectedRowSignature;
           extraLabelRaw = cachedCollect.extraLabelRaw || '';
-          scatterState.xLabelText = cachedCollect.xLabelText || scatterState.xLabelText;
-          scatterState.yLabelText = cachedCollect.yLabelText || scatterState.yLabelText;
-          scatterState.zLabelText = cachedCollect.zLabelText || scatterState.zLabelText;
+          if(scatterState.axisLabelModes?.x !== 'manual' && cachedCollect.xLabelText != null){
+            scatterState.xLabelText = cachedCollect.xLabelText;
+          }
+          if(scatterState.axisLabelModes?.y !== 'manual' && cachedCollect.yLabelText != null){
+            scatterState.yLabelText = cachedCollect.yLabelText;
+          }
+          if(scatterState.axisLabelModes?.z !== 'manual' && cachedCollect.zLabelText != null){
+            scatterState.zLabelText = cachedCollect.zLabelText;
+          }
           scatterXLabelText = scatterState.xLabelText;
           scatterYLabelText = scatterState.yLabelText;
           scatterZLabelText = scatterState.zLabelText;
@@ -14788,14 +14807,26 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             : yCol[0];
           extraLabelRaw = extraCol[0];
           if(graphType==='volcano'){
-            scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
+            const autoXLabel = (xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
             const basePLabel=(yLabelRaw&&String(yLabelRaw).trim())||'p-value';
-            scatterState.yLabelText=`-log10(${basePLabel})`;
+            const autoYLabel = `-log10(${basePLabel})`;
+            if(scatterState.axisLabelModes?.x !== 'manual'){
+              scatterState.xLabelText = autoXLabel;
+            }
+            if(scatterState.axisLabelModes?.y !== 'manual'){
+              scatterState.yLabelText = autoYLabel;
+            }
           }else if(graphType==='ma'){
-            scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'Mean Expression';
-            scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
+            const autoXLabel = (xLabelRaw&&String(xLabelRaw).trim())||'Mean Expression';
+            const autoYLabel = (yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
+            if(scatterState.axisLabelModes?.x !== 'manual'){
+              scatterState.xLabelText = autoXLabel;
+            }
+            if(scatterState.axisLabelModes?.y !== 'manual'){
+              scatterState.yLabelText = autoYLabel;
+            }
           }else{
-            scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
+            const autoXLabel = (xLabelRaw&&String(xLabelRaw).trim())||'X';
             const normalizedYLabel = yLabelRaw && String(yLabelRaw).trim();
             const yLooksLikeReplicate = /^rep(?:licate)?\s*\d+$/i.test(normalizedYLabel || '');
             const yMatchesGroupedLabel = groupedScatterActive
@@ -14804,11 +14835,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 const label = group?.label == null ? '' : String(group.label).trim();
                 return !!label && normalizedYLabel && label.toLowerCase() === normalizedYLabel.toLowerCase();
               });
-            scatterState.yLabelText = (!groupedScatterActive || (!yLooksLikeReplicate && !yMatchesGroupedLabel))
+            const autoYLabel = (!groupedScatterActive || (!yLooksLikeReplicate && !yMatchesGroupedLabel))
               ? (normalizedYLabel || 'Y')
               : 'Y';
             const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
-            scatterState.zLabelText = zHeader || 'Z';
+            const autoZLabel = zHeader || 'Z';
+            if(scatterState.axisLabelModes?.x !== 'manual'){
+              scatterState.xLabelText = autoXLabel;
+            }
+            if(scatterState.axisLabelModes?.y !== 'manual'){
+              scatterState.yLabelText = autoYLabel;
+            }
+            if(scatterState.axisLabelModes?.z !== 'manual'){
+              scatterState.zLabelText = autoZLabel;
+            }
           }
           scatterXLabelText = scatterState.xLabelText;
           scatterYLabelText = scatterState.yLabelText;
@@ -16198,16 +16238,28 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                   if(didChange){
                     scatterState.xLabelText = resolved;
                     scatterXLabelText = resolved;
+                    scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
+                      ...scatterState.axisLabelModes,
+                      x: 'manual'
+                    }, scatterState.axisLabelModes);
                   }
                 }else if(axisKey === 'y'){
                   if(didChange){
                     scatterState.yLabelText = resolved;
                     scatterYLabelText = resolved;
+                    scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
+                      ...scatterState.axisLabelModes,
+                      y: 'manual'
+                    }, scatterState.axisLabelModes);
                   }
                 }else{
                   if(didChange){
                     scatterState.zLabelText = resolved;
                     scatterZLabelText = resolved;
+                    scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
+                      ...scatterState.axisLabelModes,
+                      z: 'manual'
+                    }, scatterState.axisLabelModes);
                   }
                 }
                 syncScatterAxisHeader(axisKey, resolved, { source: 'scatter-axis-inline' });
@@ -18266,6 +18318,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const applyScatterXLabel=value=>{
           const nextValue=value!=null?String(value):'';
           scatterState.xLabelText=nextValue;
+          scatterXLabelText=nextValue;
+          scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
+            ...scatterState.axisLabelModes,
+            x: 'manual'
+          }, scatterState.axisLabelModes);
           if(xText.textContent!==nextValue){
             xText.textContent=nextValue;
           }
@@ -18569,6 +18626,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const applyScatterYLabel=value=>{
           const nextValue=value!=null?String(value):'';
           scatterState.yLabelText=nextValue;
+          scatterYLabelText=nextValue;
+          scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
+            ...scatterState.axisLabelModes,
+            y: 'manual'
+          }, scatterState.axisLabelModes);
           if(yText.textContent!==nextValue){
             yText.textContent=nextValue;
           }
@@ -19694,6 +19756,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             xLabel:scatterState.xLabelText,
             yLabel:scatterState.yLabelText,
             zLabel:scatterState.zLabelText,
+            axisLabelModes: normalizeScatterAxisLabelModes(scatterState.axisLabelModes, { x: 'auto', y: 'auto', z: 'auto' }),
             dotSize:scatterDotSize.value,
             fill:scatterFill.value,
             colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
@@ -19943,10 +20006,32 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           notesState.control.setOpen(notesState.open);
         }
         importFontStyles('scatter', c.fontStyles || null);
-        scatterTitleText=c.title||scatterTitleText;
-        scatterXLabelText=c.xLabel||scatterXLabelText;
-        scatterYLabelText=c.yLabel||scatterYLabelText;
-        scatterZLabelText=c.zLabel||scatterZLabelText;
+        if(c.title !== undefined){
+          scatterTitleText = c.title != null ? String(c.title) : '';
+        }
+        if(c.xLabel !== undefined){
+          scatterXLabelText = c.xLabel != null ? String(c.xLabel) : '';
+          scatterState.xLabelText = scatterXLabelText;
+        }
+        if(c.yLabel !== undefined){
+          scatterYLabelText = c.yLabel != null ? String(c.yLabel) : '';
+          scatterState.yLabelText = scatterYLabelText;
+        }
+        if(c.zLabel !== undefined){
+          scatterZLabelText = c.zLabel != null ? String(c.zLabel) : '';
+          scatterState.zLabelText = scatterZLabelText;
+        }
+        if(c.axisLabelModes && typeof c.axisLabelModes === 'object'){
+          scatterState.axisLabelModes = normalizeScatterAxisLabelModes(c.axisLabelModes, scatterState.axisLabelModes);
+        }else if(styleOnly){
+          const styleAxisModes = {};
+          if(c.xLabel !== undefined){ styleAxisModes.x = 'manual'; }
+          if(c.yLabel !== undefined){ styleAxisModes.y = 'manual'; }
+          if(c.zLabel !== undefined){ styleAxisModes.z = 'manual'; }
+          if(Object.keys(styleAxisModes).length){
+            scatterState.axisLabelModes = normalizeScatterAxisLabelModes(styleAxisModes, scatterState.axisLabelModes);
+          }
+        }
         scatterDotSize.value=c.dotSize||scatterDotSize.value;
         scatterFill.value=c.fill||scatterFill.value;
         if(scatterColorMode){

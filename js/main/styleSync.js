@@ -259,6 +259,10 @@
           setIfDefined(configPatch, 'title', cfg.title);
           setIfDefined(configPatch, 'xLabel', cfg.xLabel);
           setIfDefined(configPatch, 'yLabel', cfg.yLabel);
+          setIfDefined(configPatch, 'zLabel', cfg.zLabel);
+          if (cfg.axisLabelModes && typeof cfg.axisLabelModes === 'object') {
+            configPatch.axisLabelModes = cloneValue(cfg.axisLabelModes);
+          }
           return { config: configPatch };
         },
         layout: () => ({ layout: true })
@@ -325,6 +329,7 @@
           setIfDefined(configPatch, 'title', cfg.title);
           setIfDefined(configPatch, 'xLabel', cfg.xLabel);
           setIfDefined(configPatch, 'yLabel', cfg.yLabel);
+          setIfDefined(configPatch, 'zLabel', cfg.zLabel);
           return { config: configPatch };
         },
         layout: () => ({ layout: true })
@@ -514,9 +519,9 @@
           'config.scale', 'config.equalAxes', 'config.equalScaleAxes', 'config.axesVarianceScaled',
           'config.grouped.colors', 'config.grouped.shapes'
         ]),
-        axes: payload => pickPaths(payload || {}, ['config.axis']),
+        axes: payload => pickPaths(payload || {}, ['config.axis', 'config.axisSelection']),
         fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
-        titles: payload => pickPaths(payload || {}, ['config.labels.title']),
+        titles: payload => pickPaths(payload || {}, ['config.labels.title', 'config.axisSelection']),
         layout: () => ({ layout: true })
       }
     },
@@ -671,7 +676,7 @@
     let sourcePatch = null;
     let defaultPatch = null;
     let absolutePatch = null;
-    const absoluteGroups = new Set(['titles']);
+    const absoluteGroups = new Set(['titles', 'axes']);
     activeGroups.forEach(group => {
       const handler = schema.groups[group];
       if (typeof handler === 'function') {
