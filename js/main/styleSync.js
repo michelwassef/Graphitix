@@ -14,7 +14,8 @@
     renderTabs: null,
     dom: {},
     isOpen: false,
-    activeSourceId: null
+    activeSourceId: null,
+    defaultPayloadCache: {}
   };
 
   function debugLog(label, payload) {
@@ -73,6 +74,123 @@
     return Object.prototype.hasOwnProperty.call(obj, key);
   }
 
+  function deepEqual(a, b) {
+    if (a === b) return true;
+    if (a === null || b === null) return a === b;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b)) return false;
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i += 1) {
+        if (!deepEqual(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    if (typeof a === 'object' || typeof b === 'object') {
+      if (typeof a !== 'object' || typeof b !== 'object') return false;
+      const aKeys = Object.keys(a);
+      const bKeys = Object.keys(b);
+      if (aKeys.length !== bKeys.length) return false;
+      for (let i = 0; i < aKeys.length; i += 1) {
+        const key = aKeys[i];
+        if (!hasOwn(b, key)) return false;
+        if (!deepEqual(a[key], b[key])) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function getPathValue(obj, path) {
+    const parts = String(path || '').split('.').filter(Boolean);
+    let cursor = obj;
+    for (let i = 0; i < parts.length; i += 1) {
+      if (!cursor || typeof cursor !== 'object') return undefined;
+      cursor = cursor[parts[i]];
+    }
+    return cursor;
+  }
+
+  function setPathValue(target, path, value) {
+    const parts = String(path || '').split('.').filter(Boolean);
+    if (!parts.length) return;
+    let cursor = target;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const key = parts[i];
+      if (!cursor[key] || typeof cursor[key] !== 'object' || Array.isArray(cursor[key])) {
+        cursor[key] = {};
+      }
+      cursor = cursor[key];
+    }
+    cursor[parts[parts.length - 1]] = cloneValue(value);
+  }
+
+  function pickPaths(payload, paths) {
+    const patch = {};
+    (Array.isArray(paths) ? paths : []).forEach(path => {
+      const value = getPathValue(payload, path);
+      if (value !== undefined) {
+        setPathValue(patch, path, value);
+      }
+    });
+    return patch;
+  }
+
+  function isNonEmptyObject(value) {
+    return !!(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length);
+  }
+
+  function hasPayloadPatch(patch) {
+    if (!patch || typeof patch !== 'object') return false;
+    const hasConfig = isNonEmptyObject(patch.config);
+    const hasStyle = isNonEmptyObject(patch.style);
+    return !!(hasConfig || hasStyle || patch.layout);
+  }
+
+  function deepDiff(source, baseline) {
+    if (source === undefined) return undefined;
+    if (deepEqual(source, baseline)) return undefined;
+    if (Array.isArray(source)) return cloneValue(source);
+    if (source && typeof source === 'object' && baseline && typeof baseline === 'object' && !Array.isArray(baseline)) {
+      const out = {};
+      Object.keys(source).forEach(key => {
+        const diffValue = deepDiff(source[key], baseline[key]);
+        if (diffValue !== undefined) {
+          out[key] = diffValue;
+        }
+      });
+      return Object.keys(out).length ? out : undefined;
+    }
+    return cloneValue(source);
+  }
+
+  function getDefaultPayloadForType(type) {
+    if (!type) return null;
+    if (state.defaultPayloadCache[type]) {
+      return cloneValue(state.defaultPayloadCache[type]);
+    }
+    const workspace = state.workspaces?.[type] || null;
+    let payload = null;
+    if (state.domControls && typeof state.domControls.ensureDefaultPayload === 'function') {
+      try {
+        payload = state.domControls.ensureDefaultPayload(state.session, type, workspace);
+      } catch (err) {
+        console.error('styleSync ensureDefaultPayload error', { type, err });
+      }
+    }
+    if (!payload && workspace && typeof workspace.createEmptyPayload === 'function') {
+      try {
+        payload = workspace.createEmptyPayload();
+      } catch (err) {
+        console.error('styleSync createEmptyPayload fallback error', { type, err });
+      }
+    }
+    if (!payload) {
+      payload = { type, config: {} };
+    }
+    state.defaultPayloadCache[type] = cloneValue(payload);
+    return cloneValue(payload);
+  }
+
   const STYLE_SCHEMAS = {
     line: {
       groups: {
@@ -127,6 +245,9 @@
           const cfg = payload?.config || {};
           const configPatch = {};
           setIfDefined(configPatch, 'fontSize', cfg.fontSize);
+          if (cfg.fontStyles && typeof cfg.fontStyles === 'object') {
+            configPatch.fontStyles = cloneValue(cfg.fontStyles);
+          }
           return { config: configPatch };
         },
         titles: payload => {
@@ -183,6 +304,15 @@
           setIfDefined(configPatch, 'originY', cfg.originY);
           return { config: configPatch };
         },
+        fonts: payload => {
+          const cfg = payload?.config || {};
+          const configPatch = {};
+          setIfDefined(configPatch, 'fontSize', cfg.fontSize);
+          if (cfg.fontStyles && typeof cfg.fontStyles === 'object') {
+            configPatch.fontStyles = cloneValue(cfg.fontStyles);
+          }
+          return { config: configPatch };
+        },
         titles: payload => {
           const cfg = payload?.config || {};
           const configPatch = {};
@@ -213,12 +343,18 @@
           setIfDefined(configPatch, 'logY', cfg.logY);
           setIfDefined(configPatch, 'yMin', cfg.yMin);
           setIfDefined(configPatch, 'yMax', cfg.yMax);
+          if (cfg.axis && typeof cfg.axis === 'object') {
+            configPatch.axis = cloneValue(cfg.axis);
+          }
           return { config: configPatch };
         },
         fonts: payload => {
           const cfg = payload?.config || {};
           const configPatch = {};
           setIfDefined(configPatch, 'fontSize', cfg.fontSize);
+          if (cfg.fontStyles && typeof cfg.fontStyles === 'object') {
+            configPatch.fontStyles = cloneValue(cfg.fontStyles);
+          }
           return { config: configPatch };
         },
         titles: payload => {
@@ -248,10 +384,21 @@
           }
           return { config: configPatch };
         },
+        axes: payload => {
+          const cfg = payload?.config || {};
+          const configPatch = {};
+          if (cfg.axis && typeof cfg.axis === 'object') {
+            configPatch.axis = cloneValue(cfg.axis);
+          }
+          return { config: configPatch };
+        },
         fonts: payload => {
           const cfg = payload?.config || {};
           const configPatch = {};
           setIfDefined(configPatch, 'fontSize', cfg.fontSize);
+          if (cfg.fontStyles && typeof cfg.fontStyles === 'object') {
+            configPatch.fontStyles = cloneValue(cfg.fontStyles);
+          }
           return { config: configPatch };
         },
         titles: payload => {
@@ -318,6 +465,9 @@
           const cfg = payload?.config || {};
           const configPatch = {};
           setIfDefined(configPatch, 'fontSize', cfg.fontSize);
+          if (cfg.fontStyles && typeof cfg.fontStyles === 'object') {
+            configPatch.fontStyles = cloneValue(cfg.fontStyles);
+          }
           return { config: configPatch };
         },
         titles: payload => {
@@ -347,8 +497,88 @@
           const style = payload?.style || {};
           const stylePatch = {};
           setIfDefined(stylePatch, 'fontsize', style.fontsize);
+          if (style.fontStyles && typeof style.fontStyles === 'object') {
+            stylePatch.fontStyles = cloneValue(style.fontStyles);
+          }
           return { style: stylePatch };
         },
+        titles: payload => {
+          const style = payload?.style || {};
+          const stylePatch = {};
+          setIfDefined(stylePatch, 'title', style.title);
+          return { style: stylePatch };
+        },
+        layout: () => ({ layout: true })
+      }
+    },
+    pca: {
+      groups: {
+        appearance: payload => pickPaths(payload || {}, [
+          'config.dotSize', 'config.fill', 'config.colorScheme', 'config.textColor', 'config.backgroundColor',
+          'config.border', 'config.borderWidth', 'config.alpha',
+          'config.labelColors', 'config.labelShapes', 'config.labelPointStyles',
+          'config.showGrid', 'config.gridStyle', 'config.showFrame', 'config.showLegend',
+          'config.scale', 'config.equalAxes', 'config.equalScaleAxes', 'config.axesVarianceScaled',
+          'config.grouped.colors', 'config.grouped.shapes'
+        ]),
+        axes: payload => pickPaths(payload || {}, ['config.axis']),
+        fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
+        titles: payload => pickPaths(payload || {}, ['config.labels.title']),
+        layout: () => ({ layout: true })
+      }
+    },
+    heatmap: {
+      groups: {
+        appearance: payload => pickPaths(payload || {}, [
+          'config.view', 'config.useAbsolute', 'config.maskLower', 'config.showValues',
+          'config.showSignificance', 'config.significanceDisplay', 'config.decimals',
+          'config.colors', 'config.cellSize', 'config.dendrogram', 'config.colorScheme'
+        ]),
+        fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
+        titles: payload => pickPaths(payload || {}, ['config.title']),
+        layout: () => ({ layout: true })
+      }
+    },
+    surface: {
+      groups: {
+        appearance: payload => pickPaths(payload || {}, [
+          'config.colorScheme', 'config.textColor', 'config.backgroundColor',
+          'config.settings.colorRamp', 'config.settings.colorScheme', 'config.settings.textColor',
+          'config.settings.backgroundColor', 'config.settings.axisColor', 'config.settings.axisStroke',
+          'config.gridStyle'
+        ]),
+        axes: payload => pickPaths(payload || {}, ['config.axisMap']),
+        fonts: payload => pickPaths(payload || {}, ['config.settings.fontSize', 'config.fontStyles']),
+        titles: payload => pickPaths(payload || {}, ['config.labels.title', 'config.labels.x', 'config.labels.y', 'config.labels.z']),
+        layout: () => ({ layout: true })
+      }
+    },
+    roc: {
+      groups: {
+        appearance: payload => pickPaths(payload || {}, [
+          'config.colorScheme', 'config.borderWidth',
+          'config.showGrid', 'config.gridStyle', 'config.showFrame', 'config.showLegend',
+          'config.labelColors', 'config.labelStrokeWidth', 'config.labelOpacity', 'config.labelLinePattern',
+          'config.graphType'
+        ]),
+        axes: payload => pickPaths(payload || {}, ['config.axis']),
+        fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
+        titles: payload => pickPaths(payload || {}, ['config.title']),
+        layout: () => ({ layout: true })
+      }
+    },
+    survival: {
+      groups: {
+        appearance: payload => pickPaths(payload || {}, [
+          'config.colorScheme',
+          'config.labelColors', 'config.labelStrokeWidth', 'config.labelOpacity', 'config.labelLinePattern',
+          'config.showCI', 'config.showCensor', 'config.showHazardRatios', 'config.fitCoxModel',
+          'config.pairwiseCorrection', 'config.showGrid', 'config.gridStyle', 'config.showFrame', 'config.showLegend',
+          'config.timeMax'
+        ]),
+        axes: payload => pickPaths(payload || {}, ['config.axis']),
+        fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
+        titles: payload => pickPaths(payload || {}, ['config.title', 'config.xLabel', 'config.yLabel']),
         layout: () => ({ layout: true })
       }
     }
@@ -369,21 +599,106 @@
     return result;
   }
 
+  function stripUndefinedFromPatch(patch) {
+    if (patch === undefined) return undefined;
+    if (patch === null) return null;
+    if (Array.isArray(patch)) return patch.map(item => stripUndefinedFromPatch(item));
+    if (typeof patch !== 'object') return patch;
+    const out = {};
+    Object.keys(patch).forEach(key => {
+      const next = stripUndefinedFromPatch(patch[key]);
+      if (next !== undefined) {
+        out[key] = next;
+      }
+    });
+    return Object.keys(out).length ? out : undefined;
+  }
+
+  function remapPatchMaps(type, patch, sourcePayload, targetPayload) {
+    const out = cloneValue(patch) || {};
+    const mapPathsByType = {
+      line: ['config.labelColors', 'config.seriesStyles', 'config.overlayStyles'],
+      scatter: ['config.labelColors', 'config.labelShapes', 'config.labelStyles', 'config.overlayStyles'],
+      box: ['config.shapeStyles', 'config.pointStyles', 'config.summaryStyles'],
+      pca: ['config.labelColors', 'config.labelShapes', 'config.labelPointStyles'],
+      roc: ['config.labelColors', 'config.labelStrokeWidth', 'config.labelOpacity', 'config.labelLinePattern'],
+      survival: ['config.labelColors', 'config.labelStrokeWidth', 'config.labelOpacity', 'config.labelLinePattern'],
+      pie: ['config.colors'],
+      hist: ['config.seriesColors']
+    };
+    const mapPaths = mapPathsByType[type] || [];
+    mapPaths.forEach(path => {
+      const patchMap = getPathValue(out, path);
+      if (!patchMap || typeof patchMap !== 'object' || Array.isArray(patchMap)) return;
+      const sourceMap = getPathValue(sourcePayload, path);
+      const targetMap = getPathValue(targetPayload, path);
+      if (!targetMap || typeof targetMap !== 'object' || Array.isArray(targetMap)) return;
+      const targetKeys = Object.keys(targetMap);
+      if (!targetKeys.length) return;
+      const sourceKeys = (sourceMap && typeof sourceMap === 'object' && !Array.isArray(sourceMap))
+        ? Object.keys(sourceMap)
+        : [];
+      const mapped = {};
+      const used = new Set();
+      const pending = [];
+      Object.keys(patchMap).forEach(key => {
+        if (targetKeys.includes(key)) {
+          mapped[key] = cloneValue(patchMap[key]);
+          used.add(key);
+        } else {
+          pending.push(key);
+        }
+      });
+      pending.forEach(sourceKey => {
+        let targetKey = null;
+        const sourceIndex = sourceKeys.indexOf(sourceKey);
+        if (sourceIndex >= 0 && sourceIndex < targetKeys.length) {
+          targetKey = targetKeys[sourceIndex];
+        }
+        if (!targetKey || used.has(targetKey)) {
+          targetKey = targetKeys.find(key => !used.has(key)) || null;
+        }
+        if (targetKey) {
+          mapped[targetKey] = cloneValue(patchMap[sourceKey]);
+          used.add(targetKey);
+        }
+      });
+      setPathValue(out, path, mapped);
+    });
+    return out;
+  }
+
   function buildStylePatch(type, payload, groups) {
     const schema = STYLE_SCHEMAS[type];
     if (!schema) {
       return null;
     }
+    const defaultPayload = getDefaultPayloadForType(type);
     const activeGroups = Array.isArray(groups) ? groups : [];
-    let patch = null;
+    let sourcePatch = null;
+    let defaultPatch = null;
     activeGroups.forEach(group => {
       const handler = schema.groups[group];
       if (typeof handler === 'function') {
-        const addition = handler(payload || {}, { group });
-        patch = mergeGroupPatch(patch, addition);
+        const sourceAddition = handler(payload || {}, { group });
+        sourcePatch = mergeGroupPatch(sourcePatch, sourceAddition);
+        if (group !== 'layout') {
+          const defaultAddition = handler(defaultPayload || {}, { group });
+          defaultPatch = mergeGroupPatch(defaultPatch, defaultAddition);
+        }
       }
     });
-    return patch;
+    const sourceConfig = sourcePatch?.config || undefined;
+    const defaultConfig = defaultPatch?.config || undefined;
+    const sourceStyle = sourcePatch?.style || undefined;
+    const defaultStyle = defaultPatch?.style || undefined;
+    const configDiff = stripUndefinedFromPatch(deepDiff(sourceConfig, defaultConfig));
+    const styleDiff = stripUndefinedFromPatch(deepDiff(sourceStyle, defaultStyle));
+    const patch = {};
+    if (isNonEmptyObject(configDiff)) patch.config = configDiff;
+    if (isNonEmptyObject(styleDiff)) patch.style = styleDiff;
+    if (sourcePatch?.layout) patch.layout = true;
+    return hasPayloadPatch(patch) ? patch : null;
   }
 
   function getGraphTabs() {
@@ -569,14 +884,19 @@
         try {
           const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
           const payloadClone = cloneFn?.call(state.session, payload) || cloneValue(payload);
-          state.domControls.applyWorkspacePayload(config, payloadClone);
+          state.domControls.applyWorkspacePayload(config, payloadClone, {
+            reason: 'style-sync',
+            styleOnly: true,
+            skipDataLoad: true,
+            viewOnly: true
+          });
         } catch (err) {
           console.error('styleSync applyWorkspacePayload error', { type: tab.type, err });
         }
       }
       if (patch?.layout && typeof config.applyLayoutState === 'function') {
         try {
-          config.applyLayoutState(layoutClone ? cloneValue(layoutClone) : tab.layoutState, {
+          config.applyLayoutState(layoutClone ? cloneValue(layoutClone) : null, {
             reason: 'style-sync',
             resetStyles: true,
             resetDataset: true
@@ -683,25 +1003,24 @@
       }
       const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
       const nextPayload = cloneFn?.call(state.session, targetTab.payload) || cloneValue(targetTab.payload);
-      if (stylePatch.config) {
-        nextPayload.config = deepMerge(nextPayload.config, stylePatch.config);
+      const mappedPatch = remapPatchMaps(sourceTab.type, stylePatch, sourceTab.payload, nextPayload);
+      if (mappedPatch.config) {
+        nextPayload.config = deepMerge(nextPayload.config, mappedPatch.config);
       }
-      if (stylePatch.style) {
-        nextPayload.style = deepMerge(nextPayload.style, stylePatch.style);
+      if (mappedPatch.style) {
+        nextPayload.style = deepMerge(nextPayload.style, mappedPatch.style);
       }
       const changed = state.session?.assignTabPayload
         ? state.session.assignTabPayload(targetTab, nextPayload, { reason: 'style-sync' })
         : (() => { targetTab.payload = nextPayload; return true; })();
-      if (stylePatch.layout && copiedLayout) {
-        applyLayoutToTab(targetTab, copiedLayout);
+      if (stylePatch.layout) {
+        applyLayoutToTab(targetTab, copiedLayout || null);
       }
-      if (changed) {
+      if (changed || stylePatch.layout) {
         applied.push(targetTab);
       }
       if (state.workspaceState?.activeTabId === targetTab.id) {
-        applyPatchToActiveWorkspace(targetTab, nextPayload, stylePatch, copiedLayout);
-      } else if (stylePatch.layout && !copiedLayout) {
-        applyLayoutToTab(targetTab, null);
+        applyPatchToActiveWorkspace(targetTab, nextPayload, mappedPatch, copiedLayout || null);
       }
       if (state.previews && typeof state.previews.syncTabPreviewIndicator === 'function') {
         state.previews.syncTabPreviewIndicator(targetTab);
@@ -852,6 +1171,7 @@
     state.domControls = options.domControls || null;
     state.previews = options.previews || null;
     state.renderTabs = typeof options.renderTabs === 'function' ? options.renderTabs : null;
+    state.defaultPayloadCache = {};
     state.dom = {
       styleSyncPrompt: options.dom?.styleSyncPrompt || document.getElementById('styleSyncPrompt'),
       styleSyncForm: options.dom?.styleSyncForm || document.querySelector('#styleSyncPrompt [data-style-sync-form]'),

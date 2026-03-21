@@ -917,6 +917,16 @@
     openBoxPointAndSummaryControls({ summaryTarget: el, source: 'summary' });
   }
 
+  function handleBoxConnectionLineClick(evt){
+    const el = evt?.currentTarget;
+    if(!el){ return; }
+    try{ evt.stopPropagation(); }catch(e){}
+    if(boxDebugEnabled()){
+      console.debug('Debug: box connection toolbar requested');
+    }
+    showBoxConnectionFormatControls(el, { source: 'connection-line' });
+  }
+
   function resolveBoxTraceIndexFromNode(node){
     if(!node){ return null; }
     const traceAttr = node.getAttribute && node.getAttribute('data-trace');
@@ -1838,6 +1848,131 @@
     }
     boxDebug('Debug: box point controls unavailable because Shared.symbolToolbar is not loaded');
     return null;
+  }
+
+  function showBoxConnectionFormatControls(target, options){
+    const opts = options || {};
+    if(!target || !additionalLineControls || typeof additionalLineControls.show !== 'function'){
+      return;
+    }
+    const sourceLine = target;
+    const resolveConnectionTargets = () => {
+      const doc = global.document;
+      const plot = doc ? doc.getElementById('boxPlot') : null;
+      if(!plot){
+        return sourceLine ? [sourceLine] : [];
+      }
+      return Array.from(plot.querySelectorAll('[data-box-point-connections="1"]'));
+    };
+    const resolveConnectionStyle = () => normalizeStyleObject(state.connectionLineStyle) || null;
+    const applyPatch = patch => {
+      state.connectionLineStyle = Object.assign({}, state.connectionLineStyle || {}, patch || {});
+    };
+    const applyPatternToNodes = (nodes, width, patternValue) => {
+      const attrs = getSummaryStrokePatternAttrs(width, patternValue);
+      nodes.forEach(node => {
+        if(!node){ return; }
+        if(attrs['stroke-dasharray']){
+          node.setAttribute('stroke-dasharray', attrs['stroke-dasharray']);
+        }else{
+          node.removeAttribute('stroke-dasharray');
+        }
+        if(attrs['stroke-linecap']){
+          node.setAttribute('stroke-linecap', attrs['stroke-linecap']);
+        }
+      });
+    };
+    additionalLineControls.show({
+      scopeId: 'box',
+      target,
+      panelTitle: 'Connections',
+      host: opts.host || undefined,
+      appendToHost: opts.appendToHost === true,
+      clearHost: opts.appendToHost === true ? false : undefined,
+      skipHideAll: opts.skipHideAll === true,
+      keepOpenWithinHost: opts.keepOpenWithinHost === true,
+      keepHostVisible: opts.keepHostVisible === true,
+      hostClass: opts.hostClass || undefined,
+      hostDisplay: opts.hostDisplay || undefined,
+      controls: {
+        showSummary: false,
+        showScope: false,
+        showPattern: true,
+        colorLabel: 'Line',
+        thicknessLabel: 'Line width',
+        patternLabel: 'Line pattern',
+        transparencyLabel: 'Line transparency',
+        thicknessMin: 0.2,
+        thicknessStep: 0.1,
+        thicknessMax: 20
+      },
+      getSummary: () => 'Across datasets',
+      getColor: () => {
+        const style = resolveConnectionStyle();
+        return style?.color || sourceLine.getAttribute('stroke') || '#2d2d2d';
+      },
+      getThickness: () => {
+        const style = resolveConnectionStyle();
+        if(Number.isFinite(Number(style?.thickness))){
+          return Number(style.thickness);
+        }
+        const attrValue = Number(sourceLine.getAttribute('stroke-width'));
+        return Number.isFinite(attrValue) ? attrValue : 1;
+      },
+      getPattern: () => {
+        const style = resolveConnectionStyle();
+        const persistedPattern = style?.pattern ?? style?.linePattern;
+        if(persistedPattern){
+          return sanitizeSummaryLinePattern(persistedPattern);
+        }
+        return inferSummaryPatternFromNode(sourceLine);
+      },
+      getTransparency: () => {
+        const style = resolveConnectionStyle();
+        const opacity = clampSummaryOpacity(style?.opacity);
+        if(opacity != null){
+          return Math.round((1 - opacity) * 100);
+        }
+        const attrOpacity = readSvgOpacityAttr(sourceLine, 'stroke-opacity');
+        return attrOpacity == null ? 0 : Math.round((1 - attrOpacity) * 100);
+      },
+      onColorInput: value => {
+        resolveConnectionTargets().forEach(node => node.setAttribute('stroke', value));
+        applyPatch({ color: value });
+      },
+      onColorChange: value => {
+        resolveConnectionTargets().forEach(node => node.setAttribute('stroke', value));
+        applyPatch({ color: value });
+      },
+      onThicknessChange: value => {
+        const numeric = Number(value);
+        const normalized = Number.isFinite(numeric) ? Math.max(0.2, numeric) : null;
+        const appliedWidth = Number.isFinite(normalized) ? normalized : 0.2;
+        const nodes = resolveConnectionTargets();
+        nodes.forEach(node => node.setAttribute('stroke-width', String(appliedWidth)));
+        const style = resolveConnectionStyle();
+        const patternValue = sanitizeSummaryLinePattern((style?.pattern ?? style?.linePattern) || inferSummaryPatternFromNode(nodes[0] || sourceLine));
+        applyPatternToNodes(nodes, appliedWidth, patternValue);
+        applyPatch({ thickness: normalized });
+      },
+      onPatternChange: value => {
+        const patternValue = sanitizeSummaryLinePattern(value);
+        const nodes = resolveConnectionTargets();
+        const style = resolveConnectionStyle();
+        const widthCandidate = Number(style?.thickness);
+        const width = Number.isFinite(widthCandidate)
+          ? Math.max(0.2, widthCandidate)
+          : Math.max(0.2, Number(nodes[0]?.getAttribute?.('stroke-width')) || 0.2);
+        applyPatternToNodes(nodes, width, patternValue);
+        applyPatch({ pattern: patternValue });
+      },
+      onTransparencyChange: value => {
+        const bounded = Math.min(100, Math.max(0, Number(value) || 0));
+        const opacity = 1 - (bounded / 100);
+        resolveConnectionTargets().forEach(node => node.setAttribute('stroke-opacity', String(opacity)));
+        applyPatch({ opacity });
+      }
+    });
   }
 
   function showSummaryFormatControls(target, options){
@@ -7429,7 +7564,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -23573,19 +23708,31 @@ Technical analysis record (advanced)
         'data-orientation': options.orientation === 'horizontal' ? 'horizontal' : 'vertical'
       });
       lineLayer.setAttribute('fill', 'none');
-      lineLayer.style.pointerEvents = 'none';
-      const connectionStrokeWidth = chartStyle.scaleStrokeWidth(0.9, styleScaleInfo, { context: 'box-point-connection', min: 0.2 });
+      const connectionStyle = normalizeStyleObject(state.connectionLineStyle) || null;
+      const connectionStrokeWidthConfigured = Number(connectionStyle?.thickness);
+      const connectionStrokeWidth = Number.isFinite(connectionStrokeWidthConfigured) && connectionStrokeWidthConfigured > 0
+        ? Math.max(0.2, connectionStrokeWidthConfigured)
+        : chartStyle.scaleStrokeWidth(0.9, styleScaleInfo, { context: 'box-point-connection', min: 0.2 });
+      const connectionPattern = sanitizeSummaryLinePattern(connectionStyle?.pattern ?? connectionStyle?.linePattern);
+      const connectionPatternAttrs = getSummaryStrokePatternAttrs(connectionStrokeWidth, connectionPattern);
+      const connectionOpacity = clampSummaryOpacity(connectionStyle?.opacity);
+      const connectionStrokeColor = connectionStyle?.color || chartStyle.TEXT_COLOR || '#2d2d2d';
       const connectionPath = appendToLayer(lineLayer, 'path', {
         d: pathInfo.d,
         fill: 'none',
-        stroke: chartStyle.TEXT_COLOR || '#2d2d2d',
+        stroke: connectionStrokeColor,
         'stroke-width': connectionStrokeWidth,
-        'stroke-linecap': 'round',
+        'stroke-linecap': connectionPatternAttrs['stroke-linecap'] || 'round',
         'stroke-linejoin': 'round',
-        'stroke-opacity': 0.8,
+        'stroke-opacity': connectionOpacity == null ? 0.8 : connectionOpacity,
         'data-box-point-connections': '1'
       });
-      connectionPath.style.pointerEvents = 'none';
+      if(connectionPatternAttrs['stroke-dasharray']){
+        connectionPath.setAttribute('stroke-dasharray', connectionPatternAttrs['stroke-dasharray']);
+      }
+      connectionPath.style.pointerEvents = 'stroke';
+      connectionPath.style.cursor = 'pointer';
+      connectionPath.addEventListener('click', handleBoxConnectionLineClick);
       const pointGroups = Array.from((dataLayer || svg).querySelectorAll('g[data-export-layer="box-points"]'));
       pointGroups.forEach(group => {
         if(group?.parentNode){
@@ -28580,6 +28727,7 @@ Technical analysis record (advanced)
         borderWidths: ensureBoxBorderWidthState(),
         pointMode:els.boxPointMode.value,
         connectPointsAcrossDatasets: !!state.connectPointsAcrossDatasets,
+        connectionLineStyle: state.connectionLineStyle || null,
         showCaps:els.boxShowCaps.checked,
         showSignificanceBars: state.showSignificanceBars,
 	        significance: {
@@ -29151,6 +29299,11 @@ Technical analysis record (advanced)
       state.summaryGlobalStyle = cloneSimple(c.summaryGlobalStyle) || null;
     }else{
       state.summaryGlobalStyle = null;
+    }
+    if(Object.prototype.hasOwnProperty.call(c, 'connectionLineStyle')){
+      state.connectionLineStyle = cloneSimple(c.connectionLineStyle) || null;
+    }else{
+      state.connectionLineStyle = null;
     }
     normalizeBoxStoredColorsForScheme({
       schemeId: c.colorScheme,

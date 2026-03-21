@@ -5700,27 +5700,31 @@
       return false;
     }
     const skipDraw = meta?.skipDraw === true;
+    const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+    const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     const inputs = state.ui.inputs;
     if(!inputs){
       console.warn('venn payload application skipped - inputs unavailable');
       return false;
     }
     const d = obj.data || {};
-    inputs.labelA.value = d.labelA || '';
-    inputs.labelB.value = d.labelB || '';
-    inputs.labelC.value = d.labelC || '';
-    inputs.A.value = d.listA || '';
-    inputs.B.value = d.listB || '';
-    inputs.C.value = d.listC || '';
-    state.ui.syncTableFromInputs?.({ refresh: true });
-    const c = inputs.counts;
-    c.nA.value = d.nA || 0;
-    c.nB.value = d.nB || 0;
-    c.nC.value = d.nC || 0;
-    c.nAB.value = d.nAB || 0;
-    c.nAC.value = d.nAC || 0;
-    c.nBC.value = d.nBC || 0;
-    c.nABC.value = d.nABC || 0;
+    if(!skipDataLoad){
+      inputs.labelA.value = d.labelA || '';
+      inputs.labelB.value = d.labelB || '';
+      inputs.labelC.value = d.labelC || '';
+      inputs.A.value = d.listA || '';
+      inputs.B.value = d.listB || '';
+      inputs.C.value = d.listC || '';
+      state.ui.syncTableFromInputs?.({ refresh: true });
+      const c = inputs.counts;
+      c.nA.value = d.nA || 0;
+      c.nB.value = d.nB || 0;
+      c.nC.value = d.nC || 0;
+      c.nAB.value = d.nAB || 0;
+      c.nAC.value = d.nAC || 0;
+      c.nBC.value = d.nBC || 0;
+      c.nABC.value = d.nABC || 0;
+    }
     const s = obj.style || {};
     const notesConfig = (obj.notes && typeof obj.notes === 'object')
       ? obj.notes

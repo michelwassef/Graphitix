@@ -7226,6 +7226,8 @@
       markLineOverlayPending(overlayReason);
     }
     const skipDraw = meta?.skipDraw === true;
+    const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+    const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     let scheduleBackup = null;
     if(skipDraw){
       scheduleBackup = scheduleLineDraw;
@@ -7322,7 +7324,7 @@
       lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
       console.debug('Debug: line group shapes restored from payload', { shapes: lineGroupShapes.slice() });
     }
-    if(lineHot && matrixData){
+    if(!skipDataLoad && lineHot && matrixData){
       if(wants3d){
         const inferredSeriesCount = inferLine3dSeriesCount(matrixData);
         const seriesCount = Math.max(inferredSeriesCount, storedGroupLabels?.length || 0, storedGroupShapes?.length || 0);
@@ -7434,7 +7436,7 @@
           lineHot.applyExclusions?.(exclusionsToApply);
         }
       }
-    }else{
+    }else if(!skipDataLoad){
       lineReplicates = storedReplicates;
       if(refs.replicatesInput){
         refs.replicatesInput.value = String(lineReplicates);
@@ -7452,7 +7454,7 @@
         lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
       }
     }
-    if(lineHot){
+    if(!skipDataLoad && lineHot){
       syncLineActiveDataViewFromHot(lineHot, 'payload-load');
     }
     if(!lineHot && exclusionsToApply){

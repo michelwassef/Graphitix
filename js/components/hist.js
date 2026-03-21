@@ -2218,6 +2218,8 @@
         markHistOverlayPending(overlayReason);
       }
       const skipDraw = meta?.skipDraw === true;
+      const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+      const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
       let scheduleBackup = null;
       if(skipDraw && typeof state.scheduleDraw === 'function'){
         scheduleBackup = state.scheduleDraw;
@@ -2251,7 +2253,7 @@
       const matrixData = dataManager?.getActiveView?.()?.data;
       const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
       const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
-      if(state.hot && typeof state.hot.loadData === 'function'){
+      if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
         state.hot.loadData(dataToLoad);
         if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
           state.hot.applyExclusions(exclusionsToApply);

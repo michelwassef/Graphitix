@@ -1,0 +1,50 @@
+name: E2E Nightly Feature Matrix
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-nightly-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  feature-matrix:
+    name: Feature matrix (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run full workspace matrix
+        run: npm run test:e2e:matrix -- --project=${{ matrix.browser }}
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-nightly-${{ matrix.browser }}
+          path: |
+            playwright-report
+            test-results
+            artifacts/perf-summaries
+          if-no-files-found: ignore

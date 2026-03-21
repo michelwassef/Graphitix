@@ -4498,12 +4498,14 @@
       return false;
     }
     const skipDraw = meta?.skipDraw === true;
+    const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+    const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     let scheduleBackup = null;
     if(skipDraw && typeof state.scheduleDraw === 'function'){
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
-    if(Array.isArray(payload.data) && state.hot){
+    if(!skipDataLoad && Array.isArray(payload.data) && state.hot){
       state.hot.loadData(payload.data);
       if(payload.exclusions){
         state.hot.applyExclusions?.(payload.exclusions);

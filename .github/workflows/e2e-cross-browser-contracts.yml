@@ -1,0 +1,52 @@
+name: E2E Cross-browser Contracts
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Contracts (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run cross-browser contracts
+        run: npm run test:e2e:contracts -- --project=${{ matrix.browser }}
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-contracts-${{ matrix.browser }}
+          path: |
+            playwright-report
+            test-results
+            artifacts/perf-summaries
+          if-no-files-found: ignore

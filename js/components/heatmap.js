@@ -7232,6 +7232,8 @@
       markHeatmapOverlayPending(overlayReason);
     }
     const skipDraw = meta?.skipDraw === true;
+    const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+    const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     let scheduleBackup = null;
     if(skipDraw && typeof state.scheduleDraw === 'function'){
       scheduleBackup = state.scheduleDraw;
@@ -7283,7 +7285,7 @@
       notesState.control.setValue(notesState.text);
       notesState.control.setOpen(notesState.open);
     }
-    if(state.hot){
+    if(!skipDataLoad && state.hot){
       state.hot.loadData(matrix);
       if(exclusionsToApply && state.hot.applyExclusions){
         state.hot.applyExclusions(exclusionsToApply);
