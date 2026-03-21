@@ -1314,10 +1314,12 @@
 
   function renderLegend(svg, options){
     if(!svg || !options){ return; }
-    const legendTextColor = normalizeSurfaceThemeColor(
-      options.textColor,
-      chartStyle.TEXT_COLOR || '#1f2a3d'
-    );
+    const legendTextColor = isSurfaceDarkTheme()
+      ? '#ffffff'
+      : normalizeSurfaceThemeColor(
+          options.textColor,
+          chartStyle.TEXT_COLOR || '#1f2a3d'
+        );
     const legendStrokeColor = normalizeSurfaceThemeColor(options.axisColor, '#cbd5e1');
     const doc = svg.ownerDocument || global.document;
     const targetLayer = options.layer && options.layer.ownerDocument === doc && options.layer.nodeType === 1 ? options.layer : svg;
@@ -1476,6 +1478,7 @@
     minText.setAttribute('y', finalLegendHeight + labelOffset);
     minText.setAttribute('font-size', legendFontSize);
     minText.setAttribute('fill', legendTextColor);
+    minText.style.fill = legendTextColor;
     minText.setAttribute('text-anchor', 'middle');
     minText.setAttribute('data-legend-key', 'surface-scale');
     minText.textContent = formatNumber(options.min);
@@ -1485,6 +1488,7 @@
     maxText.setAttribute('y', -Math.max(6, legendFontSize * 0.4));
     maxText.setAttribute('font-size', legendFontSize);
     maxText.setAttribute('fill', legendTextColor);
+    maxText.style.fill = legendTextColor;
     maxText.setAttribute('text-anchor', 'middle');
     maxText.setAttribute('dominant-baseline', 'baseline');
     maxText.setAttribute('data-legend-key', 'surface-scale');
