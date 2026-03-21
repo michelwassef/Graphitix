@@ -239,6 +239,9 @@
           setIfDefined(configPatch, 'originMode', cfg.originMode);
           setIfDefined(configPatch, 'originX', cfg.originX);
           setIfDefined(configPatch, 'originY', cfg.originY);
+          if (cfg.axis && typeof cfg.axis === 'object') {
+            configPatch.axis = cloneValue(cfg.axis);
+          }
           return { config: configPatch };
         },
         fonts: payload => {
@@ -302,6 +305,9 @@
           setIfDefined(configPatch, 'originMode', cfg.originMode);
           setIfDefined(configPatch, 'originX', cfg.originX);
           setIfDefined(configPatch, 'originY', cfg.originY);
+          if (cfg.axis && typeof cfg.axis === 'object') {
+            configPatch.axis = cloneValue(cfg.axis);
+          }
           return { config: configPatch };
         },
         fonts: payload => {
@@ -444,20 +450,7 @@
           setIfDefined(configPatch, 'yMin', cfg.yMin);
           setIfDefined(configPatch, 'yMax', cfg.yMax);
           if (cfg.axis && typeof cfg.axis === 'object') {
-            const axisPatch = {};
-            setIfDefined(axisPatch, 'strokeWidth', cfg.axis.strokeWidth);
-            setIfDefined(axisPatch, 'color', cfg.axis.color);
-            if (cfg.axis.tickInterval && typeof cfg.axis.tickInterval === 'object') {
-              const tickPatch = {};
-              setIfDefined(tickPatch, 'x', cfg.axis.tickInterval.x);
-              setIfDefined(tickPatch, 'y', cfg.axis.tickInterval.y);
-              if (Object.keys(tickPatch).length) {
-                axisPatch.tickInterval = tickPatch;
-              }
-            }
-            if (Object.keys(axisPatch).length) {
-              configPatch.axis = axisPatch;
-            }
+            configPatch.axis = cloneValue(cfg.axis);
           }
           return { config: configPatch };
         },
@@ -677,11 +670,16 @@
     const activeGroups = Array.isArray(groups) ? groups : [];
     let sourcePatch = null;
     let defaultPatch = null;
+    let absolutePatch = null;
+    const absoluteGroups = new Set(['titles']);
     activeGroups.forEach(group => {
       const handler = schema.groups[group];
       if (typeof handler === 'function') {
         const sourceAddition = handler(payload || {}, { group });
         sourcePatch = mergeGroupPatch(sourcePatch, sourceAddition);
+        if (absoluteGroups.has(group)) {
+          absolutePatch = mergeGroupPatch(absolutePatch, sourceAddition);
+        }
         if (group !== 'layout') {
           const defaultAddition = handler(defaultPayload || {}, { group });
           defaultPatch = mergeGroupPatch(defaultPatch, defaultAddition);
@@ -698,6 +696,12 @@
     if (isNonEmptyObject(configDiff)) patch.config = configDiff;
     if (isNonEmptyObject(styleDiff)) patch.style = styleDiff;
     if (sourcePatch?.layout) patch.layout = true;
+    if (isNonEmptyObject(absolutePatch?.config)) {
+      patch.config = deepMerge(patch.config, absolutePatch.config);
+    }
+    if (isNonEmptyObject(absolutePatch?.style)) {
+      patch.style = deepMerge(patch.style, absolutePatch.style);
+    }
     return hasPayloadPatch(patch) ? patch : null;
   }
 

@@ -29,8 +29,9 @@ const PASTE_CONTRACT_COMPONENTS = [
 ];
 
 test.describe('Cross-browser Feature Matrix', () => {
+  test.describe.configure({ timeout: 180_000 });
+
   test('all workspaces open with AG Grid host + panel resizer', async ({ page }) => {
-    test.setTimeout(180_000);
     await installLocalCdnOverrides(page);
 
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -52,7 +53,6 @@ test.describe('Cross-browser Feature Matrix', () => {
   });
 
   test('clipboard paste contract works across AG Grid wrappers', async ({ page, context }) => {
-    test.setTimeout(180_000);
     await installLocalCdnOverrides(page);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
       origin: 'http://127.0.0.1:4173'
@@ -68,11 +68,22 @@ test.describe('Cross-browser Feature Matrix', () => {
         await expect(page.locator(`#${component.pageId}:not([hidden])`)).toBeVisible();
         await page.waitForSelector(`#${component.hotId} .ag-root`, { timeout: 20_000 });
 
-        const targetCell = page.locator(
-          `#${component.hotId} .ag-center-cols-container .ag-row [role="gridcell"][col-id^="c"]`
-        ).first();
-        await expect(targetCell).toBeVisible();
-        await targetCell.click({ force: true });
+        const targetPoint = await page.evaluate((hotId) => {
+          const host = document.getElementById(hotId);
+          if (!host) {
+            return null;
+          }
+          const cells = host.querySelectorAll('.ag-center-cols-container .ag-row .ag-cell[col-id^="c"]');
+          for (let i = 0; i < cells.length; i += 1) {
+            const rect = cells[i].getBoundingClientRect();
+            if (rect.width > 1 && rect.height > 1) {
+              return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            }
+          }
+          return null;
+        }, component.hotId);
+        expect(targetPoint, `No visible data cell found for ${component.type}`).toBeTruthy();
+        await page.mouse.click(targetPoint.x, targetPoint.y);
 
         const token = `fx_${component.type}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
         const writeResult = await page.evaluate(async (value) => {
