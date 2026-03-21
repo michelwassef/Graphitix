@@ -630,7 +630,7 @@
                 <label class="config-panel__item config-panel__item--select-auto" id="scatterColorModeRow">
                   <span class="config-panel__label">Color mode</span>
                   <select id="scatterColorMode">
-                    <option value="auto">Auto (density for large datasets)</option>
+                    <option value="auto">Auto</option>
                     <option value="solid">Solid color</option>
                     <option value="density">Density</option>
                   </select>
@@ -651,12 +651,10 @@
               </div>
             </div>
             <fieldset class="config-panel__fieldset">
-              <legend>Grid &amp; axis</legend>
+              <legend>Grid &amp; Axis</legend>
               <div class="config-panel__line config-panel__line--checkboxes">
                 <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowGrid" /> <span>Show grid</span></label>
                 <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowFrame" /> <span>Show frame</span></label>
-                <label class="config-panel__checkbox"><input type="checkbox" id="scatterLogX" /> <span>Log scale (x)</span></label>
-                <label class="config-panel__checkbox"><input type="checkbox" id="scatterLogY" /> <span>Log scale (y)</span></label>
               </div>
               <div class="config-panel__line config-panel__line--split">
                 <label class="config-panel__item config-panel__item--narrow">
@@ -667,6 +665,12 @@
                   <span class="config-panel__label">X max</span>
                   <input type="number" id="scatterXMax" />
                 </label>
+                <label class="config-panel__checkbox">
+                  <input type="checkbox" id="scatterLogX" />
+                  <span>Log scale (x)</span>
+                </label>
+              </div>
+              <div class="config-panel__line config-panel__line--split">
                 <label class="config-panel__item config-panel__item--narrow">
                   <span class="config-panel__label">Y min</span>
                   <input type="number" id="scatterYMin" />
@@ -674,6 +678,10 @@
                 <label class="config-panel__item config-panel__item--narrow">
                   <span class="config-panel__label">Y max</span>
                   <input type="number" id="scatterYMax" />
+                </label>
+                <label class="config-panel__checkbox">
+                  <input type="checkbox" id="scatterLogY" />
+                  <span>Log scale (y)</span>
                 </label>
               </div>
               <div class="config-panel__line config-panel__line--split">
@@ -1194,20 +1202,16 @@
                 <label class="idx-inline-023"><input type="checkbox" id="lineShowGrid" /> Show Grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="lineShowFrame" /> Show Frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="lineShowLegend" checked /> Show legend</label>
-                <label class="idx-inline-023">
-                  <input type="checkbox" id="lineLogX" /> Log Scale (X)
-                </label>
-                <label class="idx-inline-023">
-                  <input type="checkbox" id="lineLogY" /> Log Scale (Y)
-                </label>
               </div>
               <div class="control idx-inline-041">
                 <label class="idx-inline-023">X min <input type="number" id="lineXMin" /></label>
                 <label class="idx-inline-023">X max <input type="number" id="lineXMax" /></label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineLogX" /> Log Scale (X)</label>
               </div>
               <div class="control idx-inline-041">
                 <label class="idx-inline-023">Y min <input type="number" id="lineYMin" /></label>
                 <label class="idx-inline-023">Y max <input type="number" id="lineYMax" /></label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineLogY" /> Log Scale (Y)</label>
               </div>
               <div class="control idx-inline-041">
                 <div class="idx-inline-042">
