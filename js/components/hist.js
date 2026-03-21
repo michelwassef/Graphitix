@@ -275,7 +275,7 @@
   }
 
   function getHistDefaultTitle(mode){
-    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density Plot' : 'Histogram';
+    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density plot' : 'Histogram';
   }
 
   function getHistDefaultYLabel(mode){

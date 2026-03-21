@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Graph &amp; Statistics Workbench</title>
+  <title>Graph &amp; statistics workbench</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2064%2064%22%3E%3Crect%20width=%2264%22%20height=%2264%22%20rx=%2212%22%20ry=%2212%22%20fill=%22%231e88e5%22/%3E%3Ctext%20x=%2250%25%22%20y=%2256%25%22%20font-family=%22Arial,%20sans-serif%22%20font-size=%2236%22%20text-anchor=%22middle%22%20fill=%22white%22%3EV%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css"  integrity="sha384-gIsz6JTVbF5eW0CcuAljKL2kOE400G4TjBH3CBtGXjf8BkjmC5x9jp4Y+bYa7HKA" crossorigin="anonymous">
@@ -13,7 +13,7 @@
   <div id="appShell">
     <header id="appHeader" class="app-header">
       <div class="app-header__content">
-        <h1 class="app-header__title">Graph &amp; Statistics Workbench</h1>
+        <h1 class="app-header__title">Graph &amp; statistics workbench</h1>
       </div>
     </header>
     <main id="workspaceMain">
@@ -55,7 +55,7 @@
                   </div>
                   <div id="welcomeGraphResults" class="welcome-picker__results" role="listbox" aria-label="Available graph types"></div>
                 </div>
-                <button type="button" class="btn welcome-picker__launch" id="welcomeGraphLaunch" disabled>Open Graph</button>
+                <button type="button" class="btn welcome-picker__launch" id="welcomeGraphLaunch" disabled>Open graph</button>
               </div>
             </div>
                 </div>
@@ -65,7 +65,7 @@
         </div>
       </section>
       <section id="workspacePages" class="workspace-pages">
-  <!-- Venn Diagram Section -->
+  <!-- Venn diagram Section -->
   <div id="vennPage" class="workspace-page" data-plot="venn" hidden>
     <div class="workspace-page__topbar" data-toolbar="venn">
       <div data-toolbar-root></div>
@@ -89,7 +89,7 @@
           <div class="row venn-inline-controls idx-inline-002">
             <label class="venn-inline-checkbox">
               <input id="caseSensitive" type="checkbox" />
-              <span>Case Sensitive</span>
+              <span>Case sensitive</span>
             </label>
           </div>
         <details class="idx-inline-003">
@@ -102,7 +102,7 @@
             <div><label>|A∩C|</label><input id="nAC" type="number" min="0" value="0" /></div>
             <div><label>|B∩C|</label><input id="nBC" type="number" min="0" value="0" /></div>
             <div><label>|A∩B∩C|</label><input id="nABC" type="number" min="0" value="0" /></div>
-            <button class="btn" id="useNumeric">Use Numeric</button>
+            <button class="btn" id="useNumeric">Use numeric</button>
           </div>
         </details>
       </div>
@@ -122,13 +122,13 @@
               <div class="control">
                 <label for="vennPlotType">Graph type</label>
                 <select id="vennPlotType">
-                  <option value="venn" selected>Venn Diagram</option>
-                  <option value="upset">UpSet Plot</option>
+                  <option value="venn" selected>Venn diagram</option>
+                  <option value="upset">UpSet plot</option>
                 </select>
               </div>
             </fieldset>
             <fieldset>
-              <legend>Set Colors</legend>
+              <legend>Set colors</legend>
               <div class="color-pickers">
                 <label class="color-picker">
                   <input id="colorA" type="color" value="#e74c3c" aria-label="Color for set A" />
@@ -152,17 +152,17 @@
                 <output id="opacityVal">0.75</output>
               </div>
               <div class="control">
-                <label for="borderColor">Border Color</label>
+                <label for="borderColor">Border color</label>
                 <input id="borderColor" type="color" value="#999999" aria-label="Diagram border color" />
               </div>
               <div class="control">
-                <label for="borderWidth">Border Width</label>
+                <label for="borderWidth">Border width</label>
                 <input id="borderWidth" type="range" min="0" max="10" step="0.1" value="1.2" />
                 <output id="borderWidthVal">1.2</output>
                 <span>px</span>
               </div>
               <div class="control">
-                <label for="fontsize">Font Size</label>
+                <label for="fontsize">Font size</label>
                 <input id="fontsize" type="range" min="6" max="24" step="1" value="13" />
                 <output id="fontsizeVal">13</output>
                 <span>pt</span>
@@ -189,7 +189,7 @@
                 </div>
                 <div class="control-row upset-controls-row upset-controls-row--size">
                   <div class="control upset-dot-size-control">
-                    <label for="upsetDotSize">Dot Size</label>
+                    <label for="upsetDotSize">Dot size</label>
                     <input id="upsetDotSize" type="range" min="2" max="12" step="0.5" value="5" />
                     <output id="upsetDotSizeVal">5</output>
                   </div>
@@ -254,11 +254,11 @@
           </select>
         </div>
         <div id="regionListContainer" class="idx-inline-005">
-          <button class="btn idx-inline-006" id="copyRegionBtn">Copy List</button>
+          <button class="btn idx-inline-006" id="copyRegionBtn">Copy list</button>
           <div id="regionList" class="idx-inline-007"></div>
         </div>
         <details id="significanceSection" class="idx-inline-003">
-          <summary>Overlap Significance</summary>
+          <summary>Overlap significance</summary>
           <div class="row idx-inline-008">
             <label class="idx-inline-009">
               Total Genes
@@ -272,17 +272,17 @@
           <label>
             Species
             <select id="speciesSelect">
-              <option value="" selected>Select Species</option>
+              <option value="" selected>Select species</option>
               <option value="hsapiens" data-string="9606">H. sapiens</option>
               <option value="mmusculus" data-string="10090">M. musculus</option>
               <option value="dmelanogaster" data-string="7227">D. melanogaster</option>
               <option value="celegans" data-string="6239">C. elegans</option>
             </select>
           </label>
-          <button class="btn" id="detectSpeciesBtn" title="Guess species from the current gene lists">Detect Species</button>
-          <button class="btn" id="goBtn">GO Analysis</button>
+          <button class="btn" id="detectSpeciesBtn" title="Guess species from the current gene lists">Detect species</button>
+          <button class="btn" id="goBtn">GO analysis</button>
           <button class="btn" id="goOptsBtn" aria-label="GO analysis options">⚙️</button>
-          <button class="btn" id="stringBtn">STRING Analysis</button>
+          <button class="btn" id="stringBtn">STRING analysis</button>
           <button class="btn" id="stringOptsBtn" aria-label="STRING analysis options">⚙️</button>
         </div>
         <div id="goOptions" class="analysis-options idx-inline-012">
@@ -291,16 +291,16 @@
           </label>
           <div class="idx-inline-008">
             <strong>GO Categories:</strong>
-            <label><input type="checkbox" class="goCategory" value="GO:BP" checked /> Biological Process</label>
-            <label><input type="checkbox" class="goCategory" value="GO:MF" checked /> Molecular Function</label>
-            <label><input type="checkbox" class="goCategory" value="GO:CC" checked /> Cellular Component</label>
+            <label><input type="checkbox" class="goCategory" value="GO:BP" checked /> Biological process</label>
+            <label><input type="checkbox" class="goCategory" value="GO:MF" checked /> Molecular function</label>
+            <label><input type="checkbox" class="goCategory" value="GO:CC" checked /> Cellular component</label>
           </div>
         </div>
         <div id="stringOptions" class="analysis-options idx-inline-012">
           <div class="idx-inline-013">
             <strong>Network Type:</strong>
-            <label><input type="radio" name="stringNetworkType" value="full" checked /> Full STRING Network</label>
-            <label><input type="radio" name="stringNetworkType" value="physical" /> Physical Subnetwork</label>
+            <label><input type="radio" name="stringNetworkType" value="full" checked /> Full STRING network</label>
+            <label><input type="radio" name="stringNetworkType" value="physical" /> Physical subnetwork</label>
           </div>
           <div class="idx-inline-013">
             <strong>Meaning of Network Edges:</strong>
@@ -317,8 +317,8 @@
         </div>
         <div id="analysisResults">
           <div class="analysis-results-tabs" id="analysisResultsTabs" role="tablist" aria-label="Analysis results">
-            <button class="analysis-results-tab is-active" id="analysisTabGo" type="button" role="tab" aria-selected="true" aria-controls="analysisPanelGo">GO Analysis</button>
-            <button class="analysis-results-tab" id="analysisTabString" type="button" role="tab" aria-selected="false" aria-controls="analysisPanelString">STRING Analysis</button>
+            <button class="analysis-results-tab is-active" id="analysisTabGo" type="button" role="tab" aria-selected="true" aria-controls="analysisPanelGo">GO analysis</button>
+            <button class="analysis-results-tab" id="analysisTabString" type="button" role="tab" aria-selected="false" aria-controls="analysisPanelString">STRING analysis</button>
           </div>
           <div class="analysis-results-panel is-active" id="analysisPanelGo" role="tabpanel" aria-labelledby="analysisTabGo">
             <div id="goResults"></div>
@@ -347,7 +347,7 @@
     <div id="tooltip"></div>
   </div>
 
-  <!-- Box Plot Section -->
+  <!-- Box plot Section -->
   <div id="boxPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="box">
       <div data-toolbar-root></div>
@@ -391,11 +391,11 @@
                 <div class="control">
                   <label>Graph type</label>
                   <select id="boxGraphType">
-                    <option value="box">Box Plot</option>
-                    <option value="notched">Notched Box Plot</option>
-                    <option value="bar">Bar Plot</option>
-                    <option value="strip" selected>Individual Values</option>
-                    <option value="violin">Violin Plot</option>
+                    <option value="box">Box plot</option>
+                    <option value="notched">Notched Box plot</option>
+                    <option value="bar">Bar plot</option>
+                    <option value="strip" selected>Individual values</option>
+                    <option value="violin">Violin plot</option>
                   </select>
                 </div>
                 <div class="control">
@@ -408,9 +408,14 @@
                   </select>
                 </div>
               </div>
+              <div class="control idx-inline-022" id="boxConnectPointsCtl">
+                <label class="idx-inline-023" id="boxConnectPointsLabel">
+                  <input type="checkbox" id="boxConnectPointsAcrossDatasets" /> Connect points across datasets
+                </label>
+              </div>
               <div class="control-row box-graph-row box-graph-row--whisker" id="boxGraphWhiskerRow" style="display:none">
                 <div class="control" id="boxWhiskerRuleCtl" style="display:none">
-                  <label for="boxWhiskerRule">Whisker Rule</label>
+                  <label for="boxWhiskerRule">Whisker rule</label>
                   <select id="boxWhiskerRule">
                     <option value="iqr15">1.5×IQR (Tukey)</option>
                     <option value="iqr3">3×IQR</option>
@@ -437,7 +442,7 @@
                 </select>
               </div>
               <div class="control idx-inline-025" id="boxIndividualSummaryCtl">
-                <label>Summary Overlay</label>
+                <label>Summary overlay</label>
                 <select id="boxIndividualSummary">
                   <option value="mean">Mean ± SEM</option>
                   <option value="median">Median (Q1–Q3)</option>
@@ -445,14 +450,14 @@
                 </select>
               </div>
               <div class="control idx-inline-025" id="boxErrorModeCtl" style="display:none">
-                <label class="idx-inline-023">Error Bars</label>
+                <label class="idx-inline-023">Error bars</label>
                 <select id="boxErrorMode">
                   <option value="both">Bidirectional</option>
-                  <option value="upper">Upper Only</option>
+                  <option value="upper">Upper only</option>
                 </select>
               </div>
               <div class="control idx-inline-026" id="boxViolinBandwidthCtl" style="display:none">
-                <label>Violin Bandwidth</label>
+                <label>Violin bandwidth</label>
                 <input type="range" id="boxViolinBandwidth" min="0.05" max="5" step="0.05" value="1" />
                 <input type="number" id="boxViolinBandwidthValue" min="0.01" step="0.01" value="1" class="idx-inline-027" />
                 <label class="idx-inline-024">
@@ -460,7 +465,7 @@
                 </label>
               </div>
               <div class="control idx-inline-026" id="boxViolinSamplesCtl" style="display:none">
-                <label>Density Samples</label>
+                <label>Density samples</label>
                 <input type="range" id="boxViolinSamples" min="8" max="512" step="8" value="80" />
                 <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" class="idx-inline-027" />
               </div>
@@ -479,18 +484,18 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Grid & Axis</legend>
+              <legend>Grid & axis</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
-                <label class="idx-inline-023"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
+                <label class="idx-inline-023"><input type="checkbox" id="boxShowGrid" /> Show horizontal grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="boxShowFrame" /> Show frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="boxFlipAxes" /> Flip axes</label>
               </div>
               <div class="control idx-inline-032">
-                <label class="idx-inline-023">
-                  <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log Scale (Y)</span>
-                </label>
                 <label class="idx-inline-023">Y min <input type="number" id="boxYMin" /></label>
                 <label class="idx-inline-023">Y max <input type="number" id="boxYMax" /></label>
+                <label class="idx-inline-023">
+                  <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log scale (Y)</span>
+                </label>
               </div>
             </fieldset>
             <fieldset data-font-controls="1" hidden>
@@ -651,7 +656,7 @@
               </div>
             </div>
             <fieldset class="config-panel__fieldset">
-              <legend>Grid &amp; Axis</legend>
+              <legend>Grid &amp; axis</legend>
               <div class="config-panel__line config-panel__line--checkboxes">
                 <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowGrid" /> <span>Show grid</span></label>
                 <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowFrame" /> <span>Show frame</span></label>
@@ -935,10 +940,10 @@
               <input type="color" id="pcaBorder" value="#000000" />
             </div>
             <fieldset>
-              <legend>Grid & Axis</legend>
+              <legend>Grid & axis</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="pcaShowGrid" /> Show Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="pcaShowFrame" checked /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pcaShowGrid" /> Show grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pcaShowFrame" checked /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pcaShowLegend" checked /> Show legend</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pcaVarianceAxisScale" /> Variance-scaled axes</label>
               </div>
@@ -972,18 +977,18 @@
                     <div class="row idx-inline-043" id="pcaScreeExportControls"></div>
                   </div>
                   <div id="pcaVarianceSummary" class="variance-card" hidden>
-                    <div class="variance-card__title">Component Variance</div>
+                  <div class="variance-card__title">Component variance</div>
                     <div id="pcaVarianceList"></div>
                   </div>
                 </div>
                 <div id="pcaEigenTableContainer" class="eigen-table-container" hidden>
                   <div class="stats-table-actions">
-                    <button class="btn" id="pcaExportEigenTable" type="button">Export Eigen Table</button>
+                    <button class="btn" id="pcaExportEigenTable" type="button">Export eigen table</button>
                   </div>
                   <div id="pcaEigenTableWrapper" class="eigen-table-wrapper"></div>
                 </div>
                 <div id="pcaLoadingsContainer" class="loadings-card" hidden>
-                  <div class="loadings-card__title">Component Loadings</div>
+                  <div class="loadings-card__title">Component loadings</div>
                   <div class="loadings-card__actions stats-table-actions">
                     <div class="loadings-card__range">
                       <label for="pcaLoadingsLimit">Top loadings</label>
@@ -1025,13 +1030,13 @@
               <div class="row idx-inline-004" id="surfaceExportControls"></div>
             </div>
             <div id="surfaceRenderRow" class="surface-render-row" hidden>
-              <button type="button" class="btn" id="surfaceRenderButton" disabled>Update Plot</button>
+                <button type="button" class="btn" id="surfaceRenderButton" disabled>Update plot</button>
               <p id="surfaceAutoDrawNotice" class="surface-auto-draw-notice" hidden aria-live="polite"></p>
             </div>
           </div>
           <div class="config-panel">
             <fieldset>
-              <legend>Data Interpretation</legend>
+              <legend>Data interpretation</legend>
               <div class="control">
                 <label class="idx-inline-023">
                   X Column
@@ -1063,23 +1068,23 @@
             <fieldset>
               <legend>Rendering</legend>
               <div class="control">
-                <label>Font Size</label>
+                <label>Font size</label>
                 <input type="range" id="surfaceFontSize" min="8" max="24" step="1" value="13" />
                 <output id="surfaceFontSizeVal">13</output>
               </div>
               <div class="control">
-                <label>Axis Thickness</label>
+                <label>Axis thickness</label>
                 <input type="range" id="surfaceAxisStroke" min="0.5" max="4" step="0.25" value="1.2" />
                 <output id="surfaceAxisStrokeVal">1.2</output>
               </div>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023">Axis Color</label>
+                <label class="idx-inline-023">Axis color</label>
                 <input type="color" id="surfaceAxisColor" value="#3b3b3b" />
               </div>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowGrid" checked /> Show Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowFrame" checked /> Show Frame</label>
-                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowPoints" /> Show Points</label>
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowGrid" checked /> Show grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowFrame" checked /> Show frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowPoints" /> Show points</label>
               </div>
             </fieldset>
           </div>
@@ -1143,7 +1148,7 @@
               <div class="row idx-inline-004" id="lineExportControls"></div>
             </div>
             <div id="lineRenderRow" class="line-render-row" hidden>
-              <button type="button" class="btn" id="lineRenderButton" disabled>Update Plot</button>
+                <button type="button" class="btn" id="lineRenderButton" disabled>Update plot</button>
               <p id="lineAutoDrawNotice" class="line-auto-draw-notice" hidden aria-live="polite"></p>
             </div>
           </div>
@@ -1186,28 +1191,28 @@
             <input type="color" id="lineBorder" value="#0000ff" hidden />
             <input type="number" id="lineErrorBarWidth" value="2" min="0" max="10" hidden />
             <fieldset>
-              <legend>Grid & Axis</legend>
+              <legend>Grid & axis</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="lineShowGrid" /> Show Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="lineShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineShowGrid" /> Show grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineShowFrame" /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="lineShowLegend" checked /> Show legend</label>
               </div>
               <div class="control idx-inline-041">
                 <label class="idx-inline-023">X min <input type="number" id="lineXMin" /></label>
                 <label class="idx-inline-023">X max <input type="number" id="lineXMax" /></label>
-                <label class="idx-inline-023"><input type="checkbox" id="lineLogX" /> Log Scale (X)</label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineLogX" /> Log scale (X)</label>
               </div>
               <div class="control idx-inline-041">
                 <label class="idx-inline-023">Y min <input type="number" id="lineYMin" /></label>
                 <label class="idx-inline-023">Y max <input type="number" id="lineYMax" /></label>
-                <label class="idx-inline-023"><input type="checkbox" id="lineLogY" /> Log Scale (Y)</label>
+                <label class="idx-inline-023"><input type="checkbox" id="lineLogY" /> Log scale (Y)</label>
               </div>
               <div class="control idx-inline-041">
                 <div class="idx-inline-042">
                   <label class="idx-inline-023">Origin</label>
                   <select id="lineOriginMode">
                     <option value="zero" selected>Zero</option>
-                    <option value="lower">Lower Left</option>
+                    <option value="lower">Lower left</option>
                     <option value="custom">Custom</option>
                   </select>
                 </div>
@@ -1381,7 +1386,7 @@
         <div class="heatmap-lower-panels">
           <div class="heatmap-lower-left">
             <fieldset>
-              <legend>Adjust Data</legend>
+              <legend>Adjust data</legend>
               <div class="heatmap-control-list">
                 <label class="heatmap-inline-group">
                   <input type="checkbox" id="heatmapLogTransform" />
@@ -1430,7 +1435,7 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Filter Rows</legend>
+              <legend>Filter rows</legend>
               <div class="heatmap-control-list heatmap-filter-list">
                 <label class="heatmap-inline-group heatmap-filter-row">
                   <input type="checkbox" id="heatmapFilterPresentEnable" />
@@ -1547,7 +1552,7 @@
               <div class="row idx-inline-004" id="rocExportControls"></div>
             </div>
             <div id="rocRenderRow" class="roc-render-row" hidden>
-              <button type="button" class="btn" id="rocRenderButton" disabled>Update Plot</button>
+                <button type="button" class="btn" id="rocRenderButton" disabled>Update plot</button>
               <p id="rocAutoDrawNotice" class="roc-auto-draw-notice" hidden aria-live="polite"></p>
             </div>
           </div>
@@ -1565,10 +1570,10 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Grid & Axis</legend>
+              <legend>Grid & axis</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="rocShowGrid" /> Show Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="rocShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowGrid" /> Show grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowFrame" /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
               </div>
             </fieldset>
@@ -1624,21 +1629,21 @@
           </div>
           <div class="config-panel">
             <fieldset>
-              <legend>Curve Options</legend>
+              <legend>Curve options</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowCI" /> Show 95% Confidence Interval</label>
-                <label class="idx-inline-023"><input type="checkbox" id="survivalShowCensor" checked /> Show Censor Marks</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowCensor" checked /> Show censor marks</label>
               </div>
             </fieldset>
             <fieldset>
-              <legend>Grid &amp; Axis</legend>
+              <legend>Grid &amp; axis</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="survivalShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowGrid" /> Show grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowFrame" /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowLegend" checked /> Show legend</label>
               </div>
               <div class="control idx-inline-041">
-                <label class="idx-inline-023">Time Max <input type="number" id="survivalTimeMax" step="0.1" /></label>
+                <label class="idx-inline-023">Time max <input type="number" id="survivalTimeMax" step="0.1" /></label>
               </div>
             </fieldset>
             <fieldset>
@@ -1667,8 +1672,8 @@
               <legend>Statistics</legend>
               <div id="survivalStatsAdvisor"></div>
               <div class="control stats-toggle-row idx-inline-031" id="survivalStatsToggleRow">
-                <label class="idx-inline-023"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
-                <label class="idx-inline-023"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show hazard ratios</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox model</label>
               </div>
               <div class="control idx-inline-049" id="survivalCovariateControls">
                 <div id="survivalCovariateHint" class="idx-inline-037">Add extra columns to pick covariates for the Cox model.</div>
@@ -1708,7 +1713,7 @@
               <div class="row idx-inline-004" id="histExportControls"></div>
             </div>
             <div id="histRenderRow" class="hist-render-row" hidden>
-              <button type="button" class="btn" id="histRenderButton" disabled>Update Plot</button>
+                <button type="button" class="btn" id="histRenderButton" disabled>Update plot</button>
               <p id="histAutoDrawNotice" class="hist-auto-draw-notice" hidden aria-live="polite"></p>
             </div>
           </div>
@@ -1720,7 +1725,7 @@
                   Graph type
                   <select id="histPlotMode">
                     <option value="histogram" selected>Histogram</option>
-                    <option value="density">Density Plot</option>
+                  <option value="density">Density plot</option>
                   </select>
                 </label>
                 <label class="idx-inline-023"><input type="checkbox" id="histShowLegend" checked /> Show legend</label>
@@ -1734,17 +1739,17 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Grid & Axis</legend>
+              <legend>Grid & axis</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="histShowGrid" /> Show Grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="histShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="histShowGrid" /> Show grid</label>
+                <label class="idx-inline-023"><input type="checkbox" id="histShowFrame" /> Show frame</label>
                 <label class="idx-inline-023">
-                  <input type="checkbox" id="histLogY" /> Log Scale (Y)
+                  <input type="checkbox" id="histLogY" /> Log scale (Y)
                 </label>
               </div>
             </fieldset>
             <fieldset>
-              <legend>Distribution Fits</legend>
+              <legend>Distribution fits</legend>
               <div class="control idx-inline-051">
                 <label>Distributions</label>
                 <div id="histDistributionList" class="hist-dist-list"></div>
@@ -1823,7 +1828,7 @@
                   <select id="pieChartType">
                     <option value="pie">Pie</option>
                     <option value="donut">Donut</option>
-                    <option value="stacked">Stacked Bar</option>
+                  <option value="stacked">Stacked bar</option>
                   </select>
                 </label>
               </div>
@@ -1831,8 +1836,8 @@
             <fieldset>
               <legend>Options</legend>
               <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="pieShowPercents" /> Show Percentages</label>
-                <label class="idx-inline-023"><input type="checkbox" id="pieShowFrame" /> Show Frame</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pieShowPercents" /> Show percentages</label>
+                <label class="idx-inline-023"><input type="checkbox" id="pieShowFrame" /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
                 <label class="idx-inline-023">
                   Start Angle <input type="number" id="pieStartAngle" value="0" />
@@ -1889,8 +1894,8 @@
         <h3 id="duplicatePromptTitle" class="workspace-modal__title">Reuse data from the previous tab?</h3>
         <p id="duplicatePromptMessage" class="workspace-modal__message"></p>
         <div class="workspace-modal__actions">
-          <button id="duplicateReuse" type="button" class="btn">Reuse Data</button>
-          <button id="duplicateEmpty" type="button" class="btn">Start Empty</button>
+          <button id="duplicateReuse" type="button" class="btn">Reuse data</button>
+          <button id="duplicateEmpty" type="button" class="btn">Start empty</button>
           <button id="duplicateCancel" type="button" class="btn btn-secondary">Cancel</button>
         </div>
       </div>
@@ -2036,3 +2041,5 @@
   <script src="js/main.js"></script>
 </body>
 </html>
+
+

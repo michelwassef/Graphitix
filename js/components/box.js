@@ -7429,7 +7429,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -8701,6 +8701,117 @@
     }
   }
 
+  function isBoxPointConnectionModeEligible(graphTypeCandidate, pointModeCandidate){
+    const graphType = String(graphTypeCandidate || '').toLowerCase();
+    if(graphType === 'strip'){
+      return true;
+    }
+    const pointMode = String(pointModeCandidate || '').toLowerCase();
+    return pointMode === 'overlay' || pointMode === 'side';
+  }
+
+  function buildBoxConnectedPointPathFromTraceMaps(tracePointMaps){
+    if(!Array.isArray(tracePointMaps) || tracePointMaps.length < 2){
+      return { d: '', segmentCount: 0, rowCount: 0, pointCount: 0 };
+    }
+    const validMaps = tracePointMaps.map(map => (map instanceof Map && map.size ? map : null));
+    if(validMaps.filter(Boolean).length < 2){
+      return { d: '', segmentCount: 0, rowCount: 0, pointCount: 0 };
+    }
+    const rowKeysSet = new Set();
+    validMaps.forEach(map => {
+      if(!map){ return; }
+      map.forEach((_, key) => {
+        rowKeysSet.add(String(key));
+      });
+    });
+    if(!rowKeysSet.size){
+      return { d: '', segmentCount: 0, rowCount: 0, pointCount: 0 };
+    }
+    const rowKeys = Array.from(rowKeysSet);
+    rowKeys.sort((a, b) => {
+      const numA = Number(a);
+      const numB = Number(b);
+      const finiteA = Number.isFinite(numA);
+      const finiteB = Number.isFinite(numB);
+      if(finiteA && finiteB){
+        return numA - numB;
+      }
+      if(finiteA){ return -1; }
+      if(finiteB){ return 1; }
+      return a.localeCompare(b);
+    });
+    const dParts = [];
+    let segmentCount = 0;
+    let totalSegmentPoints = 0;
+    const pushSegment = segment => {
+      if(!Array.isArray(segment) || segment.length < 2){
+        return;
+      }
+      dParts.push(`M ${segment[0].x} ${segment[0].y}`);
+      for(let idx = 1; idx < segment.length; idx += 1){
+        dParts.push(`L ${segment[idx].x} ${segment[idx].y}`);
+      }
+      segmentCount += 1;
+      totalSegmentPoints += segment.length;
+    };
+    rowKeys.forEach(rowKey => {
+      let currentSegment = [];
+      for(let traceIndex = 0; traceIndex < validMaps.length; traceIndex += 1){
+        const pointMap = validMaps[traceIndex];
+        const point = pointMap ? pointMap.get(rowKey) : null;
+        if(point && Number.isFinite(point.x) && Number.isFinite(point.y)){
+          currentSegment.push(point);
+          continue;
+        }
+        if(currentSegment.length >= 2){
+          pushSegment(currentSegment);
+        }
+        currentSegment = [];
+      }
+      if(currentSegment.length >= 2){
+        pushSegment(currentSegment);
+      }
+    });
+    return {
+      d: dParts.join(' '),
+      segmentCount,
+      rowCount: rowKeys.length,
+      pointCount: totalSegmentPoints
+    };
+  }
+
+  function syncBoxPointConnectionControlState(options = {}){
+    const control = els.boxConnectPointsCtl || global.document?.getElementById?.('boxConnectPointsCtl') || null;
+    const checkbox = els.boxConnectPointsAcrossDatasets || global.document?.getElementById?.('boxConnectPointsAcrossDatasets') || null;
+    if(!checkbox){
+      return false;
+    }
+    const graphType = String(options.graphType ?? els.boxGraphType?.value ?? '').toLowerCase();
+    const pointMode = String(options.pointMode ?? els.boxPointMode?.value ?? '').toLowerCase();
+    const eligible = isBoxPointConnectionModeEligible(graphType, pointMode);
+    checkbox.disabled = !eligible;
+    checkbox.setAttribute('aria-disabled', eligible ? 'false' : 'true');
+    if(control){
+      control.style.display = '';
+      control.setAttribute('aria-disabled', eligible ? 'false' : 'true');
+      if(!eligible){
+        control.title = 'Requires Individual Values or Display points set to Overlay/Side.';
+      }else{
+        control.removeAttribute('title');
+      }
+    }
+    if(boxDebugEnabled()){
+      console.debug('Debug: box connect points control state', {
+        graphType,
+        pointMode,
+        eligible,
+        checked: !!checkbox.checked
+      });
+    }
+    return eligible;
+  }
+
   let boxLogWarningEl = null;
   const boxDebugEnabled = () => typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
 
@@ -9123,6 +9234,11 @@
     syncBoxBorderWidthControlForGraphType(els.boxGraphType?.value || 'box');
     els.boxPointMode=global.$('#boxPointMode');
     els.boxPointModeCtl=els.boxPointMode?.closest('.control') || null;
+    els.boxConnectPointsCtl=global.$('#boxConnectPointsCtl');
+    els.boxConnectPointsAcrossDatasets=global.$('#boxConnectPointsAcrossDatasets');
+    if(els.boxConnectPointsAcrossDatasets){
+      els.boxConnectPointsAcrossDatasets.checked = !!state.connectPointsAcrossDatasets;
+    }
     els.boxShowCapsCtl=global.$('#boxShowCapsCtl');
     els.boxShowCaps=global.$('#boxShowCaps');
     els.boxShowSignificance=global.$('#boxShowSignificance');
@@ -9159,6 +9275,7 @@
       state.significanceLabelMode = mode;
       els.boxSignificanceLabelMode.value = mode;
     }
+    syncBoxPointConnectionControlState();
     els.boxErrorMode=global.$('#boxErrorMode');
     els.boxErrorModeCtl=global.$('#boxErrorModeCtl');
     els.boxColorPerBox=global.$('#boxColorPerBox');
@@ -11715,6 +11832,10 @@
         els.boxPointModeCtl.style.display = pointModeVisible ? '' : 'none';
         console.debug('Debug: box point mode visibility',{ graphTypeValue, pointModeVisible });
       }
+      syncBoxPointConnectionControlState({
+        graphType: graphTypeValue,
+        pointMode: els.boxPointMode?.value
+      });
       ensureBoxSignificanceControlPlacement();
       if(els.boxLayoutModeCtl){
         const groupedActive = state.tableFormat === 'grouped';
@@ -11794,7 +11915,25 @@
         scheduleBoxViewRefresh('individual-summary-change');
       });
     }
-    els.boxPointMode.addEventListener('change',()=>{ boxLog('boxPointMode changed', els.boxPointMode.value); scheduleBoxViewRefresh('point-mode-change'); });
+    els.boxPointMode.addEventListener('change',()=>{
+      boxLog('boxPointMode changed', els.boxPointMode.value);
+      syncBoxPointConnectionControlState({
+        graphType: els.boxGraphType?.value,
+        pointMode: els.boxPointMode.value
+      });
+      scheduleBoxViewRefresh('point-mode-change');
+    });
+    if(els.boxConnectPointsAcrossDatasets){
+      els.boxConnectPointsAcrossDatasets.addEventListener('change',()=>{
+        state.connectPointsAcrossDatasets = !!els.boxConnectPointsAcrossDatasets.checked;
+        if(boxDebugEnabled()){
+          console.debug('Debug: box connect points toggle', {
+            enabled: state.connectPointsAcrossDatasets
+          });
+        }
+        scheduleBoxViewRefresh('connect-points-toggle');
+      });
+    }
     els.boxShowCaps.addEventListener('change',()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); scheduleBoxViewRefresh('show-caps-change'); });
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
@@ -22444,12 +22583,24 @@ Technical analysis record (advanced)
     }
     console.debug('Debug: box summary selector mode',{ graphTypeRaw, individualSummaryMode });
     const pointMode = els.boxPointMode.value;
+    const connectPointsRequested = !!state.connectPointsAcrossDatasets;
+    const connectPointsEligible = isBoxPointConnectionModeEligible(graphTypeRaw, pointMode);
+    const connectPointsActive = connectPointsRequested && connectPointsEligible;
+    if(debugEnabled){
+      console.debug('Debug: box connect points state', {
+        requested: connectPointsRequested,
+        eligible: connectPointsEligible,
+        active: connectPointsActive,
+        graphType: graphTypeRaw,
+        pointMode
+      });
+    }
     const showCaps = els.boxShowCaps.checked;
     const errorMode = els.boxErrorMode.value;
     const isFlipped = !!els.boxFlipAxes?.checked;
     state.flipAxes = isFlipped;
     if(els.boxLogScaleLabel){
-      els.boxLogScaleLabel.textContent = isFlipped ? 'Log Scale (Values)' : 'Log Scale (Y)';
+      els.boxLogScaleLabel.textContent = isFlipped ? 'Log scale (values)' : 'Log scale (Y)';
     }
     console.debug('Debug: box draw orientation',{ isFlipped });
     let legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
@@ -22581,7 +22732,8 @@ Technical analysis record (advanced)
       cachedTraces.forEach(trace => {
         traces.push({
           ...trace,
-          rawY: Array.isArray(trace?.rawY) ? trace.rawY : []
+          rawY: Array.isArray(trace?.rawY) ? trace.rawY : [],
+          rowIndices: Array.isArray(trace?.rowIndices) ? trace.rowIndices : []
         });
       });
       console.debug('Debug: box data collect skipped (view cache)', {
@@ -22661,6 +22813,7 @@ Technical analysis record (advanced)
           const headerCell = dataMatrix?.[0]?.[i];
           const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
           const col = [];
+          const rowIndices = [];
           console.time(`boxColCollect_${i}_${token}`);
           for(let r = dataStartRow; r < nRows; r++){
             const rawValue = dataMatrix?.[r]?.[i];
@@ -22670,6 +22823,7 @@ Technical analysis record (advanced)
             const v = parseFloat(rawValue);
             if(!isNaN(v)){
               col.push(v);
+              rowIndices.push(r);
               if(v <= 0){
                 hasNonPositiveRaw = true;
               }
@@ -22691,7 +22845,7 @@ Technical analysis record (advanced)
             axisLabels.push(label);
             axisGroupIndices.push(null);
             traceLabels.push(label);
-            traces.push({ name: label, rawY: col, categoryName: label, categoryIndex, columnIndex: i });
+            traces.push({ name: label, rawY: col, rowIndices, categoryName: label, categoryIndex, columnIndex: i });
           }
         }
         if(!axisLabels.length && traceLabels.length){
@@ -22735,6 +22889,7 @@ Technical analysis record (advanced)
               continue;
             }
             const values = [];
+            const rowIndices = [];
             console.time(`boxColCollect_${colIndex}_${token}`);
             for(let r = dataStartRow; r < nRows; r++){
               const rawValue = dataMatrix?.[r]?.[colIndex];
@@ -22744,6 +22899,7 @@ Technical analysis record (advanced)
               const v = parseFloat(rawValue);
               if(!isNaN(v)){
                 values.push(v);
+                rowIndices.push(r);
                 if(v <= 0){
                   hasNonPositiveRaw = true;
                 }
@@ -22761,7 +22917,7 @@ Technical analysis record (advanced)
               return;
             }
             if(values.length){
-              const entry = { groupName, groupIndex: gIdx, rawY: values, columnIndex: colIndex, replicateIndex: repIdx };
+              const entry = { groupName, groupIndex: gIdx, rawY: values, rowIndices, columnIndex: colIndex, replicateIndex: repIdx };
               replicateBucket.push(entry);
               groupEntries[gIdx].replicates.push(entry);
             }
@@ -22784,6 +22940,7 @@ Technical analysis record (advanced)
               const trace = {
                 name: replicateLabel,
                 rawY: entry.rawY,
+                rowIndices: entry.rowIndices,
                 groupName: entry.groupName,
                 groupIndex: entry.groupIndex,
                 categoryName: replicateLabel,
@@ -22804,6 +22961,7 @@ Technical analysis record (advanced)
               const trace = {
                 name: label,
                 rawY: entry.rawY,
+                rowIndices: entry.rowIndices,
                 groupName: entry.groupName,
                 groupIndex: entry.groupIndex,
                 categoryName: rep.name,
@@ -22840,7 +22998,8 @@ Technical analysis record (advanced)
         pointLayoutCache: { vertical: {}, horizontal: {} },
         traces: traces.map(trace => ({
           ...trace,
-          rawY: Array.isArray(trace?.rawY) ? trace.rawY : []
+          rawY: Array.isArray(trace?.rawY) ? trace.rawY : [],
+          rowIndices: Array.isArray(trace?.rowIndices) ? trace.rowIndices : []
         }))
       };
       cachedDrawInput = state.cachedDrawInput;
@@ -23401,6 +23560,53 @@ Technical analysis record (advanced)
     const add = (tag, attrs) => appendToLayer(dataLayer || svg, tag, attrs);
     const addGrid = (tag, attrs) => appendToLayer(gridLayer || svg, tag, attrs);
     const addReference = (tag, attrs) => appendToLayer(referenceLayer || dataLayer || svg, tag, attrs);
+    const drawBoxPointConnectionsFromTraceMaps = (tracePointMaps, options = {}) => {
+      if(!connectPointsActive){
+        return { drawn: false, segmentCount: 0, rowCount: 0 };
+      }
+      const pathInfo = buildBoxConnectedPointPathFromTraceMaps(tracePointMaps);
+      if(!pathInfo.d){
+        return { drawn: false, segmentCount: 0, rowCount: 0 };
+      }
+      const lineLayer = appendToLayer(dataLayer || svg, 'g', {
+        'data-export-layer': 'box-point-connections',
+        'data-orientation': options.orientation === 'horizontal' ? 'horizontal' : 'vertical'
+      });
+      lineLayer.setAttribute('fill', 'none');
+      lineLayer.style.pointerEvents = 'none';
+      const connectionStrokeWidth = chartStyle.scaleStrokeWidth(0.9, styleScaleInfo, { context: 'box-point-connection', min: 0.2 });
+      const connectionPath = appendToLayer(lineLayer, 'path', {
+        d: pathInfo.d,
+        fill: 'none',
+        stroke: chartStyle.TEXT_COLOR || '#2d2d2d',
+        'stroke-width': connectionStrokeWidth,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'stroke-opacity': 0.8,
+        'data-box-point-connections': '1'
+      });
+      connectionPath.style.pointerEvents = 'none';
+      const pointGroups = Array.from((dataLayer || svg).querySelectorAll('g[data-export-layer="box-points"]'));
+      pointGroups.forEach(group => {
+        if(group?.parentNode){
+          group.parentNode.appendChild(group);
+        }
+      });
+      if(debugEnabled){
+        console.debug('Debug: box connected point lines rendered', {
+          orientation: options.orientation === 'horizontal' ? 'horizontal' : 'vertical',
+          rowCount: pathInfo.rowCount,
+          segmentCount: pathInfo.segmentCount,
+          pointCount: pathInfo.pointCount
+        });
+      }
+      return {
+        drawn: true,
+        rowCount: pathInfo.rowCount,
+        segmentCount: pathInfo.segmentCount,
+        pointCount: pathInfo.pointCount
+      };
+    };
     const axisStroke = axisStrokeColor || DEFAULT_AXIS_COLOR;
     function estimateBandwidth(sorted){
       if(!sorted.length) return 1;
@@ -24742,7 +24948,9 @@ Technical analysis record (advanced)
           interDatasetGapFactor = 0,
           minInterDatasetGapPx = 0,
           disableBatchPath = false,
-          drawToken = null
+          drawToken = null,
+          rowIndices = null,
+          collectPointsByRow = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
         const pointCount = rawValues.length;
@@ -24962,7 +25170,15 @@ Technical analysis record (advanced)
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
             }
-            pts[idx] = { x: cx + offset, y: pointCoords[idx] };
+            const pointX = cx + offset;
+            const pointY = pointCoords[idx];
+            pts[idx] = { x: pointX, y: pointY };
+            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+              const rowKey = rowIndices[idx];
+              if(rowKey != null){
+                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
+              }
+            }
           }
           const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
             fill: effectiveFill,
@@ -25073,6 +25289,8 @@ Technical analysis record (advanced)
               node.setAttribute('r', effectiveRadius);
             }
             if(node){
+              const pointX = cx + offset;
+              const pointY = pointCoords[idx];
               node.setAttribute('fill', effectiveFill);
               if(effectiveStroke){
                 node.setAttribute('stroke', effectiveStroke);
@@ -25081,8 +25299,14 @@ Technical analysis record (advanced)
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
               node.setAttribute('data-point-size', String(effectiveRadius * 2));
-              node.setAttribute('data-point-cx', String(cx + offset));
-              node.setAttribute('data-point-cy', String(pointCoords[idx]));
+              node.setAttribute('data-point-cx', String(pointX));
+              node.setAttribute('data-point-cy', String(pointY));
+              if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+                const rowKey = rowIndices[idx];
+                if(rowKey != null){
+                  collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
+                }
+              }
               attachBoxPointTooltip(node, {
                 seriesName: tooltipSeriesName,
                 categoryName: tooltipCategoryName,
@@ -25102,9 +25326,10 @@ Technical analysis record (advanced)
         if(debugEnabled){
           console.debug('Debug: box individual vertical render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
         }
-        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius };
+        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius, collectPointsByRow };
       };
       const stackedErrorQueue = [];
+      const connectionMapsByTrace = connectPointsActive ? new Array(traces.length).fill(null) : null;
       const annotationMaxByTrace = new Array(traces.length).fill(null);
       let annotationObstaclePaddingPx = annotationDataObstaclePadding;
       const pendingIndividualSummaryBars = [];
@@ -25121,6 +25346,8 @@ Technical analysis record (advanced)
           continue;
         }
         const valueList = summary.sortedValues || t.y;
+        const pointValueList = Array.isArray(t?.y) ? t.y : valueList;
+        const pointRowIndices = Array.isArray(t?.rowIndices) ? t.rowIndices : null;
         const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
         const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
         const tooltipGroupName = t?.groupName || null;
@@ -25134,6 +25361,7 @@ Technical analysis record (advanced)
         const q3 = summary.q3;
         const iqr = summary.iqr;
         const sampleCount = summary.count;
+        const pointSampleCount = Array.isArray(pointValueList) ? pointValueList.length : sampleCount;
         const mean = summary.mean;
         const sdForRule = whiskerNeedsSd ? summary.sd : 0;
         const whiskerInfo = computeWhiskerFences({
@@ -25557,10 +25785,10 @@ Technical analysis record (advanced)
             ? stripAutoSizeRadiusConstrained
             : null;
           const swarmResult = await renderSwarmPointsVertical({
-            valueList,
+            valueList: pointValueList,
             cx,
             localBand,
-            sampleCount,
+            sampleCount: pointSampleCount,
             traceIndex: i,
             tooltipSeriesName,
             tooltipCategoryName,
@@ -25579,10 +25807,15 @@ Technical analysis record (advanced)
             interDatasetGapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
             minInterDatasetGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
             disableBatchPath: sampleCount <= BOX_STRIP_BATCH_THRESHOLD,
-            drawToken: token
+            drawToken: token,
+            rowIndices: pointRowIndices,
+            collectPointsByRow: connectPointsActive ? new Map() : null
           });
           if(!swarmResult){
             return null;
+          }
+          if(connectPointsActive && swarmResult?.collectPointsByRow instanceof Map && swarmResult.collectPointsByRow.size){
+            connectionMapsByTrace[i] = swarmResult.collectPointsByRow;
           }
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
@@ -25787,10 +26020,10 @@ Technical analysis record (advanced)
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
             const overlayResult = await renderSwarmPointsVertical({
-              valueList,
+              valueList: pointValueList,
               cx,
               localBand,
-              sampleCount,
+              sampleCount: pointSampleCount,
               traceIndex: i,
               tooltipSeriesName,
               tooltipCategoryName,
@@ -25805,10 +26038,15 @@ Technical analysis record (advanced)
               widthScaleMode: 'density',
               maxHalfWidth: violinPointMaxHalfWidth,
               pointRadiusOverride: overlayRadius,
-              drawToken: token
+              drawToken: token,
+              rowIndices: pointRowIndices,
+              collectPointsByRow: connectPointsActive ? new Map() : null
             });
             if(!overlayResult){
               return null;
+            }
+            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
+              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
             }
           }else{
             const overlayMode = pointMode === 'overlay';
@@ -25832,10 +26070,10 @@ Technical analysis record (advanced)
               plotRight: plotRightX
             });
             const overlayResult = await renderSwarmPointsVertical({
-              valueList,
+              valueList: pointValueList,
               cx: overlayMode ? cx : (sideSlot?.centerX ?? cx),
               localBand,
-              sampleCount,
+              sampleCount: pointSampleCount,
               traceIndex: i,
               tooltipSeriesName,
               tooltipCategoryName,
@@ -25849,10 +26087,15 @@ Technical analysis record (advanced)
               pointRadiusOverride: resolvedPointRadius,
               maxHalfWidth: overlayMode ? requestedHalfWidth : (sideSlot?.halfWidth ?? 0),
               allowRadiusAdjustment: false,
-              drawToken: token
+              drawToken: token,
+              rowIndices: pointRowIndices,
+              collectPointsByRow: (connectPointsActive && (overlayMode || pointMode === 'side')) ? new Map() : null
             });
             if(!overlayResult){
               return null;
+            }
+            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
+              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
             }
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
@@ -25925,6 +26168,9 @@ Technical analysis record (advanced)
           }
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'vertical' });
+      }
+      if(connectPointsActive && connectionMapsByTrace){
+        drawBoxPointConnectionsFromTraceMaps(connectionMapsByTrace, { orientation: 'vertical' });
       }
       const traceCenter = idx => {
         const trace = traces[idx];
@@ -26087,7 +26333,9 @@ Technical analysis record (advanced)
           interDatasetGapFactor = 0,
           minInterDatasetGapPx = 0,
           disableBatchPath = false,
-          drawToken = null
+          drawToken = null,
+          rowIndices = null,
+          collectPointsByRow = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
         const pointCount = rawValues.length;
@@ -26305,7 +26553,15 @@ Technical analysis record (advanced)
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
             }
-            pts[idx] = { x: pointCoords[idx], y: cy + offset };
+            const pointX = pointCoords[idx];
+            const pointY = cy + offset;
+            pts[idx] = { x: pointX, y: pointY };
+            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+              const rowKey = rowIndices[idx];
+              if(rowKey != null){
+                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
+              }
+            }
           }
           const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
             fill: effectiveFill,
@@ -26416,6 +26672,8 @@ Technical analysis record (advanced)
               node.setAttribute('r', effectiveRadius);
             }
             if(node){
+              const pointX = pointCoords[idx];
+              const pointY = cy + offset;
               node.setAttribute('fill', effectiveFill);
               if(effectiveStroke){
                 node.setAttribute('stroke', effectiveStroke);
@@ -26424,8 +26682,14 @@ Technical analysis record (advanced)
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
               node.setAttribute('data-point-size', String(effectiveRadius * 2));
-              node.setAttribute('data-point-cx', String(pointCoords[idx]));
-              node.setAttribute('data-point-cy', String(cy + offset));
+              node.setAttribute('data-point-cx', String(pointX));
+              node.setAttribute('data-point-cy', String(pointY));
+              if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+                const rowKey = rowIndices[idx];
+                if(rowKey != null){
+                  collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
+                }
+              }
               attachBoxPointTooltip(node, {
                 seriesName: tooltipSeriesName,
                 categoryName: tooltipCategoryName,
@@ -26445,7 +26709,7 @@ Technical analysis record (advanced)
         if(debugEnabled){
           console.debug('Debug: box individual horizontal render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
         }
-        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius };
+        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius, collectPointsByRow };
       };
       const axisCount = Math.max(axisLabels.length, 1);
       // Add a small gap between adjacent category bands so datasets don't touch
@@ -27099,6 +27363,7 @@ Technical analysis record (advanced)
         });
       }
       const stackedErrorQueue = [];
+      const connectionMapsByTrace = connectPointsActive ? new Array(traces.length).fill(null) : null;
       const annotationMaxByTrace = new Array(traces.length).fill(null);
       let annotationObstaclePaddingPx = annotationDataObstaclePadding;
       const pendingIndividualSummaryBars = [];
@@ -27115,6 +27380,8 @@ Technical analysis record (advanced)
           continue;
         }
         const valueList = summary.sortedValues || t.y;
+        const pointValueList = Array.isArray(t?.y) ? t.y : valueList;
+        const pointRowIndices = Array.isArray(t?.rowIndices) ? t.rowIndices : null;
         const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
         const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
         const tooltipGroupName = t?.groupName || null;
@@ -27128,6 +27395,7 @@ Technical analysis record (advanced)
         const q3 = summary.q3;
         const iqr = summary.iqr;
         const sampleCount = summary.count;
+        const pointSampleCount = Array.isArray(pointValueList) ? pointValueList.length : sampleCount;
         const mean = summary.mean;
         const sdForRule = whiskerNeedsSd ? summary.sd : 0;
         const whiskerInfo = computeWhiskerFences({
@@ -27582,10 +27850,10 @@ Technical analysis record (advanced)
             });
           }
           const swarmResult = await renderSwarmPointsHorizontal({
-            valueList,
+            valueList: pointValueList,
             cy,
             localBand,
-            sampleCount,
+            sampleCount: pointSampleCount,
             traceIndex: i,
             tooltipSeriesName,
             tooltipCategoryName,
@@ -27604,10 +27872,15 @@ Technical analysis record (advanced)
             interDatasetGapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
             minInterDatasetGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
             disableBatchPath: sampleCount <= BOX_STRIP_BATCH_THRESHOLD,
-            drawToken: token
+            drawToken: token,
+            rowIndices: pointRowIndices,
+            collectPointsByRow: connectPointsActive ? new Map() : null
           });
           if(!swarmResult){
             return null;
+          }
+          if(connectPointsActive && swarmResult?.collectPointsByRow instanceof Map && swarmResult.collectPointsByRow.size){
+            connectionMapsByTrace[i] = swarmResult.collectPointsByRow;
           }
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
@@ -27808,10 +28081,10 @@ Technical analysis record (advanced)
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
             const overlayResult = await renderSwarmPointsHorizontal({
-              valueList,
+              valueList: pointValueList,
               cy,
               localBand,
-              sampleCount,
+              sampleCount: pointSampleCount,
               traceIndex: i,
               tooltipSeriesName,
               tooltipCategoryName,
@@ -27826,10 +28099,15 @@ Technical analysis record (advanced)
               widthScaleMode: 'density',
               maxHalfWidth: violinPointMaxHalfHeight,
               pointRadiusOverride: overlayRadius,
-              drawToken: token
+              drawToken: token,
+              rowIndices: pointRowIndices,
+              collectPointsByRow: connectPointsActive ? new Map() : null
             });
             if(!overlayResult){
               return null;
+            }
+            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
+              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
             }
           }else{
             const overlayMode = pointMode === 'overlay';
@@ -27853,10 +28131,10 @@ Technical analysis record (advanced)
               plotBottom: marginLocal.top + plotHLocal
             });
             const overlayResult = await renderSwarmPointsHorizontal({
-              valueList,
+              valueList: pointValueList,
               cy: overlayMode ? cy : (sideSlot?.centerY ?? cy),
               localBand,
-              sampleCount,
+              sampleCount: pointSampleCount,
               traceIndex: i,
               tooltipSeriesName,
               tooltipCategoryName,
@@ -27870,10 +28148,15 @@ Technical analysis record (advanced)
               pointRadiusOverride: resolvedPointRadius,
               maxHalfWidth: overlayMode ? requestedHalfHeight : (sideSlot?.halfHeight ?? 0),
               allowRadiusAdjustment: false,
-              drawToken: token
+              drawToken: token,
+              rowIndices: pointRowIndices,
+              collectPointsByRow: (connectPointsActive && (overlayMode || pointMode === 'side')) ? new Map() : null
             });
             if(!overlayResult){
               return null;
+            }
+            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
+              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
             }
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
@@ -27946,6 +28229,9 @@ Technical analysis record (advanced)
           }
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'horizontal' });
+      }
+      if(connectPointsActive && connectionMapsByTrace){
+        drawBoxPointConnectionsFromTraceMaps(connectionMapsByTrace, { orientation: 'horizontal' });
       }
       const traceCenter = idx => {
         const trace = traces[idx];
@@ -28293,6 +28579,7 @@ Technical analysis record (advanced)
         barSummary: state.barSummary,
         borderWidths: ensureBoxBorderWidthState(),
         pointMode:els.boxPointMode.value,
+        connectPointsAcrossDatasets: !!state.connectPointsAcrossDatasets,
         showCaps:els.boxShowCaps.checked,
         showSignificanceBars: state.showSignificanceBars,
 	        significance: {
@@ -28766,6 +29053,14 @@ Technical analysis record (advanced)
       }
       els.boxIndividualSummary.value = (els.boxGraphType.value === 'bar') ? restoredBarSummary : restoredSummary;
     }
+    if(Object.prototype.hasOwnProperty.call(c, 'connectPointsAcrossDatasets')){
+      state.connectPointsAcrossDatasets = !!c.connectPointsAcrossDatasets;
+    }else{
+      state.connectPointsAcrossDatasets = !!state.connectPointsAcrossDatasets;
+    }
+    if(els.boxConnectPointsAcrossDatasets){
+      els.boxConnectPointsAcrossDatasets.checked = !!state.connectPointsAcrossDatasets;
+    }
     els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
     els.boxShowCaps.checked=!!c.showCaps;
     if(!styleOnly){
@@ -28840,6 +29135,10 @@ Technical analysis record (advanced)
     if(els.boxPointModeCtl){
       els.boxPointModeCtl.style.display = graphTypeValue==='strip' ? 'none' : '';
     }
+    syncBoxPointConnectionControlState({
+      graphType: graphTypeValue,
+      pointMode: els.boxPointMode?.value
+    });
     ensureBoxSignificanceControlPlacement();
     state.fillColors=c.colors||[];
     state.borderColors=c.borderColors||[];
@@ -29592,6 +29891,8 @@ Technical analysis record (advanced)
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
+      isBoxPointConnectionModeEligible:(graphType,pointMode)=>isBoxPointConnectionModeEligible(graphType,pointMode),
+      buildBoxConnectedPointPathFromTraceMaps:maps=>buildBoxConnectedPointPathFromTraceMaps(maps),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),

@@ -1620,7 +1620,7 @@
     }
 
     if(!coxAnalysisActive){
-      hint.textContent = 'Enable "Fit Cox Model" or "Show Hazard Ratios" to include covariates in model-based survival analyses.';
+      hint.textContent = 'Enable "Fit Cox model" or "Show hazard ratios" to include covariates in model-based survival analyses.';
     } else if(supportsTimeDependent){
       hint.textContent = 'Check a column to include it in the Cox model. Unchecked covariates are ignored. Time-dependent covariates require Entry Time to mark interval starts.';
     } else {
@@ -4197,7 +4197,7 @@
       return;
     }
     if(!summary.flags?.hazardRatiosEnabled){
-      renderStatsLead(refs.statsHazardRatios, 'Enable "Show Hazard Ratios" above to compute pairwise comparisons.');
+      renderStatsLead(refs.statsHazardRatios, 'Enable "Show hazard ratios" above to compute pairwise comparisons.');
       return;
     }
     if(!(summary.hazardRatios?.available) || !Array.isArray(summary.hazardRatios.rows) || !summary.hazardRatios.rows.length){
@@ -4212,7 +4212,7 @@
       p: formatP(row.p)
     }));
     renderStatsTableCard(refs.statsHazardRatios, {
-      caption: 'Hazard Ratios',
+      caption: 'Hazard ratios',
       advanced: false,
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
@@ -4261,7 +4261,7 @@
       return;
     }
     if(!summary.flags?.coxEnabled){
-      renderStatsLead(refs.statsCox, 'Enable "Fit Cox Model" above to review coefficient estimates.');
+      renderStatsLead(refs.statsCox, 'Enable "Fit Cox model" above to review coefficient estimates.');
       return;
     }
     if(!(summary.coxModel?.available) || !Array.isArray(summary.coxModel.coefficients) || !summary.coxModel.coefficients.length){
@@ -4515,10 +4515,10 @@
       renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
       renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
       if(refs.statsHazardRatios){
-        renderStatsLead(refs.statsHazardRatios, 'Enable "Show Hazard Ratios" above to compute pairwise comparisons.');
+        renderStatsLead(refs.statsHazardRatios, 'Enable "Show hazard ratios" above to compute pairwise comparisons.');
       }
       if(refs.statsCox){
-        renderStatsLead(refs.statsCox, 'Enable "Fit Cox Model" above to review coefficient estimates.');
+        renderStatsLead(refs.statsCox, 'Enable "Fit Cox model" above to review coefficient estimates.');
       }
     }
     if(!skipDraw && typeof state.scheduleDraw === 'function'){
