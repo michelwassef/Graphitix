@@ -512,6 +512,65 @@
 
     el.style.cursor = cursor;
 
+    const collectVisibilityTargets = (targetNode) => {
+      if (!targetNode) { return []; }
+      const resolved = [];
+      const seen = new Set();
+      const pushUnique = (node) => {
+        if (!node || seen.has(node)) { return; }
+        seen.add(node);
+        resolved.push(node);
+      };
+
+      const tagName = String(targetNode.tagName || '').toLowerCase();
+      const textNode = tagName === 'text'
+        ? targetNode
+        : (typeof targetNode.closest === 'function' ? targetNode.closest('text') : null);
+      if (textNode) {
+        pushUnique(textNode);
+      } else {
+        pushUnique(targetNode);
+      }
+
+      const referenceNode = textNode || targetNode;
+      const dataset = referenceNode?.dataset || {};
+      const key = dataset.fontKey || null;
+      if (!key || !ownerDocument) {
+        return resolved;
+      }
+
+      const scope = dataset.fontScope || null;
+      const tabId = dataset.fontTabId || null;
+      const escapeAttr = (value) => {
+        const raw = String(value);
+        if (ownerWindow?.CSS && typeof ownerWindow.CSS.escape === 'function') {
+          return ownerWindow.CSS.escape(raw);
+        }
+        return raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      };
+
+      let selector = `text[data-font-key="${escapeAttr(key)}"]`;
+      if (scope) {
+        selector += `[data-font-scope="${escapeAttr(scope)}"]`;
+      }
+      if (tabId) {
+        selector += `[data-font-tab-id="${escapeAttr(tabId)}"]`;
+      }
+
+      const searchRoot = (typeof referenceNode.closest === 'function' && referenceNode.closest('svg'))
+        || ownerDocument;
+      let matches = [];
+      try {
+        matches = Array.from(searchRoot.querySelectorAll(selector));
+      } catch (queryErr) {
+        console.error('Shared.makeEditable visibility target query error', queryErr);
+      }
+      for (let i = 0; i < matches.length; i += 1) {
+        pushUnique(matches[i]);
+      }
+      return resolved;
+    };
+
     const removeOverlay = (state) => {
       if (!state) return;
       if (typeof state.stopDeferredCommitWatcher === 'function') {
@@ -547,18 +606,21 @@
         }
         state.safePointerdownResetTimer = null;
       }
-      if (state.target && state.restoreVisibility !== undefined) {
-        try {
-          if (state.restoreVisibility === null) {
-            state.target.style.removeProperty('visibility');
-          } else {
-            state.target.style.visibility = state.restoreVisibility;
+      if (Array.isArray(state.hiddenTargets) && state.hiddenTargets.length) {
+        state.hiddenTargets.forEach(entry => {
+          const target = entry?.target || null;
+          if (!target || !target.style) { return; }
+          try {
+            if (entry.restoreVisibility === null) {
+              target.style.removeProperty('visibility');
+            } else {
+              target.style.visibility = entry.restoreVisibility;
+            }
+          } catch (visibilityErr) {
+            console.error('Shared.makeEditable visibility restore error', visibilityErr);
           }
-        } catch (visibilityErr) {
-          console.error('Shared.makeEditable visibility restore error', visibilityErr);
-        }
-        state.restoreVisibility = undefined;
-        state.target = null;
+        });
+        state.hiddenTargets = [];
       }
       if (el && el.__inlineEditState === state) {
         try {
@@ -597,15 +659,17 @@
         overlay.style.alignItems = 'stretch';
         overlay.style.justifyContent = 'stretch';
         overlay.style.pointerEvents = 'auto';
-        overlay.style.background = 'rgba(255,255,255,0.95)';
+        overlay.style.background = '#ffffff';
         overlay.style.borderRadius = '4px';
         overlay.style.overflow = 'hidden';
 
         const widthPadding = Number.isFinite(options.inlineWidthPadding)
           ? options.inlineWidthPadding
           : 12;
-        const overlayWidth = Math.max(rect.width || 0, minWidth) + widthPadding;
-        const targetHeight = Math.max(rect.height || 0, minHeight);
+        const baseMinWidth = Math.max(rect.width || 0, Number(minWidth) || 0);
+        const baseMinHeight = Math.max(rect.height || 0, Number(minHeight) || 0);
+        const overlayWidth = baseMinWidth + widthPadding;
+        const targetHeight = baseMinHeight;
         const targetCenterX = rect.left + (rect.width || 0) / 2 + scrollLeft;
         const targetCenterY = rect.top + (rect.height || 0) / 2 + scrollTop;
         overlay.style.width = `${overlayWidth}px`;
@@ -700,10 +764,11 @@
           measure: measureNode,
           initialValue,
           target: el || null,
+          hiddenTargets: [],
           centerX: targetCenterX,
           centerY: targetCenterY,
-          minWidth: Math.max(4, minWidth || 0),
-          minHeight: Math.max(4, minHeight || 0),
+          minWidth: Math.max(4, baseMinWidth || 0),
+          minHeight: Math.max(4, baseMinHeight || 0),
           deferCommitHandler: null,
           shouldRestoreSelection: false,
           selection: null,
@@ -714,7 +779,6 @@
           baseStyle: { ...(styleMeta.baseStyle || {}) },
           widthPadding,
           preview: null,
-          restoreVisibility: undefined,
           initialText: inlineInitialValue,
           initialStyleMap: normalizedInitialStyleMap,
           preventCollapsedSelectionOverwrite: false,
@@ -750,14 +814,24 @@
           }
         };
 
-        if (el && el.style) {
-          state.restoreVisibility = el.style.visibility || null;
-          try {
-            el.style.visibility = 'hidden';
-            logDebug('makeEditable inline target hidden', { tag: el.tagName || null });
-          } catch (hideErr) {
-            console.error('Shared.makeEditable hide target error', hideErr);
-          }
+        const visibilityTargets = collectVisibilityTargets(el);
+        if (visibilityTargets.length) {
+          visibilityTargets.forEach(node => {
+            if (!node || !node.style) { return; }
+            try {
+              state.hiddenTargets.push({
+                target: node,
+                restoreVisibility: node.style.visibility || null,
+              });
+              node.style.visibility = 'hidden';
+            } catch (hideErr) {
+              console.error('Shared.makeEditable hide target error', hideErr);
+            }
+          });
+          logDebug('makeEditable inline targets hidden', {
+            count: state.hiddenTargets.length,
+            tag: el?.tagName || null
+          });
         }
 
         const preview = ownerDocument.createElement('div');

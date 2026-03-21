@@ -5302,7 +5302,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
   .font-controls-panel__format-buttons{justify-content:flex-start}
 }
 .inline-edit-overlay {
-    background: rgba(255, 255, 255, 0.98);
+    background: #ffffff;
     border: 1px solid rgba(74, 144, 226, 0.6);
     border-radius: 4px;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);

@@ -17,6 +17,13 @@
     activeSourceId: null,
     defaultPayloadCache: {}
   };
+  const DEFAULT_GROUP_SELECTION = Object.freeze({
+    appearance: true,
+    axes: true,
+    fonts: true,
+    titles: false,
+    layout: true
+  });
 
   function debugLog(label, payload) {
     try {
@@ -748,7 +755,7 @@
     if (!applyBtn) return;
     const groups = collectSelectedGroups(schema);
     const targets = collectSelectedTargets();
-    const enabled = !!schema && groups.length > 0 && targets.length > 0;
+    const enabled = !!schema && groups.length > 0;
     applyBtn.disabled = !enabled;
     console.debug('Debug: styleSync apply state evaluated', {
       enabled,
@@ -873,6 +880,17 @@
     });
   }
 
+  function applyDefaultGroupSelection(schema) {
+    const boxes = state.dom.styleSyncForm
+      ? Array.from(state.dom.styleSyncForm.querySelectorAll('[data-style-group]'))
+      : [];
+    boxes.forEach(box => {
+      const key = box.getAttribute('data-style-group');
+      const supported = !!schema?.groups?.[key];
+      box.checked = supported && !!DEFAULT_GROUP_SELECTION[key];
+    });
+  }
+
   function applyLayoutToTab(tab, layoutClone) {
     if (!tab) return;
     tab.layoutState = layoutClone ? cloneValue(layoutClone) : null;
@@ -976,7 +994,7 @@
     }
     const targetIds = collectSelectedTargets();
     if (!targetIds.length) {
-      setStatus('Choose at least one target tab to update.', 'error');
+      setStatus('Select at least one target graph before applying styles.', 'error');
       return;
     }
     const stylePatch = buildStylePatch(sourceTab.type, sourceTab.payload, selectedGroups);
@@ -1050,7 +1068,7 @@
     const appliedTitles = applied.map(tab => tab.title || tab.id);
     const skippedDetails = skipped.map(item => `${item.id}: ${item.reason}`).join('; ');
     const successMessage = applied.length
-      ? `Updated ${applied.length} tab${applied.length === 1 ? '' : 's'} using ${selectedGroups.length} style group${selectedGroups.length === 1 ? '' : 's'}.`
+      ? `Updated ${applied.length} tab${applied.length === 1 ? '' : 's'} using ${selectedGroups.length} style group${selectedGroups.length === 1 ? '' : 's'}${skipped.length ? `; skipped ${skipped.length}.` : '.'}`
       : 'No tabs were updated.';
     setStatus(applied.length ? successMessage : `${successMessage} ${skipped.length ? 'Verify each target has been opened.' : ''}`, applied.length ? 'success' : 'error');
     console.debug('Debug: styleSync apply summary', {
@@ -1062,6 +1080,9 @@
       titles: appliedTitles,
       skippedDetails
     });
+    if (applied.length) {
+      hidePrompt('apply-success');
+    }
   }
 
   function handleSelectAllToggle(event) {
@@ -1140,6 +1161,7 @@
     state.activeSourceId = sourceTab ? sourceTab.id : null;
     populateTargetOptions(sourceTab);
     const schema = sourceTab ? STYLE_SCHEMAS[sourceTab.type] : null;
+    applyDefaultGroupSelection(schema);
     disableUnsupportedGroups(schema);
     updateApplyState(schema);
     syncSelectAllCheckbox();
