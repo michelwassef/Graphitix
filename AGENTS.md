@@ -6,6 +6,7 @@ This guide captures the conventions that keep the Venn dashboard consistent acro
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) – primary orientation map for runtime flow, namespaces, and component contracts.
 - [`docs/development/main-bootstrap.md`](./docs/development/main-bootstrap.md) – strict `Main.*` bootstrap sequence and load-order guards.
 - [`docs/development/module-call-map.md`](./docs/development/module-call-map.md) – generated dependency map for `Shared`, `Components`, and `Main` symbol usage.
+- [`docs/development/component-contracts.md`](./docs/development/component-contracts.md) – generated per-component contract matrix (registry hooks, host IDs, payload baseline keys).
 - [`docs/development/state-persistence-schema.md`](./docs/development/state-persistence-schema.md) – canonical session/tab payload and `.graph` persistence schema.
 
 ## 1. Layout & UX Framework

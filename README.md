@@ -6,6 +6,7 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) - Fast-orientation map of runtime flow, namespaces, component contracts, and persistence.
 - [`docs/development/main-bootstrap.md`](./docs/development/main-bootstrap.md) - Required `Main.*` bootstrap/load order and dependency guards.
 - [`docs/development/module-call-map.md`](./docs/development/module-call-map.md) - Generated namespace dependency/call map.
+- [`docs/development/component-contracts.md`](./docs/development/component-contracts.md) - Generated per-component contract matrix (registry hooks, host element IDs, payload baseline keys).
 - [`docs/development/state-persistence-schema.md`](./docs/development/state-persistence-schema.md) - Canonical workspace/tab payload and `.graph` persistence schema.
 
 ## Why Venn?

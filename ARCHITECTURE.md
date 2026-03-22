@@ -2,6 +2,8 @@
 
 This file is the fast-orientation entrypoint for the Venn workspace codebase. It complements [README.md](./README.md), [AGENTS.md](./AGENTS.md), [docs/development/main-bootstrap.md](./docs/development/main-bootstrap.md), and the generated [docs/development/module-call-map.md](./docs/development/module-call-map.md).
 
+For component-level contracts, see the generated [docs/development/component-contracts.md](./docs/development/component-contracts.md).
+
 ## 1. Runtime Bootstrap Order
 
 `index.html` loads scripts in a strict sequence. The order matters because modules attach to global namespaces (`window.Shared`, `window.Main`, `window.Components`) and expect prior modules to exist.
@@ -99,11 +101,12 @@ Detailed schema references are in [docs/development/state-persistence-schema.md]
 
 For most changes, this sequence is fastest:
 
-1. Identify workspace type (`tab.type`, component file in `js/components`).
+1. Identify workspace type (`tab.type`, component file in `js/components`) or run `npm run dev:entrypoint -- --type <component>`.
 2. Inspect `Main.components.registry` entry for the type in `js/main/components.js`.
 3. Follow payload path (`getPayload` / `loadFromPayload` / `createEmptyPayload`) in that component.
 4. If tab/session behavior is involved, trace through `js/main/session.js` and `js/main/tabs.js`.
 5. If helper ambiguity exists, check generated [module-call-map](./docs/development/module-call-map.md).
+6. For quick test targeting after edits, run `npm run test:suggest`.
 
 ## 8. Regenerating Dependency/Call Map
 
