@@ -29210,7 +29210,7 @@ Technical analysis record (advanced)
       els.boxConnectPointsAcrossDatasets.checked = !!state.connectPointsAcrossDatasets;
     }
     els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
-    els.boxShowCaps.checked=!!c.showCaps;
+    els.boxShowCaps.checked = c.showCaps !== false;
     if(!styleOnly){
       state.showSignificanceBars = !!c.showSignificanceBars;
       const significanceConfig = c.significance && typeof c.significance === 'object' ? c.significance : null;

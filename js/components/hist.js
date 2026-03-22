@@ -2323,7 +2323,7 @@
       if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
       setGridStyle(config.gridStyle, config.axis?.strokeWidth);
       const histShowFrameInput = document.getElementById('histShowFrame');
-      if(histShowFrameInput){ histShowFrameInput.checked = config.showFrame !== false; }
+      if(histShowFrameInput){ histShowFrameInput.checked = !!config.showFrame; }
       const histLogYInput = document.getElementById('histLogY');
       if(histLogYInput){ histLogYInput.checked = !!config.logY; }
       applyHistAxisLimitsToInputs({
