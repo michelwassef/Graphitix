@@ -176,3 +176,59 @@ test('scatter inline edit plain mode hides source text with a single editable la
   expect(state.visibleSourceTextOverlays).toBe(0);
   expect(issues.critical).toEqual([]);
 });
+
+test('scatter inline edit uses only outer border and keeps short title text fully visible', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await ensureScatterExampleLoaded(page);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('#scatterSvg text[data-font-key="graphTitle"]');
+    if (!target) { return; }
+    target.setAttribute('font-size', '78');
+    target.setAttribute('font-weight', '700');
+    target.textContent = 'sds';
+    target.dispatchEvent(new MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      detail: 2,
+      view: window
+    }));
+  });
+
+  await page.waitForSelector('.inline-edit-overlay .inline-edit-input', { timeout: 20_000 });
+
+  const state = await page.evaluate(() => {
+    const overlay = document.querySelector('.inline-edit-overlay');
+    const input = overlay ? overlay.querySelector('.inline-edit-input') : null;
+    if (!input || !overlay) {
+      return null;
+    }
+    const cs = getComputedStyle(input);
+    const overlayCs = getComputedStyle(overlay);
+    const clientWidth = Number(input.clientWidth || 0);
+    const scrollWidth = Number(input.scrollWidth || 0);
+    return {
+      borderTopWidth: cs.borderTopWidth,
+      borderStyle: cs.borderStyle,
+      boxShadow: cs.boxShadow,
+      overlayBorder: overlayCs.borderTopWidth,
+      clientWidth,
+      scrollWidth,
+      textFits: scrollWidth <= (clientWidth + 1)
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.borderTopWidth).toBe('0px');
+  expect(state.borderStyle).toBe('none');
+  expect(state.boxShadow === 'none' || state.boxShadow === 'rgb(0, 0, 0) 0px 0px 0px 0px').toBe(true);
+  expect(state.overlayBorder).not.toBe('0px');
+  expect(state.textFits).toBe(true);
+  expect(issues.critical).toEqual([]);
+});

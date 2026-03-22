@@ -815,9 +815,9 @@
         input.style.fontStyle = computedStyle?.fontStyle || 'normal';
         input.style.textDecoration = computedStyle?.textDecoration || 'none';
         input.style.lineHeight = overlayLineHeight;
-        input.style.border = '1px solid #4a90e2';
-        input.style.borderRadius = '4px';
-        input.style.boxShadow = '0 0 0 2px rgba(74,144,226,0.35)';
+        input.style.border = 'none';
+        input.style.borderRadius = '0';
+        input.style.boxShadow = 'none';
         input.style.padding = '0 6px';
         input.style.background = 'transparent';
         input.style.color = '#222';
@@ -1456,7 +1456,8 @@
           }
           const nextWidth = Math.max(state.minWidth, measureRect?.width || 0);
           const nextHeight = Math.max(state.minHeight, measureRect?.height || 0);
-          const paddedWidth = nextWidth + (state.widthPadding || 0);
+          // Keep a small safety allowance so glyph overhangs never clip at the left edge.
+          const paddedWidth = nextWidth + (state.widthPadding || 0) + 4;
           overlay.style.width = `${paddedWidth}px`;
           overlay.style.height = `${nextHeight}px`;
           if (multiline) {
