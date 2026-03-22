@@ -2,6 +2,12 @@
 
 This guide captures the conventions that keep the Venn dashboard consistent across its many visualization workspaces. Every rule applies repository-wide unless a component-specific note states otherwise.
 
+## 0. Architecture Docs (Start Here)
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) – primary orientation map for runtime flow, namespaces, and component contracts.
+- [`docs/development/main-bootstrap.md`](./docs/development/main-bootstrap.md) – strict `Main.*` bootstrap sequence and load-order guards.
+- [`docs/development/module-call-map.md`](./docs/development/module-call-map.md) – generated dependency map for `Shared`, `Components`, and `Main` symbol usage.
+- [`docs/development/state-persistence-schema.md`](./docs/development/state-persistence-schema.md) – canonical session/tab payload and `.graph` persistence schema.
+
 ## 1. Layout & UX Framework
 - **Two-panel structure:** The left third of each workspace hosts the full-height AG Grid input; the right two thirds contain visual output and controls. Keep a draggable divider (`.panel-resizer`) between the panels and mirror the sizing rules in `css/style.css` under `#<Name>Page` selectors.
 - **Right panel stack:** Place charts on the upper-left, chart controls to their upper-right, and derived statistics in the lower segment. New dashboards should follow the precedent set by the Line Graph page.

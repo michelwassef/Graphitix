@@ -2,6 +2,12 @@
 
 Venn is a browser-based analytics workspace that turns tabular data into publication-ready graphics. The app combines spreadsheet-style data entry, rich styling controls, and statistical tooling across multiple visualization workspaces—no server or build tooling required.
 
+## Architecture Docs (Start Here)
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) - Fast-orientation map of runtime flow, namespaces, component contracts, and persistence.
+- [`docs/development/main-bootstrap.md`](./docs/development/main-bootstrap.md) - Required `Main.*` bootstrap/load order and dependency guards.
+- [`docs/development/module-call-map.md`](./docs/development/module-call-map.md) - Generated namespace dependency/call map.
+- [`docs/development/state-persistence-schema.md`](./docs/development/state-persistence-schema.md) - Canonical workspace/tab payload and `.graph` persistence schema.
+
 ## Why Venn?
 - **One workspace, many charts.** Switch between Venn diagrams, box plots, scatter plots, 3D surfaces, dimensionality reduction, line charts, ROC/PR curves, histogram/density plots, and proportion plots without leaving the page.
 - **Spreadsheet comfort.** Each module embeds an AG Grid table with undo/redo, paste-special helpers (including transpose), CSV/TSV/Excel/ODS import, and column reordering.
