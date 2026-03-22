@@ -635,6 +635,39 @@
   const INDIVIDUAL_SUMMARY_DEFAULT = 'median-point';
   const BAR_SUMMARY_DEFAULT = 'mean-sd';
   const INDIVIDUAL_SUMMARY_SET = new Set(INDIVIDUAL_SUMMARY_OPTIONS.map(opt=>opt.value));
+  const BOX_GRAPH_DEFAULT_TITLES = Object.freeze({
+    strip: 'Individual values',
+    box: 'Box plot',
+    notched: 'Notched box plot',
+    bar: 'Bar plot',
+    violin: 'Violin plot'
+  });
+  const BOX_GRAPH_LEGACY_DEFAULT_TITLES = new Set(['Boxplot']);
+  const BOX_GRAPH_ALL_DEFAULT_TITLES = new Set([
+    ...Object.values(BOX_GRAPH_DEFAULT_TITLES),
+    ...BOX_GRAPH_LEGACY_DEFAULT_TITLES
+  ]);
+
+  function normalizeBoxGraphType(value){
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if(raw === 'notched' || raw === 'bar' || raw === 'strip' || raw === 'violin'){
+      return raw;
+    }
+    return 'box';
+  }
+
+  function getDefaultBoxGraphTitle(graphType){
+    const normalized = normalizeBoxGraphType(graphType);
+    return BOX_GRAPH_DEFAULT_TITLES[normalized] || BOX_GRAPH_DEFAULT_TITLES.box;
+  }
+
+  function shouldAutoSyncBoxGraphTitle(titleText){
+    const trimmed = titleText == null ? '' : String(titleText).trim();
+    if(!trimmed){
+      return true;
+    }
+    return BOX_GRAPH_ALL_DEFAULT_TITLES.has(trimmed);
+  }
 
   function normalizeIndividualSummaryValue(rawValue){
     const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
@@ -7564,7 +7597,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, significanceBasePlotHeightPx: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   let boxDataViewsManager = null;
@@ -11992,7 +12025,21 @@
       console.debug('Debug: box graph type controls',{ graphTypeValue, showErrorControls });
     };
     els.updateGraphTypeControls = updateGraphTypeControls;
-    els.boxGraphType.addEventListener('change',()=>{ boxLog('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
+    state.currentGraphType = normalizeBoxGraphType(els.boxGraphType?.value || 'box');
+    if(shouldAutoSyncBoxGraphTitle(state.titleText)){
+      state.titleText = getDefaultBoxGraphTitle(state.currentGraphType);
+    }
+    els.boxGraphType.addEventListener('change',()=>{
+      const nextGraphType = normalizeBoxGraphType(els.boxGraphType.value);
+      boxLog('boxGraphType changed', nextGraphType);
+      if(shouldAutoSyncBoxGraphTitle(state.titleText)){
+        state.titleText = getDefaultBoxGraphTitle(nextGraphType);
+        console.debug('Debug: box title auto-synced for graph type change',{ graphType: nextGraphType, title: state.titleText });
+      }
+      state.currentGraphType = nextGraphType;
+      updateGraphTypeControls();
+      state.scheduleDraw();
+    });
     if(els.boxLayoutMode){
       els.boxLayoutMode.addEventListener('change',()=>{
         const requested = els.boxLayoutMode.value;
@@ -29105,7 +29152,12 @@ Technical analysis record (advanced)
       notesState.control.setOpen(notesState.open);
     }
     importFontStyles('box', c.fontStyles || null);
-    state.titleText=c.title||state.titleText;
+    if(typeof c.title === 'string' && c.title.trim()){
+      state.titleText = c.title;
+    }else if(c.title == null && shouldAutoSyncBoxGraphTitle(state.titleText)){
+      const payloadGraphType = normalizeBoxGraphType(c.graphType || els.boxGraphType?.value || 'box');
+      state.titleText = getDefaultBoxGraphTitle(payloadGraphType);
+    }
     state.yLabelText=c.yLabel||state.yLabelText;
     if(typeof c.fill === 'string' && c.fill.trim()){
       state.lastDefaultFill = c.fill.trim();
@@ -29145,6 +29197,10 @@ Technical analysis record (advanced)
     els.boxLogScale.checked=!!c.logScale;
     state.logPlusOne=!!c.logPlusOne;
     els.boxGraphType.value=c.graphType||els.boxGraphType.value;
+    state.currentGraphType = normalizeBoxGraphType(els.boxGraphType.value);
+    if(shouldAutoSyncBoxGraphTitle(state.titleText)){
+      state.titleText = getDefaultBoxGraphTitle(state.currentGraphType);
+    }
     const violinConfig = c.violin || {};
     const violinState = ensureViolinState();
     violinState.autoBandwidth = violinConfig.autoBandwidth === false ? false : true;

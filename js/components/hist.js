@@ -2080,7 +2080,15 @@
     });
 
     // Example + Import
-    const example=[['Exam Score'],[55],[60],[65],[70],[75],[80],[85],[90],[95],[100]];
+    const example=[
+      ['Exam Score'],
+      [38],[42],[45],[47],[49],[50],[52],[53],[54],[55],
+      [56],[57],[58],[59],[60],[61],[62],[63],[64],[65],
+      [66],[67],[68],[69],[70],[71],[72],[73],[74],[75],
+      [76],[77],[78],[79],[80],[81],[82],[83],[84],[85],
+      [86],[87],[88],[89],[90],[91],[92],[93],[94],[95],
+      [96],[97],[98],[99],[100]
+    ];
     const exampleBtn = document.getElementById('histLoadExample');
     if(exampleBtn){
       exampleBtn.addEventListener('click',()=>{
@@ -3274,16 +3282,22 @@
       : null;
     applyHistLegendGuardWidth(legendVisible ? legendLayout?.minSvgWidth || 0 : 0);
     const W=Math.max(baseWidth, legendVisible ? Math.ceil(legendLayout?.minSvgWidth || 0) : 0);
-    if(densityMode){
+    if(!hasManualXMax){
+      let paddedXMax = xMax;
       fitSets.forEach(entry => {
         const densityInfo = computeHistDensitySeries(entry.values, {
           sampleCount: Math.min(240, Math.max(64, Math.round(W)))
         });
-        if(Number.isFinite(densityInfo.domainMin) && Number.isFinite(densityInfo.domainMax) && densityInfo.domainMax > densityInfo.domainMin){
-          xMin = Math.min(xMin, densityInfo.domainMin);
-          xMax = Math.max(xMax, densityInfo.domainMax);
+        if(Number.isFinite(densityInfo.domainMax) && densityInfo.domainMax > paddedXMax){
+          paddedXMax = densityInfo.domainMax;
         }
       });
+      if(Number.isFinite(paddedXMax) && paddedXMax > xMax){
+        xMax = paddedXMax;
+      }
+      if(drawDebugEnabled){
+        console.debug('Debug: hist auto X max padded from density domain', { xMax });
+      }
     }
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
