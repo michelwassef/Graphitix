@@ -6,6 +6,7 @@
   "scripts": {
     "test": "jest",
     "test:stats": "jest __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js __tests__/stats.matrix.components.test.js",
+    "docs:arch-map": "node scripts/generate-architecture-map.js",
     "bench": "node scripts/run-benchmarks.js",
     "e2e:serve": "node scripts/e2e-server.cjs --port 4173",
     "desktop:dev": "npm --prefix desktop run dev",
