@@ -169,6 +169,10 @@
     if(!input){
       return;
     }
+    if(value === null || value === undefined || value === ''){
+      input.value = '';
+      return;
+    }
     const numeric = Number(value);
     input.value = Number.isFinite(numeric) ? String(numeric) : '';
   }
@@ -2327,7 +2331,7 @@
       const histLogYInput = document.getElementById('histLogY');
       if(histLogYInput){ histLogYInput.checked = !!config.logY; }
       applyHistAxisLimitsToInputs({
-        xMin: config.axisLimits?.xMin ?? config.xMin ?? null,
+        xMin: config.axisLimits?.xMin ?? config.xMin ?? 0,
         xMax: config.axisLimits?.xMax ?? config.xMax ?? null,
         yMax: config.axisLimits?.yMax ?? config.yMax ?? null
       });
@@ -3155,19 +3159,15 @@
     const manualAxisLimits = readHistAxisLimitsFromInputs();
     const hasManualXMin = Number.isFinite(manualAxisLimits.xMin);
     const hasManualXMax = Number.isFinite(manualAxisLimits.xMax);
-    let xMin = rawXMin;
-    let xMax = rawXMax;
-    if(hasManualXMin){
-      xMin = manualAxisLimits.xMin;
-    }
-    if(hasManualXMax){
-      xMax = manualAxisLimits.xMax;
-    }
-    if((hasManualXMin || hasManualXMax) && !(xMax > xMin)){
+    let xMin = hasManualXMin ? manualAxisLimits.xMin : 0;
+    let xMax = hasManualXMax ? manualAxisLimits.xMax : rawXMax;
+    if(!(xMax > xMin)){
       if(drawDebugEnabled){
-        console.debug('Debug: hist manual X bounds ignored because max <= min', {
-          xMin: manualAxisLimits.xMin,
-          xMax: manualAxisLimits.xMax
+        console.debug('Debug: hist X bounds reset to data range because max <= min', {
+          requestedXMin: hasManualXMin ? manualAxisLimits.xMin : 0,
+          requestedXMax: hasManualXMax ? manualAxisLimits.xMax : rawXMax,
+          rawXMin,
+          rawXMax
         });
       }
       xMin = rawXMin;

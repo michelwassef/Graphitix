@@ -823,7 +823,7 @@
         input.style.color = '#222';
         input.style.textShadow = 'none';
         input.style.caretColor = '#1a73e8';
-        input.style.setProperty('--inline-edit-selection-color', '#ffffff');
+        input.style.setProperty('--inline-edit-selection-color', 'currentColor');
         input.style.setProperty('--inline-edit-selection-bg', 'rgba(74, 144, 226, 0.28)');
         input.style.position = 'relative';
         input.style.zIndex = '2';
@@ -1014,7 +1014,7 @@
               state.input.classList.toggle('inline-edit-input--preview-mode', usePreviewLayer);
             }
             state.input.style.color = usePreviewLayer ? 'transparent' : resolveEditableTextColor();
-            state.input.style.setProperty('--inline-edit-selection-color', usePreviewLayer ? 'transparent' : '#ffffff');
+            state.input.style.setProperty('--inline-edit-selection-color', usePreviewLayer ? 'transparent' : resolveEditableTextColor());
             state.input.style.setProperty('--inline-edit-selection-bg', 'rgba(74, 144, 226, 0.28)');
             if (usePreviewLayer) {
               state.input.style.setProperty('-webkit-text-fill-color', 'transparent');

@@ -161,6 +161,7 @@ test('scatter inline edit plain mode hides source text with a single editable la
       selectionStart: input && Number.isInteger(input.selectionStart) ? input.selectionStart : null,
       selectionEnd: input && Number.isInteger(input.selectionEnd) ? input.selectionEnd : null,
       valueLength: input ? String(input.value || '').length : null,
+      selectionColorVar: input ? input.style.getPropertyValue('--inline-edit-selection-color') : null,
       sourceVisibility: target ? target.style.visibility || '' : null,
       sourceOpacity: target ? target.style.opacity || '' : null,
       visibleSourceTextOverlays
@@ -171,6 +172,7 @@ test('scatter inline edit plain mode hides source text with a single editable la
   expect(state.previewHidden).toBe(true);
   expect(state.selectionStart).toBe(0);
   expect(state.selectionEnd).toBe(state.valueLength);
+  expect(String(state.selectionColorVar || '').trim().toLowerCase()).not.toBe('#ffffff');
   expect(state.sourceVisibility).toBe('hidden');
   expect(state.sourceOpacity).toBe('0');
   expect(state.visibleSourceTextOverlays).toBe(0);
