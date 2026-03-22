@@ -345,6 +345,7 @@
     yLabelAuto: true,
     showLegend: true,
     seriesColors: {},
+    densityLineColors: {},
     barFill: HIST_DEFAULT_FILL,
     barBorder: HIST_DEFAULT_BORDER,
     barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
@@ -1227,12 +1228,7 @@
       return state.seriesColors[key].trim();
     }
     const palette = getHistCategoricalPalette();
-    const fallback = palette[index % palette.length] || HIST_DEFAULT_FILL;
-    if(key){
-      state.seriesColors = state.seriesColors && typeof state.seriesColors === 'object' ? state.seriesColors : {};
-      state.seriesColors[key] = fallback;
-    }
-    return fallback;
+    return palette[index % palette.length] || HIST_DEFAULT_FILL;
   }
 
   function setHistSeriesColor(seriesKey, color){
@@ -1243,6 +1239,27 @@
     }
     state.seriesColors = state.seriesColors && typeof state.seriesColors === 'object' ? state.seriesColors : {};
     state.seriesColors[key] = nextColor;
+  }
+
+  function getHistDensityLineColor(seriesKey, index, fallbackColor){
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    if(key && typeof state.densityLineColors?.[key] === 'string' && state.densityLineColors[key].trim()){
+      return state.densityLineColors[key].trim();
+    }
+    if(typeof fallbackColor === 'string' && fallbackColor.trim()){
+      return fallbackColor.trim();
+    }
+    return getHistSeriesColor(seriesKey, index);
+  }
+
+  function setHistDensityLineColor(seriesKey, color){
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    const nextColor = typeof color === 'string' ? color.trim() : '';
+    if(!key || !nextColor){
+      return;
+    }
+    state.densityLineColors = state.densityLineColors && typeof state.densityLineColors === 'object' ? state.densityLineColors : {};
+    state.densityLineColors[key] = nextColor;
   }
 
   function collectHistSeries(){
@@ -1319,6 +1336,11 @@
         }
         return resolveBars().filter(node => String(node?.getAttribute?.('data-series-key') || '').trim() === normalized);
       };
+      const resolveSeriesDensityLineNodes = seriesKey => {
+        const normalized = String(seriesKey == null ? '' : seriesKey).trim();
+        const nodes = resolveSeriesNodes(normalized).filter(node => String(node?.getAttribute?.('data-series-role') || '').trim() === 'density-line');
+        return nodes;
+      };
       const resolveScopedSeriesKey = context => {
         const ctx = context && typeof context === 'object' ? context : {};
         if(String(ctx.scope || '').trim() === 'series' && String(ctx.scopeDataset || '').trim()){
@@ -1326,6 +1348,7 @@
         }
         return targetSeriesKey || '';
       };
+      const densityTraceMode = normalizeHistPlotMode(state.plotMode) === HIST_PLOT_MODE_DENSITY;
       Shared.symbolToolbar.show({
         document: doc,
         target,
@@ -1384,15 +1407,34 @@
         },
         border: {
           label: 'Border',
-          getColor(){
+          getColor(context){
+            const scopedSeriesKey = resolveScopedSeriesKey(context);
+            if(densityTraceMode && scopedSeriesKey){
+              const seriesIndex = seriesIndexByKey.get(scopedSeriesKey) || 0;
+              return getHistDensityLineColor(scopedSeriesKey, seriesIndex, getHistSeriesColor(scopedSeriesKey, seriesIndex));
+            }
             return state.barBorder || target?.getAttribute?.('stroke') || HIST_DEFAULT_BORDER;
           },
-          onColorInput(value){
-            state.barBorder = value || HIST_DEFAULT_BORDER;
-            resolveBars().forEach(node => node.setAttribute('stroke', value));
+          onColorInput(value, context){
+            const nextValue = value || HIST_DEFAULT_BORDER;
+            const scopedSeriesKey = resolveScopedSeriesKey(context);
+            if(densityTraceMode && scopedSeriesKey){
+              setHistDensityLineColor(scopedSeriesKey, nextValue);
+              resolveSeriesDensityLineNodes(scopedSeriesKey).forEach(node => node.setAttribute('stroke', nextValue));
+              return;
+            }
+            state.barBorder = nextValue;
+            resolveBars().forEach(node => node.setAttribute('stroke', nextValue));
           },
-          onColorChange(value){
-            state.barBorder = value || HIST_DEFAULT_BORDER;
+          onColorChange(value, context){
+            const nextValue = value || HIST_DEFAULT_BORDER;
+            const scopedSeriesKey = resolveScopedSeriesKey(context);
+            if(densityTraceMode && scopedSeriesKey){
+              setHistDensityLineColor(scopedSeriesKey, nextValue);
+              state.scheduleDraw?.();
+              return;
+            }
+            state.barBorder = nextValue;
             state.scheduleDraw?.();
           },
           getWidth(){
@@ -2198,6 +2240,7 @@
         yLabel:state.yLabelText,
         showLegend: state.showLegend !== false,
         seriesColors: state.seriesColors && typeof state.seriesColors === 'object' ? { ...state.seriesColors } : {},
+        densityLineColors: state.densityLineColors && typeof state.densityLineColors === 'object' ? { ...state.densityLineColors } : {},
         colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('hist') || 'scientific',
         fill:state.barFill,
         border:state.barBorder,
@@ -2331,6 +2374,7 @@
       state.showLegend = config.showLegend !== false;
       if(histShowLegendInput){ histShowLegendInput.checked = state.showLegend; }
       state.seriesColors = config.seriesColors && typeof config.seriesColors === 'object' ? { ...config.seriesColors } : {};
+      state.densityLineColors = config.densityLineColors && typeof config.densityLineColors === 'object' ? { ...config.densityLineColors } : {};
       const histShowGridInput = document.getElementById('histShowGrid');
       if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
       setGridStyle(config.gridStyle, config.axis?.strokeWidth);
@@ -3730,10 +3774,11 @@
           'data-series': entry.label,
           'data-series-role': 'density-area'
         });
+        const lineColor = getHistDensityLineColor(entry.key, seriesIndex, fill);
         const line = add('path',{
           d: points.map((point, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${point[0]} ${point[1]}`).join(' '),
           fill: 'none',
-          stroke: fill,
+          stroke: lineColor,
           'stroke-width': Math.max(borderWidthPx, chartStyle.scaleStrokeWidth(HIST_DEFAULT_DENSITY_STROKE_WIDTH, styleScaleInfo, { context: 'hist-density-line', min: 1 })),
           'stroke-linejoin': 'round',
           'stroke-linecap': 'round',

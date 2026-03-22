@@ -559,6 +559,36 @@
     return names;
   }
 
+  function inferHistogramSeriesKeys(matrix){
+    const rows = ensureArray(matrix);
+    if(!rows.length){
+      return [];
+    }
+    let columnCount = 0;
+    rows.forEach(row => {
+      if(Array.isArray(row) && row.length > columnCount){
+        columnCount = row.length;
+      }
+    });
+    const keys = [];
+    for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+      let hasNumeric = false;
+      for(let rowIndex = 1; rowIndex < rows.length; rowIndex += 1){
+        const row = rows[rowIndex];
+        if(!Array.isArray(row)) continue;
+        const numeric = Number.parseFloat(row[colIndex]);
+        if(Number.isFinite(numeric)){
+          hasNumeric = true;
+          break;
+        }
+      }
+      if(hasNumeric){
+        keys.push(`col-${colIndex}`);
+      }
+    }
+    return keys;
+  }
+
   function inferSeriesCountFromHeader(matrix){
     const rows = ensureArray(matrix);
     if(!rows.length || !Array.isArray(rows[0])) return 0;
@@ -1208,6 +1238,10 @@
     if(type === 'hist'){
       cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
       cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
+      const histSeriesKeys = uniqueStrings(
+        Object.keys(ensureMap(cfg.seriesColors)).concat(inferHistogramSeriesKeys(next.data))
+      );
+      cfg.seriesColors = buildColorMap(histSeriesKeys, categorical);
       const histDistributionPalette = (scientificDefaults && scientificDefaults.distributionColors) || categorical;
       applyHistogramDistributionPalette(cfg, scheme, histDistributionPalette);
       applyAxisTokens(cfg, scheme);
