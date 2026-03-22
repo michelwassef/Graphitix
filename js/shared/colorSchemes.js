@@ -1134,8 +1134,8 @@
           fill: fillColor,
           stroke: tokens.borderColor || null,
           force: true,
-          fillFields: ['fill', 'markerFill', 'color'],
-          strokeFields: ['lineStroke', 'markerStroke', 'borderColor', 'stroke']
+          fillFields: ['fill', 'markerFill', 'color', 'lineStroke'],
+          strokeFields: ['markerStroke', 'borderColor', 'stroke']
         });
       });
       cfg.seriesStyles = nextSeriesStyles;
