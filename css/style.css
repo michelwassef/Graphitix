@@ -5378,7 +5378,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 
 .inline-edit-input.inline-edit-input--preview-mode::selection,
 .inline-edit-input.inline-edit-input--preview-mode::-moz-selection {
-    background: transparent !important;
+    background: var(--inline-edit-selection-bg, rgba(74, 144, 226, 0.28)) !important;
     color: transparent !important;
 }
 

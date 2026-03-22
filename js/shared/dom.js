@@ -1015,7 +1015,7 @@
             }
             state.input.style.color = usePreviewLayer ? 'transparent' : resolveEditableTextColor();
             state.input.style.setProperty('--inline-edit-selection-color', usePreviewLayer ? 'transparent' : '#ffffff');
-            state.input.style.setProperty('--inline-edit-selection-bg', usePreviewLayer ? 'transparent' : 'rgba(74, 144, 226, 0.28)');
+            state.input.style.setProperty('--inline-edit-selection-bg', 'rgba(74, 144, 226, 0.28)');
             if (usePreviewLayer) {
               state.input.style.setProperty('-webkit-text-fill-color', 'transparent');
               state.input.style.textShadow = '0 0 0 transparent';
