@@ -1740,11 +1740,23 @@
             </fieldset>
             <fieldset>
               <legend>Grid & axis</legend>
-              <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="histShowGrid" /> Show grid</label>
-                <label class="idx-inline-023"><input type="checkbox" id="histShowFrame" /> Show frame</label>
-                <label class="idx-inline-023">
-                  <input type="checkbox" id="histLogY" /> Log scale (Y)
+              <div class="config-panel__line config-panel__line--checkboxes">
+                <label class="config-panel__checkbox"><input type="checkbox" id="histShowGrid" /> <span>Show grid</span></label>
+                <label class="config-panel__checkbox"><input type="checkbox" id="histShowFrame" /> <span>Show frame</span></label>
+                <label class="config-panel__checkbox"><input type="checkbox" id="histLogY" /> <span>Log scale (Y)</span></label>
+              </div>
+              <div class="config-panel__line config-panel__line--split">
+                <label class="config-panel__item config-panel__item--narrow">
+                  <span class="config-panel__label">X min</span>
+                  <input type="number" id="histXMin" placeholder="Auto" />
+                </label>
+                <label class="config-panel__item config-panel__item--narrow">
+                  <span class="config-panel__label">X max</span>
+                  <input type="number" id="histXMax" placeholder="Auto" />
+                </label>
+                <label class="config-panel__item config-panel__item--narrow">
+                  <span class="config-panel__label">Y max</span>
+                  <input type="number" id="histYMax" placeholder="Auto" />
                 </label>
               </div>
             </fieldset>

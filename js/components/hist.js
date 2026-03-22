@@ -153,6 +153,41 @@
     return 'decimal';
   }
 
+  function readNumericInputValue(input){
+    if(!input){
+      return null;
+    }
+    const raw = String(input.value ?? '').trim();
+    if(!raw){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function writeNumericInputValue(input, value){
+    if(!input){
+      return;
+    }
+    const numeric = Number(value);
+    input.value = Number.isFinite(numeric) ? String(numeric) : '';
+  }
+
+  function readHistAxisLimitsFromInputs(){
+    return {
+      xMin: readNumericInputValue(document.getElementById('histXMin')),
+      xMax: readNumericInputValue(document.getElementById('histXMax')),
+      yMax: readNumericInputValue(document.getElementById('histYMax'))
+    };
+  }
+
+  function applyHistAxisLimitsToInputs(limits){
+    const source = limits && typeof limits === 'object' ? limits : {};
+    writeNumericInputValue(document.getElementById('histXMin'), source.xMin);
+    writeNumericInputValue(document.getElementById('histXMax'), source.xMax);
+    writeNumericInputValue(document.getElementById('histYMax'), source.yMax);
+  }
+
   const DEFAULT_DISTRIBUTION_COLORS = ['#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'];
 
   function createDefaultDistributionSettings(){
@@ -1926,7 +1961,7 @@
   }
 
   function initControls(){
-    const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
+    const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histXMin=$('#histXMin'), histXMax=$('#histXMax'), histYMax=$('#histYMax'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     const histStatsDiagnosticsMode=$('#histStatsDiagnosticsMode'), histStatsComparisonMode=$('#histStatsComparisonMode');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
@@ -2029,7 +2064,7 @@
     }
     syncHistPlotModeControls();
     syncHistStatsControls();
-    [histBins,histShowGrid,histLogY].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
+    [histBins,histShowGrid,histLogY,histXMin,histXMax,histYMax].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
     histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{
       if(histFontSize.dataset){
@@ -2142,6 +2177,7 @@
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const axisSettings = ensureAxisSettings();
+      const axisLimits = readHistAxisLimitsFromInputs();
       const plotMode = normalizeHistPlotMode(state.plotMode);
       const c={
         plotMode,
@@ -2173,6 +2209,7 @@
           notationX: axisSettings.x?.notation ?? 'decimal',
           notationY: axisSettings.y?.notation ?? 'decimal'
         },
+        axisLimits,
         distributions:{
           selected:getActiveDistributionKeys(),
           showPdf:!!state.distributionSettings.showPdf,
@@ -2203,7 +2240,8 @@
       console.debug('Debug: hist.getPayload captured state', {
         rows: payload.data?.length || 0,
         bins: c.bins,
-        hasLogY: c.logY
+        hasLogY: c.logY,
+        axisLimits: c.axisLimits
       });
       return payload;
     }
@@ -2288,6 +2326,11 @@
       if(histShowFrameInput){ histShowFrameInput.checked = config.showFrame !== false; }
       const histLogYInput = document.getElementById('histLogY');
       if(histLogYInput){ histLogYInput.checked = !!config.logY; }
+      applyHistAxisLimitsToInputs({
+        xMin: config.axisLimits?.xMin ?? config.xMin ?? null,
+        xMax: config.axisLimits?.xMax ?? config.xMax ?? null,
+        yMax: config.axisLimits?.yMax ?? config.yMax ?? null
+      });
       const histFontInput = document.getElementById('histFontSize');
       const histFontSizeVal = document.getElementById('histFontSizeVal');
       if(histFontInput){
@@ -3108,8 +3151,37 @@
     const alpha = Number(state.distributionSettings.alpha) > 0 ? Number(state.distributionSettings.alpha) : 0.05;
     const rawXMin = Math.min(...values);
     const rawXMax = Math.max(...values);
+    const drawDebugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const manualAxisLimits = readHistAxisLimitsFromInputs();
+    const hasManualXMin = Number.isFinite(manualAxisLimits.xMin);
+    const hasManualXMax = Number.isFinite(manualAxisLimits.xMax);
     let xMin = rawXMin;
     let xMax = rawXMax;
+    if(hasManualXMin){
+      xMin = manualAxisLimits.xMin;
+    }
+    if(hasManualXMax){
+      xMax = manualAxisLimits.xMax;
+    }
+    if((hasManualXMin || hasManualXMax) && !(xMax > xMin)){
+      if(drawDebugEnabled){
+        console.debug('Debug: hist manual X bounds ignored because max <= min', {
+          xMin: manualAxisLimits.xMin,
+          xMax: manualAxisLimits.xMax
+        });
+      }
+      xMin = rawXMin;
+      xMax = rawXMax;
+    }
+    let manualYMax = Number.isFinite(manualAxisLimits.yMax) ? manualAxisLimits.yMax : null;
+    if(histLogY.checked && manualYMax != null && manualYMax <= 0){
+      if(drawDebugEnabled){
+        console.debug('Debug: hist manual Y max ignored in log scale because value is not positive', {
+          yMax: manualAxisLimits.yMax
+        });
+      }
+      manualYMax = null;
+    }
     const baseWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     if(xMax === xMin || !Number.isFinite(xMax - xMin)){
@@ -3346,7 +3418,17 @@
         sharedEdges=Array.from({ length: bins + 1 }, (_, i) => xScale.min + i * binWidth);
         histogramSeries=fitSets.map(entry => {
           const counts=new Array(bins).fill(0);
-          entry.values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
+          entry.values.forEach(v => {
+            if(!Number.isFinite(v) || v < xScale.min || v > xScale.max){
+              return;
+            }
+            const idx = v === xScale.max
+              ? (bins - 1)
+              : Math.floor((v - xScale.min) / binWidth);
+            if(idx >= 0 && idx < bins){
+              counts[idx] += 1;
+            }
+          });
           return { ...entry, counts };
         });
         yMin=0;
@@ -3385,6 +3467,17 @@
             yMax = overlayMax;
           }
         });
+      }
+      if(manualYMax != null){
+        if(manualYMax > yMin){
+          yMax = manualYMax;
+        }else if(drawDebugEnabled){
+          console.debug('Debug: hist manual Y max ignored because value is not above axis minimum', {
+            yMax: manualYMax,
+            yMin,
+            logY
+          });
+        }
       }
       yMinT=logY?Math.log10(yMin):yMin;
       yMaxT=logY?Math.log10(yMax):yMax;
