@@ -1949,26 +1949,40 @@
         <h3 id="styleSyncTitle" class="workspace-modal__title">Match styles across graphs</h3>
         <p id="styleSyncDescription" class="workspace-modal__message">Choose an example graph and the tabs you want to update.</p>
         <form data-style-sync-form>
-          <label class="style-sync-field">
-            <span class="style-sync-field__label">Example graph</span>
-            <select id="styleSyncSource" aria-describedby="styleSyncDescription"></select>
-          </label>
-          <div class="style-sync-field">
-            <div class="style-sync-field__label">Target graphs</div>
-            <label class="style-sync-select-all">
-              <input type="checkbox" id="styleSyncTargetSelectAll" /> Select all
+          <div class="style-sync-scroll">
+            <label class="style-sync-field">
+              <span class="style-sync-field__label">Example graph</span>
+              <select id="styleSyncSource" aria-describedby="styleSyncDescription"></select>
             </label>
-            <div id="styleSyncTargets" class="style-sync-targets" role="group" aria-label="Graph tabs to update"></div>
+            <div class="style-sync-field">
+              <div class="style-sync-field__label">Target graphs</div>
+              <label class="style-sync-select-all">
+                <input type="checkbox" id="styleSyncTargetSelectAll" /> Select all
+              </label>
+              <div id="styleSyncTargets" class="style-sync-targets" role="group" aria-label="Graph tabs to update"></div>
+            </div>
+            <fieldset class="style-sync-options">
+              <legend>Properties to apply</legend>
+              <label><input type="checkbox" data-style-group="appearance" checked /> Graph origin and appearance</label>
+              <label><input type="checkbox" data-style-group="axes" checked /> Range and ticks of axis</label>
+              <label><input type="checkbox" data-style-group="fonts" checked /> Fonts used for numbering and titles</label>
+              <label><input type="checkbox" data-style-group="axisExtras" checked /> Additional ticks &amp; gridlines with labels</label>
+              <label><input type="checkbox" data-style-group="traceStyles" checked /> Appearance of symbols, bars, etc.</label>
+              <label><input type="checkbox" data-style-group="embeddedTables" /> Embedded data and results tables</label>
+              <label><input type="checkbox" data-style-group="drawings" /> Drawings</label>
+              <label><input type="checkbox" data-style-group="legends" /> Legends</label>
+              <label><input type="checkbox" data-style-group="freeText" /> Free text</label>
+              <label><input type="checkbox" data-style-group="titles" /> Change X axis, Y axis, and graph title to match example graph</label>
+              <label class="style-sync-options__suboption"><input type="checkbox" data-style-title-scope="x" checked /> Change X axis title only</label>
+              <label class="style-sync-options__suboption"><input type="checkbox" data-style-title-scope="y" checked /> Change Y axis title only</label>
+              <label class="style-sync-options__suboption"><input type="checkbox" data-style-title-scope="graph" checked /> Change graph title only</label>
+              <label><input type="checkbox" data-style-group="individualStyles" /> Apply formatting applied to individual points or bars</label>
+              <label><input type="checkbox" data-style-group="pairwise" /> Pairwise comparisons lines or compact letter display</label>
+              <label><input type="checkbox" data-style-group="riskTable" /> Number at risk table</label>
+              <label><input type="checkbox" data-style-group="layout" checked /> Match panel layout</label>
+            </fieldset>
+            <div id="styleSyncStatus" class="style-sync-status" role="status" aria-live="polite"></div>
           </div>
-          <fieldset class="style-sync-options">
-            <legend>Properties to apply</legend>
-            <label><input type="checkbox" data-style-group="appearance" checked /> Graph origin and appearance</label>
-            <label><input type="checkbox" data-style-group="axes" checked /> Range and ticks of axis</label>
-            <label><input type="checkbox" data-style-group="fonts" checked /> Fonts used for numbering and titles</label>
-            <label><input type="checkbox" data-style-group="titles" /> Change axis and graph titles to match example graph</label>
-            <label><input type="checkbox" data-style-group="layout" checked /> Match panel layout</label>
-          </fieldset>
-          <div id="styleSyncStatus" class="style-sync-status" role="status" aria-live="polite"></div>
           <div class="workspace-modal__actions">
             <button type="button" class="btn" data-style-sync-apply>Apply styles</button>
             <button type="button" class="btn btn-secondary" data-style-sync-cancel>Cancel</button>

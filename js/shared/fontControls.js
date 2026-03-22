@@ -482,6 +482,78 @@
     baselineShift: 'baseline-shift'
   };
   const SCRIPT_SCALE = 0.75;
+  const SCRIPT_FALLBACK_SHIFT_EM = 0.35;
+  let cachedSvgBaselineShiftSupport = null;
+
+  function supportsSvgBaselineShift(){
+    if(cachedSvgBaselineShiftSupport !== null){
+      return cachedSvgBaselineShiftSupport;
+    }
+    try {
+      const doc = global?.document;
+      if(!doc || !doc.body || typeof doc.createElementNS !== 'function'){
+        cachedSvgBaselineShiftSupport = true;
+        return cachedSvgBaselineShiftSupport;
+      }
+      const svg = doc.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '200');
+      svg.setAttribute('height', '80');
+      svg.style.position = 'absolute';
+      svg.style.left = '-9999px';
+      svg.style.top = '-9999px';
+      svg.style.opacity = '0';
+      svg.style.pointerEvents = 'none';
+
+      const shiftedText = doc.createElementNS(SVG_NS, 'text');
+      shiftedText.setAttribute('x', '10');
+      shiftedText.setAttribute('y', '50');
+      shiftedText.setAttribute('font-size', '40');
+      shiftedText.textContent = 'A';
+      const shiftedSpan = doc.createElementNS(SVG_NS, 'tspan');
+      shiftedSpan.textContent = '2';
+      shiftedSpan.setAttribute('baseline-shift', 'super');
+      shiftedText.appendChild(shiftedSpan);
+
+      const controlText = doc.createElementNS(SVG_NS, 'text');
+      controlText.setAttribute('x', '80');
+      controlText.setAttribute('y', '50');
+      controlText.setAttribute('font-size', '40');
+      controlText.textContent = 'A2';
+
+      svg.appendChild(shiftedText);
+      svg.appendChild(controlText);
+      doc.body.appendChild(svg);
+
+      const shiftedBox = shiftedSpan.getBBox();
+      const controlBox = controlText.getBBox();
+      const delta = Math.abs((shiftedBox?.y || 0) - (controlBox?.y || 0));
+      cachedSvgBaselineShiftSupport = Number.isFinite(delta) && delta > 1;
+      svg.remove();
+    } catch (err) {
+      cachedSvgBaselineShiftSupport = true;
+    }
+    return cachedSvgBaselineShiftSupport;
+  }
+
+  function parseFontSizeValue(value){
+    if(value === undefined || value === null){ return null; }
+    const raw = String(value).trim();
+    if(!raw){ return null; }
+    const match = raw.match(/^(-?\d*\.?\d+)([a-z%]*)$/i);
+    if(!match){ return null; }
+    const numeric = Number.parseFloat(match[1]);
+    if(!Number.isFinite(numeric)){ return null; }
+    return { numeric, unit: (match[2] || '').toLowerCase() };
+  }
+
+  function fontSizeValueToPx(value){
+    const parsed = parseFontSizeValue(value);
+    if(!parsed){ return null; }
+    if(!parsed.unit || parsed.unit === 'px'){ return parsed.numeric; }
+    if(parsed.unit === 'em' || parsed.unit === 'rem'){ return parsed.numeric * 16; }
+    if(parsed.unit === 'pt'){ return parsed.numeric * (96 / 72); }
+    return parsed.numeric;
+  }
 
   function sanitizeInlineStyleEntry(entry){
     if(!entry || typeof entry !== 'object'){ return null; }
@@ -569,6 +641,14 @@
     if(!doc){ return; }
     const ns = node.namespaceURI || 'http://www.w3.org/2000/svg';
     const limit = textValue.length;
+    const useFirefoxScriptFallback = !supportsSvgBaselineShift();
+    let computedFontSize = null;
+    try {
+      computedFontSize = global?.getComputedStyle ? global.getComputedStyle(node)?.fontSize : null;
+    } catch (styleErr) {
+      computedFontSize = null;
+    }
+    const baseFontSizeSource = node.getAttribute?.('font-size') || computedFontSize || null;
     const frag = doc.createDocumentFragment();
     let cursor = 0;
     sanitized.forEach(segment => {
@@ -591,6 +671,26 @@
           tspan.removeAttribute(attr);
         }
       });
+      if(useFirefoxScriptFallback){
+        const shift = segment?.style?.baselineShift || null;
+        if(shift === 'sub' || shift === 'super'){
+          const translate = shift === 'sub' ? SCRIPT_FALLBACK_SHIFT_EM : -SCRIPT_FALLBACK_SHIFT_EM;
+          const segmentFontSource = segment?.style?.fontSize || baseFontSizeSource || `${SCRIPT_SCALE}em`;
+          const segmentFontPx = fontSizeValueToPx(segmentFontSource)
+            || fontSizeValueToPx(baseFontSizeSource)
+            || 16;
+          const translatePx = Math.round(segmentFontPx * translate * 1000) / 1000;
+          if(!(segment?.style?.fontSize)){
+            tspan.setAttribute('font-size', `${SCRIPT_SCALE}em`);
+          }
+          tspan.setAttribute('transform', `translate(0 ${translatePx})`);
+          if(tspan.style){
+            tspan.style.transformBox = 'fill-box';
+            tspan.style.transformOrigin = 'center';
+            tspan.style.transform = `translate(0px, ${translatePx}px)`;
+          }
+        }
+      }
       frag.appendChild(tspan);
       cursor = end;
     });
@@ -665,7 +765,10 @@
     const hasSegments = baseSnapshot.inlineSegments && baseSnapshot.inlineSegments.length > 0;
     const desiredMode = hasSegments ? FONT_SCOPE_SELECTION : getScopeMode(scopeId);
     const storeContext = resolveStoreContext(target, { scopeId, key, mode: desiredMode });
-    storeStyleForNode(target, baseSnapshot, storeContext);
+    storeStyleForNode(target, baseSnapshot, {
+      ...storeContext,
+      suppressStyleChangedEvent: true
+    });
     logDebug('captureInlineStateForNode', {
       scope: dataset.fontScope || null,
       key: dataset.fontKey || null,
@@ -2569,6 +2672,14 @@
         style: normalized,
         hasInlineSegments: styleHasInlineSegments(normalized)
       });
+    }
+    if(options?.suppressStyleChangedEvent === true){
+      logDebug('storeStyleForNode styleChanged dispatch suppressed', {
+        scope: scope || null,
+        key: key || null,
+        storeKey
+      });
+      return;
     }
     try{
       if(global.document && typeof global.document.dispatchEvent === 'function'){

@@ -20,7 +20,13 @@
   const DEFAULT_GROUP_SELECTION = Object.freeze({
     appearance: true,
     axes: true,
+    axisExtras: true,
     fonts: true,
+    traceStyles: true,
+    legends: false,
+    freeText: false,
+    individualStyles: false,
+    pairwise: false,
     titles: false,
     layout: true
   });
@@ -129,6 +135,30 @@
       cursor = cursor[key];
     }
     cursor[parts[parts.length - 1]] = cloneValue(value);
+  }
+
+  function unsetPathValue(target, path) {
+    const parts = String(path || '').split('.').filter(Boolean);
+    if (!parts.length || !target || typeof target !== 'object') return;
+    const stack = [];
+    let cursor = target;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const key = parts[i];
+      if (!cursor || typeof cursor !== 'object' || !hasOwn(cursor, key)) {
+        return;
+      }
+      stack.push({ parent: cursor, key });
+      cursor = cursor[key];
+    }
+    if (!cursor || typeof cursor !== 'object') return;
+    delete cursor[parts[parts.length - 1]];
+    for (let i = stack.length - 1; i >= 0; i -= 1) {
+      const { parent, key } = stack[i];
+      const child = parent[key];
+      if (child && typeof child === 'object' && !Array.isArray(child) && !Object.keys(child).length) {
+        delete parent[key];
+      }
+    }
   }
 
   function pickPaths(payload, paths) {
@@ -589,6 +619,93 @@
     }
   };
 
+  const TITLE_SCOPE_PATHS = {
+    line: { x: ['config.xLabel'], y: ['config.yLabel'], graph: ['config.title'] },
+    scatter: { x: ['config.xLabel'], y: ['config.yLabel'], graph: ['config.title'] },
+    hist: { x: ['config.xLabel'], y: ['config.yLabel'], graph: ['config.title'] },
+    box: { x: [], y: ['config.yLabel'], graph: ['config.title'] },
+    pie: { x: [], y: [], graph: ['config.title'] },
+    venn: { x: [], y: [], graph: ['style.title'] },
+    pca: { x: [], y: [], graph: ['config.labels.title'] },
+    heatmap: { x: [], y: [], graph: ['config.title'] },
+    surface: { x: ['config.labels.x'], y: ['config.labels.y', 'config.labels.z'], graph: ['config.labels.title'] },
+    roc: { x: [], y: [], graph: ['config.title'] },
+    survival: { x: ['config.xLabel'], y: ['config.yLabel'], graph: ['config.title'] }
+  };
+
+  function addSupplementalGroups() {
+    const axisExtrasPaths = [
+      'config.showGrid',
+      'config.gridStyle',
+      'config.axis.additionalTicks',
+      'config.axis.additionalTicksX',
+      'config.axis.additionalTicksY',
+      'config.axis.x.additionalTicks',
+      'config.axis.y.additionalTicks',
+      'config.axis.brokenAxis',
+      'config.axis.x.brokenAxis',
+      'config.axis.y.brokenAxis',
+      'config.xTickRotateVertical'
+    ];
+    const traceStylePaths = [
+      'config.seriesStyles',
+      'config.overlayStyles',
+      'config.shapeStyles',
+      'config.pointStyles',
+      'config.summaryStyles',
+      'config.traceShapeStyles',
+      'config.traceShapeGlobalStyle',
+      'config.pointGlobalStyle',
+      'config.summaryGlobalStyle',
+      'config.labelStyles',
+      'config.labelShapes',
+      'config.labelPointStyles',
+      'config.graphTypeBorderWidths'
+    ];
+    const individualStylePaths = [
+      'config.labelColors',
+      'config.labelStyles',
+      'config.labelShapes',
+      'config.labelPointStyles',
+      'config.shapeStyles',
+      'config.pointStyles',
+      'config.summaryStyles',
+      'config.seriesStyles',
+      'config.traceShapeStyles'
+    ];
+    const pairwisePaths = [
+      'config.showSignificanceBars',
+      'config.significanceLabelMode',
+      'config.significanceStyle',
+      'config.pairwiseCorrection',
+      'config.showHazardRatios',
+      'config.fitCoxModel'
+    ];
+    Object.keys(STYLE_SCHEMAS).forEach(type => {
+      const groups = STYLE_SCHEMAS[type]?.groups;
+      if (!groups) return;
+      if (!groups.axisExtras) {
+        groups.axisExtras = payload => pickPaths(payload || {}, axisExtrasPaths);
+      }
+      if (!groups.traceStyles) {
+        groups.traceStyles = payload => pickPaths(payload || {}, traceStylePaths);
+      }
+      if (!groups.legends) {
+        groups.legends = payload => pickPaths(payload || {}, ['config.showLegend', 'config.labelPositions.legend', 'config.legendPosition']);
+      }
+      if (!groups.freeText) {
+        groups.freeText = payload => pickPaths(payload || {}, ['config.notes']);
+      }
+      if (!groups.individualStyles) {
+        groups.individualStyles = payload => pickPaths(payload || {}, individualStylePaths);
+      }
+      if (!groups.pairwise && (type === 'box' || type === 'survival')) {
+        groups.pairwise = payload => pickPaths(payload || {}, pairwisePaths);
+      }
+    });
+  }
+  addSupplementalGroups();
+
   function mergeGroupPatch(target, addition) {
     if (!addition) return target;
     const result = target || {};
@@ -673,7 +790,27 @@
     return out;
   }
 
-  function buildStylePatch(type, payload, groups) {
+  function filterTitlePatchByScope(type, patch, titleScopes) {
+    if (!patch || typeof patch !== 'object') return patch;
+    const schemaPaths = TITLE_SCOPE_PATHS[type];
+    if (!schemaPaths) return patch;
+    const selected = Array.isArray(titleScopes) ? titleScopes : [];
+    const normalized = selected.filter(scope => scope === 'x' || scope === 'y' || scope === 'graph');
+    const scopeSet = new Set(normalized.length ? normalized : ['x', 'y', 'graph']);
+    const out = cloneValue(patch);
+    if (!scopeSet.has('x')) {
+      (schemaPaths.x || []).forEach(path => unsetPathValue(out, path));
+    }
+    if (!scopeSet.has('y')) {
+      (schemaPaths.y || []).forEach(path => unsetPathValue(out, path));
+    }
+    if (!scopeSet.has('graph')) {
+      (schemaPaths.graph || []).forEach(path => unsetPathValue(out, path));
+    }
+    return out;
+  }
+
+  function buildStylePatch(type, payload, groups, options) {
     const schema = STYLE_SCHEMAS[type];
     if (!schema) {
       return null;
@@ -713,6 +850,11 @@
     }
     if (isNonEmptyObject(absolutePatch?.style)) {
       patch.style = deepMerge(patch.style, absolutePatch.style);
+    }
+    if (activeGroups.includes('titles')) {
+      const titleScopes = options?.titleScopes;
+      const filtered = filterTitlePatchByScope(type, patch, titleScopes);
+      return hasPayloadPatch(filtered) ? filtered : null;
     }
     return hasPayloadPatch(patch) ? patch : null;
   }
@@ -880,6 +1022,15 @@
     });
   }
 
+  function collectSelectedTitleScopes() {
+    const boxes = state.dom.styleSyncForm
+      ? Array.from(state.dom.styleSyncForm.querySelectorAll('[data-style-title-scope]'))
+      : [];
+    const selected = boxes.filter(box => !box.disabled && box.checked)
+      .map(box => box.getAttribute('data-style-title-scope'));
+    return selected.length ? selected : ['x', 'y', 'graph'];
+  }
+
   function applyDefaultGroupSelection(schema) {
     const boxes = state.dom.styleSyncForm
       ? Array.from(state.dom.styleSyncForm.querySelectorAll('[data-style-group]'))
@@ -888,6 +1039,25 @@
       const key = box.getAttribute('data-style-group');
       const supported = !!schema?.groups?.[key];
       box.checked = supported && !!DEFAULT_GROUP_SELECTION[key];
+    });
+    const titleScopeBoxes = state.dom.styleSyncForm
+      ? Array.from(state.dom.styleSyncForm.querySelectorAll('[data-style-title-scope]'))
+      : [];
+    titleScopeBoxes.forEach(box => {
+      box.checked = true;
+    });
+  }
+
+  function syncTitleScopeOptions(schema) {
+    const titleMaster = state.dom.styleSyncForm
+      ? state.dom.styleSyncForm.querySelector('[data-style-group="titles"]')
+      : null;
+    const enabled = !!(titleMaster && !titleMaster.disabled && titleMaster.checked && schema?.groups?.titles);
+    const boxes = state.dom.styleSyncForm
+      ? Array.from(state.dom.styleSyncForm.querySelectorAll('[data-style-title-scope]'))
+      : [];
+    boxes.forEach(box => {
+      box.disabled = !enabled;
     });
   }
 
@@ -997,7 +1167,8 @@
       setStatus('Select at least one target graph before applying styles.', 'error');
       return;
     }
-    const stylePatch = buildStylePatch(sourceTab.type, sourceTab.payload, selectedGroups);
+    const titleScopes = collectSelectedTitleScopes();
+    const stylePatch = buildStylePatch(sourceTab.type, sourceTab.payload, selectedGroups, { titleScopes });
     if (!stylePatch || (!stylePatch.config && !stylePatch.style && !stylePatch.layout)) {
       setStatus('The selected properties did not produce any style updates.', 'error');
       console.debug('Debug: styleSync apply aborted - empty patch', { groups: selectedGroups });
@@ -1102,6 +1273,7 @@
     populateTargetOptions(sourceTab);
     const schema = sourceTab ? STYLE_SCHEMAS[sourceTab.type] : null;
     disableUnsupportedGroups(schema);
+    syncTitleScopeOptions(schema);
     updateApplyState(schema);
     if (!schema) {
       setStatus(sourceTab ? `Style matching for ${sourceTab.type} graphs is not yet available.` : '', sourceTab ? 'error' : null);
@@ -1163,6 +1335,7 @@
     const schema = sourceTab ? STYLE_SCHEMAS[sourceTab.type] : null;
     applyDefaultGroupSelection(schema);
     disableUnsupportedGroups(schema);
+    syncTitleScopeOptions(schema);
     updateApplyState(schema);
     syncSelectAllCheckbox();
     setStatus('');
@@ -1227,6 +1400,11 @@
     }
     if (state.dom.styleSyncForm) {
       state.dom.styleSyncForm.addEventListener('keydown', handlePromptKeydown);
+      state.dom.styleSyncForm.addEventListener('change', () => {
+        const schema = STYLE_SCHEMAS[getTabById(state.activeSourceId)?.type];
+        syncTitleScopeOptions(schema);
+        updateApplyState(schema);
+      });
     }
     state.initialized = true;
     console.debug('Debug: styleSync.init complete', {

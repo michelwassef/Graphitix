@@ -73,6 +73,57 @@
 
   const SUB_BASELINE_SHIFT = 0.35;
   const SUPER_BASELINE_SHIFT = 0.35;
+  let cachedSvgBaselineShiftSupport = null;
+  const supportsSvgBaselineShift = () => {
+    if (cachedSvgBaselineShiftSupport !== null) {
+      return cachedSvgBaselineShiftSupport;
+    }
+    try {
+      const doc = global?.document;
+      if (!doc || !doc.body || typeof doc.createElementNS !== 'function') {
+        cachedSvgBaselineShiftSupport = true;
+        return cachedSvgBaselineShiftSupport;
+      }
+      const svg = doc.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '200');
+      svg.setAttribute('height', '80');
+      svg.style.position = 'absolute';
+      svg.style.left = '-9999px';
+      svg.style.top = '-9999px';
+      svg.style.opacity = '0';
+      svg.style.pointerEvents = 'none';
+
+      const shiftedText = doc.createElementNS(SVG_NS, 'text');
+      shiftedText.setAttribute('x', '10');
+      shiftedText.setAttribute('y', '50');
+      shiftedText.setAttribute('font-size', '40');
+      shiftedText.textContent = 'A';
+      const shiftedSpan = doc.createElementNS(SVG_NS, 'tspan');
+      shiftedSpan.textContent = '2';
+      shiftedSpan.setAttribute('baseline-shift', 'super');
+      shiftedText.appendChild(shiftedSpan);
+
+      const controlText = doc.createElementNS(SVG_NS, 'text');
+      controlText.setAttribute('x', '80');
+      controlText.setAttribute('y', '50');
+      controlText.setAttribute('font-size', '40');
+      controlText.textContent = 'A2';
+
+      svg.appendChild(shiftedText);
+      svg.appendChild(controlText);
+      doc.body.appendChild(svg);
+
+      const shiftedBox = shiftedSpan.getBBox();
+      const controlBox = controlText.getBBox();
+      const delta = Math.abs((shiftedBox?.y || 0) - (controlBox?.y || 0));
+      cachedSvgBaselineShiftSupport = Number.isFinite(delta) && delta > 1;
+      svg.remove();
+    } catch (err) {
+      cachedSvgBaselineShiftSupport = true;
+    }
+    return cachedSvgBaselineShiftSupport;
+  };
+  const shouldUseSvgScriptFallback = () => !supportsSvgBaselineShift();
 
   const parseFontSizeValue = (value) => {
     if (!value) { return null; }
@@ -84,6 +135,15 @@
     if (!Number.isFinite(numeric)) { return null; }
     const unit = match[2] || '';
     return { numeric, unit };
+  };
+
+  const fontSizeValueToPx = (value) => {
+    const parsed = parseFontSizeValue(value);
+    if (!parsed || !Number.isFinite(parsed.numeric)) { return null; }
+    if (!parsed.unit || parsed.unit === 'px') { return parsed.numeric; }
+    if (parsed.unit === 'em' || parsed.unit === 'rem') { return parsed.numeric * 16; }
+    if (parsed.unit === 'pt') { return parsed.numeric * (96 / 72); }
+    return parsed.numeric;
   };
 
   const computeFontScale = (childSize, baseSize) => {
@@ -372,6 +432,14 @@
       targetEl.removeChild(targetEl.firstChild);
     }
     const ns = targetEl.namespaceURI || 'http://www.w3.org/2000/svg';
+    const useFirefoxScriptFallback = shouldUseSvgScriptFallback();
+    let computedFontSize = null;
+    try {
+      computedFontSize = global?.getComputedStyle ? global.getComputedStyle(targetEl)?.fontSize : null;
+    } catch (styleErr) {
+      computedFontSize = null;
+    }
+    const baseFontSizeSource = targetEl.getAttribute?.('font-size') || computedFontSize || null;
     let index = 0;
     while (index < textValue.length) {
       const styleEntry = styleMap[index];
@@ -397,6 +465,26 @@
             tspan.removeAttribute(attr);
           }
         });
+        if (useFirefoxScriptFallback) {
+          const shift = styleEntry?.baselineShift || null;
+          if (shift === 'sub' || shift === 'super') {
+            const translateEm = shift === 'sub' ? SUB_BASELINE_SHIFT : -SUPER_BASELINE_SHIFT;
+            const segmentFontSizeSource = styleEntry?.fontSize || baseFontSizeSource || DEFAULT_SCRIPT_FONT_SIZE;
+            const segmentFontPx = fontSizeValueToPx(segmentFontSizeSource)
+              || fontSizeValueToPx(baseFontSizeSource)
+              || 16;
+            const translatePx = Math.round(segmentFontPx * translateEm * 1000) / 1000;
+            if (!styleEntry?.fontSize) {
+              tspan.setAttribute('font-size', DEFAULT_SCRIPT_FONT_SIZE);
+            }
+            tspan.setAttribute('transform', `translate(0 ${translatePx})`);
+            if (tspan.style) {
+              tspan.style.transformBox = 'fill-box';
+              tspan.style.transformOrigin = 'center';
+              tspan.style.transform = `translate(0px, ${translatePx}px)`;
+            }
+          }
+        }
         targetEl.appendChild(tspan);
       }
       index = end;
@@ -540,7 +628,6 @@
       }
 
       const scope = dataset.fontScope || null;
-      const tabId = dataset.fontTabId || null;
       const escapeAttr = (value) => {
         const raw = String(value);
         if (ownerWindow?.CSS && typeof ownerWindow.CSS.escape === 'function') {
@@ -549,13 +636,9 @@
         return raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       };
 
-      let selector = `text[data-font-key="${escapeAttr(key)}"]`;
-      if (scope) {
-        selector += `[data-font-scope="${escapeAttr(scope)}"]`;
-      }
-      if (tabId) {
-        selector += `[data-font-tab-id="${escapeAttr(tabId)}"]`;
-      }
+      // Hide all nodes sharing the same font key within this SVG graph.
+      // Scope/tab filters can miss legacy duplicates and leave background text visible.
+      const selector = `text[data-font-key="${escapeAttr(key)}"]`;
 
       const searchRoot = (typeof referenceNode.closest === 'function' && referenceNode.closest('svg'))
         || ownerDocument;
@@ -616,6 +699,11 @@
             } else {
               target.style.visibility = entry.restoreVisibility;
             }
+            if (entry.restoreOpacity === null) {
+              target.style.removeProperty('opacity');
+            } else {
+              target.style.opacity = entry.restoreOpacity;
+            }
           } catch (visibilityErr) {
             console.error('Shared.makeEditable visibility restore error', visibilityErr);
           }
@@ -666,10 +754,12 @@
         const widthPadding = Number.isFinite(options.inlineWidthPadding)
           ? options.inlineWidthPadding
           : 12;
-        const baseMinWidth = Math.max(rect.width || 0, Number(minWidth) || 0);
-        const baseMinHeight = Math.max(rect.height || 0, Number(minHeight) || 0);
-        const overlayWidth = baseMinWidth + widthPadding;
-        const targetHeight = baseMinHeight;
+        const configuredMinWidth = Number(minWidth) || 0;
+        const configuredMinHeight = Number(minHeight) || 0;
+        const overlayBaseWidth = Math.max(rect.width || 0, configuredMinWidth);
+        const overlayBaseHeight = Math.max(rect.height || 0, configuredMinHeight);
+        const overlayWidth = overlayBaseWidth + widthPadding;
+        const targetHeight = overlayBaseHeight;
         const targetCenterX = rect.left + (rect.width || 0) / 2 + scrollLeft;
         const targetCenterY = rect.top + (rect.height || 0) / 2 + scrollTop;
         overlay.style.width = `${overlayWidth}px`;
@@ -709,6 +799,16 @@
         const overlayFontSize = scaleFontSizeValue(rawFontSize, displayScale) || rawFontSize || '14px';
         const rawLineHeight = computedStyle?.lineHeight || '1.2';
         const overlayLineHeight = scaleLineHeightValue(rawLineHeight, displayScale) || rawLineHeight || '1.2';
+        const textAlignMode = (() => {
+          const anchor = el?.getAttribute?.('text-anchor');
+          if (anchor === 'end') { return 'right'; }
+          if (anchor === 'middle') { return 'center'; }
+          if (anchor === 'start') { return 'left'; }
+          const textAlign = (computedStyle?.textAlign || 'left').toLowerCase();
+          if (textAlign === 'right') { return 'right'; }
+          if (textAlign === 'center') { return 'center'; }
+          return 'left';
+        })();
         input.style.fontSize = overlayFontSize;
         input.style.fontFamily = computedStyle?.fontFamily || 'inherit';
         input.style.fontWeight = computedStyle?.fontWeight || '600';
@@ -720,11 +820,14 @@
         input.style.boxShadow = '0 0 0 2px rgba(74,144,226,0.35)';
         input.style.padding = '0 6px';
         input.style.background = 'transparent';
-        input.style.color = 'transparent';
+        input.style.color = '#222';
         input.style.textShadow = 'none';
         input.style.caretColor = '#1a73e8';
+        input.style.setProperty('--inline-edit-selection-color', '#ffffff');
+        input.style.setProperty('--inline-edit-selection-bg', 'rgba(74, 144, 226, 0.28)');
         input.style.position = 'relative';
         input.style.zIndex = '2';
+        input.style.textAlign = textAlignMode;
 
         overlay.appendChild(input);
         body.appendChild(overlay);
@@ -767,8 +870,8 @@
           hiddenTargets: [],
           centerX: targetCenterX,
           centerY: targetCenterY,
-          minWidth: Math.max(4, baseMinWidth || 0),
-          minHeight: Math.max(4, baseMinHeight || 0),
+          minWidth: Math.max(4, configuredMinWidth || 0),
+          minHeight: Math.max(4, configuredMinHeight || 0),
           deferCommitHandler: null,
           shouldRestoreSelection: false,
           selection: null,
@@ -822,8 +925,10 @@
               state.hiddenTargets.push({
                 target: node,
                 restoreVisibility: node.style.visibility || null,
+                restoreOpacity: node.style.opacity || null,
               });
               node.style.visibility = 'hidden';
+              node.style.opacity = '0';
             } catch (hideErr) {
               console.error('Shared.makeEditable hide target error', hideErr);
             }
@@ -844,16 +949,9 @@
         preview.style.pointerEvents = 'none';
         preview.style.display = 'flex';
         preview.style.alignItems = 'center';
-        preview.style.justifyContent = (() => {
-          const anchor = el?.getAttribute?.('text-anchor');
-          if (anchor === 'end') { return 'flex-end'; }
-          if (anchor === 'middle') { return 'center'; }
-          if (anchor === 'start') { return 'flex-start'; }
-          const textAlign = computedStyle?.textAlign || 'left';
-          if (textAlign === 'right') { return 'flex-end'; }
-          if (textAlign === 'center') { return 'center'; }
-          return 'flex-start';
-        })();
+        preview.style.justifyContent = textAlignMode === 'right'
+          ? 'flex-end'
+          : (textAlignMode === 'center' ? 'center' : 'flex-start');
         preview.style.fontSize = overlayFontSize;
         preview.style.fontFamily = input.style.fontFamily;
         preview.style.fontWeight = input.style.fontWeight;
@@ -889,12 +987,51 @@
           if (state.preview) {
             renderStyledPreview(state.preview, textValue, state.styleMap, state.baseStyle, { scale: state.displayScale });
           }
+          const resolveEditableTextColor = () => {
+            const candidates = [
+              state.baseStyle?.fill,
+              state.baseStyle?.color,
+              computedStyle?.fill,
+              computedStyle?.color,
+              '#222'
+            ];
+            for (let i = 0; i < candidates.length; i += 1) {
+              const candidate = candidates[i];
+              if (!candidate) { continue; }
+              const normalized = String(candidate).trim().toLowerCase();
+              if (!normalized || normalized === 'none' || normalized === 'transparent') { continue; }
+              return candidate;
+            }
+            return '#222';
+          };
+          const usePreviewLayer = state.usingInlineSegments === true;
+          if (state.preview && state.preview.style) {
+            state.preview.style.visibility = usePreviewLayer ? 'visible' : 'hidden';
+            state.preview.style.opacity = usePreviewLayer ? '1' : '0';
+          }
+          if (state.input && state.input.style) {
+            if (state.input.classList && typeof state.input.classList.toggle === 'function') {
+              state.input.classList.toggle('inline-edit-input--preview-mode', usePreviewLayer);
+            }
+            state.input.style.color = usePreviewLayer ? 'transparent' : resolveEditableTextColor();
+            state.input.style.setProperty('--inline-edit-selection-color', usePreviewLayer ? 'transparent' : '#ffffff');
+            state.input.style.setProperty('--inline-edit-selection-bg', usePreviewLayer ? 'transparent' : 'rgba(74, 144, 226, 0.28)');
+            if (usePreviewLayer) {
+              state.input.style.setProperty('-webkit-text-fill-color', 'transparent');
+              state.input.style.textShadow = '0 0 0 transparent';
+            } else {
+              state.input.style.removeProperty('-webkit-text-fill-color');
+              state.input.style.textShadow = 'none';
+            }
+          }
           logDebug('makeEditable inline render refresh', {
             forcePlain,
             length: textValue.length,
             hasStyles: state.usingInlineSegments,
+            usePreviewLayer,
           });
         };
+        refreshInlineRendering(false);
 
         const describeSelection = () => {
           const length = state.inlineText?.length ?? 0;
@@ -1439,7 +1576,11 @@
 
         ownerWindow.setTimeout(() => {
           input.focus();
-          if (typeof input.select === 'function') {
+          const preferCaretOnly = state.usingInlineSegments === true;
+          if (preferCaretOnly && typeof input.setSelectionRange === 'function') {
+            const length = (input.value || '').length;
+            input.setSelectionRange(length, length);
+          } else if (typeof input.select === 'function') {
             input.select();
           }
           syncSizeToContent();
