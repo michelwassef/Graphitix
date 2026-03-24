@@ -5727,6 +5727,174 @@
     };
   }
 
+  function shouldAutoScaleBoxAxisToVisibleFeature(graphType, pointMode){
+    const normalizedGraphType = normalizeBoxGraphType(graphType);
+    const normalizedPointMode = String(pointMode || '').trim().toLowerCase();
+    if(normalizedPointMode !== 'none'){
+      return false;
+    }
+    return normalizedGraphType === 'bar'
+      || normalizedGraphType === 'box'
+      || normalizedGraphType === 'notched'
+      || normalizedGraphType === 'violin';
+  }
+
+  function estimateViolinBandwidthForSortedValues(sorted){
+    const values = Array.isArray(sorted) ? sorted.filter(value => Number.isFinite(Number(value))).map(Number) : [];
+    if(!values.length){
+      return 1;
+    }
+    const n = values.length;
+    const meanVal = values.reduce((acc, value) => acc + value, 0) / n;
+    const variance = values.reduce((acc, value) => acc + Math.pow(value - meanVal, 2), 0) / (n - 1 || 1);
+    const sigma = Math.sqrt(variance) || 0;
+    const iqrVal = percentileFromSorted(values, 0.75) - percentileFromSorted(values, 0.25);
+    const scale = Math.min(sigma, iqrVal / 1.349 || Infinity) || sigma || Math.abs(values[0]) || 1;
+    const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
+    const fallback = (values[n - 1] - values[0]) / (Math.sqrt(n) || 1) || 1;
+    return Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
+  }
+
+  function resolveViolinDensityDomain(sorted, options = {}){
+    const values = Array.isArray(sorted) ? sorted.filter(value => Number.isFinite(Number(value))).map(Number) : [];
+    const manualBandwidth = Number(options.manualBandwidth);
+    const bandwidth = Number.isFinite(manualBandwidth) && manualBandwidth > 0
+      ? manualBandwidth
+      : estimateViolinBandwidthForSortedValues(values);
+    if(!values.length){
+      return { bandwidth, domainMin: NaN, domainMax: NaN, pad: NaN };
+    }
+    const dataMin = values[0];
+    const dataMax = values[values.length - 1];
+    const dataSpan = dataMax - dataMin;
+    const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
+    let domainMin = dataMin - pad;
+    let domainMax = dataMax + pad;
+    if(Number.isFinite(Number(options.minValue))){
+      domainMin = Math.max(domainMin, Number(options.minValue));
+    }
+    if(Number.isFinite(Number(options.maxValue))){
+      domainMax = Math.min(domainMax, Number(options.maxValue));
+    }
+    if(!isFinite(domainMin) || !isFinite(domainMax)){
+      domainMin = dataMin;
+      domainMax = dataMax;
+    }
+    if(domainMax === domainMin){
+      domainMin -= 0.5;
+      domainMax += 0.5;
+    }
+    return { bandwidth, domainMin, domainMax, pad };
+  }
+
+  function resolveBoxViolinDensitySource(options = {}){
+    const summary = options.summary;
+    const pointMode = String(options.pointMode || '').trim().toLowerCase();
+    const sortedValues = Array.isArray(summary?.sortedValues) && summary.sortedValues.length
+      ? summary.sortedValues
+      : computeSortedNumericValues(options.valueList);
+    if(pointMode !== 'none'){
+      return sortedValues;
+    }
+    const whiskerInfo = options.whiskerInfo || computeWhiskerFences({
+      q1: summary?.q1,
+      q3: summary?.q3,
+      iqr: summary?.iqr,
+      mean: summary?.mean,
+      sd: options.whiskerNeedsSd ? summary?.sd : 0,
+      rule: options.whiskerRule,
+      customMultiplier: options.whiskerCustomMultiplier,
+      debugEnabled: options.debugEnabled,
+      meta: options.whiskerMeta
+    });
+    const visibleValues = sortedValues.filter(value => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric)
+        && numeric >= whiskerInfo.lowerFence
+        && numeric <= whiskerInfo.upperFence;
+    });
+    return visibleValues.length ? visibleValues : sortedValues;
+  }
+
+  function resolveTraceVisibleUpperBoundForAutoAxis(options = {}){
+    const graphType = normalizeBoxGraphType(options.graphType);
+    const summary = options.summary;
+    if(!summary || !(Number(summary.count) > 0)){
+      return null;
+    }
+    if(graphType === 'bar'){
+      const summarySpec = options.barSummarySpec || resolveBarSummaryConfig(options.summaryMode, summary, options.valueList);
+      const highValue = Number(summarySpec?.highValue);
+      const centerValue = Number(summarySpec?.centerValue);
+      if(Number.isFinite(highValue)){
+        return highValue;
+      }
+      if(Number.isFinite(centerValue)){
+        return centerValue;
+      }
+      return Number.isFinite(Number(summary.max)) ? Number(summary.max) : null;
+    }
+    if(graphType === 'box' || graphType === 'notched' || graphType === 'violin'){
+      const whiskerInfo = computeWhiskerFences({
+        q1: summary.q1,
+        q3: summary.q3,
+        iqr: summary.iqr,
+        mean: summary.mean,
+        sd: options.whiskerNeedsSd ? summary.sd : 0,
+        rule: options.whiskerRule,
+        customMultiplier: options.whiskerCustomMultiplier,
+        debugEnabled: options.debugEnabled,
+        meta: options.whiskerMeta
+      });
+      const whiskerExtents = resolveWhiskerExtents(
+        Array.isArray(summary.sortedValues) && summary.sortedValues.length ? summary.sortedValues : options.valueList,
+        {
+          lowerFence: whiskerInfo.lowerFence,
+          upperFence: whiskerInfo.upperFence,
+          q1: summary.q1,
+          q3: summary.q3
+        },
+        {
+          debugEnabled: options.debugEnabled,
+          label: options.label,
+          orientation: options.orientation,
+          token: options.token,
+          minValue: summary.min,
+          maxValue: summary.max
+        }
+      );
+      if(graphType === 'violin'){
+        const violinState = typeof ensureViolinState === 'function' ? ensureViolinState() : null;
+        const densitySource = resolveBoxViolinDensitySource({
+          summary,
+          valueList: options.valueList,
+          pointMode: options.pointMode ?? 'none',
+          whiskerInfo,
+          whiskerRule: options.whiskerRule,
+          whiskerCustomMultiplier: options.whiskerCustomMultiplier,
+          whiskerNeedsSd: options.whiskerNeedsSd,
+          whiskerMeta: options.whiskerMeta,
+          debugEnabled: options.debugEnabled
+        });
+        const densityDomain = resolveViolinDensityDomain(densitySource, {
+          manualBandwidth: violinState?.autoBandwidth === false ? violinState.bandwidth : null
+        });
+        const violinMax = Number.isFinite(Number(densityDomain.domainMax))
+          ? Number(densityDomain.domainMax)
+          : null;
+        if(Number.isFinite(violinMax)){
+          return Number.isFinite(Number(whiskerExtents?.wMax))
+            ? Math.max(Number(whiskerExtents.wMax), violinMax)
+            : violinMax;
+        }
+      }
+      return Number.isFinite(Number(whiskerExtents?.wMax))
+        ? Number(whiskerExtents.wMax)
+        : (Number.isFinite(Number(summary.max)) ? Number(summary.max) : null);
+    }
+    return Number.isFinite(Number(summary.max)) ? Number(summary.max) : null;
+  }
+
   function applyIndividualSummaryOverlay(mode, summary, valueList, operations){
     if(!operations){
       return;
@@ -23572,6 +23740,46 @@ Technical analysis record (advanced)
     }
     const userYMin = parseFloat(els.boxYMin.value);
     const userYMax = parseFloat(els.boxYMax.value);
+    if(!Number.isFinite(userYMax) && shouldAutoScaleBoxAxisToVisibleFeature(graphTypeRaw, pointMode)){
+      let visibleAutoYMax = null;
+      if(graphTypeRaw === 'bar'){
+        visibleAutoYMax = Number.isFinite(barErrorMax) ? barErrorMax : null;
+      }else{
+        traces.forEach((trace, traceIndex) => {
+          const summary = trace.__distribution || computeTraceSummary(trace.y, { requireSorted: graphTypeRaw === 'violin' });
+          const visibleUpperBound = resolveTraceVisibleUpperBoundForAutoAxis({
+            graphType: graphTypeRaw,
+            summary,
+            valueList: trace.y,
+            pointMode,
+            label: trace?.name || `Trace ${traceIndex + 1}`,
+            orientation: state.flipAxes ? 'horizontal' : 'vertical',
+            token,
+            debugEnabled,
+            whiskerRule: whiskerRuleCurrent,
+            whiskerCustomMultiplier: whiskerCustomValue,
+            whiskerNeedsSd,
+            whiskerMeta: whiskerMetaGlobal
+          });
+          if(Number.isFinite(visibleUpperBound)){
+            visibleAutoYMax = Number.isFinite(visibleAutoYMax)
+              ? Math.max(visibleAutoYMax, visibleUpperBound)
+              : visibleUpperBound;
+          }
+        });
+      }
+      if(Number.isFinite(visibleAutoYMax)){
+        const previousYMax = ymax;
+        ymax = visibleAutoYMax;
+        console.debug('Debug: box auto ymax adjusted to visible feature',{
+          graphType: graphTypeRaw,
+          pointMode,
+          previousYMax,
+          visibleAutoYMax,
+          orientation: state.flipAxes ? 'horizontal' : 'vertical'
+        });
+      }
+    }
     if(isFinite(userYMin)) ymin = logScale ? Math.log10(userYMin) : userYMin;
     if(isFinite(userYMax)) ymax = logScale ? Math.log10(userYMax) : userYMax;
     boxLog('boxplot axis override',{ userYMin, userYMax, ymin, ymax });
@@ -23848,19 +24056,34 @@ Technical analysis record (advanced)
       const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
       const beforeYMin = ymin;
       const beforeYMax = ymax;
+      const violinState = ensureViolinState();
+      const useVisibleViolinDensity = shouldAutoScaleBoxAxisToVisibleFeature(graphTypeRaw, pointMode);
       traces.forEach((trace, traceIndex) => {
         const summary = trace?.__distribution;
         const sorted = Array.isArray(summary?.sortedValues) ? summary.sortedValues : null;
         if(!sorted || !sorted.length){
           return;
         }
-        const bandwidth = resolveViolinBandwidth(sorted);
-        const dataMin = sorted[0];
-        const dataMax = sorted[sorted.length - 1];
-        const dataSpan = dataMax - dataMin;
-        const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
-        const domainMin = dataMin - pad;
-        const domainMax = dataMax + pad;
+        const densitySource = useVisibleViolinDensity
+          ? resolveBoxViolinDensitySource({
+              summary,
+              valueList: trace.y,
+              pointMode,
+              whiskerRule: whiskerRuleCurrent,
+              whiskerCustomMultiplier: whiskerCustomValue,
+              whiskerNeedsSd,
+              whiskerMeta: whiskerMetaGlobal,
+              debugEnabled
+            })
+          : sorted;
+        const densityDomain = resolveViolinDensityDomain(densitySource, {
+          manualBandwidth: violinState.autoBandwidth === false ? violinState.bandwidth : null
+        });
+        const bandwidth = densityDomain.bandwidth;
+        const dataMin = densitySource[0];
+        const dataMax = densitySource[densitySource.length - 1];
+        const domainMin = densityDomain.domainMin;
+        const domainMax = densityDomain.domainMax;
         if(manualYMinValue == null && Number.isFinite(domainMin)){
           ymin = Math.min(ymin, domainMin);
         }
@@ -23874,7 +24097,10 @@ Technical analysis record (advanced)
             dataMin,
             dataMax,
             domainMin,
-            domainMax
+            domainMax,
+            visibleSourceCount: densitySource.length,
+            totalSourceCount: sorted.length,
+            useVisibleViolinDensity
           });
         }
       });
@@ -25918,7 +26144,17 @@ Technical analysis record (advanced)
             console.debug('Debug: box bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
+          const densitySource = resolveBoxViolinDensitySource({
+            summary,
+            valueList,
+            pointMode,
+            whiskerInfo,
+            whiskerRule: whiskerRuleCurrent,
+            whiskerCustomMultiplier: whiskerCustomValue,
+            whiskerNeedsSd,
+            whiskerMeta: whiskerMetaGlobal,
+            debugEnabled
+          });
           const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
           const violinMaxValue = densityInfo.positions.length
             ? densityInfo.positions[densityInfo.positions.length - 1]
@@ -27971,7 +28207,17 @@ Technical analysis record (advanced)
             console.debug('Debug: box horizontal bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
+          const densitySource = resolveBoxViolinDensitySource({
+            summary,
+            valueList,
+            pointMode,
+            whiskerInfo,
+            whiskerRule: whiskerRuleCurrent,
+            whiskerCustomMultiplier: whiskerCustomValue,
+            whiskerNeedsSd,
+            whiskerMeta: whiskerMetaGlobal,
+            debugEnabled
+          });
           const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
           const violinMaxValue = densityInfo.positions.length
             ? densityInfo.positions[densityInfo.positions.length - 1]
@@ -30104,6 +30350,8 @@ Technical analysis record (advanced)
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
+      shouldAutoScaleBoxAxisToVisibleFeature:(graphType,pointMode)=>shouldAutoScaleBoxAxisToVisibleFeature(graphType,pointMode),
+      resolveTraceVisibleUpperBoundForAutoAxis:options=>resolveTraceVisibleUpperBoundForAutoAxis(options),
       isBoxPointConnectionModeEligible:(graphType,pointMode)=>isBoxPointConnectionModeEligible(graphType,pointMode),
       buildBoxConnectedPointPathFromTraceMaps:maps=>buildBoxConnectedPointPathFromTraceMaps(maps),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),

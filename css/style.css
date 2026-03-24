@@ -1216,6 +1216,11 @@ select {
     border-bottom: 0 !important;
 }
 
+.ag-theme-balham .ag-header-cell.hot-selected-column-header {
+    background: rgba(26, 115, 232, 0.12) !important;
+    box-shadow: none !important;
+}
+
 /* Defensive: kill any remaining header separator pseudo-elements */
 .ag-theme-balham .ag-header::after,
 .ag-theme-balham .ag-header-viewport::after,

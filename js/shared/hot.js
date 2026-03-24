@@ -886,6 +886,7 @@
     let lastRange = null;
     let copyHighlightRange = null;
     let normalizedSelectionRange = null;
+    let selectedHeaderColumns = new Set();
     let normalizedCopyHighlightRange = null;
     let fillHandle = null;
     let fillHandleUpdatePending = false;
@@ -924,6 +925,12 @@
       lastRange = range || null;
       normalizedSelectionRange = normalizeRange(lastRange);
       scheduleFillHandleUpdate('selection');
+    };
+
+    const clearSelectedHeaderColumns = ()=>{
+      if(selectedHeaderColumns.size){
+        selectedHeaderColumns = new Set();
+      }
     };
 
     const setCopyHighlightRange = (range)=>{
@@ -3279,6 +3286,30 @@
         const colId = colDef.colId ?? null;
         const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
         if(isDataColumn){
+          const existingHeaderClass = colDef.headerClass;
+          colDef.headerClass = params=>{
+            const classes = [];
+            if(typeof existingHeaderClass === 'function'){
+              const result = existingHeaderClass(params);
+              if(Array.isArray(result)){
+                classes.push(...result.filter(Boolean));
+              }else if(typeof result === 'string' && result.trim()){
+                classes.push(result.trim());
+              }
+            }else if(Array.isArray(existingHeaderClass)){
+              classes.push(...existingHeaderClass.filter(Boolean));
+            }else if(typeof existingHeaderClass === 'string' && existingHeaderClass.trim()){
+              classes.push(existingHeaderClass.trim());
+            }
+            const headerColId = params?.column?.getColId?.() ?? colDef.colId;
+            const headerCol = typeof headerColId === 'string' && headerColId.startsWith('c')
+              ? Number(headerColId.slice(1))
+              : null;
+            if(Number.isInteger(headerCol) && isHeaderColumnSelected(headerCol)){
+              classes.push('hot-selected-column-header');
+            }
+            return classes.length ? classes.join(' ') : null;
+          };
           const widthOverride = columnWidthOverrides.get(colId);
           colDef.width = Number.isFinite(widthOverride) && widthOverride > 0
             ? widthOverride
@@ -3301,9 +3332,6 @@
           ? Object.assign({}, colDef.cellClassRules)
           : {};
         existing['hot-selected-cell'] = params=>{
-          if(!normalizedSelectionRange){
-            return false;
-          }
           const rowIndex = resolveVisualRowIndex(params);
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
           if(!Number.isInteger(rowIndex)){
@@ -3311,6 +3339,12 @@
           }
           const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
           if(!Number.isInteger(col)){
+            return false;
+          }
+          if(selectedHeaderColumns.size && selectedHeaderColumns.has(col)){
+            return true;
+          }
+          if(!normalizedSelectionRange){
             return false;
           }
           return rowIndex >= normalizedSelectionRange.from.row
@@ -3475,6 +3509,13 @@
       if(!Number.isInteger(idx) || idx < 0){
         return { start: 0, count: 0 };
       }
+      const headerSelection = resolveHeaderColumnSelectionInfo(idx);
+      if(headerSelection.count){
+        if(headerSelection.contiguous){
+          return { start: headerSelection.start, count: headerSelection.count };
+        }
+        return { start: idx, count: 1 };
+      }
       const normalized = normalizedSelectionRange;
       const lastRow = Math.max(0, getVisualRowCount() - 1);
       const isFullColumnSelection = normalized
@@ -3525,6 +3566,7 @@
       if(!api){
         return;
       }
+      clearSelectedHeaderColumns();
       if(hasEnterprise && typeof api.getCellRanges === 'function'){
         try{
           const ranges = api.getCellRanges();
@@ -4094,6 +4136,13 @@
       if(batchDepth > 0){
         pendingRender = true;
         return;
+      }
+      if(api && typeof api.refreshHeader === 'function'){
+        try{
+          api.refreshHeader();
+        }catch(err){
+          console.error('Shared.hot AG refreshHeader error', err);
+        }
       }
       if(api && typeof api.refreshCells === 'function'){
         try{
@@ -5137,28 +5186,76 @@
       }
     };
 
+    const getFullColumnSelectionColumns = ()=>{
+      const normalized = normalizedSelectionRange;
+      if(!normalized){
+        return [];
+      }
+      const lastRow = Math.max(0, getVisualRowCount() - 1);
+      const isFullColumnSelection = normalized.from.row === 0 && normalized.to.row === lastRow;
+      if(!isFullColumnSelection){
+        return [];
+      }
+      const cols = [];
+      for(let c = normalized.from.col; c <= normalized.to.col; c += 1){
+        cols.push(c);
+      }
+      return cols;
+    };
+
+    const isHeaderColumnSelected = (colIdx)=>{
+      const idx = Number(colIdx);
+      if(!Number.isInteger(idx) || idx < 0){
+        return false;
+      }
+      if(selectedHeaderColumns.has(idx)){
+        return true;
+      }
+      return getFullColumnSelectionColumns().indexOf(idx) !== -1;
+    };
+
     const resolveSelectedColumnGroup = (colIdx)=>{
       const idx = Number(colIdx);
       if(!Number.isInteger(idx) || idx < 0){
         return null;
       }
-      const normalized = normalizedSelectionRange;
-      if(!normalized){
+      if(selectedHeaderColumns.size){
+        const selected = Array.from(selectedHeaderColumns)
+          .filter(col => Number.isInteger(col) && col >= 0)
+          .sort((a, b)=>a - b);
+        if(selected.indexOf(idx) !== -1){
+          return selected.length ? selected : [idx];
+        }
+      }
+      const rangeCols = getFullColumnSelectionColumns();
+      if(!rangeCols.length || idx < rangeCols[0] || idx > rangeCols[rangeCols.length - 1]){
         return [idx];
       }
-      const lastRow = Math.max(0, getVisualRowCount() - 1);
-      const isFullColumnSelection = normalized.from.row === 0 && normalized.to.row === lastRow;
-      if(!isFullColumnSelection){
-        return [idx];
+      return rangeCols;
+    };
+
+    const resolveHeaderColumnSelectionInfo = (colIdx)=>{
+      const selected = resolveSelectedColumnGroup(colIdx) || [];
+      const sorted = selected
+        .filter(col => Number.isInteger(col) && col >= 0)
+        .sort((a, b)=>a - b);
+      const count = sorted.length;
+      if(!count){
+        return { columns: [], contiguous: false, start: 0, count: 0 };
       }
-      if(idx < normalized.from.col || idx > normalized.to.col){
-        return [idx];
+      let contiguous = true;
+      for(let i = 1; i < sorted.length; i += 1){
+        if(sorted[i] !== sorted[i - 1] + 1){
+          contiguous = false;
+          break;
+        }
       }
-      const cols = [];
-      for(let c = normalized.from.col; c <= normalized.to.col; c++){
-        cols.push(c);
-      }
-      return cols.length ? cols : [idx];
+      return {
+        columns: sorted,
+        contiguous,
+        start: sorted[0],
+        count
+      };
     };
 
     const startColumnHandleDrag = (colIds)=>{
@@ -5685,6 +5782,7 @@
         if(isDragSelecting){
           return;
         }
+        clearSelectedHeaderColumns();
         const row = resolveVisualRowIndex(params) ?? 0;
         const colId = params?.column?.getColId?.();
         if(colId === '__rowHeader'){
@@ -5716,13 +5814,15 @@
           return;
         }
         const moveState = getMoveColumnState(colIdx);
+        const headerSelection = resolveHeaderColumnSelectionInfo(colIdx);
+        const selectedCols = headerSelection.columns.length ? headerSelection.columns : [colIdx];
         const selectionSpan = resolveSelectedColumnSpanForHeader(colIdx);
         const canDelete = selectionSpan.count > 0;
         const insertLabelCount = selectionSpan.count || 1;
         const selectionStart = selectionSpan.start;
         const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
-        const canExclude = !exclusionController.isColumnExcluded(colIdx);
-        const canInclude = exclusionController.isColumnExcluded(colIdx);
+        const canExclude = selectedCols.some(col => !exclusionController.isColumnExcluded(col));
+        const canInclude = selectedCols.some(col => exclusionController.isColumnExcluded(col));
         const items = [
           {
             label: `Insert ${insertLabelCount} column(s) before`,
@@ -5823,21 +5923,21 @@
           },
           'separator',
           {
-            label: 'Exclude column from analysis',
+            label: `Exclude column${selectedCols.length === 1 ? '' : 's'} from analysis`,
             disabled: !canExclude,
             action: ()=>{
               applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
-                exclusionController.markColumns([colIdx], true);
+                exclusionController.markColumns(selectedCols, true);
               });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
             }
           },
           {
-            label: 'Include column in analysis',
+            label: `Include column${selectedCols.length === 1 ? '' : 's'} in analysis`,
             disabled: !canInclude,
             action: ()=>{
               applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
-                exclusionController.markColumns([colIdx], false);
+                exclusionController.markColumns(selectedCols, false);
               });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
             }
@@ -6209,6 +6309,7 @@
         if(!Number.isInteger(visualRow) || visualRow < 0){
           return;
         }
+        clearSelectedHeaderColumns();
         const fromCol = 0;
         const toCol = Math.max(0, colCount - 1);
         let fromRow = visualRow;
@@ -6222,12 +6323,29 @@
         fireHook('afterSelectionEnd', fromRow, fromCol, toRow, toCol);
       };
 
-      const selectColumnByHeader = (col, extend)=>{
+      const selectColumnByHeader = (col, extend, additive)=>{
         const visualCol = Number(col);
         if(!Number.isInteger(visualCol) || visualCol < 0){
           return;
         }
         const lastRow = Math.max(0, getVisualRowCount() - 1);
+        if(additive){
+          const seed = selectedHeaderColumns.size
+            ? Array.from(selectedHeaderColumns)
+            : getFullColumnSelectionColumns();
+          const next = new Set(seed);
+          if(next.has(visualCol)){
+            next.delete(visualCol);
+          }else{
+            next.add(visualCol);
+          }
+          selectedHeaderColumns = next;
+          setLastRange({ from: { row: 0, col: visualCol }, to: { row: lastRow, col: visualCol } });
+          renderAg(instance.gridApi);
+          fireHook('afterSelectionEnd', 0, visualCol, lastRow, visualCol);
+          return;
+        }
+        clearSelectedHeaderColumns();
         let fromCol = visualCol;
         let toCol = visualCol;
         if(extend && normalizedSelectionRange){
@@ -6339,6 +6457,7 @@
         if(event.altKey){
           return;
         }
+        const additiveSelection = !!(event.ctrlKey || event.metaKey);
         isDragSelecting = false;
         dragAnchor = null;
         pendingDragCell = null;
@@ -6353,10 +6472,10 @@
           console.debug('Debug: Shared.hot header drag selection armed', { debugLabel, scope: 'column', col });
         }
         const selectionBefore = normalizedSelectionRange;
-        selectColumnByHeader(col, !!event.shiftKey);
+        selectColumnByHeader(col, !!event.shiftKey, additiveSelection);
         const selectionAfter = normalizedSelectionRange;
         const selectionChanged = !rangesEqual(selectionBefore, selectionAfter);
-        if(event.shiftKey || selectionChanged){
+        if(event.shiftKey || additiveSelection || selectionChanged){
           armHeaderSortSuppression(colId);
         }
       };
@@ -7545,12 +7664,14 @@
           return;
         }
         const moveState = getMoveColumnState(colIdx);
+        const headerSelection = resolveHeaderColumnSelectionInfo(colIdx);
+        const selectedCols = headerSelection.columns.length ? headerSelection.columns : [colIdx];
         const selectionSpan = resolveSelectedColumnSpanForHeader(colIdx);
         const insertLabelCount = selectionSpan.count || 1;
         const selectionStart = selectionSpan.start;
         const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
-        const canExclude = !exclusionController.isColumnExcluded(colIdx);
-        const canInclude = exclusionController.isColumnExcluded(colIdx);
+        const canExclude = selectedCols.some(col => !exclusionController.isColumnExcluded(col));
+        const canInclude = selectedCols.some(col => exclusionController.isColumnExcluded(col));
         const items = [
           {
             label: `Insert ${insertLabelCount} column(s) before`,
@@ -7653,21 +7774,21 @@
           },
           'separator',
           {
-            label: 'Exclude column from analysis',
+            label: `Exclude column${selectedCols.length === 1 ? '' : 's'} from analysis`,
             disabled: !canExclude,
             action: ()=>{
               applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
-                exclusionController.markColumns([colIdx], true);
+                exclusionController.markColumns(selectedCols, true);
               });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
             }
           },
           {
-            label: 'Include column in analysis',
+            label: `Include column${selectedCols.length === 1 ? '' : 's'} in analysis`,
             disabled: !canInclude,
             action: ()=>{
               applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
-                exclusionController.markColumns([colIdx], false);
+                exclusionController.markColumns(selectedCols, false);
               });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
             }
