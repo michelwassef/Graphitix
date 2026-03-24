@@ -105,6 +105,48 @@
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
 
+  function seedBoxDefaultHeaderRow(matrix){
+    if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
+      return matrix;
+    }
+    const headerRow = matrix[0];
+    const groupCount = Math.min(headerRow.length, 3);
+    for(let idx = 0; idx < groupCount; idx += 1){
+      headerRow[idx] = `Group ${idx + 1}`;
+    }
+    return matrix;
+  }
+
+  function ensureBoxDefaultHeaderRow(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const hasBodyData = data.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    if(hasBodyData){
+      return false;
+    }
+    const desiredCols = Math.min(Math.max(typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length, 0), 3);
+    if(desiredCols <= 0){
+      return false;
+    }
+    const changes = [];
+    for(let col = 0; col < desiredCols; col += 1){
+      const current = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+      const desired = `Group ${col + 1}`;
+      if(!current){
+        changes.push([0, col, desired]);
+      }
+    }
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, 'box-default-header-seed');
+    return true;
+  }
+
   function clampMinorTickSubdivisions(value){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -11080,7 +11122,8 @@
     }
     groupEntries.forEach((entry, groupIndex) => {
       const currentRaw = headerRow[entry.startCol] != null ? String(headerRow[entry.startCol]).trim() : '';
-      const nextAnchor = normalizeBoxGroupHeaderAnchor(currentRaw, groupIndex);
+      const normalizedAnchor = normalizeBoxGroupHeaderAnchor(currentRaw, groupIndex);
+      const nextAnchor = normalizedAnchor || entry.label || `Group ${groupIndex + 1}`;
       if(currentRaw !== nextAnchor){
         changes.push([BOX_GROUPED_GROUP_HEADER_ROW_INDEX, entry.startCol, nextAnchor]);
       }
@@ -11344,7 +11387,7 @@
       console.error('box initHot missing Shared.hot.createStandardTable');
       return;
     }
-    const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+    const data = seedBoxDefaultHeaderRow(Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS));
     let boxScheduleProxyCount = 0;
     const scheduleBoxDrawProxy = (payload) => {
       boxScheduleProxyCount += 1;
@@ -11610,6 +11653,7 @@
         if(state.hot){
           state.hot.__boxHostContainer = baseContainer;
           state.hot.__boxTabId = Shared.hot.resolveActiveTabId?.() || 'box-default';
+          ensureBoxDefaultHeaderRow(state.hot);
           ensureBoxDataViewsForHot(state.hot, {
             wrapper,
             container: baseContainer
@@ -11643,6 +11687,7 @@
       if(state.hot){
         state.hot.__boxHostContainer = entry?.container || baseContainer;
         state.hot.__boxTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'box-default';
+        ensureBoxDefaultHeaderRow(state.hot);
         ensureBoxDataViewsForHot(state.hot, {
           wrapper,
           container: entry?.container || baseContainer
@@ -29196,6 +29241,7 @@ Technical analysis record (advanced)
     const emptyData = typeof createEmpty === 'function'
       ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
       : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+    seedBoxDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};

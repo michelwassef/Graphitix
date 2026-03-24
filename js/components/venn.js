@@ -2,6 +2,13 @@
   'use strict';
 
   const NS = 'http://www.w3.org/2000/svg';
+  const DEFAULT_VENN_TABLE_HEADERS = ['Set 1', 'Set 2', 'Set 3'];
+  const LEGACY_VENN_TABLE_HEADERS = ['A', 'B', 'C'];
+  const DEFAULT_VENN_LABEL_MAP = {
+    A: DEFAULT_VENN_TABLE_HEADERS[0],
+    B: DEFAULT_VENN_TABLE_HEADERS[1],
+    C: DEFAULT_VENN_TABLE_HEADERS[2]
+  };
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
@@ -87,13 +94,13 @@
     axisWidth: 1
   };
   const DEFAULT_REGION_OPTIONS = [
-    { value: 'A', label: 'A only' },
-    { value: 'B', label: 'B only' },
-    { value: 'C', label: 'C only' },
-    { value: 'AB', label: 'A∩B only' },
-    { value: 'AC', label: 'A∩C only' },
-    { value: 'BC', label: 'B∩C only' },
-    { value: 'ABC', label: 'A∩B∩C' }
+    { value: 'A', label: `${DEFAULT_VENN_LABEL_MAP.A} only` },
+    { value: 'B', label: `${DEFAULT_VENN_LABEL_MAP.B} only` },
+    { value: 'C', label: `${DEFAULT_VENN_LABEL_MAP.C} only` },
+    { value: 'AB', label: `${DEFAULT_VENN_LABEL_MAP.A}∩${DEFAULT_VENN_LABEL_MAP.B} only` },
+    { value: 'AC', label: `${DEFAULT_VENN_LABEL_MAP.A}∩${DEFAULT_VENN_LABEL_MAP.C} only` },
+    { value: 'BC', label: `${DEFAULT_VENN_LABEL_MAP.B}∩${DEFAULT_VENN_LABEL_MAP.C} only` },
+    { value: 'ABC', label: `${DEFAULT_VENN_LABEL_MAP.A}∩${DEFAULT_VENN_LABEL_MAP.B}∩${DEFAULT_VENN_LABEL_MAP.C}` }
   ];
 
   const makeEditable = (el, onChange, options) => {
@@ -1045,6 +1052,43 @@
     return values;
   }
 
+  function ensureVennDefaultTableHeaders(hotInstance) {
+    const hot = hotInstance || state.ui?.hot;
+    if (!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function') {
+      return false;
+    }
+    const matrix = hot.getData?.() || [];
+    const header = Array.isArray(matrix[0]) ? matrix[0] : [];
+    const hasBodyData = matrix.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    if (hasBodyData) {
+      return false;
+    }
+    const changes = [];
+    for (let col = 0; col < DEFAULT_VENN_TABLE_HEADERS.length; col += 1) {
+      const current = header[col] != null ? String(header[col]).trim() : '';
+      if (!current || current === LEGACY_VENN_TABLE_HEADERS[col]) {
+        changes.push([0, col, DEFAULT_VENN_TABLE_HEADERS[col]]);
+      }
+    }
+    if (!changes.length) {
+      return false;
+    }
+    hot.setDataAtCell(changes, 'venn-default-header-seed');
+    return true;
+  }
+
+  function getDefaultVennLabel(index) {
+    return DEFAULT_VENN_TABLE_HEADERS[index] || `Set ${index + 1}`;
+  }
+
+  function isLegacyVennDefaultLabel(value, index) {
+    return String(value == null ? '' : value).trim() === (LEGACY_VENN_TABLE_HEADERS[index] || '');
+  }
+
+  function getNormalizedVennLabel(value, index) {
+    return String(value == null ? '' : value).trim() || getDefaultVennLabel(index);
+  }
+
   function normalizeTableCellValue(value) {
     if (value === null || value === undefined) {
       return '';
@@ -1137,9 +1181,9 @@
     state.analysis.lastTableSignature = tableSignature;
     const header = matrix[0] || [];
     const next = {
-      labelA: String(header[0] || '').trim() || 'A',
-      labelB: String(header[1] || '').trim() || 'B',
-      labelC: String(header[2] || '').trim() || 'C',
+      labelA: getNormalizedVennLabel(header[0], 0),
+      labelB: getNormalizedVennLabel(header[1], 1),
+      labelC: getNormalizedVennLabel(header[2], 2),
       listA: getColumnValuesFromTable(matrix, 0).join('\n'),
       listB: getColumnValuesFromTable(matrix, 1).join('\n'),
       listC: getColumnValuesFromTable(matrix, 2).join('\n')
@@ -1192,9 +1236,9 @@
     const matrix = Array.from({ length: maxLen + 1 }, (_, row) => {
       if (row === 0) {
         return [
-          (inputs.labelA.value || 'A').trim() || 'A',
-          (inputs.labelB.value || 'B').trim() || 'B',
-          (inputs.labelC.value || 'C').trim() || 'C'
+          getNormalizedVennLabel(inputs.labelA.value, 0),
+          getNormalizedVennLabel(inputs.labelB.value, 1),
+          getNormalizedVennLabel(inputs.labelC.value, 2)
         ];
       }
       const idx = row - 1;
@@ -1874,12 +1918,7 @@
       }
     }
     if(labelsChanged){
-      const labels = {
-        A: inputs.labelA?.value || 'A',
-        B: inputs.labelB?.value || 'B',
-        C: inputs.labelC?.value || 'C'
-      };
-      updateColorLabels(labels);
+      updateColorLabels(getCurrentVennLabelMap());
     }
     requestScheduledDraw('venn-trace-style');
     saveStylePrefs();
@@ -2015,9 +2054,9 @@
 
   function getCurrentVennLabelMap(){
     const inputs = state.ui?.inputs || {};
-    const labelA = String(inputs.labelA?.value || 'A').trim() || 'A';
-    const labelB = String(inputs.labelB?.value || 'B').trim() || 'B';
-    const labelC = String(inputs.labelC?.value || 'C').trim() || 'C';
+    const labelA = getNormalizedVennLabel(inputs.labelA?.value, 0);
+    const labelB = getNormalizedVennLabel(inputs.labelB?.value, 1);
+    const labelC = getNormalizedVennLabel(inputs.labelC?.value, 2);
     return { A: labelA, B: labelB, C: labelC };
   }
 
@@ -3234,7 +3273,7 @@
       return;
     }
     const inputs = ensureInputs();
-    const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
+    const labels = getCurrentVennLabelMap();
     const statsHelpers = Shared.stats || {};
     const significanceCache = getSignificanceCache();
     if (significanceCache && significanceCache.lastUniverse && total < significanceCache.lastUniverse) {
@@ -5111,7 +5150,7 @@
       textLocked: fontInfo?.scaleInfo?.textLocked
     });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-    const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
+    const labels = getCurrentVennLabelMap();
     const plotType = getActivePlotType();
     updateCountLabels(labels);
     if (plotType !== 'upset') {
@@ -5183,7 +5222,7 @@
       textLocked: fontInfo?.scaleInfo?.textLocked
     });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-    const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
+    const labels = getCurrentVennLabelMap();
     const plotType = getActivePlotType();
     updateCountLabels(labels);
     if (plotType !== 'upset') {
@@ -5599,9 +5638,9 @@
     const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn' };
     payload.type = 'venn';
     payload.data = {
-      labelA: '',
-      labelB: '',
-      labelC: '',
+      labelA: DEFAULT_VENN_LABEL_MAP.A,
+      labelB: DEFAULT_VENN_LABEL_MAP.B,
+      labelC: DEFAULT_VENN_LABEL_MAP.C,
       listA: '',
       listB: '',
       listC: '',
@@ -5709,9 +5748,14 @@
     }
     const d = obj.data || {};
     if(!skipDataLoad){
-      inputs.labelA.value = d.labelA || '';
-      inputs.labelB.value = d.labelB || '';
-      inputs.labelC.value = d.labelC || '';
+      const hasListContent = [d.listA, d.listB, d.listC].some(value => String(value == null ? '' : value).trim() !== '');
+      const hasOnlyLegacyDefaultLabels = !hasListContent && [d.labelA, d.labelB, d.labelC].every((value, index) => {
+        const normalized = String(value == null ? '' : value).trim();
+        return !normalized || isLegacyVennDefaultLabel(normalized, index);
+      });
+      inputs.labelA.value = hasOnlyLegacyDefaultLabels ? getDefaultVennLabel(0) : getNormalizedVennLabel(d.labelA, 0);
+      inputs.labelB.value = hasOnlyLegacyDefaultLabels ? getDefaultVennLabel(1) : getNormalizedVennLabel(d.labelB, 1);
+      inputs.labelC.value = hasOnlyLegacyDefaultLabels ? getDefaultVennLabel(2) : getNormalizedVennLabel(d.labelC, 2);
       inputs.A.value = d.listA || '';
       inputs.B.value = d.listB || '';
       inputs.C.value = d.listC || '';
@@ -5934,11 +5978,7 @@
 
   function createLabelInputHandler(id) {
     return function labelInputHandler(event) {
-      const labels = {
-        A: state.ui.inputs.labelA.value || 'A',
-        B: state.ui.inputs.labelB.value || 'B',
-        C: state.ui.inputs.labelC.value || 'C'
-      };
+      const labels = getCurrentVennLabelMap();
       updateColorLabels(labels);
       if (getActivePlotType() !== 'upset') {
         updateRegionSelect(labels, state.analysis.lastCounts);
@@ -5986,11 +6026,7 @@
   }
 
   function initializeLabelState() {
-    const labels = {
-      A: state.ui.inputs.labelA.value || 'A',
-      B: state.ui.inputs.labelB.value || 'B',
-      C: state.ui.inputs.labelC.value || 'C'
-    };
+    const labels = getCurrentVennLabelMap();
     updateColorLabels(labels);
     if (getActivePlotType() !== 'upset') {
       updateRegionSelect(labels, state.analysis.lastCounts);
@@ -6326,9 +6362,9 @@
     if (!Array.isArray(data[0])) {
       data[0] = ['', '', ''];
     }
-    data[0][0] = 'A';
-    data[0][1] = 'B';
-    data[0][2] = 'C';
+    data[0][0] = DEFAULT_VENN_TABLE_HEADERS[0];
+    data[0][1] = DEFAULT_VENN_TABLE_HEADERS[1];
+    data[0][2] = DEFAULT_VENN_TABLE_HEADERS[2];
     const handleTableStructureChange = (label) => {
       syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
       debugLog('venn table structure change', { label });
@@ -6363,6 +6399,7 @@
         }
       }
     });
+    ensureVennDefaultTableHeaders(state.ui.hot);
     state.ui.syncTableFromInputs = syncVennTableFromInputs;
     state.ui.syncInputsFromTable = syncVennInputsFromTable;
     syncVennInputsFromTable({ scheduleDraw: false, scheduleSpecies: false });
@@ -6885,11 +6922,7 @@
     }
     const inputs = state.ui.inputs;
     if(inputs){
-      const labels = {
-        A: inputs.labelA.value || 'A',
-        B: inputs.labelB.value || 'B',
-        C: inputs.labelC.value || 'C'
-      };
+      const labels = getCurrentVennLabelMap();
       updateCountLabels(labels);
       updateColorLabels(labels);
       if(state.analysis.lastCounts){

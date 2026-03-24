@@ -6103,18 +6103,19 @@
                 });
                 triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
               }
-            },
-            {
+            }
+          ];
+          if(canIncludeRow){
+            items.push({
               label: 'Include row(s) in analysis',
-              disabled: !canIncludeRow,
               action: ()=>{
                 applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
                   exclusionController.markRows(uniqueRowList, false);
                 });
                 triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
               }
-            }
-          ];
+            });
+          }
           openCustomMenu(event, items);
           return;
         }
@@ -6182,16 +6183,6 @@
             }
           },
           {
-            label: 'Include selection in analysis',
-            disabled: !canIncludeCells,
-            action: ()=>{
-              applyExclusionChange(`table:${debugLabel}:include-cells`, ()=>{
-                exclusionController.markCells(pairs, false);
-              });
-              triggerSchedule('exclusion-change', { scope: 'cell', exclude: false });
-            }
-          },
-          {
             label: 'Exclude row(s) from analysis',
             disabled: !canExcludeRows,
             action: ()=>{
@@ -6199,16 +6190,6 @@
                 exclusionController.markRows(rowList, true);
               });
               triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
-            }
-          },
-          {
-            label: 'Include row(s) in analysis',
-            disabled: !canIncludeRows,
-            action: ()=>{
-              applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
-                exclusionController.markRows(rowList, false);
-              });
-              triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
             }
           },
           {
@@ -6220,18 +6201,41 @@
               });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
             }
-          },
-          {
+          }
+        ];
+        if(canIncludeCells){
+          items.push({
+            label: 'Include selection in analysis',
+            action: ()=>{
+              applyExclusionChange(`table:${debugLabel}:include-cells`, ()=>{
+                exclusionController.markCells(pairs, false);
+              });
+              triggerSchedule('exclusion-change', { scope: 'cell', exclude: false });
+            }
+          });
+        }
+        if(canIncludeRows){
+          items.push({
+            label: 'Include row(s) in analysis',
+            action: ()=>{
+              applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
+                exclusionController.markRows(rowList, false);
+              });
+              triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
+            }
+          });
+        }
+        if(canIncludeCols){
+          items.push({
             label: 'Include column(s) in analysis',
-            disabled: !canIncludeCols,
             action: ()=>{
               applyExclusionChange(`table:${debugLabel}:include-cols`, ()=>{
                 exclusionController.markColumns(colList, false);
               });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
             }
-          }
-        ];
+          });
+        }
         openCustomMenu(event, items);
       },
       getContextMenuItems: hasEnterprise ? undefined : null

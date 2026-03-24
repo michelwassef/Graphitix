@@ -15,6 +15,35 @@
   });
   let emptyPayloadTemplate = null;
 
+  function seedHistDefaultHeaderRow(matrix){
+    if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
+      return matrix;
+    }
+    if(matrix[0].length > 0){
+      matrix[0][0] = 'Values';
+    }
+    return matrix;
+  }
+
+  function ensureHistDefaultHeaderRow(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const hasBodyData = data.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    if(hasBodyData){
+      return false;
+    }
+    const current = headerRow[0] != null ? String(headerRow[0]).trim() : '';
+    if(current){
+      return false;
+    }
+    hot.setDataAtCell([[0, 0, 'Values']], 'hist-default-header-seed');
+    return true;
+  }
+
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -1910,7 +1939,7 @@
       console.error('hist initHot missing Shared.hot.createStandardTable');
       return;
     }
-    const data = Shared.createEmptyData(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS);
+    const data = seedHistDefaultHeaderRow(Shared.createEmptyData(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS));
     let histScheduleProxyCount = 0;
     const scheduleHistDrawProxy = () => {
       histScheduleProxyCount += 1;
@@ -1933,7 +1962,7 @@
       instance = Shared.hot.createStandardTable(container, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
         debugLabel: 'hist',
         data,
-        firstRowClassName: 'htCenter',
+        firstRowClassName: 'hot-header-row htCenter',
         pinFirstRow: true,
         scheduleOnLoadData: true,
         hotOptions: {
@@ -1974,6 +2003,7 @@
         if(state.hot){
           state.hot.__histHostContainer = baseContainer;
           state.hot.__histTabId = Shared.hot.resolveActiveTabId?.() || 'hist-default';
+          ensureHistDefaultHeaderRow(state.hot);
           ensureHistDataViewsForHot(state.hot, {
             wrapper,
             container: baseContainer
@@ -1995,6 +2025,7 @@
       if(state.hot){
         state.hot.__histHostContainer = entry?.container || baseContainer;
         state.hot.__histTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'hist-default';
+        ensureHistDefaultHeaderRow(state.hot);
         ensureHistDataViewsForHot(state.hot, {
           wrapper,
           container: entry?.container || baseContainer
@@ -2531,6 +2562,7 @@
       const emptyData = typeof createEmpty === 'function'
         ? createEmpty(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS)
         : Array.from({ length: HIST_DEFAULT_ROWS }, () => Array(HIST_DEFAULT_COLS).fill(''));
+      seedHistDefaultHeaderRow(emptyData);
       payload.data = emptyData;
       payload.exclusions = [];
       payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};

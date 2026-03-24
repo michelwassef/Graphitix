@@ -78,9 +78,9 @@
             <div id="vennHot" class="venn-hot"></div>
           </div>
           <div class="visually-hidden" aria-hidden="true">
-            <input id="labelA" type="text" value="A" tabindex="-1" />
-            <input id="labelB" type="text" value="B" tabindex="-1" />
-            <input id="labelC" type="text" value="C" tabindex="-1" />
+            <input id="labelA" type="text" value="Set 1" tabindex="-1" />
+            <input id="labelB" type="text" value="Set 2" tabindex="-1" />
+            <input id="labelC" type="text" value="Set 3" tabindex="-1" />
             <textarea id="listA" tabindex="-1"></textarea>
             <textarea id="listB" tabindex="-1"></textarea>
             <textarea id="listC" tabindex="-1"></textarea>
@@ -95,13 +95,13 @@
         <details class="idx-inline-003">
           <summary>Numeric Mode - Counts Only</summary>
           <div class="row">
-            <div><label>|A|</label><input id="nA" type="number" min="0" value="0" /></div>
-            <div><label>|B|</label><input id="nB" type="number" min="0" value="0" /></div>
-            <div><label>|C|</label><input id="nC" type="number" min="0" value="0" /></div>
-            <div><label>|A∩B|</label><input id="nAB" type="number" min="0" value="0" /></div>
-            <div><label>|A∩C|</label><input id="nAC" type="number" min="0" value="0" /></div>
-            <div><label>|B∩C|</label><input id="nBC" type="number" min="0" value="0" /></div>
-            <div><label>|A∩B∩C|</label><input id="nABC" type="number" min="0" value="0" /></div>
+            <div><label>|Set 1|</label><input id="nA" type="number" min="0" value="0" /></div>
+            <div><label>|Set 2|</label><input id="nB" type="number" min="0" value="0" /></div>
+            <div><label>|Set 3|</label><input id="nC" type="number" min="0" value="0" /></div>
+            <div><label>|Set 1∩Set 2|</label><input id="nAB" type="number" min="0" value="0" /></div>
+            <div><label>|Set 1∩Set 3|</label><input id="nAC" type="number" min="0" value="0" /></div>
+            <div><label>|Set 2∩Set 3|</label><input id="nBC" type="number" min="0" value="0" /></div>
+            <div><label>|Set 1∩Set 2∩Set 3|</label><input id="nABC" type="number" min="0" value="0" /></div>
             <button class="btn" id="useNumeric">Use numeric</button>
           </div>
         </details>
@@ -131,16 +131,16 @@
               <legend>Set colors</legend>
               <div class="color-pickers">
                 <label class="color-picker">
-                  <input id="colorA" type="color" value="#e74c3c" aria-label="Color for set A" />
-                  <span id="colorLabelA">A</span>
+                  <input id="colorA" type="color" value="#e74c3c" aria-label="Color for set 1" />
+                  <span id="colorLabelA">Set 1</span>
                 </label>
                 <label class="color-picker">
-                  <input id="colorB" type="color" value="#2ecc71" aria-label="Color for set B" />
-                  <span id="colorLabelB">B</span>
+                  <input id="colorB" type="color" value="#2ecc71" aria-label="Color for set 2" />
+                  <span id="colorLabelB">Set 2</span>
                 </label>
                 <label class="color-picker">
-                  <input id="colorC" type="color" value="#3498db" aria-label="Color for set C" />
-                  <span id="colorLabelC">C</span>
+                  <input id="colorC" type="color" value="#3498db" aria-label="Color for set 3" />
+                  <span id="colorLabelC">Set 3</span>
                 </label>
               </div>
             </fieldset>
@@ -244,13 +244,13 @@
         </div>
         <div class="row idx-inline-003">
           <select id="regionSelect">
-            <option value="A">A only</option>
-            <option value="B">B only</option>
-            <option value="C">C only</option>
-            <option value="AB">A∩B only</option>
-            <option value="AC">A∩C only</option>
-            <option value="BC">B∩C only</option>
-            <option value="ABC">A∩B∩C</option>
+            <option value="A">Set 1 only</option>
+            <option value="B">Set 2 only</option>
+            <option value="C">Set 3 only</option>
+            <option value="AB">Set 1∩Set 2 only</option>
+            <option value="AC">Set 1∩Set 3 only</option>
+            <option value="BC">Set 2∩Set 3 only</option>
+            <option value="ABC">Set 1∩Set 2∩Set 3</option>
           </select>
         </div>
         <div id="regionListContainer" class="idx-inline-005">
@@ -334,13 +334,13 @@
           </div>
         </div>
         <div class="row idx-inline-018">
-          <span><span id="labelAName">A</span>: <code id="countA">0</code></span>
-          <span><span id="labelBName">B</span>: <code id="countB">0</code></span>
-          <span><span id="labelCName">C</span>: <code id="countC">0</code></span>
-          <span><span id="labelABName">A∩B</span>: <code id="countAB">0</code></span>
-          <span><span id="labelACName">A∩C</span>: <code id="countAC">0</code></span>
-          <span><span id="labelBCName">B∩C</span>: <code id="countBC">0</code></span>
-          <span><span id="labelABCName">A∩B∩C</span>: <code id="countABC">0</code></span>
+          <span><span id="labelAName">Set 1</span>: <code id="countA">0</code></span>
+          <span><span id="labelBName">Set 2</span>: <code id="countB">0</code></span>
+          <span><span id="labelCName">Set 3</span>: <code id="countC">0</code></span>
+          <span><span id="labelABName">Set 1∩Set 2</span>: <code id="countAB">0</code></span>
+          <span><span id="labelACName">Set 1∩Set 3</span>: <code id="countAC">0</code></span>
+          <span><span id="labelBCName">Set 2∩Set 3</span>: <code id="countBC">0</code></span>
+          <span><span id="labelABCName">Set 1∩Set 2∩Set 3</span>: <code id="countABC">0</code></span>
         </div>
       </div>
     </div>

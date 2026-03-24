@@ -125,6 +125,21 @@
   const LINE_DEFAULT_DOT_SIZE = 3;
   let emptyPayloadTemplate = null;
 
+  function seedLineDefaultHeaderRow(matrix){
+    if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
+      return matrix;
+    }
+    const headerRow = matrix[0];
+    if(headerRow.length > 0){
+      headerRow[0] = 'X title';
+    }
+    const seriesCount = Math.min(Math.max(0, headerRow.length - 1), Math.max(0, LINE_DEFAULT_COLS - 1));
+    for(let idx = 0; idx < seriesCount; idx += 1){
+      headerRow[idx + 1] = `Series ${idx + 1}`;
+    }
+    return matrix;
+  }
+
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -7868,7 +7883,9 @@
       const yMinManual = parseFloat(refs.yMin?.value);
       const yMaxManual = parseFloat(refs.yMax?.value);
 
-      const matrix = lineHot.getData();
+      const matrix = typeof lineHot?.getIncludedDataMatrix === 'function'
+        ? lineHot.getIncludedDataMatrix()
+        : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(lineHot) : []);
       if(!Array.isArray(matrix) || !matrix.length){
         resetLineRenderState('line-3d-no-data-matrix',{
           message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
@@ -8836,7 +8853,9 @@
       const originMode=refs.originMode?.value;
       const originXInput=parseFloat(refs.originX?.value);
       const originYInput=parseFloat(refs.originY?.value);
-      const data=lineHot.getData();
+      const data = typeof lineHot?.getIncludedDataMatrix === 'function'
+        ? lineHot.getIncludedDataMatrix()
+        : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(lineHot) : []);
       const regressionCache=new Map();
       const statsContext={ showIntervals, showConfidenceIntervals, showPredictionIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions };
       if(!Array.isArray(data) || !data.length){
@@ -11496,10 +11515,7 @@
       console.error('line initHot missing Shared.hot.createStandardTable');
       return;
     }
-    const data = Shared.createEmptyData(DEFAULT_ROWS, LINE_DEFAULT_COLS);
-    if(data.length){
-      data[0] = ['X','Series1','Series2','Series3','Series4','Series5'];
-    }
+    const data = seedLineDefaultHeaderRow(Shared.createEmptyData(DEFAULT_ROWS, LINE_DEFAULT_COLS));
     let lineScheduleProxyCount = 0;
     const scheduleLineDrawProxy = () => {
       lineScheduleProxyCount += 1;
@@ -12492,6 +12508,7 @@
     const emptyData = typeof createEmpty === 'function'
       ? createEmpty(DEFAULT_ROWS, LINE_DEFAULT_COLS)
       : Array.from({ length: DEFAULT_ROWS }, () => Array(LINE_DEFAULT_COLS).fill(''));
+    seedLineDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
     payload.series = Array.isArray(payload.series) ? [] : [];

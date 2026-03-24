@@ -990,7 +990,8 @@
     }
     groupEntries.forEach((entry) => {
       const currentRaw = headerRow[entry.startCol] != null ? String(headerRow[entry.startCol]).trim() : '';
-      const nextAnchor = normalizePcaGroupHeaderAnchor(currentRaw);
+      const normalizedAnchor = normalizePcaGroupHeaderAnchor(currentRaw);
+      const nextAnchor = normalizedAnchor || entry.label || `Group ${entry.groupIndex + 1}`;
       if(currentRaw !== nextAnchor){
         changes.push([PCA_GROUP_ROW_INDEX, entry.startCol, nextAnchor]);
       }
@@ -1176,7 +1177,7 @@
       disablePaste: true,
       pinFirstColumn: true,
       rowSelection: null,
-      firstRowClassName: 'htCenter',
+      firstRowClassName: 'hot-header-row htCenter',
       headerRowIndex: PCA_HEADER_ROW_INDEX,
       pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true }),
       scheduleOnLoadData: true,

@@ -325,6 +325,53 @@
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
   let emptyPayloadTemplate = null;
+
+  function seedRocDefaultHeaderRow(matrix){
+    if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
+      return matrix;
+    }
+    const headerRow = matrix[0];
+    if(headerRow.length > 0){
+      headerRow[0] = 'Label';
+    }
+    const scoreCount = Math.min(Math.max(0, headerRow.length - 1), Math.max(0, ROC_DEFAULT_COLS - 1));
+    for(let idx = 0; idx < scoreCount; idx += 1){
+      headerRow[idx + 1] = `Score ${idx + 1}`;
+    }
+    return matrix;
+  }
+
+  function ensureRocDefaultHeaderRow(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const hasBodyData = data.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    if(hasBodyData){
+      return false;
+    }
+    const colCount = Math.max(0, typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length);
+    if(colCount <= 0){
+      return false;
+    }
+    const changes = [];
+    if(!(headerRow[0] != null && String(headerRow[0]).trim())){
+      changes.push([0, 0, 'Label']);
+    }
+    for(let col = 1; col < colCount; col += 1){
+      const current = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+      if(!current){
+        changes.push([0, col, `Score ${col}`]);
+      }
+    }
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, 'roc-default-header-seed');
+    return true;
+  }
   function resolveActiveTabId(){
     try{
       const tab = Main?.session?.getActiveTab?.();
@@ -944,7 +991,7 @@
       console.error('roc initHot missing Shared.hot.createStandardTable');
       return null;
     }
-    const data = Shared.createEmptyData(DEFAULT_ROWS, ROC_DEFAULT_COLS);
+    const data = seedRocDefaultHeaderRow(Shared.createEmptyData(DEFAULT_ROWS, ROC_DEFAULT_COLS));
     let rocScheduleProxyCount = 0;
     const scheduleRocDrawProxy = () => {
       rocScheduleProxyCount += 1;
@@ -1003,6 +1050,7 @@
       if(!state.hot && baseContainer){
         state.hot = createRocTableInstance(baseContainer);
       }
+      ensureRocDefaultHeaderRow(state.hot);
       return state.hot;
     }
     const entry = Shared.hot.mountTableForTab({
@@ -1016,6 +1064,7 @@
       refs.hotContainer = entry.container;
       state.hot = entry.instance;
     }
+    ensureRocDefaultHeaderRow(state.hot);
     return state.hot;
   }
 
@@ -3079,6 +3128,7 @@
     const emptyData = typeof createEmpty === 'function'
       ? createEmpty(DEFAULT_ROWS, ROC_DEFAULT_COLS)
       : Array.from({ length: DEFAULT_ROWS }, () => Array(ROC_DEFAULT_COLS).fill(''));
+    seedRocDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
     payload.stats = null;

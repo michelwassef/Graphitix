@@ -287,6 +287,54 @@
   let emptyPayloadTemplate = null;
   const heatmapUndoManager = Shared.undoManager || null;
 
+  function seedHeatmapDefaultHeaderRow(matrix){
+    if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
+      return matrix;
+    }
+    const headerRow = matrix[0];
+    if(headerRow.length > 0){
+      headerRow[0] = 'Row labels';
+    }
+    const sampleCount = Math.min(Math.max(0, headerRow.length - 1), Math.max(0, DEFAULT_COLS - 1));
+    for(let idx = 0; idx < sampleCount; idx += 1){
+      headerRow[idx + 1] = `Sample ${idx + 1}`;
+    }
+    return matrix;
+  }
+
+  function ensureHeatmapDefaultHeaderRow(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const hasBodyData = data.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    if(hasBodyData){
+      return false;
+    }
+    const colCount = Math.max(0, typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length);
+    if(colCount <= 0){
+      return false;
+    }
+    const changes = [];
+    const firstHeader = headerRow[0] != null ? String(headerRow[0]).trim() : '';
+    if(!firstHeader){
+      changes.push([0, 0, 'Row labels']);
+    }
+    for(let col = 1; col < colCount; col += 1){
+      const current = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+      if(!current){
+        changes.push([0, col, `Sample ${col}`]);
+      }
+    }
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, 'heatmap-default-header-seed');
+    return true;
+  }
+
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -1688,7 +1736,7 @@
       console.error('heatmap initHot missing Shared.hot.createStandardTable');
       return;
     }
-    const data = Shared.createEmptyData ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS) : [];
+    const data = seedHeatmapDefaultHeaderRow(Shared.createEmptyData ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS) : []);
     console.debug('Debug: heatmap initHot using shared factory', { hasDataHelper: !!Shared.createEmptyData });
     const createHeatmapTable = (container) => {
       let instance = null;
@@ -1804,6 +1852,7 @@
         if(state.hot){
           state.hot.__heatmapHostContainer = baseContainer || null;
           state.hot.__heatmapTabId = Shared.hot.resolveActiveTabId?.() || 'heatmap-default';
+          ensureHeatmapDefaultHeaderRow(state.hot);
           ensureHeatmapDataViewsForHot(state.hot, {
             wrapper,
             container: baseContainer
@@ -1830,6 +1879,7 @@
       if(state.hot){
         state.hot.__heatmapHostContainer = entry?.container || baseContainer || null;
         state.hot.__heatmapTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'heatmap-default';
+        ensureHeatmapDefaultHeaderRow(state.hot);
         ensureHeatmapDataViewsForHot(state.hot, {
           wrapper,
           container: entry?.container || baseContainer
@@ -7166,6 +7216,7 @@
     const emptyData = typeof createEmpty === 'function'
       ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
       : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+    seedHeatmapDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};

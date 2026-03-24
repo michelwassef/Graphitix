@@ -59,6 +59,50 @@
   const PIE_DEFAULT_COLS = 6;
   let emptyPayloadTemplate = null;
 
+  function seedPieDefaultHeaderRow(matrix){
+    if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
+      return matrix;
+    }
+    const headerRow = matrix[0];
+    if(headerRow.length > 0){
+      headerRow[0] = 'Category';
+    }
+    if(headerRow.length > 1){
+      headerRow[1] = 'Value';
+    }
+    if(headerRow.length > 2){
+      headerRow[2] = 'Expected';
+    }
+    return matrix;
+  }
+
+  function ensurePieDefaultHeaderRow(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const hasBodyData = data.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    if(hasBodyData){
+      return false;
+    }
+    const desired = ['Category', 'Value', 'Expected'];
+    const colCount = Math.max(typeof hot.countCols === 'function' ? hot.countCols() : headerRow.length, desired.length);
+    const changes = [];
+    for(let col = 0; col < Math.min(desired.length, colCount); col += 1){
+      const current = headerRow[col] != null ? String(headerRow[col]).trim() : '';
+      if(!current){
+        changes.push([0, col, desired[col]]);
+      }
+    }
+    if(!changes.length){
+      return false;
+    }
+    hot.setDataAtCell(changes, 'pie-default-header-seed');
+    return true;
+  }
+
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -533,7 +577,7 @@
       console.error('pie initHot missing Shared.hot.createStandardTable');
       return;
     }
-    const data = Shared.createEmptyData(PIE_DEFAULT_ROWS, PIE_DEFAULT_COLS);
+    const data = seedPieDefaultHeaderRow(Shared.createEmptyData(PIE_DEFAULT_ROWS, PIE_DEFAULT_COLS));
     let pieScheduleProxyCount = 0;
     const schedulePieDrawProxy = () => {
       pieScheduleProxyCount += 1;
@@ -555,7 +599,7 @@
     const createPieTable = (container) => Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, schedulePieDrawProxy, {
       debugLabel: 'pie',
       data,
-      firstRowClassName: 'htCenter',
+      firstRowClassName: 'hot-header-row htCenter',
       pinFirstRow: true,
       scheduleOnLoadData: true,
       hotOptions: {
@@ -581,6 +625,7 @@
         if(!state.hot){
           state.hot = createPieTable(baseContainer);
         }
+        ensurePieDefaultHeaderRow(state.hot);
         return state.hot;
       }
       const entry = Shared.hot.ensureTableForTab({
@@ -593,6 +638,7 @@
       if(entry?.instance){
         state.hot = entry.instance;
       }
+      ensurePieDefaultHeaderRow(state.hot);
       return state.hot;
     };
     state.hot = ensurePieHotForActiveTab();
@@ -757,6 +803,7 @@
       const emptyData = typeof createEmpty === 'function'
         ? createEmpty(PIE_DEFAULT_ROWS, PIE_DEFAULT_COLS)
         : Array.from({ length: PIE_DEFAULT_ROWS }, () => Array(PIE_DEFAULT_COLS).fill(''));
+      seedPieDefaultHeaderRow(emptyData);
       payload.data = emptyData;
       payload.exclusions = [];
       payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
