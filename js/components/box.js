@@ -12032,6 +12032,10 @@
     els.boxGraphType.addEventListener('change',()=>{
       const nextGraphType = normalizeBoxGraphType(els.boxGraphType.value);
       boxLog('boxGraphType changed', nextGraphType);
+      if(nextGraphType === 'bar' && els.boxErrorMode && els.boxErrorMode.value !== 'upper'){
+        els.boxErrorMode.value = 'upper';
+        console.debug('Debug: box error mode defaulted for bar graph type',{ errorMode: els.boxErrorMode.value });
+      }
       if(shouldAutoSyncBoxGraphTitle(state.titleText)){
         state.titleText = getDefaultBoxGraphTitle(nextGraphType);
         console.debug('Debug: box title auto-synced for graph type change',{ graphType: nextGraphType, title: state.titleText });
