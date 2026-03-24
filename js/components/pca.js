@@ -7270,7 +7270,8 @@
         }
       } else {
       const hot = ensurePcaHotForActiveTab();
-      const data = hot?.getData?.() || [];
+      const analysis = hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
+      const data = Array.isArray(analysis?.data) ? analysis.data : (hot?.getData?.() || []);
       const labelRowIndex = resolvePcaLabelRowIndex(data);
       const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex);
       const labelRow = Number.isInteger(labelRowIndex) ? (Array.isArray(data[labelRowIndex]) ? data[labelRowIndex] : []) : [];
@@ -7279,14 +7280,31 @@
         : [];
       const dataStartRow = resolvePcaDataStartRow(labelRowIndex, headerRowIndex);
       const headerRow = Number.isInteger(headerRowIndex) && Array.isArray(data[headerRowIndex]) ? data[headerRowIndex] : [];
-      const candidateColCount = headerRow.length;
+      const candidateColCount = Math.max(Number(analysis?.colCount) || 0, headerRow.length);
       const numericColIndices = [];
+      debugLog('Debug: pca analysis snapshot', {
+        rowCount: Number(analysis?.rowCount) || data.length,
+        colCount: candidateColCount,
+        excludedRows: analysis?.excluded?.rows?.length || 0,
+        excludedCols: analysis?.excluded?.cols?.length || 0,
+        excludedCells: analysis?.excluded?.cells?.length || 0
+      });
       for (let c = 1; c < candidateColCount; c++) {
+        if (analysis.isColumnExcluded?.(c)) {
+          debugLog('Debug: pca numeric column skipped due to exclusion', { colIndex: c });
+          continue;
+        }
         const headerRaw = headerRow[c];
         const headerText = typeof headerRaw === 'string' ? headerRaw.trim() : '';
         let hasNumericData = headerText.length > 0;
         if (!hasNumericData) {
           for (let r = dataStartRow; r < data.length; r++) {
+            if (analysis.isRowExcluded?.(r)) {
+              continue;
+            }
+            if (analysis.isCellExcluded?.(r, c)) {
+              continue;
+            }
             const cell = data[r] ? data[r][c] : undefined;
             if (cell === null || typeof cell === 'undefined') {
               continue;
@@ -7332,6 +7350,10 @@
       const featureLabelsAccumulator = [];
 
       for (let r = dataStartRow; r < data.length; r++) {
+        if (analysis.isRowExcluded?.(r)) {
+          debugLog('Debug: pca row skipped due to exclusion', { rowIndex: r });
+          continue;
+        }
         const row = data[r];
         if (!row) continue;
 
@@ -7343,6 +7365,11 @@
 
         for (let i = 0; i < numericColIndices.length; i++) {
           const colIndex = numericColIndices[i];
+          if (analysis.isCellExcluded?.(r, colIndex)) {
+            rowValid = false;
+            debugLog('Debug: pca row skipped due to excluded cell', { rowIndex: r, colIndex });
+            break;
+          }
           const cell = row[colIndex];
           if (cell === null || typeof cell === 'undefined' || (typeof cell === 'string' && cell.trim() === '')) {
             rowValid = false;
