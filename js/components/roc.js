@@ -2206,7 +2206,9 @@
     const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     console.debug('Debug: roc axis metrics',axisMetrics);
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
-    const data = state.hot.getData();
+    const data = typeof state.hot?.getIncludedDataMatrix === 'function'
+      ? state.hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
     if(!data || !data.length){
       clearPlotArea('no-table');
       return;

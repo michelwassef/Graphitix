@@ -933,6 +933,26 @@
       }
     };
 
+    const clearGridCellFocus = (api)=>{
+      const gridApi = api || instance?.gridApi || null;
+      try{
+        if(gridApi && typeof gridApi.clearFocusedCell === 'function'){
+          gridApi.clearFocusedCell();
+        }
+      }catch(err){
+        console.debug('Debug: Shared.hot clearFocusedCell unavailable', { debugLabel, err });
+      }
+      const doc = container?.ownerDocument || document;
+      const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+      if(activeEl && container?.contains?.(activeEl) && typeof activeEl.closest === 'function' && activeEl.closest('.ag-cell')){
+        try{
+          activeEl.blur?.();
+        }catch(err){
+          // ignore blur failures
+        }
+      }
+    };
+
     const setCopyHighlightRange = (range)=>{
       copyHighlightRange = range || null;
       normalizedCopyHighlightRange = normalizeRange(copyHighlightRange);
@@ -6309,6 +6329,7 @@
         if(!Number.isInteger(visualRow) || visualRow < 0){
           return;
         }
+        clearGridCellFocus(instance.gridApi);
         clearSelectedHeaderColumns();
         const fromCol = 0;
         const toCol = Math.max(0, colCount - 1);
@@ -6328,6 +6349,7 @@
         if(!Number.isInteger(visualCol) || visualCol < 0){
           return;
         }
+        clearGridCellFocus(instance.gridApi);
         const lastRow = Math.max(0, getVisualRowCount() - 1);
         if(additive){
           const seed = selectedHeaderColumns.size
@@ -7228,6 +7250,7 @@
               const toRow = Math.max(anchorRow, nextRow);
               const fromCol = 0;
               const toCol = Math.max(0, colCount - 1);
+              clearGridCellFocus(instance.gridApi);
               setLastRange({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } });
               renderAg(instance.gridApi);
               return;
@@ -7237,6 +7260,7 @@
             const lastRow = Math.max(0, getVisualRowCount() - 1);
             const fromCol = Math.min(anchorCol, nextCol);
             const toCol = Math.max(anchorCol, nextCol);
+            clearGridCellFocus(instance.gridApi);
             setLastRange({ from: { row: 0, col: fromCol }, to: { row: lastRow, col: toCol } });
             renderAg(instance.gridApi);
           });
@@ -7901,6 +7925,9 @@
     instance.getAnalysisData = function(options){
       return hotNS.getAnalysisData(instance, options);
     };
+    instance.getIncludedDataMatrix = function(options){
+      return hotNS.getIncludedDataMatrix(instance, options);
+    };
     if(overrides?.exclusions){
       exclusionController.importState(overrides.exclusions);
     }
@@ -8163,6 +8190,67 @@
     return analysis;
   }
 
+  function applyExclusionsToMatrix(matrix, exclusions){
+    const sourceMatrix = Array.isArray(matrix) ? matrix : [];
+    const rowSet = new Set(Array.isArray(exclusions?.rows) ? exclusions.rows.map(normalizeSelectionIndex).filter(idx => idx !== null) : []);
+    const colSet = new Set(Array.isArray(exclusions?.cols) ? exclusions.cols.map(normalizeSelectionIndex).filter(idx => idx !== null) : []);
+    const cellSet = new Set(
+      Array.isArray(exclusions?.cells)
+        ? exclusions.cells
+            .map(cell => {
+              if(Array.isArray(cell) && cell.length >= 2){
+                const row = normalizeSelectionIndex(cell[0]);
+                const col = normalizeSelectionIndex(cell[1]);
+                return row !== null && col !== null ? `${row}:${col}` : null;
+              }
+              if(cell && typeof cell === 'object'){
+                const row = normalizeSelectionIndex(cell.row);
+                const col = normalizeSelectionIndex(cell.col);
+                return row !== null && col !== null ? `${row}:${col}` : null;
+              }
+              return null;
+            })
+            .filter(Boolean)
+        : []
+    );
+    return sourceMatrix.map((row, rowIndex)=>{
+      const sourceRow = Array.isArray(row) ? row : [];
+      return sourceRow.map((value, colIndex)=>{
+        if(rowSet.has(rowIndex) || colSet.has(colIndex) || cellSet.has(`${rowIndex}:${colIndex}`)){
+          return null;
+        }
+        return value;
+      });
+    });
+  }
+
+  function getIncludedDataMatrix(instance, options){
+    const analysis = getAnalysisData(instance, options);
+    const rowCount = Number(analysis?.rowCount) || (Array.isArray(analysis?.data) ? analysis.data.length : 0);
+    const colCount = Number(analysis?.colCount) || (Array.isArray(analysis?.data?.[0]) ? analysis.data[0].length : 0);
+    const matrix = [];
+    for(let row = 0; row < rowCount; row += 1){
+      const rowValues = [];
+      const rowExcluded = !!analysis.isRowExcluded?.(row);
+      for(let col = 0; col < colCount; col += 1){
+        const colExcluded = !!analysis.isColumnExcluded?.(col);
+        const cellExcluded = !!analysis.isCellExcluded?.(row, col);
+        if(rowExcluded || colExcluded || cellExcluded){
+          rowValues.push(null);
+        }else{
+          rowValues.push(analysis?.data?.[row]?.[col] ?? null);
+        }
+      }
+      matrix.push(rowValues);
+    }
+    console.debug('Debug: Shared.hot getIncludedDataMatrix complete', {
+      debugLabel: getInstanceDebugLabel(resolveInstance(instance)),
+      rowCount,
+      colCount
+    });
+    return matrix;
+  }
+
   function getIncludedColumn(instance, visualCol, options){
     const analysis = getAnalysisData(instance, options);
     return analysis.getColumnValues(visualCol, options);
@@ -8217,10 +8305,12 @@
   hotNS.exportExclusions = exportExclusions;
   hotNS.applyExclusions = applyExclusions;
   hotNS.clearExclusions = clearExclusions;
+  hotNS.applyExclusionsToMatrix = applyExclusionsToMatrix;
   hotNS.isRowExcluded = isRowExcluded;
   hotNS.isColumnExcluded = isColumnExcluded;
   hotNS.isCellExcluded = isCellExcluded;
   hotNS.getAnalysisData = getAnalysisData;
+  hotNS.getIncludedDataMatrix = getIncludedDataMatrix;
   hotNS.getIncludedColumn = getIncludedColumn;
   hotNS.getIncludedRow = getIncludedRow;
   hotNS.refreshHeaderWidths = refreshHeaderWidths;

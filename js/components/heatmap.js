@@ -3780,9 +3780,23 @@
       sourceView = manager.getView?.('raw') || activeView || null;
       sourceViewId = String(sourceView?.id || 'raw');
     }
-    const sourceData = Array.isArray(sourceView?.data)
-      ? sourceView.data
-      : (Array.isArray(hot?.getData?.()) ? hot.getData() : []);
+    const sourceData = (() => {
+      if(hot && activeView && sourceView && activeView === sourceView){
+        if(typeof hot.getIncludedDataMatrix === 'function'){
+          return hot.getIncludedDataMatrix();
+        }
+        if(Shared.hot?.getIncludedDataMatrix){
+          return Shared.hot.getIncludedDataMatrix(hot);
+        }
+      }
+      const rawMatrix = Array.isArray(sourceView?.data)
+        ? sourceView.data
+        : (Array.isArray(hot?.getData?.()) ? hot.getData() : []);
+      if(Shared.hot?.applyExclusionsToMatrix){
+        return Shared.hot.applyExclusionsToMatrix(rawMatrix, sourceView?.exclusions || null);
+      }
+      return rawMatrix;
+    })();
     return {
       hot,
       manager,

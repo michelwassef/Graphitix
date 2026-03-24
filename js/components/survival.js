@@ -1600,7 +1600,10 @@
     refs.covariateControls.innerHTML = '';
 
     const coxAnalysisActive = !!refs.showHazardRatios?.checked || !!refs.fitCoxModel?.checked;
-    const supportsTimeDependent = detectTimeDependentSupport(state.hot?.getData?.() || []);
+    const supportsTimeDependent = detectTimeDependentSupport(
+      state.hot?.getIncludedDataMatrix?.()
+        || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
+    );
 
     if(refs.covariateHint){
       refs.covariateHint.style.display = 'none';
@@ -2100,7 +2103,9 @@
     if(!state.hot){
       return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns: [] };
     }
-    const data = state.hot.getData() || [];
+    const data = typeof state.hot.getIncludedDataMatrix === 'function'
+      ? state.hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
     const columnCount = typeof state.hot.countCols === 'function' ? state.hot.countCols() : (Array.isArray(data?.[0]) ? data[0].length : SURVIVAL_DEFAULT_COLS);
     const headersRaw = typeof state.hot.getColHeader === 'function' ? state.hot.getColHeader() : SURVIVAL_COL_HEADERS;
     const headerLookup = [];
@@ -4734,14 +4739,28 @@
         if(control === refs.showHazardRatios || control === refs.fitCoxModel){
           refreshCovariateControls();
         }
-        renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns, supportsTimeDependent: detectTimeDependentSupport(state.hot?.getData?.() || []) });
+        renderSurvivalStatsAdvisor(state.lastSummary || {
+          series: [],
+          covariateColumns: state.covariateColumns,
+          supportsTimeDependent: detectTimeDependentSupport(
+            state.hot?.getIncludedDataMatrix?.()
+              || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
+          )
+        });
         schedule();
       });
     });
     refs.showFrame?.addEventListener('change', () => {
       console.debug('Debug: survival control toggle', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       logDebug('control toggled', { id: refs.showFrame.id, checked: refs.showFrame.checked });
-      renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns, supportsTimeDependent: detectTimeDependentSupport(state.hot?.getData?.() || []) });
+      renderSurvivalStatsAdvisor(state.lastSummary || {
+        series: [],
+        covariateColumns: state.covariateColumns,
+        supportsTimeDependent: detectTimeDependentSupport(
+          state.hot?.getIncludedDataMatrix?.()
+            || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
+        )
+      });
       schedule();
     });
     refs.showLegend?.addEventListener('change', () => {

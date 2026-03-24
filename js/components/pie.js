@@ -1109,13 +1109,36 @@
     updatePieStats(labels, observed, expected);
   }
 
-  function updatePieColumns(header){
+  function updatePieColumns(header, matrix){
     const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn');
     const prevVal=valueColumn.value; const prevExp=expectedColumn.value; valueColumn.innerHTML=''; expectedColumn.innerHTML='';
     console.log('updatePieColumns prev',{prevVal,prevExp});
-    for(let c=1;c<header.length;c++){ const txt=header[c]||`Column ${c+1}`; const optVal=document.createElement('option'); optVal.value=String(c); optVal.textContent=txt; if(optVal.value===prevVal) optVal.selected=true; valueColumn.appendChild(optVal); const optExp=document.createElement('option'); optExp.value=String(c); optExp.textContent=txt; if(optExp.value===prevExp) optExp.selected=true; expectedColumn.appendChild(optExp); }
-    if(!prevVal && header.length>1) valueColumn.value='1';
-    if(!prevExp){ const expIdx=header.findIndex((h,i)=>i>0 && String(h).trim().toLowerCase()==='expected'); if(expIdx>0) expectedColumn.value=String(expIdx); else if(header.length>2) expectedColumn.value='2'; }
+    const dataMatrix = Array.isArray(matrix) ? matrix : [];
+    const availableColumns = [];
+    for(let c=1;c<header.length;c+=1){
+      const rawHeader = header[c];
+      const hasHeader = rawHeader != null && String(rawHeader).trim() !== '';
+      const hasData = dataMatrix.some((row, rowIndex) => {
+        if(rowIndex === 0 || !Array.isArray(row)){
+          return false;
+        }
+        const cell = row[c];
+        return cell != null && String(cell).trim() !== '';
+      });
+      if(!hasHeader && !hasData){
+        continue;
+      }
+      const txt = hasHeader ? String(rawHeader) : `Column ${c+1}`;
+      availableColumns.push({ index: c, label: txt });
+      const optVal=document.createElement('option'); optVal.value=String(c); optVal.textContent=txt; if(optVal.value===prevVal) optVal.selected=true; valueColumn.appendChild(optVal);
+      const optExp=document.createElement('option'); optExp.value=String(c); optExp.textContent=txt; if(optExp.value===prevExp) optExp.selected=true; expectedColumn.appendChild(optExp);
+    }
+    if(!prevVal && availableColumns.length) valueColumn.value=String(availableColumns[0].index);
+    if(!prevExp){
+      const expectedEntry = availableColumns.find(entry => entry.label.trim().toLowerCase() === 'expected');
+      if(expectedEntry) expectedColumn.value=String(expectedEntry.index);
+      else if(availableColumns.length>1) expectedColumn.value=String(availableColumns[1].index);
+    }
     if(typeof formControls.autoSizeSelect === 'function'){
       formControls.autoSizeSelect(valueColumn);
       formControls.autoSizeSelect(expectedColumn);
@@ -1123,15 +1146,17 @@
     console.log('updatePieColumns',{val:valueColumn.value,exp:expectedColumn.value});
   }
 
-  function updatePieColumnsIfNeeded(header){
-    const signature = Array.isArray(header)
-      ? header.map(value => value == null ? '' : String(value)).join('\u0001')
-      : '';
+  function updatePieColumnsIfNeeded(header, matrix){
+    const signature = Array.isArray(matrix)
+      ? matrix.map(row => Array.isArray(row) ? row.map(value => value == null ? '' : String(value)).join('\u0002') : '').join('\u0001')
+      : (Array.isArray(header)
+        ? header.map(value => value == null ? '' : String(value)).join('\u0001')
+        : '');
     if(signature === state.columnSignature){
       return;
     }
     state.columnSignature = signature;
-    updatePieColumns(Array.isArray(header) ? header : []);
+    updatePieColumns(Array.isArray(header) ? header : [], matrix);
   }
 
   function draw(){
@@ -1174,9 +1199,11 @@
     const showLegend=showLegendInput ? !!showLegendInput.checked : true;
     console.debug('Debug: pie showLegend state',{showLegend, chartType:type});
     const startDeg=parseFloat($('#pieStartAngle').value)||0;
-    const data=state.hot.getData();
+    const data = typeof state.hot?.getIncludedDataMatrix === 'function'
+      ? state.hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
     if(!isResizePreview){
-      updatePieColumnsIfNeeded(data[0]||[]);
+      updatePieColumnsIfNeeded(data[0]||[], data);
     }
 
 

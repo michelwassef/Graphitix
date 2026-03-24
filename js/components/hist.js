@@ -1264,7 +1264,9 @@
 
   function collectHistSeries(){
     const hot = state.hot || state.ensureHotForActiveTab?.();
-    const matrix = hot && typeof hot.getData === 'function' ? hot.getData() : [];
+    const matrix = hot && typeof hot.getIncludedDataMatrix === 'function'
+      ? hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(hot) : []);
     if(!Array.isArray(matrix) || !matrix.length){
       return [];
     }

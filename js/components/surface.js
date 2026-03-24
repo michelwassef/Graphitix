@@ -1081,10 +1081,12 @@
 
   function parseSurfaceTable(){
     const hot = state.hot;
-    if(!hot || typeof hot.getData !== 'function'){
+    if(!hot){
       return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
     }
-    const data = hot.getData();
+    const data = typeof hot.getIncludedDataMatrix === 'function'
+      ? hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(hot) : []);
     if(!Array.isArray(data) || !data.length){
       return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
     }
