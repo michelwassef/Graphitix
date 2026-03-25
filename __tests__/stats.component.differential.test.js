@@ -518,6 +518,28 @@ describe('Component statistical engines vs Python oracle', () => {
     }
   });
 
+  test('hist auto binning follows Prism-compatible defaults', () => {
+    expect(histHooks).toBeTruthy();
+    expect(typeof histHooks.computeAutoBinWidth).toBe('function');
+
+    const integerWidth = histHooks.computeAutoBinWidth([
+      { values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      { values: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19] }
+    ]);
+    expect(integerWidth).toBe(2);
+
+    const averagedWidth = histHooks.computeAutoBinWidth([
+      { values: Array.from({ length: 100 }, (_, i) => i) },
+      { values: Array.from({ length: 100 }, (_, i) => i / 10) }
+    ]);
+    expect(averagedWidth).toBe(5);
+
+    const decimalWidth = histHooks.computeAutoBinWidth([
+      { values: [0.0, 0.1, 0.2, 0.3, 0.4] }
+    ]);
+    expectClose(decimalWidth, 0.1, 'hist-auto-binning.decimalWidth', { abs: 1e-12, rel: 1e-9 });
+  });
+
   test('randomized component differential checks stay aligned with oracle', () => {
     const rng = createRng(20260310);
     const cases = [];

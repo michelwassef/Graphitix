@@ -1733,9 +1733,63 @@
             </fieldset>
             <fieldset id="histBinsFieldset">
               <legend>Bins</legend>
-              <div class="control">
-                <label>Count</label>
-                <input type="number" id="histBins" value="10" min="1" max="100" />
+              <div class="config-panel__line">
+                <label class="config-panel__item config-panel__item--select-auto">
+                  <span class="config-panel__label">Create</span>
+                  <select id="histFrequencyCreateMode">
+                    <option value="frequency" selected>Frequency distribution</option>
+                    <option value="cumulative">Cumulative frequency</option>
+                  </select>
+                </label>
+                <label class="config-panel__item config-panel__item--select-auto">
+                  <span class="config-panel__label">Tabulate</span>
+                  <select id="histFrequencyTabulateMode">
+                    <option value="count" selected>Number of values</option>
+                    <option value="fraction">Relative frequency (fraction)</option>
+                    <option value="percent">Relative frequency (%)</option>
+                  </select>
+                </label>
+              </div>
+              <div class="config-panel__line config-panel__line--split">
+                <label class="config-panel__item config-panel__item--select-auto">
+                  <span class="config-panel__label">Binning</span>
+                  <select id="histBinningMode">
+                    <option value="count" selected>Bin count</option>
+                    <option value="auto">Auto width</option>
+                    <option value="width">Bin width</option>
+                    <option value="exact">Exact frequency</option>
+                  </select>
+                </label>
+                <label class="config-panel__item config-panel__item--narrow" id="histBinsCountCtl">
+                  <span class="config-panel__label">Count</span>
+                  <input type="number" id="histBins" value="10" min="1" max="200" />
+                </label>
+                <label class="config-panel__item config-panel__item--narrow" id="histBinWidthCtl" hidden>
+                  <span class="config-panel__label">Width</span>
+                  <input type="number" id="histBinWidth" value="1" min="0.000001" step="any" />
+                </label>
+              </div>
+              <div class="config-panel__line config-panel__line--split" id="histBinCentersRow" hidden>
+                <div class="hist-bin-center-control">
+                  <label class="config-panel__item config-panel__item--narrow">
+                    <span class="config-panel__label">First center</span>
+                    <input type="number" id="histFirstBinCenter" placeholder="Auto" disabled />
+                  </label>
+                  <label class="config-panel__checkbox">
+                    <input type="checkbox" id="histFirstBinCenterAuto" checked />
+                    <span>Auto</span>
+                  </label>
+                </div>
+                <div class="hist-bin-center-control">
+                  <label class="config-panel__item config-panel__item--narrow">
+                    <span class="config-panel__label">Last center</span>
+                    <input type="number" id="histLastBinCenter" placeholder="Auto" disabled />
+                  </label>
+                  <label class="config-panel__checkbox">
+                    <input type="checkbox" id="histLastBinCenterAuto" checked />
+                    <span>Auto</span>
+                  </label>
+                </div>
               </div>
             </fieldset>
             <fieldset>

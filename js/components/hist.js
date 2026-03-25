@@ -335,6 +335,25 @@
 
   const HIST_PLOT_MODE_HISTOGRAM = 'histogram';
   const HIST_PLOT_MODE_DENSITY = 'density';
+  const HIST_FREQUENCY_CREATE_MODE = Object.freeze({
+    frequency: 'frequency',
+    cumulative: 'cumulative'
+  });
+  const HIST_FREQUENCY_TABULATE_MODE = Object.freeze({
+    count: 'count',
+    fraction: 'fraction',
+    percent: 'percent'
+  });
+  const HIST_BINNING_MODE = Object.freeze({
+    count: 'count',
+    auto: 'auto',
+    width: 'width',
+    exact: 'exact'
+  });
+  const HIST_FREQUENCY_TABLE_TRANSFORM = 'histFrequencyTable';
+  const HIST_LOAD_SOURCE_DATA_VIEW_SWITCH = 'hist-data-view-switch';
+  const HIST_LOAD_SOURCE_FREQUENCY_SYNC = 'hist-frequency-view-sync';
+  const HIST_LOAD_SOURCE_FREQUENCY_TAB_ACTIVATE = 'hist-frequency-tab-activate';
 
   function normalizeHistPlotMode(value){
     return String(value || '').toLowerCase() === HIST_PLOT_MODE_DENSITY
@@ -342,12 +361,96 @@
       : HIST_PLOT_MODE_HISTOGRAM;
   }
 
+  function sanitizeHistFrequencyCreateMode(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === HIST_FREQUENCY_CREATE_MODE.cumulative
+      ? HIST_FREQUENCY_CREATE_MODE.cumulative
+      : HIST_FREQUENCY_CREATE_MODE.frequency;
+  }
+
+  function sanitizeHistFrequencyTabulateMode(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    if(normalized === HIST_FREQUENCY_TABULATE_MODE.fraction){
+      return HIST_FREQUENCY_TABULATE_MODE.fraction;
+    }
+    if(normalized === HIST_FREQUENCY_TABULATE_MODE.percent){
+      return HIST_FREQUENCY_TABULATE_MODE.percent;
+    }
+    return HIST_FREQUENCY_TABULATE_MODE.count;
+  }
+
+  function sanitizeHistBinningMode(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    if(normalized === HIST_BINNING_MODE.auto){
+      return HIST_BINNING_MODE.auto;
+    }
+    if(normalized === HIST_BINNING_MODE.width){
+      return HIST_BINNING_MODE.width;
+    }
+    if(normalized === HIST_BINNING_MODE.exact){
+      return HIST_BINNING_MODE.exact;
+    }
+    return HIST_BINNING_MODE.count;
+  }
+
+  function sanitizeOptionalFinite(value){
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function sanitizePositiveFinite(value){
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : null;
+  }
+
+  function createDefaultHistFrequencySettings(){
+    return {
+      createMode: HIST_FREQUENCY_CREATE_MODE.frequency,
+      tabulateMode: HIST_FREQUENCY_TABULATE_MODE.count,
+      binningMode: HIST_BINNING_MODE.count,
+      manualBinWidth: null,
+      firstCenterAuto: true,
+      firstCenter: null,
+      lastCenterAuto: true,
+      lastCenter: null
+    };
+  }
+
+  function sanitizeHistFrequencySettings(source){
+    const defaults = createDefaultHistFrequencySettings();
+    const candidate = source && typeof source === 'object' ? source : {};
+    return {
+      createMode: sanitizeHistFrequencyCreateMode(candidate.createMode ?? candidate.mode),
+      tabulateMode: sanitizeHistFrequencyTabulateMode(candidate.tabulateMode ?? candidate.tabulate),
+      binningMode: sanitizeHistBinningMode(candidate.binningMode ?? candidate.binning),
+      manualBinWidth: sanitizePositiveFinite(candidate.manualBinWidth ?? candidate.binWidth),
+      firstCenterAuto: candidate.firstCenterAuto !== undefined ? !!candidate.firstCenterAuto : defaults.firstCenterAuto,
+      firstCenter: sanitizeOptionalFinite(candidate.firstCenter),
+      lastCenterAuto: candidate.lastCenterAuto !== undefined ? !!candidate.lastCenterAuto : defaults.lastCenterAuto,
+      lastCenter: sanitizeOptionalFinite(candidate.lastCenter)
+    };
+  }
+
+  function getHistFrequencyDefaultYLabel(frequencySettings){
+    const settings = sanitizeHistFrequencySettings(frequencySettings);
+    const cumulative = settings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
+    if(settings.tabulateMode === HIST_FREQUENCY_TABULATE_MODE.fraction){
+      return cumulative ? 'Cumulative fraction' : 'Relative frequency';
+    }
+    if(settings.tabulateMode === HIST_FREQUENCY_TABULATE_MODE.percent){
+      return cumulative ? 'Cumulative frequency (%)' : 'Relative frequency (%)';
+    }
+    return cumulative ? 'Cumulative count' : 'Count';
+  }
+
   function getHistDefaultTitle(mode){
     return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density plot' : 'Histogram';
   }
 
-  function getHistDefaultYLabel(mode){
-    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY ? 'Density' : 'Count';
+  function getHistDefaultYLabel(mode, frequencySettings = null){
+    return normalizeHistPlotMode(mode) === HIST_PLOT_MODE_DENSITY
+      ? 'Density'
+      : getHistFrequencyDefaultYLabel(frequencySettings || createDefaultHistFrequencySettings());
   }
 
   function getHistGraphLabel(mode){
@@ -389,6 +492,18 @@
     lastAutoDrawEvaluation: null,
     axisSettings: createDefaultAxisSettings(),
     gridStyle: null,
+    frequencySettings: createDefaultHistFrequencySettings(),
+    frequencyInputs: {
+      createMode: null,
+      tabulateMode: null,
+      binningMode: null,
+      binsCount: null,
+      binWidth: null,
+      firstCenterAuto: null,
+      firstCenter: null,
+      lastCenterAuto: null,
+      lastCenter: null
+    },
     distributionSettings: createDefaultDistributionSettings(),
     distributionOptions: [],
     distributionInputs: {
@@ -481,6 +596,7 @@
     }
     const mode = normalizeHistPlotMode(state.plotMode);
     const densityMode = mode === HIST_PLOT_MODE_DENSITY;
+    const frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
     const plotModeSelect = document.getElementById('histPlotMode');
     if(plotModeSelect && plotModeSelect.value !== mode){
       plotModeSelect.value = mode;
@@ -492,9 +608,54 @@
     }
     const histBinsInput = document.getElementById('histBins');
     if(histBinsInput){
-      histBinsInput.disabled = densityMode;
+      const countMode = frequencySettings.binningMode === HIST_BINNING_MODE.count;
+      histBinsInput.disabled = densityMode || !countMode;
+    }
+    const binsCountCtl = document.getElementById('histBinsCountCtl');
+    if(binsCountCtl){
+      binsCountCtl.hidden = frequencySettings.binningMode !== HIST_BINNING_MODE.count;
+      binsCountCtl.setAttribute('aria-hidden', binsCountCtl.hidden ? 'true' : 'false');
+    }
+    const binWidthCtl = document.getElementById('histBinWidthCtl');
+    if(binWidthCtl){
+      binWidthCtl.hidden = frequencySettings.binningMode !== HIST_BINNING_MODE.width;
+      binWidthCtl.setAttribute('aria-hidden', binWidthCtl.hidden ? 'true' : 'false');
+    }
+    const centerRow = document.getElementById('histBinCentersRow');
+    const showCenters = frequencySettings.binningMode === HIST_BINNING_MODE.width;
+    if(centerRow){
+      centerRow.hidden = !showCenters || densityMode;
+      centerRow.setAttribute('aria-hidden', centerRow.hidden ? 'true' : 'false');
+    }
+    const firstCenterInput = document.getElementById('histFirstBinCenter');
+    const firstCenterAuto = document.getElementById('histFirstBinCenterAuto');
+    if(firstCenterInput){
+      firstCenterInput.disabled = densityMode || !showCenters || !!firstCenterAuto?.checked;
+    }
+    const lastCenterInput = document.getElementById('histLastBinCenter');
+    const lastCenterAuto = document.getElementById('histLastBinCenterAuto');
+    if(lastCenterInput){
+      lastCenterInput.disabled = densityMode || !showCenters || !!lastCenterAuto?.checked;
     }
     const cdfInput = document.getElementById('histShowCdf');
+    const pdfInput = document.getElementById('histShowPdf');
+    const cumulativeMode = frequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
+    const disablePdf = densityMode || cumulativeMode;
+    if(pdfInput){
+      pdfInput.disabled = disablePdf;
+      const title = densityMode
+        ? 'PDF overlay is only available in histogram mode.'
+        : (cumulativeMode ? 'PDF overlay is disabled for cumulative frequency mode.' : '');
+      pdfInput.title = title;
+      const label = pdfInput.closest('label');
+      if(label){
+        label.title = title;
+      }
+      if(disablePdf){
+        state.distributionSettings.showPdf = false;
+        pdfInput.checked = false;
+      }
+    }
     if(cdfInput){
       cdfInput.disabled = densityMode;
       const title = densityMode ? 'CDF overlay is only available in histogram mode.' : '';
@@ -506,17 +667,55 @@
     }
   }
 
+  function syncHistFrequencyControls(){
+    if(typeof document === 'undefined'){
+      return;
+    }
+    const settings = sanitizeHistFrequencySettings(state.frequencySettings);
+    state.frequencySettings = settings;
+    const inputs = state.frequencyInputs || {};
+    if(inputs.createMode && inputs.createMode.value !== settings.createMode){
+      inputs.createMode.value = settings.createMode;
+    }
+    if(inputs.tabulateMode && inputs.tabulateMode.value !== settings.tabulateMode){
+      inputs.tabulateMode.value = settings.tabulateMode;
+    }
+    if(inputs.binningMode && inputs.binningMode.value !== settings.binningMode){
+      inputs.binningMode.value = settings.binningMode;
+    }
+    if(inputs.binWidth){
+      inputs.binWidth.value = Number.isFinite(Number(settings.manualBinWidth))
+        ? String(settings.manualBinWidth)
+        : (inputs.binWidth.value || '1');
+    }
+    if(inputs.firstCenterAuto){
+      inputs.firstCenterAuto.checked = settings.firstCenterAuto !== false;
+    }
+    if(inputs.lastCenterAuto){
+      inputs.lastCenterAuto.checked = settings.lastCenterAuto !== false;
+    }
+    if(inputs.firstCenter){
+      inputs.firstCenter.value = Number.isFinite(Number(settings.firstCenter)) ? String(settings.firstCenter) : '';
+    }
+    if(inputs.lastCenter){
+      inputs.lastCenter.value = Number.isFinite(Number(settings.lastCenter)) ? String(settings.lastCenter) : '';
+    }
+    syncHistPlotModeControls();
+  }
+
   function applyHistPlotMode(mode, options = {}){
     const previousMode = normalizeHistPlotMode(state.plotMode);
     const nextMode = normalizeHistPlotMode(mode);
     state.plotMode = nextMode;
+    const previousYDefault = getHistDefaultYLabel(previousMode, state.frequencySettings);
+    const nextYDefault = getHistDefaultYLabel(nextMode, state.frequencySettings);
     if(options.syncDefaults !== false){
       if(state.titleAuto || state.titleText === getHistDefaultTitle(previousMode)){
         state.titleText = getHistDefaultTitle(nextMode);
         state.titleAuto = true;
       }
-      if(state.yLabelAuto || state.yLabelText === getHistDefaultYLabel(previousMode)){
-        state.yLabelText = getHistDefaultYLabel(nextMode);
+      if(state.yLabelAuto || state.yLabelText === previousYDefault){
+        state.yLabelText = nextYDefault;
         state.yLabelAuto = true;
       }
     }
@@ -529,6 +728,20 @@
         yLabelAuto: state.yLabelAuto
       });
     }
+    if(options.schedule !== false && typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function applyHistFrequencySettings(nextSettings, options = {}){
+    const previous = sanitizeHistFrequencySettings(state.frequencySettings);
+    const merged = sanitizeHistFrequencySettings({ ...previous, ...(nextSettings || {}) });
+    state.frequencySettings = merged;
+    if(state.yLabelAuto || state.yLabelText === getHistDefaultYLabel(state.plotMode, previous)){
+      state.yLabelText = getHistDefaultYLabel(state.plotMode, merged);
+      state.yLabelAuto = true;
+    }
+    syncHistFrequencyControls();
     if(options.schedule !== false && typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -597,6 +810,30 @@
     return reason => syncHistAutoDrawNoticeWidth(reason || 'immediate');
   })();
 
+  function shouldSkipHistHotSchedule(scheduleMeta){
+    const source = String(scheduleMeta?.source || '').trim();
+    if(source === HIST_LOAD_SOURCE_FREQUENCY_SYNC || source === HIST_LOAD_SOURCE_FREQUENCY_TAB_ACTIVATE){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: hist skipped rescheduled draw for derived grid sync', { source });
+      }
+      return true;
+    }
+    const hot = state.hot || state.ensureHotForActiveTab?.() || null;
+    const manager = hot?.__histDataViewsManager || histDataViewsManager || null;
+    const activeView = manager?.getActiveView?.() || null;
+    if(isHistFrequencyTableDataView(activeView)){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: hist skipped schedule while derived frequency tab is active', {
+          source: source || null,
+          reason: scheduleMeta?.reason || null,
+          viewId: activeView?.id || null
+        });
+      }
+      return true;
+    }
+    return false;
+  }
+
   function activateHistDataToolbar(reason){
     const now = Date.now();
     if(now - histDataToolbarLastActivation < 80){
@@ -626,13 +863,20 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
+          const isFrequencyView = isHistFrequencyTableDataView(view);
           const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData);
+          hotInstance.loadData(nextData, {
+            source: isFrequencyView
+              ? HIST_LOAD_SOURCE_FREQUENCY_TAB_ACTIVATE
+              : HIST_LOAD_SOURCE_DATA_VIEW_SWITCH
+          });
           if(view.exclusions){
             hotInstance.applyExclusions?.(view.exclusions);
           }
-          markHistOverlayPending('data-view-switch');
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
+          if(!isFrequencyView){
+            markHistOverlayPending('data-view-switch');
+            state.scheduleDraw?.({ reason: 'data-view-switch' });
+          }
         },
         onInteraction(){
           activateHistDataToolbar('data-tab-interaction');
@@ -670,6 +914,290 @@
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
+  }
+
+  function isHistFrequencyTableDataView(view){
+    return !!(view && view.kind === 'derived' && view.transformSpec?.type === HIST_FREQUENCY_TABLE_TRANSFORM);
+  }
+
+  function resolveHistViewContext(hotInstance){
+    const hot = hotInstance || state.ensureHotForActiveTab?.() || state.hot || null;
+    const manager = hot
+      ? (hot.__histDataViewsManager || histDataViewsManager || null)
+      : (histDataViewsManager || null);
+    const activeView = manager?.getActiveView?.() || null;
+    let sourceView = activeView;
+    let sourceViewId = String(activeView?.id || manager?.getActiveViewId?.() || 'raw');
+    const visited = new Set();
+    while(sourceView && isHistFrequencyTableDataView(sourceView) && !visited.has(sourceView.id)){
+      visited.add(sourceView.id);
+      const nextId = String(sourceView.sourceViewId || 'raw');
+      const nextView = manager?.getView?.(nextId) || null;
+      if(!nextView || nextView === sourceView){
+        const rawFallback = manager?.getView?.('raw') || null;
+        sourceView = rawFallback || nextView || sourceView;
+        sourceViewId = String(sourceView?.id || nextId || 'raw');
+        break;
+      }
+      sourceView = nextView;
+      sourceViewId = String(nextView.id || nextId || 'raw');
+    }
+    if(!sourceView && manager){
+      sourceView = manager.getView?.('raw') || activeView || null;
+      sourceViewId = String(sourceView?.id || 'raw');
+    }
+    const sourceData = (() => {
+      if(hot && activeView && sourceView && activeView === sourceView){
+        if(typeof hot.getIncludedDataMatrix === 'function'){
+          return hot.getIncludedDataMatrix();
+        }
+        if(Shared.hot?.getIncludedDataMatrix){
+          return Shared.hot.getIncludedDataMatrix(hot);
+        }
+      }
+      const rawMatrix = Array.isArray(sourceView?.data)
+        ? sourceView.data
+        : (Array.isArray(hot?.getData?.()) ? hot.getData() : []);
+      if(Shared.hot?.applyExclusionsToMatrix){
+        return Shared.hot.applyExclusionsToMatrix(rawMatrix, sourceView?.exclusions || null);
+      }
+      return rawMatrix;
+    })();
+    return {
+      hot,
+      manager,
+      activeView,
+      activeViewId: String(activeView?.id || manager?.getActiveViewId?.() || 'raw'),
+      sourceView,
+      sourceViewId,
+      sourceData
+    };
+  }
+
+  function getHistFrequencyTableViewRecords(manager){
+    if(!manager || typeof manager.getViews !== 'function' || typeof manager.getView !== 'function'){
+      return [];
+    }
+    return (manager.getViews() || [])
+      .map(view => manager.getView(view.id))
+      .filter(isHistFrequencyTableDataView);
+  }
+
+  function buildHistFrequencyTableViewTitle(settings){
+    const safe = sanitizeHistFrequencySettings(settings);
+    return safe.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative
+      ? 'Cumulative frequency table'
+      : 'Frequency table';
+  }
+
+  function trimHistViewMatrix(matrix){
+    if(!Array.isArray(matrix)){
+      return [];
+    }
+    let rowEnd = matrix.length;
+    while(rowEnd > 0){
+      const row = Array.isArray(matrix[rowEnd - 1]) ? matrix[rowEnd - 1] : [];
+      const hasData = row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '');
+      if(hasData){
+        break;
+      }
+      rowEnd -= 1;
+    }
+    const trimmedRows = matrix.slice(0, rowEnd).map(row => Array.isArray(row) ? row.slice() : []);
+    let colEnd = 0;
+    trimmedRows.forEach(row => {
+      for(let col = row.length - 1; col >= 0; col -= 1){
+        const cell = row[col];
+        if(cell !== null && cell !== undefined && String(cell).trim() !== ''){
+          colEnd = Math.max(colEnd, col + 1);
+          break;
+        }
+      }
+    });
+    return trimmedRows.map(row => row.slice(0, colEnd));
+  }
+
+  function areHistViewMatricesEqual(left, right){
+    const areCellsEqual = (leftValue, rightValue) => {
+      if(leftValue === rightValue){
+        return true;
+      }
+      if(Number.isNaN(leftValue) && Number.isNaN(rightValue)){
+        return true;
+      }
+      const leftNumeric = Number(leftValue);
+      const rightNumeric = Number(rightValue);
+      const leftIsNumeric = Number.isFinite(leftNumeric) && String(leftValue ?? '').trim() !== '';
+      const rightIsNumeric = Number.isFinite(rightNumeric) && String(rightValue ?? '').trim() !== '';
+      if(leftIsNumeric && rightIsNumeric){
+        return Math.abs(leftNumeric - rightNumeric) <= 1e-12;
+      }
+      const leftText = leftValue == null ? '' : String(leftValue).trim();
+      const rightText = rightValue == null ? '' : String(rightValue).trim();
+      return leftText === rightText;
+    };
+    const normalizedLeft = trimHistViewMatrix(left);
+    const normalizedRight = trimHistViewMatrix(right);
+    if(!Array.isArray(normalizedLeft) || !Array.isArray(normalizedRight) || normalizedLeft.length !== normalizedRight.length){
+      return false;
+    }
+    for(let rowIndex = 0; rowIndex < normalizedLeft.length; rowIndex += 1){
+      const leftRow = normalizedLeft[rowIndex];
+      const rightRow = normalizedRight[rowIndex];
+      if(!Array.isArray(leftRow) || !Array.isArray(rightRow) || leftRow.length !== rightRow.length){
+        return false;
+      }
+      for(let colIndex = 0; colIndex < leftRow.length; colIndex += 1){
+        const leftValue = leftRow[colIndex];
+        const rightValue = rightRow[colIndex];
+        if(!areCellsEqual(leftValue, rightValue)){
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function buildHistFrequencyTableViewData(model){
+    if(!model || model.type !== 'frequency'){
+      return null;
+    }
+    const series = Array.isArray(model.series) ? model.series : [];
+    if(!series.length){
+      return null;
+    }
+    const metricLabel = model.metricLabel || 'Value';
+    if(model.mode === HIST_BINNING_MODE.exact){
+      const header = ['Bin center'].concat(series.map(entry => `${entry.label || 'Series'} (${metricLabel})`));
+      const rows = (model.centers || []).map((center, index) => [
+        center,
+        ...series.map(entry => entry.values?.[index] ?? '')
+      ]);
+      return [header, ...rows];
+    }
+    const header = ['Bin center'].concat(series.map(entry => `${entry.label || 'Series'} (${metricLabel})`));
+    const centers = Array.isArray(model.centers) ? model.centers : [];
+    const rows = centers.map((center, index) => [
+      center,
+      ...series.map(entry => entry.values?.[index] ?? '')
+    ]);
+    return [header, ...rows];
+  }
+
+  function buildHistFrequencyTableSummary(model, settings){
+    const safe = sanitizeHistFrequencySettings(settings);
+    return {
+      transform: 'frequency-table',
+      createMode: safe.createMode,
+      tabulateMode: safe.tabulateMode,
+      binningMode: safe.binningMode,
+      bins: Number(model?.binCount) || 0,
+      metricLabel: model?.metricLabel || 'Value'
+    };
+  }
+
+  function removeHistFrequencyTableDataViews(options = {}){
+    const manager = options.manager || resolveHistViewContext(options.hot).manager;
+    if(!manager || typeof manager.removeView !== 'function'){
+      return false;
+    }
+    const views = getHistFrequencyTableViewRecords(manager);
+    if(!views.length){
+      return false;
+    }
+    const activeViewId = String(manager.getActiveViewId?.() || '');
+    let removedAny = false;
+    let activeRemoved = false;
+    let fallbackViewId = String(options.fallbackViewId || resolveHistViewContext(options.hot).sourceViewId || 'raw');
+    views.forEach(view => {
+      if(!view?.id){
+        return;
+      }
+      if(view.id === activeViewId){
+        activeRemoved = true;
+        fallbackViewId = String(view.sourceViewId || fallbackViewId || 'raw');
+      }
+      removedAny = manager.removeView(view.id, {
+        reason: options.reason || 'hist-frequency-view-remove',
+        silent: true
+      }) || removedAny;
+    });
+    if(activeRemoved){
+      manager.activateView(fallbackViewId || 'raw', {
+        reason: options.reason || 'hist-frequency-view-remove'
+      });
+    }
+    return removedAny;
+  }
+
+  function syncHistFrequencyTableDataView(model, settings, options = {}){
+    const context = options.context || resolveHistViewContext(options.hot);
+    const manager = context.manager;
+    const hot = context.hot;
+    if(!manager){
+      return false;
+    }
+    if(!model || model.type !== 'frequency'){
+      return removeHistFrequencyTableDataViews({
+        manager,
+        hot,
+        fallbackViewId: context.sourceViewId || 'raw',
+        reason: options.reason || 'hist-frequency-view-clear'
+      });
+    }
+    const data = buildHistFrequencyTableViewData(model);
+    if(!Array.isArray(data) || !data.length){
+      return false;
+    }
+    const title = buildHistFrequencyTableViewTitle(settings);
+    const summary = buildHistFrequencyTableSummary(model, settings);
+    const safeSettings = sanitizeHistFrequencySettings(settings);
+    const transformSpec = {
+      type: HIST_FREQUENCY_TABLE_TRANSFORM,
+      createMode: safeSettings.createMode,
+      tabulateMode: safeSettings.tabulateMode,
+      binningMode: safeSettings.binningMode
+    };
+    const frequencyViews = getHistFrequencyTableViewRecords(manager);
+    const targetView = frequencyViews.length ? frequencyViews[0] : null;
+    frequencyViews.slice(1).forEach(view => {
+      if(view?.id){
+        manager.removeView(view.id, {
+          reason: options.reason || 'hist-frequency-view-dedupe',
+          silent: true
+        });
+      }
+    });
+    if(targetView){
+      targetView.title = title;
+      targetView.data = data;
+      targetView.sourceViewId = String(context.sourceViewId || 'raw');
+      targetView.transformSpec = transformSpec;
+      targetView.summary = summary;
+      targetView.exclusions = null;
+      manager.refresh?.();
+      if(String(manager.getActiveViewId?.() || '') === String(targetView.id) && hot && typeof hot.loadData === 'function'){
+        const currentData = typeof hot.getData === 'function' ? hot.getData() : null;
+        if(!areHistViewMatricesEqual(currentData, data)){
+          hot.loadData(data, { source: HIST_LOAD_SOURCE_FREQUENCY_SYNC });
+        }
+        if(typeof hot.applyExclusions === 'function'){
+          hot.applyExclusions(null);
+        }
+      }
+      return true;
+    }
+    const createdView = manager.createDerivedView({
+      title,
+      data,
+      sourceViewId: context.sourceViewId || 'raw',
+      transformSpec,
+      summary,
+      exclusions: null,
+      activate: options.activate === true,
+      reason: options.reason || 'hist-frequency-view-create'
+    });
+    return !!createdView;
   }
 
   function applyHistTransformToNewView(transformSpec, options = {}){
@@ -1291,11 +1819,14 @@
     state.densityLineColors[key] = nextColor;
   }
 
-  function collectHistSeries(){
+  function collectHistSeries(options = {}){
+    const explicitMatrix = Array.isArray(options?.matrix) ? options.matrix : null;
     const hot = state.hot || state.ensureHotForActiveTab?.();
-    const matrix = hot && typeof hot.getIncludedDataMatrix === 'function'
-      ? hot.getIncludedDataMatrix()
-      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(hot) : []);
+    const matrix = explicitMatrix || (
+      hot && typeof hot.getIncludedDataMatrix === 'function'
+        ? hot.getIncludedDataMatrix()
+        : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(hot) : [])
+    );
     if(!Array.isArray(matrix) || !matrix.length){
       return [];
     }
@@ -1941,10 +2472,16 @@
     }
     const data = seedHistDefaultHeaderRow(Shared.createEmptyData(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS));
     let histScheduleProxyCount = 0;
-    const scheduleHistDrawProxy = () => {
+    const scheduleHistDrawProxy = scheduleMeta => {
+      if(shouldSkipHistHotSchedule(scheduleMeta)){
+        return;
+      }
       histScheduleProxyCount += 1;
       if(histScheduleProxyCount <= 5){
-        console.debug('Debug: hist scheduleDraw proxy invoked', { count: histScheduleProxyCount }); // Debug: table change trigger
+        console.debug('Debug: hist scheduleDraw proxy invoked', {
+          count: histScheduleProxyCount,
+          source: scheduleMeta?.source || null
+        }); // Debug: table change trigger
         if(histScheduleProxyCount === 5){
           console.debug('Debug: hist scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
@@ -2042,6 +2579,14 @@
   function initControls(){
     const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histXMin=$('#histXMin'), histXMax=$('#histXMax'), histYMax=$('#histYMax'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     const histStatsDiagnosticsMode=$('#histStatsDiagnosticsMode'), histStatsComparisonMode=$('#histStatsComparisonMode');
+    const histFrequencyCreateMode=$('#histFrequencyCreateMode');
+    const histFrequencyTabulateMode=$('#histFrequencyTabulateMode');
+    const histBinningMode=$('#histBinningMode');
+    const histBinWidth=$('#histBinWidth');
+    const histFirstBinCenterAuto=$('#histFirstBinCenterAuto');
+    const histFirstBinCenter=$('#histFirstBinCenter');
+    const histLastBinCenterAuto=$('#histLastBinCenterAuto');
+    const histLastBinCenter=$('#histLastBinCenter');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
       console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
@@ -2049,7 +2594,20 @@
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
     state.distributionOptions = getDistributionOptions();
     state.distributionSettings.selections = mergeDistributionSelections(state.distributionSettings?.selections || {}, state.distributionOptions);
+    state.frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
+    state.frequencyInputs = {
+      createMode: histFrequencyCreateMode,
+      tabulateMode: histFrequencyTabulateMode,
+      binningMode: histBinningMode,
+      binsCount: histBins,
+      binWidth: histBinWidth,
+      firstCenterAuto: histFirstBinCenterAuto,
+      firstCenter: histFirstBinCenter,
+      lastCenterAuto: histLastBinCenterAuto,
+      lastCenter: histLastBinCenter
+    };
     applyHistPlotMode(histPlotMode?.value || state.plotMode, { schedule: false, syncDefaults: false });
+    syncHistFrequencyControls();
     const distListEl=document.getElementById('histDistributionList');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     if(histPlotMode){
@@ -2143,6 +2701,40 @@
     }
     syncHistPlotModeControls();
     syncHistStatsControls();
+    histFrequencyCreateMode?.addEventListener('change',()=>{
+      applyHistFrequencySettings({ createMode: sanitizeHistFrequencyCreateMode(histFrequencyCreateMode.value) });
+    });
+    histFrequencyTabulateMode?.addEventListener('change',()=>{
+      applyHistFrequencySettings({ tabulateMode: sanitizeHistFrequencyTabulateMode(histFrequencyTabulateMode.value) });
+    });
+    histBinningMode?.addEventListener('change',()=>{
+      applyHistFrequencySettings({ binningMode: sanitizeHistBinningMode(histBinningMode.value) });
+    });
+    histBinWidth?.addEventListener('input',()=>{
+      applyHistFrequencySettings({
+        manualBinWidth: sanitizePositiveFinite(histBinWidth.value)
+      });
+    });
+    histFirstBinCenterAuto?.addEventListener('change',()=>{
+      applyHistFrequencySettings({
+        firstCenterAuto: !!histFirstBinCenterAuto.checked
+      });
+    });
+    histFirstBinCenter?.addEventListener('input',()=>{
+      applyHistFrequencySettings({
+        firstCenter: sanitizeOptionalFinite(histFirstBinCenter.value)
+      });
+    });
+    histLastBinCenterAuto?.addEventListener('change',()=>{
+      applyHistFrequencySettings({
+        lastCenterAuto: !!histLastBinCenterAuto.checked
+      });
+    });
+    histLastBinCenter?.addEventListener('input',()=>{
+      applyHistFrequencySettings({
+        lastCenter: sanitizeOptionalFinite(histLastBinCenter.value)
+      });
+    });
     [histBins,histShowGrid,histLogY,histXMin,histXMax,histYMax].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
     histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{
@@ -2279,6 +2871,7 @@
         border:state.barBorder,
         borderWidth:state.barBorderWidth,
         bins:$('#histBins').value,
+        frequency: sanitizeHistFrequencySettings(state.frequencySettings),
         showGrid:$('#histShowGrid').checked,
         gridStyle:getGridStyle(axisSettings.strokeWidth),
         showFrame:$('#histShowFrame').checked,
@@ -2389,12 +2982,13 @@
       const config = payload.config || {};
       importFontStyles('hist', config.fontStyles || null);
       const loadedPlotMode = normalizeHistPlotMode(config.plotMode);
+      state.frequencySettings = sanitizeHistFrequencySettings(config.frequency || state.frequencySettings);
       applyHistPlotMode(loadedPlotMode, { schedule: false, syncDefaults: false });
       state.titleText = config.title || getHistDefaultTitle(loadedPlotMode);
       state.titleAuto = state.titleText === getHistDefaultTitle(loadedPlotMode);
       state.xLabelText = config.xLabel || state.xLabelText;
-      state.yLabelText = config.yLabel || getHistDefaultYLabel(loadedPlotMode);
-      state.yLabelAuto = state.yLabelText === getHistDefaultYLabel(loadedPlotMode);
+      state.yLabelText = config.yLabel || getHistDefaultYLabel(loadedPlotMode, state.frequencySettings);
+      state.yLabelAuto = state.yLabelText === getHistDefaultYLabel(loadedPlotMode, state.frequencySettings);
       state.barFill = (typeof config.fill === 'string' && config.fill.trim()) ? config.fill : HIST_DEFAULT_FILL;
       state.barBorder = (typeof config.border === 'string' && config.border.trim()) ? config.border : HIST_DEFAULT_BORDER;
       const loadedBorderWidth = Number(config.borderWidth);
@@ -2403,6 +2997,7 @@
         : HIST_DEFAULT_BORDER_WIDTH;
       const histBinsInput = document.getElementById('histBins');
       if(histBinsInput){ histBinsInput.value = config.bins || histBinsInput.value; }
+      syncHistFrequencyControls();
       const histShowLegendInput = document.getElementById('histShowLegend');
       state.showLegend = config.showLegend !== false;
       if(histShowLegendInput){ histShowLegendInput.checked = state.showLegend; }
@@ -3216,16 +3811,397 @@
     }
   }
 
+  function getHistFrequencyMetricLabel(settings){
+    const safe = sanitizeHistFrequencySettings(settings);
+    const cumulative = safe.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
+    if(safe.tabulateMode === HIST_FREQUENCY_TABULATE_MODE.fraction){
+      return cumulative ? 'Cumulative fraction' : 'Relative frequency';
+    }
+    if(safe.tabulateMode === HIST_FREQUENCY_TABULATE_MODE.percent){
+      return cumulative ? 'Cumulative frequency (%)' : 'Relative frequency (%)';
+    }
+    return cumulative ? 'Cumulative count' : 'Count';
+  }
+
+  function convertHistCountToDisplay(rawCount, sampleCount, settings){
+    const safe = sanitizeHistFrequencySettings(settings);
+    const raw = Number(rawCount);
+    if(!Number.isFinite(raw)){
+      return NaN;
+    }
+    if(safe.tabulateMode === HIST_FREQUENCY_TABULATE_MODE.fraction){
+      return sampleCount > 0 ? raw / sampleCount : 0;
+    }
+    if(safe.tabulateMode === HIST_FREQUENCY_TABULATE_MODE.percent){
+      return sampleCount > 0 ? (raw * 100) / sampleCount : 0;
+    }
+    return raw;
+  }
+
+  function isHistIntegerLike(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return false;
+    }
+    const rounded = Math.round(numeric);
+    const tolerance = 1e-10 * Math.max(1, Math.abs(numeric));
+    return Math.abs(numeric - rounded) <= tolerance;
+  }
+
+  function roundDownToHistNice125(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return null;
+    }
+    const exponent = Math.floor(Math.log10(numeric));
+    if(!Number.isFinite(exponent)){
+      return null;
+    }
+    const scale = 10 ** exponent;
+    if(!Number.isFinite(scale) || scale <= 0){
+      return null;
+    }
+    const normalized = numeric / scale;
+    let mantissa = 1;
+    if(normalized >= 5){
+      mantissa = 5;
+    }else if(normalized >= 2){
+      mantissa = 2;
+    }
+    const rounded = mantissa * scale;
+    return Number.isFinite(rounded) && rounded > 0 ? rounded : null;
+  }
+
+  function computeHistAutoBinWidth(seriesEntries, options = {}){
+    const safeEntries = Array.isArray(seriesEntries) ? seriesEntries : [];
+    const lower = Number(options.min);
+    const upper = Number(options.max);
+    const hasLower = Number.isFinite(lower);
+    const hasUpper = Number.isFinite(upper);
+    const datasetWidths = [];
+    const pooledValues = [];
+    safeEntries.forEach(entry => {
+      const rawValues = Array.isArray(entry?.values) ? entry.values : [];
+      let localMin = Infinity;
+      let localMax = -Infinity;
+      let localCount = 0;
+      rawValues.forEach(value => {
+        const numeric = Number(value);
+        if(!Number.isFinite(numeric)){
+          return;
+        }
+        if(hasLower && numeric < lower){
+          return;
+        }
+        if(hasUpper && numeric > upper){
+          return;
+        }
+        pooledValues.push(numeric);
+        localCount += 1;
+        if(numeric < localMin){
+          localMin = numeric;
+        }
+        if(numeric > localMax){
+          localMax = numeric;
+        }
+      });
+      if(localCount < 2){
+        return;
+      }
+      const range = localMax - localMin;
+      if(!(range > 0)){
+        return;
+      }
+      const datasetBinCount = 1 + Math.log2(localCount);
+      const width = range / datasetBinCount;
+      if(Number.isFinite(width) && width > 0){
+        datasetWidths.push(width);
+      }
+    });
+
+    if(!datasetWidths.length){
+      if(pooledValues.length < 2){
+        return null;
+      }
+      let pooledMin = Infinity;
+      let pooledMax = -Infinity;
+      pooledValues.forEach(value => {
+        if(value < pooledMin){
+          pooledMin = value;
+        }
+        if(value > pooledMax){
+          pooledMax = value;
+        }
+      });
+      const pooledRange = pooledMax - pooledMin;
+      if(!(pooledRange > 0)){
+        return null;
+      }
+      const pooledBinCount = 1 + Math.log2(pooledValues.length);
+      const pooledWidth = pooledRange / pooledBinCount;
+      if(Number.isFinite(pooledWidth) && pooledWidth > 0){
+        datasetWidths.push(pooledWidth);
+      }
+    }
+
+    if(!datasetWidths.length){
+      return null;
+    }
+    const averageWidth = datasetWidths.reduce((sum, width) => sum + width, 0) / datasetWidths.length;
+    let width = roundDownToHistNice125(averageWidth);
+    if(!(Number.isFinite(width) && width > 0)){
+      return null;
+    }
+    const allInteger = pooledValues.length > 0 && pooledValues.every(isHistIntegerLike);
+    if(allInteger){
+      width = Math.floor(width);
+      if(width <= 0){
+        width = 1;
+      }
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: hist auto bin width (Prism-compatible)', {
+        datasetCount: safeEntries.length,
+        pooledCount: pooledValues.length,
+        averageWidth,
+        roundedWidth: width,
+        allInteger
+      });
+    }
+    return width;
+  }
+
+  function clampHistogramBinCount(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 1;
+    }
+    return Math.max(1, Math.min(2000, Math.round(numeric)));
+  }
+
+  function buildUniformEdgesFromCount(min, max, count){
+    const binCount = clampHistogramBinCount(count);
+    const span = max - min;
+    const width = span > 0 ? span / binCount : 1;
+    return Array.from({ length: binCount + 1 }, (_, index) => min + index * width);
+  }
+
+  function buildUniformEdgesFromWidth(min, max, width, settings){
+    const safeWidth = Number(width);
+    if(!Number.isFinite(safeWidth) || safeWidth <= 0){
+      return null;
+    }
+    const safeSettings = sanitizeHistFrequencySettings(settings);
+    const half = safeWidth / 2;
+    let firstCenter = safeSettings.firstCenterAuto ? null : sanitizeOptionalFinite(safeSettings.firstCenter);
+    let lastCenter = safeSettings.lastCenterAuto ? null : sanitizeOptionalFinite(safeSettings.lastCenter);
+    if(firstCenter == null && lastCenter == null){
+      const firstIndex = Math.floor((min - half) / safeWidth);
+      const lastIndex = Math.ceil((max - half) / safeWidth);
+      firstCenter = firstIndex * safeWidth + half;
+      lastCenter = lastIndex * safeWidth + half;
+    }else if(firstCenter != null && lastCenter == null){
+      const needed = Math.max(0, Math.ceil((max - (firstCenter - half)) / safeWidth) - 1);
+      lastCenter = firstCenter + needed * safeWidth;
+    }else if(firstCenter == null && lastCenter != null){
+      const needed = Math.max(0, Math.ceil(((lastCenter + half) - min) / safeWidth) - 1);
+      firstCenter = lastCenter - needed * safeWidth;
+    }
+    if(!Number.isFinite(firstCenter) || !Number.isFinite(lastCenter)){
+      return null;
+    }
+    if(lastCenter < firstCenter){
+      const swap = firstCenter;
+      firstCenter = lastCenter;
+      lastCenter = swap;
+    }
+    const stepCount = clampHistogramBinCount(Math.floor((lastCenter - firstCenter) / safeWidth) + 1);
+    const centers = Array.from({ length: stepCount }, (_, index) => firstCenter + index * safeWidth);
+    const startEdge = centers[0] - half;
+    const edges = [startEdge];
+    centers.forEach(center => edges.push(center + half));
+    return edges;
+  }
+
+  function buildExactFrequencyEdges(valuesInRange, min, max){
+    const centers = Array.from(new Set(
+      (Array.isArray(valuesInRange) ? valuesInRange : [])
+        .map(Number)
+        .filter(Number.isFinite)
+    )).sort((a, b) => a - b);
+    if(!centers.length){
+      return null;
+    }
+    if(centers.length === 1){
+      const center = centers[0];
+      const span = Math.max(Math.abs(max - min), Math.abs(center) * 0.1, 1);
+      const half = span / 2;
+      return [center - half, center + half];
+    }
+    const edges = new Array(centers.length + 1);
+    edges[0] = centers[0] - ((centers[1] - centers[0]) / 2);
+    for(let index = 1; index < centers.length; index += 1){
+      edges[index] = (centers[index - 1] + centers[index]) / 2;
+    }
+    const lastIndex = centers.length - 1;
+    edges[lastIndex + 1] = centers[lastIndex] + ((centers[lastIndex] - centers[lastIndex - 1]) / 2);
+    return edges;
+  }
+
+  function resolveHistogramBinIndex(value, edges){
+    if(!Array.isArray(edges) || edges.length < 2){
+      return -1;
+    }
+    const min = edges[0];
+    const max = edges[edges.length - 1];
+    if(!Number.isFinite(value) || value < min || value > max){
+      return -1;
+    }
+    if(value === max){
+      return edges.length - 2;
+    }
+    let low = 0;
+    let high = edges.length - 2;
+    while(low <= high){
+      const mid = (low + high) >> 1;
+      const left = edges[mid];
+      const right = edges[mid + 1];
+      if(value >= left && value < right){
+        return mid;
+      }
+      if(value < left){
+        high = mid - 1;
+      }else{
+        low = mid + 1;
+      }
+    }
+    return -1;
+  }
+
+  function buildHistFrequencyModel(seriesEntries, options = {}){
+    const settings = sanitizeHistFrequencySettings(options.settings);
+    const safeEntries = Array.isArray(seriesEntries) ? seriesEntries : [];
+    const min = Number(options.min);
+    const max = Number(options.max);
+    if(!Number.isFinite(min) || !Number.isFinite(max) || !(max > min) || !safeEntries.length){
+      return null;
+    }
+    const allValuesInRange = [];
+    safeEntries.forEach(entry => {
+      const values = Array.isArray(entry?.values) ? entry.values : [];
+      values.forEach(value => {
+        const num = Number(value);
+        if(Number.isFinite(num) && num >= min && num <= max){
+          allValuesInRange.push(num);
+        }
+      });
+    });
+    if(!allValuesInRange.length){
+      return null;
+    }
+    const requestedCount = clampHistogramBinCount(options.countInputValue);
+    let edges = null;
+    if(settings.binningMode === HIST_BINNING_MODE.exact){
+      edges = buildExactFrequencyEdges(allValuesInRange, min, max);
+    }else if(settings.binningMode === HIST_BINNING_MODE.width){
+      const manualWidth = sanitizePositiveFinite(settings.manualBinWidth);
+      edges = buildUniformEdgesFromWidth(min, max, manualWidth, settings);
+      if(!edges){
+        edges = buildUniformEdgesFromCount(min, max, requestedCount);
+      }
+    }else if(settings.binningMode === HIST_BINNING_MODE.auto){
+      const autoWidth = computeHistAutoBinWidth(safeEntries, { min, max });
+      edges = buildUniformEdgesFromWidth(min, max, autoWidth, {
+        firstCenterAuto: true,
+        lastCenterAuto: true
+      });
+      if(!edges){
+        edges = buildUniformEdgesFromCount(min, max, requestedCount);
+      }
+    }else{
+      edges = buildUniformEdgesFromCount(min, max, requestedCount);
+    }
+    if(!Array.isArray(edges) || edges.length < 2){
+      return null;
+    }
+    const binCount = edges.length - 1;
+    const centers = Array.from({ length: binCount }, (_, index) => (edges[index] + edges[index + 1]) / 2);
+    const cumulative = settings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
+    let yMax = 0;
+    let minPositive = Infinity;
+    const series = safeEntries.map(entry => {
+      const raw = new Array(binCount).fill(0);
+      const values = Array.isArray(entry?.values) ? entry.values : [];
+      values.forEach(value => {
+        const num = Number(value);
+        if(!Number.isFinite(num) || num < min || num > max){
+          return;
+        }
+        const idx = resolveHistogramBinIndex(num, edges);
+        if(idx >= 0){
+          raw[idx] += 1;
+        }
+      });
+      const inRangeCount = raw.reduce((sum, count) => sum + count, 0);
+      if(cumulative){
+        for(let index = 1; index < raw.length; index += 1){
+          raw[index] += raw[index - 1];
+        }
+      }
+      const display = raw.map(value => convertHistCountToDisplay(value, Math.max(inRangeCount, 1), settings));
+      display.forEach(value => {
+        if(Number.isFinite(value)){
+          if(value > yMax){
+            yMax = value;
+          }
+          if(value > 0 && value < minPositive){
+            minPositive = value;
+          }
+        }
+      });
+      return {
+        key: entry.key,
+        label: entry.label,
+        colIndex: entry.colIndex,
+        values: display,
+        rawValues: raw,
+        inRangeCount
+      };
+    });
+    const averageBinWidth = binCount > 0
+      ? edges.slice(1).reduce((sum, edge, index) => sum + Math.max(0, edge - edges[index]), 0) / binCount
+      : 1;
+    return {
+      type: 'frequency',
+      mode: settings.binningMode,
+      settings,
+      edges,
+      centers,
+      binCount,
+      binWidth: averageBinWidth > 0 ? averageBinWidth : 1,
+      metricLabel: getHistFrequencyMetricLabel(settings),
+      series,
+      yMax,
+      minPositive: Number.isFinite(minPositive) ? minPositive : null
+    };
+  }
+
   function draw(){
     const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     ensureAxisSettings();
     const plotMode = normalizeHistPlotMode(state.plotMode);
     const densityMode = plotMode === HIST_PLOT_MODE_DENSITY;
-    const seriesEntries = collectHistSeries();
+    const frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
+    const viewContext = resolveHistViewContext();
+    const seriesEntries = collectHistSeries({ matrix: viewContext.sourceData });
     const values = seriesEntries.flatMap(entry => entry.values);
     const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     if(!seriesEntries.length || !values.length){
       applyHistLegendGuardWidth(0);
+      syncHistFrequencyTableDataView(null, frequencySettings, {
+        context: viewContext,
+        reason: 'hist-frequency-view-clear-empty'
+      });
       if(typeof Shared.renderPlotNotice === 'function'){
         Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
       }else{
@@ -3235,7 +4211,9 @@
       return;
     }
     const fitSets = seriesEntries.map(entry => ({ ...entry, fits: prepareDistributionFits(entry.values) }));
-    const includePdf = !!state.distributionSettings.showPdf;
+    const includePdf = !densityMode
+      && frequencySettings.createMode !== HIST_FREQUENCY_CREATE_MODE.cumulative
+      && !!state.distributionSettings.showPdf;
     const includeCdf = densityMode ? false : !!state.distributionSettings.showCdf;
     const statsHelpers = Shared.stats || {};
     const alpha = Number(state.distributionSettings.alpha) > 0 ? Number(state.distributionSettings.alpha) : 0.05;
@@ -3386,7 +4364,7 @@
       const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
       return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
     };
-    const bins=Math.max(1,Math.floor(Number(histBins.value)||10));
+    const requestedBins=Math.max(1,Math.floor(Number(histBins.value)||10));
     const logY=histLogY.checked;
     const storedManualIntervalX = getAxisTickInterval('x');
     const storedManualIntervalY = getAxisTickInterval('y');
@@ -3472,6 +4450,8 @@
     let densitySeriesByKey=new Map();
     let sharedEdges=[];
     let binWidth=0;
+    let frequencyModel=null;
+    let bins=requestedBins;
     let yMin=0;
     let yMax=0;
     let yMinT=0;
@@ -3506,30 +4486,40 @@
           }
         }
       }else{
-        binWidth=(xScale.max-xScale.min)/bins || 1;
-        sharedEdges=Array.from({ length: bins + 1 }, (_, i) => xScale.min + i * binWidth);
-        histogramSeries=fitSets.map(entry => {
-          const counts=new Array(bins).fill(0);
-          entry.values.forEach(v => {
-            if(!Number.isFinite(v) || v < xScale.min || v > xScale.max){
-              return;
-            }
-            const idx = v === xScale.max
-              ? (bins - 1)
-              : Math.floor((v - xScale.min) / binWidth);
-            if(idx >= 0 && idx < bins){
-              counts[idx] += 1;
+        frequencyModel = buildHistFrequencyModel(fitSets, {
+          min: xScale.min,
+          max: xScale.max,
+          countInputValue: requestedBins,
+          settings: frequencySettings
+        });
+        if(!frequencyModel){
+          frequencyModel = buildHistFrequencyModel(fitSets, {
+            min: xScale.min,
+            max: xScale.max,
+            countInputValue: requestedBins,
+            settings: {
+              ...frequencySettings,
+              binningMode: HIST_BINNING_MODE.count,
+              createMode: HIST_FREQUENCY_CREATE_MODE.frequency,
+              tabulateMode: HIST_FREQUENCY_TABULATE_MODE.count
             }
           });
-          return { ...entry, counts };
-        });
+        }
+        sharedEdges = Array.isArray(frequencyModel?.edges) ? frequencyModel.edges.slice() : [];
+        binWidth = Number(frequencyModel?.binWidth) || ((xScale.max - xScale.min) / Math.max(requestedBins, 1)) || 1;
+        bins = Math.max(1, Number(frequencyModel?.binCount) || requestedBins);
+        histogramSeries = Array.isArray(frequencyModel?.series)
+          ? frequencyModel.series.map(entry => ({ ...entry, counts: Array.isArray(entry.values) ? entry.values.slice() : [] }))
+          : [];
         yMin=0;
-        yMax = histogramSeries.reduce((max, entry) => Math.max(max, Math.max(...entry.counts, 0)), 0);
+        yMax = Number(frequencyModel?.yMax) || histogramSeries.reduce((max, entry) => Math.max(max, Math.max(...entry.counts, 0)), 0);
         if(logY){
-          const minPositive = histogramSeries.reduce((min, entry) => {
-            const localMin = entry.counts.reduce((inner, val) => (val > 0 && val < inner ? val : inner), Infinity);
-            return localMin < min ? localMin : min;
-          }, Infinity);
+          const minPositive = Number.isFinite(Number(frequencyModel?.minPositive))
+            ? Number(frequencyModel.minPositive)
+            : histogramSeries.reduce((min, entry) => {
+              const localMin = entry.counts.reduce((inner, val) => (val > 0 && val < inner ? val : inner), Infinity);
+              return localMin < min ? localMin : min;
+            }, Infinity);
           yMin = Number.isFinite(minPositive) ? Math.max(minPositive, 1e-3) : 0.1;
           if(yMax <= 0){
             yMax = yMin * 10;
@@ -3540,21 +4530,27 @@
         yMax = yMin + 1;
       }
       if(includePdf || includeCdf){
+        const frequencySeriesByKey = new Map((frequencyModel?.series || []).map(entry => [entry.key, entry]));
         fitSets.forEach(entry => {
           if(!entry.fits.length){
             return;
           }
+          const frequencySeries = frequencySeriesByKey.get(entry.key) || null;
+          const inRangeCount = Math.max(1, Number(frequencySeries?.inRangeCount) || entry.values.length || 1);
           const metrics = computeOverlayMetrics(entry.fits, {
             xMin: xScale.min,
             xMax: xScale.max,
             binWidth,
-            sampleCount: entry.values.length,
+            sampleCount: inRangeCount,
             includePdf,
             includeCdf,
             plotPixels: W,
             scaleMode: densityMode ? HIST_PLOT_MODE_DENSITY : HIST_PLOT_MODE_HISTOGRAM
           });
-          const overlayMax = Math.max(metrics.pdfMax || 0, metrics.cdfMax || 0);
+          const overlayMaxRaw = Math.max(metrics.pdfMax || 0, metrics.cdfMax || 0);
+          const overlayMax = densityMode
+            ? overlayMaxRaw
+            : convertHistCountToDisplay(overlayMaxRaw, inRangeCount, frequencySettings);
           if(Number.isFinite(overlayMax) && overlayMax > yMax){
             yMax = overlayMax;
           }
@@ -3866,6 +4862,7 @@
       const sampleSteps = Math.min(240, Math.max(32, Math.round(plotW)));
       const yLowerBound = densityMode ? yMin : Math.max(0, yMin);
       const logLowerBound = logY ? Math.max(yLowerBound, 1e-6) : yLowerBound;
+      const frequencySeriesByKey = new Map((frequencyModel?.series || []).map(entry => [entry.key, entry]));
       const toDomainY = value => {
         if(logY){
           const safe = Math.max(value, logLowerBound);
@@ -3882,6 +4879,8 @@
           const strokeWidth = Number.isFinite(Number(fit.strokeWidth)) ? Number(fit.strokeWidth) : Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
           const strokePattern = sanitizeHistOverlayPattern(fit.pattern || 'solid');
           const strokeOpacity = Number.isFinite(Number(fit.alpha)) ? fit.alpha : (seriesEntries.length > 1 ? 0.85 : 1);
+          const frequencySeries = frequencySeriesByKey.get(entry.key) || null;
+          const inRangeCount = Math.max(1, Number(frequencySeries?.inRangeCount) || entry.values.length || 1);
           if(includePdf && typeof fit.pdf === 'function' && effectiveBinWidth > 0){
             const parts=[];
             for(let step=0;step<sampleSteps;step++){
@@ -3889,7 +4888,10 @@
               const x=xScale.min+(xScale.max-xScale.min)*t;
               const density=fit.pdf(x);
               if(!Number.isFinite(density) || density<0){ continue; }
-              const expected = densityMode ? density : density*entry.values.length*effectiveBinWidth;
+              const expectedRaw = densityMode ? density : density * inRangeCount * effectiveBinWidth;
+              const expected = densityMode
+                ? expectedRaw
+                : convertHistCountToDisplay(expectedRaw, inRangeCount, frequencySettings);
               const yDomain=toDomainY(expected);
               parts.push(`${parts.length===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
             }
@@ -3919,7 +4921,8 @@
               const t=sampleSteps===1?0:step/(sampleSteps-1);
               const x=xScale.min+(xScale.max-xScale.min)*t;
               const cumulative=clampUnit(fit.cdf(x));
-              const expected = cumulative*entry.values.length;
+              const expectedRaw = cumulative * inRangeCount;
+              const expected = convertHistCountToDisplay(expectedRaw, inRangeCount, frequencySettings);
               const yDomain=toDomainY(expected);
               parts.push(`${parts.length===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
             }
@@ -4002,7 +5005,7 @@
     const applyHistYLabel=value=>{
       const nextValue=value!=null?String(value):'';
       state.yLabelText=nextValue;
-      state.yLabelAuto = nextValue === getHistDefaultYLabel(state.plotMode);
+      state.yLabelAuto = nextValue === getHistDefaultYLabel(state.plotMode, state.frequencySettings);
       state.scheduleDraw?.();
     };
     if(global.makeEditable){
@@ -4117,6 +5120,19 @@
         return { fit, gof, color: seriesEntries.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color };
       })
     })));
+    if(!densityMode){
+      const synced = syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
+        context: viewContext,
+        activate: false,
+        reason: 'hist-frequency-view-sync'
+      });
+      if(!synced){
+        syncHistFrequencyTableDataView(null, frequencySettings, {
+          context: viewContext,
+          reason: 'hist-frequency-view-clear'
+        });
+      }
+    }
     console.debug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
   }
 
@@ -4328,7 +5344,8 @@
     computeSummary: values => computeHistSummary(values),
     computeNormalFitDiagnostic: (values, options = {}) => computeHistNormalFitDiagnostic(values, options || {}),
     computeLognormalComparison: values => computeHistLognormalComparison(values),
-    kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b)
+    kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b),
+    computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {})
   });
 
 })(window);

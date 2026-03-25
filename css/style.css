@@ -4792,6 +4792,10 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #histGraphPanel .hist-dist-option input[type="checkbox"]{margin:0;width:16px;height:16px;accent-color:#0b63d1;}
 #histGraphPanel .hist-dist-swatch{width:12px;height:12px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);}
 #histGraphPanel .hist-overlay{mix-blend-mode:multiply;pointer-events:none;}
+#histGraphPanel .hist-bin-center-control{display:inline-flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0}
+#histGraphPanel .hist-bin-center-control .config-panel__item{margin:0}
+#histGraphPanel .hist-bin-center-control .config-panel__checkbox{margin:0}
+#histGraphPanel #histBinCentersRow input[type="number"]{min-width:88px;width:96px}
 #histPage .diagram-area .svgbox{flex:0 0 auto}
 #histPage .diagram-area .config-panel{flex:0 0 auto}
 #histPage .panel{display:flex;flex-direction:column;min-width:0}
