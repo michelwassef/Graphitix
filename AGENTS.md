@@ -1,6 +1,6 @@
-# Venn Workspace – Engineering Playbook
+# Graphitix Workspace – Engineering Playbook
 
-This guide captures the conventions that keep the Venn dashboard consistent across its many visualization workspaces. Every rule applies repository-wide unless a component-specific note states otherwise.
+This guide captures the conventions that keep the Graphitix dashboard consistent across its many visualization workspaces. Every rule applies repository-wide unless a component-specific note states otherwise.
 
 ## 0. Architecture Docs (Start Here)
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) – primary orientation map for runtime flow, namespaces, and component contracts.

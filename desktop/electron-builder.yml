@@ -1,5 +1,5 @@
-appId: com.venn.desktop
-productName: Venn
+appId: com.graphitix.desktop
+productName: Graphitix
 
 directories:
   output: dist

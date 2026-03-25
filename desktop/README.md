@@ -1,6 +1,6 @@
-# Venn Desktop Wrapper
+# Graphitix Desktop Wrapper
 
-This folder contains an Electron wrapper that coexists with the existing web app.
+This folder contains an Electron wrapper for the Graphitix web application.
 
 ## Commands
 
@@ -30,12 +30,12 @@ From `desktop/` directly:
 
 ## Notes
 
-- The website remains unchanged; Electron is an isolated wrapper.
+- The web app remains unchanged; Electron is an isolated wrapper.
 - Packaged desktop builds load `desktop/app/index.html`.
 - Runtime API bridge is exposed as `window.desktop` via `preload.cjs`.
 - Desktop sync rewrites CDN references to local `desktop/app/vendor/*` assets so packaged builds run without jsDelivr access.
 - GO/STRING/UniProt analysis features still require internet because they call external APIs.
-- `dist/win-unpacked/Venn.exe` is not standalone; it depends on sibling DLL files in the same folder.
+- `dist/win-unpacked/Graphitix.exe` is not standalone; it depends on sibling DLL files in the same folder.
 - For a copyable single executable, use the portable artifact from `npm run desktop:build:portable`.
 - Closing with unsaved workspace changes is handled by a native Electron dialog (`Save and Exit`, `Exit without Saving`, `Cancel`).
 - Symlinks are not used because desktop packaging applies offline-specific URL patching to a build copy (`desktop/app`); this keeps the website source unchanged.

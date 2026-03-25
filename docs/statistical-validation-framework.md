@@ -1,12 +1,12 @@
 # Statistical Validation Framework
 
-This repository includes a differential testing framework that compares Venn statistical outputs against an independent Python oracle (`SciPy`/`NumPy`).
+This repository includes a differential testing framework that compares Graphitix statistical outputs against an independent Python oracle (`SciPy`/`NumPy`).
 
 ## Goal
 
 Catch statistical implementation regressions by validating that:
 
-1. Venn JavaScript outputs stay numerically aligned with an external reference implementation.
+1. Graphitix JavaScript outputs stay numerically aligned with an external reference implementation.
 2. Invariants (metamorphic properties) hold for key analyses.
 3. Curated reference datasets and randomized datasets are both covered.
 

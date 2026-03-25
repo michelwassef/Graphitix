@@ -1,7 +1,7 @@
 {
-  "name": "venn",
+  "name": "graphitix",
   "version": "1.0.0",
-  "description": "Browser-based data visualization studio with Venn diagrams, box plots, scatter/volcano/MA plots, 3D surfaces, PCA/MDS/t-SNE/UMAP, line charts, heatmaps, ROC/PR curves, survival analysis, histograms, and pie charts. Features multi-tab workspaces, session management, and statistical analysis tools.",
+  "description": "Graphitix is a browser-based data visualization and statistical analysis studio with Venn diagrams, box plots, scatter/volcano/MA plots, 3D surfaces, heatmaps, PCA/MDS/t-SNE/UMAP, line charts, ROC/PR curves, survival analysis, histograms, and proportion charts. It includes multi-tab workspaces, publication-ready exports, and .graph session archives.",
   "main": "index.js",
   "scripts": {
     "test": "jest",

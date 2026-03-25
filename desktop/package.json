@@ -1,8 +1,8 @@
 {
-  "name": "venn-desktop",
+  "name": "graphitix-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "Electron desktop wrapper for the Venn web app",
+  "description": "Electron desktop wrapper for the Graphitix web app",
   "main": "main.cjs",
   "scripts": {
     "dev": "node scripts/dev.cjs",
@@ -23,6 +23,6 @@
     "svd-js": "^1.1.1"
   },
   "dependencies": {
-    "venn": "file:.."
+    "graphitix": "file:.."
   }
 }

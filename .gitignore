@@ -1,1 +1,10 @@
 node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/app/
+test-results/
+playwright-report/
+artifacts/
+benchmarks/
+scripts/__pycache__/
+*.pyc
