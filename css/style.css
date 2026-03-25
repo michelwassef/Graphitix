@@ -1706,7 +1706,7 @@ select {
     border-right: 1px solid #cbd5f5;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 0 12px 0 0;
+    border-radius: 0;
     box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
     padding: 0;
     width: 100%;
@@ -1722,7 +1722,8 @@ select {
     display: flex;
     align-items: stretch;
     gap: 0;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
+    max-width: calc(100% - 48px);
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x proximity;
@@ -1833,8 +1834,8 @@ select {
         inset -1px 0 0 #cbd5f5,
         inset 0 -1px 0 rgba(99, 102, 241, 0.2);
     border-radius: 0 !important;
-    border-top-left-radius: 8px !important;
-    border-top-right-radius: 8px !important;
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
     border-bottom-left-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
 }
@@ -1964,15 +1965,24 @@ select {
     font-weight: 600;
     width: 48px;
     min-width: 48px;
+    height: 100%;
+    min-height: 100%;
     padding: 0;
     border: none;
-    border-left: 1px solid #cbd5f5;
-    border-top: 3px solid transparent;
-    background: rgba(226, 232, 240, 0.9);
+    background: #f8fafc;
     color: #475569;
     cursor: pointer;
     transition: background 0.2s ease, color 0.2s ease;
     align-self: stretch;
+    box-shadow: inset 1px 0 0 #cbd5f5, inset -1px 0 0 #cbd5f5;
+}
+
+.workspace-add-tab::after {
+    display: none;
+}
+
+.workspace-tabs-list:has(.workspace-tab:last-child.is-active) + .workspace-add-tab {
+    box-shadow: inset -1px 0 0 #cbd5f5;
 }
 
 .workspace-add-tab:hover,
