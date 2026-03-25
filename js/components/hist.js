@@ -407,7 +407,7 @@
     return {
       createMode: HIST_FREQUENCY_CREATE_MODE.frequency,
       tabulateMode: HIST_FREQUENCY_TABULATE_MODE.count,
-      binningMode: HIST_BINNING_MODE.count,
+      binningMode: HIST_BINNING_MODE.auto,
       manualBinWidth: null,
       firstCenterAuto: true,
       firstCenter: null,
@@ -2982,7 +2982,12 @@
       const config = payload.config || {};
       importFontStyles('hist', config.fontStyles || null);
       const loadedPlotMode = normalizeHistPlotMode(config.plotMode);
-      state.frequencySettings = sanitizeHistFrequencySettings(config.frequency || state.frequencySettings);
+      const legacyFrequencyFallback = config.frequency
+        ? config.frequency
+        : ((config.bins !== undefined && config.bins !== null)
+          ? { binningMode: HIST_BINNING_MODE.count }
+          : createDefaultHistFrequencySettings());
+      state.frequencySettings = sanitizeHistFrequencySettings(legacyFrequencyFallback);
       applyHistPlotMode(loadedPlotMode, { schedule: false, syncDefaults: false });
       state.titleText = config.title || getHistDefaultTitle(loadedPlotMode);
       state.titleAuto = state.titleText === getHistDefaultTitle(loadedPlotMode);
@@ -3872,6 +3877,15 @@
     return Number.isFinite(rounded) && rounded > 0 ? rounded : null;
   }
 
+  function normalizeHistBinNumber(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return numeric;
+    }
+    const normalized = Number(numeric.toPrecision(12));
+    return Object.is(normalized, -0) ? 0 : normalized;
+  }
+
   function computeHistAutoBinWidth(seriesEntries, options = {}){
     const safeEntries = Array.isArray(seriesEntries) ? seriesEntries : [];
     const lower = Number(options.min);
@@ -3991,21 +4005,24 @@
     if(!Number.isFinite(safeWidth) || safeWidth <= 0){
       return null;
     }
+    const coverageMin = Number(min);
+    const coverageMax = Number(max);
+    if(!Number.isFinite(coverageMin) || !Number.isFinite(coverageMax) || coverageMax < coverageMin){
+      return null;
+    }
     const safeSettings = sanitizeHistFrequencySettings(settings);
     const half = safeWidth / 2;
     let firstCenter = safeSettings.firstCenterAuto ? null : sanitizeOptionalFinite(safeSettings.firstCenter);
     let lastCenter = safeSettings.lastCenterAuto ? null : sanitizeOptionalFinite(safeSettings.lastCenter);
     if(firstCenter == null && lastCenter == null){
-      const firstIndex = Math.floor((min - half) / safeWidth);
-      const lastIndex = Math.ceil((max - half) / safeWidth);
-      firstCenter = firstIndex * safeWidth + half;
-      lastCenter = lastIndex * safeWidth + half;
+      firstCenter = normalizeHistBinNumber(Math.ceil((coverageMin - half) / safeWidth) * safeWidth);
+      lastCenter = normalizeHistBinNumber(Math.ceil((coverageMax - half) / safeWidth) * safeWidth);
     }else if(firstCenter != null && lastCenter == null){
-      const needed = Math.max(0, Math.ceil((max - (firstCenter - half)) / safeWidth) - 1);
-      lastCenter = firstCenter + needed * safeWidth;
+      const needed = Math.max(0, Math.ceil((coverageMax - half - firstCenter) / safeWidth));
+      lastCenter = normalizeHistBinNumber(firstCenter + (needed * safeWidth));
     }else if(firstCenter == null && lastCenter != null){
-      const needed = Math.max(0, Math.ceil(((lastCenter + half) - min) / safeWidth) - 1);
-      firstCenter = lastCenter - needed * safeWidth;
+      const needed = Math.max(0, Math.ceil((lastCenter - half - coverageMin) / safeWidth));
+      firstCenter = normalizeHistBinNumber(lastCenter - (needed * safeWidth));
     }
     if(!Number.isFinite(firstCenter) || !Number.isFinite(lastCenter)){
       return null;
@@ -4015,11 +4032,23 @@
       firstCenter = lastCenter;
       lastCenter = swap;
     }
-    const stepCount = clampHistogramBinCount(Math.floor((lastCenter - firstCenter) / safeWidth) + 1);
-    const centers = Array.from({ length: stepCount }, (_, index) => firstCenter + index * safeWidth);
-    const startEdge = centers[0] - half;
+    const stepCount = clampHistogramBinCount(Math.floor(((lastCenter - firstCenter) / safeWidth) + 1e-9) + 1);
+    const centers = Array.from({ length: stepCount }, (_, index) => normalizeHistBinNumber(firstCenter + (index * safeWidth)));
+    const startEdge = normalizeHistBinNumber(centers[0] - half);
     const edges = [startEdge];
-    centers.forEach(center => edges.push(center + half));
+    centers.forEach(center => edges.push(normalizeHistBinNumber(center + half)));
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: hist bin centers resolved', {
+        width: safeWidth,
+        coverageMin,
+        coverageMax,
+        firstCenter,
+        lastCenter,
+        firstCenterAuto: safeSettings.firstCenterAuto,
+        lastCenterAuto: safeSettings.lastCenterAuto,
+        binCount: edges.length - 1
+      });
+    }
     return edges;
   }
 
@@ -4081,9 +4110,9 @@
   function buildHistFrequencyModel(seriesEntries, options = {}){
     const settings = sanitizeHistFrequencySettings(options.settings);
     const safeEntries = Array.isArray(seriesEntries) ? seriesEntries : [];
-    const min = Number(options.min);
-    const max = Number(options.max);
-    if(!Number.isFinite(min) || !Number.isFinite(max) || !(max > min) || !safeEntries.length){
+    const lower = Number(options.min);
+    const upper = Number(options.max);
+    if(!Number.isFinite(lower) || !Number.isFinite(upper) || !(upper > lower) || !safeEntries.length){
       return null;
     }
     const allValuesInRange = [];
@@ -4091,7 +4120,7 @@
       const values = Array.isArray(entry?.values) ? entry.values : [];
       values.forEach(value => {
         const num = Number(value);
-        if(Number.isFinite(num) && num >= min && num <= max){
+        if(Number.isFinite(num) && num >= lower && num <= upper){
           allValuesInRange.push(num);
         }
       });
@@ -4099,27 +4128,31 @@
     if(!allValuesInRange.length){
       return null;
     }
+    const dataMin = Math.min(...allValuesInRange);
+    const dataMax = Math.max(...allValuesInRange);
+    const binRangeMin = dataMax > dataMin ? dataMin : lower;
+    const binRangeMax = dataMax > dataMin ? dataMax : upper;
     const requestedCount = clampHistogramBinCount(options.countInputValue);
     let edges = null;
     if(settings.binningMode === HIST_BINNING_MODE.exact){
-      edges = buildExactFrequencyEdges(allValuesInRange, min, max);
+      edges = buildExactFrequencyEdges(allValuesInRange, binRangeMin, binRangeMax);
     }else if(settings.binningMode === HIST_BINNING_MODE.width){
       const manualWidth = sanitizePositiveFinite(settings.manualBinWidth);
-      edges = buildUniformEdgesFromWidth(min, max, manualWidth, settings);
+      edges = buildUniformEdgesFromWidth(binRangeMin, binRangeMax, manualWidth, settings);
       if(!edges){
-        edges = buildUniformEdgesFromCount(min, max, requestedCount);
+        edges = buildUniformEdgesFromCount(binRangeMin, binRangeMax, requestedCount);
       }
     }else if(settings.binningMode === HIST_BINNING_MODE.auto){
-      const autoWidth = computeHistAutoBinWidth(safeEntries, { min, max });
-      edges = buildUniformEdgesFromWidth(min, max, autoWidth, {
+      const autoWidth = computeHistAutoBinWidth(safeEntries, { min: lower, max: upper });
+      edges = buildUniformEdgesFromWidth(binRangeMin, binRangeMax, autoWidth, {
         firstCenterAuto: true,
         lastCenterAuto: true
       });
       if(!edges){
-        edges = buildUniformEdgesFromCount(min, max, requestedCount);
+        edges = buildUniformEdgesFromCount(binRangeMin, binRangeMax, requestedCount);
       }
     }else{
-      edges = buildUniformEdgesFromCount(min, max, requestedCount);
+      edges = buildUniformEdgesFromCount(binRangeMin, binRangeMax, requestedCount);
     }
     if(!Array.isArray(edges) || edges.length < 2){
       return null;
@@ -4134,7 +4167,7 @@
       const values = Array.isArray(entry?.values) ? entry.values : [];
       values.forEach(value => {
         const num = Number(value);
-        if(!Number.isFinite(num) || num < min || num > max){
+        if(!Number.isFinite(num) || num < lower || num > upper){
           return;
         }
         const idx = resolveHistogramBinIndex(num, edges);
@@ -5345,7 +5378,9 @@
     computeNormalFitDiagnostic: (values, options = {}) => computeHistNormalFitDiagnostic(values, options || {}),
     computeLognormalComparison: values => computeHistLognormalComparison(values),
     kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b),
-    computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {})
+    computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {}),
+    buildFrequencyModel: (seriesEntries, options = {}) => buildHistFrequencyModel(seriesEntries, options || {}),
+    getDefaultFrequencySettings: () => createDefaultHistFrequencySettings()
   });
 
 })(window);
