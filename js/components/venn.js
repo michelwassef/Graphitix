@@ -457,6 +457,7 @@
    * @property {HTMLSelectElement|null} plotType - Select box for Venn vs UpSet plot.
    * @property {Object|null} upset - UpSet plot controls group.
    * @property {HTMLButtonElement|null} stringBtn - Trigger button for STRING analysis.
+   * @property {HTMLElement|null} analysisResultsTabs - Tablist wrapper for analysis results.
    * @property {HTMLButtonElement|null} analysisTabGo - Tab button for GO analysis results.
    * @property {HTMLButtonElement|null} analysisTabString - Tab button for STRING analysis results.
    * @property {HTMLElement|null} goResults - Container for GO analysis results.
@@ -496,6 +497,8 @@
    * @property {Array|null} lastGOResult - Cached GO API response entries.
    * @property {string[]} lastGOFormatted - Cached formatted genes submitted to GO.
    * @property {string} lastGOOrganism - Organism code used for the last GO request.
+   * @property {boolean} goPerformed - Whether GO analysis has been run for the current state.
+   * @property {boolean} stringPerformed - Whether STRING analysis has been run for the current state.
    */
 
   /**
@@ -529,6 +532,7 @@
         goBtn: null,
         detectSpeciesBtn: null,
         stringBtn: null,
+        analysisResultsTabs: null,
         analysisTabGo: null,
         analysisTabString: null,
         plotType: null,
@@ -597,6 +601,8 @@
         lastGOResult: null,
         lastGOFormatted: [],
         lastGOOrganism: 'hsapiens',
+        goPerformed: false,
+        stringPerformed: false,
         activeResultsTab: 'go',
         lastRegionSignature: null,
         lastRegionCode: null,
@@ -2887,6 +2893,8 @@
     state.analysis.lastGOFormatted = [];
     state.analysis.lastStringSVG = null;
     state.analysis.lastStringEnrichment = null;
+    state.analysis.goPerformed = false;
+    state.analysis.stringPerformed = false;
     const canvas = document.getElementById('goChart');
     if (canvas) canvas.style.display = 'none';
     if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
@@ -2898,33 +2906,56 @@
     return String(tabName || '').trim().toLowerCase() === 'string' ? 'string' : 'go';
   }
 
+  function updateAnalysisResultsVisibility() {
+    const hasGo = !!state.analysis.goPerformed;
+    const hasString = !!state.analysis.stringPerformed;
+    const showTabs = hasGo && hasString;
+    if (state.ui.analysisResultsTabs) {
+      state.ui.analysisResultsTabs.hidden = !showTabs;
+    }
+    let visibleTab = normalizeAnalysisResultsTab(state.analysis.activeResultsTab);
+    if (showTabs) {
+      if (visibleTab === 'string' && !hasString) visibleTab = 'go';
+      if (visibleTab === 'go' && !hasGo) visibleTab = 'string';
+    } else if (hasString) {
+      visibleTab = 'string';
+    } else {
+      visibleTab = 'go';
+    }
+    const showGoPanel = showTabs ? visibleTab === 'go' : hasGo;
+    const showStringPanel = showTabs ? visibleTab === 'string' : hasString;
+    if (state.ui.analysisPanelGo) {
+      state.ui.analysisPanelGo.classList.toggle('is-active', showGoPanel);
+      state.ui.analysisPanelGo.hidden = !showGoPanel;
+    }
+    if (state.ui.analysisPanelString) {
+      state.ui.analysisPanelString.classList.toggle('is-active', showStringPanel);
+      state.ui.analysisPanelString.hidden = !showStringPanel;
+    }
+    if (state.ui.analysisTabGo) {
+      state.ui.analysisTabGo.classList.toggle('is-active', showTabs && visibleTab === 'go');
+      state.ui.analysisTabGo.setAttribute('aria-selected', showTabs && visibleTab === 'go' ? 'true' : 'false');
+      state.ui.analysisTabGo.tabIndex = showTabs && visibleTab === 'go' ? 0 : -1;
+    }
+    if (state.ui.analysisTabString) {
+      state.ui.analysisTabString.classList.toggle('is-active', showTabs && visibleTab === 'string');
+      state.ui.analysisTabString.setAttribute('aria-selected', showTabs && visibleTab === 'string' ? 'true' : 'false');
+      state.ui.analysisTabString.tabIndex = showTabs && visibleTab === 'string' ? 0 : -1;
+    }
+    return { hasGo, hasString, showTabs, visibleTab };
+  }
+
   function setActiveAnalysisResultsTab(tabName, options = {}) {
     const nextTab = normalizeAnalysisResultsTab(tabName);
     state.analysis.activeResultsTab = nextTab;
-    const isGo = nextTab === 'go';
-    if (state.ui.analysisTabGo) {
-      state.ui.analysisTabGo.classList.toggle('is-active', isGo);
-      state.ui.analysisTabGo.setAttribute('aria-selected', isGo ? 'true' : 'false');
-      state.ui.analysisTabGo.tabIndex = isGo ? 0 : -1;
-    }
-    if (state.ui.analysisTabString) {
-      state.ui.analysisTabString.classList.toggle('is-active', !isGo);
-      state.ui.analysisTabString.setAttribute('aria-selected', isGo ? 'false' : 'true');
-      state.ui.analysisTabString.tabIndex = isGo ? -1 : 0;
-    }
-    if (state.ui.analysisPanelGo) {
-      state.ui.analysisPanelGo.classList.toggle('is-active', isGo);
-      state.ui.analysisPanelGo.hidden = !isGo;
-    }
-    if (state.ui.analysisPanelString) {
-      state.ui.analysisPanelString.classList.toggle('is-active', !isGo);
-      state.ui.analysisPanelString.hidden = isGo;
-    }
+    const visibility = updateAnalysisResultsVisibility();
     if (options.syncPayload !== false) {
       syncActiveVennPayload(options.reason || 'venn-analysis-tab');
     }
     debug('Debug: venn analysis results tab set', {
       tab: nextTab,
+      visibleTab: visibility.visibleTab,
+      showTabs: visibility.showTabs,
       synced: options.syncPayload !== false
     });
     return nextTab;
@@ -3067,6 +3098,7 @@
       return;
     }
     const goResult = Array.isArray(analysis.goResult) ? analysis.goResult : null;
+    state.analysis.goPerformed = !!analysis.goPerformed || Array.isArray(goResult);
     if (goResult && goResult.length) {
       state.analysis.lastGOResult = cloneSimple(goResult) || goResult;
       state.analysis.lastGOFormatted = Array.isArray(analysis.goFormatted) ? analysis.goFormatted.slice() : [];
@@ -3082,6 +3114,9 @@
       state.analysis.lastStringSVG = analysis.stringSvg;
       renderStringNetwork(analysis.stringSvg);
     }
+    state.analysis.stringPerformed = !!analysis.stringPerformed
+      || (typeof analysis.stringSvg === 'string' && analysis.stringSvg.length > 0)
+      || Array.isArray(analysis.stringEnrichment);
     if (Array.isArray(analysis.stringEnrichment)) {
       state.analysis.lastStringEnrichment = cloneSimple(analysis.stringEnrichment) || analysis.stringEnrichment;
       renderStringResults(state.analysis.lastStringEnrichment, analysis.stringLimit || 5);
@@ -3552,8 +3587,10 @@
     state.analysis.lastGOFormatted = formatted;
     state.analysis.lastGOOrganism = org;
     state.analysis.lastGOResult = null;
+    state.analysis.goPerformed = true;
     renderGOChart();
     if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>Running GO analysis...</i>';
+    updateAnalysisResultsVisibility();
     let background;
     let domainScope;
     if (state.ui.goUseAllBackground?.checked) {
@@ -3579,6 +3616,7 @@
           goResult: results,
           goFormatted: formatted,
           goOrganism: org,
+          goPerformed: true,
           goLimit: Math.min(5, results.length || 5)
         }, { reason: 'venn-go-analysis-background' });
         return;
@@ -3589,6 +3627,7 @@
       } else if (state.ui.goResults) {
         state.ui.goResults.innerHTML = '<div>No GO results</div>';
       }
+      updateAnalysisResultsVisibility();
       syncActiveVennPayload('venn-go-analysis-complete');
     } catch (err) {
       console.error('runGOAnalysis error', err);
@@ -3597,11 +3636,13 @@
         updateTabAnalysisPayload(originTabId, {
           goResult: null,
           goFormatted: formatted,
-          goOrganism: org
+          goOrganism: org,
+          goPerformed: true
         }, { reason: 'venn-go-analysis-error' });
         return;
       }
       if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
+      updateAnalysisResultsVisibility();
     }
     debugLog('runGOAnalysis invoked', { organism: org, geneCount: formatted.length });
   }
@@ -3634,6 +3675,8 @@
     if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
     if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+    state.analysis.stringPerformed = true;
+    updateAnalysisResultsVisibility();
     const networkType = document.querySelector('input[name="stringNetworkType"]:checked')?.value || 'functional';
     const edgeMeaning = document.querySelector('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
     const sources = [...document.querySelectorAll('.stringSource:checked')].map(el => el.value);
@@ -3654,18 +3697,21 @@
       const activeTabId = resolveActiveVennTabId();
       if (originTabId && activeTabId !== originTabId) {
         updateTabAnalysisPayload(originTabId, {
-          stringSvg: network.svg
+          stringSvg: network.svg,
+          stringPerformed: true
         }, { reason: 'venn-string-network-background' });
       } else {
         state.analysis.lastStringSVG = network.svg;
         renderStringNetwork(network.svg);
       }
+      updateAnalysisResultsVisibility();
     } catch (err) {
       console.error('runStringAnalysis network error', err);
       const activeTabId = resolveActiveVennTabId();
       if (originTabId && activeTabId !== originTabId) {
         updateTabAnalysisPayload(originTabId, {
-          stringSvg: ''
+          stringSvg: '',
+          stringPerformed: true
         }, { reason: 'venn-string-network-error' });
         return;
       }
@@ -3673,6 +3719,7 @@
       state.analysis.lastStringEnrichment = null;
       if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
       if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+      updateAnalysisResultsVisibility();
     }
     try {
       const enrichment = await service.fetchEnrichment(requestOptions);
@@ -3681,23 +3728,27 @@
       if (originTabId && activeTabId !== originTabId) {
         updateTabAnalysisPayload(originTabId, {
           stringEnrichment: items,
+          stringPerformed: true,
           stringLimit: 5
         }, { reason: 'venn-string-enrichment-background' });
       } else {
         state.analysis.lastStringEnrichment = items;
         renderStringResults(items, 5);
       }
+      updateAnalysisResultsVisibility();
     } catch (err) {
       console.error('runStringAnalysis enrichment error', err);
       const activeTabId = resolveActiveVennTabId();
       if (originTabId && activeTabId !== originTabId) {
         updateTabAnalysisPayload(originTabId, {
-          stringEnrichment: null
+          stringEnrichment: null,
+          stringPerformed: true
         }, { reason: 'venn-string-enrichment-error' });
         return;
       }
       state.analysis.lastStringEnrichment = null;
       if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
+      updateAnalysisResultsVisibility();
     }
     if (originTabId && originTabId === resolveActiveVennTabId()) {
       syncActiveVennPayload('venn-string-analysis-complete');
@@ -5601,10 +5652,12 @@
         goFormatted: state.analysis.lastGOFormatted ? state.analysis.lastGOFormatted.slice() : [],
         goOrganism: state.analysis.lastGOOrganism || '',
         goLimit,
+        goPerformed: !!state.analysis.goPerformed,
         activeResultsTab: normalizeAnalysisResultsTab(state.analysis.activeResultsTab),
         stringSvg: state.analysis.lastStringSVG || '',
         stringEnrichment: state.analysis.lastStringEnrichment ? cloneSimple(state.analysis.lastStringEnrichment) : null,
         stringLimit: 5,
+        stringPerformed: !!state.analysis.stringPerformed,
         regionSelectValue: state.ui.regionSelect ? state.ui.regionSelect.value || '' : ''
       } : null
     };
@@ -5659,9 +5712,11 @@
       goFormatted: [],
       goOrganism: '',
       goLimit: 5,
+      goPerformed: false,
       stringSvg: '',
       stringEnrichment: null,
       stringLimit: 5,
+      stringPerformed: false,
       regionSelectValue: ''
     };
     return payload;
@@ -5855,9 +5910,13 @@
         state.analysis.lastGOResult = obj.analysis.goResult ? cloneSimple(obj.analysis.goResult) : null;
         state.analysis.lastGOFormatted = Array.isArray(obj.analysis.goFormatted) ? obj.analysis.goFormatted.slice() : [];
         state.analysis.lastGOOrganism = obj.analysis.goOrganism || '';
+        state.analysis.goPerformed = !!obj.analysis.goPerformed || Array.isArray(obj.analysis.goResult);
         state.analysis.activeResultsTab = normalizeAnalysisResultsTab(obj.analysis.activeResultsTab);
         state.analysis.lastStringSVG = obj.analysis.stringSvg || '';
         state.analysis.lastStringEnrichment = obj.analysis.stringEnrichment ? cloneSimple(obj.analysis.stringEnrichment) : null;
+        state.analysis.stringPerformed = !!obj.analysis.stringPerformed
+          || (typeof obj.analysis.stringSvg === 'string' && obj.analysis.stringSvg.length > 0)
+          || Array.isArray(obj.analysis.stringEnrichment);
         if(state.ui.regionSelect && Object.prototype.hasOwnProperty.call(obj.analysis, 'regionSelectValue')){
           state.ui.regionSelect.value = obj.analysis.regionSelectValue || '';
         }
@@ -5865,9 +5924,11 @@
         state.analysis.lastGOResult = null;
         state.analysis.lastGOFormatted = [];
         state.analysis.lastGOOrganism = '';
+        state.analysis.goPerformed = false;
         state.analysis.activeResultsTab = 'go';
         state.analysis.lastStringSVG = null;
         state.analysis.lastStringEnrichment = null;
+        state.analysis.stringPerformed = false;
       }
     }else{
       refreshDiagram();
@@ -6639,6 +6700,7 @@
     state.ui.goBtn = $('#goBtn');
     state.ui.detectSpeciesBtn = $('#detectSpeciesBtn');
     state.ui.stringBtn = $('#stringBtn');
+    state.ui.analysisResultsTabs = $('#analysisResultsTabs');
     state.ui.analysisTabGo = $('#analysisTabGo');
     state.ui.analysisTabString = $('#analysisTabString');
     state.ui.plotType = $('#vennPlotType');
@@ -6851,7 +6913,9 @@
       copyRegionBtnDisplay: state.ui.copyRegionBtn?.style?.display ?? null,
       goChartExportDisplay: state.ui.goChartExport?.style?.display ?? null,
       stringNetworkExportDisplay: state.ui.stringNetworkExport?.style?.display ?? null,
-      activeResultsTab: normalizeAnalysisResultsTab(state.analysis.activeResultsTab)
+      activeResultsTab: normalizeAnalysisResultsTab(state.analysis.activeResultsTab),
+      goPerformed: !!state.analysis.goPerformed,
+      stringPerformed: !!state.analysis.stringPerformed
     };
     const analysisState = {
       lastRegions: state.analysis.lastRegions,
@@ -6909,6 +6973,12 @@
       }
       if(Object.prototype.hasOwnProperty.call(cache.uiState, 'activeResultsTab')){
         state.analysis.activeResultsTab = normalizeAnalysisResultsTab(cache.uiState.activeResultsTab);
+      }
+      if(Object.prototype.hasOwnProperty.call(cache.uiState, 'goPerformed')){
+        state.analysis.goPerformed = !!cache.uiState.goPerformed;
+      }
+      if(Object.prototype.hasOwnProperty.call(cache.uiState, 'stringPerformed')){
+        state.analysis.stringPerformed = !!cache.uiState.stringPerformed;
       }
     }
     if(cache.analysisState){
