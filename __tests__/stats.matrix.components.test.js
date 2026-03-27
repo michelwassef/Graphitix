@@ -1,4 +1,11 @@
-const { runPythonOracle, indexOracleResults } = require('./helpers/pythonOracle');
+const {
+  runPythonOracle,
+  indexOracleResults,
+  detectPythonOracleAvailability
+} = require('./helpers/pythonOracle');
+
+const oracleAvailability = detectPythonOracleAvailability();
+const testWithOracle = oracleAvailability.available ? test : test.skip;
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
@@ -300,7 +307,7 @@ describe('Generated component statistics matrix', () => {
     scatterHooks = window.Components?.scatter?.__testHooks;
   });
 
-  test('box matrix covers parametric, non-parametric, paired, unpaired, exact, and asymptotic branches against oracle', () => {
+  testWithOracle('box matrix covers parametric, non-parametric, paired, unpaired, exact, and asymptotic branches against oracle', () => {
     const data = buildBoxCases();
     expect(boxHooks).toBeTruthy();
 
@@ -467,7 +474,7 @@ describe('Generated component statistics matrix', () => {
     expect(fried3.p).not.toBe(fried1.p);
   });
 
-  test('line matrix covers visible correlation and regression modes against oracle', () => {
+  testWithOracle('line matrix covers visible correlation and regression modes against oracle', () => {
     expect(lineHooks).toBeTruthy();
 
     const lineSpecs = [
@@ -554,7 +561,7 @@ describe('Generated component statistics matrix', () => {
     });
   });
 
-  test('line exact Spearman branch and forecast modes are differentially validated against oracle', () => {
+  testWithOracle('line exact Spearman branch and forecast modes are differentially validated against oracle', () => {
     const exactX = [1, 2, 3, 4, 5, 6, 7];
     const exactY = [4, 1, 6, 2, 7, 3, 5];
     const exact = lineHooks.computeLineStats(toPoints(exactX, exactY), 'spearman', { regressionMode: 'linear' });
@@ -637,7 +644,7 @@ describe('Generated component statistics matrix', () => {
     });
   });
 
-  test('scatter oracle-backed matrix covers supported regression families and parameter routing', () => {
+  testWithOracle('scatter oracle-backed matrix covers supported regression families and parameter routing', () => {
     expect(scatterHooks).toBeTruthy();
 
     const saturatingX = [0.2, 0.4, 0.8, 1.5, 2.5, 4, 6, 9, 13, 18];
@@ -900,7 +907,7 @@ describe('Generated component statistics matrix', () => {
     });
   });
 
-  test('scatter LOWESS fitter is differentially validated against oracle', () => {
+  testWithOracle('scatter LOWESS fitter is differentially validated against oracle', () => {
     expect(typeof scatterHooks?.fitScatterLowessRegression).toBe('function');
     const points = toPoints(
       [0, 1, 2, 3, 4, 5, 6, 7],

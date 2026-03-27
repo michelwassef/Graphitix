@@ -1,4 +1,11 @@
-const { runPythonOracle, indexOracleResults } = require('./helpers/pythonOracle');
+const {
+  runPythonOracle,
+  indexOracleResults,
+  detectPythonOracleAvailability
+} = require('./helpers/pythonOracle');
+
+const oracleAvailability = detectPythonOracleAvailability();
+const testWithOracle = oracleAvailability.available ? test : test.skip;
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
@@ -151,7 +158,7 @@ describe('Component statistical engines vs Python oracle', () => {
     survivalHooks = window.Components?.survival?.__testHooks;
   });
 
-  test('box / pie / roc / correlation / survival engines match oracle', () => {
+  testWithOracle('box / pie / roc / correlation / survival engines match oracle', () => {
     expect(boxHooks).toBeTruthy();
     expect(histHooks).toBeTruthy();
     expect(pieHooks).toBeTruthy();
@@ -452,7 +459,7 @@ describe('Component statistical engines vs Python oracle', () => {
     }
   });
 
-  test('hist descriptive and distribution-comparison hooks match oracle', () => {
+  testWithOracle('hist descriptive and distribution-comparison hooks match oracle', () => {
     expect(histHooks).toBeTruthy();
 
     const summaryValues = [1.2, 2.1, 2.4, 3.8, 4.1, 5.0, 5.6];
@@ -578,7 +585,7 @@ describe('Component statistical engines vs Python oracle', () => {
     expectClose(countModel.edges[countModel.edges.length - 1], 100, 'hist-auto-binning.countRange.lastEdge', { abs: 1e-12, rel: 1e-9 });
   });
 
-  test('randomized component differential checks stay aligned with oracle', () => {
+  testWithOracle('randomized component differential checks stay aligned with oracle', () => {
     const rng = createRng(20260310);
     const cases = [];
     const js = {};

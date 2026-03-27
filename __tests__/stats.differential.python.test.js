@@ -1,5 +1,12 @@
 const fixture = require('./fixtures/stats-oracle-cases.json');
-const { runPythonOracle, indexOracleResults } = require('./helpers/pythonOracle');
+const {
+  runPythonOracle,
+  indexOracleResults,
+  detectPythonOracleAvailability
+} = require('./helpers/pythonOracle');
+
+const oracleAvailability = detectPythonOracleAvailability();
+const testWithOracle = oracleAvailability.available ? test : test.skip;
 
 const ADJUST_METHODS = ['none', 'bonferroni', 'sidak', 'holm', 'holm-sidak', 'hochberg', 'bh', 'by'];
 
@@ -415,7 +422,7 @@ describe('Differential statistical validation against Python oracle', () => {
     };
   });
 
-  test('curated reference cases match Python oracle', () => {
+  testWithOracle('curated reference cases match Python oracle', () => {
     const cases = fixture.cases || [];
     const oracleResults = indexOracleResults(runPythonOracle(cases));
     expect(oracleResults.size).toBe(cases.length);
@@ -428,7 +435,7 @@ describe('Differential statistical validation against Python oracle', () => {
     });
   });
 
-  test('randomized differential suite matches Python oracle', () => {
+  testWithOracle('randomized differential suite matches Python oracle', () => {
     const cases = buildRandomDifferentialCases();
     const oracleResults = indexOracleResults(runPythonOracle(cases));
     expect(oracleResults.size).toBe(cases.length);
