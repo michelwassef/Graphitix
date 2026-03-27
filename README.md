@@ -116,4 +116,4 @@ Before publishing the repository or packaging a release:
 
 ## License
 
-Current package metadata declares `ISC`.
+This project is licensed under the MIT License. See [`LICENSE`](./LICENSE).

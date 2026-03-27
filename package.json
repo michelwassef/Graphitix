@@ -2,7 +2,7 @@
   "name": "graphitix",
   "version": "1.0.0",
   "description": "Graphitix is a browser-based data visualization and statistical analysis studio with Venn diagrams, box plots, scatter/volcano/MA plots, 3D surfaces, heatmaps, PCA/MDS/t-SNE/UMAP, line charts, ROC/PR curves, survival analysis, histograms, and proportion charts. It includes multi-tab workspaces, publication-ready exports, and .graph session archives.",
-  "main": "index.js",
+  "main": "./index.js",
   "scripts": {
     "test": "jest",
     "test:stats": "jest __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js __tests__/stats.matrix.components.test.js",
@@ -31,10 +31,25 @@
     "debug:browser:chromium": "playwright open --browser=chromium http://127.0.0.1:4173/index.html",
     "debug:browser:firefox": "playwright open --browser=firefox http://127.0.0.1:4173/index.html"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "graphitix",
+    "visualization",
+    "statistics",
+    "charts",
+    "bioinformatics"
+  ],
+  "author": "Michel Wassef",
   "license": "MIT",
   "type": "commonjs",
+  "files": [
+    "index.html",
+    "index.js",
+    "css/",
+    "js/",
+    "libs/",
+    "LICENSE",
+    "README.md"
+  ],
   "devDependencies": {
     "@playwright/test": "^1.52.0",
     "ag-grid-community": "^32.3.3",
