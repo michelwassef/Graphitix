@@ -325,6 +325,22 @@
     scheduleDrawScatter(options);
   }
 
+  function scheduleScatterPublicationStyleStabilization(reason){
+    const schedule = global.requestAnimationFrame || global.setTimeout;
+    if(typeof schedule !== 'function'){
+      scheduleScatterViewRefresh(reason || 'publication-style-stabilize');
+      return;
+    }
+    const queueSecondPass = () => {
+      scheduleScatterViewRefresh(reason || 'publication-style-stabilize', {
+        force: true
+      });
+    };
+    schedule(() => {
+      schedule(queueSecondPass);
+    });
+  }
+
   let scatterFontEventBound = false;
   function isScatterFontStyleEvent(detail){
     const scopeId = detail?.scopeId || null;
@@ -20273,6 +20289,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
+        const publicationStyleApply = typeof meta?.reason === 'string'
+          && meta.reason.indexOf('publication-style-scatter') === 0;
         if(!skipDraw && scheduleOriginal){
           if(styleOnly){
             scheduleOriginal({
@@ -20284,6 +20302,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
             });
           }
+        }
+        if(publicationStyleApply){
+          scheduleScatterPublicationStyleStabilization('publication-style-scatter-stabilize');
         }
         // No deferred reapply needed: stats context has been refreshed and versions set.
         scatterDebug('Debug: scatter payload applied', { source: meta.source || 'unknown', rows: dataMatrix.length });

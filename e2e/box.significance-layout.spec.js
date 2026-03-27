@@ -138,6 +138,22 @@ async function dragBoxVerticalHandle(page, deltaY) {
   await page.mouse.up();
 }
 
+async function dragBoxWidthHandle(page, deltaX) {
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-vertical');
+  await expect(handle).toBeVisible();
+  await handle.scrollIntoViewIfNeeded();
+  const box = await handle.boundingBox();
+  if (!box) {
+    throw new Error('Unable to resolve vertical resizer handle box');
+  }
+  const startX = box.x + Math.max(2, Math.min(box.width - 2, box.width / 2));
+  const startY = box.y + box.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY, { steps: 16 });
+  await page.mouse.up();
+}
+
 test('box significance bars keep plot height while shifting plot downward', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -225,6 +241,45 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterSignificanceManualResize.svgBoxHeightPx).toBeGreaterThan(after.svgBoxHeightPx + 8);
   expect(afterSignificanceManualResize.svgBoxWidthPx).toBeGreaterThan(after.svgBoxWidthPx + 6);
   expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.03);
+
+  expect(issues.critical).toEqual([]);
+});
+
+test('box width resize keeps the graph clear of the bottom tray', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.locator('#boxLoadExample').click();
+  await page.waitForTimeout(700);
+  await expect(page.locator('#boxPlot svg')).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(700);
+
+  const lockRatioToggle = page.locator('#boxGraphPanel .resizer-aspect-checkbox');
+  await expect(lockRatioToggle).toBeVisible();
+  if (!(await lockRatioToggle.isChecked())) {
+    await lockRatioToggle.check();
+    await page.waitForTimeout(250);
+  }
+
+  const before = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(before).not.toBeNull();
+  expect(before.controlsOverlapPx).not.toBeNull();
+  expect(before.controlsOverlapPx).toBeLessThanOrEqual(1.5);
+  expect(before.aspectLockMeta).toBe(true);
+
+  await dragBoxWidthHandle(page, -190);
+  await page.waitForTimeout(900);
+
+  const after = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(after).not.toBeNull();
+  expect(after.controlsOverlapPx).not.toBeNull();
+  expect(after.svgBoxWidthPx).not.toBeNull();
+  expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx - 80);
+  expect(after.aspectLockMeta).toBe(true);
+  expect(after.controlsOverlapPx).toBeLessThanOrEqual(1.5);
 
   expect(issues.critical).toEqual([]);
 });
