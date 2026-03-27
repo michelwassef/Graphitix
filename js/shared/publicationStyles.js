@@ -24,6 +24,7 @@
       label: 'Nature / NPG (single-column)'
     })
   });
+  const PUBLICATION_STYLE_ZOOM_LEVEL = 1.4;
 
   const FONT_CONTROL_IDS = Object.freeze({
     venn: Object.freeze({ inputId: 'fontsize', labelId: 'fontsizeVal' }),
@@ -621,6 +622,40 @@
     return true;
   }
 
+  function applyPublicationZoomToActiveGraph(type, zoomLevel, options = {}){
+    const descriptor = TYPE_TO_PAGE[type];
+    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
+    const svgBox = page?.querySelector?.('.svgbox') || null;
+    if(!svgBox){
+      debugLog('Debug: publicationStyles zoom apply skipped', {
+        type,
+        reason: 'missing-svgbox',
+        deferred: options.deferred === true
+      });
+      return false;
+    }
+    if(typeof Shared.applyResizableBoxZoom === 'function'){
+      const result = Shared.applyResizableBoxZoom(svgBox, {
+        level: zoomLevel,
+        reason: options.reason || `publication-style-${type}-zoom`
+      });
+      if(result != null){
+        debugLog('Debug: publicationStyles zoom applied', {
+          type,
+          zoomLevel,
+          deferred: options.deferred === true
+        });
+        return true;
+      }
+    }
+    debugLog('Debug: publicationStyles zoom apply skipped', {
+      type,
+      reason: 'missing-resizer-api',
+      deferred: options.deferred === true
+    });
+    return false;
+  }
+
   function applyPresetToActiveTab(type, presetId){
     const preset = presetId === PRESETS.npg_single.id ? NPG_SINGLE : null;
     if(!preset){
@@ -723,6 +758,16 @@
     if(typeof session.markSessionDirty === 'function'){
       session.markSessionDirty('publication-style-applied', { type, tabId: tab.id, preset: presetId });
     }
+
+    applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
+      reason: `publication-style-${type}-zoom-final`
+    });
+    global.setTimeout(() => {
+      applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
+        reason: `publication-style-${type}-zoom-post-final`,
+        deferred: true
+      });
+    }, 0);
 
     debugLog('Debug: publicationStyles applied to active tab', { type, tabId: tab.id, preset: presetId });
     return true;
