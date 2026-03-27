@@ -25303,7 +25303,12 @@ Technical analysis record (advanced)
       });
       console.debug('Debug: box font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: renderedXTicks, axisStrokeWidth });
-      chartStyle.applyLabelOrientation(xLabels,{ angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate, disableAuto: true });
+      chartStyle.applyLabelOrientation(xLabels,{
+        angle: -45,
+        anchor: 'end',
+        dy: '0.35em',
+        force: bottomLayout.shouldRotate
+      });
       if(xInterval && axisLabels.length){
         console.debug('Debug: box x-axis tick filter',{ interval: xInterval, rendered: renderedXTicks, total: axisLabels.length });
       }

@@ -656,6 +656,22 @@
     return false;
   }
 
+  function suspendPublicationGraphVisibility(type){
+    const descriptor = TYPE_TO_PAGE[type];
+    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
+    const svgBox = page?.querySelector?.('.svgbox') || null;
+    if(!svgBox || !svgBox.style){
+      return () => {};
+    }
+    const previousVisibility = svgBox.style.visibility;
+    svgBox.style.visibility = 'hidden';
+    debugLog('Debug: publicationStyles graph visibility suspended', { type });
+    return () => {
+      svgBox.style.visibility = previousVisibility || '';
+      debugLog('Debug: publicationStyles graph visibility restored', { type });
+    };
+  }
+
   function applyPresetToActiveTab(type, presetId){
     const preset = presetId === PRESETS.npg_single.id ? NPG_SINGLE : null;
     if(!preset){
@@ -684,93 +700,103 @@
       return false;
     }
 
+    const restoreGraphVisibility = suspendPublicationGraphVisibility(type);
     const preservedDefaults = captureDefaultState(type, session, domControls, workspace);
-
     try{
-      if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, { reason: `publication-style-pre-${type}` });
-      }
-    }catch(err){
-      console.error('publicationStyles pre-persist error', { type, err });
-    }
-
-    const sourcePayload = cloneValue(tab.payload)
-      || (typeof workspace.getPayload === 'function' ? workspace.getPayload() : null)
-      || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
-
-    let nextPayload = patchCommonPayload(type, sourcePayload, preset);
-    nextPayload = patchTypeSpecific(type, nextPayload, preset);
-    if(Shared.graphSizing && typeof Shared.graphSizing.setPayloadSizing === 'function'){
-      nextPayload = Shared.graphSizing.setPayloadSizing(nextPayload, buildSizingRecordForPreset(type, sourcePayload, preset), {
-        type,
-        context: `publication-style-payload-${type}`
-      });
-    }
-
-    // Persist payload and redraw.
-    if(typeof session.assignTabPayload === 'function'){
-      session.assignTabPayload(tab, cloneValue(nextPayload), { reason: `publication-style-${type}` });
-    }else{
-      tab.payload = cloneValue(nextPayload);
-    }
-    let sizingAppliedViaPayload = false;
-    if(typeof domControls.applyWorkspacePayload === 'function'){
-      domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), {
-        reason: `publication-style-${type}`,
-        payloadSizingOptions: {
-          context: `publication-style-${type}`,
-          updateDefaults: true,
-          updateAspectRatio: true,
-          preserveAspectLock: true,
-          forceExact: true
+      try{
+        if(typeof session.persistActiveTabState === 'function'){
+          session.persistActiveTabState(tab, { reason: `publication-style-pre-${type}` });
         }
-      });
-      sizingAppliedViaPayload = true;
-    }
-
-    applyTextSizeLockToActiveGraph(type, preset.textSizeLocked === true);
-
-    const manualFontApplied = applyManualFontSizeToActiveControl(type, preset.fontSizePt);
-    debugLog('Debug: publicationStyles font application route', {
-      type,
-      preset: presetId,
-      manualFontApplied,
-      sizingAppliedViaPayload
-    });
-
-    // Fallback path when workspace payload helpers are unavailable.
-    if(!sizingAppliedViaPayload){
-      applySizingToActiveSvgBox(type, nextPayload, preset);
-    }
-
-    restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
-    global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred'), 0);
-    global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize'), 180);
-
-    try{
-      if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, { reason: `publication-style-post-${type}`, forcePreviewCapture: true });
+      }catch(err){
+        console.error('publicationStyles pre-persist error', { type, err });
       }
-    }catch(err){
-      console.error('publicationStyles post-persist error', { type, err });
-    }
 
-    if(typeof session.markSessionDirty === 'function'){
-      session.markSessionDirty('publication-style-applied', { type, tabId: tab.id, preset: presetId });
-    }
+      const sourcePayload = cloneValue(tab.payload)
+        || (typeof workspace.getPayload === 'function' ? workspace.getPayload() : null)
+        || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
 
-    applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
-      reason: `publication-style-${type}-zoom-final`
-    });
-    global.setTimeout(() => {
-      applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
-        reason: `publication-style-${type}-zoom-post-final`,
-        deferred: true
+      let nextPayload = patchCommonPayload(type, sourcePayload, preset);
+      nextPayload = patchTypeSpecific(type, nextPayload, preset);
+      if(Shared.graphSizing && typeof Shared.graphSizing.setPayloadSizing === 'function'){
+        nextPayload = Shared.graphSizing.setPayloadSizing(nextPayload, buildSizingRecordForPreset(type, sourcePayload, preset), {
+          type,
+          context: `publication-style-payload-${type}`
+        });
+      }
+
+      // Persist payload and redraw.
+      if(typeof session.assignTabPayload === 'function'){
+        session.assignTabPayload(tab, cloneValue(nextPayload), { reason: `publication-style-${type}` });
+      }else{
+        tab.payload = cloneValue(nextPayload);
+      }
+      let sizingAppliedViaPayload = false;
+      if(typeof domControls.applyWorkspacePayload === 'function'){
+        domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), {
+          reason: `publication-style-${type}`,
+          payloadSizingOptions: {
+            context: `publication-style-${type}`,
+            updateDefaults: true,
+            updateAspectRatio: true,
+            preserveAspectLock: true,
+            forceExact: true
+          }
+        });
+        sizingAppliedViaPayload = true;
+      }
+
+      applyTextSizeLockToActiveGraph(type, preset.textSizeLocked === true);
+
+      const manualFontApplied = applyManualFontSizeToActiveControl(type, preset.fontSizePt);
+      debugLog('Debug: publicationStyles font application route', {
+        type,
+        preset: presetId,
+        manualFontApplied,
+        sizingAppliedViaPayload
       });
-    }, 0);
 
-    debugLog('Debug: publicationStyles applied to active tab', { type, tabId: tab.id, preset: presetId });
-    return true;
+      // Fallback path when workspace payload helpers are unavailable.
+      if(!sizingAppliedViaPayload){
+        applySizingToActiveSvgBox(type, nextPayload, preset);
+      }
+
+      restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
+      global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred'), 0);
+      global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize'), 180);
+
+      try{
+        if(typeof session.persistActiveTabState === 'function'){
+          session.persistActiveTabState(tab, { reason: `publication-style-post-${type}`, forcePreviewCapture: true });
+        }
+      }catch(err){
+        console.error('publicationStyles post-persist error', { type, err });
+      }
+
+      if(typeof session.markSessionDirty === 'function'){
+        session.markSessionDirty('publication-style-applied', { type, tabId: tab.id, preset: presetId });
+      }
+
+      applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
+        reason: `publication-style-${type}-zoom-final`
+      });
+      global.setTimeout(() => {
+        applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
+          reason: `publication-style-${type}-zoom-post-final`,
+          deferred: true
+        });
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(() => restoreGraphVisibility());
+        }else{
+          restoreGraphVisibility();
+        }
+      }, 0);
+
+      debugLog('Debug: publicationStyles applied to active tab', { type, tabId: tab.id, preset: presetId });
+      return true;
+    }catch(err){
+      restoreGraphVisibility();
+      throw err;
+    }
   }
 
   function renderControlForType(type, descriptor){
