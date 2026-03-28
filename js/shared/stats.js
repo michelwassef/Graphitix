@@ -1770,7 +1770,7 @@
   }
 
   function suppressThresholdControlsForPanel(target){
-    return !!(target && target.id === 'surfaceStatsSummary');
+    return !!(target && (target.id === 'surfaceStatsSummary' || target.id === 'pcaStatsResults'));
   }
 
   function ensurePanelScaffold(target, state){
