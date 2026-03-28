@@ -5501,23 +5501,13 @@
     const triggerRect = trigger.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
     const spaceBelow = bottomBoundary - triggerRect.bottom;
-    const spaceAbove = triggerRect.top;
-    if (menuRect.height > spaceBelow && spaceAbove > spaceBelow) {
-      menu.classList.add('open-up');
-      menu.style.bottom = 'calc(100% + 6px)';
-      menu.style.top = 'auto';
-      const maxHeight = Math.max(120, spaceAbove - 10);
+    menu.classList.remove('open-up');
+    menu.style.top = 'calc(100% + 6px)';
+    menu.style.bottom = 'auto';
+    if (menuRect.height > spaceBelow) {
+      const maxHeight = Math.max(120, spaceBelow - 10);
       menu.style.maxHeight = `${Math.floor(maxHeight)}px`;
       menu.style.overflowY = 'auto';
-    } else {
-      menu.classList.remove('open-up');
-      menu.style.top = 'calc(100% + 6px)';
-      menu.style.bottom = 'auto';
-      if (menuRect.height > spaceBelow) {
-        const maxHeight = Math.max(120, spaceBelow - 10);
-        menu.style.maxHeight = `${Math.floor(maxHeight)}px`;
-        menu.style.overflowY = 'auto';
-      }
     }
   }
 

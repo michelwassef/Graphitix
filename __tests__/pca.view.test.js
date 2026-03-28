@@ -132,20 +132,11 @@ describe('PCA view controls', () => {
     expect(screeContainer.hidden).toBe(false);
     expect(screeContainer.querySelector('svg')).toBeTruthy();
 
-    const varianceCard = document.getElementById('pcaVarianceSummary');
-    expect(varianceCard).toBeTruthy();
-    expect(varianceCard.hidden).toBe(false);
-    const varianceItems = Array.from(varianceCard.querySelectorAll('li'));
-    expect(varianceItems.length).toBeGreaterThan(0);
-
     const eigenContainer = document.getElementById('pcaEigenTableContainer');
     expect(eigenContainer).toBeTruthy();
     expect(eigenContainer.hidden).toBe(false);
     const eigenTable = document.querySelector('#pcaEigenTableWrapper table');
     expect(eigenTable).toBeTruthy();
-    const exportBtn = document.getElementById('pcaExportEigenTable');
-    expect(exportBtn).toBeTruthy();
-    expect(exportBtn.disabled).toBe(false);
 
     const payload = window.Components.pca.getPayload();
     expect(payload.stats).toBeTruthy();
@@ -156,7 +147,6 @@ describe('PCA view controls', () => {
     const firstEntry = payload.stats.eigenSummary[0];
     expect(firstEntry.component).toBe(1);
     expect(firstEntry.variancePercent).toBeGreaterThan(0);
-    expect(varianceItems[0].textContent).toContain(`PC${firstEntry.component}`);
     const cumulative = payload.stats.eigenSummary.map(item => item.cumulativeVariancePercent);
     const sorted = [...cumulative].sort((a, b) => a - b);
     expect(cumulative).toEqual(sorted);
@@ -174,10 +164,8 @@ describe('PCA view controls', () => {
     expect(payload.stats).toBeTruthy();
     expect(payload.config?.stats?.resultsHtml).toContain('Samples analysed');
 
-    const varianceCard = document.getElementById('pcaVarianceSummary');
     const eigenContainer = document.getElementById('pcaEigenTableContainer');
     const loadingsContainer = document.getElementById('pcaLoadingsContainer');
-    expect(varianceCard).toBeTruthy();
     expect(eigenContainer).toBeTruthy();
     expect(loadingsContainer).toBeTruthy();
 
@@ -185,7 +173,6 @@ describe('PCA view controls', () => {
     await flushAll(5);
 
     expect(payload.stats.method).toBe('pca');
-    expect(varianceCard.hidden).toBe(false);
     expect(eigenContainer.hidden).toBe(false);
     expect(loadingsContainer.hidden).toBe(false);
     expect(document.querySelector('#pcaScreePlot svg')).toBeTruthy();

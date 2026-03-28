@@ -5822,15 +5822,19 @@
         const plotWidth = width - margin.left - margin.right;
         const plotHeight = height - margin.top - margin.bottom;
         const svg = document.createElementNS(NS, 'svg');
+        if(config.svgId){
+          svg.setAttribute('id', String(config.svgId));
+        }
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', String(height));
         chartStyle.applySvgDefaults(svg);
         const pointList = Array.isArray(config.points) ? config.points : [];
+        const scalePointList = Array.isArray(config.scalePoints) ? config.scalePoints : pointList;
         const vectorList = Array.isArray(config.vectors) ? config.vectors : [];
         const allX = [];
         const allY = [];
-        pointList.forEach(point => {
+        scalePointList.forEach(point => {
           allX.push(Number(point?.x) || 0);
           allY.push(Number(point?.y) || 0);
         });
@@ -5926,9 +5930,13 @@
         if(staleLoadingsPlotCard?.parentNode){
           staleLoadingsPlotCard.parentNode.removeChild(staleLoadingsPlotCard);
         }
-        const { card: biplotCard, body: biplotBody } = ensurePcaDynamicStatsCard('pcaBiplotCard', 'Biplot', pcaLoadingsContainer || null);
+        const { card: biplotCard, body: biplotBody } = ensurePcaDynamicStatsCard('pcaBiplotCard', 'Biplot', pcaScreeContainer || pcaLoadingsContainer || null);
         if(biplotCard){
           biplotCard.setAttribute('data-stats-advanced', '0');
+          biplotCard.classList.add('pca-scree-row-biplot');
+          if(pcaScreeVarianceRow && biplotCard.parentNode !== pcaScreeVarianceRow){
+            pcaScreeVarianceRow.appendChild(biplotCard);
+          }
         }
         if(biplotBody){
           biplotBody.innerHTML = '';
@@ -5982,7 +5990,9 @@
             ? (Array.isArray(biplot.points) ? biplot.points : [])
             : [];
           biplotBody.appendChild(createPcaMiniScatterSvg({
+            svgId: 'pcaBiplotSvg',
             points: scorePoints,
+            scalePoints: Array.isArray(biplot.points) ? biplot.points : [],
             vectors: biplot.vectors,
             xLabel: biplot.xLabel || 'PC1',
             yLabel: biplot.yLabel || 'PC2',
@@ -5990,6 +6000,18 @@
             pointOpacity: 0.55,
             vectorColor: '#c7301f'
           }));
+          const biplotExportControls = document.createElement('div');
+          biplotExportControls.className = 'row idx-inline-043';
+          biplotExportControls.id = 'pcaBiplotExportControls';
+          biplotBody.appendChild(biplotExportControls);
+          if(Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function'){
+            Shared.exporter.mountSvgControls({
+              container: biplotExportControls,
+              svgSelector: '#pcaBiplotSvg',
+              fileName: 'pca-biplot',
+              contextLabel: 'pca-biplot-export'
+            });
+          }
         }
       }
       function restorePcaStatsFromPayload(options = {}){
@@ -6015,10 +6037,6 @@
           method,
           pointColor: pcaFill?.value || '#0000ff',
           parallelAnalysis: Array.isArray(lastPcaStats.parallelAnalysis) ? lastPcaStats.parallelAnalysis : []
-        });
-        renderVarianceSummary({
-          method,
-          data: method === 'pca' ? eigenSummary : []
         });
         renderEigenTable({
           show: method === 'pca' || method === 'mds',
@@ -6053,8 +6071,9 @@
       function updateScreeVarianceRowVisibility(){
         if(!pcaScreeVarianceRow){ return; }
         const screeVisible = !!pcaScreeContainer && !pcaScreeContainer.hidden;
-        const varianceVisible = !!pcaVarianceSummary && !pcaVarianceSummary.hidden;
-        pcaScreeVarianceRow.style.display = (screeVisible || varianceVisible) ? 'flex' : 'none';
+        const biplotCard = document.getElementById('pcaBiplotCard');
+        const biplotVisible = !!biplotCard && !biplotCard.hidden;
+        pcaScreeVarianceRow.style.display = (screeVisible || biplotVisible) ? 'flex' : 'none';
       }
       function resetStatsPanel(message){
         if(pcaStatsSummary){
@@ -6621,10 +6640,6 @@
           method: opts.method,
           pointColor: opts.pointColor,
           parallelAnalysis: opts.parallelAnalysis
-        });
-        renderVarianceSummary({
-          method: opts.method,
-          data: opts.varianceSummary,
         });
         renderEigenTable({
           show: opts.showEigenTable,

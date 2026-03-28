@@ -4679,13 +4679,16 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .stats-summary{font-size:13px;color:#3b4758;line-height:1.5;display:flex;flex-direction:column;gap:4px}
 #pcaPage .stats-table-message{font-size:13px;color:#6b7280}
 #pcaPage .stats-toggle-row{gap:12px;margin-bottom:8px}
-#pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;align-items:flex-start}
-#pcaPage .scree-card{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 320px;overflow:hidden}
+#pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;align-items:stretch}
+#pcaPage .scree-card{border:1.5px solid #c6cad1;border-radius:0;background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 320px;overflow:hidden}
 #pcaPage .scree-card__title{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
 #pcaPage .scree-card__toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:#1d2735;white-space:nowrap}
 #pcaPage #pcaScreePlot{padding:12px 16px 0}
 #pcaPage #pcaScreeExportControls{padding:10px 16px}
 #pcaPage .scree-card svg{width:100%;height:auto;max-height:320px}
+#pcaPage .scree-variance-row > #pcaScreeContainer,
+#pcaPage .scree-variance-row > #pcaBiplotCard.pca-scree-row-biplot{flex:1 1 320px;min-width:320px}
+#pcaPage .scree-variance-row > #pcaBiplotCard.pca-scree-row-biplot{margin-top:0;border-radius:0}
 #pcaPage .variance-card{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 260px;min-width:240px;overflow:hidden}
 #pcaPage .variance-card__title{font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
 #pcaPage .variance-card__table{width:100%;border-collapse:collapse;color:#1d2735;font-size:13px}
@@ -4719,6 +4722,10 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .loadings-card[data-shared-stats-table='1'] .loadings-card__actions{padding:10px 20px;border-top:1px solid #d7e0ef;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
 #pcaPage .loadings-card[data-shared-stats-table='1'] .loadings-card__range{font-size:13px}
 #pcaPage #pcaBiplotCard .loadings-card__table{max-height:none;overflow:visible}
+#pcaPage #pcaBiplotCard #pcaBiplotExportControls{padding:10px 16px}
+#pcaPage #pcaScreeContainer,
+#pcaPage #pcaBiplotCard{overflow:visible}
+#pcaPage #pcaScreeVarianceRow .export-dropdown.is-open{z-index:13000}
 #pcaPage .eigen-table-container{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;display:flex;flex-direction:column;gap:0}
 #pcaPage .eigen-table-wrapper{max-height:260px;overflow:auto;padding:0 16px 16px 16px}
 #pcaPage .eigen-table-wrapper .stats-table{min-width:100%}
