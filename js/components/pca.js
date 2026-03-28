@@ -3959,6 +3959,22 @@
         : rule === 'all'
           ? entries.length
           : (parallelAvailable ? parallelCount : kaiserCount);
+    const selectedThreshold = rule === 'kaiser'
+      ? 'Eigenvalue > 1'
+      : rule === 'threshold'
+        ? `Eigenvalue >= ${threshold.toFixed(2)}`
+        : rule === 'parallel'
+          ? (parallelAvailable ? 'Observed > random 95th percentile' : 'Unavailable')
+          : '—';
+    const selectedDetail = rule === 'kaiser'
+      ? 'Counts components above the classical Kaiser cutoff.'
+      : rule === 'threshold'
+        ? 'User-defined eigenvalue cutoff.'
+        : rule === 'parallel'
+          ? (parallelAvailable
+            ? `${parallel.iterations} permutations`
+            : (parallel?.reason || 'Requires PCA eigenvalues and SVD support.'))
+          : ruleLabel;
     return {
       rule,
       ruleLabel,
@@ -3972,29 +3988,9 @@
       rows: [
         {
           criterion: 'Selected rule',
-          threshold: rule === 'threshold' ? `Eigenvalue >= ${threshold.toFixed(2)}` : '—',
+          threshold: selectedThreshold,
           retained: String(retainedCount),
-          detail: ruleLabel
-        },
-        {
-          criterion: 'Kaiser',
-          threshold: 'Eigenvalue > 1',
-          retained: String(kaiserCount),
-          detail: 'Counts components above the classical Kaiser cutoff.'
-        },
-        {
-          criterion: 'Parallel analysis',
-          threshold: parallelAvailable ? 'Observed > random 95th percentile' : 'Unavailable',
-          retained: parallelAvailable ? String(parallelCount) : '—',
-          detail: parallelAvailable
-            ? `${parallel.iterations} permutations`
-            : (parallel?.reason || 'Requires PCA eigenvalues and SVD support.')
-        },
-        {
-          criterion: 'Custom threshold',
-          threshold: `Eigenvalue >= ${threshold.toFixed(2)}`,
-          retained: String(thresholdCount),
-          detail: 'User-defined eigenvalue cutoff.'
+          detail: selectedDetail
         }
       ]
     };
@@ -5926,6 +5922,10 @@
       }
       function renderPcaSupplementalPlots(options = {}){
         const method = String(options.method || '').toLowerCase();
+        const staleComponentSelectionCard = document.getElementById('pcaComponentSelectionSummaryCard');
+        if(staleComponentSelectionCard?.parentNode){
+          staleComponentSelectionCard.parentNode.removeChild(staleComponentSelectionCard);
+        }
         const staleLoadingsPlotCard = document.getElementById('pcaLoadingsPlotCard');
         if(staleLoadingsPlotCard?.parentNode){
           staleLoadingsPlotCard.parentNode.removeChild(staleLoadingsPlotCard);
@@ -6030,7 +6030,6 @@
           method,
           savedHtml: options.savedSummaryHtml
         });
-        renderPcaComponentSelectionSummary(lastPcaStats.selectionSummary || null);
         renderScreeChart({
           show: method === 'pca',
           data: screeData,
@@ -6111,7 +6110,7 @@
           pcaLoadingsContainer.hidden = true;
           delete pcaLoadingsContainer.dataset.sharedStatsTable;
         }
-        ['pcaComponentSelectionSummaryCard','pcaBiplotCard'].forEach(cardId => {
+        ['pcaBiplotCard'].forEach(cardId => {
           const card = document.getElementById(cardId);
           const body = document.getElementById(`${cardId}Body`);
           if(card){
@@ -6121,6 +6120,10 @@
             body.innerHTML = '';
           }
         });
+        const staleComponentSelectionCard = document.getElementById('pcaComponentSelectionSummaryCard');
+        if(staleComponentSelectionCard?.parentNode){
+          staleComponentSelectionCard.parentNode.removeChild(staleComponentSelectionCard);
+        }
         resetLoadingsActionsHost();
         if(pcaExportEigenTableBtn){
           pcaExportEigenTableBtn.disabled = true;
@@ -6630,7 +6633,6 @@
           summaryLines,
           method: opts.method
         });
-        renderPcaComponentSelectionSummary(opts.selectionSummary || null);
         if(!pcaStatsSummary && pcaStatsResults){
           pcaStatsResults.innerHTML = summaryLines.length ? summaryLines.join('<br>') : '<i>No statistics computed.</i>';
         }
