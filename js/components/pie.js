@@ -57,6 +57,7 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
+  const DEFAULT_PIE_FONT_SIZE_PT = 12;
   let emptyPayloadTemplate = null;
 
   function seedPieDefaultHeaderRow(matrix){
@@ -590,6 +591,12 @@
       const statsTarget = document.getElementById('pieStatsResults');
       if(statsTarget){
         statsTarget.innerHTML = '<div class="stats-table-message">Statistics will appear after rendering.</div>';
+        if(state.statsSignature !== null){
+          state.statsSignature = null;
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: pie stats signature reset after table edit');
+          }
+        }
       }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
@@ -660,6 +667,9 @@
     pieAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachPieSelectAutoSize(select, 'pie');
     });
+    if(pieFontSize && !Number.isFinite(Number(pieFontSize.value))){
+      pieFontSize.value = String(DEFAULT_PIE_FONT_SIZE_PT);
+    }
     if(pieFontSize?.dataset){
       pieFontSize.dataset.fontBasePt = String(pieFontSize.value);
       console.debug('Debug: pie font size base initialized',{ value: pieFontSize.value }); // Debug: initial base size
@@ -869,7 +879,7 @@
       const pieFontInput = document.getElementById('pieFontSize');
       const pieFontSizeVal = document.getElementById('pieFontSizeVal');
       if(pieFontInput){
-        pieFontInput.value = config.fontSize || pieFontInput.value;
+        pieFontInput.value = config.fontSize || pieFontInput.value || String(DEFAULT_PIE_FONT_SIZE_PT);
         if(pieFontInput.dataset){
           pieFontInput.dataset.fontBasePt = String(pieFontInput.value);
           console.debug('Debug: pie font size base restored',{ value: pieFontInput.value });
@@ -914,7 +924,7 @@
         startAngle: $('#pieStartAngle').value,
         borderColor: ($('#pieBorderColor')?.value || '#ffffff'),
         borderWidth: Number.isFinite(borderWidthVal) ? borderWidthVal : 0,
-        fontSize: $('#pieFontSize').value,
+        fontSize: $('#pieFontSize').value || String(DEFAULT_PIE_FONT_SIZE_PT),
         fontStyles: (exportFontStyles('pie') || undefined),
         valueColumn: $('#pieValueColumn').value,
         expectedColumn: $('#pieExpectedColumn').value,
@@ -1212,14 +1222,15 @@
     const isResizePreview = !!state.resizeState?.active;
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const pieFontInput=$('#pieFontSize');
+    const rawPieFontSize = pieFontInput?.value || String(DEFAULT_PIE_FONT_SIZE_PT);
     const fontInfo=chartStyle.resolveScaledFontSize({
-      rawSize: pieFontInput.value,
+      rawSize: rawPieFontSize,
       width: containerRect?.width,
       height: containerRect?.height,
       svgBox: state.svgBox,
       input: pieFontInput
     });
-    const fs=fontInfo.scaledPx;
+    const fs=fontInfo.scaledPx || DEFAULT_PIE_FONT_SIZE_PT;
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo, input: pieFontInput });
     console.debug('Debug: pie font scaling applied',{
       input:$('#pieFontSize').value,
@@ -1482,12 +1493,49 @@
       const barGap=Math.max(6,Math.round(barGapBase*fontScale));
       const availableWidth=Math.max(0,chartWidth-(barHeaders.length+1)*barGap);
       const barWidth=barHeaders.length?Math.max(0,availableWidth/barHeaders.length):0;
+      const barTotals=barHeaders.map((_,barIndex)=>segmentValues.reduce((sum,row)=>sum+(row[barIndex]||0),0));
+      let stackedPercentFontSize=fs;
+      if(showPerc){
+        const percentFont=chartStyle.makeFont(fs);
+        const horizontalPadding=Math.max(1,Math.round(2*fontScale));
+        const labelMaxWidth=Math.max(0,barWidth-horizontalPadding*2);
+        let widestLabelWidth=0;
+        let widestLabelText='';
+        barTotals.forEach((total,barIndex)=>{
+          if(!(total>0)){ return; }
+          segmentValues.forEach(row=>{
+            const value=row[barIndex]||0;
+            const frac=value/total;
+            if(!(frac>0)){ return; }
+            const labelText=(frac*100).toFixed(1)+'%';
+            const measuredWidth=chartStyle.measureText(labelText,percentFont);
+            if(measuredWidth>widestLabelWidth){
+              widestLabelWidth=measuredWidth;
+              widestLabelText=labelText;
+            }
+          });
+        });
+        if(widestLabelWidth>0 && labelMaxWidth>0){
+          const widthScale=Math.min(1,labelMaxWidth/widestLabelWidth);
+          stackedPercentFontSize=Math.max(1,fs*widthScale);
+        }
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: pie stacked percentage font auto-fit',{
+            baseFontSize: fs,
+            appliedFontSize: stackedPercentFontSize,
+            barWidth,
+            labelMaxWidth,
+            widestLabelText,
+            widestLabelWidth
+          });
+        }
+      }
       const xLabels=[];
       console.debug('Debug: pie stacked layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth,barGap,fontScale});
       let stackedXTickCount = 0;
       barHeaders.forEach((bh,j)=>{
         let y=margin.top+chartHeight;
-        const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0);
+        const total=barTotals[j]||0;
         segmentLabels.forEach((lab,i)=>{
           const val=segmentValues[i][j]||0;
           const frac=total?val/total:0;
@@ -1512,7 +1560,7 @@
             txt.setAttribute('y',y+h/2);
             txt.setAttribute('text-anchor','middle');
             txt.setAttribute('dominant-baseline','middle');
-            txt.setAttribute('font-size',fs);
+            txt.setAttribute('font-size',stackedPercentFontSize);
             txt.textContent=(frac*100).toFixed(1)+'%';
             markFontEditable(txt,'annotation',`stacked-annotation-${j}-${i}`);
             labelLayer.appendChild(txt);

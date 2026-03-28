@@ -14641,11 +14641,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           return values;
         };
         let layout = null;
+        const groupedReplicatePointsRequested = graphType === 'scatter'
+          && !!scatterShowGroupedReplicates?.checked;
         if(viewOnly
           && !scatterState.dataDirty
           && cachedCollect
           && cachedCollect.graphType === graphType
-          && cachedCollect.tableFormat === tableFormatMode){
+          && cachedCollect.tableFormat === tableFormatMode
+          && (
+            !cachedCollect.groupedScatterActive
+            || cachedCollect.showGroupedReplicatePoints === (
+              groupedReplicatePointsRequested
+              && !scatterGroupedXReplicates
+            )
+          )){
           groupedScatterActive = !!cachedCollect.groupedScatterActive;
           showGroupedReplicatePoints = !!cachedCollect.showGroupedReplicatePoints;
           hasZColumn = !!cachedCollect.hasZColumn;

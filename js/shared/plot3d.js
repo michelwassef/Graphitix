@@ -608,7 +608,7 @@
       return el;
     };
     const axisTickFormatters = cfg.axisTickFormatters || {};
-    const tickFontSize = Number.isFinite(cfg.tickFontSize) ? cfg.tickFontSize : Math.max(9, Math.round(fontSize * 0.85));
+    const tickFontSize = Number.isFinite(cfg.tickFontSize) ? cfg.tickFontSize : fontSize;
     const tickLength = Number.isFinite(cfg.tickLength) ? cfg.tickLength : Math.max(4, Math.round(fontSize * 0.5));
     const tickLabelGap = Number.isFinite(cfg.tickLabelGap) ? cfg.tickLabelGap : Math.max(2, Math.round(fontSize * 0.3));
     const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));

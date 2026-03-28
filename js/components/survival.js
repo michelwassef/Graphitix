@@ -3408,9 +3408,9 @@
       height: containerRect?.height,
       svgBox: refs.svgBox,
       input: refs.fontSize
-    }) : { scaledPx: Number(refs.fontSize?.value) || 13, pt: Number(refs.fontSize?.value) || 13, scaleInfo: { styleScale: 1 } };
+    }) : { scaledPx: Number(refs.fontSize?.value) || 12, pt: Number(refs.fontSize?.value) || 12, scaleInfo: { styleScale: 1 } };
     chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
-    const fs = fontInfo.scaledPx || 13;
+    const fs = fontInfo.scaledPx || 12;
     const styleScaleInfo = fontInfo.scaleInfo || { styleScale: 1 };
     const axisSettings = ensureAxisSettings();
     const axisStrokeWidthBase = axisSettings.strokeWidth;
@@ -4426,7 +4426,7 @@
         showFrame: !!refs.showFrame?.checked,
         showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
         timeMax: refs.timeMax?.value || '',
-        fontSize: refs.fontSize?.value || '13',
+        fontSize: refs.fontSize?.value || '12',
         fontStyles: (exportFontStyles('survival') || undefined),
         xLabel: refs.xLabel?.value || '',
         yLabel: refs.yLabel?.value || '',
@@ -4586,7 +4586,7 @@
       ensureSurvivalLegendControlPlacement();
     }
     if(refs.timeMax) refs.timeMax.value = config.timeMax || '';
-    if(refs.fontSize) refs.fontSize.value = config.fontSize || '13';
+    if(refs.fontSize) refs.fontSize.value = config.fontSize || '12';
     if(refs.fontSize && refs.fontSize.dataset){
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
       logDebug('font size base restored', { value: refs.fontSize.value });

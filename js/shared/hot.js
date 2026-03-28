@@ -5442,6 +5442,238 @@
       };
     };
 
+    const normalizeSelectedColumnsForMenu = (cols, fallbackColIdx)=>{
+      const normalized = Array.isArray(cols)
+        ? cols.filter(col => Number.isInteger(col) && col >= 0 && col < colCount)
+        : [];
+      if(!normalized.length && Number.isInteger(fallbackColIdx) && fallbackColIdx >= 0 && fallbackColIdx < colCount){
+        normalized.push(fallbackColIdx);
+      }
+      return Array.from(new Set(normalized)).sort((a, b)=>a - b);
+    };
+
+    const primeHeaderColumnSelectionForMenu = (cols, fallbackColIdx)=>{
+      const selectedCols = normalizeSelectedColumnsForMenu(cols, fallbackColIdx);
+      if(!selectedCols.length){
+        return [];
+      }
+      const firstCol = selectedCols[0];
+      const lastCol = selectedCols[selectedCols.length - 1];
+      const lastRow = Math.max(0, getVisualRowCount() - 1);
+      clearGridCellFocus(instance.gridApi);
+      focusGridContainer();
+      selectedHeaderColumns = new Set(selectedCols);
+      setLastRange({ from: { row: 0, col: firstCol }, to: { row: lastRow, col: lastCol } });
+      renderAg(instance.gridApi);
+      fireHook('afterSelectionEnd', 0, firstCol, lastRow, lastCol);
+      return selectedCols;
+    };
+
+    const dispatchPasteWithText = (text)=>{
+      if(typeof text !== 'string' || !text){
+        return false;
+      }
+      const doc = container?.ownerDocument || document;
+      const view = doc?.defaultView || global;
+      let pasteEvent = null;
+      try{
+        pasteEvent = new view.Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(pasteEvent, 'clipboardData', {
+          value: {
+            getData: (type)=>{
+              if(type === 'text/plain' || type === 'text' || type == null){
+                return text;
+              }
+              return '';
+            }
+          }
+        });
+      }catch(err){
+        pasteEvent = null;
+      }
+      if(!pasteEvent){
+        return false;
+      }
+      return !!container.dispatchEvent(pasteEvent);
+    };
+
+    const openColumnHeaderMenu = (event, colIdx)=>{
+      const idx = Number(colIdx);
+      if(!Number.isInteger(idx) || idx < 0){
+        return;
+      }
+      const moveState = getMoveColumnState(idx);
+      const headerSelection = resolveHeaderColumnSelectionInfo(idx);
+      const selectedCols = normalizeSelectedColumnsForMenu(headerSelection.columns, idx);
+      const selectionSpan = resolveSelectedColumnSpanForHeader(idx);
+      const canDelete = selectionSpan.count > 0;
+      const insertLabelCount = selectionSpan.count || 1;
+      const selectionStart = selectionSpan.start;
+      const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
+      const canExclude = selectedCols.some(col => !exclusionController.isColumnExcluded(col));
+      const canInclude = selectedCols.some(col => exclusionController.isColumnExcluded(col));
+      const canPaste = !!(navigator?.clipboard && typeof navigator.clipboard.readText === 'function');
+      const pluralSuffix = selectedCols.length === 1 ? '' : 's';
+      const items = [
+        {
+          label: `Insert ${insertLabelCount} column(s) before`,
+          disabled: selectionSpan.count <= 0,
+          action: ()=>{
+            const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+            instance.alter('insert_col_left', selectionStart, insertLabelCount, 'header-menu');
+            const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+            if(hasGlobalUndo){
+              undoManager.record({
+                label: `table:${debugLabel}:insert-cols`,
+                scope: undoScope,
+                undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', selectionStart, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
+                redo: ()=>{ instance.alter('insert_col_left', selectionStart, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
+              });
+            }
+          }
+        },
+        {
+          label: `Insert ${insertLabelCount} column(s) after`,
+          disabled: selectionSpan.count <= 0,
+          action: ()=>{
+            const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+            instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'header-menu');
+            const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+            if(hasGlobalUndo){
+              const insertAt = selectionEnd + 1;
+              undoManager.record({
+                label: `table:${debugLabel}:insert-cols`,
+                scope: undoScope,
+                undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', insertAt, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
+                redo: ()=>{ instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
+              });
+            }
+          }
+        },
+        {
+          label: `Delete ${selectionSpan.count || 1} column(s)`,
+          disabled: !canDelete,
+          action: ()=>{
+            const at = selectionStart;
+            const count = selectionSpan.count || 1;
+            const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+            const beforeHeaders = Array.isArray(colHeadersSetting) ? colHeadersSetting.slice(at, at + count) : null;
+            const beforeData = dataHandle.current.map(row => (Array.isArray(row) ? row.slice(at, at + count) : Array.from({ length: count }, ()=>'')));
+            instance.alter('remove_col', at, count, 'header-menu');
+            const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+            if(hasGlobalUndo){
+              undoManager.record({
+                label: `table:${debugLabel}:delete-cols`,
+                scope: undoScope,
+                undo: ()=>{
+                  instance.alter('insert_col_left', at, count, 'undo:delete-cols');
+                  const matrix = dataHandle.current;
+                  for(let r = 0; r < matrix.length; r++){
+                    const row = matrix[r] || [];
+                    for(let c = 0; c < count; c++){
+                      row[at + c] = beforeData[r]?.[c] ?? '';
+                    }
+                  }
+                  if(Array.isArray(colHeadersSetting) && Array.isArray(beforeHeaders)){
+                    colHeadersSetting.splice(at, count, ...beforeHeaders);
+                    colHeaders = resolveColHeaders(colCount);
+                  }
+                  exclusionController.importState(beforeExclusions);
+                  rebuildColumns(instance.gridApi);
+                  renderAg(instance.gridApi);
+                },
+                redo: ()=>{
+                  instance.alter('remove_col', at, count, 'redo:delete-cols');
+                  if(afterExclusions){
+                    exclusionController.importState(afterExclusions);
+                    renderAg(instance.gridApi);
+                  }
+                }
+              });
+            }
+          }
+        },
+        'separator',
+        {
+          label: 'Move column left',
+          disabled: !moveState.canMoveLeft,
+          action: ()=>{
+            if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft)){
+              commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
+            }
+          }
+        },
+        {
+          label: 'Move column right',
+          disabled: !moveState.canMoveRight,
+          action: ()=>{
+            if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight)){
+              commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
+            }
+          }
+        },
+        'separator',
+        {
+          label: `Copy column${pluralSuffix}`,
+          disabled: !selectedCols.length,
+          action: ()=>{
+            primeHeaderColumnSelectionForMenu(selectedCols, idx);
+            copySelectionToClipboard();
+          }
+        },
+        {
+          label: `Cut column${pluralSuffix}`,
+          disabled: !selectedCols.length,
+          action: ()=>{
+            primeHeaderColumnSelectionForMenu(selectedCols, idx);
+            cutSelectionToClipboard();
+          }
+        },
+        {
+          label: `Paste into column${pluralSuffix}`,
+          disabled: !selectedCols.length || !canPaste,
+          action: async ()=>{
+            const colsToUse = primeHeaderColumnSelectionForMenu(selectedCols, idx);
+            if(!colsToUse.length){
+              return;
+            }
+            let text = '';
+            try{
+              text = await navigator.clipboard.readText();
+            }catch(err){
+              console.error('Shared.hot AG header menu paste read failed', err);
+              return;
+            }
+            dispatchPasteWithText(text);
+          }
+        },
+        'separator',
+        {
+          label: `Exclude column${pluralSuffix} from analysis`,
+          disabled: !canExclude,
+          action: ()=>{
+            applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
+              exclusionController.markColumns(selectedCols, true);
+            });
+            triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
+          }
+        }
+      ];
+      if(canInclude){
+        items.push({
+          label: `Include column${pluralSuffix} in analysis`,
+          disabled: false,
+          action: ()=>{
+            applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
+              exclusionController.markColumns(selectedCols, false);
+            });
+            triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
+          }
+        });
+      }
+      openCustomMenu(event, items);
+    };
+
     const startColumnHandleDrag = (colIds)=>{
       const list = Array.isArray(colIds) ? colIds.filter(id => typeof id === 'string' && id.startsWith('c')) : [];
       if(!list.length){
@@ -5997,137 +6229,7 @@
         if(!Number.isInteger(colIdx) || colIdx < 0){
           return;
         }
-        const moveState = getMoveColumnState(colIdx);
-        const headerSelection = resolveHeaderColumnSelectionInfo(colIdx);
-        const selectedCols = headerSelection.columns.length ? headerSelection.columns : [colIdx];
-        const selectionSpan = resolveSelectedColumnSpanForHeader(colIdx);
-        const canDelete = selectionSpan.count > 0;
-        const insertLabelCount = selectionSpan.count || 1;
-        const selectionStart = selectionSpan.start;
-        const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
-        const canExclude = selectedCols.some(col => !exclusionController.isColumnExcluded(col));
-        const canInclude = selectedCols.some(col => exclusionController.isColumnExcluded(col));
-        const items = [
-          {
-            label: `Insert ${insertLabelCount} column(s) before`,
-            disabled: selectionSpan.count <= 0,
-            action: ()=>{
-              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              instance.alter('insert_col_left', selectionStart, insertLabelCount, 'header-menu');
-              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              if(hasGlobalUndo){
-                undoManager.record({
-                  label: `table:${debugLabel}:insert-cols`,
-                  scope: undoScope,
-                  undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', selectionStart, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
-                  redo: ()=>{ instance.alter('insert_col_left', selectionStart, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
-                });
-              }
-            }
-          },
-          {
-            label: `Insert ${insertLabelCount} column(s) after`,
-            disabled: selectionSpan.count <= 0,
-            action: ()=>{
-              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'header-menu');
-              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              if(hasGlobalUndo){
-                const insertAt = selectionEnd + 1;
-                undoManager.record({
-                  label: `table:${debugLabel}:insert-cols`,
-                  scope: undoScope,
-                  undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', insertAt, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
-                  redo: ()=>{ instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
-                });
-              }
-            }
-          },
-          {
-            label: `Delete ${selectionSpan.count || 1} column(s)`,
-            disabled: !canDelete,
-            action: ()=>{
-              const at = selectionStart;
-              const count = selectionSpan.count || 1;
-              const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              const beforeHeaders = Array.isArray(colHeadersSetting) ? colHeadersSetting.slice(at, at + count) : null;
-              const beforeData = dataHandle.current.map(row => (Array.isArray(row) ? row.slice(at, at + count) : Array.from({ length: count }, ()=>'')));
-              instance.alter('remove_col', at, count, 'header-menu');
-              const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              if(hasGlobalUndo){
-                undoManager.record({
-                  label: `table:${debugLabel}:delete-cols`,
-                  scope: undoScope,
-                  undo: ()=>{
-                    instance.alter('insert_col_left', at, count, 'undo:delete-cols');
-                    const matrix = dataHandle.current;
-                    for(let r = 0; r < matrix.length; r++){
-                      const row = matrix[r] || [];
-                      for(let c = 0; c < count; c++){
-                        row[at + c] = beforeData[r]?.[c] ?? '';
-                      }
-                    }
-                    if(Array.isArray(colHeadersSetting) && Array.isArray(beforeHeaders)){
-                      colHeadersSetting.splice(at, count, ...beforeHeaders);
-                      colHeaders = resolveColHeaders(colCount);
-                    }
-                    exclusionController.importState(beforeExclusions);
-                    rebuildColumns(instance.gridApi);
-                    renderAg(instance.gridApi);
-                  },
-                  redo: ()=>{
-                    instance.alter('remove_col', at, count, 'redo:delete-cols');
-                    if(afterExclusions){
-                      exclusionController.importState(afterExclusions);
-                      renderAg(instance.gridApi);
-                    }
-                  }
-                });
-              }
-            }
-          },
-          'separator',
-          {
-            label: 'Move column left',
-            disabled: !moveState.canMoveLeft,
-            action: ()=>{
-              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft)){
-                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
-              }
-            }
-          },
-          {
-            label: 'Move column right',
-            disabled: !moveState.canMoveRight,
-            action: ()=>{
-              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight)){
-                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
-              }
-            }
-          },
-          'separator',
-          {
-            label: `Exclude column${selectedCols.length === 1 ? '' : 's'} from analysis`,
-            disabled: !canExclude,
-            action: ()=>{
-              applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
-                exclusionController.markColumns(selectedCols, true);
-              });
-              triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
-            }
-          },
-          {
-            label: `Include column${selectedCols.length === 1 ? '' : 's'} in analysis`,
-            disabled: !canInclude,
-            action: ()=>{
-              applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
-                exclusionController.markColumns(selectedCols, false);
-              });
-              triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
-            }
-          }
-        ];
-        openCustomMenu(event, items);
+        openColumnHeaderMenu(event, colIdx);
       },
       getRowClass(params){
         const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
@@ -7898,138 +8000,7 @@
         if(!Number.isInteger(colIdx) || colIdx < 0){
           return;
         }
-        const moveState = getMoveColumnState(colIdx);
-        const headerSelection = resolveHeaderColumnSelectionInfo(colIdx);
-        const selectedCols = headerSelection.columns.length ? headerSelection.columns : [colIdx];
-        const selectionSpan = resolveSelectedColumnSpanForHeader(colIdx);
-        const insertLabelCount = selectionSpan.count || 1;
-        const selectionStart = selectionSpan.start;
-        const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
-        const canExclude = selectedCols.some(col => !exclusionController.isColumnExcluded(col));
-        const canInclude = selectedCols.some(col => exclusionController.isColumnExcluded(col));
-        const items = [
-          {
-            label: `Insert ${insertLabelCount} column(s) before`,
-            disabled: selectionSpan.count <= 0,
-            action: ()=>{
-              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              instance.alter('insert_col_left', selectionStart, insertLabelCount, 'header-menu');
-              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              if(hasGlobalUndo){
-                undoManager.record({
-                  label: `table:${debugLabel}:insert-cols`,
-                  scope: undoScope,
-                  undo: ()=>{ instance.alter('remove_col', selectionStart, insertLabelCount, 'undo:insert-cols'); if(prevExclusions) exclusionController.importState(prevExclusions); },
-                  redo: ()=>{ instance.alter('insert_col_left', selectionStart, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
-                });
-              }
-            }
-          },
-          {
-            label: `Insert ${insertLabelCount} column(s) after`,
-            disabled: selectionSpan.count <= 0,
-            action: ()=>{
-              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'header-menu');
-              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              if(hasGlobalUndo){
-                const insertAt = selectionEnd + 1;
-                undoManager.record({
-                  label: `table:${debugLabel}:insert-cols`,
-                  scope: undoScope,
-                  undo: ()=>{ instance.alter('remove_col', insertAt, insertLabelCount, 'undo:insert-cols'); if(prevExclusions) exclusionController.importState(prevExclusions); },
-                  redo: ()=>{ instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
-                });
-              }
-            }
-          },
-          {
-            label: `Delete ${selectionSpan.count || 1} column(s)`,
-            disabled: selectionSpan.count <= 0,
-            action: ()=>{
-              const at = selectionStart;
-              const count = selectionSpan.count || 1;
-              const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              const beforeHeaders = Array.isArray(colHeadersSetting) ? colHeadersSetting.slice(at, at + count) : null;
-              const beforeData = dataHandle.current.map(row => (Array.isArray(row) ? row.slice(at, at + count) : Array.from({ length: count }, ()=>'')));
-              instance.alter('remove_col', at, count, 'header-menu');
-              const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
-              if(hasGlobalUndo){
-                undoManager.record({
-                  label: `table:${debugLabel}:delete-cols`,
-                  scope: undoScope,
-                  undo: ()=>{
-                    instance.alter('insert_col_left', at, count, 'undo:delete-cols');
-                    const matrix = dataHandle.current;
-                    for(let r = 0; r < matrix.length; r++){
-                      const row = matrix[r] || [];
-                      for(let c = 0; c < count; c++){
-                        row[at + c] = beforeData[r]?.[c] ?? '';
-                      }
-                    }
-                    if(Array.isArray(colHeadersSetting) && Array.isArray(beforeHeaders)){
-                      colHeadersSetting.splice(at, count, ...beforeHeaders);
-                      colHeaders = resolveColHeaders(colCount);
-                    }
-                    if(beforeExclusions){
-                      exclusionController.importState(beforeExclusions);
-                    }
-                    rebuildColumns(instance.gridApi);
-                    renderAg(instance.gridApi);
-                  },
-                  redo: ()=>{
-                    instance.alter('remove_col', at, count, 'redo:delete-cols');
-                    if(afterExclusions){
-                      exclusionController.importState(afterExclusions);
-                      renderAg(instance.gridApi);
-                    }
-                  }
-                });
-              }
-            }
-          },
-          'separator',
-          {
-            label: 'Move column left',
-            disabled: !moveState.canMoveLeft,
-            action: ()=>{
-              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft)){
-                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
-              }
-            }
-          },
-          {
-            label: 'Move column right',
-            disabled: !moveState.canMoveRight,
-            action: ()=>{
-              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight)){
-                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
-              }
-            }
-          },
-          'separator',
-          {
-            label: `Exclude column${selectedCols.length === 1 ? '' : 's'} from analysis`,
-            disabled: !canExclude,
-            action: ()=>{
-              applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
-                exclusionController.markColumns(selectedCols, true);
-              });
-              triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
-            }
-          },
-          {
-            label: `Include column${selectedCols.length === 1 ? '' : 's'} in analysis`,
-            disabled: !canInclude,
-            action: ()=>{
-              applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
-                exclusionController.markColumns(selectedCols, false);
-              });
-              triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
-            }
-          }
-        ];
-        openCustomMenu(event, items);
+        openColumnHeaderMenu(event, colIdx);
       };
 
       container.addEventListener('mousedown', handleRowHeaderMouseDown, true);

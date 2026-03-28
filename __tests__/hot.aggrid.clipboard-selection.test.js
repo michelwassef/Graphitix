@@ -1203,6 +1203,10 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(labels).toContain('Insert 2 column(s) before');
     expect(labels).toContain('Insert 2 column(s) after');
     expect(labels).toContain('Delete 2 column(s)');
+    expect(labels).toContain('Copy columns');
+    expect(labels).toContain('Cut columns');
+    expect(labels).toContain('Paste into columns');
+    expect(labels).not.toContain('Include columns in analysis');
 
     const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 column(s)');
     expect(deleteEntry).toBeTruthy();
@@ -1210,6 +1214,109 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     // After deleting cols 1..2, col1 should now contain former col3 (D0).
     expect(hot.getDataAtCell(0, 1)).toBe('D0');
+  });
+
+  test('column header context menu shows Include only when selected column is excluded', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuIncludeColsHot';
+    document.body.appendChild(container);
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-include-cols',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1']
+        ]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c0');
+    container.appendChild(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+    let menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    let labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Exclude column from analysis');
+    expect(labels).not.toContain('Include column in analysis');
+
+    const excludeEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Exclude column from analysis');
+    expect(excludeEntry).toBeTruthy();
+    excludeEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 12, clientY: 12 }));
+    menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Include column in analysis');
+  });
+
+  test('column header context menu copy/cut/paste actions operate on header-selected column', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuClipboardColsHot';
+    document.body.appendChild(container);
+
+    const writeText = jest.fn(async () => {});
+    const readText = jest.fn(async () => 'P0\nP1');
+    global.window.navigator.clipboard = { writeText, readText };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-clipboard-cols',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1']
+        ]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c0');
+    container.appendChild(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    let menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const copyEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Copy column');
+    expect(copyEntry).toBeTruthy();
+    copyEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(writeText).toHaveBeenCalled();
+    expect(writeText.mock.calls.at(-1)[0]).toBe('A0\nA1');
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 21, clientY: 21 }));
+    menu = document.querySelector('.ag-hot-menu');
+    const cutEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Cut column');
+    expect(cutEntry).toBeTruthy();
+    cutEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(writeText.mock.calls.at(-1)[0]).toBe('A0\nA1');
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 22, clientY: 22 }));
+    menu = document.querySelector('.ag-hot-menu');
+    const pasteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Paste into column');
+    expect(pasteEntry).toBeTruthy();
+    pasteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(readText).toHaveBeenCalled();
+    expect(hot.getDataAtCell(0, 0)).toBe('P0');
+    expect(hot.getDataAtCell(1, 0)).toBe('P1');
   });
 
   test('row header context menu supports insert/delete for selected rows', () => {

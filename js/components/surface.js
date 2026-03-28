@@ -145,7 +145,7 @@
     settings: {
       colorRamp: 'viridis',
       interpolation: 'grid',
-      fontSize: 13,
+      fontSize: 12,
       axisStroke: 1.2,
       axisColor: '#3b3b3b',
       textColor: '#000000',
@@ -1386,7 +1386,7 @@
     }
     barHeight = Math.max(60, barHeight);
     // Calculate legend dimensions based on font size and available space (following roc.js pattern)
-    const fontSize = options.fontSize || 13;
+    const fontSize = options.fontSize || 12;
     const barWidth = Math.max(14, fontSize * 0.8);
     const legendRightPad = Math.max(36, fontSize * 1.9);
     
@@ -1610,7 +1610,7 @@
     }
     if(state.controls.fontSize){
       attachListener(state.controls.fontSize, 'input', () => {
-        state.settings.fontSize = Number(state.controls.fontSize.value) || 13;
+        state.settings.fontSize = Number(state.controls.fontSize.value) || 12;
         if(chartStyle.renderFontSizeLabel){
           chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, pt: state.settings.fontSize, input: state.controls.fontSize, manual: true });
         }

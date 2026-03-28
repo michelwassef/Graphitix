@@ -5874,7 +5874,7 @@
             const label = document.createElementNS(NS, 'text');
             label.setAttribute('x', String(xScale(point.x) + 4));
             label.setAttribute('y', String(yScale(point.y) - 4));
-            label.setAttribute('font-size', '10');
+            label.setAttribute('font-size', '12');
             label.setAttribute('fill', axisColor);
             label.textContent = String(point.label);
             svg.appendChild(label);
@@ -5895,7 +5895,7 @@
             const label = document.createElementNS(NS, 'text');
             label.setAttribute('x', String(endX + 4));
             label.setAttribute('y', String(endY - 4));
-            label.setAttribute('font-size', '10');
+            label.setAttribute('font-size', '12');
             label.setAttribute('fill', config.vectorColor || '#c7301f');
             label.textContent = String(vector.label);
             svg.appendChild(label);
@@ -5905,7 +5905,7 @@
         xLabel.setAttribute('x', String(margin.left + plotWidth / 2));
         xLabel.setAttribute('y', String(height - 10));
         xLabel.setAttribute('text-anchor', 'middle');
-        xLabel.setAttribute('font-size', '11');
+        xLabel.setAttribute('font-size', '12');
         xLabel.setAttribute('fill', axisColor);
         xLabel.textContent = config.xLabel || 'PC1';
         svg.appendChild(xLabel);
@@ -5913,7 +5913,7 @@
         yLabel.setAttribute('x', '16');
         yLabel.setAttribute('y', String(margin.top + plotHeight / 2));
         yLabel.setAttribute('text-anchor', 'middle');
-        yLabel.setAttribute('font-size', '11');
+        yLabel.setAttribute('font-size', '12');
         yLabel.setAttribute('fill', axisColor);
         yLabel.setAttribute('transform', `rotate(-90 16 ${margin.top + plotHeight / 2})`);
         yLabel.textContent = config.yLabel || 'PC2';
@@ -6221,7 +6221,7 @@
         const height = 300;
         const margin = { top: 26, right: 28, bottom: 54, left: 78 };
         const axisTickFontSize = 12;
-        const axisTitleFontSize = 13;
+        const axisTitleFontSize = 12;
         const legendFontSize = 11;
         const plotWidth = Math.max(20, width - margin.left - margin.right);
         const plotHeight = Math.max(20, height - margin.top - margin.bottom);

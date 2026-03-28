@@ -7,7 +7,7 @@
   const TEXT_COLOR = '#000000';
   const BASE_BOTTOM_FACTOR = 2.4;
   const PT_TO_PX = 96 / 72;
-  const BASE_FONT_SIZE_PX = 17;
+  const BASE_FONT_SIZE_PX = 16;
   const BASE_FONT_SIZE_PT = Number((BASE_FONT_SIZE_PX / PT_TO_PX).toFixed(2));
   const MIN_DEFAULT_SIZE = 320;
   const FALLBACK_VIEWPORT_WIDTH = 960;

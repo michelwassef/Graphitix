@@ -360,7 +360,7 @@
   const HEATMAP_AUTO_DRAW_COL_THRESHOLD = 5000;
   const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const HEATMAP_DATA_VIEW_MAX = 12;
-  const DEFAULT_HEATMAP_FONT_SIZE_PT = 13;
+  const DEFAULT_HEATMAP_FONT_SIZE_PT = 12;
   const DEFAULT_HEATMAP_PALETTE = Object.freeze({
     negative: '#0000ff',
     zero: '#ffffff',

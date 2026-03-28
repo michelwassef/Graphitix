@@ -1674,7 +1674,7 @@
     if (typeof chartStyle.normalizeFontSize === 'function') {
       normalized = chartStyle.normalizeFontSize(rawSize);
     } else {
-      const basePt = chartStyle.BASE_FONT_SIZE_PT || 13;
+      const basePt = chartStyle.BASE_FONT_SIZE_PT || 12;
       const numeric = Number(rawSize);
       const pt = Number.isFinite(numeric) ? numeric : basePt;
       const factor = chartStyle.PT_TO_PX || (96 / 72);
@@ -5403,7 +5403,7 @@
       let savedFontValue = saved && typeof saved.fontsize !== 'undefined' ? saved.fontsize : null;
       if (saved && savedVersion < STYLE_VERSION) {
         const numeric = Number(savedFontValue);
-        const basePt = chartStyle.BASE_FONT_SIZE_PT || Number(inputs.fontsize.value) || 13;
+        const basePt = chartStyle.BASE_FONT_SIZE_PT || Number(inputs.fontsize.value) || 12;
         if (!Number.isFinite(numeric) || Math.round(numeric) === Math.round(LEGACY_DEFAULT_FONT_PT)) {
           savedFontValue = basePt;
           migrated = true;
@@ -5468,7 +5468,7 @@
       }
       if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
         if (inputs.fontsize?.dataset) {
-          inputs.fontsize.dataset.fontBasePt = String(inputs.fontsize.value || chartStyle.BASE_FONT_SIZE_PT || 13);
+          inputs.fontsize.dataset.fontBasePt = String(inputs.fontsize.value || chartStyle.BASE_FONT_SIZE_PT || 12);
         }
         chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: Number(inputs.fontsize.value), input: inputs.fontsize, manual: true });
         debug('Debug: venn loadStylePrefs font default', { fontSize: inputs.fontsize.value });
