@@ -4649,6 +4649,16 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .svgbox{background:#ffffff}
 #pcaPage #pcaRenderRow{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #pcaPage .pca-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
+#pcaPage .pca-method-advanced{margin:2px 0 0;border:0;background:transparent}
+#pcaPage .pca-method-advanced__summary{cursor:pointer;list-style:none;padding:0;font-size:12px;font-weight:600;color:#1d2735}
+#pcaPage .pca-method-advanced,
+#pcaPage .pca-method-advanced__summary{margin:0}
+#pcaPage .pca-method-advanced__summary::-webkit-details-marker{display:none}
+#pcaPage .pca-method-advanced__summary::before{content:"\25B8";display:inline-block;margin-right:6px;transition:transform .15s ease}
+#pcaPage .pca-method-advanced[open] .pca-method-advanced__summary::before{transform:rotate(90deg)}
+#pcaPage .pca-method-advanced__body{padding:2px 0 0;display:flex;flex-direction:column;gap:8px}
+#pcaPage .pca-method-advanced__body .stats-help-text{margin:0}
+#pcaPage .config-panel fieldset[data-graph-selection-fieldset="1"]{padding-bottom:6px}
 #surfacePage .wrap{display:flex;align-items:stretch;gap:0}
 #surfacePage .panel{display:flex;flex-direction:column;min-width:0}
 #surfacePage #surfaceTablePanel{flex:1 1 33%;min-width:180px}

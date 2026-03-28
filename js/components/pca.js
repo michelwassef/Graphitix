@@ -278,6 +278,12 @@
       axis3dControl.hidden = !show3dAxis;
       axis3dControl.style.display = show3dAxis ? '' : 'none';
     }
+    const methodAdvanced = global.document?.getElementById?.('pcaMethodAdvancedSection');
+    if(methodAdvanced){
+      const showAdvanced = methodName === 'pca';
+      methodAdvanced.hidden = !showAdvanced;
+      methodAdvanced.style.display = showAdvanced ? '' : 'none';
+    }
   }
 
   function normalizePcaLabelHeader(value){
@@ -3808,7 +3814,7 @@
   function getPcaComponentSelectionRuleLabel(value){
     const normalized = sanitizePcaComponentSelectionRule(value);
     const match = PCA_COMPONENT_SELECTION_RULES.find(entry => entry.value === normalized);
-    return match?.label || 'Parallel analysis';
+    return match?.label || 'Show all components';
   }
 
   function createPcaSeededRandom(seed){
@@ -5238,6 +5244,7 @@
       let pcaIncludeNonRetainedAxesLabel = null;
       let pcaEigenThresholdLabel = null;
       let pcaParallelIterationsLabel = null;
+      let pcaMethodAdvancedSection = null;
       function setPcaControlVisibility(control, visible){
         if(!control){
           return;
@@ -5271,20 +5278,25 @@
           pcaIncludeNonRetainedAxesInput.checked = sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes);
           pcaIncludeNonRetainedAxesInput.disabled = !isPcaMethod;
         }
+        setPcaControlVisibility(pcaMethodAdvancedSection, isPcaMethod);
       }
       function ensurePcaComponentSelectionControls(){
-        const configPanel = document.querySelector('#pcaPage .config-panel');
-        const dataFieldset = document.querySelector('#pcaPage .config-panel fieldset:nth-of-type(3)');
-        if(!configPanel || !dataFieldset){
+        const methodFieldset = document.querySelector('#pcaPage .config-panel fieldset[data-graph-selection-fieldset="1"]');
+        if(!methodFieldset){
           return null;
         }
-        let fieldset = document.getElementById('pcaComponentSelectionFieldset');
-        if(!fieldset){
-          fieldset = document.createElement('fieldset');
-          fieldset.id = 'pcaComponentSelectionFieldset';
-          const legend = document.createElement('legend');
-          legend.textContent = 'Component Selection';
-          fieldset.appendChild(legend);
+        let section = document.getElementById('pcaMethodAdvancedSection');
+        if(!section){
+          section = document.createElement('details');
+          section.id = 'pcaMethodAdvancedSection';
+          section.className = 'pca-method-advanced';
+          section.open = false;
+          const summary = document.createElement('summary');
+          summary.className = 'pca-method-advanced__summary';
+          summary.textContent = 'Advanced';
+          section.appendChild(summary);
+          const body = document.createElement('div');
+          body.className = 'pca-method-advanced__body';
           const controlRow = document.createElement('div');
           controlRow.className = 'control idx-inline-041';
           const ruleLabel = document.createElement('label');
@@ -5335,11 +5347,12 @@
           const help = document.createElement('div');
           help.className = 'stats-help-text';
           help.id = 'pcaComponentSelectionHelp';
-          help.textContent = 'Parallel analysis, Kaiser, and custom eigenvalue thresholds are reported for PCA results and drive the retained-component summary.';
-          fieldset.appendChild(controlRow);
-          fieldset.appendChild(toggleRow);
-          fieldset.appendChild(help);
-          dataFieldset.insertAdjacentElement('afterend', fieldset);
+          help.textContent = 'These settings control component retention and update the summary.';
+          body.appendChild(controlRow);
+          body.appendChild(toggleRow);
+          body.appendChild(help);
+          section.appendChild(body);
+          methodFieldset.appendChild(section);
           pcaComponentRuleInput = ruleSelect;
           pcaEigenThresholdInput = thresholdInput;
           pcaParallelIterationsInput = iterationsInput;
@@ -5396,8 +5409,9 @@
           pcaParallelIterationsLabel = pcaParallelIterationsInput?.closest('label') || null;
           pcaIncludeNonRetainedAxesLabel = pcaIncludeNonRetainedAxesInput?.closest('label') || null;
         }
+        pcaMethodAdvancedSection = section;
         syncPcaComponentSelectionUi();
-        return fieldset;
+        return section;
       }
       const pcaAutoSizeTargets=[
         pcaMethod,
