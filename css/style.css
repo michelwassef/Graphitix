@@ -4680,7 +4680,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .stats-table-message{font-size:13px;color:#6b7280}
 #pcaPage .stats-toggle-row{gap:12px;margin-bottom:8px}
 #pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;align-items:flex-start}
-#pcaPage .scree-card{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;padding:14px;display:flex;flex-direction:column;gap:12px;flex:1 1 320px}
+#pcaPage .scree-card{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 320px;overflow:hidden}
+#pcaPage .scree-card__title{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
+#pcaPage .scree-card__toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:#1d2735;white-space:nowrap}
+#pcaPage #pcaScreePlot{padding:12px 16px 0}
+#pcaPage #pcaScreeExportControls{padding:10px 16px}
 #pcaPage .scree-card svg{width:100%;height:auto;max-height:320px}
 #pcaPage .variance-card{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 260px;min-width:240px;overflow:hidden}
 #pcaPage .variance-card__title{font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
@@ -4698,6 +4702,9 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .variance-card[data-shared-stats-table='1'] .stats-table-card{margin-top:0}
 #pcaPage .loadings-card{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;margin-top:16px;overflow:hidden}
 #pcaPage .loadings-card__title{font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
+#pcaPage .loadings-card__title.pca-biplot-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#pcaPage .pca-biplot-title__label{font-weight:600}
+#pcaPage .pca-biplot-title__toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:#1d2735;white-space:nowrap}
 #pcaPage .loadings-card__actions{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
 #pcaPage .loadings-card__range{display:flex;align-items:center;gap:8px;font-size:12px;color:#1d2735;flex:1 1 auto}
 #pcaPage .loadings-card__range label{font-weight:600;letter-spacing:.01em}

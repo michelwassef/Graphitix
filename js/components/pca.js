@@ -3689,6 +3689,8 @@
       parallelIterations: PCA_DEFAULT_PARALLEL_ITERATIONS,
       includeNonRetainedAxes: false
     },
+    biplotShowSampleScores: true,
+    screeShowParallel: true,
     loadingsLimit: PCA_LOADINGS_ROW_LIMIT,
     labels: { title: getDefaultTitleForMethod('pca') },
     lastMethod: 'pca',
@@ -3809,6 +3811,12 @@
 
   function sanitizePcaIncludeNonRetainedAxes(value){
     return value === true;
+  }
+  function sanitizePcaBiplotShowSampleScores(value){
+    return value !== false;
+  }
+  function sanitizePcaScreeShowParallel(value){
+    return value !== false;
   }
 
   function getPcaComponentSelectionRuleLabel(value){
@@ -5455,10 +5463,41 @@
       const pcaScreeContainer=document.getElementById('pcaScreeContainer');
       const pcaScreePlot=document.getElementById('pcaScreePlot') || pcaScreeContainer;
       const pcaScreeExportControls=document.getElementById('pcaScreeExportControls');
+      const pcaScreeShowParallelInput=document.getElementById('pcaScreeShowParallel');
       const pcaEigenTableContainer=document.getElementById('pcaEigenTableContainer');
       const pcaEigenTableWrapper=document.getElementById('pcaEigenTableWrapper');
       const pcaExportEigenTableBtn=document.getElementById('pcaExportEigenTable');
       const pcaDefaultEigenExportHost = pcaExportEigenTableBtn?.parentElement || null;
+      function preservePcaScrollPosition(run){
+        const docScroll = global.document?.scrollingElement || global.document?.documentElement || global.document?.body || null;
+        const docTop = docScroll ? docScroll.scrollTop : null;
+        const docLeft = docScroll ? docScroll.scrollLeft : null;
+        const panelTop = Number.isFinite(pcaStatsResults?.scrollTop) ? pcaStatsResults.scrollTop : null;
+        const panelLeft = Number.isFinite(pcaStatsResults?.scrollLeft) ? pcaStatsResults.scrollLeft : null;
+        let result;
+        if(typeof run === 'function'){
+          result = run();
+        }
+        const restore = () => {
+          if(docScroll && docTop != null){
+            docScroll.scrollTop = docTop;
+            if(docLeft != null){
+              docScroll.scrollLeft = docLeft;
+            }
+          }
+          if(pcaStatsResults && panelTop != null){
+            pcaStatsResults.scrollTop = panelTop;
+            if(panelLeft != null){
+              pcaStatsResults.scrollLeft = panelLeft;
+            }
+          }
+        };
+        restore();
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(restore);
+        }
+        return result;
+      }
       function syncAxisSelectValues(){
         const entries = [
           { key: 'x', element: pcaXAxis },
@@ -5883,46 +5922,67 @@
       }
       function renderPcaSupplementalPlots(options = {}){
         const method = String(options.method || '').toLowerCase();
-        const { card: loadingsCard, body: loadingsBody } = ensurePcaDynamicStatsCard('pcaLoadingsPlotCard', 'Loadings Plot', pcaLoadingsContainer || null);
-        const { card: biplotCard, body: biplotBody } = ensurePcaDynamicStatsCard('pcaBiplotCard', 'Biplot', loadingsCard || pcaLoadingsContainer || null);
-        if(loadingsCard){
-          loadingsCard.setAttribute('data-stats-advanced', '1');
+        const staleLoadingsPlotCard = document.getElementById('pcaLoadingsPlotCard');
+        if(staleLoadingsPlotCard?.parentNode){
+          staleLoadingsPlotCard.parentNode.removeChild(staleLoadingsPlotCard);
         }
+        const { card: biplotCard, body: biplotBody } = ensurePcaDynamicStatsCard('pcaBiplotCard', 'Biplot', pcaLoadingsContainer || null);
         if(biplotCard){
           biplotCard.setAttribute('data-stats-advanced', '0');
-        }
-        if(loadingsBody){
-          loadingsBody.innerHTML = '';
         }
         if(biplotBody){
           biplotBody.innerHTML = '';
         }
-        const rows = Array.isArray(options.loadingsRows) ? options.loadingsRows : [];
         const biplot = options.biplot && typeof options.biplot === 'object' ? options.biplot : null;
-        const hasLoadingsPlot = method === 'pca' && rows.some(row => Number.isFinite(Number(row?.values?.[0])) && Number.isFinite(Number(row?.values?.[1])));
-        if(loadingsCard){
-          loadingsCard.hidden = !hasLoadingsPlot;
-        }
-        if(hasLoadingsPlot && loadingsBody){
-          loadingsBody.appendChild(createPcaMiniScatterSvg({
-            points: rows.slice(0, PCA_BIPLOT_VECTOR_LIMIT).map(row => ({
-              x: Number(row?.values?.[0]) || 0,
-              y: Number(row?.values?.[1]) || 0,
-              label: row?.label || ''
-            })),
-            xLabel: 'PC1 loading',
-            yLabel: 'PC2 loading',
-            pointColor: '#1f78b4',
-            pointOpacity: 0.85
-          }));
-        }
-        const hasBiplot = method === 'pca' && biplot && Array.isArray(biplot.points) && biplot.points.length && Array.isArray(biplot.vectors) && biplot.vectors.length;
+        const hasBiplot = method === 'pca' && biplot && Array.isArray(biplot.vectors) && biplot.vectors.length;
         if(biplotCard){
           biplotCard.hidden = !hasBiplot;
+          const titleNode = biplotCard.querySelector('.loadings-card__title');
+          if(titleNode){
+            titleNode.classList.add('pca-biplot-title');
+            titleNode.innerHTML = '';
+            const titleLabel = document.createElement('span');
+            titleLabel.className = 'pca-biplot-title__label';
+            titleLabel.textContent = 'Biplot';
+            const scoresToggleLabel = document.createElement('label');
+            scoresToggleLabel.className = 'pca-biplot-title__toggle';
+            const scoresToggleInput = document.createElement('input');
+            scoresToggleInput.type = 'checkbox';
+            scoresToggleInput.id = 'pcaBiplotShowScores';
+            scoresToggleInput.checked = sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores);
+            scoresToggleInput.addEventListener('change', () => {
+              const nextValue = sanitizePcaBiplotShowSampleScores(scoresToggleInput.checked);
+              if(nextValue === sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores)){
+                return;
+              }
+              pcaState.biplotShowSampleScores = nextValue;
+              const methodValue = String(lastPcaStats?.method || options.method || '').toLowerCase();
+              const cachedBiplot = (lastPcaStats && typeof lastPcaStats === 'object' && lastPcaStats.biplot && typeof lastPcaStats.biplot === 'object')
+                ? lastPcaStats.biplot
+                : (options.biplot && typeof options.biplot === 'object' ? options.biplot : null);
+              if(cachedBiplot){
+                preservePcaScrollPosition(() => {
+                  renderPcaSupplementalPlots({
+                    method: methodValue || 'pca',
+                    biplot: cachedBiplot
+                  });
+                });
+              }else{
+                requestPcaViewRefresh('biplot-show-scores-toggle');
+              }
+            });
+            scoresToggleLabel.appendChild(scoresToggleInput);
+            scoresToggleLabel.appendChild(document.createTextNode(' Show sample scores'));
+            titleNode.appendChild(titleLabel);
+            titleNode.appendChild(scoresToggleLabel);
+          }
         }
         if(hasBiplot && biplotBody){
+          const scorePoints = sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores)
+            ? (Array.isArray(biplot.points) ? biplot.points : [])
+            : [];
           biplotBody.appendChild(createPcaMiniScatterSvg({
-            points: biplot.points,
+            points: scorePoints,
             vectors: biplot.vectors,
             xLabel: biplot.xLabel || 'PC1',
             yLabel: biplot.yLabel || 'PC2',
@@ -6032,7 +6092,7 @@
           pcaLoadingsContainer.hidden = true;
           delete pcaLoadingsContainer.dataset.sharedStatsTable;
         }
-        ['pcaComponentSelectionSummaryCard','pcaLoadingsPlotCard','pcaBiplotCard'].forEach(cardId => {
+        ['pcaComponentSelectionSummaryCard','pcaBiplotCard'].forEach(cardId => {
           const card = document.getElementById(cardId);
           const body = document.getElementById(`${cardId}Body`);
           if(card){
@@ -6054,11 +6114,33 @@
         updateScreeVarianceRowVisibility();
         debugLog('Debug: pca stats panel reset',{ message: message || null }); // Debug: stats reset helper
       }
+      function togglePcaScreeParallelVisibility(showParallel){
+        const svg = pcaScreePlot?.querySelector?.('svg#pcaScreeSvg');
+        if(!svg){
+          return false;
+        }
+        const shouldShow = showParallel !== false;
+        svg.setAttribute('data-show-parallel', shouldShow ? '1' : '0');
+        const nodes = svg.querySelectorAll('[data-scree-parallel]');
+        nodes.forEach(node => {
+          node.style.display = shouldShow ? '' : 'none';
+        });
+        return nodes.length > 0;
+      }
       function renderScreeChart(options){
         const opts = options || {};
         const show = !!opts.show;
         const data = Array.isArray(opts.data) ? opts.data : [];
         const parallelAnalysis = Array.isArray(opts.parallelAnalysis) ? opts.parallelAnalysis : [];
+        const showParallelToggle = sanitizePcaScreeShowParallel(pcaState.screeShowParallel);
+        if(pcaScreeShowParallelInput){
+          pcaScreeShowParallelInput.checked = showParallelToggle;
+          pcaScreeShowParallelInput.disabled = !parallelAnalysis.length;
+          const toggleLabel = pcaScreeShowParallelInput.closest('label');
+          if(toggleLabel){
+            toggleLabel.style.opacity = parallelAnalysis.length ? '' : '0.6';
+          }
+        }
         if(!pcaScreeContainer){
           debugLog('Debug: pca scree render skipped',{ reason: 'missing-container' });
           return;
@@ -6232,6 +6314,7 @@
           parallelPath.setAttribute('stroke', '#e41a1c');
           parallelPath.setAttribute('stroke-width', '1.75');
           parallelPath.setAttribute('stroke-dasharray', '6 4');
+          parallelPath.setAttribute('data-scree-parallel', 'line');
           svg.appendChild(parallelPath);
         }
         const xAxisTickLength = 6;
@@ -6299,11 +6382,11 @@
         xAxisTitle.textContent = 'Component number';
         svg.appendChild(xAxisTitle);
         const legendEntries = [
-          { label: 'Cumulative variance', color: cumulativeColor, strokeDash: '' },
-          { label: 'Explained variance', color: pointColor, strokeDash: '' }
+          { label: 'Cumulative variance', color: cumulativeColor, strokeDash: '', parallel: false },
+          { label: 'Explained variance', color: pointColor, strokeDash: '', parallel: false }
         ];
         if(parallelPositions.length){
-          legendEntries.push({ label: 'Parallel analysis', color: '#e41a1c', strokeDash: '6 4' });
+          legendEntries.push({ label: 'Parallel analysis', color: '#e41a1c', strokeDash: '6 4', parallel: true });
         }
         const legendLineHeight = 14;
         const legendHeight = legendEntries.length * legendLineHeight;
@@ -6312,6 +6395,10 @@
         const legendY = Math.max(margin.top + 8, margin.top + (plotHeight / 2) - (legendHeight / 2));
         legendEntries.forEach((entry, idx) => {
           const lineY = legendY + (idx * legendLineHeight);
+          const entryGroup = document.createElementNS(NS, 'g');
+          if(entry.parallel){
+            entryGroup.setAttribute('data-scree-parallel', 'legend');
+          }
           const sampleLine = document.createElementNS(NS, 'line');
           sampleLine.setAttribute('x1', String(legendX));
           sampleLine.setAttribute('x2', String(legendX + 32));
@@ -6322,7 +6409,7 @@
           if(entry.strokeDash){
             sampleLine.setAttribute('stroke-dasharray', entry.strokeDash);
           }
-          legendGroup.appendChild(sampleLine);
+          entryGroup.appendChild(sampleLine);
           const legendLabel = document.createElementNS(NS, 'text');
           legendLabel.setAttribute('x', String(legendX + 40));
           legendLabel.setAttribute('y', String(lineY));
@@ -6330,10 +6417,12 @@
           legendLabel.setAttribute('fill', axisColor);
           legendLabel.setAttribute('font-size', `${legendFontSize}px`);
           legendLabel.textContent = entry.label;
-          legendGroup.appendChild(legendLabel);
+          entryGroup.appendChild(legendLabel);
+          legendGroup.appendChild(entryGroup);
         });
         svg.appendChild(legendGroup);
         host.appendChild(svg);
+        togglePcaScreeParallelVisibility(showParallelToggle);
         debugLog('Debug: pca scree chart rendered',{ count: data.length, maxPct: yAxisMax, width, height, drawingBoxWidth, containerWidth });
         updateScreeVarianceRowVisibility();
       }
@@ -6940,6 +7029,24 @@
         pcaScale.addEventListener('change',()=>{
           debugLog('Debug: pca scale toggle',{ checked: pcaScale.checked });
           requestPcaDataRefresh('scale-toggle');
+        });
+      }
+      if(pcaScreeShowParallelInput){
+        pcaScreeShowParallelInput.checked = sanitizePcaScreeShowParallel(pcaState.screeShowParallel);
+        pcaScreeShowParallelInput.addEventListener('change', () => {
+          pcaState.screeShowParallel = sanitizePcaScreeShowParallel(pcaScreeShowParallelInput.checked);
+          const toggledInPlace = preservePcaScrollPosition(() => togglePcaScreeParallelVisibility(pcaState.screeShowParallel));
+          if(!toggledInPlace && lastPcaStats && typeof lastPcaStats === 'object'){
+            preservePcaScrollPosition(() => {
+              renderScreeChart({
+                show: String(lastPcaStats.method || '').toLowerCase() === 'pca',
+                data: Array.isArray(lastPcaStats.scree) ? lastPcaStats.scree : [],
+                method: lastPcaStats.method || 'pca',
+                pointColor: pcaFill?.value || '#0000ff',
+                parallelAnalysis: Array.isArray(lastPcaStats.parallelAnalysis) ? lastPcaStats.parallelAnalysis : []
+              });
+            });
+          }
         });
       }
       pcaShowFrame.addEventListener('change',()=>{
@@ -10329,6 +10436,8 @@
         borderWidth:pcaBorderWidth.value,
         tableFormat:pcaState.tableFormat,
         loadingsLimit:pcaState.loadingsLimit,
+        biplotShowSampleScores: sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores),
+        screeShowParallel: sanitizePcaScreeShowParallel(pcaState.screeShowParallel),
         grouped:pcaState.grouped ? {
           replicatesPerGroup: pcaState.grouped.replicatesPerGroup,
           colors: Array.isArray(pcaState.grouped.colors) ? [...pcaState.grouped.colors] : [],
@@ -10577,6 +10686,11 @@
           pcaState.loadingsLimit = clampLoadingsLimitValue(c.loadingsLimit, PCA_LOADINGS_ROW_LIMIT);
         } else {
           pcaState.loadingsLimit = clampLoadingsLimitValue(pcaState.loadingsLimit, PCA_LOADINGS_ROW_LIMIT);
+        }
+        pcaState.biplotShowSampleScores = sanitizePcaBiplotShowSampleScores(c.biplotShowSampleScores);
+        pcaState.screeShowParallel = sanitizePcaScreeShowParallel(c.screeShowParallel);
+        if(pcaScreeShowParallelInput){
+          pcaScreeShowParallelInput.checked = sanitizePcaScreeShowParallel(pcaState.screeShowParallel);
         }
         if(c.componentSelection && typeof c.componentSelection === 'object'){
           pcaState.componentSelection = {
