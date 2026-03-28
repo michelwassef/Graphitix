@@ -111,6 +111,8 @@ Before publishing the repository or packaging a release:
 - Run `npm test`
 - Run `npm run test:stats` if Python-based differential validation is part of the release bar
 - Run the relevant Playwright suite for the target release
+- Review `CHANGELOG.md` for release notes completeness
+- Confirm policy files are present and current (`SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`)
 - Remove generated artifacts and local build output that should not ship in source control
 - Verify package metadata, installer metadata, and README text all use the `Graphitix` brand
 

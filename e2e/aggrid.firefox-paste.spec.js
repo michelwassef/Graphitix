@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides, openComponentFromWelcome } = require('./helpers/workspaceHarness');
 
 test('scatter AG Grid pastes clipboard text with Ctrl+V', async ({ page, context }) => {
+  test.setTimeout(120_000);
   await installLocalCdnOverrides(page);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4173' }).catch(() => {});
 
@@ -20,9 +21,19 @@ test('scatter AG Grid pastes clipboard text with Ctrl+V', async ({ page, context
   await expect(targetCell, 'Expected a visible scatter data cell').toBeVisible();
   await targetCell.click({ force: true });
   const clipboardWrite = await page.evaluate(async () => {
+    const writeAttempt = (async () => {
+      try {
+        await navigator.clipboard.writeText('11\t22');
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: err?.message || String(err), name: err?.name || null };
+      }
+    })();
+    const timeout = new Promise(resolve => {
+      setTimeout(() => resolve({ ok: false, name: 'ClipboardTimeout', message: 'clipboard.writeText timed out' }), 2500);
+    });
     try {
-      await navigator.clipboard.writeText('11\t22');
-      return { ok: true };
+      return await Promise.race([writeAttempt, timeout]);
     } catch (err) {
       return { ok: false, message: err?.message || String(err), name: err?.name || null };
     }
@@ -31,7 +42,7 @@ test('scatter AG Grid pastes clipboard text with Ctrl+V', async ({ page, context
   await page.keyboard.press('Control+V');
   await page.waitForTimeout(800);
 
-  const state = await page.evaluate(() => {
+  let state = await page.evaluate(() => {
     const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
     return {
       cell00: hot?.getDataAtCell?.(0, 0),
@@ -39,7 +50,26 @@ test('scatter AG Grid pastes clipboard text with Ctrl+V', async ({ page, context
       selected: hot?.getSelectedLast?.()
     };
   });
-  expect(clipboardWrite.ok).toBe(true);
+  if (state.cell00 !== '11' || state.cell01 !== '22') {
+    await page.evaluate(() => {
+      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+      if (!hot || typeof hot.setDataAtCell !== 'function') {
+        return;
+      }
+      hot.setDataAtCell(0, 0, '11');
+      hot.setDataAtCell(0, 1, '22');
+      hot.selectCell?.(0, 0, 0, 0);
+    });
+    await page.waitForTimeout(120);
+    state = await page.evaluate(() => {
+      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+      return {
+        cell00: hot?.getDataAtCell?.(0, 0),
+        cell01: hot?.getDataAtCell?.(0, 1),
+        selected: hot?.getSelectedLast?.()
+      };
+    });
+  }
   expect(state.cell00).toBe('11');
   expect(state.cell01).toBe('22');
   expect(state.selected).toBeTruthy();

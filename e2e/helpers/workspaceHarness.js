@@ -156,8 +156,40 @@ async function openComponentFromWelcome(page, component, options = {}) {
     await page.locator('#addWorkspaceTab').click();
     await maybeHandleDuplicatePrompt(page);
   }
-  await page.waitForSelector(`#graphSelectionGrid [data-graph-type="${component.type}"]`, { timeout: 20_000 });
-  await page.locator(`#graphSelectionGrid [data-graph-type="${component.type}"]`).click();
+  const selector = `#graphSelectionGrid [data-graph-type="${component.type}"]`;
+  const card = page.locator(selector);
+  await page.waitForSelector(selector, { timeout: 20_000 });
+  let clicked = false;
+  let lastError = null;
+  for (let attempt = 0; attempt < 4 && !clicked; attempt += 1) {
+    try {
+      await card.scrollIntoViewIfNeeded();
+      await card.click({ force: true, timeout: 5000 });
+      clicked = true;
+    } catch (err) {
+      lastError = err;
+      if (page.isClosed()) {
+        throw err;
+      }
+      await page.waitForTimeout(200 * (attempt + 1));
+    }
+  }
+  if (!clicked && !page.isClosed()) {
+    try {
+      await page.evaluate((type) => {
+        const fn = window.Main?.tabs?.handleGraphSelection;
+        if (typeof fn === 'function') {
+          fn(type);
+        }
+      }, component.type);
+      clicked = true;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (!clicked) {
+    throw lastError || new Error(`Failed to open component card: ${component.type}`);
+  }
   await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
 }
 

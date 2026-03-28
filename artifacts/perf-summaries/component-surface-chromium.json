@@ -4,12 +4,12 @@
   "page": "surfacePage",
   "exampleLoaded": true,
   "timingsMs": {
-    "openMs": 608,
-    "exampleMs": 836,
-    "exerciseMs": 5742
+    "openMs": 166,
+    "exampleMs": 2269,
+    "exerciseMs": 14975
   },
   "totals": {
-    "logEntries": 2703,
+    "logEntries": 2797,
     "warnings": 3,
     "errors": 0,
     "ignoredErrors": 0,
@@ -18,7 +18,7 @@
   "perf": {
     "beforeExercise": {
       "componentType": "surface",
-      "capturedAt": 1772884634848,
+      "capturedAt": 1774686371733,
       "componentHook": null,
       "sharedPerformance": {
         "totalEntries": 0,
@@ -30,7 +30,7 @@
     },
     "afterExercise": {
       "componentType": "surface",
-      "capturedAt": 1772884640594,
+      "capturedAt": 1774686386792,
       "componentHook": null,
       "sharedPerformance": {
         "totalEntries": 0,
@@ -44,12 +44,12 @@
       "steps": [
         {
           "step": "cycle-selects",
-          "durationMs": 1614,
+          "durationMs": 4440,
           "actionResult": {
-            "visible": 7,
+            "visible": 6,
             "attempted": 4,
-            "changed": 3,
-            "durationMs": 1614
+            "changed": 4,
+            "durationMs": 4440
           },
           "perfDelta": {
             "hook": {},
@@ -60,12 +60,12 @@
         },
         {
           "step": "toggle-checkboxes",
-          "durationMs": 462,
+          "durationMs": 3920,
           "actionResult": {
-            "visible": 45,
+            "visible": 44,
             "attempted": 5,
-            "toggled": 1,
-            "durationMs": 462
+            "toggled": 5,
+            "durationMs": 3920
           },
           "perfDelta": {
             "hook": {},
@@ -76,12 +76,12 @@
         },
         {
           "step": "click-analysis-buttons",
-          "durationMs": 232,
+          "durationMs": 669,
           "actionResult": {
-            "visible": 21,
+            "visible": 22,
             "clicked": 0,
             "clickedLabels": [],
-            "durationMs": 232
+            "durationMs": 669
           },
           "perfDelta": {
             "hook": {},
@@ -92,11 +92,11 @@
         },
         {
           "step": "drag-panel-resizer",
-          "durationMs": 2603,
+          "durationMs": 4353,
           "actionResult": {
             "present": true,
             "moved": true,
-            "durationMs": 2603
+            "durationMs": 4353
           },
           "perfDelta": {
             "hook": {},
@@ -107,11 +107,11 @@
         },
         {
           "step": "adjust-zoom",
-          "durationMs": 505,
+          "durationMs": 644,
           "actionResult": {
             "zoomInClicks": 2,
             "zoomOutClicks": 1,
-            "durationMs": 505
+            "durationMs": 644
           },
           "perfDelta": {
             "hook": {},
@@ -123,7 +123,7 @@
       ],
       "before": {
         "componentType": "surface",
-        "capturedAt": 1772884634852,
+        "capturedAt": 1774686371808,
         "componentHook": null,
         "sharedPerformance": {
           "totalEntries": 0,
@@ -135,7 +135,7 @@
       },
       "after": {
         "componentType": "surface",
-        "capturedAt": 1772884640590,
+        "capturedAt": 1774686386777,
         "componentHook": null,
         "sharedPerformance": {
           "totalEntries": 0,
@@ -148,43 +148,28 @@
     },
     "slowestSteps": [
       {
+        "step": "cycle-selects",
+        "durationMs": 4440,
+        "actionResult": {
+          "visible": 6,
+          "attempted": 4,
+          "changed": 4,
+          "durationMs": 4440
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
         "step": "drag-panel-resizer",
-        "durationMs": 2603,
+        "durationMs": 4353,
         "actionResult": {
           "present": true,
           "moved": true,
-          "durationMs": 2603
-        },
-        "perfDelta": {
-          "hook": {},
-          "sharedEntries": [],
-          "componentReport": [],
-          "hotReport": []
-        }
-      },
-      {
-        "step": "cycle-selects",
-        "durationMs": 1614,
-        "actionResult": {
-          "visible": 7,
-          "attempted": 4,
-          "changed": 3,
-          "durationMs": 1614
-        },
-        "perfDelta": {
-          "hook": {},
-          "sharedEntries": [],
-          "componentReport": [],
-          "hotReport": []
-        }
-      },
-      {
-        "step": "adjust-zoom",
-        "durationMs": 505,
-        "actionResult": {
-          "zoomInClicks": 2,
-          "zoomOutClicks": 1,
-          "durationMs": 505
+          "durationMs": 4353
         },
         "perfDelta": {
           "hook": {},
@@ -195,12 +180,12 @@
       },
       {
         "step": "toggle-checkboxes",
-        "durationMs": 462,
+        "durationMs": 3920,
         "actionResult": {
-          "visible": 45,
+          "visible": 44,
           "attempted": 5,
-          "toggled": 1,
-          "durationMs": 462
+          "toggled": 5,
+          "durationMs": 3920
         },
         "perfDelta": {
           "hook": {},
@@ -211,12 +196,27 @@
       },
       {
         "step": "click-analysis-buttons",
-        "durationMs": 232,
+        "durationMs": 669,
         "actionResult": {
-          "visible": 21,
+          "visible": 22,
           "clicked": 0,
           "clickedLabels": [],
-          "durationMs": 232
+          "durationMs": 669
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "adjust-zoom",
+        "durationMs": 644,
+        "actionResult": {
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 644
         },
         "perfDelta": {
           "hook": {},

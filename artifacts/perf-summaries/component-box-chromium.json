@@ -4,12 +4,12 @@
   "page": "boxPage",
   "exampleLoaded": true,
   "timingsMs": {
-    "openMs": 201,
-    "exampleMs": 1927,
-    "exerciseMs": 8867
+    "openMs": 278,
+    "exampleMs": 3925,
+    "exerciseMs": 30796
   },
   "totals": {
-    "logEntries": 9778,
+    "logEntries": 12349,
     "warnings": 3,
     "errors": 0,
     "ignoredErrors": 0,
@@ -18,15 +18,15 @@
   "perf": {
     "beforeExercise": {
       "componentType": "box",
-      "capturedAt": 1772884564990,
+      "capturedAt": 1774686246348,
       "componentHook": null,
       "sharedPerformance": {
-        "totalEntries": 6,
+        "totalEntries": 8,
         "relevantEntries": [
           {
             "id": 2,
             "label": "box.data.collect",
-            "duration": 4,
+            "duration": 3,
             "meta": {
               "component": "box",
               "mode": "single",
@@ -41,7 +41,7 @@
           {
             "id": 1,
             "label": "box.draw",
-            "duration": 34.200000047683716,
+            "duration": 64.69999998807907,
             "meta": {
               "component": "box",
               "token": 1,
@@ -52,37 +52,22 @@
             }
           },
           {
-            "id": 4,
-            "label": "box.data.collect",
-            "duration": 1.5,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 17,
-              "token": 2,
-              "traces": 0,
-              "labels": 0,
-              "outcome": "success"
-            }
-          },
-          {
             "id": 3,
             "label": "box.draw",
-            "duration": 21.600000023841858,
+            "duration": 24.899999976158142,
             "meta": {
               "component": "box",
               "token": 2,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 12,
               "traces": 0
             }
           },
           {
-            "id": 6,
+            "id": 5,
             "label": "box.data.collect",
-            "duration": 2.700000047683716,
+            "duration": 1.699999988079071,
             "meta": {
               "component": "box",
               "mode": "single",
@@ -95,9 +80,9 @@
             }
           },
           {
-            "id": 5,
+            "id": 4,
             "label": "box.draw",
-            "duration": 141.89999997615814,
+            "duration": 166.40000000596046,
             "meta": {
               "component": "box",
               "token": 3,
@@ -106,119 +91,29 @@
               "cols": 12,
               "traces": 3
             }
-          }
-        ],
-        "maxEntryId": 6,
-        "componentReport": [
-          {
-            "key": "box.draw",
-            "count": 3,
-            "totalMs": 197.7,
-            "avgMs": 65.9,
-            "p50Ms": 34.2,
-            "p95Ms": 131.13,
-            "maxMs": 141.9,
-            "minMs": 21.6
           },
           {
-            "key": "box.data.collect",
-            "count": 3,
-            "totalMs": 8.2,
-            "avgMs": 2.733,
-            "p50Ms": 2.7,
-            "p95Ms": 3.87,
-            "maxMs": 4,
-            "minMs": 1.5
-          }
-        ],
-        "hotReport": []
-      }
-    },
-    "afterExercise": {
-      "componentType": "box",
-      "capturedAt": 1772884573869,
-      "componentHook": null,
-      "sharedPerformance": {
-        "totalEntries": 86,
-        "relevantEntries": [
-          {
-            "id": 2,
+            "id": 7,
             "label": "box.data.collect",
-            "duration": 4,
+            "duration": 2.5999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 1,
-              "traces": 0,
-              "labels": 0,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 1,
-            "label": "box.draw",
-            "duration": 34.200000047683716,
-            "meta": {
-              "component": "box",
-              "token": 1,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 0
-            }
-          },
-          {
-            "id": 4,
-            "label": "box.data.collect",
-            "duration": 1.5,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 17,
-              "token": 2,
-              "traces": 0,
-              "labels": 0,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 3,
-            "label": "box.draw",
-            "duration": 21.600000023841858,
-            "meta": {
-              "component": "box",
-              "token": 2,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 17,
-              "traces": 0
-            }
-          },
-          {
-            "id": 6,
-            "label": "box.data.collect",
-            "duration": 2.700000047683716,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 12,
-              "token": 3,
+              "token": 4,
               "traces": 3,
               "labels": 3,
               "outcome": "success"
             }
           },
           {
-            "id": 5,
+            "id": 6,
             "label": "box.draw",
-            "duration": 141.89999997615814,
+            "duration": 98.80000001192093,
             "meta": {
               "component": "box",
-              "token": 3,
+              "token": 4,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -227,11 +122,127 @@
           },
           {
             "id": 8,
-            "label": "box.data.collect",
-            "duration": 2.5,
+            "label": "box.draw",
+            "duration": 81.90000000596046,
             "meta": {
               "component": "box",
-              "mode": "grouped",
+              "token": 5,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 3
+            }
+          }
+        ],
+        "maxEntryId": 8,
+        "componentReport": [
+          {
+            "key": "box.draw",
+            "count": 5,
+            "totalMs": 436.7,
+            "avgMs": 87.34,
+            "p50Ms": 81.9,
+            "p95Ms": 152.88,
+            "maxMs": 166.4,
+            "minMs": 24.9
+          },
+          {
+            "key": "box.data.collect",
+            "count": 3,
+            "totalMs": 7.3,
+            "avgMs": 2.433,
+            "p50Ms": 2.6,
+            "p95Ms": 2.96,
+            "maxMs": 3,
+            "minMs": 1.7
+          }
+        ],
+        "hotReport": []
+      }
+    },
+    "afterExercise": {
+      "componentType": "box",
+      "capturedAt": 1774686277278,
+      "componentHook": null,
+      "sharedPerformance": {
+        "totalEntries": 88,
+        "relevantEntries": [
+          {
+            "id": 2,
+            "label": "box.data.collect",
+            "duration": 3,
+            "meta": {
+              "component": "box",
+              "mode": "single",
+              "rows": 100,
+              "cols": 12,
+              "token": 1,
+              "traces": 0,
+              "labels": 0,
+              "outcome": "success"
+            }
+          },
+          {
+            "id": 1,
+            "label": "box.draw",
+            "duration": 64.69999998807907,
+            "meta": {
+              "component": "box",
+              "token": 1,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 0
+            }
+          },
+          {
+            "id": 3,
+            "label": "box.draw",
+            "duration": 24.899999976158142,
+            "meta": {
+              "component": "box",
+              "token": 2,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 0
+            }
+          },
+          {
+            "id": 5,
+            "label": "box.data.collect",
+            "duration": 1.699999988079071,
+            "meta": {
+              "component": "box",
+              "mode": "single",
+              "rows": 100,
+              "cols": 12,
+              "token": 3,
+              "traces": 3,
+              "labels": 3,
+              "outcome": "success"
+            }
+          },
+          {
+            "id": 4,
+            "label": "box.draw",
+            "duration": 166.40000000596046,
+            "meta": {
+              "component": "box",
+              "token": 3,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 3
+            }
+          },
+          {
+            "id": 7,
+            "label": "box.data.collect",
+            "duration": 2.5999999940395355,
+            "meta": {
+              "component": "box",
+              "mode": "single",
               "rows": 100,
               "cols": 12,
               "token": 4,
@@ -241,12 +252,25 @@
             }
           },
           {
-            "id": 7,
+            "id": 6,
             "label": "box.draw",
-            "duration": 97.39999997615814,
+            "duration": 98.80000001192093,
             "meta": {
               "component": "box",
               "token": 4,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 3
+            }
+          },
+          {
+            "id": 8,
+            "label": "box.draw",
+            "duration": 81.90000000596046,
+            "meta": {
+              "component": "box",
+              "token": 5,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -256,53 +280,66 @@
           {
             "id": 10,
             "label": "box.data.collect",
-            "duration": 2.1999999284744263,
+            "duration": 3.399999976158142,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "mode": "grouped",
               "rows": 100,
               "cols": 12,
-              "token": 5,
-              "traces": 12,
-              "labels": 12,
+              "token": 6,
+              "traces": 3,
+              "labels": 3,
               "outcome": "success"
             }
           },
           {
             "id": 9,
             "label": "box.draw",
-            "duration": 267.10000002384186,
+            "duration": 151.80000001192093,
             "meta": {
               "component": "box",
-              "token": 5,
+              "token": 6,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
-              "traces": 12
+              "traces": 3
             }
           },
           {
-            "id": 12,
+            "id": 11,
+            "label": "box.draw",
+            "duration": 95.30000001192093,
+            "meta": {
+              "component": "box",
+              "token": 7,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 3
+            }
+          },
+          {
+            "id": 13,
             "label": "box.data.collect",
-            "duration": 4,
+            "duration": 5.200000017881393,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 6,
+              "token": 8,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
             }
           },
           {
-            "id": 11,
+            "id": 12,
             "label": "box.draw",
-            "duration": 108,
+            "duration": 216.89999997615814,
             "meta": {
               "component": "box",
-              "token": 6,
+              "token": 8,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -311,26 +348,11 @@
           },
           {
             "id": 14,
-            "label": "box.data.collect",
-            "duration": 2.100000023841858,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 12,
-              "token": 7,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 13,
             "label": "box.draw",
-            "duration": 92.69999992847443,
+            "duration": 180.19999998807907,
             "meta": {
               "component": "box",
-              "token": 7,
+              "token": 9,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -340,13 +362,13 @@
           {
             "id": 16,
             "label": "box.data.collect",
-            "duration": 1.600000023841858,
+            "duration": 3.5,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 8,
+              "token": 10,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -355,10 +377,10 @@
           {
             "id": 15,
             "label": "box.draw",
-            "duration": 80.70000004768372,
+            "duration": 156.60000002384186,
             "meta": {
               "component": "box",
-              "token": 8,
+              "token": 10,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -368,13 +390,13 @@
           {
             "id": 18,
             "label": "box.data.collect",
-            "duration": 1.6999999284744263,
+            "duration": 3.5999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 9,
+              "token": 11,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -383,10 +405,23 @@
           {
             "id": 17,
             "label": "box.draw",
-            "duration": 89.79999995231628,
+            "duration": 154,
             "meta": {
               "component": "box",
-              "token": 9,
+              "token": 11,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 12
+            }
+          },
+          {
+            "id": 19,
+            "label": "box.draw",
+            "duration": 157.89999997615814,
+            "meta": {
+              "component": "box",
+              "token": 12,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -395,42 +430,27 @@
           },
           {
             "id": 20,
-            "label": "box.data.collect",
-            "duration": 5.199999928474426,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 17,
-              "token": 10,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 19,
             "label": "box.draw",
-            "duration": 123,
+            "duration": 133.09999999403954,
             "meta": {
               "component": "box",
-              "token": 10,
+              "token": 13,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 12,
               "traces": 12
             }
           },
           {
             "id": 22,
             "label": "box.data.collect",
-            "duration": 1.7999999523162842,
+            "duration": 9.199999988079071,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 11,
+              "cols": 57,
+              "token": 14,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -439,26 +459,26 @@
           {
             "id": 21,
             "label": "box.draw",
-            "duration": 77.60000002384186,
+            "duration": 107.59999999403954,
             "meta": {
               "component": "box",
-              "token": 11,
+              "token": 14,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 24,
             "label": "box.data.collect",
-            "duration": 2.299999952316284,
+            "duration": 7.200000017881393,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 12,
+              "cols": 57,
+              "token": 15,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -467,26 +487,26 @@
           {
             "id": 23,
             "label": "box.draw",
-            "duration": 66.89999997615814,
+            "duration": 128.69999998807907,
             "meta": {
               "component": "box",
-              "token": 12,
+              "token": 15,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 26,
             "label": "box.data.collect",
-            "duration": 3.1999999284744263,
+            "duration": 11.599999994039536,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 13,
+              "cols": 57,
+              "token": 16,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -495,26 +515,26 @@
           {
             "id": 25,
             "label": "box.draw",
-            "duration": 72.30000007152557,
+            "duration": 141.5,
             "meta": {
               "component": "box",
-              "token": 13,
+              "token": 16,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 28,
             "label": "box.data.collect",
-            "duration": 3.299999952316284,
+            "duration": 17,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 14,
+              "cols": 57,
+              "token": 17,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -523,26 +543,26 @@
           {
             "id": 27,
             "label": "box.draw",
-            "duration": 78,
+            "duration": 172.69999998807907,
             "meta": {
               "component": "box",
-              "token": 14,
+              "token": 17,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 30,
             "label": "box.data.collect",
-            "duration": 2.200000047683716,
+            "duration": 17,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 15,
+              "cols": 57,
+              "token": 18,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -551,26 +571,26 @@
           {
             "id": 29,
             "label": "box.draw",
-            "duration": 85.39999997615814,
+            "duration": 182.30000001192093,
             "meta": {
               "component": "box",
-              "token": 15,
+              "token": 18,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 32,
             "label": "box.data.collect",
-            "duration": 2.700000047683716,
+            "duration": 10.599999994039536,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 16,
+              "cols": 57,
+              "token": 19,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -579,26 +599,26 @@
           {
             "id": 31,
             "label": "box.draw",
-            "duration": 77.09999990463257,
+            "duration": 173.7999999821186,
             "meta": {
               "component": "box",
-              "token": 16,
+              "token": 19,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 34,
             "label": "box.data.collect",
-            "duration": 1.899999976158142,
+            "duration": 15.300000011920929,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 17,
+              "cols": 57,
+              "token": 20,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -607,26 +627,26 @@
           {
             "id": 33,
             "label": "box.draw",
-            "duration": 71.5,
+            "duration": 138.2999999821186,
             "meta": {
               "component": "box",
-              "token": 17,
+              "token": 20,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 36,
             "label": "box.data.collect",
-            "duration": 2.799999952316284,
+            "duration": 15.099999994039536,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 18,
+              "cols": 57,
+              "token": 21,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -635,26 +655,26 @@
           {
             "id": 35,
             "label": "box.draw",
-            "duration": 75.89999997615814,
+            "duration": 163.39999997615814,
             "meta": {
               "component": "box",
-              "token": 18,
+              "token": 21,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 38,
             "label": "box.data.collect",
-            "duration": 1.2999999523162842,
+            "duration": 14.900000005960464,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 19,
+              "cols": 57,
+              "token": 22,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -663,26 +683,26 @@
           {
             "id": 37,
             "label": "box.draw",
-            "duration": 88.10000002384186,
+            "duration": 186.90000000596046,
             "meta": {
               "component": "box",
-              "token": 19,
+              "token": 22,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 40,
             "label": "box.data.collect",
-            "duration": 2.299999952316284,
+            "duration": 16.899999976158142,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 20,
+              "cols": 57,
+              "token": 23,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -691,26 +711,26 @@
           {
             "id": 39,
             "label": "box.draw",
-            "duration": 94.29999995231628,
+            "duration": 195.2000000178814,
             "meta": {
               "component": "box",
-              "token": 20,
+              "token": 23,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 42,
             "label": "box.data.collect",
-            "duration": 2.5,
+            "duration": 8.200000017881393,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 21,
+              "cols": 57,
+              "token": 24,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -719,26 +739,26 @@
           {
             "id": 41,
             "label": "box.draw",
-            "duration": 80.19999992847443,
+            "duration": 151.90000000596046,
             "meta": {
               "component": "box",
-              "token": 21,
+              "token": 24,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 44,
             "label": "box.data.collect",
-            "duration": 1.8000000715255737,
+            "duration": 14.5,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 22,
+              "cols": 57,
+              "token": 25,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -747,26 +767,26 @@
           {
             "id": 43,
             "label": "box.draw",
-            "duration": 64.79999995231628,
+            "duration": 183.2999999821186,
             "meta": {
               "component": "box",
-              "token": 22,
+              "token": 25,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 46,
             "label": "box.data.collect",
-            "duration": 2.5,
+            "duration": 6.700000017881393,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 23,
+              "cols": 57,
+              "token": 26,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -775,26 +795,26 @@
           {
             "id": 45,
             "label": "box.draw",
-            "duration": 79.89999997615814,
+            "duration": 89.90000000596046,
             "meta": {
               "component": "box",
-              "token": 23,
+              "token": 26,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 48,
             "label": "box.data.collect",
-            "duration": 2.5,
+            "duration": 6.0999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 24,
+              "cols": 57,
+              "token": 27,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -803,26 +823,26 @@
           {
             "id": 47,
             "label": "box.draw",
-            "duration": 72.79999995231628,
+            "duration": 97,
             "meta": {
               "component": "box",
-              "token": 24,
+              "token": 27,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 50,
             "label": "box.data.collect",
-            "duration": 1.7000000476837158,
+            "duration": 5.100000023841858,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 25,
+              "cols": 57,
+              "token": 28,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -831,26 +851,26 @@
           {
             "id": 49,
             "label": "box.draw",
-            "duration": 98.30000007152557,
+            "duration": 84.59999999403954,
             "meta": {
               "component": "box",
-              "token": 25,
+              "token": 28,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 52,
             "label": "box.data.collect",
-            "duration": 2.299999952316284,
+            "duration": 8.700000017881393,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 26,
+              "cols": 57,
+              "token": 29,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -859,26 +879,26 @@
           {
             "id": 51,
             "label": "box.draw",
-            "duration": 85.5,
+            "duration": 113.2000000178814,
             "meta": {
               "component": "box",
-              "token": 26,
+              "token": 29,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 54,
             "label": "box.data.collect",
-            "duration": 2.399999976158142,
+            "duration": 5.800000011920929,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 27,
+              "cols": 57,
+              "token": 30,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -887,26 +907,26 @@
           {
             "id": 53,
             "label": "box.draw",
-            "duration": 66.80000007152557,
+            "duration": 89,
             "meta": {
               "component": "box",
-              "token": 27,
+              "token": 30,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 56,
             "label": "box.data.collect",
-            "duration": 2.299999952316284,
+            "duration": 4,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 28,
+              "cols": 57,
+              "token": 31,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -915,26 +935,26 @@
           {
             "id": 55,
             "label": "box.draw",
-            "duration": 76.10000002384186,
+            "duration": 91.90000000596046,
             "meta": {
               "component": "box",
-              "token": 28,
+              "token": 31,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 58,
             "label": "box.data.collect",
-            "duration": 1.399999976158142,
+            "duration": 6.0999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 29,
+              "cols": 57,
+              "token": 32,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -943,26 +963,26 @@
           {
             "id": 57,
             "label": "box.draw",
-            "duration": 70.70000004768372,
+            "duration": 99.19999998807907,
             "meta": {
               "component": "box",
-              "token": 29,
+              "token": 32,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 60,
             "label": "box.data.collect",
-            "duration": 2.100000023841858,
+            "duration": 6.5999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 30,
+              "cols": 57,
+              "token": 33,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -971,26 +991,26 @@
           {
             "id": 59,
             "label": "box.draw",
-            "duration": 76.10000002384186,
+            "duration": 95.40000000596046,
             "meta": {
               "component": "box",
-              "token": 30,
+              "token": 33,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 62,
             "label": "box.data.collect",
-            "duration": 1.5,
+            "duration": 4.699999988079071,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 31,
+              "cols": 57,
+              "token": 34,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -999,26 +1019,26 @@
           {
             "id": 61,
             "label": "box.draw",
-            "duration": 67.59999990463257,
+            "duration": 97.5,
             "meta": {
               "component": "box",
-              "token": 31,
+              "token": 34,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 64,
             "label": "box.data.collect",
-            "duration": 2.100000023841858,
+            "duration": 10.900000005960464,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 32,
+              "cols": 57,
+              "token": 35,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1027,26 +1047,26 @@
           {
             "id": 63,
             "label": "box.draw",
-            "duration": 73,
+            "duration": 118.59999999403954,
             "meta": {
               "component": "box",
-              "token": 32,
+              "token": 35,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 66,
             "label": "box.data.collect",
-            "duration": 1.9000000953674316,
+            "duration": 4.799999982118607,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 33,
+              "cols": 57,
+              "token": 36,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1055,26 +1075,26 @@
           {
             "id": 65,
             "label": "box.draw",
-            "duration": 59.200000047683716,
+            "duration": 161.89999997615814,
             "meta": {
               "component": "box",
-              "token": 33,
+              "token": 36,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 68,
             "label": "box.data.collect",
-            "duration": 3.5999999046325684,
+            "duration": 7.300000011920929,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 34,
+              "cols": 57,
+              "token": 37,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1083,26 +1103,26 @@
           {
             "id": 67,
             "label": "box.draw",
-            "duration": 76.60000002384186,
+            "duration": 87.90000000596046,
             "meta": {
               "component": "box",
-              "token": 34,
+              "token": 37,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 70,
             "label": "box.data.collect",
-            "duration": 2.600000023841858,
+            "duration": 4,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 35,
+              "cols": 57,
+              "token": 38,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1111,26 +1131,26 @@
           {
             "id": 69,
             "label": "box.draw",
-            "duration": 67.29999995231628,
+            "duration": 100.5,
             "meta": {
               "component": "box",
-              "token": 35,
+              "token": 38,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 72,
             "label": "box.data.collect",
-            "duration": 2.700000047683716,
+            "duration": 8.800000011920929,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 36,
+              "cols": 57,
+              "token": 39,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1139,26 +1159,26 @@
           {
             "id": 71,
             "label": "box.draw",
-            "duration": 71.89999997615814,
+            "duration": 97.7999999821186,
             "meta": {
               "component": "box",
-              "token": 36,
+              "token": 39,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 74,
             "label": "box.data.collect",
-            "duration": 1.8000000715255737,
+            "duration": 4.700000017881393,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 37,
+              "cols": 57,
+              "token": 40,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1167,26 +1187,26 @@
           {
             "id": 73,
             "label": "box.draw",
-            "duration": 64.39999997615814,
+            "duration": 91,
             "meta": {
               "component": "box",
-              "token": 37,
+              "token": 40,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 76,
             "label": "box.data.collect",
-            "duration": 3,
+            "duration": 4.800000011920929,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 38,
+              "cols": 57,
+              "token": 41,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1195,26 +1215,26 @@
           {
             "id": 75,
             "label": "box.draw",
-            "duration": 75,
+            "duration": 90.2000000178814,
             "meta": {
               "component": "box",
-              "token": 38,
+              "token": 41,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 78,
             "label": "box.data.collect",
-            "duration": 1.7000000476837158,
+            "duration": 16.100000023841858,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 39,
+              "cols": 57,
+              "token": 42,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1223,26 +1243,26 @@
           {
             "id": 77,
             "label": "box.draw",
-            "duration": 66.80000007152557,
+            "duration": 115.30000001192093,
             "meta": {
               "component": "box",
-              "token": 39,
+              "token": 42,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 80,
             "label": "box.data.collect",
-            "duration": 2.8000000715255737,
+            "duration": 5.9000000059604645,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 40,
+              "cols": 57,
+              "token": 43,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1251,26 +1271,26 @@
           {
             "id": 79,
             "label": "box.draw",
-            "duration": 70.89999997615814,
+            "duration": 85.59999999403954,
             "meta": {
               "component": "box",
-              "token": 40,
+              "token": 43,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 82,
             "label": "box.data.collect",
-            "duration": 2.1999999284744263,
+            "duration": 7.5999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 41,
+              "cols": 57,
+              "token": 44,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1279,26 +1299,26 @@
           {
             "id": 81,
             "label": "box.draw",
-            "duration": 68.89999997615814,
+            "duration": 89.2000000178814,
             "meta": {
               "component": "box",
-              "token": 41,
+              "token": 44,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 84,
             "label": "box.data.collect",
-            "duration": 2.8000000715255737,
+            "duration": 6.0999999940395355,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 42,
+              "cols": 57,
+              "token": 45,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1307,26 +1327,26 @@
           {
             "id": 83,
             "label": "box.draw",
-            "duration": 71.89999997615814,
+            "duration": 94.2999999821186,
             "meta": {
               "component": "box",
-              "token": 42,
+              "token": 45,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
               "traces": 12
             }
           },
           {
             "id": 86,
             "label": "box.data.collect",
-            "duration": 1.6999999284744263,
+            "duration": 8,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 17,
-              "token": 43,
+              "cols": 57,
+              "token": 46,
               "traces": 12,
               "labels": 12,
               "outcome": "success"
@@ -1335,38 +1355,66 @@
           {
             "id": 85,
             "label": "box.draw",
-            "duration": 70.09999990463257,
+            "duration": 128.59999999403954,
             "meta": {
               "component": "box",
-              "token": 43,
+              "token": 46,
               "outcome": "success",
               "rows": 100,
-              "cols": 17,
+              "cols": 57,
+              "traces": 12
+            }
+          },
+          {
+            "id": 88,
+            "label": "box.data.collect",
+            "duration": 7.699999988079071,
+            "meta": {
+              "component": "box",
+              "mode": "single",
+              "rows": 100,
+              "cols": 57,
+              "token": 47,
+              "traces": 12,
+              "labels": 12,
+              "outcome": "success"
+            }
+          },
+          {
+            "id": 87,
+            "label": "box.draw",
+            "duration": 106,
+            "meta": {
+              "component": "box",
+              "token": 47,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 57,
               "traces": 12
             }
           }
         ],
-        "maxEntryId": 86,
+        "maxEntryId": 88,
         "componentReport": [
           {
             "key": "box.draw",
-            "count": 43,
-            "totalMs": 3518.3,
-            "avgMs": 81.821,
-            "p50Ms": 75.9,
-            "p95Ms": 121.5,
-            "maxMs": 267.1,
-            "minMs": 21.6
+            "count": 47,
+            "totalMs": 5832.7,
+            "avgMs": 124.1,
+            "p50Ms": 113.2,
+            "p95Ms": 185.82,
+            "maxMs": 216.9,
+            "minMs": 24.9
           },
           {
             "key": "box.data.collect",
-            "count": 43,
-            "totalMs": 103.2,
-            "avgMs": 2.4,
-            "p50Ms": 2.3,
-            "p95Ms": 3.96,
-            "maxMs": 5.2,
-            "minMs": 1.3
+            "count": 41,
+            "totalMs": 331,
+            "avgMs": 8.073,
+            "p50Ms": 6.7,
+            "p95Ms": 16.9,
+            "maxMs": 17,
+            "minMs": 1.7
           }
         ],
         "hotReport": []
@@ -1376,12 +1424,12 @@
       "steps": [
         {
           "step": "cycle-selects",
-          "durationMs": 2470,
+          "durationMs": 9069,
           "actionResult": {
-            "visible": 18,
+            "visible": 12,
             "attempted": 4,
             "changed": 3,
-            "durationMs": 2470
+            "durationMs": 9069
           },
           "perfDelta": {
             "hook": {},
@@ -1389,17 +1437,17 @@
             "componentReport": [
               {
                 "key": "box.draw",
-                "deltaCount": 6,
-                "deltaTotalMs": 735.7,
-                "latestAvgMs": 103.711,
-                "latestP95Ms": 217.02
+                "deltaCount": 8,
+                "deltaTotalMs": 1245.8,
+                "latestAvgMs": 129.423,
+                "latestP95Ms": 194.88
               },
               {
                 "key": "box.data.collect",
-                "deltaCount": 6,
-                "deltaTotalMs": 14.1,
-                "latestAvgMs": 2.478,
-                "latestP95Ms": 4
+                "deltaCount": 4,
+                "deltaTotalMs": 15.7,
+                "latestAvgMs": 3.286,
+                "latestP95Ms": 4.72
               }
             ],
             "hotReport": []
@@ -1407,12 +1455,12 @@
         },
         {
           "step": "toggle-checkboxes",
-          "durationMs": 522,
+          "durationMs": 5172,
           "actionResult": {
             "visible": 46,
             "attempted": 5,
-            "toggled": 1,
-            "durationMs": 522
+            "toggled": 5,
+            "durationMs": 5172
           },
           "perfDelta": {
             "hook": {},
@@ -1423,14 +1471,14 @@
         },
         {
           "step": "click-analysis-buttons",
-          "durationMs": 543,
+          "durationMs": 2142,
           "actionResult": {
-            "visible": 23,
+            "visible": 24,
             "clicked": 1,
             "clickedLabels": [
               "Guide me"
             ],
-            "durationMs": 543
+            "durationMs": 2142
           },
           "perfDelta": {
             "hook": {},
@@ -1441,11 +1489,11 @@
         },
         {
           "step": "drag-panel-resizer",
-          "durationMs": 4057,
+          "durationMs": 12132,
           "actionResult": {
             "present": true,
             "moved": true,
-            "durationMs": 4057
+            "durationMs": 12132
           },
           "perfDelta": {
             "hook": {},
@@ -1454,16 +1502,16 @@
               {
                 "key": "box.draw",
                 "deltaCount": 34,
-                "deltaTotalMs": 2584.9,
-                "latestAvgMs": 81.821,
-                "latestP95Ms": 121.5
+                "deltaTotalMs": 4150.2,
+                "latestAvgMs": 124.1,
+                "latestP95Ms": 185.82
               },
               {
                 "key": "box.data.collect",
                 "deltaCount": 34,
-                "deltaTotalMs": 80.9,
-                "latestAvgMs": 2.4,
-                "latestP95Ms": 3.96
+                "deltaTotalMs": 308,
+                "latestAvgMs": 8.073,
+                "latestP95Ms": 16.9
               }
             ],
             "hotReport": []
@@ -1471,11 +1519,11 @@
         },
         {
           "step": "adjust-zoom",
-          "durationMs": 613,
+          "durationMs": 910,
           "actionResult": {
             "zoomInClicks": 2,
             "zoomOutClicks": 1,
-            "durationMs": 613
+            "durationMs": 910
           },
           "perfDelta": {
             "hook": {},
@@ -1487,15 +1535,15 @@
       ],
       "before": {
         "componentType": "box",
-        "capturedAt": 1772884565009,
+        "capturedAt": 1774686246574,
         "componentHook": null,
         "sharedPerformance": {
-          "totalEntries": 6,
+          "totalEntries": 8,
           "relevantEntries": [
             {
               "id": 2,
               "label": "box.data.collect",
-              "duration": 4,
+              "duration": 3,
               "meta": {
                 "component": "box",
                 "mode": "single",
@@ -1510,7 +1558,7 @@
             {
               "id": 1,
               "label": "box.draw",
-              "duration": 34.200000047683716,
+              "duration": 64.69999998807907,
               "meta": {
                 "component": "box",
                 "token": 1,
@@ -1521,37 +1569,22 @@
               }
             },
             {
-              "id": 4,
-              "label": "box.data.collect",
-              "duration": 1.5,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 17,
-                "token": 2,
-                "traces": 0,
-                "labels": 0,
-                "outcome": "success"
-              }
-            },
-            {
               "id": 3,
               "label": "box.draw",
-              "duration": 21.600000023841858,
+              "duration": 24.899999976158142,
               "meta": {
                 "component": "box",
                 "token": 2,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 12,
                 "traces": 0
               }
             },
             {
-              "id": 6,
+              "id": 5,
               "label": "box.data.collect",
-              "duration": 2.700000047683716,
+              "duration": 1.699999988079071,
               "meta": {
                 "component": "box",
                 "mode": "single",
@@ -1564,9 +1597,9 @@
               }
             },
             {
-              "id": 5,
+              "id": 4,
               "label": "box.draw",
-              "duration": 141.89999997615814,
+              "duration": 166.40000000596046,
               "meta": {
                 "component": "box",
                 "token": 3,
@@ -1575,119 +1608,29 @@
                 "cols": 12,
                 "traces": 3
               }
-            }
-          ],
-          "maxEntryId": 6,
-          "componentReport": [
-            {
-              "key": "box.draw",
-              "count": 3,
-              "totalMs": 197.7,
-              "avgMs": 65.9,
-              "p50Ms": 34.2,
-              "p95Ms": 131.13,
-              "maxMs": 141.9,
-              "minMs": 21.6
             },
             {
-              "key": "box.data.collect",
-              "count": 3,
-              "totalMs": 8.2,
-              "avgMs": 2.733,
-              "p50Ms": 2.7,
-              "p95Ms": 3.87,
-              "maxMs": 4,
-              "minMs": 1.5
-            }
-          ],
-          "hotReport": []
-        }
-      },
-      "after": {
-        "componentType": "box",
-        "capturedAt": 1772884573835,
-        "componentHook": null,
-        "sharedPerformance": {
-          "totalEntries": 86,
-          "relevantEntries": [
-            {
-              "id": 2,
+              "id": 7,
               "label": "box.data.collect",
-              "duration": 4,
+              "duration": 2.5999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 1,
-                "traces": 0,
-                "labels": 0,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 1,
-              "label": "box.draw",
-              "duration": 34.200000047683716,
-              "meta": {
-                "component": "box",
-                "token": 1,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 0
-              }
-            },
-            {
-              "id": 4,
-              "label": "box.data.collect",
-              "duration": 1.5,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 17,
-                "token": 2,
-                "traces": 0,
-                "labels": 0,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 3,
-              "label": "box.draw",
-              "duration": 21.600000023841858,
-              "meta": {
-                "component": "box",
-                "token": 2,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 17,
-                "traces": 0
-              }
-            },
-            {
-              "id": 6,
-              "label": "box.data.collect",
-              "duration": 2.700000047683716,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 12,
-                "token": 3,
+                "token": 4,
                 "traces": 3,
                 "labels": 3,
                 "outcome": "success"
               }
             },
             {
-              "id": 5,
+              "id": 6,
               "label": "box.draw",
-              "duration": 141.89999997615814,
+              "duration": 98.80000001192093,
               "meta": {
                 "component": "box",
-                "token": 3,
+                "token": 4,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1696,11 +1639,127 @@
             },
             {
               "id": 8,
-              "label": "box.data.collect",
-              "duration": 2.5,
+              "label": "box.draw",
+              "duration": 81.90000000596046,
               "meta": {
                 "component": "box",
-                "mode": "grouped",
+                "token": 5,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 3
+              }
+            }
+          ],
+          "maxEntryId": 8,
+          "componentReport": [
+            {
+              "key": "box.draw",
+              "count": 5,
+              "totalMs": 436.7,
+              "avgMs": 87.34,
+              "p50Ms": 81.9,
+              "p95Ms": 152.88,
+              "maxMs": 166.4,
+              "minMs": 24.9
+            },
+            {
+              "key": "box.data.collect",
+              "count": 3,
+              "totalMs": 7.3,
+              "avgMs": 2.433,
+              "p50Ms": 2.6,
+              "p95Ms": 2.96,
+              "maxMs": 3,
+              "minMs": 1.7
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      "after": {
+        "componentType": "box",
+        "capturedAt": 1774686277080,
+        "componentHook": null,
+        "sharedPerformance": {
+          "totalEntries": 88,
+          "relevantEntries": [
+            {
+              "id": 2,
+              "label": "box.data.collect",
+              "duration": 3,
+              "meta": {
+                "component": "box",
+                "mode": "single",
+                "rows": 100,
+                "cols": 12,
+                "token": 1,
+                "traces": 0,
+                "labels": 0,
+                "outcome": "success"
+              }
+            },
+            {
+              "id": 1,
+              "label": "box.draw",
+              "duration": 64.69999998807907,
+              "meta": {
+                "component": "box",
+                "token": 1,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 0
+              }
+            },
+            {
+              "id": 3,
+              "label": "box.draw",
+              "duration": 24.899999976158142,
+              "meta": {
+                "component": "box",
+                "token": 2,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 0
+              }
+            },
+            {
+              "id": 5,
+              "label": "box.data.collect",
+              "duration": 1.699999988079071,
+              "meta": {
+                "component": "box",
+                "mode": "single",
+                "rows": 100,
+                "cols": 12,
+                "token": 3,
+                "traces": 3,
+                "labels": 3,
+                "outcome": "success"
+              }
+            },
+            {
+              "id": 4,
+              "label": "box.draw",
+              "duration": 166.40000000596046,
+              "meta": {
+                "component": "box",
+                "token": 3,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 3
+              }
+            },
+            {
+              "id": 7,
+              "label": "box.data.collect",
+              "duration": 2.5999999940395355,
+              "meta": {
+                "component": "box",
+                "mode": "single",
                 "rows": 100,
                 "cols": 12,
                 "token": 4,
@@ -1710,12 +1769,25 @@
               }
             },
             {
-              "id": 7,
+              "id": 6,
               "label": "box.draw",
-              "duration": 97.39999997615814,
+              "duration": 98.80000001192093,
               "meta": {
                 "component": "box",
                 "token": 4,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 3
+              }
+            },
+            {
+              "id": 8,
+              "label": "box.draw",
+              "duration": 81.90000000596046,
+              "meta": {
+                "component": "box",
+                "token": 5,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1725,53 +1797,66 @@
             {
               "id": 10,
               "label": "box.data.collect",
-              "duration": 2.1999999284744263,
+              "duration": 3.399999976158142,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "mode": "grouped",
                 "rows": 100,
                 "cols": 12,
-                "token": 5,
-                "traces": 12,
-                "labels": 12,
+                "token": 6,
+                "traces": 3,
+                "labels": 3,
                 "outcome": "success"
               }
             },
             {
               "id": 9,
               "label": "box.draw",
-              "duration": 267.10000002384186,
+              "duration": 151.80000001192093,
               "meta": {
                 "component": "box",
-                "token": 5,
+                "token": 6,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
-                "traces": 12
+                "traces": 3
               }
             },
             {
-              "id": 12,
+              "id": 11,
+              "label": "box.draw",
+              "duration": 95.30000001192093,
+              "meta": {
+                "component": "box",
+                "token": 7,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 3
+              }
+            },
+            {
+              "id": 13,
               "label": "box.data.collect",
-              "duration": 4,
+              "duration": 5.200000017881393,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 6,
+                "token": 8,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
               }
             },
             {
-              "id": 11,
+              "id": 12,
               "label": "box.draw",
-              "duration": 108,
+              "duration": 216.89999997615814,
               "meta": {
                 "component": "box",
-                "token": 6,
+                "token": 8,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1780,26 +1865,11 @@
             },
             {
               "id": 14,
-              "label": "box.data.collect",
-              "duration": 2.100000023841858,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 12,
-                "token": 7,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 13,
               "label": "box.draw",
-              "duration": 92.69999992847443,
+              "duration": 180.19999998807907,
               "meta": {
                 "component": "box",
-                "token": 7,
+                "token": 9,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1809,13 +1879,13 @@
             {
               "id": 16,
               "label": "box.data.collect",
-              "duration": 1.600000023841858,
+              "duration": 3.5,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 8,
+                "token": 10,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -1824,10 +1894,10 @@
             {
               "id": 15,
               "label": "box.draw",
-              "duration": 80.70000004768372,
+              "duration": 156.60000002384186,
               "meta": {
                 "component": "box",
-                "token": 8,
+                "token": 10,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1837,13 +1907,13 @@
             {
               "id": 18,
               "label": "box.data.collect",
-              "duration": 1.6999999284744263,
+              "duration": 3.5999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 9,
+                "token": 11,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -1852,10 +1922,23 @@
             {
               "id": 17,
               "label": "box.draw",
-              "duration": 89.79999995231628,
+              "duration": 154,
               "meta": {
                 "component": "box",
-                "token": 9,
+                "token": 11,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 12
+              }
+            },
+            {
+              "id": 19,
+              "label": "box.draw",
+              "duration": 157.89999997615814,
+              "meta": {
+                "component": "box",
+                "token": 12,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1864,42 +1947,27 @@
             },
             {
               "id": 20,
-              "label": "box.data.collect",
-              "duration": 5.199999928474426,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 17,
-                "token": 10,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 19,
               "label": "box.draw",
-              "duration": 123,
+              "duration": 133.09999999403954,
               "meta": {
                 "component": "box",
-                "token": 10,
+                "token": 13,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 12,
                 "traces": 12
               }
             },
             {
               "id": 22,
               "label": "box.data.collect",
-              "duration": 1.7999999523162842,
+              "duration": 9.199999988079071,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 11,
+                "cols": 57,
+                "token": 14,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -1908,26 +1976,26 @@
             {
               "id": 21,
               "label": "box.draw",
-              "duration": 77.60000002384186,
+              "duration": 107.59999999403954,
               "meta": {
                 "component": "box",
-                "token": 11,
+                "token": 14,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 24,
               "label": "box.data.collect",
-              "duration": 2.299999952316284,
+              "duration": 7.200000017881393,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 12,
+                "cols": 57,
+                "token": 15,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -1936,26 +2004,26 @@
             {
               "id": 23,
               "label": "box.draw",
-              "duration": 66.89999997615814,
+              "duration": 128.69999998807907,
               "meta": {
                 "component": "box",
-                "token": 12,
+                "token": 15,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 26,
               "label": "box.data.collect",
-              "duration": 3.1999999284744263,
+              "duration": 11.599999994039536,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 13,
+                "cols": 57,
+                "token": 16,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -1964,26 +2032,26 @@
             {
               "id": 25,
               "label": "box.draw",
-              "duration": 72.30000007152557,
+              "duration": 141.5,
               "meta": {
                 "component": "box",
-                "token": 13,
+                "token": 16,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 28,
               "label": "box.data.collect",
-              "duration": 3.299999952316284,
+              "duration": 17,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 14,
+                "cols": 57,
+                "token": 17,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -1992,26 +2060,26 @@
             {
               "id": 27,
               "label": "box.draw",
-              "duration": 78,
+              "duration": 172.69999998807907,
               "meta": {
                 "component": "box",
-                "token": 14,
+                "token": 17,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 30,
               "label": "box.data.collect",
-              "duration": 2.200000047683716,
+              "duration": 17,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 15,
+                "cols": 57,
+                "token": 18,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2020,26 +2088,26 @@
             {
               "id": 29,
               "label": "box.draw",
-              "duration": 85.39999997615814,
+              "duration": 182.30000001192093,
               "meta": {
                 "component": "box",
-                "token": 15,
+                "token": 18,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 32,
               "label": "box.data.collect",
-              "duration": 2.700000047683716,
+              "duration": 10.599999994039536,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 16,
+                "cols": 57,
+                "token": 19,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2048,26 +2116,26 @@
             {
               "id": 31,
               "label": "box.draw",
-              "duration": 77.09999990463257,
+              "duration": 173.7999999821186,
               "meta": {
                 "component": "box",
-                "token": 16,
+                "token": 19,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 34,
               "label": "box.data.collect",
-              "duration": 1.899999976158142,
+              "duration": 15.300000011920929,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 17,
+                "cols": 57,
+                "token": 20,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2076,26 +2144,26 @@
             {
               "id": 33,
               "label": "box.draw",
-              "duration": 71.5,
+              "duration": 138.2999999821186,
               "meta": {
                 "component": "box",
-                "token": 17,
+                "token": 20,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 36,
               "label": "box.data.collect",
-              "duration": 2.799999952316284,
+              "duration": 15.099999994039536,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 18,
+                "cols": 57,
+                "token": 21,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2104,26 +2172,26 @@
             {
               "id": 35,
               "label": "box.draw",
-              "duration": 75.89999997615814,
+              "duration": 163.39999997615814,
               "meta": {
                 "component": "box",
-                "token": 18,
+                "token": 21,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 38,
               "label": "box.data.collect",
-              "duration": 1.2999999523162842,
+              "duration": 14.900000005960464,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 19,
+                "cols": 57,
+                "token": 22,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2132,26 +2200,26 @@
             {
               "id": 37,
               "label": "box.draw",
-              "duration": 88.10000002384186,
+              "duration": 186.90000000596046,
               "meta": {
                 "component": "box",
-                "token": 19,
+                "token": 22,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 40,
               "label": "box.data.collect",
-              "duration": 2.299999952316284,
+              "duration": 16.899999976158142,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 20,
+                "cols": 57,
+                "token": 23,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2160,26 +2228,26 @@
             {
               "id": 39,
               "label": "box.draw",
-              "duration": 94.29999995231628,
+              "duration": 195.2000000178814,
               "meta": {
                 "component": "box",
-                "token": 20,
+                "token": 23,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 42,
               "label": "box.data.collect",
-              "duration": 2.5,
+              "duration": 8.200000017881393,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 21,
+                "cols": 57,
+                "token": 24,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2188,26 +2256,26 @@
             {
               "id": 41,
               "label": "box.draw",
-              "duration": 80.19999992847443,
+              "duration": 151.90000000596046,
               "meta": {
                 "component": "box",
-                "token": 21,
+                "token": 24,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 44,
               "label": "box.data.collect",
-              "duration": 1.8000000715255737,
+              "duration": 14.5,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 22,
+                "cols": 57,
+                "token": 25,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2216,26 +2284,26 @@
             {
               "id": 43,
               "label": "box.draw",
-              "duration": 64.79999995231628,
+              "duration": 183.2999999821186,
               "meta": {
                 "component": "box",
-                "token": 22,
+                "token": 25,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 46,
               "label": "box.data.collect",
-              "duration": 2.5,
+              "duration": 6.700000017881393,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 23,
+                "cols": 57,
+                "token": 26,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2244,26 +2312,26 @@
             {
               "id": 45,
               "label": "box.draw",
-              "duration": 79.89999997615814,
+              "duration": 89.90000000596046,
               "meta": {
                 "component": "box",
-                "token": 23,
+                "token": 26,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 48,
               "label": "box.data.collect",
-              "duration": 2.5,
+              "duration": 6.0999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 24,
+                "cols": 57,
+                "token": 27,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2272,26 +2340,26 @@
             {
               "id": 47,
               "label": "box.draw",
-              "duration": 72.79999995231628,
+              "duration": 97,
               "meta": {
                 "component": "box",
-                "token": 24,
+                "token": 27,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 50,
               "label": "box.data.collect",
-              "duration": 1.7000000476837158,
+              "duration": 5.100000023841858,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 25,
+                "cols": 57,
+                "token": 28,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2300,26 +2368,26 @@
             {
               "id": 49,
               "label": "box.draw",
-              "duration": 98.30000007152557,
+              "duration": 84.59999999403954,
               "meta": {
                 "component": "box",
-                "token": 25,
+                "token": 28,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 52,
               "label": "box.data.collect",
-              "duration": 2.299999952316284,
+              "duration": 8.700000017881393,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 26,
+                "cols": 57,
+                "token": 29,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2328,26 +2396,26 @@
             {
               "id": 51,
               "label": "box.draw",
-              "duration": 85.5,
+              "duration": 113.2000000178814,
               "meta": {
                 "component": "box",
-                "token": 26,
+                "token": 29,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 54,
               "label": "box.data.collect",
-              "duration": 2.399999976158142,
+              "duration": 5.800000011920929,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 27,
+                "cols": 57,
+                "token": 30,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2356,26 +2424,26 @@
             {
               "id": 53,
               "label": "box.draw",
-              "duration": 66.80000007152557,
+              "duration": 89,
               "meta": {
                 "component": "box",
-                "token": 27,
+                "token": 30,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 56,
               "label": "box.data.collect",
-              "duration": 2.299999952316284,
+              "duration": 4,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 28,
+                "cols": 57,
+                "token": 31,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2384,26 +2452,26 @@
             {
               "id": 55,
               "label": "box.draw",
-              "duration": 76.10000002384186,
+              "duration": 91.90000000596046,
               "meta": {
                 "component": "box",
-                "token": 28,
+                "token": 31,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 58,
               "label": "box.data.collect",
-              "duration": 1.399999976158142,
+              "duration": 6.0999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 29,
+                "cols": 57,
+                "token": 32,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2412,26 +2480,26 @@
             {
               "id": 57,
               "label": "box.draw",
-              "duration": 70.70000004768372,
+              "duration": 99.19999998807907,
               "meta": {
                 "component": "box",
-                "token": 29,
+                "token": 32,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 60,
               "label": "box.data.collect",
-              "duration": 2.100000023841858,
+              "duration": 6.5999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 30,
+                "cols": 57,
+                "token": 33,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2440,26 +2508,26 @@
             {
               "id": 59,
               "label": "box.draw",
-              "duration": 76.10000002384186,
+              "duration": 95.40000000596046,
               "meta": {
                 "component": "box",
-                "token": 30,
+                "token": 33,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 62,
               "label": "box.data.collect",
-              "duration": 1.5,
+              "duration": 4.699999988079071,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 31,
+                "cols": 57,
+                "token": 34,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2468,26 +2536,26 @@
             {
               "id": 61,
               "label": "box.draw",
-              "duration": 67.59999990463257,
+              "duration": 97.5,
               "meta": {
                 "component": "box",
-                "token": 31,
+                "token": 34,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 64,
               "label": "box.data.collect",
-              "duration": 2.100000023841858,
+              "duration": 10.900000005960464,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 32,
+                "cols": 57,
+                "token": 35,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2496,26 +2564,26 @@
             {
               "id": 63,
               "label": "box.draw",
-              "duration": 73,
+              "duration": 118.59999999403954,
               "meta": {
                 "component": "box",
-                "token": 32,
+                "token": 35,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 66,
               "label": "box.data.collect",
-              "duration": 1.9000000953674316,
+              "duration": 4.799999982118607,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 33,
+                "cols": 57,
+                "token": 36,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2524,26 +2592,26 @@
             {
               "id": 65,
               "label": "box.draw",
-              "duration": 59.200000047683716,
+              "duration": 161.89999997615814,
               "meta": {
                 "component": "box",
-                "token": 33,
+                "token": 36,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 68,
               "label": "box.data.collect",
-              "duration": 3.5999999046325684,
+              "duration": 7.300000011920929,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 34,
+                "cols": 57,
+                "token": 37,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2552,26 +2620,26 @@
             {
               "id": 67,
               "label": "box.draw",
-              "duration": 76.60000002384186,
+              "duration": 87.90000000596046,
               "meta": {
                 "component": "box",
-                "token": 34,
+                "token": 37,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 70,
               "label": "box.data.collect",
-              "duration": 2.600000023841858,
+              "duration": 4,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 35,
+                "cols": 57,
+                "token": 38,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2580,26 +2648,26 @@
             {
               "id": 69,
               "label": "box.draw",
-              "duration": 67.29999995231628,
+              "duration": 100.5,
               "meta": {
                 "component": "box",
-                "token": 35,
+                "token": 38,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 72,
               "label": "box.data.collect",
-              "duration": 2.700000047683716,
+              "duration": 8.800000011920929,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 36,
+                "cols": 57,
+                "token": 39,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2608,26 +2676,26 @@
             {
               "id": 71,
               "label": "box.draw",
-              "duration": 71.89999997615814,
+              "duration": 97.7999999821186,
               "meta": {
                 "component": "box",
-                "token": 36,
+                "token": 39,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 74,
               "label": "box.data.collect",
-              "duration": 1.8000000715255737,
+              "duration": 4.700000017881393,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 37,
+                "cols": 57,
+                "token": 40,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2636,26 +2704,26 @@
             {
               "id": 73,
               "label": "box.draw",
-              "duration": 64.39999997615814,
+              "duration": 91,
               "meta": {
                 "component": "box",
-                "token": 37,
+                "token": 40,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 76,
               "label": "box.data.collect",
-              "duration": 3,
+              "duration": 4.800000011920929,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 38,
+                "cols": 57,
+                "token": 41,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2664,26 +2732,26 @@
             {
               "id": 75,
               "label": "box.draw",
-              "duration": 75,
+              "duration": 90.2000000178814,
               "meta": {
                 "component": "box",
-                "token": 38,
+                "token": 41,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 78,
               "label": "box.data.collect",
-              "duration": 1.7000000476837158,
+              "duration": 16.100000023841858,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 39,
+                "cols": 57,
+                "token": 42,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2692,26 +2760,26 @@
             {
               "id": 77,
               "label": "box.draw",
-              "duration": 66.80000007152557,
+              "duration": 115.30000001192093,
               "meta": {
                 "component": "box",
-                "token": 39,
+                "token": 42,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 80,
               "label": "box.data.collect",
-              "duration": 2.8000000715255737,
+              "duration": 5.9000000059604645,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 40,
+                "cols": 57,
+                "token": 43,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2720,26 +2788,26 @@
             {
               "id": 79,
               "label": "box.draw",
-              "duration": 70.89999997615814,
+              "duration": 85.59999999403954,
               "meta": {
                 "component": "box",
-                "token": 40,
+                "token": 43,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 82,
               "label": "box.data.collect",
-              "duration": 2.1999999284744263,
+              "duration": 7.5999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 41,
+                "cols": 57,
+                "token": 44,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2748,26 +2816,26 @@
             {
               "id": 81,
               "label": "box.draw",
-              "duration": 68.89999997615814,
+              "duration": 89.2000000178814,
               "meta": {
                 "component": "box",
-                "token": 41,
+                "token": 44,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 84,
               "label": "box.data.collect",
-              "duration": 2.8000000715255737,
+              "duration": 6.0999999940395355,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 42,
+                "cols": 57,
+                "token": 45,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2776,26 +2844,26 @@
             {
               "id": 83,
               "label": "box.draw",
-              "duration": 71.89999997615814,
+              "duration": 94.2999999821186,
               "meta": {
                 "component": "box",
-                "token": 42,
+                "token": 45,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
                 "traces": 12
               }
             },
             {
               "id": 86,
               "label": "box.data.collect",
-              "duration": 1.6999999284744263,
+              "duration": 8,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 17,
-                "token": 43,
+                "cols": 57,
+                "token": 46,
                 "traces": 12,
                 "labels": 12,
                 "outcome": "success"
@@ -2804,38 +2872,66 @@
             {
               "id": 85,
               "label": "box.draw",
-              "duration": 70.09999990463257,
+              "duration": 128.59999999403954,
               "meta": {
                 "component": "box",
-                "token": 43,
+                "token": 46,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 17,
+                "cols": 57,
+                "traces": 12
+              }
+            },
+            {
+              "id": 88,
+              "label": "box.data.collect",
+              "duration": 7.699999988079071,
+              "meta": {
+                "component": "box",
+                "mode": "single",
+                "rows": 100,
+                "cols": 57,
+                "token": 47,
+                "traces": 12,
+                "labels": 12,
+                "outcome": "success"
+              }
+            },
+            {
+              "id": 87,
+              "label": "box.draw",
+              "duration": 106,
+              "meta": {
+                "component": "box",
+                "token": 47,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 57,
                 "traces": 12
               }
             }
           ],
-          "maxEntryId": 86,
+          "maxEntryId": 88,
           "componentReport": [
             {
               "key": "box.draw",
-              "count": 43,
-              "totalMs": 3518.3,
-              "avgMs": 81.821,
-              "p50Ms": 75.9,
-              "p95Ms": 121.5,
-              "maxMs": 267.1,
-              "minMs": 21.6
+              "count": 47,
+              "totalMs": 5832.7,
+              "avgMs": 124.1,
+              "p50Ms": 113.2,
+              "p95Ms": 185.82,
+              "maxMs": 216.9,
+              "minMs": 24.9
             },
             {
               "key": "box.data.collect",
-              "count": 43,
-              "totalMs": 103.2,
-              "avgMs": 2.4,
-              "p50Ms": 2.3,
-              "p95Ms": 3.96,
-              "maxMs": 5.2,
-              "minMs": 1.3
+              "count": 41,
+              "totalMs": 331,
+              "avgMs": 8.073,
+              "p50Ms": 6.7,
+              "p95Ms": 16.9,
+              "maxMs": 17,
+              "minMs": 1.7
             }
           ],
           "hotReport": []
@@ -2845,11 +2941,11 @@
     "slowestSteps": [
       {
         "step": "drag-panel-resizer",
-        "durationMs": 4057,
+        "durationMs": 12132,
         "actionResult": {
           "present": true,
           "moved": true,
-          "durationMs": 4057
+          "durationMs": 12132
         },
         "perfDelta": {
           "hook": {},
@@ -2858,16 +2954,16 @@
             {
               "key": "box.draw",
               "deltaCount": 34,
-              "deltaTotalMs": 2584.9,
-              "latestAvgMs": 81.821,
-              "latestP95Ms": 121.5
+              "deltaTotalMs": 4150.2,
+              "latestAvgMs": 124.1,
+              "latestP95Ms": 185.82
             },
             {
               "key": "box.data.collect",
               "deltaCount": 34,
-              "deltaTotalMs": 80.9,
-              "latestAvgMs": 2.4,
-              "latestP95Ms": 3.96
+              "deltaTotalMs": 308,
+              "latestAvgMs": 8.073,
+              "latestP95Ms": 16.9
             }
           ],
           "hotReport": []
@@ -2875,12 +2971,12 @@
       },
       {
         "step": "cycle-selects",
-        "durationMs": 2470,
+        "durationMs": 9069,
         "actionResult": {
-          "visible": 18,
+          "visible": 12,
           "attempted": 4,
           "changed": 3,
-          "durationMs": 2470
+          "durationMs": 9069
         },
         "perfDelta": {
           "hook": {},
@@ -2888,29 +2984,30 @@
           "componentReport": [
             {
               "key": "box.draw",
-              "deltaCount": 6,
-              "deltaTotalMs": 735.7,
-              "latestAvgMs": 103.711,
-              "latestP95Ms": 217.02
+              "deltaCount": 8,
+              "deltaTotalMs": 1245.8,
+              "latestAvgMs": 129.423,
+              "latestP95Ms": 194.88
             },
             {
               "key": "box.data.collect",
-              "deltaCount": 6,
-              "deltaTotalMs": 14.1,
-              "latestAvgMs": 2.478,
-              "latestP95Ms": 4
+              "deltaCount": 4,
+              "deltaTotalMs": 15.7,
+              "latestAvgMs": 3.286,
+              "latestP95Ms": 4.72
             }
           ],
           "hotReport": []
         }
       },
       {
-        "step": "adjust-zoom",
-        "durationMs": 613,
+        "step": "toggle-checkboxes",
+        "durationMs": 5172,
         "actionResult": {
-          "zoomInClicks": 2,
-          "zoomOutClicks": 1,
-          "durationMs": 613
+          "visible": 46,
+          "attempted": 5,
+          "toggled": 5,
+          "durationMs": 5172
         },
         "perfDelta": {
           "hook": {},
@@ -2921,14 +3018,14 @@
       },
       {
         "step": "click-analysis-buttons",
-        "durationMs": 543,
+        "durationMs": 2142,
         "actionResult": {
-          "visible": 23,
+          "visible": 24,
           "clicked": 1,
           "clickedLabels": [
             "Guide me"
           ],
-          "durationMs": 543
+          "durationMs": 2142
         },
         "perfDelta": {
           "hook": {},
@@ -2938,13 +3035,12 @@
         }
       },
       {
-        "step": "toggle-checkboxes",
-        "durationMs": 522,
+        "step": "adjust-zoom",
+        "durationMs": 910,
         "actionResult": {
-          "visible": 46,
-          "attempted": 5,
-          "toggled": 1,
-          "durationMs": 522
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 910
         },
         "perfDelta": {
           "hook": {},

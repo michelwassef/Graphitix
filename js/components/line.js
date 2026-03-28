@@ -1520,10 +1520,6 @@
       svgBox.appendChild(tray);
       lineDebug('Debug: line axes length tray created', { trayChildren: tray.childElementCount });
     }
-    const legacyEqualAxesControl = tray.querySelector('.resizer-equalaxes-control');
-    if(legacyEqualAxesControl){
-      legacyEqualAxesControl.remove();
-    }
     let axesControl = tray.querySelector('.resizer-axeslength-control');
     if(!axesControl){
       axesControl = doc.createElement('details');
@@ -1573,12 +1569,6 @@
         }
       }
       let equalLengthItem = menu.querySelector('.resizer-axeslength-item--equal-length');
-      const legacyEqualItem = equalLengthItem ? null : menu.querySelector('.resizer-axeslength-item--equal');
-      if(!equalLengthItem && legacyEqualItem){
-        equalLengthItem = legacyEqualItem;
-        equalLengthItem.classList.remove('resizer-axeslength-item--equal');
-        equalLengthItem.classList.add('resizer-axeslength-item--equal-length');
-      }
       if(!equalLengthItem){
         equalLengthItem = doc.createElement('label');
         equalLengthItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-length';

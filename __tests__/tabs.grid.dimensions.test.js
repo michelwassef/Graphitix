@@ -192,7 +192,7 @@ describe('Workspace tab grid defaults', () => {
     expect(restoredHot.countRows()).toBe(defaultRows);
     expect(restoredHot.getSettings().minRows).toBe(defaultRows);
     expect(restoredHot.countCols()).toBeGreaterThanOrEqual(defaultCols);
-  });
+  }, 30000);
 
   test('Box stats controls reset when loading an empty payload', async () => {
     await activateWorkspace('box');

@@ -684,10 +684,8 @@
     bar: 'Bar plot',
     violin: 'Violin plot'
   });
-  const BOX_GRAPH_LEGACY_DEFAULT_TITLES = new Set(['Boxplot']);
   const BOX_GRAPH_ALL_DEFAULT_TITLES = new Set([
-    ...Object.values(BOX_GRAPH_DEFAULT_TITLES),
-    ...BOX_GRAPH_LEGACY_DEFAULT_TITLES
+    ...Object.values(BOX_GRAPH_DEFAULT_TITLES)
   ]);
 
   function normalizeBoxGraphType(value){
@@ -9042,8 +9040,8 @@
   }
 
   function ensureBoxSignificanceControlPlacement(){
-    const controls = els.boxLegacySignificanceControls
-      || global.document?.getElementById?.('boxLegacySignificanceControls')
+    const controls = els.boxSignificanceControls
+      || global.document?.getElementById?.('boxSignificanceControls')
       || null;
     const summaryCtl = els.boxIndividualSummaryCtl || global.document?.getElementById?.('boxIndividualSummaryCtl') || null;
     const signRow = els.boxGraphSignificanceRow || global.document?.getElementById?.('boxGraphSignificanceRow') || null;
@@ -9619,7 +9617,7 @@
     }
     els.boxIndividualSummaryCtl=global.$('#boxIndividualSummaryCtl');
     els.boxIndividualSummary=global.$('#boxIndividualSummary');
-    els.boxLegacySignificanceControls=global.$('#boxLegacySignificanceControls');
+    els.boxSignificanceControls=global.$('#boxSignificanceControls');
     ensureBoxSignificanceControlPlacement();
     if(els.boxIndividualSummary){
       populateIndividualSummarySelect(els.boxIndividualSummary);
@@ -15611,12 +15609,7 @@
 
 
   function computeNormalityMetrics(values, summary){
-    const result = computeDagostino(values, summary);
-    console.debug('Debug: box computeNormalityMetrics compatibility shim used',{
-      sampleSize: result?.sampleSize ?? null,
-      method: result?.method ?? null
-    });
-    return result;
+    return computeDagostino(values, summary);
   }
 
   function computeNormalityDiagnostic(values,options){

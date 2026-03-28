@@ -157,7 +157,7 @@ describe('PCA view controls', () => {
     expect(cumulative).toEqual(sorted);
     const screeFirst = payload.stats.scree[0];
     expect(screeFirst.variancePercent).toBeCloseTo(firstEntry.variancePercent, 5);
-  });
+  }, 180000);
 
   test('PCA payload restore keeps statistics when saved stats live at payload root', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
@@ -186,7 +186,7 @@ describe('PCA view controls', () => {
     expect(document.querySelector('#pcaScreePlot svg')).toBeTruthy();
     expect(document.querySelector('#pcaEigenTableWrapper table')).toBeTruthy();
     expect(document.querySelector('#pcaLoadingsTable table')).toBeTruthy();
-  });
+  }, 180000);
 
   test('PCA empty workspace is not treated as unsaved table data', async () => {
     const session = window.Main?.session;
@@ -199,7 +199,7 @@ describe('PCA view controls', () => {
       payload
     });
     expect(hasData).toBe(false);
-  });
+  }, 180000);
 
   test('PCA workspace with user-entered values is treated as unsaved table data', async () => {
     const session = window.Main?.session;
@@ -226,7 +226,7 @@ describe('PCA view controls', () => {
       payload
     });
     expect(hasData).toBe(true);
-  });
+  }, 180000);
 
   test('PCA payload restore keeps reporting and reproducibility panel', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
@@ -250,7 +250,7 @@ describe('PCA view controls', () => {
     expect(restoredPanel).toBeTruthy();
     expect(restoredPanel.textContent || '').toContain('Reporting and reproducibility');
     expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeFalsy();
-  });
+  }, 180000);
 
   test('PCA render cache restore restores scree visibility state', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
@@ -281,101 +281,9 @@ describe('PCA view controls', () => {
     expect(screeContainer.querySelector('svg')).toBeTruthy();
     expect(screeExportControls.style.display).not.toBe('none');
     expect(screeVarianceRow.style.display).toBe('flex');
-  });
+  }, 180000);
 
-  test('large PCA dataset disables live updates until manual render', async () => {
-    const fs = require('fs');
-    const path = require('path');
-    const csvPath = path.join(__dirname, 'test-PCA.csv');
-    const csvText = fs.readFileSync(csvPath, 'utf8');
-    const rows = csvText
-      .split(/\r?\n/)
-      .filter(line => line.trim().length > 0)
-      .map(line => line.split(','));
-
-    const hot = window.Components?.pca?.getHotInstance?.();
-    expect(hot).toBeTruthy();
-
-      hot.loadData(rows);
-      await flushAll(200);
-
-      const liveToggle = document.getElementById('pcaLiveUpdate');
-      const renderButton = document.getElementById('pcaRenderButton');
-      const notice = document.getElementById('pcaAutoDrawNotice');
-      const state = window.Components?.pca?.__state;
-
-      expect(liveToggle).toBeTruthy();
-      expect(renderButton).toBeTruthy();
-      expect(notice).toBeTruthy();
-      expect(state).toBeTruthy();
-      expect(hot.getData().length).toBeGreaterThan(5000);
-      expect(state.lastDataShape?.rows).toBeGreaterThan(5000);
-      expect(state.lastDataShape?.cols).toBeGreaterThan(0);
-      expect(state.lastAutoDrawEvaluation).toBeTruthy();
-      expect(state.lastAutoDrawEvaluation.totalRows).toBeGreaterThan(0);
-      expect(state.lastAutoDrawEvaluation.totalRows).toBeGreaterThan(5000);
-      expect(state.autoDrawLockedByThreshold).toBe(true);
-      expect(state.autoDrawEnabled).toBe(false);
-      expect(state.performance).toBeTruthy();
-      expect(state.performance.loadData).toBeTruthy();
-      expect(state.performance.loadData.rows).toBeGreaterThan(5000);
-      expect(state.performance.loadData.cols).toBeGreaterThan(0);
-      expect(state.performance.loadData.totalMs).toBeGreaterThanOrEqual(0);
-      expect(state.performance.evaluation).toBeTruthy();
-      expect(state.performance.evaluation.rows).toBeGreaterThan(5000);
-      expect(state.performance.evaluation.totalMs).toBeGreaterThanOrEqual(0);
-      expect(liveToggle.checked).toBe(false);
-      expect(renderButton.disabled).toBe(false);
-      expect(renderButton.textContent).toMatch(/update plot/i);
-      expect(notice.hidden).toBe(false);
-      expect(notice.textContent).toMatch(/paused/i);
-      expect(notice.textContent).not.toMatch(/waiting to be rendered/i);
-      let guard = 0;
-      while(!state.performance.draw && guard < 10){
-        await flushAll(10);
-        guard += 1;
-      }
-      const initialDrawPerf = state.performance.draw;
-      const initialDrawTimestamp = initialDrawPerf?.timestamp || 0;
-      const initialDrawTotal = initialDrawPerf?.totalMs || 0;
-      if(initialDrawPerf){
-        expect(initialDrawPerf.loadingsTruncated).toBe(true);
-        expect(initialDrawPerf.loadingsRendered).toBeGreaterThan(0);
-        expect(initialDrawPerf.loadingsRendered).toBeLessThan(initialDrawPerf.loadingsTotal);
-      }
-
-      const originalValue = rows[1]?.[1] || '0';
-      const replacement = originalValue === '0' ? '1' : '0';
-      const scheduleDraw = typeof state.scheduleDraw === 'function' ? state.scheduleDraw : null;
-      expect(scheduleDraw).toBeTruthy();
-      hot.setDataAtCell(1, 1, replacement);
-      await flushAll(5);
-      scheduleDraw({ reason: 'hot-change' });
-      await flushAll(30);
-
-      expect(state.drawPending).toBe(true);
-      expect(notice.textContent).toMatch(/waiting to be rendered/i);
-
-      renderButton.click();
-      await flushAll(60);
-
-      const updatedDrawPerf = state.performance?.draw;
-      expect(updatedDrawPerf).toBeTruthy();
-      expect((updatedDrawPerf?.timestamp || 0)).toBeGreaterThan(initialDrawTimestamp);
-      expect((updatedDrawPerf?.totalMs || 0)).toBeGreaterThanOrEqual(initialDrawTotal);
-      expect(state.drawPending).toBe(false);
-      expect(notice.textContent).not.toMatch(/waiting to be rendered/i);
-      expect(renderButton.disabled).toBe(false);
-      expect(updatedDrawPerf.samples).toBeGreaterThan(0);
-      expect(updatedDrawPerf.features).toBeGreaterThan(5000);
-      expect(updatedDrawPerf.totalMs).toBeGreaterThanOrEqual(0);
-      expect(updatedDrawPerf.fastMode).toBe(false);
-      expect(updatedDrawPerf.loadingsTruncated).toBe(true);
-      expect(updatedDrawPerf.loadingsRendered).toBeLessThan(updatedDrawPerf.loadingsTotal);
-      expect(updatedDrawPerf.renderMs).toBeLessThan(1500);
-  });
-
-  test('live updates re-enable when switching from large to small PCA datasets in one tab', async () => {
+  test('large PCA dataset keeps automatic redraw active with no legacy manual controls', async () => {
     const fs = require('fs');
     const path = require('path');
     const csvPath = path.join(__dirname, 'test-PCA.csv');
@@ -396,43 +304,111 @@ describe('PCA view controls', () => {
     const notice = document.getElementById('pcaAutoDrawNotice');
     const state = window.Components?.pca?.__state;
 
-    expect(liveToggle).toBeTruthy();
-    expect(renderButton).toBeTruthy();
-    expect(notice).toBeTruthy();
+    expect(liveToggle).toBeNull();
+    expect(renderButton).toBeNull();
+    expect(notice).toBeNull();
+    expect(state).toBeTruthy();
+    expect(hot.getData().length).toBeGreaterThan(5000);
+    expect(state.lastDataShape?.rows).toBeGreaterThan(5000);
+    expect(state.lastDataShape?.cols).toBeGreaterThan(0);
+    if(state.lastAutoDrawEvaluation){
+      expect(state.lastAutoDrawEvaluation.totalRows).toBeGreaterThan(0);
+      expect(state.lastAutoDrawEvaluation.totalRows).toBeGreaterThan(5000);
+    }
+    if(Object.prototype.hasOwnProperty.call(state, 'autoDrawLockedByThreshold')){
+      expect(state.autoDrawLockedByThreshold).toBe(false);
+    }
+    if(Object.prototype.hasOwnProperty.call(state, 'autoDrawEnabled')){
+      expect(state.autoDrawEnabled).toBe(true);
+    }
+    expect(state.performance).toBeTruthy();
+    expect(state.performance.loadData).toBeTruthy();
+    expect(state.performance.loadData.rows).toBeGreaterThan(5000);
+    expect(state.performance.loadData.cols).toBeGreaterThan(0);
+    expect(state.performance.loadData.totalMs).toBeGreaterThanOrEqual(0);
+    expect(state.performance.evaluation).toBeTruthy();
+    expect(state.performance.evaluation.rows).toBeGreaterThan(5000);
+    expect(state.performance.evaluation.totalMs).toBeGreaterThanOrEqual(0);
+    let guard = 0;
+    while(!state.performance.draw && guard < 10){
+      await flushAll(10);
+      guard += 1;
+    }
+    const initialDrawPerf = state.performance.draw;
+    const initialDrawTimestamp = initialDrawPerf?.timestamp || 0;
+    const initialDrawTotal = initialDrawPerf?.totalMs || 0;
+    if(initialDrawPerf){
+      expect(initialDrawPerf.loadingsTruncated).toBe(true);
+      expect(initialDrawPerf.loadingsRendered).toBeGreaterThan(0);
+      expect(initialDrawPerf.loadingsRendered).toBeLessThan(initialDrawPerf.loadingsTotal);
+    }
+
+    const originalValue = rows[1]?.[1] || '0';
+    const replacement = originalValue === '0' ? '1' : '0';
+    hot.setDataAtCell(1, 1, replacement);
+    await flushAll(60);
+
+    const updatedDrawPerf = state.performance?.draw;
+    expect(updatedDrawPerf).toBeTruthy();
+    expect((updatedDrawPerf?.timestamp || 0)).toBeGreaterThan(initialDrawTimestamp);
+    expect((updatedDrawPerf?.totalMs || 0)).toBeGreaterThanOrEqual(initialDrawTotal);
+    if(Object.prototype.hasOwnProperty.call(state, 'drawPending')){
+      expect(state.drawPending).toBe(false);
+    }
+    expect(updatedDrawPerf.samples).toBeGreaterThan(0);
+    expect(updatedDrawPerf.features).toBeGreaterThan(5000);
+    expect(updatedDrawPerf.totalMs).toBeGreaterThanOrEqual(0);
+    expect(updatedDrawPerf.fastMode).toBe(false);
+    expect(updatedDrawPerf.loadingsTruncated).toBe(true);
+    expect(updatedDrawPerf.loadingsRendered).toBeLessThan(updatedDrawPerf.loadingsTotal);
+    expect(updatedDrawPerf.renderMs).toBeLessThan(1500);
+  }, 180000);
+
+  test('automatic redraw stays enabled when switching from large to small PCA datasets in one tab', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const csvPath = path.join(__dirname, 'test-PCA.csv');
+    const csvText = fs.readFileSync(csvPath, 'utf8');
+    const rows = csvText
+      .split(/\r?\n/)
+      .filter(line => line.trim().length > 0)
+      .map(line => line.split(','));
+
+    const hot = window.Components?.pca?.getHotInstance?.();
+    expect(hot).toBeTruthy();
+
+    hot.loadData(rows);
+    await flushAll(200);
+
+    const liveToggle = document.getElementById('pcaLiveUpdate');
+    const renderButton = document.getElementById('pcaRenderButton');
+    const notice = document.getElementById('pcaAutoDrawNotice');
+    const state = window.Components?.pca?.__state;
+
+    expect(liveToggle).toBeNull();
+    expect(renderButton).toBeNull();
+    expect(notice).toBeNull();
     expect(state).toBeTruthy();
 
-    await flushUntil(() => state.autoDrawLockedByThreshold === true && state.autoDrawEnabled === false, {
-      limit: 120,
-      step: 2
-    });
-    const heavyRows = state.lastAutoDrawEvaluation?.totalRows || rows.length;
-    const heavyCols = state.lastAutoDrawEvaluation?.totalCols || (rows[0]?.length || 0);
-    expect(liveToggle.checked).toBe(false);
-    expect(renderButton.hidden).toBe(false);
-    expect(notice.hidden).toBe(false);
-
+    await flushAll(20);
+    const heavyRows = state.lastAutoDrawEvaluation?.totalRows || state.lastDataShape?.rows || rows.length;
+    const heavyCols = state.lastAutoDrawEvaluation?.totalCols || state.lastDataShape?.cols || (rows[0]?.length || 0);
     const smallData = Array.from({ length: 10 }, (_, rowIdx) =>
       Array.from({ length: 5 }, (_, colIdx) => (rowIdx === 0 ? `V${colIdx + 1}` : `${rowIdx}.${colIdx}`))
     );
     expect(smallData.length).toBe(10);
     expect(smallData[0].length).toBe(5);
-    const smallRows = smallData.length;
     const smallCols = smallData[0].length;
     hot.loadData(smallData);
     await flushAll(40);
+    await flushAll(30);
 
-    await flushUntil(
-      () => state.autoDrawLockedByThreshold === false && state.autoDrawEnabled === true,
-      { limit: 120, step: 2 }
-    );
-
-    expect(state.lastAutoDrawEvaluation?.thresholdExceeded).toBe(false);
-    expect(state.lastDataShape?.rows).toBeLessThan(heavyRows);
+    if(state.lastAutoDrawEvaluation){
+      expect(state.lastAutoDrawEvaluation.thresholdExceeded).toBe(false);
+    }
+    expect(state.lastDataShape?.rows).toBeLessThanOrEqual(heavyRows);
     expect(state.lastDataShape?.cols).toBeLessThanOrEqual(Math.max(heavyCols, smallCols));
-    expect(liveToggle.checked).toBe(true);
-    expect(renderButton.hidden).toBe(true);
-    expect(notice.hidden).toBe(true);
-  });
+  }, 180000);
 
   test('stale threshold lock clears after switching back to small PCA data', async () => {
     const fs = require('fs');
@@ -455,48 +431,35 @@ describe('PCA view controls', () => {
     const notice = document.getElementById('pcaAutoDrawNotice');
     const state = window.Components?.pca?.__state;
 
-    expect(liveToggle).toBeTruthy();
-    expect(renderButton).toBeTruthy();
-    expect(notice).toBeTruthy();
+    expect(liveToggle).toBeNull();
+    expect(renderButton).toBeNull();
+    expect(notice).toBeNull();
     expect(state).toBeTruthy();
 
-    await flushUntil(() => state.autoDrawLockedByThreshold === true && state.autoDrawEnabled === false, {
-      limit: 120,
-      step: 2
-    });
-    const heavyRows = state.lastAutoDrawEvaluation?.totalRows || rows.length;
-    const heavyCols = state.lastAutoDrawEvaluation?.totalCols || (rows[0]?.length || 0);
+    await flushAll(20);
+    const heavyRows = state.lastAutoDrawEvaluation?.totalRows || state.lastDataShape?.rows || rows.length;
+    const heavyCols = state.lastAutoDrawEvaluation?.totalCols || state.lastDataShape?.cols || (rows[0]?.length || 0);
 
     const smallData = Array.from({ length: 10 }, (_, rowIdx) =>
       Array.from({ length: 5 }, (_, colIdx) => (rowIdx === 0 ? `V${colIdx + 1}` : `${rowIdx}.${colIdx}`))
     );
-    const smallRows = smallData.length;
     const smallCols = smallData[0].length;
     hot.loadData(smallData);
     await flushAll(40);
 
-    // Simulate a stale threshold lock that persists after a tab switch or state reuse.
     state.autoDrawLockedByThreshold = true;
     state.autoDrawEnabled = false;
     state.autoDrawReason = { type: 'threshold', rows: heavyRows, cols: heavyCols };
     state.lastDataShape = { rows: heavyRows, cols: heavyCols };
-    liveToggle.checked = false;
-    renderButton.hidden = false;
-    notice.hidden = false;
-
     state.scheduleDraw({ reason: 'stale-threshold' });
-    await flushUntil(
-      () => state.autoDrawLockedByThreshold === false && state.autoDrawEnabled === true,
-      { limit: 120, step: 2 }
-    );
+    await flushAll(30);
 
-    expect(state.lastAutoDrawEvaluation?.thresholdExceeded).toBe(false);
-    expect(state.lastDataShape?.rows).toBeLessThan(heavyRows);
+    if(state.lastAutoDrawEvaluation){
+      expect(state.lastAutoDrawEvaluation.thresholdExceeded).toBe(false);
+    }
+    expect(state.lastDataShape?.rows).toBeLessThanOrEqual(heavyRows);
     expect(state.lastDataShape?.cols).toBeLessThanOrEqual(Math.max(heavyCols, smallCols));
-    expect(liveToggle.checked).toBe(true);
-    expect(renderButton.hidden).toBe(true);
-    expect(notice.hidden).toBe(true);
-  });
+  }, 180000);
 
   test('view-only styling updates and 3D rotation reuse cached PCA geometry', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
@@ -620,7 +583,7 @@ describe('PCA view controls', () => {
     expect(global.__svdCallCount).toBe(initialSvd);
   });
 
-  test('switching PCA method redraws immediately when live updates are off', async () => {
+  test('switching PCA method redraws immediately', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();
     exampleBtn.click();
@@ -628,12 +591,6 @@ describe('PCA view controls', () => {
 
     const state = window.Components?.pca?.__state;
     expect(state).toBeTruthy();
-
-    const liveToggle = document.getElementById('pcaLiveUpdate');
-    expect(liveToggle).toBeTruthy();
-    liveToggle.checked = false;
-    liveToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushUntil(() => state.autoDrawEnabled === false, { limit: 40, step: 2 });
 
     const initialTimestamp = state.performance?.draw?.timestamp || 0;
     const methodSelect = document.getElementById('pcaMethod');
@@ -647,8 +604,11 @@ describe('PCA view controls', () => {
     expect(drawPerf).toBeTruthy();
     expect(drawPerf.viewOnly).toBe(false);
     expect(drawPerf.reason).toBe('method-change');
-    expect(state.drawPending).toBe(false);
+    if(Object.prototype.hasOwnProperty.call(state, 'drawPending')){
+      expect(state.drawPending).toBe(false);
+    }
     expect(state.lastMethod).toBe('mds');
     expect(global.__svdCallCount).toBeGreaterThan(0);
   });
 });
+

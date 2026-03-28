@@ -9,6 +9,7 @@ const {
 async function waitForSeriesPath(page) {
   await page.waitForFunction(
     () => document.querySelectorAll('#linePlot path[data-series]').length > 0,
+    null,
     { timeout: 20_000 }
   );
 }
@@ -37,11 +38,10 @@ test('line error bar thickness lives in line toolbar and is grouped-only', async
   await clickExampleButtonIfPresent(page, 'lineLoadExample');
   await waitForSeriesPath(page);
 
-  const borderFieldset = page.locator('#lineGraphPanel fieldset').filter({
+  const legacyBorderFieldset = page.locator('#lineGraphPanel fieldset').filter({
     has: page.locator('legend', { hasText: 'Border' })
   });
-  await expect(borderFieldset).toBeVisible();
-  await expect(borderFieldset).not.toContainText('Error Bar Thickness');
+  await expect(legacyBorderFieldset).toHaveCount(0);
 
   const toolbarPanel = page.locator('.font-toolbar-host[data-font-toolbar-scope="line"] .line-errorbar-inline-panel');
 

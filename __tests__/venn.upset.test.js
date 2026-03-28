@@ -93,7 +93,7 @@ describe('Venn UpSet integration', () => {
     expect(document.getElementById('upsetConnectorColor')).toBeNull();
   });
 
-  test('Venn hides legacy style controls and opens trace toolbar from circle click', async () => {
+  test('Venn keeps style controls visible and opens trace toolbar from circle click', async () => {
     await activateWorkspace('venn');
     const venn = window.Components?.venn;
     const hooks = venn?.__testHooks;
@@ -107,8 +107,8 @@ describe('Venn UpSet integration', () => {
     expect(opacity).toBeTruthy();
     plotType.value = 'venn';
     dispatchChange(plotType);
-    expect(colorA.closest('fieldset')?.hidden).toBe(true);
-    expect(opacity.closest('fieldset')?.hidden).toBe(true);
+    expect(colorA.closest('fieldset')?.hidden).toBe(false);
+    expect(opacity.closest('fieldset')?.hidden).toBe(false);
 
     hooks.state.ui.inputs.A.value = 'GeneA\nGeneShared';
     hooks.state.ui.inputs.B.value = 'GeneB\nGeneShared';

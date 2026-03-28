@@ -4,12 +4,12 @@
   "page": "heatmapPage",
   "exampleLoaded": true,
   "timingsMs": {
-    "openMs": 430,
-    "exampleMs": 1206,
-    "exerciseMs": 17572
+    "openMs": 1151,
+    "exampleMs": 1270,
+    "exerciseMs": 18400
   },
   "totals": {
-    "logEntries": 24026,
+    "logEntries": 6889,
     "warnings": 3,
     "errors": 0,
     "ignoredErrors": 0,
@@ -18,22 +18,22 @@
   "perf": {
     "beforeExercise": {
       "componentType": "heatmap",
-      "capturedAt": 1772884613464,
+      "capturedAt": 1774686347324,
       "componentHook": {
         "performance": {
           "loadData": {
-            "timestamp": 1772884612368,
+            "timestamp": 1774686346310,
             "rows": 6,
             "cols": 8,
-            "totalMs": 70.30000007152557,
-            "hotMs": 70.10000002384186,
-            "evaluationMs": 0.20000004768371582
+            "totalMs": 140.7000000178814,
+            "hotMs": 140.5,
+            "evaluationMs": 0.20000001788139343
           },
           "draw": {
-            "timestamp": 1772884612821,
-            "totalMs": 445.2999999523163,
-            "prepareMs": 4,
-            "renderMs": 441.2999999523163,
+            "timestamp": 1774686346563,
+            "totalMs": 215.7000000178814,
+            "prepareMs": 10.400000005960464,
+            "renderMs": 205.30000001192093,
             "viewOnly": false,
             "reason": "example-load",
             "status": "complete",
@@ -41,13 +41,13 @@
             "error": null
           },
           "evaluation": {
-            "timestamp": 1772884612368,
-            "source": null,
+            "timestamp": 1774686346313,
+            "source": "example-load",
             "rows": 6,
             "cols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0.10000002384185791
+            "totalMs": 0.09999999403953552
           }
         },
         "lastAutoDrawEvaluation": {
@@ -55,7 +55,7 @@
           "totalCols": 8,
           "cellEstimate": 48,
           "thresholdExceeded": false,
-          "totalMs": 0.10000002384185791
+          "totalMs": 0.09999999403953552
         },
         "lastDataShape": {
           "rows": 6,
@@ -72,22 +72,22 @@
     },
     "afterExercise": {
       "componentType": "heatmap",
-      "capturedAt": 1772884631040,
+      "capturedAt": 1774686365750,
       "componentHook": {
         "performance": {
           "loadData": {
-            "timestamp": 1772884614870,
+            "timestamp": 1774686350922,
             "rows": 100,
             "cols": 12,
-            "totalMs": 65.20000004768372,
-            "hotMs": 65.20000004768372,
-            "evaluationMs": 0
+            "totalMs": 121.7999999821186,
+            "hotMs": 121.69999998807907,
+            "evaluationMs": 0.09999999403953552
           },
           "draw": {
-            "timestamp": 1772884630291,
-            "totalMs": 486.8000000715256,
-            "prepareMs": 2,
-            "renderMs": 200.10000002384186,
+            "timestamp": 1774686364495,
+            "totalMs": 231.2000000178814,
+            "prepareMs": 8.200000017881393,
+            "renderMs": 64.89999997615814,
             "viewOnly": false,
             "reason": null,
             "status": "complete",
@@ -95,13 +95,13 @@
             "error": null
           },
           "evaluation": {
-            "timestamp": 1772884630076,
-            "source": null,
+            "timestamp": 1774686364408,
+            "source": "schedule",
             "rows": 6,
             "cols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0
+            "totalMs": 0.09999999403953552
           }
         },
         "lastAutoDrawEvaluation": {
@@ -109,7 +109,7 @@
           "totalCols": 8,
           "cellEstimate": 48,
           "thresholdExceeded": false,
-          "totalMs": 0
+          "totalMs": 0.09999999403953552
         },
         "lastDataShape": {
           "rows": 6,
@@ -128,17 +128,17 @@
       "steps": [
         {
           "step": "cycle-selects",
-          "durationMs": 3020,
+          "durationMs": 4212,
           "actionResult": {
-            "visible": 7,
+            "visible": 8,
             "attempted": 4,
             "changed": 3,
-            "durationMs": 3020
+            "durationMs": 4212
           },
           "perfDelta": {
             "hook": {
               "loadData": {
-                "totalMs": 65.2,
+                "totalMs": 121.8,
                 "parseMs": 0,
                 "computeMs": 0,
                 "renderMs": 0,
@@ -156,10 +156,10 @@
                 "reason": null
               },
               "draw": {
-                "totalMs": 445.3,
+                "totalMs": 231.2,
                 "parseMs": 0,
                 "computeMs": 0,
-                "renderMs": 271.3,
+                "renderMs": 96.2,
                 "rows": 0,
                 "cols": 0,
                 "reason": null
@@ -172,12 +172,12 @@
         },
         {
           "step": "toggle-checkboxes",
-          "durationMs": 3598,
+          "durationMs": 4277,
           "actionResult": {
-            "visible": 18,
+            "visible": 19,
             "attempted": 5,
             "toggled": 5,
-            "durationMs": 3598
+            "durationMs": 4277
           },
           "perfDelta": {
             "hook": {
@@ -191,10 +191,10 @@
                 "reason": null
               },
               "draw": {
-                "totalMs": 486.8,
+                "totalMs": 231.2,
                 "parseMs": 0,
                 "computeMs": 0,
-                "renderMs": 262.3,
+                "renderMs": 71.7,
                 "rows": 6,
                 "cols": 8,
                 "reason": "toggle-heatmapShowValues"
@@ -207,12 +207,12 @@
         },
         {
           "step": "click-analysis-buttons",
-          "durationMs": 236,
+          "durationMs": 577,
           "actionResult": {
-            "visible": 18,
+            "visible": 23,
             "clicked": 0,
             "clickedLabels": [],
-            "durationMs": 236
+            "durationMs": 577
           },
           "perfDelta": {
             "hook": {},
@@ -223,16 +223,16 @@
         },
         {
           "step": "drag-panel-resizer",
-          "durationMs": 9606,
+          "durationMs": 7748,
           "actionResult": {
             "present": true,
             "moved": true,
-            "durationMs": 9606
+            "durationMs": 7748
           },
           "perfDelta": {
             "hook": {
               "evaluation": {
-                "totalMs": 0,
+                "totalMs": 0.1,
                 "parseMs": 0,
                 "computeMs": 0,
                 "renderMs": 0,
@@ -241,10 +241,10 @@
                 "reason": null
               },
               "draw": {
-                "totalMs": 486.8,
+                "totalMs": 231.2,
                 "parseMs": 0,
                 "computeMs": 0,
-                "renderMs": 200.1,
+                "renderMs": 64.9,
                 "rows": 0,
                 "cols": 0,
                 "reason": null
@@ -257,11 +257,11 @@
         },
         {
           "step": "adjust-zoom",
-          "durationMs": 460,
+          "durationMs": 688,
           "actionResult": {
             "zoomInClicks": 2,
             "zoomOutClicks": 1,
-            "durationMs": 460
+            "durationMs": 688
           },
           "perfDelta": {
             "hook": {},
@@ -273,22 +273,22 @@
       ],
       "before": {
         "componentType": "heatmap",
-        "capturedAt": 1772884613467,
+        "capturedAt": 1774686347334,
         "componentHook": {
           "performance": {
             "loadData": {
-              "timestamp": 1772884612368,
+              "timestamp": 1774686346310,
               "rows": 6,
               "cols": 8,
-              "totalMs": 70.30000007152557,
-              "hotMs": 70.10000002384186,
-              "evaluationMs": 0.20000004768371582
+              "totalMs": 140.7000000178814,
+              "hotMs": 140.5,
+              "evaluationMs": 0.20000001788139343
             },
             "draw": {
-              "timestamp": 1772884612821,
-              "totalMs": 445.2999999523163,
-              "prepareMs": 4,
-              "renderMs": 441.2999999523163,
+              "timestamp": 1774686346563,
+              "totalMs": 215.7000000178814,
+              "prepareMs": 10.400000005960464,
+              "renderMs": 205.30000001192093,
               "viewOnly": false,
               "reason": "example-load",
               "status": "complete",
@@ -296,13 +296,13 @@
               "error": null
             },
             "evaluation": {
-              "timestamp": 1772884612368,
-              "source": null,
+              "timestamp": 1774686346313,
+              "source": "example-load",
               "rows": 6,
               "cols": 8,
               "cellEstimate": 48,
               "thresholdExceeded": false,
-              "totalMs": 0.10000002384185791
+              "totalMs": 0.09999999403953552
             }
           },
           "lastAutoDrawEvaluation": {
@@ -310,7 +310,7 @@
             "totalCols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0.10000002384185791
+            "totalMs": 0.09999999403953552
           },
           "lastDataShape": {
             "rows": 6,
@@ -327,22 +327,22 @@
       },
       "after": {
         "componentType": "heatmap",
-        "capturedAt": 1772884631032,
+        "capturedAt": 1774686365722,
         "componentHook": {
           "performance": {
             "loadData": {
-              "timestamp": 1772884614870,
+              "timestamp": 1774686350922,
               "rows": 100,
               "cols": 12,
-              "totalMs": 65.20000004768372,
-              "hotMs": 65.20000004768372,
-              "evaluationMs": 0
+              "totalMs": 121.7999999821186,
+              "hotMs": 121.69999998807907,
+              "evaluationMs": 0.09999999403953552
             },
             "draw": {
-              "timestamp": 1772884630291,
-              "totalMs": 486.8000000715256,
-              "prepareMs": 2,
-              "renderMs": 200.10000002384186,
+              "timestamp": 1774686364495,
+              "totalMs": 231.2000000178814,
+              "prepareMs": 8.200000017881393,
+              "renderMs": 64.89999997615814,
               "viewOnly": false,
               "reason": null,
               "status": "complete",
@@ -350,13 +350,13 @@
               "error": null
             },
             "evaluation": {
-              "timestamp": 1772884630076,
-              "source": null,
+              "timestamp": 1774686364408,
+              "source": "schedule",
               "rows": 6,
               "cols": 8,
               "cellEstimate": 48,
               "thresholdExceeded": false,
-              "totalMs": 0
+              "totalMs": 0.09999999403953552
             }
           },
           "lastAutoDrawEvaluation": {
@@ -364,7 +364,7 @@
             "totalCols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0
+            "totalMs": 0.09999999403953552
           },
           "lastDataShape": {
             "rows": 6,
@@ -383,16 +383,16 @@
     "slowestSteps": [
       {
         "step": "drag-panel-resizer",
-        "durationMs": 9606,
+        "durationMs": 7748,
         "actionResult": {
           "present": true,
           "moved": true,
-          "durationMs": 9606
+          "durationMs": 7748
         },
         "perfDelta": {
           "hook": {
             "evaluation": {
-              "totalMs": 0,
+              "totalMs": 0.1,
               "parseMs": 0,
               "computeMs": 0,
               "renderMs": 0,
@@ -401,10 +401,10 @@
               "reason": null
             },
             "draw": {
-              "totalMs": 486.8,
+              "totalMs": 231.2,
               "parseMs": 0,
               "computeMs": 0,
-              "renderMs": 200.1,
+              "renderMs": 64.9,
               "rows": 0,
               "cols": 0,
               "reason": null
@@ -417,12 +417,12 @@
       },
       {
         "step": "toggle-checkboxes",
-        "durationMs": 3598,
+        "durationMs": 4277,
         "actionResult": {
-          "visible": 18,
+          "visible": 19,
           "attempted": 5,
           "toggled": 5,
-          "durationMs": 3598
+          "durationMs": 4277
         },
         "perfDelta": {
           "hook": {
@@ -436,10 +436,10 @@
               "reason": null
             },
             "draw": {
-              "totalMs": 486.8,
+              "totalMs": 231.2,
               "parseMs": 0,
               "computeMs": 0,
-              "renderMs": 262.3,
+              "renderMs": 71.7,
               "rows": 6,
               "cols": 8,
               "reason": "toggle-heatmapShowValues"
@@ -452,17 +452,17 @@
       },
       {
         "step": "cycle-selects",
-        "durationMs": 3020,
+        "durationMs": 4212,
         "actionResult": {
-          "visible": 7,
+          "visible": 8,
           "attempted": 4,
           "changed": 3,
-          "durationMs": 3020
+          "durationMs": 4212
         },
         "perfDelta": {
           "hook": {
             "loadData": {
-              "totalMs": 65.2,
+              "totalMs": 121.8,
               "parseMs": 0,
               "computeMs": 0,
               "renderMs": 0,
@@ -480,10 +480,10 @@
               "reason": null
             },
             "draw": {
-              "totalMs": 445.3,
+              "totalMs": 231.2,
               "parseMs": 0,
               "computeMs": 0,
-              "renderMs": 271.3,
+              "renderMs": 96.2,
               "rows": 0,
               "cols": 0,
               "reason": null
@@ -496,11 +496,11 @@
       },
       {
         "step": "adjust-zoom",
-        "durationMs": 460,
+        "durationMs": 688,
         "actionResult": {
           "zoomInClicks": 2,
           "zoomOutClicks": 1,
-          "durationMs": 460
+          "durationMs": 688
         },
         "perfDelta": {
           "hook": {},
@@ -511,12 +511,12 @@
       },
       {
         "step": "click-analysis-buttons",
-        "durationMs": 236,
+        "durationMs": 577,
         "actionResult": {
-          "visible": 18,
+          "visible": 23,
           "clicked": 0,
           "clickedLabels": [],
-          "durationMs": 236
+          "durationMs": 577
         },
         "perfDelta": {
           "hook": {},

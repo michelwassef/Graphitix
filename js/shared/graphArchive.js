@@ -17,10 +17,6 @@
     '#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080',
     '#00a6d6', '#8b4513', '#ff1493', '#666666'
   ]);
-  const LEGACY_SCATTER_DEFAULT_LABEL_COLORS = Object.freeze([
-    '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
-    '#ffff33', '#a65628', '#f781bf', '#999999'
-  ]);
   const SCATTER_DEFAULT_LABEL_SHAPES = Object.freeze([
     'circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star'
   ]);
@@ -473,8 +469,7 @@
     if (value === currentDefault) {
       return true;
     }
-    const legacyDefault = LEGACY_SCATTER_DEFAULT_LABEL_COLORS[index % LEGACY_SCATTER_DEFAULT_LABEL_COLORS.length];
-    return value === legacyDefault;
+    return false;
   }
 
   function compactScatterCategoricalMap(mapValue, defaults) {

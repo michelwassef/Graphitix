@@ -216,30 +216,6 @@
     return normalized;
   }
 
-  function hideLegacyVennStyleControls(){
-    const inputs = state.ui?.inputs;
-    if(!inputs){
-      return;
-    }
-    const candidates = [
-      inputs.colorA?.closest?.('fieldset') || null,
-      inputs.opacity?.closest?.('fieldset') || null
-    ];
-    let hiddenCount = 0;
-    candidates.forEach(fieldset => {
-      if(!fieldset || fieldset.dataset?.vennLegacyStyleHidden === '1'){
-        return;
-      }
-      fieldset.hidden = true;
-      if(fieldset.dataset){
-        fieldset.dataset.vennLegacyStyleHidden = '1';
-      }
-      fieldset.setAttribute('aria-hidden', 'true');
-      hiddenCount += 1;
-    });
-    debugLog('legacy style controls hidden', { hiddenCount });
-  }
-
   function getSpeciesDetectionState() {
     if (!state.analysis.speciesDetection) {
       state.analysis.speciesDetection = {
@@ -6720,7 +6696,6 @@
       inactiveDotColor: $('#upsetInactiveDotColor'),
       gridColor: $('#upsetGridColor')
     };
-    hideLegacyVennStyleControls();
     state.ui.goResults = $('#goResults');
     state.ui.stringResults = $('#stringResults');
     state.ui.stringNetwork = $('#stringNetwork');

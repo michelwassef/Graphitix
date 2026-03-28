@@ -98,5 +98,5 @@ describe('Survival statistics pipeline', () => {
     expect(payload.config.showHazardRatios).toBe(true);
     expect(payload.config.fitCoxModel).toBe(true);
     await flushAsyncWork();
-  });
+  }, 30000);
 });

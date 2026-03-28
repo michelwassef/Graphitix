@@ -580,9 +580,5 @@
     debug('payloadReader.installed', { patched: true });
   })();
 
-  // Expose helpers for legacy callers expecting globals
-  global.downloadJSON = fileIO.downloadJSON;
-  global.downloadBlob = fileIO.downloadBlob;
-  global.verifyPermission = fileIO.verifyPermission;
 })(window);
 

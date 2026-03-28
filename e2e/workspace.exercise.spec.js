@@ -15,7 +15,24 @@ const {
 function writePerfSummary(fileName, payload) {
   const outDir = path.resolve('artifacts', 'perf-summaries');
   fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, fileName), JSON.stringify(payload, null, 2), 'utf8');
+  const target = path.join(outDir, fileName);
+  const data = JSON.stringify(payload, null, 2);
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      fs.writeFileSync(target, data, 'utf8');
+      return;
+    } catch (err) {
+      lastError = err;
+      const code = String(err?.code || '');
+      if (code !== 'EBUSY' && code !== 'EACCES' && code !== 'UNKNOWN') {
+        break;
+      }
+      const start = Date.now();
+      while (Date.now() - start < (attempt + 1) * 120) { /* retry backoff */ }
+    }
+  }
+  console.warn('workspace exercise perf summary write skipped', { fileName, error: lastError?.message || String(lastError) });
 }
 
 test.describe('Workspace Stress Matrix', () => {

@@ -170,5 +170,5 @@ describe('Shared formControls auto-sizing', () => {
     const expectedInteractionCount = interactions.length + (survivalCovariateSelect ? 1 : 0);
     expect(autoSizeSpy.mock.calls.length).toBeGreaterThanOrEqual(expectedInteractionCount + 1);
     expect(autoSizeSpy.mock.calls.length).toBeGreaterThan(preMutationCalls);
-  }, 30000);
+  }, 90000);
 });

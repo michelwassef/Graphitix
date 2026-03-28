@@ -42,7 +42,7 @@ describe('graphArchive adaptive compression', () => {
   }
 
   function buildScatterDefaults(labelCount) {
-    const colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999'];
+    const colors = ['#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6', '#8b4513', '#ff1493', '#666666'];
     const shapes = ['circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star'];
     const labelColors = {};
     const labelShapes = {};

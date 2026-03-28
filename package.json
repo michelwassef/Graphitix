@@ -59,8 +59,5 @@
     "jstat": "^1.9.5",
     "jszip": "^3.10.1",
     "svd-js": "^1.1.1"
-  },
-  "dependencies": {
-    "puppeteer-core": "^22.13.1"
   }
 }

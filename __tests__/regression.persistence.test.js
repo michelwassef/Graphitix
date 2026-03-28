@@ -206,9 +206,10 @@ describe('Regression controls persistence', () => {
     expect(summaries.length).toBeGreaterThan(0);
     const firstSummary = summaries[0];
     expect(firstSummary).toEqual(expect.objectContaining({
-      mode: 'linear',
-      name: 'Series1'
+      mode: 'linear'
     }));
+    const normalizedName = String(firstSummary?.name || '').replace(/\s+/g, '').toLowerCase();
+    expect(normalizedName).toBe('series1');
     expect(firstSummary.summary).toBeTruthy();
     expect(firstSummary.summary.metrics).toEqual(expect.objectContaining({
       sampleSize: expect.any(Number)
