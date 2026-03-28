@@ -953,6 +953,24 @@
       }
     };
 
+    const focusGridContainer = ()=>{
+      if(!container || typeof container.focus !== 'function'){
+        return;
+      }
+      try{
+        if(typeof container.getAttribute === 'function' && !container.getAttribute('tabindex')){
+          container.setAttribute('tabindex', '-1');
+        }
+        container.focus({ preventScroll: true });
+      }catch(err){
+        try{
+          container.focus();
+        }catch(focusErr){
+          // ignore focus failures
+        }
+      }
+    };
+
     const setCopyHighlightRange = (range)=>{
       copyHighlightRange = range || null;
       normalizedCopyHighlightRange = normalizeRange(copyHighlightRange);
@@ -2359,6 +2377,100 @@
       return lines.join('\n');
     };
 
+    const getSelectedHeaderColumnsSorted = ()=>{
+      if(!selectedHeaderColumns.size){
+        return [];
+      }
+      return Array.from(selectedHeaderColumns)
+        .map(col => Number(col))
+        .filter(col => Number.isInteger(col) && col >= 0 && col < colCount)
+        .sort((a, b)=>a - b);
+    };
+
+    const resolveRowSpanForSelection = ()=>{
+      const normalized = normalizedSelectionRange || normalizeRange(lastRange);
+      if(normalized){
+        return {
+          startRow: normalized.from.row,
+          endRow: normalized.to.row
+        };
+      }
+      const lastRow = Math.max(0, getVisualRowCount() - 1);
+      return { startRow: 0, endRow: lastRow };
+    };
+
+    const buildClipboardTextFromColumns = (columns, rowStart, rowEnd)=>{
+      const sortedColumns = Array.isArray(columns)
+        ? columns.filter(col => Number.isInteger(col) && col >= 0 && col < colCount).slice().sort((a, b)=>a - b)
+        : [];
+      if(!sortedColumns.length){
+        return '';
+      }
+      const startRow = Number.isInteger(rowStart) ? Math.max(0, rowStart) : 0;
+      const endRowResolved = Number.isInteger(rowEnd) ? Math.max(startRow, rowEnd) : startRow;
+      const totalCells = (endRowResolved - startRow + 1) * sortedColumns.length;
+      if(totalCells > MAX_CLIPBOARD_CELLS){
+        console.warn('Shared.hot AG copy skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
+        return null;
+      }
+      const matrix = dataHandle.current;
+      const lines = [];
+      for(let visualRow = startRow; visualRow <= endRowResolved; visualRow += 1){
+        const physicalRow = toPhysicalRowIndex(visualRow);
+        const row = Number.isInteger(physicalRow) && Array.isArray(matrix[physicalRow]) ? matrix[physicalRow] : [];
+        const values = sortedColumns.map(visualCol => {
+          const physicalCol = toPhysicalColIndex(visualCol);
+          const value = Number.isInteger(physicalCol) ? row[physicalCol] : null;
+          return value == null ? '' : String(value);
+        });
+        lines.push(values.join('\t'));
+      }
+      return lines.join('\n');
+    };
+
+    const isContiguousColumnSelection = (columns)=>{
+      if(!Array.isArray(columns) || !columns.length){
+        return false;
+      }
+      for(let i = 1; i < columns.length; i += 1){
+        if(columns[i] !== columns[i - 1] + 1){
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const buildSelectionRangesFromColumns = (columns, rowStart, rowEnd)=>{
+      if(!Array.isArray(columns) || !columns.length){
+        return [];
+      }
+      const ranges = [];
+      for(let i = 0; i < columns.length; i += 1){
+        ranges.push({
+          startRow: rowStart,
+          startCol: columns[i],
+          endRow: rowEnd,
+          endCol: columns[i]
+        });
+      }
+      return ranges;
+    };
+
+    const buildVisualClearChangesForColumns = (columns, rowStart, rowEnd)=>{
+      if(!Array.isArray(columns) || !columns.length){
+        return [];
+      }
+      const startRowResolved = Number.isInteger(rowStart) ? rowStart : 0;
+      const endRowResolved = Number.isInteger(rowEnd) ? Math.max(startRowResolved, rowEnd) : startRowResolved;
+      const changes = [];
+      for(let r = startRowResolved; r <= endRowResolved; r += 1){
+        for(let i = 0; i < columns.length; i += 1){
+          changes.push([r, columns[i], '']);
+        }
+      }
+      return changes;
+    };
+
     const writeClipboardText = async (text)=>{
       if(typeof text !== 'string'){
         return false;
@@ -2391,30 +2503,52 @@
       }
     };
 
-    const fireAfterCopy = (normalized)=>{
+    const fireAfterCopy = (normalizedOrRanges)=>{
+      if(Array.isArray(normalizedOrRanges)){
+        if(normalizedOrRanges.length){
+          fireHook('afterCopy', null, normalizedOrRanges);
+        }
+        return;
+      }
+      const normalized = normalizeRange(normalizedOrRanges);
       if(!normalized){
         return;
       }
-      const coords = [{
+      fireHook('afterCopy', null, [{
         startRow: normalized.from.row,
         startCol: normalized.from.col,
         endRow: normalized.to.row,
         endCol: normalized.to.col
-      }];
-      fireHook('afterCopy', null, coords);
+      }]);
     };
 
     const copySelectionToClipboard = async ()=>{
       const normalized = normalizedSelectionRange || normalizeRange(lastRange);
-      const text = buildClipboardTextFromRange(normalized);
+      const selectedColumns = getSelectedHeaderColumnsSorted();
+      const useSelectedColumns = selectedColumns.length > 0;
+      const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
+      const text = useSelectedColumns
+        ? buildClipboardTextFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+        : buildClipboardTextFromRange(normalized);
       if(text == null){
         return false;
       }
       const ok = await writeClipboardText(text);
       if(ok){
-        setCopyHighlightRange(normalized);
+        if(useSelectedColumns && isContiguousColumnSelection(selectedColumns)){
+          setCopyHighlightRange({
+            from: { row: rowSpan.startRow, col: selectedColumns[0] },
+            to: { row: rowSpan.endRow, col: selectedColumns[selectedColumns.length - 1] }
+          });
+        }else if(useSelectedColumns){
+          setCopyHighlightRange(null);
+        }else{
+          setCopyHighlightRange(normalized);
+        }
         renderAg(instance.gridApi);
-        fireAfterCopy(normalized);
+        fireAfterCopy(useSelectedColumns
+          ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+          : normalized);
       }
       return ok;
     };
@@ -2424,20 +2558,45 @@
         flushPendingCutMove('new-cut');
       }
       const normalized = normalizedSelectionRange || normalizeRange(lastRange);
-      const text = buildClipboardTextFromRange(normalized);
-      if(text == null || !normalized){
+      const selectedColumns = getSelectedHeaderColumnsSorted();
+      const useSelectedColumns = selectedColumns.length > 0;
+      const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
+      const text = useSelectedColumns
+        ? buildClipboardTextFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+        : buildClipboardTextFromRange(normalized);
+      if(text == null || (!normalized && !useSelectedColumns)){
         return false;
       }
       const ok = await writeClipboardText(text);
       if(!ok){
         return false;
       }
-      fireAfterCopy(normalized);
+      fireAfterCopy(useSelectedColumns
+        ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+        : normalized);
       try{
         const matrix = dataHandle.current;
         const cutChanges = [];
-        for(let r = normalized.from.row; r <= normalized.to.row; r++){
-          for(let c = normalized.from.col; c <= normalized.to.col; c++){
+        const startRow = useSelectedColumns ? rowSpan.startRow : normalized.from.row;
+        const endRow = useSelectedColumns ? rowSpan.endRow : normalized.to.row;
+        const startCol = useSelectedColumns ? selectedColumns[0] : normalized.from.col;
+        const endCol = useSelectedColumns ? selectedColumns[selectedColumns.length - 1] : normalized.to.col;
+        for(let r = startRow; r <= endRow; r += 1){
+          const columns = useSelectedColumns ? selectedColumns : null;
+          if(columns){
+            for(let i = 0; i < columns.length; i += 1){
+              const c = columns[i];
+              const physicalRow = toPhysicalRowIndex(r);
+              const physicalCol = toPhysicalColIndex(c);
+              if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+                continue;
+              }
+              const prev = matrix?.[physicalRow]?.[physicalCol];
+              cutChanges.push({ row: physicalRow, col: physicalCol, prev, next: '' });
+            }
+            continue;
+          }
+          for(let c = startCol; c <= endCol; c += 1){
             const physicalRow = toPhysicalRowIndex(r);
             const physicalCol = toPhysicalColIndex(c);
             if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
@@ -2459,18 +2618,23 @@
         pendingCutMove = null;
         pendingCutMoveTimer = null;
       }
-      const rowCountLocal = normalized.to.row - normalized.from.row + 1;
-      const colCountLocal = normalized.to.col - normalized.from.col + 1;
+      const rowCountLocal = useSelectedColumns
+        ? (rowSpan.endRow - rowSpan.startRow + 1)
+        : (normalized.to.row - normalized.from.row + 1);
+      const colCountLocal = useSelectedColumns
+        ? selectedColumns.length
+        : (normalized.to.col - normalized.from.col + 1);
       const totalCells = rowCountLocal * colCountLocal;
       if(totalCells > MAX_CLIPBOARD_CELLS){
         return true;
       }
-      const changes = [];
-      for(let r = normalized.from.row; r <= normalized.to.row; r++){
-        for(let c = normalized.from.col; c <= normalized.to.col; c++){
-          changes.push([r, c, '']);
-        }
-      }
+      const changes = useSelectedColumns
+        ? buildVisualClearChangesForColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+        : buildVisualClearChangesForColumns(
+          Array.from({ length: Math.max(0, normalized.to.col - normalized.from.col + 1) }, (_, offset)=>normalized.from.col + offset),
+          normalized.from.row,
+          normalized.to.row
+        );
       instance.setDataAtCell(changes, 'cut');
       setCopyHighlightRange(null);
       renderAg(instance.gridApi);
@@ -6334,6 +6498,7 @@
           return;
         }
         clearGridCellFocus(instance.gridApi);
+        focusGridContainer();
         clearSelectedHeaderColumns();
         const fromCol = 0;
         const toCol = Math.max(0, colCount - 1);
@@ -6354,6 +6519,7 @@
           return;
         }
         clearGridCellFocus(instance.gridApi);
+        focusGridContainer();
         const lastRow = Math.max(0, getVisualRowCount() - 1);
         if(additive){
           const seed = selectedHeaderColumns.size
@@ -7426,16 +7592,20 @@
         const isDelete = key === 'Delete' || keyCode === 46;
         const isBackspace = key === 'Backspace' || keyCode === 8;
         if((isDelete || isBackspace) && !isEditableTarget(event.target)){
+          const selectedColumns = getSelectedHeaderColumnsSorted();
+          const useSelectedColumns = selectedColumns.length > 0;
           const selection = normalizedSelectionRange || normalizeRange(lastRange);
-          if(selection){
+          if(selection || useSelectedColumns){
             event.preventDefault?.();
             event.stopPropagation?.();
-            const changes = [];
-            for(let r = selection.from.row; r <= selection.to.row; r++){
-              for(let c = selection.from.col; c <= selection.to.col; c++){
-                changes.push([r, c, '']);
-              }
-            }
+            const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
+            const changes = useSelectedColumns
+              ? buildVisualClearChangesForColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+              : buildVisualClearChangesForColumns(
+                Array.from({ length: Math.max(0, selection.to.col - selection.from.col + 1) }, (_, offset)=>selection.from.col + offset),
+                selection.from.row,
+                selection.to.row
+              );
             if(changes.length){
               instance.setDataAtCell(changes, 'delete');
               setCopyHighlightRange(null);
@@ -7569,6 +7739,15 @@
             selection = normalizeRange({ from: coords, to: coords });
           }
         }
+        const selectedColumns = getSelectedHeaderColumnsSorted();
+        const useSelectedColumns = selectedColumns.length > 0;
+        if(!selection && useSelectedColumns){
+          const lastRow = Math.max(0, getVisualRowCount() - 1);
+          selection = {
+            from: { row: 0, col: selectedColumns[0] },
+            to: { row: lastRow, col: selectedColumns[selectedColumns.length - 1] }
+          };
+        }
         if(!selection){
           return;
         }
@@ -7638,23 +7817,51 @@
         event.stopImmediatePropagation?.();
         event.stopPropagation?.();
         const selRowCount = selection.to.row - selection.from.row + 1;
-        const selColCount = selection.to.col - selection.from.col + 1;
+        const selColCount = useSelectedColumns
+          ? selectedColumns.length
+          : (selection.to.col - selection.from.col + 1);
         let block = rows;
         if((selRowCount > 1 || selColCount > 1) && rows.length === 1 && rows[0].length === 1){
           const value = rows[0][0];
           block = Array.from({ length: selRowCount }, ()=>Array.from({ length: selColCount }, ()=>value));
         }
         const endRow = selection.from.row + block.length - 1;
-        const endCol = selection.from.col + (block[0]?.length || 1) - 1;
+        const endCol = useSelectedColumns
+          ? selectedColumns[selectedColumns.length - 1]
+          : (selection.from.col + (block[0]?.length || 1) - 1);
         try{
-          instance.populateFromArray(selection.from.row, selection.from.col, block, endRow, endCol, 'clipboard', 'paste');
+          if(useSelectedColumns){
+            const sourceColCount = block.reduce((max, row)=>Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+            const changes = [];
+            for(let r = 0; r < block.length; r += 1){
+              const sourceRow = Array.isArray(block[r]) ? block[r] : [block[r]];
+              for(let c = 0; c < selectedColumns.length; c += 1){
+                const visualCol = selectedColumns[c];
+                let sourceColIndex = 0;
+                if(sourceColCount > 1){
+                  if(sourceColCount >= selectedColumns.length){
+                    sourceColIndex = c;
+                  }else{
+                    sourceColIndex = c % sourceColCount;
+                  }
+                }
+                const value = sourceRow[sourceColIndex];
+                changes.push([selection.from.row + r, visualCol, value == null ? '' : value]);
+              }
+            }
+            if(changes.length){
+              instance.setDataAtCell(changes, 'paste');
+            }
+          }else{
+            instance.populateFromArray(selection.from.row, selection.from.col, block, endRow, endCol, 'clipboard', 'paste');
+          }
           setLastRange({
-            from: { row: selection.from.row, col: selection.from.col },
+            from: { row: selection.from.row, col: useSelectedColumns ? selectedColumns[0] : selection.from.col },
             to: { row: endRow, col: endCol }
           });
           setCopyHighlightRange(null);
           renderAg(instance.gridApi);
-          fireHook('afterSelectionEnd', selection.from.row, selection.from.col, endRow, endCol);
+          fireHook('afterSelectionEnd', selection.from.row, useSelectedColumns ? selectedColumns[0] : selection.from.col, endRow, endCol);
         }catch(err){
           console.error('Shared.hot AG paste handler failed', { debugLabel, err });
         }finally{

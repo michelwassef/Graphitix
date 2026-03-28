@@ -3752,6 +3752,24 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-results-advanced-panel>summary::before{content:'▸';display:inline-block;margin-right:8px;transition:transform .15s ease}
 .stats-results-advanced-panel[open]>summary::before{transform:rotate(90deg)}
 .stats-results-advanced-panel__body{padding:0 12px 12px;display:flex;flex-direction:column;gap:12px}
+#pcaPage .stats-results-advanced-panel{margin:12px 0 0;padding:0}
+#pcaPage .stats-results-advanced-panel>summary,
+#pcaPage .stats-report-panel>summary{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:10px 14px;
+}
+#pcaPage .stats-results-advanced-panel>summary::marker,
+#pcaPage .stats-report-panel>summary::marker{content:""}
+#pcaPage .stats-results-advanced-panel>summary::before,
+#pcaPage .stats-report-panel>summary::before{
+    display:inline-flex;
+    width:10px;
+    min-width:10px;
+    justify-content:center;
+    margin-right:0;
+}
 .stats-significance-badge{display:inline-flex;align-items:center;justify-content:center;min-width:32px;padding:2px 7px;margin-left:6px;border:1px solid #cbd5e1;background:#fff;font-size:11px;font-weight:700;line-height:1.2;color:#0f172a}
 .stats-significance-badge--sig{border-color:#86efac;background:#f0fdf4;color:#166534}
 .stats-significance-badge--ns{border-color:#cbd5e1;background:#f8fafc;color:#475569}
@@ -4639,7 +4657,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .wrap{display:flex;align-items:stretch;gap:0;min-width:0}
 #pcaPage #pcaTablePanel{flex:0 1 var(--pca-input-default);min-width:150px;max-width:65%}
 #pcaPage #pcaHotWrapper{min-width:0;max-width:100%}
-#pcaPage #pcaGraphPanel{flex:1 1 auto;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
+#pcaPage #pcaGraphPanel{flex:1 1 0;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #pcaPage .diagram-area .svgbox{flex:0 0 auto}
 #pcaPage .diagram-area .pca-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #pcaPage .pca-plot-stack .svgbox{flex:0 0 auto}

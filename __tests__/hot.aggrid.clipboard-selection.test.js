@@ -1468,6 +1468,245 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([2, 0, 2, 11]);
   });
 
+  test('column header selection keeps grid container focused for keyboard shortcuts', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderFocusHot';
+    document.body.appendChild(container);
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-header-focus', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(document.activeElement).toBe(container);
+  });
+
+  test('Delete clears additive selected header columns', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agDeleteHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-delete-header-columns',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    activeTarget.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Delete',
+      keyCode: 46
+    }));
+
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(0, 2)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    expect(hot.getDataAtCell(1, 1)).toBe('B1');
+  });
+
+  test('Ctrl+C copies additive selected header columns only', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCopyHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-header-columns',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    activeTarget.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toBe('A0\tC0\nA1\tC1\nA2\tC2\nA3\tC3');
+  });
+
+  test('Ctrl+X cuts additive selected header columns only', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCutHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cut-header-columns',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    activeTarget.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toBe('A0\tC0\nA1\tC1\nA2\tC2\nA3\tC3');
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(0, 2)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    expect(hot.getDataAtCell(1, 1)).toBe('B1');
+  });
+
+  test('paste writes into all additive selected header columns', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-header-columns',
+        data: Shared.createEmptyData(4, 3)
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    const pasteEvent = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvent.clipboardData = { getData: () => 'X\tY\nM\tN' };
+    activeTarget.dispatchEvent(pasteEvent);
+
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+    expect(hot.getDataAtCell(0, 2)).toBe('Y');
+    expect(hot.getDataAtCell(1, 0)).toBe('M');
+    expect(hot.getDataAtCell(1, 2)).toBe('N');
+    expect(hot.getDataAtCell(0, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+  });
+
   test('Delete clears all selected cells', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
