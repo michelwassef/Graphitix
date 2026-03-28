@@ -4701,6 +4701,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #pcaPage .loadings-card[data-shared-stats-table='1'] .stats-table-card{margin-top:0}
 #pcaPage .loadings-card[data-shared-stats-table='1'] .loadings-card__actions{padding:10px 20px;border-top:1px solid #d7e0ef;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
 #pcaPage .loadings-card[data-shared-stats-table='1'] .loadings-card__range{font-size:13px}
+#pcaPage #pcaBiplotCard .loadings-card__table{max-height:none;overflow:visible}
 #pcaPage .eigen-table-container{border:1.5px solid #c6cad1;border-radius:var(--ui-rounded-radius);background:#ffffff;display:flex;flex-direction:column;gap:0}
 #pcaPage .eigen-table-wrapper{max-height:260px;overflow:auto;padding:0 16px 16px 16px}
 #pcaPage .eigen-table-wrapper .stats-table{min-width:100%}

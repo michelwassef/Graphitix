@@ -3983,7 +3983,7 @@
 
   function buildPcaBiplotSnapshot(points, loadingsRows, axisLabels = {}){
     const pointList = Array.isArray(points) ? points.slice(0, PCA_BIPLOT_POINT_LIMIT) : [];
-    const vectors = (Array.isArray(loadingsRows) ? loadingsRows : [])
+    const rawVectors = (Array.isArray(loadingsRows) ? loadingsRows : [])
       .slice(0, PCA_BIPLOT_VECTOR_LIMIT)
       .map(row => ({
         label: row?.label || 'Variable',
@@ -3991,6 +3991,22 @@
         y: Number(row?.values?.[1]) || 0
       }))
       .filter(vector => Number.isFinite(vector.x) && Number.isFinite(vector.y));
+    const pointMaxAbs = pointList.reduce((acc, point) => {
+      const xAbs = Math.abs(Number(point?.x) || 0);
+      const yAbs = Math.abs(Number(point?.y) || 0);
+      return Math.max(acc, xAbs, yAbs);
+    }, 0);
+    const vectorMaxAbs = rawVectors.reduce((acc, vector) => {
+      return Math.max(acc, Math.abs(vector.x), Math.abs(vector.y));
+    }, 0);
+    const vectorScale = vectorMaxAbs > 0
+      ? Math.max(1, (Math.max(pointMaxAbs, 1) * 0.85) / vectorMaxAbs)
+      : 1;
+    const vectors = rawVectors.map(vector => ({
+      label: vector.label,
+      x: vector.x * vectorScale,
+      y: vector.y * vectorScale
+    }));
     return {
       points: pointList.map(point => ({
         x: Number(point?.x) || 0,
@@ -5197,18 +5213,20 @@
       let pcaEigenThresholdInput = null;
       let pcaParallelIterationsInput = null;
       function syncPcaComponentSelectionUi(){
+        const activeRule = sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule);
+        const isPcaMethod = (pcaMethod?.value || 'pca').toLowerCase() === 'pca';
         if(pcaComponentRuleInput){
-          pcaComponentRuleInput.value = sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule);
+          pcaComponentRuleInput.value = activeRule;
         }
         if(pcaEigenThresholdInput){
           const threshold = sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD);
           pcaEigenThresholdInput.value = String(threshold);
-          pcaEigenThresholdInput.disabled = sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule) !== 'threshold' || (pcaMethod?.value || 'pca').toLowerCase() !== 'pca';
+          pcaEigenThresholdInput.disabled = activeRule !== 'threshold' || !isPcaMethod;
         }
         if(pcaParallelIterationsInput){
           const iterations = sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS);
           pcaParallelIterationsInput.value = String(iterations);
-          pcaParallelIterationsInput.disabled = (pcaMethod?.value || 'pca').toLowerCase() !== 'pca';
+          pcaParallelIterationsInput.disabled = activeRule !== 'parallel' || !isPcaMethod;
         }
       }
       function ensurePcaComponentSelectionControls(){
@@ -5277,18 +5295,30 @@
             syncPcaComponentSelectionUi();
             requestPcaDataRefresh('component-selection-rule');
           });
-          thresholdInput.addEventListener('change', () => {
+          const handleThresholdUpdate = () => {
             const nextValue = sanitizePcaEigenThreshold(thresholdInput.value, PCA_DEFAULT_EIGEN_THRESHOLD);
+            if(nextValue === pcaState.componentSelection.eigenThreshold){
+              syncPcaComponentSelectionUi();
+              return;
+            }
             pcaState.componentSelection.eigenThreshold = nextValue;
             syncPcaComponentSelectionUi();
             requestPcaDataRefresh('component-selection-threshold');
-          });
-          iterationsInput.addEventListener('change', () => {
+          };
+          thresholdInput.addEventListener('change', handleThresholdUpdate);
+          thresholdInput.addEventListener('input', handleThresholdUpdate);
+          const handleParallelUpdate = () => {
             const nextValue = sanitizePcaParallelIterations(iterationsInput.value, PCA_DEFAULT_PARALLEL_ITERATIONS);
+            if(nextValue === pcaState.componentSelection.parallelIterations){
+              syncPcaComponentSelectionUi();
+              return;
+            }
             pcaState.componentSelection.parallelIterations = nextValue;
             syncPcaComponentSelectionUi();
             requestPcaDataRefresh('component-selection-parallel');
-          });
+          };
+          iterationsInput.addEventListener('change', handleParallelUpdate);
+          iterationsInput.addEventListener('input', handleParallelUpdate);
         }else{
           pcaComponentRuleInput = document.getElementById('pcaComponentRule');
           pcaEigenThresholdInput = document.getElementById('pcaEigenThreshold');
@@ -5622,11 +5652,12 @@
         };
       }
       function renderPcaComponentSelectionSummary(summary){
-        const { card, body } = ensurePcaDynamicStatsCard('pcaComponentSelectionSummaryCard', 'Component Selection', pcaStatsSummary || null);
+        const { card, body } = ensurePcaDynamicStatsCard('pcaComponentSelectionSummaryCard', 'Component retention summary', pcaStatsSummary || null);
         if(!card || !body){
           return;
         }
         card.setAttribute('data-stats-advanced', '0');
+        card.setAttribute('data-shared-stats-table', '1');
         if(!summary || !Array.isArray(summary.rows) || !summary.rows.length){
           card.hidden = true;
           body.innerHTML = '';
