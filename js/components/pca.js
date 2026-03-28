@@ -198,7 +198,7 @@
   });
   const PCA_FAST_POINT_THRESHOLD = 20000;
   const PCA_LOADINGS_ROW_LIMIT = 100;
-  const PCA_DEFAULT_COMPONENT_SELECTION_RULE = 'parallel';
+  const PCA_DEFAULT_COMPONENT_SELECTION_RULE = 'all';
   const PCA_DEFAULT_EIGEN_THRESHOLD = 1;
   const PCA_DEFAULT_PARALLEL_ITERATIONS = 200;
   const PCA_MAX_PARALLEL_ITERATIONS = 500;
@@ -3680,7 +3680,8 @@
     componentSelection: {
       rule: PCA_DEFAULT_COMPONENT_SELECTION_RULE,
       eigenThreshold: PCA_DEFAULT_EIGEN_THRESHOLD,
-      parallelIterations: PCA_DEFAULT_PARALLEL_ITERATIONS
+      parallelIterations: PCA_DEFAULT_PARALLEL_ITERATIONS,
+      includeNonRetainedAxes: false
     },
     loadingsLimit: PCA_LOADINGS_ROW_LIMIT,
     labels: { title: getDefaultTitleForMethod('pca') },
@@ -3798,6 +3799,10 @@
       return numeric;
     }
     return fallback;
+  }
+
+  function sanitizePcaIncludeNonRetainedAxes(value){
+    return value === true;
   }
 
   function getPcaComponentSelectionRuleLabel(value){
@@ -3979,6 +3984,23 @@
         }
       ]
     };
+  }
+
+  function resolvePcaAxisDimensionMeta(allMeta, selectionSummary){
+    const fullMeta = Array.isArray(allMeta) ? allMeta : [];
+    if(!fullMeta.length){
+      return [];
+    }
+    const includeNonRetained = sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes);
+    if(includeNonRetained){
+      return fullMeta.slice();
+    }
+    const retainedRaw = Number(selectionSummary?.retainedCount);
+    if(!Number.isFinite(retainedRaw)){
+      return fullMeta.slice();
+    }
+    const retainedCount = Math.max(1, Math.min(fullMeta.length, Math.floor(retainedRaw)));
+    return fullMeta.slice(0, retainedCount);
   }
 
   function buildPcaBiplotSnapshot(points, loadingsRows, axisLabels = {}){
@@ -5212,21 +5234,42 @@
       let pcaComponentRuleInput = null;
       let pcaEigenThresholdInput = null;
       let pcaParallelIterationsInput = null;
+      let pcaIncludeNonRetainedAxesInput = null;
+      let pcaIncludeNonRetainedAxesLabel = null;
+      let pcaEigenThresholdLabel = null;
+      let pcaParallelIterationsLabel = null;
+      function setPcaControlVisibility(control, visible){
+        if(!control){
+          return;
+        }
+        control.hidden = !visible;
+        control.style.display = visible ? '' : 'none';
+      }
       function syncPcaComponentSelectionUi(){
         const activeRule = sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule);
         const isPcaMethod = (pcaMethod?.value || 'pca').toLowerCase() === 'pca';
         if(pcaComponentRuleInput){
           pcaComponentRuleInput.value = activeRule;
+          pcaComponentRuleInput.disabled = !isPcaMethod;
         }
+        const showThreshold = isPcaMethod && activeRule === 'threshold';
+        const showParallelRuns = isPcaMethod && activeRule === 'parallel';
+        setPcaControlVisibility(pcaEigenThresholdLabel, showThreshold);
+        setPcaControlVisibility(pcaParallelIterationsLabel, showParallelRuns);
+        setPcaControlVisibility(pcaIncludeNonRetainedAxesLabel, isPcaMethod);
         if(pcaEigenThresholdInput){
           const threshold = sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD);
           pcaEigenThresholdInput.value = String(threshold);
-          pcaEigenThresholdInput.disabled = activeRule !== 'threshold' || !isPcaMethod;
+          pcaEigenThresholdInput.disabled = !showThreshold;
         }
         if(pcaParallelIterationsInput){
           const iterations = sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS);
           pcaParallelIterationsInput.value = String(iterations);
-          pcaParallelIterationsInput.disabled = activeRule !== 'parallel' || !isPcaMethod;
+          pcaParallelIterationsInput.disabled = !showParallelRuns;
+        }
+        if(pcaIncludeNonRetainedAxesInput){
+          pcaIncludeNonRetainedAxesInput.checked = sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes);
+          pcaIncludeNonRetainedAxesInput.disabled = !isPcaMethod;
         }
       }
       function ensurePcaComponentSelectionControls(){
@@ -5279,16 +5322,31 @@
           controlRow.appendChild(ruleLabel);
           controlRow.appendChild(thresholdLabel);
           controlRow.appendChild(iterationsLabel);
+          const toggleRow = document.createElement('div');
+          toggleRow.className = 'control idx-inline-032';
+          const includeNonRetainedLabel = document.createElement('label');
+          includeNonRetainedLabel.className = 'idx-inline-023';
+          const includeNonRetainedInput = document.createElement('input');
+          includeNonRetainedInput.type = 'checkbox';
+          includeNonRetainedInput.id = 'pcaIncludeNonRetainedAxes';
+          includeNonRetainedLabel.appendChild(includeNonRetainedInput);
+          includeNonRetainedLabel.appendChild(document.createTextNode(' Include non-retained PCs in axis selectors'));
+          toggleRow.appendChild(includeNonRetainedLabel);
           const help = document.createElement('div');
           help.className = 'stats-help-text';
           help.id = 'pcaComponentSelectionHelp';
           help.textContent = 'Parallel analysis, Kaiser, and custom eigenvalue thresholds are reported for PCA results and drive the retained-component summary.';
           fieldset.appendChild(controlRow);
+          fieldset.appendChild(toggleRow);
           fieldset.appendChild(help);
           dataFieldset.insertAdjacentElement('afterend', fieldset);
           pcaComponentRuleInput = ruleSelect;
           pcaEigenThresholdInput = thresholdInput;
           pcaParallelIterationsInput = iterationsInput;
+          pcaIncludeNonRetainedAxesInput = includeNonRetainedInput;
+          pcaIncludeNonRetainedAxesLabel = includeNonRetainedLabel;
+          pcaEigenThresholdLabel = thresholdLabel;
+          pcaParallelIterationsLabel = iterationsLabel;
           attachPcaSelectAutoSize(ruleSelect, 'pca');
           ruleSelect.addEventListener('change', () => {
             pcaState.componentSelection.rule = sanitizePcaComponentSelectionRule(ruleSelect.value);
@@ -5319,10 +5377,24 @@
           };
           iterationsInput.addEventListener('change', handleParallelUpdate);
           iterationsInput.addEventListener('input', handleParallelUpdate);
+          includeNonRetainedInput.addEventListener('change', () => {
+            const nextValue = !!includeNonRetainedInput.checked;
+            if(nextValue === sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes)){
+              syncPcaComponentSelectionUi();
+              return;
+            }
+            pcaState.componentSelection.includeNonRetainedAxes = nextValue;
+            syncPcaComponentSelectionUi();
+            requestPcaDataRefresh('component-selection-axis-retention');
+          });
         }else{
           pcaComponentRuleInput = document.getElementById('pcaComponentRule');
           pcaEigenThresholdInput = document.getElementById('pcaEigenThreshold');
           pcaParallelIterationsInput = document.getElementById('pcaParallelIterations');
+          pcaIncludeNonRetainedAxesInput = document.getElementById('pcaIncludeNonRetainedAxes');
+          pcaEigenThresholdLabel = pcaEigenThresholdInput?.closest('label') || null;
+          pcaParallelIterationsLabel = pcaParallelIterationsInput?.closest('label') || null;
+          pcaIncludeNonRetainedAxesLabel = pcaIncludeNonRetainedAxesInput?.closest('label') || null;
         }
         syncPcaComponentSelectionUi();
         return fieldset;
@@ -8090,11 +8162,18 @@
             ? `${componentSelectionSummary.ruleLabel} retains ${componentSelectionSummary.retainedCount} component${componentSelectionSummary.retainedCount === 1 ? '' : 's'}`
             : null
         ].filter(Boolean);
-        dimensionMeta = eigenSummaryData.map(entry => ({
+        const fullDimensionMeta = eigenSummaryData.map(entry => ({
           value: entry.component,
           label: `PC${entry.component}`,
           variancePercent: entry.variancePercent
         }));
+        dimensionMeta = resolvePcaAxisDimensionMeta(fullDimensionMeta, componentSelectionSummary);
+        debugLog('Debug: pca axis dimension retention applied', {
+          includeNonRetained: sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes),
+          retainedCount: Number.isFinite(Number(componentSelectionSummary?.retainedCount)) ? Number(componentSelectionSummary.retainedCount) : null,
+          available: fullDimensionMeta.length,
+          axisOptions: dimensionMeta.length
+        });
         updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
         axisIndices = axisSelectionToIndices(dimensionMeta.length);
         const xMeta = dimensionMeta[axisIndices.x] || null;
@@ -10244,7 +10323,8 @@
         componentSelection: {
           rule: sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule),
           eigenThreshold: sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD),
-          parallelIterations: sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS)
+          parallelIterations: sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS),
+          includeNonRetainedAxes: sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes)
         },
         alpha:pcaAlpha.value,
         labelColors:pcaLabelColors,
@@ -10488,13 +10568,15 @@
           pcaState.componentSelection = {
             rule: sanitizePcaComponentSelectionRule(c.componentSelection.rule),
             eigenThreshold: sanitizePcaEigenThreshold(c.componentSelection.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD),
-            parallelIterations: sanitizePcaParallelIterations(c.componentSelection.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS)
+            parallelIterations: sanitizePcaParallelIterations(c.componentSelection.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS),
+            includeNonRetainedAxes: sanitizePcaIncludeNonRetainedAxes(c.componentSelection.includeNonRetainedAxes)
           };
         }else{
           pcaState.componentSelection = {
             rule: sanitizePcaComponentSelectionRule(pcaState.componentSelection?.rule),
             eigenThreshold: sanitizePcaEigenThreshold(pcaState.componentSelection?.eigenThreshold, PCA_DEFAULT_EIGEN_THRESHOLD),
-            parallelIterations: sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS)
+            parallelIterations: sanitizePcaParallelIterations(pcaState.componentSelection?.parallelIterations, PCA_DEFAULT_PARALLEL_ITERATIONS),
+            includeNonRetainedAxes: sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes)
           };
         }
         syncPcaComponentSelectionUi();

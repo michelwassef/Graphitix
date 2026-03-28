@@ -92,6 +92,11 @@ describe('PCA view controls', () => {
     expect(loadingsContainer.hidden).toBe(false);
     const initialTable = loadingsContainer.querySelector('#pcaLoadingsTable table');
     expect(initialTable).toBeTruthy();
+    const includeAllAxesToggle = document.getElementById('pcaIncludeNonRetainedAxes');
+    expect(includeAllAxesToggle).toBeTruthy();
+    includeAllAxesToggle.checked = true;
+    includeAllAxesToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll();
 
     const viewSelect = document.getElementById('pcaViewMode');
     expect(viewSelect).toBeTruthy();
@@ -469,6 +474,11 @@ describe('PCA view controls', () => {
 
     const state = window.Components?.pca?.__state;
     expect(state).toBeTruthy();
+    const includeAllAxesToggle = document.getElementById('pcaIncludeNonRetainedAxes');
+    expect(includeAllAxesToggle).toBeTruthy();
+    includeAllAxesToggle.checked = true;
+    includeAllAxesToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(20);
     await flushUntil(() => !!state.cachedRender, { limit: 80, step: 2 });
     await flushUntil(() => (state.performance?.draw?.timestamp || 0) > 0, { limit: 80, step: 2 });
 
