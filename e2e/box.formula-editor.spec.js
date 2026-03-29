@@ -38,28 +38,28 @@ test('box formula references highlight correct cells and resolve on first enter'
       }
     }
     hot.setDataAtCell([
-      [visualRow, 0, '12'],
+      [visualRow, 0, '1'],
       [visualRow, 1, ''],
-      [visualRow, 2, '15'],
-      [visualRow, 3, '']
+      [visualRow, 2, '3'],
+      [visualRow, 3, '4'],
+      [visualRow, 4, '']
     ], 'e2e-seed');
-    hot.gridApi?.startEditingCell?.({ rowIndex: visualRow, colKey: 'c3' });
+    hot.gridApi?.startEditingCell?.({ rowIndex: visualRow, colKey: 'c4' });
     return visualRow;
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
   await expect(editorInput).toBeVisible();
-  await editorInput.fill('=A1+B1');
+  await page.keyboard.type('=A1+b1', { delay: 30 });
 
   await expect.poll(async () => {
     return await page.evaluate((rowIndex) => {
-      const row = document.querySelector(`#hot .ag-center-cols-container .ag-row[row-index="${rowIndex}"]`);
-      if (!row) {
+      if (!document.querySelector(`#hot .ag-row[row-index="${rowIndex}"]`)) {
         return false;
       }
-      const a = row.querySelector('.ag-cell[col-id="c0"]');
-      const b = row.querySelector('.ag-cell[col-id="c1"]');
-      return !!a && !!b && a.className.includes('hot-formula-ref-1') && b.className.includes('hot-formula-ref-2');
+      const bOutline = document.querySelector('#hot .box-formula-ref-outline[data-row="1"][data-col="1"]');
+      const cOutline = document.querySelector('#hot .box-formula-ref-outline[data-row="1"][data-col="2"]');
+      return !!bOutline && !cOutline;
     }, targetRow);
   }, {
     timeout: 10_000,
@@ -67,24 +67,24 @@ test('box formula references highlight correct cells and resolve on first enter'
   }).toBe(true);
 
   const classSnapshot = await page.evaluate((rowIndex) => {
-    const row = document.querySelector(`#hot .ag-center-cols-container .ag-row[row-index="${rowIndex}"]`);
+    const row = document.querySelector(`#hot .ag-row[row-index="${rowIndex}"]`);
     if (!row) {
       return null;
     }
-    const a = row.querySelector('.ag-cell[col-id="c0"]');
-    const b = row.querySelector('.ag-cell[col-id="c1"]');
-    const c = row.querySelector('.ag-cell[col-id="c2"]');
+    const hasOutline = (targetRowIndex, targetColIndex) => {
+      return !!document.querySelector(`#hot .box-formula-ref-outline[data-row="${targetRowIndex}"][data-col="${targetColIndex}"]`);
+    };
     return {
-      a: a ? a.className : '',
-      b: b ? b.className : '',
-      c: c ? c.className : ''
+      aHasRef1: hasOutline(1, 0),
+      bHasRef2: hasOutline(1, 1),
+      cHasRef2: hasOutline(1, 2)
     };
   }, targetRow);
 
   expect(classSnapshot).toBeTruthy();
-  expect(classSnapshot.a).toContain('hot-formula-ref-1');
-  expect(classSnapshot.b).toContain('hot-formula-ref-2');
-  expect(classSnapshot.c).not.toContain('hot-formula-ref-2');
+  expect(classSnapshot.aHasRef1).toBe(true);
+  expect(classSnapshot.bHasRef2).toBe(true);
+  expect(classSnapshot.cHasRef2).toBe(false);
 
   await editorInput.press('Enter');
 
@@ -101,16 +101,16 @@ test('box formula references highlight correct cells and resolve on first enter'
       if (!node) {
         return '';
       }
-      const value = api.getValue('c3', node);
+      const value = api.getValue('c4', node);
       return value == null ? '' : String(value).trim();
     }, targetRow);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]
-  }).toBe('12');
+  }).toBe('1');
 
   const remainingHighlights = await page.evaluate(() => {
-    return document.querySelectorAll('#hot .ag-cell.hot-formula-ref').length;
+    return document.querySelectorAll('#hot .box-formula-ref-outline').length;
   });
   expect(remainingHighlights).toBe(0);
 

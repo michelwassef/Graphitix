@@ -938,24 +938,19 @@ select {
     outline: 1px dashed rgba(0, 0, 0, 0.35);
     outline-offset: -2px;
 }
-.ag-theme-balham .ag-cell.hot-formula-ref {
-    position: relative;
-}
-.ag-theme-balham .ag-cell.hot-formula-ref::after {
-    content: '';
+.ag-theme-balham .box-formula-ref-overlay {
     position: absolute;
-    inset: 1px;
-    border: 2px solid transparent;
+    inset: 0;
+    pointer-events: none;
+    z-index: 7;
+}
+.ag-theme-balham .box-formula-ref-outline {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid #1a73e8;
     border-radius: 1px;
     pointer-events: none;
-    z-index: 4;
 }
-.ag-theme-balham .ag-cell.hot-formula-ref-1::after { border-color: #1a73e8; }
-.ag-theme-balham .ag-cell.hot-formula-ref-2::after { border-color: #d93025; }
-.ag-theme-balham .ag-cell.hot-formula-ref-3::after { border-color: #188038; }
-.ag-theme-balham .ag-cell.hot-formula-ref-4::after { border-color: #9334e6; }
-.ag-theme-balham .ag-cell.hot-formula-ref-5::after { border-color: #e37400; }
-.ag-theme-balham .ag-cell.hot-formula-ref-6::after { border-color: #00897b; }
 .ag-theme-balham.hot-fill-handle-host {
     position: relative;
 }

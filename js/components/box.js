@@ -7818,7 +7818,7 @@
   state.cachedDrawInput = null;
   state.formulaModel = null;
   state.formulaMatrixReady = false;
-  state.formulaReferenceHighlights = new Map();
+  state.formulaRefOverlayState = null;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7826,15 +7826,15 @@
   let boxSignificanceFontRefreshDebounced = null;
   let boxFontEventBound = false;
   let emptyPayloadTemplate = null;
-  const BOX_FORMULA_REF_COLOR_CLASSES = [
-    'hot-formula-ref-1',
-    'hot-formula-ref-2',
-    'hot-formula-ref-3',
-    'hot-formula-ref-4',
-    'hot-formula-ref-5',
-    'hot-formula-ref-6'
+  const BOX_FORMULA_OVERLAY_COLORS = [
+    '#1a73e8',
+    '#d93025',
+    '#188038',
+    '#9334e6',
+    '#e37400',
+    '#00897b'
   ];
-  const BOX_FORMULA_REF_MAX_CELLS = 2048;
+  const BOX_FORMULA_OVERLAY_MAX_CELLS = 2048;
 
   function cloneSimple(value){
     if(!value) return null;
@@ -8037,116 +8037,129 @@
     return Object.assign({}, analysis, { data: resolvedData });
   }
 
-  function getBoxFormulaRefKey(row, col){
-    return `${row}:${col}`;
+  function getBoxFormulaRefOverlayState(){
+    if(!state.formulaRefOverlayState || typeof state.formulaRefOverlayState !== 'object'){
+      state.formulaRefOverlayState = {
+        formulaText: '',
+        ranges: [],
+        overlayRoot: null,
+        hotRoot: null,
+        listenersAttached: false,
+        scrollHandler: null,
+        resizeHandler: null,
+        frameId: null,
+        frameKind: null
+      };
+    }
+    return state.formulaRefOverlayState;
   }
 
-  function getBoxFormulaRefColorIndex(row, col){
-    const key = getBoxFormulaRefKey(row, col);
-    const value = state.formulaReferenceHighlights?.get(key);
-    return Number.isInteger(value) && value >= 0 ? value : null;
+  function cancelBoxFormulaRefOverlayFrame(){
+    const overlayState = getBoxFormulaRefOverlayState();
+    if(overlayState.frameId == null){
+      return;
+    }
+    if(overlayState.frameKind === 'raf' && typeof global.cancelAnimationFrame === 'function'){
+      global.cancelAnimationFrame(overlayState.frameId);
+    }else{
+      global.clearTimeout?.(overlayState.frameId);
+    }
+    overlayState.frameId = null;
+    overlayState.frameKind = null;
   }
 
-  function mapsEqual(a, b){
-    if(a === b){
-      return true;
-    }
-    if(!a || !b || a.size !== b.size){
-      return false;
-    }
-    for(const [key, value] of a.entries()){
-      if(b.get(key) !== value){
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function renderBoxFormulaRefHighlights(){
+  function resolveBoxFormulaOverlayHost(){
     const hot = state.hot || state.ensureHotForActiveTab?.();
     const hotRoot = hot?.rootElement
       || hot?.__boxHostContainer
       || els.hotContainer
       || global.document?.getElementById?.('hot')
       || null;
-    const clearDomClasses = ()=>{
-      if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
-        return;
-      }
-      const selector = ['hot-formula-ref'].concat(BOX_FORMULA_REF_COLOR_CLASSES).map(token => `.${token}`).join(',');
-      hotRoot.querySelectorAll(selector).forEach(cell => {
-        cell.classList.remove('hot-formula-ref');
-        BOX_FORMULA_REF_COLOR_CLASSES.forEach(className => cell.classList.remove(className));
-      });
-    };
-    const applyDomClasses = ()=>{
-      clearDomClasses();
-      if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
-        return;
-      }
-      if(!state.formulaReferenceHighlights || state.formulaReferenceHighlights.size === 0){
-        return;
-      }
-      const applied = [];
-      hotRoot.querySelectorAll('.ag-row[row-index]').forEach(rowEl => {
-        if(rowEl.closest('.ag-pinned-top') || rowEl.closest('.ag-floating-top')){
-          return;
-        }
-        const rowIndex = Number(rowEl.getAttribute('row-index'));
-        if(!Number.isInteger(rowIndex) || rowIndex < 0){
-          return;
-        }
-        const physicalRow = typeof hot?.toPhysicalRow === 'function'
-          ? hot.toPhysicalRow(rowIndex)
-          : rowIndex;
-        if(!Number.isInteger(physicalRow) || physicalRow < 0){
-          return;
-        }
-        rowEl.querySelectorAll('.ag-cell[col-id^="c"]').forEach(cellEl => {
-          const colId = cellEl.getAttribute('col-id') || '';
-          const col = Number(colId.slice(1));
-          if(!Number.isInteger(col) || col < 0){
-            return;
-          }
-          const colorIndex = getBoxFormulaRefColorIndex(physicalRow, col);
-          if(colorIndex == null){
-            return;
-          }
-          cellEl.classList.add('hot-formula-ref');
-          const className = BOX_FORMULA_REF_COLOR_CLASSES[colorIndex % BOX_FORMULA_REF_COLOR_CLASSES.length];
-          cellEl.classList.add(className);
-          applied.push({ physicalRow, col, colorIndex });
-        });
-      });
-      if(Shared.isDebugEnabled?.()){
-        console.debug('Debug: box formula dom highlight applied', {
-          count: applied.length,
-          sample: applied.slice(0, 12)
-        });
-      }
-    };
-    if(typeof hot?.gridApi?.refreshCells === 'function'){
-      hot.gridApi.refreshCells({ force: true, suppressFlash: true });
-      if(typeof global.requestAnimationFrame === 'function'){
-        global.requestAnimationFrame(applyDomClasses);
-      }else{
-        applyDomClasses();
-      }
+    return { hot, hotRoot };
+  }
+
+  function detachBoxFormulaRefOverlayListeners(){
+    const overlayState = getBoxFormulaRefOverlayState();
+    if(!overlayState.listenersAttached){
       return;
     }
-    hot?.render?.();
-    applyDomClasses();
+    if(overlayState.hotRoot && overlayState.scrollHandler){
+      overlayState.hotRoot.removeEventListener('scroll', overlayState.scrollHandler, true);
+    }
+    if(overlayState.resizeHandler){
+      global.removeEventListener?.('resize', overlayState.resizeHandler);
+    }
+    overlayState.listenersAttached = false;
+    overlayState.scrollHandler = null;
+    overlayState.resizeHandler = null;
   }
 
-  function clearBoxFormulaReferenceHighlights(options = {}){
-    const hadAny = state.formulaReferenceHighlights && state.formulaReferenceHighlights.size > 0;
-    state.formulaReferenceHighlights = new Map();
-    if(options.render !== false && hadAny){
-      renderBoxFormulaRefHighlights();
+  function ensureBoxFormulaRefOverlayRoot(hotRoot){
+    const overlayState = getBoxFormulaRefOverlayState();
+    if(!hotRoot || !global.document){
+      return null;
+    }
+    if(overlayState.overlayRoot && overlayState.overlayRoot.parentNode && overlayState.overlayRoot.parentNode !== hotRoot){
+      overlayState.overlayRoot.parentNode.removeChild(overlayState.overlayRoot);
+    }
+    if(!overlayState.overlayRoot){
+      const layer = global.document.createElement('div');
+      layer.className = 'box-formula-ref-overlay';
+      layer.setAttribute('aria-hidden', 'true');
+      overlayState.overlayRoot = layer;
+    }
+    const computed = global.getComputedStyle?.(hotRoot);
+    if(computed?.position === 'static'){
+      hotRoot.style.position = 'relative';
+    }
+    if(overlayState.overlayRoot.parentNode !== hotRoot){
+      hotRoot.appendChild(overlayState.overlayRoot);
+    }
+    overlayState.hotRoot = hotRoot;
+    return overlayState.overlayRoot;
+  }
+
+  function clearBoxFormulaRefOverlayLayer(){
+    const overlayState = getBoxFormulaRefOverlayState();
+    if(overlayState.overlayRoot){
+      if(typeof overlayState.overlayRoot.replaceChildren === 'function'){
+        overlayState.overlayRoot.replaceChildren();
+      }else{
+        overlayState.overlayRoot.innerHTML = '';
+      }
     }
   }
 
-  function parseBoxFormulaA1Ref(refText){
+  function removeBoxFormulaRefOverlayLayer(){
+    const overlayState = getBoxFormulaRefOverlayState();
+    if(overlayState.overlayRoot && overlayState.overlayRoot.parentNode){
+      overlayState.overlayRoot.parentNode.removeChild(overlayState.overlayRoot);
+    }
+    overlayState.overlayRoot = null;
+    overlayState.hotRoot = null;
+  }
+
+  function scheduleBoxFormulaRefOverlayRender(reason){
+    cancelBoxFormulaRefOverlayFrame();
+    const overlayState = getBoxFormulaRefOverlayState();
+    const renderNow = ()=>{
+      overlayState.frameId = null;
+      overlayState.frameKind = null;
+      renderBoxFormulaRefOverlay();
+    };
+    if(typeof global.requestAnimationFrame === 'function'){
+      overlayState.frameKind = 'raf';
+      overlayState.frameId = global.requestAnimationFrame(renderNow);
+    }else{
+      overlayState.frameKind = 'timeout';
+      overlayState.frameId = global.setTimeout(renderNow, 0);
+    }
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box formula overlay render scheduled', { reason: reason || 'unknown' });
+    }
+  }
+
+  function parseBoxFormulaOverlayRef(refText){
     const parseA1 = Shared.formulaEngine?.parseA1;
     if(typeof parseA1 !== 'function'){
       return null;
@@ -8161,69 +8174,243 @@
     };
   }
 
-  function updateBoxFormulaReferenceHighlights(rawFormula){
+  function extractBoxFormulaOverlayRanges(rawFormula){
     const source = typeof rawFormula === 'string' ? rawFormula.trim() : '';
     if(!source || source[0] !== '='){
-      clearBoxFormulaReferenceHighlights();
-      return;
+      return [];
     }
-    const explicitRefs = typeof Shared.formulaEngine?.extractReferences === 'function'
+    const parsedRanges = typeof Shared.formulaEngine?.extractReferences === 'function'
       ? Shared.formulaEngine.extractReferences(source, { a1RowOffset: getBoxHeaderRowCount() })
-      : null;
-    const next = new Map();
+      : [];
+    const fallbackRanges = Array.from(source.toUpperCase().matchAll(/([A-Z]+[1-9]\d*)(\s*:\s*([A-Z]+[1-9]\d*))?/g)).map(match => ({
+      start: parseBoxFormulaOverlayRef(match[1]),
+      end: parseBoxFormulaOverlayRef(match[3] || match[1])
+    }));
+    const rawRanges = Array.isArray(parsedRanges) && parsedRanges.length ? parsedRanges : fallbackRanges;
+    const out = [];
     let tokenIndex = 0;
-    let totalCells = 0;
-    const refEntries = Array.isArray(explicitRefs) && explicitRefs.length
-      ? explicitRefs
-      : Array.from(source.toUpperCase().matchAll(/([A-Z]+[1-9]\d*)(\s*:\s*([A-Z]+[1-9]\d*))?/g)).map(match => ({
-        start: parseBoxFormulaA1Ref(match[1]),
-        end: parseBoxFormulaA1Ref(match[3] || match[1])
-      }));
-    for(const entry of refEntries){
+    for(const entry of rawRanges){
       const start = entry?.start || null;
       const end = entry?.end || start;
       if(!start || !end){
         tokenIndex += 1;
         continue;
       }
-      const colorIndex = tokenIndex % BOX_FORMULA_REF_COLOR_CLASSES.length;
+      const startRow = Number(start.row);
+      const startCol = Number(start.col);
+      const endRow = Number(end.row);
+      const endCol = Number(end.col);
+      if(!Number.isInteger(startRow) || !Number.isInteger(startCol) || !Number.isInteger(endRow) || !Number.isInteger(endCol)){
+        tokenIndex += 1;
+        continue;
+      }
+      if(startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0){
+        tokenIndex += 1;
+        continue;
+      }
+      out.push({
+        start: { row: startRow, col: startCol },
+        end: { row: endRow, col: endCol },
+        colorIndex: tokenIndex % BOX_FORMULA_OVERLAY_COLORS.length
+      });
       tokenIndex += 1;
-      const minRow = Math.min(start.row, end.row);
-      const maxRow = Math.max(start.row, end.row);
-      const minCol = Math.min(start.col, end.col);
-      const maxCol = Math.max(start.col, end.col);
+    }
+    return out;
+  }
+
+  function expandBoxFormulaOverlayCells(ranges){
+    const uniqueCells = new Map();
+    let traversed = 0;
+    for(const range of ranges){
+      const minRow = Math.min(range.start.row, range.end.row);
+      const maxRow = Math.max(range.start.row, range.end.row);
+      const minCol = Math.min(range.start.col, range.end.col);
+      const maxCol = Math.max(range.start.col, range.end.col);
       for(let row = minRow; row <= maxRow; row += 1){
         for(let col = minCol; col <= maxCol; col += 1){
-          if(totalCells >= BOX_FORMULA_REF_MAX_CELLS){
+          if(traversed >= BOX_FORMULA_OVERLAY_MAX_CELLS){
             break;
           }
-          totalCells += 1;
-          const key = getBoxFormulaRefKey(row, col);
-          if(!next.has(key)){
-            next.set(key, colorIndex);
+          traversed += 1;
+          const key = `${row}:${col}`;
+          if(!uniqueCells.has(key)){
+            uniqueCells.set(key, { row, col, colorIndex: range.colorIndex });
           }
         }
-        if(totalCells >= BOX_FORMULA_REF_MAX_CELLS){
+        if(traversed >= BOX_FORMULA_OVERLAY_MAX_CELLS){
           break;
         }
       }
-      if(totalCells >= BOX_FORMULA_REF_MAX_CELLS){
+      if(traversed >= BOX_FORMULA_OVERLAY_MAX_CELLS){
         break;
       }
     }
-    if(mapsEqual(state.formulaReferenceHighlights, next)){
+    return Array.from(uniqueCells.values());
+  }
+
+  function mapBoxPhysicalRowsToDisplayedRows(gridApi, requiredRows){
+    const rowMap = new Map();
+    if(!gridApi || typeof gridApi.getDisplayedRowCount !== 'function' || typeof gridApi.getDisplayedRowAtIndex !== 'function'){
+      return rowMap;
+    }
+    const needed = requiredRows instanceof Set ? requiredRows : new Set(requiredRows || []);
+    if(!needed.size){
+      return rowMap;
+    }
+    const totalRows = Math.max(0, Number(gridApi.getDisplayedRowCount()) || 0);
+    for(let displayRow = 0; displayRow < totalRows; displayRow += 1){
+      const node = gridApi.getDisplayedRowAtIndex(displayRow);
+      const physicalRow = Number(node?.data?.__rowIndex);
+      if(!Number.isInteger(physicalRow) || !needed.has(physicalRow) || rowMap.has(physicalRow)){
+        continue;
+      }
+      rowMap.set(physicalRow, displayRow);
+      if(rowMap.size >= needed.size){
+        break;
+      }
+    }
+    return rowMap;
+  }
+
+  function selectBestVisibleBoxCell(hotRoot, displayRow, colId, hostRect){
+    const candidates = hotRoot.querySelectorAll(`.ag-row[row-index="${displayRow}"] .ag-cell[col-id="${colId}"]`);
+    let bestCell = null;
+    let bestArea = 0;
+    candidates.forEach(cellEl => {
+      const rect = cellEl.getBoundingClientRect();
+      if(rect.width <= 1 || rect.height <= 1){
+        return;
+      }
+      const overlapLeft = Math.max(rect.left, hostRect.left);
+      const overlapTop = Math.max(rect.top, hostRect.top);
+      const overlapRight = Math.min(rect.right, hostRect.right);
+      const overlapBottom = Math.min(rect.bottom, hostRect.bottom);
+      const overlapWidth = Math.max(0, overlapRight - overlapLeft);
+      const overlapHeight = Math.max(0, overlapBottom - overlapTop);
+      const area = overlapWidth * overlapHeight;
+      if(area <= bestArea){
+        return;
+      }
+      bestArea = area;
+      bestCell = cellEl;
+    });
+    return bestCell;
+  }
+
+  function renderBoxFormulaRefOverlay(){
+    const overlayState = getBoxFormulaRefOverlayState();
+    const ranges = Array.isArray(overlayState.ranges) ? overlayState.ranges : [];
+    if(!ranges.length){
+      clearBoxFormulaRefOverlayLayer();
       return;
     }
-    state.formulaReferenceHighlights = next;
-    renderBoxFormulaRefHighlights();
+    const { hot, hotRoot } = resolveBoxFormulaOverlayHost();
+    if(!hot || !hotRoot){
+      clearBoxFormulaRefOverlayLayer();
+      return;
+    }
+    const overlayRoot = ensureBoxFormulaRefOverlayRoot(hotRoot);
+    if(!overlayRoot || !global.document){
+      return;
+    }
+    const hostRect = hotRoot.getBoundingClientRect();
+    if(hostRect.width <= 1 || hostRect.height <= 1){
+      clearBoxFormulaRefOverlayLayer();
+      return;
+    }
+    const cells = expandBoxFormulaOverlayCells(ranges);
+    if(!cells.length){
+      clearBoxFormulaRefOverlayLayer();
+      return;
+    }
+    const requiredRows = new Set(cells.map(cell => cell.row));
+    const rowMap = mapBoxPhysicalRowsToDisplayedRows(hot.gridApi, requiredRows);
+    const fragment = global.document.createDocumentFragment();
+    let drawn = 0;
+    cells.forEach(cell => {
+      const displayRow = rowMap.get(cell.row);
+      if(!Number.isInteger(displayRow) || displayRow < 0){
+        return;
+      }
+      const targetCell = selectBestVisibleBoxCell(hotRoot, displayRow, `c${cell.col}`, hostRect);
+      if(!targetCell){
+        return;
+      }
+      const rect = targetCell.getBoundingClientRect();
+      const left = rect.left - hostRect.left + 1;
+      const top = rect.top - hostRect.top + 1;
+      const width = Math.max(0, rect.width - 2);
+      const height = Math.max(0, rect.height - 2);
+      if(width <= 0 || height <= 0){
+        return;
+      }
+      const outline = global.document.createElement('div');
+      outline.className = 'box-formula-ref-outline';
+      outline.dataset.row = String(cell.row);
+      outline.dataset.col = String(cell.col);
+      outline.dataset.colorIndex = String(cell.colorIndex);
+      outline.style.left = `${left}px`;
+      outline.style.top = `${top}px`;
+      outline.style.width = `${width}px`;
+      outline.style.height = `${height}px`;
+      outline.style.borderColor = BOX_FORMULA_OVERLAY_COLORS[cell.colorIndex % BOX_FORMULA_OVERLAY_COLORS.length];
+      fragment.appendChild(outline);
+      drawn += 1;
+    });
+    overlayRoot.replaceChildren(fragment);
     if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: box formula refs highlighted', {
-        refs: next.size,
-        tokens: tokenIndex,
-        formula: source,
-        keys: Array.from(next.entries()).slice(0, 12).map(([key, color]) => ({ key, color }))
+      console.debug('Debug: box formula overlay rendered', {
+        formula: overlayState.formulaText,
+        ranges: ranges.length,
+        cells: cells.length,
+        drawn
       });
     }
+  }
+
+  function attachBoxFormulaRefOverlayListeners(hotRoot){
+    const overlayState = getBoxFormulaRefOverlayState();
+    if(overlayState.listenersAttached || !hotRoot){
+      return;
+    }
+    overlayState.scrollHandler = ()=>scheduleBoxFormulaRefOverlayRender('scroll');
+    overlayState.resizeHandler = ()=>scheduleBoxFormulaRefOverlayRender('resize');
+    hotRoot.addEventListener('scroll', overlayState.scrollHandler, true);
+    global.addEventListener?.('resize', overlayState.resizeHandler);
+    overlayState.listenersAttached = true;
+  }
+
+  function clearBoxFormulaRefOverlay(options = {}){
+    const overlayState = getBoxFormulaRefOverlayState();
+    overlayState.formulaText = '';
+    overlayState.ranges = [];
+    cancelBoxFormulaRefOverlayFrame();
+    clearBoxFormulaRefOverlayLayer();
+    if(options.keepListeners !== true){
+      detachBoxFormulaRefOverlayListeners();
+    }
+    if(options.removeLayer === true){
+      removeBoxFormulaRefOverlayLayer();
+    }
+  }
+
+  function updateBoxFormulaRefOverlay(rawFormula){
+    const source = typeof rawFormula === 'string' ? rawFormula.trim() : '';
+    const ranges = extractBoxFormulaOverlayRanges(source);
+    if(!ranges.length){
+      clearBoxFormulaRefOverlay({ removeLayer: false });
+      return;
+    }
+    const { hotRoot } = resolveBoxFormulaOverlayHost();
+    if(!hotRoot){
+      return;
+    }
+    const overlayState = getBoxFormulaRefOverlayState();
+    overlayState.formulaText = source;
+    overlayState.ranges = ranges;
+    ensureBoxFormulaRefOverlayRoot(hotRoot);
+    attachBoxFormulaRefOverlayListeners(hotRoot);
+    scheduleBoxFormulaRefOverlayRender('formula-input');
   }
 
   function ensureBoxDataViewsForHot(hotInstance, options = {}){
@@ -11718,7 +11905,7 @@
     }
     state.formulaModel = null;
     state.formulaMatrixReady = false;
-    clearBoxFormulaReferenceHighlights({ render: false });
+    clearBoxFormulaRefOverlay({ removeLayer: true });
     rebuildBoxFormulaModel(state.hot);
   }
 
@@ -11859,7 +12046,7 @@
             global.cancelAnimationFrame(this._highlightRaf);
             this._highlightRaf = null;
           }
-          const run = ()=>updateBoxFormulaReferenceHighlights(input.value || '');
+          const run = ()=>updateBoxFormulaRefOverlay(input.value || '');
           if(typeof global.requestAnimationFrame === 'function'){
             this._highlightRaf = global.requestAnimationFrame(()=>{
               this._highlightRaf = null;
@@ -11887,7 +12074,7 @@
         if(typeof global.requestAnimationFrame === 'function'){
           global.requestAnimationFrame(placeCaretAtEnd);
         }
-        updateBoxFormulaReferenceHighlights(this.eInput?.value || '');
+        updateBoxFormulaRefOverlay(this.eInput?.value || '');
       };
       FormulaCellEditor.prototype.getValue = function getValue(){ return this.eInput?.value ?? ''; };
       FormulaCellEditor.prototype.destroy = function destroy(){
@@ -11901,7 +12088,7 @@
         this._handleInput = null;
         this._startedWithTyping = false;
         this.eInput = null;
-        clearBoxFormulaReferenceHighlights();
+        clearBoxFormulaRefOverlay({ removeLayer: true });
       };
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
         debugLabel: 'box',
@@ -12184,7 +12371,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterLoadData(){
-            clearBoxFormulaReferenceHighlights({ render: false });
+            clearBoxFormulaRefOverlay({ removeLayer: true });
             rebuildBoxFormulaModel(instance);
             if(isBoxGroupedModeActive()){
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
@@ -12196,7 +12383,7 @@
             activateBoxDataToolbar('table-selection');
           },
           afterCreateRow(index, amount, source){
-            clearBoxFormulaReferenceHighlights({ render: false });
+            clearBoxFormulaRefOverlay({ removeLayer: true });
             state.formulaMatrixReady = false;
             rebuildBoxFormulaModel(instance);
             if(Shared.isDebugEnabled?.()){
@@ -12209,7 +12396,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveRow(index, amount, physicalRows, source){
-            clearBoxFormulaReferenceHighlights({ render: false });
+            clearBoxFormulaRefOverlay({ removeLayer: true });
             state.formulaMatrixReady = false;
             rebuildBoxFormulaModel(instance);
             if(Shared.isDebugEnabled?.()){
@@ -12223,7 +12410,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterCreateCol(){
-            clearBoxFormulaReferenceHighlights({ render: false });
+            clearBoxFormulaRefOverlay({ removeLayer: true });
             state.formulaMatrixReady = false;
             rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
@@ -12237,7 +12424,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
-            clearBoxFormulaReferenceHighlights({ render: false });
+            clearBoxFormulaRefOverlay({ removeLayer: true });
             state.formulaMatrixReady = false;
             rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
@@ -12259,7 +12446,7 @@
           afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
             if(orderChanged){
               boxLog('boxplot afterColumnMove');
-              clearBoxFormulaReferenceHighlights({ render: false });
+              clearBoxFormulaRefOverlay({ removeLayer: true });
               state.formulaMatrixReady = false;
               rebuildBoxFormulaModel(instance);
               if(isBoxGroupedModeActive()){
