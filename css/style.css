@@ -1094,6 +1094,26 @@ select {
     outline: none !important;
     box-shadow: none !important;
 }
+
+/* Box parity with other grids: edited cell keeps selection tint, editor chrome stays transparent. */
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing.ag-cell-focus,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing.ag-cell-range-selected,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing::before,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing::after {
+    background: rgba(26, 115, 232, 0.12) !important;
+}
+
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-edit-wrapper,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-editor,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-wrapper,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-cell-value,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing .ag-input-field-input,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing input,
+#boxPage .ag-theme-balham .ag-cell.ag-cell-inline-editing textarea {
+    background: transparent !important;
+}
+
 .ag-theme-balham .ag-cell.hot-cell-excluded {
     background-color: rgba(220, 53, 69, 0.08) !important;
     color: #6c757d !important;

@@ -11875,15 +11875,17 @@
       FormulaCellEditor.prototype.getGui = function getGui(){ return this.eInput; };
       FormulaCellEditor.prototype.afterGuiAttached = function afterGuiAttached(){
         this.eInput?.focus?.();
-        if(this._startedWithTyping){
+        const placeCaretAtEnd = ()=>{
           const valueLength = this.eInput?.value?.length || 0;
           try{
             this.eInput?.setSelectionRange?.(valueLength, valueLength);
           }catch(err){
             // caret placement is best-effort only
           }
-        }else{
-          this.eInput?.select?.();
+        };
+        placeCaretAtEnd();
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(placeCaretAtEnd);
         }
         updateBoxFormulaReferenceHighlights(this.eInput?.value || '');
       };
