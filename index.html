@@ -1378,6 +1378,58 @@
                 </div>
               </div>
             </fieldset>
+            <fieldset class="heatmap-view-panel heatmap-clustering-panel">
+              <legend>Clustering</legend>
+              <div class="heatmap-control-list">
+                <div class="heatmap-subgroup">
+                  <div class="heatmap-inline-group heatmap-cluster-row">
+                    <label class="heatmap-inline-group">
+                      <input type="checkbox" id="heatmapClusterGenes" checked />
+                      <span class="heatmap-nowrap">Cluster rows</span>
+                    </label>
+                    <select id="heatmapGenesMetric" class="heatmap-metric-select">
+                      <option value="pearson">Correlation (Pearson)</option>
+                      <option value="spearman">Correlation (Spearman)</option>
+                      <option value="uncentered">Correlation (Uncentered)</option>
+                      <option value="euclidean">Euclidean</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="heatmap-subgroup">
+                  <div class="heatmap-inline-group heatmap-cluster-row">
+                    <label class="heatmap-inline-group">
+                      <input type="checkbox" id="heatmapClusterArrays" checked />
+                      <span class="heatmap-nowrap">Cluster columns</span>
+                    </label>
+                    <select id="heatmapArraysMetric" class="heatmap-metric-select">
+                      <option value="pearson">Correlation (Pearson)</option>
+                      <option value="spearman">Correlation (Spearman)</option>
+                      <option value="uncentered">Correlation (Uncentered)</option>
+                      <option value="euclidean">Euclidean</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="heatmap-control-block">
+                  <span class="heatmap-nowrap">Clustering method</span>
+                  <select id="heatmapLinkage">
+                    <option value="average">Average linkage</option>
+                    <option value="complete">Complete linkage</option>
+                    <option value="single">Single linkage</option>
+                    <option value="centroid">Centroid linkage</option>
+                  </select>
+                </div>
+                <div class="heatmap-inline-group">
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapShowRowDendrogram" checked />
+                    <span class="heatmap-nowrap">Row dendrogram</span>
+                  </label>
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapShowColumnDendrogram" checked />
+                    <span class="heatmap-nowrap">Column dendrogram</span>
+                  </label>
+                </div>
+              </div>
+            </fieldset>
           </div>
         </div>
         <div class="heatmap-lower-panels">
@@ -1456,60 +1508,6 @@
                   <span class="heatmap-nowrap">MaxVal - MinVal &gt;=</span>
                   <input type="number" id="heatmapFilterRangeValue" value="2" step="0.1" />
                 </label>
-              </div>
-            </fieldset>
-          </div>
-          <div class="heatmap-lower-right">
-            <fieldset>
-              <legend>Clustering</legend>
-              <div class="heatmap-control-list">
-                <div class="heatmap-subgroup">
-                  <div class="heatmap-inline-group heatmap-cluster-row">
-                    <label class="heatmap-inline-group">
-                      <input type="checkbox" id="heatmapClusterGenes" checked />
-                      <span class="heatmap-nowrap">Cluster rows</span>
-                    </label>
-                    <select id="heatmapGenesMetric" class="heatmap-metric-select">
-                      <option value="pearson">Correlation (Pearson)</option>
-                      <option value="spearman">Correlation (Spearman)</option>
-                      <option value="uncentered">Correlation (Uncentered)</option>
-                      <option value="euclidean">Euclidean</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="heatmap-subgroup">
-                  <div class="heatmap-inline-group heatmap-cluster-row">
-                    <label class="heatmap-inline-group">
-                      <input type="checkbox" id="heatmapClusterArrays" checked />
-                      <span class="heatmap-nowrap">Cluster columns</span>
-                    </label>
-                    <select id="heatmapArraysMetric" class="heatmap-metric-select">
-                      <option value="pearson">Correlation (Pearson)</option>
-                      <option value="spearman">Correlation (Spearman)</option>
-                      <option value="uncentered">Correlation (Uncentered)</option>
-                      <option value="euclidean">Euclidean</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="heatmap-control-block">
-                  <span class="heatmap-nowrap">Clustering method</span>
-                  <select id="heatmapLinkage">
-                    <option value="average">Average linkage</option>
-                    <option value="complete">Complete linkage</option>
-                    <option value="single">Single linkage</option>
-                    <option value="centroid">Centroid linkage</option>
-                  </select>
-                </div>
-                <div class="heatmap-inline-group">
-                  <label class="heatmap-inline-group">
-                    <input type="checkbox" id="heatmapShowRowDendrogram" checked />
-                    <span class="heatmap-nowrap">Row dendrogram</span>
-                  </label>
-                  <label class="heatmap-inline-group">
-                    <input type="checkbox" id="heatmapShowColumnDendrogram" checked />
-                    <span class="heatmap-nowrap">Column dendrogram</span>
-                  </label>
-                </div>
               </div>
             </fieldset>
           </div>
@@ -1926,15 +1924,11 @@
         <div id="pieStats" class="idx-inline-033">
           <fieldset>
             <legend>Statistics</legend>
-            <div class="control idx-inline-031">
-              <label class="idx-inline-023">
-                Observed Column
-                <select id="pieValueColumn"></select>
-              </label>
-              <label class="idx-inline-023">
-                Expected Column
-                <select id="pieExpectedColumn"></select>
-              </label>
+            <div id="pieStatsControls"></div>
+            <div id="pieStatsCorrectionNote" class="stats-correction-note idx-inline-035"></div>
+            <div id="pieStatsActionRow" class="idx-inline-036">
+              <button type="button" class="btn" id="pieComputeStats">Calculate statistics</button>
+              <span id="pieStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
             <div id="pieStatsResults"></div>
           </fieldset>

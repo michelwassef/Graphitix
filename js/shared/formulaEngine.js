@@ -99,7 +99,8 @@
     return tokens;
   }
 
-  function createParser(tokens){
+  function createParser(tokens, options = {}){
+    const parseRef = typeof options.parseRef === 'function' ? options.parseRef : parseA1;
     let index = 0;
     const peek = ()=>tokens[index] || null;
     const consume = ()=>tokens[index++] || null;
@@ -191,7 +192,7 @@
           consume();
           return { type: 'function', name: token.value, args: parseArgs() };
         }
-        const asCell = parseA1(token.value);
+        const asCell = parseRef(token.value);
         if(asCell){
           if(peek()?.type === ':'){
             consume();
@@ -199,7 +200,7 @@
             if(!endToken || endToken.type !== 'ident'){
               throw new Error('Expected range end');
             }
-            const endCell = parseA1(endToken.value);
+            const endCell = parseRef(endToken.value);
             if(!endCell){
               throw new Error('Invalid range end');
             }
@@ -233,10 +234,67 @@
     return out;
   }
 
+  function collectRefsOrdered(node, out){
+    if(!node || !Array.isArray(out)){
+      return;
+    }
+    if(node.type === 'cell'){
+      out.push({ start: node.ref, end: node.ref });
+      return;
+    }
+    if(node.type === 'range'){
+      out.push({ start: node.start, end: node.end });
+      return;
+    }
+    if(node.type === 'binary'){
+      collectRefsOrdered(node.left, out);
+      collectRefsOrdered(node.right, out);
+      return;
+    }
+    if(node.type === 'unary'){
+      collectRefsOrdered(node.value, out);
+      return;
+    }
+    if(node.type === 'function'){
+      (node.args || []).forEach(arg=>collectRefsOrdered(arg, out));
+    }
+  }
+
+  function extractReferences(rawFormula, options = {}){
+    const source = String(rawFormula == null ? '' : rawFormula).trim();
+    if(!source.startsWith('=')){
+      return [];
+    }
+    const body = source.slice(1);
+    if(!body){
+      return [];
+    }
+    const a1RowOffset = Math.max(0, Number(options.a1RowOffset) || 0);
+    const parseRef = (ref)=>{
+      const parsed = parseA1(ref);
+      if(!parsed){
+        return null;
+      }
+      return {
+        row: parsed.row + a1RowOffset,
+        col: parsed.col
+      };
+    };
+    try{
+      const ast = createParser(createTokenizer(body), { parseRef });
+      const refs = [];
+      collectRefsOrdered(ast, refs);
+      return refs;
+    }catch(err){
+      return [];
+    }
+  }
+
   function createModel(options = {}){
     const debugLog = typeof options.debugLog === 'function' ? options.debugLog : null;
     const onRecalc = typeof options.onRecalculate === 'function' ? options.onRecalculate : null;
     const headerRows = Math.max(0, Number(options.headerRows) || 0);
+    const a1RowOffset = Math.max(0, Number(options.a1RowOffset) || 0);
 
     const raw = new Map();
     const resolved = new Map();
@@ -412,7 +470,17 @@
         return { ast: null, error: '#ERROR!' };
       }
       try{
-        const ast = createParser(createTokenizer(body));
+        const parseRefForModel = (ref)=>{
+          const parsed = parseA1(ref);
+          if(!parsed){
+            return null;
+          }
+          return {
+            row: parsed.row + a1RowOffset,
+            col: parsed.col
+          };
+        };
+        const ast = createParser(createTokenizer(body), { parseRef: parseRefForModel });
         return { ast, error: null };
       }catch(err){
         return { ast: null, error: '#ERROR!' };
@@ -510,6 +578,7 @@
   }
 
   formulaNS.createModel = createModel;
+  formulaNS.extractReferences = extractReferences;
   formulaNS.parseA1 = parseA1;
   formulaNS.colToLabel = colToLabel;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -7100,8 +7100,12 @@
       const getDisplayedRowRange = (api)=>{
         const count = typeof api?.getDisplayedRowCount === 'function' ? api.getDisplayedRowCount() : dataHandle.current.length;
         const total = Math.max(0, Number(count) || 0);
-        let first = typeof api?.getFirstDisplayedRow === 'function' ? api.getFirstDisplayedRow() : 0;
-        let last = typeof api?.getLastDisplayedRow === 'function' ? api.getLastDisplayedRow() : (total > 0 ? total - 1 : 0);
+        let first = typeof api?.getFirstDisplayedRowIndex === 'function'
+          ? api.getFirstDisplayedRowIndex()
+          : (typeof api?.getFirstDisplayedRow === 'function' ? api.getFirstDisplayedRow() : 0);
+        let last = typeof api?.getLastDisplayedRowIndex === 'function'
+          ? api.getLastDisplayedRowIndex()
+          : (typeof api?.getLastDisplayedRow === 'function' ? api.getLastDisplayedRow() : (total > 0 ? total - 1 : 0));
         if(!Number.isInteger(first) || first < 0){
           first = 0;
         }
@@ -7129,7 +7133,9 @@
           return null;
         }
         const rowHeight = getGridRowHeight();
-        let first = typeof api.getFirstDisplayedRow === 'function' ? api.getFirstDisplayedRow() : 0;
+        let first = typeof api.getFirstDisplayedRowIndex === 'function'
+          ? api.getFirstDisplayedRowIndex()
+          : (typeof api.getFirstDisplayedRow === 'function' ? api.getFirstDisplayedRow() : 0);
         if(!Number.isInteger(first) || first < 0){
           first = 0;
         }

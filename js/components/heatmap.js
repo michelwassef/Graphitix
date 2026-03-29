@@ -418,7 +418,11 @@
       color: DEFAULT_DENDROGRAM_COLOR
     },
     labelPositions: { title: null },
-    palette: { ...DEFAULT_HEATMAP_PALETTE }
+    palette: { ...DEFAULT_HEATMAP_PALETTE },
+    clusterControlsTouched: false,
+    clusterDefaultsAutoApplied: false,
+    suppressClusterTouchTracking: false,
+    suspendAutoClusterDefaults: false
   };
 
   function ensureHeatmapPerformanceState(){
@@ -1036,6 +1040,8 @@
       });
     }
     state.activeMaterializedViewId = null;
+    state.clusterControlsTouched = false;
+    state.clusterDefaultsAutoApplied = false;
     hot.loadData(nextData, options.loadOptions || undefined);
     syncHeatmapHotExclusions(hot, null, 'dataset-replace');
     if(options.scheduleDraw !== false){
@@ -1633,6 +1639,61 @@
     });
   }
 
+  function hasHeatmapBodyData(hot){
+    if(!hot){
+      return false;
+    }
+    const matrix = typeof hot.getSourceData === 'function'
+      ? hot.getSourceData()
+      : (typeof hot.getData === 'function' ? hot.getData() : null);
+    if(!Array.isArray(matrix) || matrix.length < 2){
+      return false;
+    }
+    for(let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1){
+      const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+      for(let colIndex = 1; colIndex < row.length; colIndex += 1){
+        if(!isHeatmapMatrixCellEmpty(row[colIndex])){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function maybeApplyClusterDefaultsOnDataEntry(reason){
+    if(state.suspendAutoClusterDefaults || state.clusterControlsTouched || state.clusterDefaultsAutoApplied){
+      return false;
+    }
+    const hot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
+    if(!hasHeatmapBodyData(hot)){
+      return false;
+    }
+    if(!refs.clusterGenes || !refs.clusterArrays || !refs.showRowDendrogram || !refs.showColumnDendrogram){
+      return false;
+    }
+    const needsUpdate = !refs.clusterGenes.checked
+      || !refs.clusterArrays.checked
+      || !refs.showRowDendrogram.checked
+      || !refs.showColumnDendrogram.checked;
+    state.clusterDefaultsAutoApplied = true;
+    if(!needsUpdate){
+      return false;
+    }
+    refs.clusterGenes.checked = true;
+    refs.clusterArrays.checked = true;
+    refs.showRowDendrogram.checked = true;
+    refs.showColumnDendrogram.checked = true;
+    state.suppressClusterTouchTracking = true;
+    try{
+      refs.clusterGenes.dispatchEvent(new Event('change'));
+      refs.clusterArrays.dispatchEvent(new Event('change'));
+    }finally{
+      state.suppressClusterTouchTracking = false;
+    }
+    console.debug('Debug: heatmap clustering defaults auto-enabled on data entry', { reason: reason || 'data-entry' });
+    return true;
+  }
+
   function scheduleDrawHeatmap(options){
     const opts = normalizeDrawOptions(options);
     if(isHeatmapWorkspaceHidden()){
@@ -1764,10 +1825,14 @@
             }
             if(changes){
               syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
+              if(source !== 'loadData'){
+                maybeApplyClusterDefaultsOnDataEntry(`after-change:${source || 'unknown'}`);
+              }
             }
           },
           afterLoadData(){
             syncHeatmapActiveDataViewFromHot(instance, 'afterLoadData');
+            maybeApplyClusterDefaultsOnDataEntry('after-load-data');
           },
           afterSelectionEnd(){
             activateHeatmapDataToolbar('table-selection');
@@ -2042,9 +2107,30 @@
     };
     const materialize = reason => materializeHeatmapSelectionToDataView(reason);
 
+    const syncCorrelationClusteringControls = (view) => {
+      if(view === 'corr-columns'){
+        if(refs.clusterArrays && refs.clusterGenes){
+          refs.clusterGenes.checked = !!refs.clusterArrays.checked;
+        }
+        if(refs.arraysMetric && refs.genesMetric){
+          refs.genesMetric.value = refs.arraysMetric.value || refs.genesMetric.value;
+        }
+      }else if(view === 'corr-rows'){
+        if(refs.clusterGenes && refs.clusterArrays){
+          refs.clusterArrays.checked = !!refs.clusterGenes.checked;
+        }
+        if(refs.genesMetric && refs.arraysMetric){
+          refs.arraysMetric.value = refs.genesMetric.value || refs.arraysMetric.value;
+        }
+      }
+    };
+
     const updateViewControlState = () => {
       const view = refs.view?.value || 'corr-columns';
       const isCorrelation = view.startsWith('corr');
+      const isCorrelationColumns = view === 'corr-columns';
+      const isCorrelationRows = view === 'corr-rows';
+      syncCorrelationClusteringControls(view);
       const correlationOnlyRows = global.document?.querySelectorAll?.('#heatmapPage .heatmap-correlation-only') || [];
       correlationOnlyRows.forEach(row => {
         if(row){
@@ -2076,6 +2162,49 @@
       if(refs.significanceDisplay){
         refs.significanceDisplay.disabled = !isCorrelation || !significanceEnabled || !!refs.showValues?.checked;
       }
+
+      const clusterRowsGroup = refs.clusterGenes?.closest?.('.heatmap-subgroup') || null;
+      const clusterColumnsGroup = refs.clusterArrays?.closest?.('.heatmap-subgroup') || null;
+      const rowDendrogramLabel = refs.showRowDendrogram?.closest?.('label') || null;
+      const columnDendrogramLabel = refs.showColumnDendrogram?.closest?.('label') || null;
+      const hideRowClustering = isCorrelationColumns;
+      const hideColumnClustering = isCorrelationRows;
+      const hideRowDendrogram = isCorrelationColumns;
+      const hideColumnDendrogram = isCorrelationRows;
+
+      if(clusterRowsGroup){
+        clusterRowsGroup.hidden = hideRowClustering;
+      }
+      if(clusterColumnsGroup){
+        clusterColumnsGroup.hidden = hideColumnClustering;
+      }
+      if(rowDendrogramLabel){
+        rowDendrogramLabel.hidden = hideRowDendrogram;
+      }
+      if(columnDendrogramLabel){
+        columnDendrogramLabel.hidden = hideColumnDendrogram;
+      }
+
+      if(refs.clusterGenes){
+        refs.clusterGenes.disabled = hideRowClustering;
+      }
+      if(refs.genesMetric){
+        refs.genesMetric.disabled = hideRowClustering || !refs.clusterGenes?.checked;
+      }
+      if(refs.showRowDendrogram){
+        refs.showRowDendrogram.disabled = hideRowDendrogram || !refs.clusterGenes?.checked;
+      }
+
+      if(refs.clusterArrays){
+        refs.clusterArrays.disabled = hideColumnClustering;
+      }
+      if(refs.arraysMetric){
+        refs.arraysMetric.disabled = hideColumnClustering || !refs.clusterArrays?.checked;
+      }
+      if(refs.showColumnDendrogram){
+        refs.showColumnDendrogram.disabled = hideColumnDendrogram || !refs.clusterArrays?.checked;
+      }
+
       // Disable the resizer "Lock ratio" control when showing Data values
       try {
         const svgBox = state.svgBox
@@ -2103,7 +2232,14 @@
       }catch(err){
         console.debug('Debug: heatmap updateViewControlState aspect toggle error', err?.message || err);
       }
-      console.debug('Debug: heatmap view state updated', { view, isCorrelation });
+      console.debug('Debug: heatmap view state updated', {
+        view,
+        isCorrelation,
+        hideRowClustering,
+        hideColumnClustering,
+        hideRowDendrogram,
+        hideColumnDendrogram
+      });
     };
 
     const registerFilter = (enableEl, valueEls = []) => {
@@ -2175,15 +2311,27 @@
         if(dendrogramToggle){ dendrogramToggle.disabled = !enabled; }
       };
       checkbox.addEventListener('change', () => {
+        if(!state.suspendControlSchedule && !state.suppressClusterTouchTracking){
+          state.clusterControlsTouched = true;
+        }
         update();
+        updateViewControlState();
         console.debug('Debug: heatmap cluster toggle', { id: checkbox.id, enabled: checkbox.checked });
         schedule();
       });
       select?.addEventListener('change', () => {
+        if(!state.suspendControlSchedule && !state.suppressClusterTouchTracking){
+          state.clusterControlsTouched = true;
+        }
+        updateViewControlState();
         console.debug('Debug: heatmap cluster metric change', { id: select.id, value: select.value });
         schedule();
       });
       dendrogramToggle?.addEventListener('change', () => {
+        if(!state.suspendControlSchedule && !state.suppressClusterTouchTracking){
+          state.clusterControlsTouched = true;
+        }
+        updateViewControlState();
         console.debug('Debug: heatmap dendrogram toggle', { id: dendrogramToggle.id, checked: dendrogramToggle.checked });
         schedule();
       });
@@ -2253,6 +2401,9 @@
     });
     [refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
       el?.addEventListener('change', () => {
+        if(!state.suspendControlSchedule && !state.suppressClusterTouchTracking){
+          state.clusterControlsTouched = true;
+        }
         console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
       });
@@ -7351,7 +7502,12 @@
       notesState.control.setOpen(notesState.open);
     }
     if(!skipDataLoad && state.hot){
-      state.hot.loadData(matrix);
+      state.suspendAutoClusterDefaults = true;
+      try{
+        state.hot.loadData(matrix);
+      }finally{
+        state.suspendAutoClusterDefaults = false;
+      }
       if(exclusionsToApply && state.hot.applyExclusions){
         state.hot.applyExclusions(exclusionsToApply);
       }

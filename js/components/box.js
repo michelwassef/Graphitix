@@ -7818,6 +7818,7 @@
   state.cachedDrawInput = null;
   state.formulaModel = null;
   state.formulaMatrixReady = false;
+  state.formulaReferenceHighlights = new Map();
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7825,6 +7826,15 @@
   let boxSignificanceFontRefreshDebounced = null;
   let boxFontEventBound = false;
   let emptyPayloadTemplate = null;
+  const BOX_FORMULA_REF_COLOR_CLASSES = [
+    'hot-formula-ref-1',
+    'hot-formula-ref-2',
+    'hot-formula-ref-3',
+    'hot-formula-ref-4',
+    'hot-formula-ref-5',
+    'hot-formula-ref-6'
+  ];
+  const BOX_FORMULA_REF_MAX_CELLS = 2048;
 
   function cloneSimple(value){
     if(!value) return null;
@@ -7865,6 +7875,7 @@
     }
     state.formulaModel = Shared.formulaEngine.createModel({
       headerRows: getBoxHeaderRowCount(),
+      a1RowOffset: getBoxHeaderRowCount(),
       debugLog: (label, payload)=>{
         if(Shared.isDebugEnabled?.()){
           console.debug(`Debug: box formula ${label}`, payload || {});
@@ -7923,12 +7934,215 @@
       if(!Array.isArray(row)){
         return [];
       }
-      if(rowIndex < getBoxHeaderRowCount()){
+      const physicalRow = typeof analysis?.toPhysicalRow === 'function'
+        ? analysis.toPhysicalRow(rowIndex)
+        : rowIndex;
+      if(!Number.isInteger(physicalRow) || physicalRow < 0 || physicalRow < getBoxHeaderRowCount()){
         return row.slice();
       }
-      return row.map((value, colIndex)=>model.getResolvedAt(rowIndex, colIndex));
+      return row.map((value, colIndex)=>{
+        if(value === null){
+          return null;
+        }
+        const physicalCol = typeof analysis?.toPhysicalColumn === 'function'
+          ? analysis.toPhysicalColumn(colIndex)
+          : colIndex;
+        if(!Number.isInteger(physicalCol) || physicalCol < 0){
+          return value;
+        }
+        return model.getResolvedAt(physicalRow, physicalCol);
+      });
     });
     return Object.assign({}, analysis, { data: resolvedData });
+  }
+
+  function getBoxFormulaRefKey(row, col){
+    return `${row}:${col}`;
+  }
+
+  function getBoxFormulaRefColorIndex(row, col){
+    const key = getBoxFormulaRefKey(row, col);
+    const value = state.formulaReferenceHighlights?.get(key);
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  function mapsEqual(a, b){
+    if(a === b){
+      return true;
+    }
+    if(!a || !b || a.size !== b.size){
+      return false;
+    }
+    for(const [key, value] of a.entries()){
+      if(b.get(key) !== value){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function renderBoxFormulaRefHighlights(){
+    const hot = state.hot || state.ensureHotForActiveTab?.();
+    const hotRoot = hot?.rootElement
+      || hot?.__boxHostContainer
+      || els.hotContainer
+      || global.document?.getElementById?.('hot')
+      || null;
+    const clearDomClasses = ()=>{
+      if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
+        return;
+      }
+      const selector = ['hot-formula-ref'].concat(BOX_FORMULA_REF_COLOR_CLASSES).map(token => `.${token}`).join(',');
+      hotRoot.querySelectorAll(selector).forEach(cell => {
+        cell.classList.remove('hot-formula-ref');
+        BOX_FORMULA_REF_COLOR_CLASSES.forEach(className => cell.classList.remove(className));
+      });
+    };
+    const applyDomClasses = ()=>{
+      clearDomClasses();
+      if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
+        return;
+      }
+      if(!state.formulaReferenceHighlights || state.formulaReferenceHighlights.size === 0){
+        return;
+      }
+      const applied = [];
+      hotRoot.querySelectorAll('.ag-row[row-index]').forEach(rowEl => {
+        if(rowEl.closest('.ag-pinned-top') || rowEl.closest('.ag-floating-top')){
+          return;
+        }
+        const rowIndex = Number(rowEl.getAttribute('row-index'));
+        if(!Number.isInteger(rowIndex) || rowIndex < 0){
+          return;
+        }
+        const physicalRow = typeof hot?.toPhysicalRow === 'function'
+          ? hot.toPhysicalRow(rowIndex)
+          : rowIndex;
+        if(!Number.isInteger(physicalRow) || physicalRow < 0){
+          return;
+        }
+        rowEl.querySelectorAll('.ag-cell[col-id^="c"]').forEach(cellEl => {
+          const colId = cellEl.getAttribute('col-id') || '';
+          const col = Number(colId.slice(1));
+          if(!Number.isInteger(col) || col < 0){
+            return;
+          }
+          const colorIndex = getBoxFormulaRefColorIndex(physicalRow, col);
+          if(colorIndex == null){
+            return;
+          }
+          cellEl.classList.add('hot-formula-ref');
+          const className = BOX_FORMULA_REF_COLOR_CLASSES[colorIndex % BOX_FORMULA_REF_COLOR_CLASSES.length];
+          cellEl.classList.add(className);
+          applied.push({ physicalRow, col, colorIndex });
+        });
+      });
+      if(Shared.isDebugEnabled?.()){
+        console.debug('Debug: box formula dom highlight applied', {
+          count: applied.length,
+          sample: applied.slice(0, 12)
+        });
+      }
+    };
+    if(typeof hot?.gridApi?.refreshCells === 'function'){
+      hot.gridApi.refreshCells({ force: true, suppressFlash: true });
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(applyDomClasses);
+      }else{
+        applyDomClasses();
+      }
+      return;
+    }
+    hot?.render?.();
+    applyDomClasses();
+  }
+
+  function clearBoxFormulaReferenceHighlights(options = {}){
+    const hadAny = state.formulaReferenceHighlights && state.formulaReferenceHighlights.size > 0;
+    state.formulaReferenceHighlights = new Map();
+    if(options.render !== false && hadAny){
+      renderBoxFormulaRefHighlights();
+    }
+  }
+
+  function parseBoxFormulaA1Ref(refText){
+    const parseA1 = Shared.formulaEngine?.parseA1;
+    if(typeof parseA1 !== 'function'){
+      return null;
+    }
+    const parsed = parseA1(refText);
+    if(!parsed){
+      return null;
+    }
+    return {
+      row: parsed.row + getBoxHeaderRowCount(),
+      col: parsed.col
+    };
+  }
+
+  function updateBoxFormulaReferenceHighlights(rawFormula){
+    const source = typeof rawFormula === 'string' ? rawFormula.trim() : '';
+    if(!source || source[0] !== '='){
+      clearBoxFormulaReferenceHighlights();
+      return;
+    }
+    const explicitRefs = typeof Shared.formulaEngine?.extractReferences === 'function'
+      ? Shared.formulaEngine.extractReferences(source, { a1RowOffset: getBoxHeaderRowCount() })
+      : null;
+    const next = new Map();
+    let tokenIndex = 0;
+    let totalCells = 0;
+    const refEntries = Array.isArray(explicitRefs) && explicitRefs.length
+      ? explicitRefs
+      : Array.from(source.toUpperCase().matchAll(/([A-Z]+[1-9]\d*)(\s*:\s*([A-Z]+[1-9]\d*))?/g)).map(match => ({
+        start: parseBoxFormulaA1Ref(match[1]),
+        end: parseBoxFormulaA1Ref(match[3] || match[1])
+      }));
+    for(const entry of refEntries){
+      const start = entry?.start || null;
+      const end = entry?.end || start;
+      if(!start || !end){
+        tokenIndex += 1;
+        continue;
+      }
+      const colorIndex = tokenIndex % BOX_FORMULA_REF_COLOR_CLASSES.length;
+      tokenIndex += 1;
+      const minRow = Math.min(start.row, end.row);
+      const maxRow = Math.max(start.row, end.row);
+      const minCol = Math.min(start.col, end.col);
+      const maxCol = Math.max(start.col, end.col);
+      for(let row = minRow; row <= maxRow; row += 1){
+        for(let col = minCol; col <= maxCol; col += 1){
+          if(totalCells >= BOX_FORMULA_REF_MAX_CELLS){
+            break;
+          }
+          totalCells += 1;
+          const key = getBoxFormulaRefKey(row, col);
+          if(!next.has(key)){
+            next.set(key, colorIndex);
+          }
+        }
+        if(totalCells >= BOX_FORMULA_REF_MAX_CELLS){
+          break;
+        }
+      }
+      if(totalCells >= BOX_FORMULA_REF_MAX_CELLS){
+        break;
+      }
+    }
+    if(mapsEqual(state.formulaReferenceHighlights, next)){
+      return;
+    }
+    state.formulaReferenceHighlights = next;
+    renderBoxFormulaRefHighlights();
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box formula refs highlighted', {
+        refs: next.size,
+        tokens: tokenIndex,
+        formula: source,
+        keys: Array.from(next.entries()).slice(0, 12).map(([key, color]) => ({ key, color }))
+      });
+    }
   }
 
   function ensureBoxDataViewsForHot(hotInstance, options = {}){
@@ -11423,6 +11637,7 @@
     }
     state.formulaModel = null;
     state.formulaMatrixReady = false;
+    clearBoxFormulaReferenceHighlights({ render: false });
     rebuildBoxFormulaModel(state.hot);
   }
 
@@ -11531,14 +11746,44 @@
         }else{
           input.value = params?.value ?? '';
         }
+        this._highlightRaf = null;
+        this._handleInput = ()=>{
+          if(this._highlightRaf != null && typeof global.cancelAnimationFrame === 'function'){
+            global.cancelAnimationFrame(this._highlightRaf);
+            this._highlightRaf = null;
+          }
+          const run = ()=>updateBoxFormulaReferenceHighlights(input.value || '');
+          if(typeof global.requestAnimationFrame === 'function'){
+            this._highlightRaf = global.requestAnimationFrame(()=>{
+              this._highlightRaf = null;
+              run();
+            });
+          }else{
+            run();
+          }
+        };
+        input.addEventListener('input', this._handleInput);
         this.eInput = input;
       };
       FormulaCellEditor.prototype.getGui = function getGui(){ return this.eInput; };
       FormulaCellEditor.prototype.afterGuiAttached = function afterGuiAttached(){
         this.eInput?.focus?.();
         this.eInput?.select?.();
+        updateBoxFormulaReferenceHighlights(this.eInput?.value || '');
       };
       FormulaCellEditor.prototype.getValue = function getValue(){ return this.eInput?.value ?? ''; };
+      FormulaCellEditor.prototype.destroy = function destroy(){
+        if(this.eInput && this._handleInput){
+          this.eInput.removeEventListener('input', this._handleInput);
+        }
+        if(this._highlightRaf != null && typeof global.cancelAnimationFrame === 'function'){
+          global.cancelAnimationFrame(this._highlightRaf);
+          this._highlightRaf = null;
+        }
+        this._handleInput = null;
+        this.eInput = null;
+        clearBoxFormulaReferenceHighlights();
+      };
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
         debugLabel: 'box',
         data,
@@ -11660,6 +11905,23 @@
             if(!model){
               return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
             }
+            const rawCellValue = params?.data?.[def.field];
+            const rawText = rawCellValue == null ? '' : String(rawCellValue).trim();
+            if(rawText.startsWith('=')){
+              const modelRaw = model.getRawAt?.(physicalRow, col);
+              const formulaSynced = !!(model.isFormulaAt?.(physicalRow, col) && modelRaw === rawCellValue);
+              if(!formulaSynced){
+                model.rebuildFromMatrix(instance?.getData?.() || []);
+                state.formulaMatrixReady = true;
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: box formula valueGetter self-sync', {
+                    row: physicalRow,
+                    col,
+                    rawCellValue
+                  });
+                }
+              }
+            }
             return model.getResolvedAt(physicalRow, col);
           };
           def.cellEditor = FormulaCellEditor;
@@ -11711,6 +11973,7 @@
             if(!changes || source === 'loadData') return;
             const model = ensureBoxFormulaModel();
             if(model){
+              let sawFormulaInput = false;
               changes.forEach(change => {
                 const row = Number(change?.[0]);
                 const col = Number(change?.[1]);
@@ -11719,16 +11982,57 @@
                 }
                 const input = change[3];
                 const isFormula = typeof input === 'string' && input.trim().startsWith('=');
+                sawFormulaInput = sawFormulaInput || isFormula;
                 if(Shared.isDebugEnabled?.()){
-                  console.debug('Debug: box formula input detected', { row, col, isFormula, source: source || 'edit' });
+                  console.debug('Debug: box formula input detected', {
+                    row,
+                    col,
+                    isFormula,
+                    source: source || 'edit'
+                  });
                 }
-                model.setCellRaw(row, col, input);
               });
+              model.rebuildFromMatrix(instance?.getData?.() || []);
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: box formula model refreshed after change', {
+                  source: source || 'edit',
+                  changeCount: changes.length,
+                  sawFormulaInput
+                });
+              }
               state.formulaMatrixReady = true;
             }else{
               state.formulaMatrixReady = false;
             }
             instance?.render?.();
+            const api = instance?.gridApi;
+            if(api && typeof api.refreshCells === 'function'){
+              const visualRows = Array.from(new Set(
+                changes
+                  .map(change => Number(change?.[0]))
+                  .filter(value => Number.isInteger(value) && value >= 0)
+              ));
+              const rowNodes = typeof api.getDisplayedRowAtIndex === 'function'
+                ? visualRows.map(row => api.getDisplayedRowAtIndex(row)).filter(Boolean)
+                : [];
+              const columns = Array.from(new Set(
+                changes
+                  .map(change => Number(change?.[1]))
+                  .filter(value => Number.isInteger(value) && value >= 0)
+                  .map(col => `c${col}`)
+              ));
+              api.refreshCells({
+                force: true,
+                suppressFlash: true,
+                rowNodes: rowNodes.length ? rowNodes : undefined,
+                columns: columns.length ? columns : undefined
+              });
+              if(typeof global.requestAnimationFrame === 'function'){
+                global.requestAnimationFrame(()=>{
+                  api.refreshCells({ force: true, suppressFlash: true });
+                });
+              }
+            }
             boxLog('boxplot afterChange', { count: changes.length, source });
             if(isBoxGroupedModeActive()){
               const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
@@ -11751,6 +12055,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterLoadData(){
+            clearBoxFormulaReferenceHighlights({ render: false });
             rebuildBoxFormulaModel(instance);
             if(isBoxGroupedModeActive()){
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
@@ -11762,6 +12067,7 @@
             activateBoxDataToolbar('table-selection');
           },
           afterCreateCol(){
+            clearBoxFormulaReferenceHighlights({ render: false });
             state.formulaMatrixReady = false;
             rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
@@ -11773,6 +12079,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
+            clearBoxFormulaReferenceHighlights({ render: false });
             state.formulaMatrixReady = false;
             rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
@@ -11792,6 +12099,7 @@
           afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
             if(orderChanged){
               boxLog('boxplot afterColumnMove');
+              clearBoxFormulaReferenceHighlights({ render: false });
               state.formulaMatrixReady = false;
               rebuildBoxFormulaModel(instance);
               if(isBoxGroupedModeActive()){

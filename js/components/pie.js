@@ -129,6 +129,37 @@
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
+  const PIE_STATS_DEFAULT_ALPHA = 0.05;
+  const PIE_STATS_DEFAULT_CORRECTION = 'holm';
+  const PIE_STATS_DEFAULT_SCOPE = 'gof';
+  const PIE_STATS_DEFAULT_TEST = 'chi-square';
+  const PIE_STATS_DEFAULT_SPARSE_THRESHOLD = 5;
+
+  function pieDebugEnabled(){
+    return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+  }
+
+  function createDefaultPieStatsConfig(){
+    return {
+      scope: PIE_STATS_DEFAULT_SCOPE,
+      test: PIE_STATS_DEFAULT_TEST,
+      correction: PIE_STATS_DEFAULT_CORRECTION,
+      alpha: PIE_STATS_DEFAULT_ALPHA,
+      sparseThreshold: PIE_STATS_DEFAULT_SPARSE_THRESHOLD,
+      yatesCorrection: true,
+      referenceColumn: null,
+      valueColumn: null,
+      expectedColumn: null,
+      selectedCols: new Set(),
+      customPairs: new Set(),
+      advancedOpen: false,
+      resultsTab: 'overall',
+      contextSignature: null,
+      lastRunSignature: null,
+      pending: false,
+      controlsSignature: null
+    };
+  }
 
   function clampMinorTickSubdivisions(value){
     const numeric = Number(value);
@@ -346,6 +377,8 @@
     labelPositions: { title: null, legend: null },
     columnSignature: null,
     statsSignature: null,
+    statsDataModel: null,
+    statsConfig: createDefaultPieStatsConfig(),
     colorSignature: null,
     resizeState: {
       active: false,
@@ -538,6 +571,1411 @@
     }
   }
 
+  function getPieStatsConfig(){
+    if(!state.statsConfig || typeof state.statsConfig !== 'object'){
+      state.statsConfig = createDefaultPieStatsConfig();
+    }
+    if(!(state.statsConfig.selectedCols instanceof Set)){
+      state.statsConfig.selectedCols = new Set(Array.isArray(state.statsConfig.selectedCols) ? state.statsConfig.selectedCols : []);
+    }
+    if(!(state.statsConfig.customPairs instanceof Set)){
+      state.statsConfig.customPairs = new Set(Array.isArray(state.statsConfig.customPairs) ? state.statsConfig.customPairs : []);
+    }
+    return state.statsConfig;
+  }
+
+  function sanitizePieStatsScope(value){
+    const allowed = new Set(['gof', 'all', 'reference', 'custom']);
+    return allowed.has(value) ? value : PIE_STATS_DEFAULT_SCOPE;
+  }
+
+  function sanitizePieStatsTest(value){
+    const allowed = new Set(['chi-square', 'g-test', 'auto']);
+    return allowed.has(value) ? value : PIE_STATS_DEFAULT_TEST;
+  }
+
+  function sanitizePieStatsAlpha(value){
+    const numeric = Number(value);
+    if(Number.isFinite(numeric) && numeric > 0 && numeric < 1){
+      return numeric;
+    }
+    return PIE_STATS_DEFAULT_ALPHA;
+  }
+
+  function sanitizePieStatsSparseThreshold(value){
+    const numeric = Math.floor(Number(value));
+    if(Number.isFinite(numeric) && numeric >= 1 && numeric <= 100){
+      return numeric;
+    }
+    return PIE_STATS_DEFAULT_SPARSE_THRESHOLD;
+  }
+
+  function parsePieColumnIndex(value){
+    if(value === '' || value === null || value === undefined){
+      return null;
+    }
+    const numeric = Number(value);
+    if(Number.isInteger(numeric) && numeric >= 1){
+      return numeric;
+    }
+    return null;
+  }
+
+  function getPieCorrectionOptions(){
+    const keys = ['none', 'bonferroni', 'holm', 'holm-sidak', 'sidak', 'hochberg', 'bh', 'by'];
+    const resolver = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
+      ? Shared.stats.getCorrectionMeta
+      : null;
+    return keys.map(key => {
+      if(resolver){
+        const meta = resolver(key);
+        return { value: key, label: meta?.label || key, shortLabel: meta?.shortLabel || meta?.label || key, footnote: meta?.footnote || null };
+      }
+      return { value: key, label: key, shortLabel: key, footnote: null };
+    });
+  }
+
+  function sanitizePieStatsCorrection(value){
+    const options = getPieCorrectionOptions();
+    const option = options.find(entry => entry.value === value);
+    return option ? option.value : PIE_STATS_DEFAULT_CORRECTION;
+  }
+
+  function formatPieStatNumber(value, digits = 4){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 'N/A';
+    }
+    return numeric.toFixed(Math.max(0, digits));
+  }
+
+  function formatPiePValue(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 'N/A';
+    }
+    if(typeof Shared.formatPValue === 'function'){
+      return Shared.formatPValue(numeric);
+    }
+    return numeric.toExponential(5);
+  }
+
+  function setPieStatsStatus(message){
+    const node = document.getElementById('pieStatsStatus');
+    if(!node){
+      return;
+    }
+    node.textContent = message || '';
+  }
+
+  function updatePieStatsButtonState(options = {}){
+    const button = document.getElementById('pieComputeStats');
+    if(!button){
+      return;
+    }
+    if(Object.prototype.hasOwnProperty.call(options, 'disabled')){
+      button.disabled = !!options.disabled;
+    }
+    if(typeof options.label === 'string' && options.label){
+      button.textContent = options.label;
+    }
+  }
+
+  function clearPieStatsOutputs(message){
+    const out = document.getElementById('pieStatsResults');
+    if(!out){
+      return;
+    }
+    out.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.className = 'stats-table-message';
+    msg.textContent = message || 'Statistics will appear after calculation.';
+    out.appendChild(msg);
+  }
+
+  let pieStatsSummaryTabIdCounter = 0;
+  function sanitizePieStatsResultsTab(value){
+    return value === 'comparisons' ? 'comparisons' : 'overall';
+  }
+
+  function readPieStatsCardCaption(node){
+    if(!node || node.nodeType !== 1){
+      return '';
+    }
+    const captionNode = node.querySelector?.('.stats-table-caption');
+    if(captionNode && captionNode.textContent){
+      return String(captionNode.textContent).trim();
+    }
+    const attrCaption = node.getAttribute?.('data-stats-caption');
+    return attrCaption ? String(attrCaption).trim() : '';
+  }
+
+  function isPieOverallStatsCard(node){
+    return /^Overall test summary$/i.test(readPieStatsCardCaption(node))
+      || /^Overall categorical test$/i.test(readPieStatsCardCaption(node));
+  }
+
+  function isPieComparisonStatsCard(node){
+    return /pairwise comparisons|pairwise condition comparisons|comparisons vs reference|multiple comparisons/i.test(readPieStatsCardCaption(node));
+  }
+
+  function setPieStatsSummaryTabSelection(wrapper, tab){
+    if(!wrapper){
+      return;
+    }
+    const stats = getPieStatsConfig();
+    const nextTab = sanitizePieStatsResultsTab(tab);
+    wrapper.setAttribute('data-active-tab', nextTab);
+    Array.from(wrapper.querySelectorAll('.box-stats-summary-tabs__tab')).forEach(button => {
+      const isActive = button.getAttribute('data-tab') === nextTab;
+      button.classList.toggle('box-stats-summary-tabs__tab--active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      button.tabIndex = isActive ? 0 : -1;
+    });
+    Array.from(wrapper.querySelectorAll('.box-stats-summary-tabs__panel')).forEach(panel => {
+      const isActive = panel.getAttribute('data-tab') === nextTab;
+      panel.hidden = !isActive;
+      panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+    });
+    stats.resultsTab = nextTab;
+    if(pieDebugEnabled()){
+      console.debug('Debug: pie stats summary tab selected', { tab: nextTab });
+    }
+  }
+
+  function buildPieStatsSummaryTabButton(label, tab){
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'box-stats-summary-tabs__tab';
+    button.textContent = label;
+    button.setAttribute('data-tab', tab);
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-selected', 'false');
+    button.tabIndex = -1;
+    button.addEventListener('click', () => {
+      setPieStatsSummaryTabSelection(button.closest('.box-stats-summary-tabs'), tab);
+    });
+    return button;
+  }
+
+  function buildPieStatsSummaryPanel(tab, labelledBy){
+    const panel = document.createElement('div');
+    panel.className = 'box-stats-summary-tabs__panel';
+    panel.setAttribute('data-tab', tab);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', labelledBy);
+    panel.hidden = true;
+    return panel;
+  }
+
+  function mountPieStatsSummaryTabs(resultsContainer){
+    if(!resultsContainer || resultsContainer.nodeType !== 1){
+      return false;
+    }
+    const cards = Array.from(resultsContainer.children).filter(node => node?.classList?.contains('stats-table-card'));
+    if(cards.length < 2){
+      return false;
+    }
+    const overallCard = cards.find(isPieOverallStatsCard);
+    const comparisonsCard = cards.find(isPieComparisonStatsCard);
+    if(!overallCard || !comparisonsCard || overallCard === comparisonsCard){
+      return false;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'box-stats-summary-tabs';
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', 'Pie statistical summaries');
+    const tabList = document.createElement('div');
+    tabList.className = 'box-stats-summary-tabs__tablist';
+    tabList.setAttribute('role', 'tablist');
+    const tabIdSuffix = String((pieStatsSummaryTabIdCounter += 1));
+    const overallButton = buildPieStatsSummaryTabButton('Overall test summary', 'overall');
+    overallButton.id = `pieStatsSummaryTabOverall-${tabIdSuffix}`;
+    const comparisonsButton = buildPieStatsSummaryTabButton('Multiple comparisons', 'comparisons');
+    comparisonsButton.id = `pieStatsSummaryTabComparisons-${tabIdSuffix}`;
+    const overallPanel = buildPieStatsSummaryPanel('overall', overallButton.id);
+    const comparisonsPanel = buildPieStatsSummaryPanel('comparisons', comparisonsButton.id);
+    tabList.appendChild(overallButton);
+    tabList.appendChild(comparisonsButton);
+    resultsContainer.insertBefore(wrapper, overallCard);
+    overallPanel.appendChild(overallCard);
+    comparisonsPanel.appendChild(comparisonsCard);
+    wrapper.appendChild(tabList);
+    wrapper.appendChild(overallPanel);
+    wrapper.appendChild(comparisonsPanel);
+    const stats = getPieStatsConfig();
+    setPieStatsSummaryTabSelection(wrapper, sanitizePieStatsResultsTab(stats.resultsTab));
+    if(pieDebugEnabled()){
+      console.debug('Debug: pie stats summary tabs mounted', {
+        overallCaption: readPieStatsCardCaption(overallCard),
+        comparisonsCaption: readPieStatsCardCaption(comparisonsCard),
+        activeTab: stats.resultsTab
+      });
+    }
+    return true;
+  }
+
+  function getPieStatsDataMatrix(){
+    return typeof state.hot?.getIncludedDataMatrix === 'function'
+      ? state.hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
+  }
+
+  function buildPieStatsDataModel(matrix){
+    const rows = Array.isArray(matrix) ? matrix : [];
+    const header = Array.isArray(rows[0]) ? rows[0] : [];
+    const maxCols = rows.reduce((max, row) => {
+      if(!Array.isArray(row)){
+        return max;
+      }
+      return Math.max(max, row.length);
+    }, header.length || 0);
+    const columns = [];
+    for(let col = 1; col < maxCols; col += 1){
+      const rawHeader = header[col];
+      const hasHeader = rawHeader != null && String(rawHeader).trim() !== '';
+      const hasData = rows.some((row, rowIndex) => {
+        if(rowIndex === 0 || !Array.isArray(row)){
+          return false;
+        }
+        const cell = row[col];
+        return cell != null && String(cell).trim() !== '';
+      });
+      if(!hasHeader && !hasData){
+        continue;
+      }
+      const label = hasHeader ? String(rawHeader).trim() : `Column ${col + 1}`;
+      columns.push({ index: col, label });
+    }
+    const normalizedRows = [];
+    for(let rowIndex = 1; rowIndex < rows.length; rowIndex += 1){
+      const row = rows[rowIndex];
+      if(!Array.isArray(row)){
+        continue;
+      }
+      const categoryRaw = row[0];
+      const category = categoryRaw == null ? '' : String(categoryRaw).trim();
+      if(!category){
+        continue;
+      }
+      const values = {};
+      let hasFinite = false;
+      columns.forEach(column => {
+        const raw = row[column.index];
+        const numeric = Number.parseFloat(raw);
+        const value = Number.isFinite(numeric) ? numeric : NaN;
+        values[column.index] = value;
+        if(Number.isFinite(value)){
+          hasFinite = true;
+        }
+      });
+      if(!hasFinite){
+        continue;
+      }
+      normalizedRows.push({ category, values });
+    }
+    return { columns, rows: normalizedRows };
+  }
+
+  function findPieColumn(dataModel, index){
+    return (dataModel?.columns || []).find(column => column.index === index) || null;
+  }
+
+  function normalizePiePairKey(a, b){
+    const x = Number(a);
+    const y = Number(b);
+    if(!Number.isInteger(x) || !Number.isInteger(y) || x === y){
+      return null;
+    }
+    const lo = Math.min(x, y);
+    const hi = Math.max(x, y);
+    return `${lo}|${hi}`;
+  }
+
+  function parsePiePairKey(key){
+    const parts = String(key || '').split('|');
+    if(parts.length !== 2){
+      return null;
+    }
+    const a = Number(parts[0]);
+    const b = Number(parts[1]);
+    if(!Number.isInteger(a) || !Number.isInteger(b) || a === b){
+      return null;
+    }
+    return { a: Math.min(a, b), b: Math.max(a, b) };
+  }
+
+  function ensurePieStatsSelections(dataModel){
+    const stats = getPieStatsConfig();
+    const available = Array.isArray(dataModel?.columns) ? dataModel.columns.slice() : [];
+    const availableSet = new Set(available.map(column => column.index));
+    const nextSelected = new Set();
+    stats.selectedCols.forEach(index => {
+      if(availableSet.has(index)){
+        nextSelected.add(index);
+      }
+    });
+    if(!nextSelected.size && available.length){
+      available.forEach(column => nextSelected.add(column.index));
+    }
+    stats.selectedCols = nextSelected;
+    const selectedList = Array.from(stats.selectedCols).sort((a, b) => a - b);
+    if(!selectedList.length){
+      stats.referenceColumn = null;
+    }else if(!selectedList.includes(stats.referenceColumn)){
+      stats.referenceColumn = selectedList[0];
+    }
+    const expectedNamed = available.find(column => column.label.trim().toLowerCase() === 'expected') || null;
+    if(!availableSet.has(stats.valueColumn)){
+      stats.valueColumn = selectedList[0] ?? (available[0]?.index ?? null);
+    }
+    if(!availableSet.has(stats.expectedColumn)){
+      stats.expectedColumn = expectedNamed?.index
+        ?? (selectedList[1] ?? available[1]?.index ?? selectedList[0] ?? available[0]?.index ?? null);
+    }
+    if(stats.valueColumn === stats.expectedColumn && available.length > 1){
+      const fallback = available.find(column => column.index !== stats.valueColumn);
+      if(fallback){
+        stats.expectedColumn = fallback.index;
+      }
+    }
+    const validCustomPairs = new Set();
+    stats.customPairs.forEach(key => {
+      const parsed = parsePiePairKey(key);
+      if(!parsed){
+        return;
+      }
+      if(!stats.selectedCols.has(parsed.a) || !stats.selectedCols.has(parsed.b)){
+        return;
+      }
+      const normalized = normalizePiePairKey(parsed.a, parsed.b);
+      if(normalized){
+        validCustomPairs.add(normalized);
+      }
+    });
+    stats.customPairs = validCustomPairs;
+    stats.scope = sanitizePieStatsScope(stats.scope);
+    stats.test = sanitizePieStatsTest(stats.test);
+    stats.correction = sanitizePieStatsCorrection(stats.correction);
+    stats.alpha = sanitizePieStatsAlpha(stats.alpha);
+    stats.sparseThreshold = sanitizePieStatsSparseThreshold(stats.sparseThreshold);
+    stats.yatesCorrection = stats.yatesCorrection !== false;
+    stats.resultsTab = sanitizePieStatsResultsTab(stats.resultsTab);
+  }
+
+  function derivePieScopePairs(stats){
+    const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
+    if(selected.length < 2){
+      return [];
+    }
+    if(stats.scope === 'reference'){
+      if(!selected.includes(stats.referenceColumn)){
+        return [];
+      }
+      return selected
+        .filter(index => index !== stats.referenceColumn)
+        .map(index => {
+          const key = normalizePiePairKey(stats.referenceColumn, index);
+          return key ? { key, a: Math.min(stats.referenceColumn, index), b: Math.max(stats.referenceColumn, index) } : null;
+        })
+        .filter(Boolean);
+    }
+    if(stats.scope === 'custom'){
+      const pairs = [];
+      stats.customPairs.forEach(key => {
+        const parsed = parsePiePairKey(key);
+        if(!parsed){
+          return;
+        }
+        if(!selected.includes(parsed.a) || !selected.includes(parsed.b)){
+          return;
+        }
+        const normalized = normalizePiePairKey(parsed.a, parsed.b);
+        if(normalized){
+          pairs.push({ key: normalized, a: parsed.a, b: parsed.b });
+        }
+      });
+      return pairs.sort((left, right) => left.a - right.a || left.b - right.b);
+    }
+    const pairs = [];
+    for(let i = 0; i < selected.length; i += 1){
+      for(let j = i + 1; j < selected.length; j += 1){
+        const a = selected[i];
+        const b = selected[j];
+        const key = normalizePiePairKey(a, b);
+        if(key){
+          pairs.push({ key, a, b });
+        }
+      }
+    }
+    return pairs;
+  }
+
+  function estimatePieStatsComparisonCount(){
+    const stats = getPieStatsConfig();
+    if(stats.scope === 'gof'){
+      return 1;
+    }
+    return derivePieScopePairs(stats).length;
+  }
+
+  function updatePieStatsCorrectionSummary(testCount){
+    const note = document.getElementById('pieStatsCorrectionNote');
+    if(!note){
+      return;
+    }
+    const stats = getPieStatsConfig();
+    if(stats.scope === 'gof'){
+      note.textContent = 'Goodness-of-fit mode runs one observed-versus-expected comparison.';
+      return;
+    }
+    if(testCount <= 0){
+      note.textContent = 'Select at least two conditions to enable comparisons.';
+      return;
+    }
+    if(testCount === 1){
+      note.textContent = 'One comparison selected. Multiplicity correction is not required.';
+      return;
+    }
+    const correctionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
+      ? Shared.stats.getCorrectionMeta(stats.correction)
+      : { label: stats.correction };
+    note.textContent = `Multiple-testing correction: ${correctionMeta?.label || stats.correction} (${testCount} tests).`;
+  }
+
+  function buildPieStatsDataSignature(dataModel){
+    const columns = Array.isArray(dataModel?.columns) ? dataModel.columns : [];
+    const rows = Array.isArray(dataModel?.rows) ? dataModel.rows : [];
+    const columnPart = columns.map(column => `${column.index}:${column.label}`).join(';');
+    const rowPart = rows.map(row => {
+      const valuePart = columns.map(column => {
+        const value = row.values?.[column.index];
+        return Number.isFinite(value) ? String(value) : 'NaN';
+      }).join(',');
+      return `${row.category}|${valuePart}`;
+    }).join(';');
+    return `${columnPart}::${rowPart}`;
+  }
+
+  function buildPieStatsContextSignature(dataModel){
+    const stats = getPieStatsConfig();
+    const selectedCols = Array.from(stats.selectedCols || []).sort((a, b) => a - b).join(',');
+    const customPairs = Array.from(stats.customPairs || []).sort().join(',');
+    const configPart = [
+      sanitizePieStatsScope(stats.scope),
+      sanitizePieStatsTest(stats.test),
+      sanitizePieStatsCorrection(stats.correction),
+      String(sanitizePieStatsAlpha(stats.alpha)),
+      String(sanitizePieStatsSparseThreshold(stats.sparseThreshold)),
+      stats.yatesCorrection ? 'yates' : 'no-yates',
+      String(stats.referenceColumn ?? ''),
+      String(stats.valueColumn ?? ''),
+      String(stats.expectedColumn ?? ''),
+      selectedCols,
+      customPairs
+    ].join('|');
+    return `${configPart}::${buildPieStatsDataSignature(dataModel)}`;
+  }
+
+  function requestPieStatsContextRefresh(reason){
+    const stats = getPieStatsConfig();
+    stats.contextSignature = null;
+    stats.pending = false;
+    clearPieStatsOutputs('Statistics ready to calculate.');
+    setPieStatsStatus('Statistics ready to calculate.');
+    updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+    updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+    if(pieDebugEnabled()){
+      console.debug('Debug: pie stats context refresh requested', { reason: reason || 'unspecified' });
+    }
+  }
+
+  function primePieStatsComputation(options = {}){
+    const matrix = options.matrix || getPieStatsDataMatrix();
+    const dataModel = buildPieStatsDataModel(matrix);
+    state.statsDataModel = dataModel;
+    ensurePieStatsSelections(dataModel);
+    renderPieStatsControls(dataModel, { reason: options.reason || 'prime' });
+    const signature = buildPieStatsContextSignature(dataModel);
+    const stats = getPieStatsConfig();
+    const hasRows = Array.isArray(dataModel.rows) && dataModel.rows.length > 0;
+    if(!hasRows){
+      stats.contextSignature = signature;
+      stats.lastRunSignature = null;
+      clearPieStatsOutputs('Add data to enable statistics.');
+      setPieStatsStatus('Statistics unavailable until data is loaded.');
+      updatePieStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      updatePieStatsCorrectionSummary(0);
+      return;
+    }
+    if(stats.contextSignature !== signature){
+      stats.contextSignature = signature;
+      stats.lastRunSignature = null;
+      clearPieStatsOutputs('Statistics ready to calculate.');
+      setPieStatsStatus('Statistics ready to calculate.');
+      updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+      return;
+    }
+    if(stats.lastRunSignature === signature){
+      setPieStatsStatus('Statistics up to date.');
+      updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+    }else{
+      setPieStatsStatus('Statistics ready to calculate.');
+      updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+    }
+    updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+  }
+
+  function buildPieContingencyDataset(dataModel, columnIndices){
+    const indices = Array.isArray(columnIndices) ? columnIndices.slice() : [];
+    const rows = [];
+    const labels = [];
+    let skipped = 0;
+    (dataModel?.rows || []).forEach(row => {
+      const values = indices.map(index => Number(row.values?.[index]));
+      const valid = values.every(value => Number.isFinite(value) && value >= 0);
+      if(!valid){
+        skipped += 1;
+        return;
+      }
+      rows.push(values);
+      labels.push(row.category);
+    });
+    return { rows, labels, skipped };
+  }
+
+  function buildPieGofDataset(dataModel, observedIndex, expectedIndex){
+    const observed = [];
+    const expected = [];
+    const labels = [];
+    let skipped = 0;
+    (dataModel?.rows || []).forEach(row => {
+      const observedValue = Number(row.values?.[observedIndex]);
+      const expectedValue = Number(row.values?.[expectedIndex]);
+      if(!Number.isFinite(observedValue) || observedValue < 0 || !Number.isFinite(expectedValue) || expectedValue <= 0){
+        skipped += 1;
+        return;
+      }
+      observed.push(observedValue);
+      expected.push(expectedValue);
+      labels.push(row.category);
+    });
+    return { observed, expected, labels, skipped };
+  }
+
+  function computePieContingencyTest(table, options = {}){
+    const rows = Array.isArray(table) ? table : [];
+    const rowCount = rows.length;
+    const colCount = rowCount ? rows[0].length : 0;
+    if(rowCount < 2 || colCount < 2){
+      return { ok: false, message: 'At least two categories and two conditions are required.' };
+    }
+    const rowSums = new Array(rowCount).fill(0);
+    const colSums = new Array(colCount).fill(0);
+    let total = 0;
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      for(let colIndex = 0; colIndex < colCount; colIndex += 1){
+        const value = Number(rows[rowIndex][colIndex]);
+        if(!Number.isFinite(value) || value < 0){
+          return { ok: false, message: 'Counts must be finite and non-negative.' };
+        }
+        rowSums[rowIndex] += value;
+        colSums[colIndex] += value;
+        total += value;
+      }
+    }
+    if(!(total > 0)){
+      return { ok: false, message: 'Total count must be greater than zero.' };
+    }
+    const expected = Array.from({ length: rowCount }, () => new Array(colCount).fill(0));
+    let sparseCellCount = 0;
+    let minExpected = Infinity;
+    const sparseThreshold = sanitizePieStatsSparseThreshold(options.sparseThreshold);
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      for(let colIndex = 0; colIndex < colCount; colIndex += 1){
+        const exp = (rowSums[rowIndex] * colSums[colIndex]) / total;
+        expected[rowIndex][colIndex] = exp;
+        if(Number.isFinite(exp)){
+          minExpected = Math.min(minExpected, exp);
+          if(exp < sparseThreshold){
+            sparseCellCount += 1;
+          }
+        }
+      }
+    }
+    const method = sanitizePieStatsTest(options.method);
+    const testMethod = method === 'auto' ? 'chi-square' : method;
+    const useYates = !!options.yatesCorrection && testMethod === 'chi-square' && rowCount === 2 && colCount === 2;
+    let statistic = 0;
+    if(testMethod === 'g-test'){
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        for(let colIndex = 0; colIndex < colCount; colIndex += 1){
+          const obs = rows[rowIndex][colIndex];
+          const exp = expected[rowIndex][colIndex];
+          if(!(exp > 0)){
+            if(obs > 0){
+              return { ok: false, message: 'Unable to compute G-test because expected counts contain zeros.' };
+            }
+            continue;
+          }
+          if(obs > 0){
+            statistic += 2 * obs * Math.log(obs / exp);
+          }
+        }
+      }
+    }else{
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        for(let colIndex = 0; colIndex < colCount; colIndex += 1){
+          const obs = rows[rowIndex][colIndex];
+          const exp = expected[rowIndex][colIndex];
+          if(!(exp > 0)){
+            if(obs > 0){
+              return { ok: false, message: 'Unable to compute chi-square because expected counts contain zeros.' };
+            }
+            continue;
+          }
+          let delta = obs - exp;
+          if(useYates){
+            const corrected = Math.max(0, Math.abs(delta) - 0.5);
+            delta = delta >= 0 ? corrected : -corrected;
+          }
+          statistic += (delta * delta) / exp;
+        }
+      }
+    }
+    const df = Math.max(1, (rowCount - 1) * (colCount - 1));
+    let pValue = NaN;
+    if(global.jStat?.chisquare?.cdf){
+      pValue = 1 - global.jStat.chisquare.cdf(statistic, df);
+    }
+    const minDim = Math.min(rowCount - 1, colCount - 1);
+    const cramersV = minDim > 0 && total > 0 ? Math.sqrt(statistic / (total * minDim)) : NaN;
+    return {
+      ok: true,
+      method: testMethod,
+      statistic,
+      df,
+      pValue,
+      total,
+      rowCount,
+      colCount,
+      sparseCellCount,
+      sparseThreshold,
+      minExpected: Number.isFinite(minExpected) ? minExpected : NaN,
+      cramersV,
+      yatesApplied: useYates
+    };
+  }
+
+  function computePieGofStats(observed, expected, options = {}){
+    const obs = Array.isArray(observed) ? observed.map(Number) : [];
+    const exp = Array.isArray(expected) ? expected.map(Number) : [];
+    if(!obs.length){
+      return { ok: false, message: 'No observed values supplied.' };
+    }
+    if(obs.length !== exp.length){
+      return { ok: false, message: 'Observed and expected vectors must have the same length.' };
+    }
+    if(exp.some(value => !Number.isFinite(value) || value <= 0) || obs.some(value => !Number.isFinite(value) || value < 0)){
+      return { ok: false, message: 'Observed values must be non-negative and expected values must be positive.' };
+    }
+    const method = sanitizePieStatsTest(options.method);
+    const testMethod = method === 'auto' ? 'chi-square' : method;
+    let statistic = 0;
+    if(testMethod === 'g-test'){
+      for(let index = 0; index < obs.length; index += 1){
+        const observedValue = obs[index];
+        const expectedValue = exp[index];
+        if(observedValue > 0){
+          statistic += 2 * observedValue * Math.log(observedValue / expectedValue);
+        }
+      }
+    }else{
+      statistic = obs.reduce((sum, value, index) => {
+        const expectedValue = exp[index];
+        return sum + Math.pow(value - expectedValue, 2) / expectedValue;
+      }, 0);
+    }
+    const df = Math.max(1, obs.length - 1);
+    let pValue = NaN;
+    if(global.jStat?.chisquare?.cdf){
+      pValue = 1 - global.jStat.chisquare.cdf(statistic, df);
+    }
+    const total = obs.reduce((sum, value) => sum + value, 0);
+    const cramersV = total > 0 && df > 0 ? Math.sqrt(statistic / (total * df)) : NaN;
+    return {
+      ok: true,
+      method: testMethod,
+      statistic,
+      df,
+      pValue,
+      cramersV,
+      categories: obs.length,
+      total
+    };
+  }
+
+  function renderPieStatsModel(model){
+    const out = document.getElementById('pieStatsResults');
+    if(!out){
+      return;
+    }
+    out.innerHTML = '';
+    const hasRenderer = Shared.statsTable && typeof Shared.statsTable.render === 'function';
+    const renderTable = (tableModel, append = false) => {
+      if(hasRenderer){
+        Shared.statsTable.render({
+          target: out,
+          append,
+          ...tableModel
+        });
+        return;
+      }
+      const wrap = document.createElement('div');
+      wrap.className = 'stats-table-card';
+      const caption = document.createElement('div');
+      caption.className = 'stats-table-caption';
+      caption.textContent = tableModel.caption || 'Statistics';
+      wrap.appendChild(caption);
+      const table = document.createElement('table');
+      const head = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      tableModel.columns.forEach(column => {
+        const cell = document.createElement('th');
+        cell.textContent = column.label;
+        headRow.appendChild(cell);
+      });
+      head.appendChild(headRow);
+      table.appendChild(head);
+      const body = document.createElement('tbody');
+      (tableModel.rows || []).forEach(row => {
+        const tr = document.createElement('tr');
+        tableModel.columns.forEach(column => {
+          const td = document.createElement('td');
+          td.textContent = row[column.key] ?? '';
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+      table.appendChild(body);
+      wrap.appendChild(table);
+      out.appendChild(wrap);
+    };
+    const summaryRows = [
+      { metric: 'Test', value: model.summary.testLabel },
+      { metric: 'Statistic', value: model.summary.statistic },
+      { metric: 'df', value: model.summary.df },
+      { metric: 'P value', value: model.summary.pValue },
+      { metric: "Cramer's V", value: model.summary.cramersV }
+    ];
+    renderTable({
+      caption: model.summary.caption,
+      columns: [
+        { key: 'metric', label: 'Metric', align: 'left' },
+        { key: 'value', label: 'Value', align: 'right' }
+      ],
+      rows: summaryRows,
+      footnotes: model.summary.footnotes || [],
+      options: {
+        fileName: 'pie-overall-statistics',
+        contextLabel: 'pie-overall-statistics'
+      }
+    }, false);
+    if(Array.isArray(model.pairs) && model.pairs.length){
+      renderTable({
+        caption: model.pairsCaption || 'Pairwise comparisons',
+        columns: [
+          { key: 'left', label: 'Condition A', align: 'left' },
+          { key: 'right', label: 'Condition B', align: 'left' },
+          { key: 'categories', label: 'Categories', align: 'right' },
+          { key: 'total', label: 'Total count', align: 'right' },
+          { key: 'statistic', label: 'Statistic', align: 'right' },
+          { key: 'df', label: 'df', align: 'right' },
+          { key: 'pValue', label: 'P value', align: 'right' },
+          { key: 'pAdjusted', label: model.adjustedPLabel || 'P (adj)', align: 'right' },
+          { key: 'cramersV', label: "Cramer's V", align: 'right' }
+        ],
+        rows: model.pairs,
+        footnotes: model.pairFootnotes || [],
+        options: {
+          fileName: 'pie-pairwise-comparisons',
+          contextLabel: 'pie-pairwise-comparisons'
+        }
+      }, true);
+    }
+    mountPieStatsSummaryTabs(out);
+  }
+
+  function handlePieStatsComputeClick(){
+    const stats = getPieStatsConfig();
+    const dataModel = state.statsDataModel || buildPieStatsDataModel(getPieStatsDataMatrix());
+    state.statsDataModel = dataModel;
+    ensurePieStatsSelections(dataModel);
+    const signature = buildPieStatsContextSignature(dataModel);
+    if(!Array.isArray(dataModel.rows) || !dataModel.rows.length){
+      clearPieStatsOutputs('Add data to enable statistics.');
+      setPieStatsStatus('Statistics unavailable until data is loaded.');
+      updatePieStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      return;
+    }
+    updatePieStatsButtonState({ disabled: true, label: 'Calculating…' });
+    setPieStatsStatus('Calculating statistics…');
+    let renderedModel = null;
+    try{
+      if(stats.scope === 'gof'){
+        const observedColumn = Number(stats.valueColumn);
+        const expectedColumn = Number(stats.expectedColumn);
+        const observedMeta = findPieColumn(dataModel, observedColumn);
+        const expectedMeta = findPieColumn(dataModel, expectedColumn);
+        if(!observedMeta || !expectedMeta){
+          clearPieStatsOutputs('Select observed and expected columns.');
+          setPieStatsStatus('Statistics ready to calculate.');
+          updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+          return;
+        }
+        const dataset = buildPieGofDataset(dataModel, observedColumn, expectedColumn);
+        const gof = computePieGofStats(dataset.observed, dataset.expected, { method: stats.test });
+        if(!gof.ok){
+          clearPieStatsOutputs(gof.message || 'Unable to compute goodness-of-fit statistics.');
+          setPieStatsStatus('Statistics ready to calculate.');
+          updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+          return;
+        }
+        renderedModel = {
+          summary: {
+            caption: 'Goodness-of-fit test',
+            testLabel: gof.method === 'g-test' ? 'G-test (likelihood ratio)' : 'Chi-square goodness-of-fit',
+            statistic: formatPieStatNumber(gof.statistic, 4),
+            df: String(gof.df),
+            pValue: formatPiePValue(gof.pValue),
+            cramersV: formatPieStatNumber(gof.cramersV, 4),
+            footnotes: [
+              `Compared ${observedMeta.label} to ${expectedMeta.label} across ${gof.categories} categories.`,
+              `Alpha threshold: ${formatPieStatNumber(stats.alpha, 3)}.`,
+              dataset.skipped ? `${dataset.skipped} row(s) were excluded due to missing or invalid values.` : null
+            ].filter(Boolean)
+          },
+          pairs: []
+        };
+        updatePieStatsCorrectionSummary(1);
+      }else{
+        const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
+        if(selected.length < 2){
+          clearPieStatsOutputs('Select at least two conditions for multiple comparisons.');
+          setPieStatsStatus('Statistics ready to calculate.');
+          updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+          return;
+        }
+        const overallDataset = buildPieContingencyDataset(dataModel, selected);
+        const overall = computePieContingencyTest(overallDataset.rows, {
+          method: stats.test,
+          sparseThreshold: stats.sparseThreshold,
+          yatesCorrection: stats.yatesCorrection
+        });
+        if(!overall.ok){
+          clearPieStatsOutputs(overall.message || 'Unable to compute overall categorical test.');
+          setPieStatsStatus('Statistics ready to calculate.');
+          updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+          return;
+        }
+        const pairs = derivePieScopePairs(stats);
+        if(!pairs.length){
+          clearPieStatsOutputs('No pairwise comparisons are configured for the current scope.');
+          setPieStatsStatus('Statistics ready to calculate.');
+          updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+          return;
+        }
+        const pairResults = [];
+        pairs.forEach(pair => {
+          const dataset = buildPieContingencyDataset(dataModel, [pair.a, pair.b]);
+          const result = computePieContingencyTest(dataset.rows, {
+            method: stats.test,
+            sparseThreshold: stats.sparseThreshold,
+            yatesCorrection: stats.yatesCorrection
+          });
+          const leftLabel = findPieColumn(dataModel, pair.a)?.label || `Column ${pair.a + 1}`;
+          const rightLabel = findPieColumn(dataModel, pair.b)?.label || `Column ${pair.b + 1}`;
+          if(!result.ok){
+            pairResults.push({
+              left: leftLabel,
+              right: rightLabel,
+              categories: String(dataset.rows.length),
+              total: 'N/A',
+              statistic: 'N/A',
+              df: 'N/A',
+              pValue: 'N/A',
+              pRaw: NaN,
+              cramersV: 'N/A',
+              note: result.message || 'Unavailable'
+            });
+            return;
+          }
+          pairResults.push({
+            left: leftLabel,
+            right: rightLabel,
+            categories: String(dataset.rows.length),
+            total: formatPieStatNumber(result.total, 0),
+            statistic: formatPieStatNumber(result.statistic, 4),
+            df: String(result.df),
+            pValue: formatPiePValue(result.pValue),
+            pRaw: Number.isFinite(result.pValue) ? result.pValue : NaN,
+            cramersV: formatPieStatNumber(result.cramersV, 4),
+            sparseCellCount: result.sparseCellCount,
+            yatesApplied: result.yatesApplied
+          });
+        });
+        const rawPValues = pairResults.map(row => row.pRaw);
+        const finitePValues = rawPValues.filter(Number.isFinite);
+        let adjusted = [];
+        if(finitePValues.length > 1 && Shared.stats && typeof Shared.stats.adjustPValues === 'function'){
+          adjusted = Shared.stats.adjustPValues(finitePValues, { method: stats.correction });
+        }else{
+          adjusted = finitePValues.slice();
+        }
+        let adjustedIndex = 0;
+        pairResults.forEach(row => {
+          if(Number.isFinite(row.pRaw)){
+            const adjustedValue = adjusted[adjustedIndex];
+            adjustedIndex += 1;
+            row.pAdjustedRaw = Number.isFinite(adjustedValue) ? adjustedValue : row.pRaw;
+          }else{
+            row.pAdjustedRaw = NaN;
+          }
+          row.pAdjusted = Number.isFinite(row.pAdjustedRaw) ? formatPiePValue(row.pAdjustedRaw) : 'N/A';
+          delete row.pRaw;
+        });
+        const correctionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
+          ? Shared.stats.getCorrectionMeta(stats.correction)
+          : { shortLabel: stats.correction, label: stats.correction, footnote: null };
+        renderedModel = {
+          summary: {
+            caption: 'Overall test summary',
+            testLabel: overall.method === 'g-test' ? 'G-test (likelihood ratio)' : 'Chi-square test of homogeneity',
+            statistic: formatPieStatNumber(overall.statistic, 4),
+            df: String(overall.df),
+            pValue: formatPiePValue(overall.pValue),
+            cramersV: formatPieStatNumber(overall.cramersV, 4),
+            footnotes: [
+              `${selected.length} condition(s) and ${overallDataset.rows.length} category row(s) were included.`,
+              `Alpha threshold: ${formatPieStatNumber(stats.alpha, 3)}.`,
+              overallDataset.skipped ? `${overallDataset.skipped} row(s) were excluded due to missing or invalid values.` : null,
+              `Cells with expected count < ${overall.sparseThreshold}: ${overall.sparseCellCount}.`,
+              overall.yatesApplied ? 'Yates continuity correction was applied (2×2 chi-square).' : null
+            ].filter(Boolean)
+          },
+          pairs: pairResults,
+          pairsCaption: 'Pairwise comparisons',
+          adjustedPLabel: `P (adj, ${correctionMeta?.shortLabel || correctionMeta?.label || 'adj'})`,
+          pairFootnotes: [
+            pairResults.some(row => row.yatesApplied) ? 'Yates continuity correction was applied for eligible 2×2 pairwise tables.' : null,
+            correctionMeta?.footnote && pairResults.length > 1 ? correctionMeta.footnote(pairResults.length) : null
+          ].filter(Boolean)
+        };
+        updatePieStatsCorrectionSummary(pairResults.length);
+      }
+      renderPieStatsModel(renderedModel);
+      if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+        Shared.statsReporting.appendReportPanel(document.getElementById('pieStatsResults'), {
+          methodsText: renderedModel.summary.testLabel,
+          resultsText: `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = ${renderedModel.summary.pValue}.`,
+          analysisSpec: {
+            component: 'pie',
+            scope: stats.scope,
+            test: stats.test,
+            correction: stats.correction,
+            alpha: stats.alpha,
+            selectedColumns: Array.from(stats.selectedCols || []).sort((a, b) => a - b),
+            referenceColumn: stats.referenceColumn,
+            valueColumn: stats.valueColumn,
+            expectedColumn: stats.expectedColumn
+          }
+        }, { title: 'Reporting and reproducibility' });
+      }
+      stats.contextSignature = signature;
+      stats.lastRunSignature = signature;
+      stats.pending = false;
+      setPieStatsStatus('Statistics up to date.');
+      updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+    }catch(err){
+      console.error('pie stats computation failed', err);
+      clearPieStatsOutputs('Unable to compute statistics. See console for details.');
+      setPieStatsStatus('Failed to compute statistics.');
+      updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+    }
+  }
+
+  function renderPieStatsControls(dataModel, options = {}){
+    const controls = document.getElementById('pieStatsControls');
+    if(!controls){
+      return;
+    }
+    const stats = getPieStatsConfig();
+    ensurePieStatsSelections(dataModel);
+    const signature = JSON.stringify({
+      scope: stats.scope,
+      test: stats.test,
+      correction: stats.correction,
+      alpha: stats.alpha,
+      sparseThreshold: stats.sparseThreshold,
+      yatesCorrection: stats.yatesCorrection,
+      referenceColumn: stats.referenceColumn,
+      valueColumn: stats.valueColumn,
+      expectedColumn: stats.expectedColumn,
+      selected: Array.from(stats.selectedCols).sort((a, b) => a - b),
+      customPairs: Array.from(stats.customPairs).sort(),
+      advancedOpen: !!stats.advancedOpen,
+      columns: (dataModel?.columns || []).map(column => `${column.index}:${column.label}`)
+    });
+    if(!options.force && signature === stats.controlsSignature){
+      return;
+    }
+    stats.controlsSignature = signature;
+    controls.innerHTML = '';
+
+    const conditionsWrap = document.createElement('div');
+    conditionsWrap.className = 'stats-conditions-section';
+    const conditionsTitle = document.createElement('div');
+    conditionsTitle.className = 'stats-conditions-title';
+    conditionsTitle.textContent = 'Conditions to compare:';
+    conditionsWrap.appendChild(conditionsTitle);
+    const conditionsBox = document.createElement('div');
+    conditionsBox.className = 'stats-conditions-checkboxes';
+    (dataModel?.columns || []).forEach(column => {
+      const item = document.createElement('div');
+      item.className = 'stats-conditions-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = `pieStatCol${column.index}`;
+      input.checked = stats.selectedCols.has(column.index);
+      input.addEventListener('change', () => {
+        if(input.checked){
+          stats.selectedCols.add(column.index);
+        }else{
+          stats.selectedCols.delete(column.index);
+        }
+        ensurePieStatsSelections(dataModel);
+        renderPieStatsControls(dataModel, { force: true, reason: 'selection-change' });
+        requestPieStatsContextRefresh('selection-change');
+      });
+      const label = document.createElement('label');
+      label.setAttribute('for', input.id);
+      label.textContent = column.label;
+      item.appendChild(input);
+      item.appendChild(label);
+      conditionsBox.appendChild(item);
+    });
+    conditionsWrap.appendChild(conditionsBox);
+    controls.appendChild(conditionsWrap);
+
+    const optionWrap = document.createElement('div');
+    optionWrap.className = 'box-stats-options';
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'box-stats-options__column box-stats-options__column--primary';
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'box-stats-options__column box-stats-options__column--secondary';
+    optionWrap.appendChild(leftColumn);
+    optionWrap.appendChild(rightColumn);
+
+    const appendRow = (host, labelText, control) => {
+      const row = document.createElement('div');
+      row.className = 'box-stats-options__row';
+      const label = document.createElement('label');
+      label.textContent = labelText;
+      try{
+        label.style.minWidth = '140px';
+        control.style.width = '180px';
+      }catch(_err){
+        // no-op
+      }
+      row.appendChild(label);
+      row.appendChild(control);
+      host.appendChild(row);
+    };
+
+    const scopeSelect = document.createElement('select');
+    [
+      { value: 'gof', label: 'Observed vs expected' },
+      { value: 'all', label: 'All pairwise' },
+      { value: 'reference', label: 'Versus reference' },
+      { value: 'custom', label: 'Custom pairs' }
+    ].forEach(entry => {
+      const option = document.createElement('option');
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.selected = stats.scope === entry.value;
+      scopeSelect.appendChild(option);
+    });
+    scopeSelect.addEventListener('change', () => {
+      stats.scope = sanitizePieStatsScope(scopeSelect.value);
+      renderPieStatsControls(dataModel, { force: true, reason: 'scope-change' });
+      requestPieStatsContextRefresh('scope-change');
+    });
+    appendRow(leftColumn, 'Comparison scope:', scopeSelect);
+
+    const testSelect = document.createElement('select');
+    [
+      { value: 'chi-square', label: 'Chi-square' },
+      { value: 'g-test', label: 'G-test (likelihood ratio)' },
+      { value: 'auto', label: 'Auto' }
+    ].forEach(entry => {
+      const option = document.createElement('option');
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.selected = stats.test === entry.value;
+      testSelect.appendChild(option);
+    });
+    testSelect.addEventListener('change', () => {
+      stats.test = sanitizePieStatsTest(testSelect.value);
+      requestPieStatsContextRefresh('test-change');
+    });
+    appendRow(leftColumn, 'Choose test:', testSelect);
+
+    if(stats.scope === 'gof'){
+      const observedSelect = document.createElement('select');
+      observedSelect.id = 'pieValueColumn';
+      (dataModel?.columns || []).forEach(column => {
+        const option = document.createElement('option');
+        option.value = String(column.index);
+        option.textContent = column.label;
+        option.selected = column.index === stats.valueColumn;
+        observedSelect.appendChild(option);
+      });
+      observedSelect.addEventListener('change', () => {
+        stats.valueColumn = Number.parseInt(observedSelect.value, 10);
+        ensurePieStatsSelections(dataModel);
+        renderPieStatsControls(dataModel, { force: true, reason: 'gof-observed-change' });
+        requestPieStatsContextRefresh('gof-observed-change');
+      });
+      appendRow(leftColumn, 'Observed column:', observedSelect);
+
+      const expectedSelect = document.createElement('select');
+      expectedSelect.id = 'pieExpectedColumn';
+      (dataModel?.columns || []).forEach(column => {
+        const option = document.createElement('option');
+        option.value = String(column.index);
+        option.textContent = column.label;
+        option.selected = column.index === stats.expectedColumn;
+        expectedSelect.appendChild(option);
+      });
+      expectedSelect.addEventListener('change', () => {
+        stats.expectedColumn = Number.parseInt(expectedSelect.value, 10);
+        ensurePieStatsSelections(dataModel);
+        renderPieStatsControls(dataModel, { force: true, reason: 'gof-expected-change' });
+        requestPieStatsContextRefresh('gof-expected-change');
+      });
+      appendRow(leftColumn, 'Expected column:', expectedSelect);
+    }else if(stats.scope === 'reference'){
+      const referenceSelect = document.createElement('select');
+      (dataModel?.columns || []).forEach(column => {
+        if(!stats.selectedCols.has(column.index)){
+          return;
+        }
+        const option = document.createElement('option');
+        option.value = String(column.index);
+        option.textContent = column.label;
+        option.selected = column.index === stats.referenceColumn;
+        referenceSelect.appendChild(option);
+      });
+      referenceSelect.addEventListener('change', () => {
+        stats.referenceColumn = Number.parseInt(referenceSelect.value, 10);
+        requestPieStatsContextRefresh('reference-change');
+      });
+      appendRow(leftColumn, 'Reference condition:', referenceSelect);
+    }else if(stats.scope === 'custom'){
+      const customWrap = document.createElement('div');
+      customWrap.className = 'stats-conditions-section';
+      const title = document.createElement('div');
+      title.className = 'stats-conditions-title';
+      title.textContent = 'Custom pairs:';
+      customWrap.appendChild(title);
+      const pairList = document.createElement('div');
+      pairList.className = 'stats-conditions-checkboxes';
+      const selected = Array.from(stats.selectedCols).sort((a, b) => a - b);
+      for(let i = 0; i < selected.length; i += 1){
+        for(let j = i + 1; j < selected.length; j += 1){
+          const a = selected[i];
+          const b = selected[j];
+          const key = normalizePiePairKey(a, b);
+          if(!key){
+            continue;
+          }
+          const aLabel = findPieColumn(dataModel, a)?.label || `Column ${a + 1}`;
+          const bLabel = findPieColumn(dataModel, b)?.label || `Column ${b + 1}`;
+          const item = document.createElement('div');
+          item.className = 'stats-conditions-item';
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.id = `pieCustomPair${a}_${b}`;
+          input.checked = stats.customPairs.has(key);
+          input.addEventListener('change', () => {
+            if(input.checked){
+              stats.customPairs.add(key);
+            }else{
+              stats.customPairs.delete(key);
+            }
+            renderPieStatsControls(dataModel, { force: true, reason: 'custom-pair-toggle' });
+            requestPieStatsContextRefresh('custom-pair-toggle');
+          });
+          const label = document.createElement('label');
+          label.setAttribute('for', input.id);
+          label.textContent = `${aLabel} vs ${bLabel}`;
+          item.appendChild(input);
+          item.appendChild(label);
+          pairList.appendChild(item);
+        }
+      }
+      if(!pairList.childNodes.length){
+        const empty = document.createElement('div');
+        empty.className = 'stats-table-message';
+        empty.textContent = 'Select at least two conditions to define custom pairs.';
+        pairList.appendChild(empty);
+      }
+      customWrap.appendChild(pairList);
+      leftColumn.appendChild(customWrap);
+    }
+
+    const correctionSelect = document.createElement('select');
+    const correctionOptions = getPieCorrectionOptions();
+    correctionOptions.forEach(optionMeta => {
+      const option = document.createElement('option');
+      option.value = optionMeta.value;
+      option.textContent = optionMeta.label;
+      option.selected = optionMeta.value === stats.correction;
+      correctionSelect.appendChild(option);
+    });
+    correctionSelect.disabled = stats.scope === 'gof' || estimatePieStatsComparisonCount() <= 1;
+    correctionSelect.addEventListener('change', () => {
+      stats.correction = sanitizePieStatsCorrection(correctionSelect.value);
+      requestPieStatsContextRefresh('correction-change');
+    });
+    appendRow(rightColumn, 'Multiplicity control:', correctionSelect);
+
+    const alphaInput = document.createElement('input');
+    alphaInput.type = 'number';
+    alphaInput.step = '0.001';
+    alphaInput.min = '0.0001';
+    alphaInput.max = '0.499';
+    alphaInput.value = String(stats.alpha);
+    alphaInput.addEventListener('change', () => {
+      stats.alpha = sanitizePieStatsAlpha(alphaInput.value);
+      alphaInput.value = String(stats.alpha);
+      requestPieStatsContextRefresh('alpha-change');
+    });
+    appendRow(rightColumn, 'Alpha:', alphaInput);
+
+    const advanced = document.createElement('details');
+    advanced.className = 'box-stats-advanced';
+    advanced.open = !!stats.advancedOpen;
+    advanced.addEventListener('toggle', () => {
+      stats.advancedOpen = !!advanced.open;
+    });
+    const summary = document.createElement('summary');
+    summary.textContent = 'Advanced parameters';
+    advanced.appendChild(summary);
+    const advancedBody = document.createElement('div');
+    advancedBody.className = 'box-stats-advanced__body';
+
+    const sparseRow = document.createElement('div');
+    sparseRow.className = 'box-stats-options__row';
+    const sparseLabel = document.createElement('label');
+    sparseLabel.textContent = 'Sparse threshold:';
+    sparseLabel.style.minWidth = '140px';
+    const sparseInput = document.createElement('input');
+    sparseInput.type = 'number';
+    sparseInput.min = '1';
+    sparseInput.max = '100';
+    sparseInput.step = '1';
+    sparseInput.value = String(stats.sparseThreshold);
+    sparseInput.style.width = '180px';
+    sparseInput.addEventListener('change', () => {
+      stats.sparseThreshold = sanitizePieStatsSparseThreshold(sparseInput.value);
+      sparseInput.value = String(stats.sparseThreshold);
+      requestPieStatsContextRefresh('sparse-threshold-change');
+    });
+    sparseRow.appendChild(sparseLabel);
+    sparseRow.appendChild(sparseInput);
+    advancedBody.appendChild(sparseRow);
+
+    const yatesRow = document.createElement('div');
+    yatesRow.className = 'box-stats-options__row';
+    const yatesLabel = document.createElement('label');
+    yatesLabel.textContent = 'Use Yates (2x2):';
+    const yatesInput = document.createElement('input');
+    yatesInput.type = 'checkbox';
+    yatesInput.checked = !!stats.yatesCorrection;
+    yatesInput.addEventListener('change', () => {
+      stats.yatesCorrection = !!yatesInput.checked;
+      requestPieStatsContextRefresh('yates-change');
+    });
+    yatesRow.appendChild(yatesLabel);
+    yatesRow.appendChild(yatesInput);
+    advancedBody.appendChild(yatesRow);
+    advanced.appendChild(advancedBody);
+    rightColumn.appendChild(advanced);
+
+    controls.appendChild(optionWrap);
+    updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+  }
+
+  function exportPieStatsConfig(){
+    const stats = getPieStatsConfig();
+    return {
+      scope: sanitizePieStatsScope(stats.scope),
+      test: sanitizePieStatsTest(stats.test),
+      correction: sanitizePieStatsCorrection(stats.correction),
+      alpha: sanitizePieStatsAlpha(stats.alpha),
+      sparseThreshold: sanitizePieStatsSparseThreshold(stats.sparseThreshold),
+      yatesCorrection: stats.yatesCorrection !== false,
+      referenceColumn: stats.referenceColumn,
+      valueColumn: stats.valueColumn,
+      expectedColumn: stats.expectedColumn,
+      selectedColumns: Array.from(stats.selectedCols || []).sort((a, b) => a - b),
+      customPairs: Array.from(stats.customPairs || []).sort(),
+      advancedOpen: !!stats.advancedOpen,
+      resultsTab: sanitizePieStatsResultsTab(stats.resultsTab)
+    };
+  }
+
+  function applyPieStatsConfig(config){
+    const stats = getPieStatsConfig();
+    const input = config && typeof config === 'object' ? config : {};
+    stats.scope = sanitizePieStatsScope(input.scope ?? stats.scope);
+    stats.test = sanitizePieStatsTest(input.test ?? stats.test);
+    stats.correction = sanitizePieStatsCorrection(input.correction ?? stats.correction);
+    stats.alpha = sanitizePieStatsAlpha(input.alpha ?? stats.alpha);
+    stats.sparseThreshold = sanitizePieStatsSparseThreshold(input.sparseThreshold ?? stats.sparseThreshold);
+    stats.yatesCorrection = input.yatesCorrection !== false;
+    const referenceColumn = parsePieColumnIndex(input.referenceColumn);
+    const valueColumn = parsePieColumnIndex(input.valueColumn);
+    const expectedColumn = parsePieColumnIndex(input.expectedColumn);
+    stats.referenceColumn = referenceColumn != null ? referenceColumn : stats.referenceColumn;
+    stats.valueColumn = valueColumn != null ? valueColumn : stats.valueColumn;
+    stats.expectedColumn = expectedColumn != null ? expectedColumn : stats.expectedColumn;
+    stats.advancedOpen = !!input.advancedOpen;
+    stats.resultsTab = sanitizePieStatsResultsTab(input.resultsTab ?? stats.resultsTab);
+    if(Array.isArray(input.selectedColumns)){
+      stats.selectedCols = new Set(input.selectedColumns.map(Number).filter(value => Number.isInteger(value) && value >= 1));
+    }
+    if(Array.isArray(input.customPairs)){
+      const nextPairs = new Set();
+      input.customPairs.forEach(pair => {
+        const parsed = parsePiePairKey(pair);
+        if(!parsed){
+          return;
+        }
+        const key = normalizePiePairKey(parsed.a, parsed.b);
+        if(key){
+          nextPairs.add(key);
+        }
+      });
+      stats.customPairs = nextPairs;
+    }
+    stats.contextSignature = null;
+    stats.lastRunSignature = null;
+    stats.controlsSignature = null;
+  }
+
   // Return a default color palette for slices
   // Prefer globally defined palettes if available; fallback to local palette
   function getDefaultPalette(){
@@ -588,16 +2026,7 @@
           console.debug('Debug: pie scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
-      const statsTarget = document.getElementById('pieStatsResults');
-      if(statsTarget){
-        statsTarget.innerHTML = '<div class="stats-table-message">Statistics will appear after rendering.</div>';
-        if(state.statsSignature !== null){
-          state.statsSignature = null;
-          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: pie stats signature reset after table edit');
-          }
-        }
-      }
+      requestPieStatsContextRefresh('table-edit');
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
       }
@@ -658,12 +2087,10 @@
     const pieFontSize=$('#pieFontSize');
     const pieFontSizeVal=$('#pieFontSizeVal');
     const pieChartType=$('#pieChartType');
-    const valueColumn=$('#pieValueColumn');
-    const expectedColumn=$('#pieExpectedColumn');
     const pieShowLegendInput=document.getElementById('pieShowLegend');
     const pieBorderColor=document.getElementById('pieBorderColor');
     const pieBorderWidth=document.getElementById('pieBorderWidth');
-    const pieAutoSizeTargets=[pieChartType,valueColumn,expectedColumn];
+    const pieAutoSizeTargets=[pieChartType];
     pieAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachPieSelectAutoSize(select, 'pie');
     });
@@ -702,8 +2129,13 @@
     if(pieBorderWidth){
       pieBorderWidth.addEventListener('input',()=>{ console.debug('Debug: pie border width change',{value: pieBorderWidth.value}); state.scheduleDraw(); });
     }
-    valueColumn.addEventListener('change',()=>{console.log('pie value column changed',valueColumn.value); state.scheduleDraw();});
-    expectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',expectedColumn.value); state.scheduleDraw();});
+    const pieComputeStatsButton = document.getElementById('pieComputeStats');
+    if(pieComputeStatsButton){
+      pieComputeStatsButton.addEventListener('click',handlePieStatsComputeClick);
+    }
+    clearPieStatsOutputs('Statistics will appear after calculation.');
+    setPieStatsStatus('');
+    updatePieStatsButtonState({ disabled: true, label: 'Calculate statistics' });
 
     const example=[ ['Quarter','Observed','Expected'], ['Q1',120,100], ['Q2',90,100], ['Q3',60,80], ['Q4',130,120] ];
     document.getElementById('pieLoadExample').addEventListener('click',()=>{
@@ -886,10 +2318,11 @@
         }
         chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontInput.value), input: pieFontInput, manual: true });
       }
-      const valueColumnInput = document.getElementById('pieValueColumn');
-      if(valueColumnInput){ valueColumnInput.value = config.valueColumn || valueColumnInput.value; }
-      const expectedColumnInput = document.getElementById('pieExpectedColumn');
-      if(expectedColumnInput){ expectedColumnInput.value = config.expectedColumn || expectedColumnInput.value; }
+      applyPieStatsConfig({
+        ...(config.stats && typeof config.stats === 'object' ? config.stats : {}),
+        valueColumn: config.valueColumn ?? config.stats?.valueColumn,
+        expectedColumn: config.expectedColumn ?? config.stats?.expectedColumn
+      });
       state.colors = config.colors || state.colors;
       const axisConfig = config.axis || config.axisSettings;
       if(axisConfig){
@@ -915,6 +2348,7 @@
     function collectConfig(){
       const axisSettings = ensureAxisSettings();
       const borderWidthVal = Number($('#pieBorderWidth')?.value);
+      const statsConfig = exportPieStatsConfig();
       return {
         title: state.titleText,
         chartType: $('#pieChartType').value,
@@ -926,8 +2360,9 @@
         borderWidth: Number.isFinite(borderWidthVal) ? borderWidthVal : 0,
         fontSize: $('#pieFontSize').value || String(DEFAULT_PIE_FONT_SIZE_PT),
         fontStyles: (exportFontStyles('pie') || undefined),
-        valueColumn: $('#pieValueColumn').value,
-        expectedColumn: $('#pieExpectedColumn').value,
+        valueColumn: statsConfig.valueColumn != null ? String(statsConfig.valueColumn) : '',
+        expectedColumn: statsConfig.expectedColumn != null ? String(statsConfig.expectedColumn) : '',
+        stats: statsConfig,
         colors: state.colors,
         axis: {
           strokeWidth: axisSettings.strokeWidth,
@@ -1167,40 +2602,17 @@
   }
 
   function updatePieColumns(header, matrix){
-    const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn');
-    const prevVal=valueColumn.value; const prevExp=expectedColumn.value; valueColumn.innerHTML=''; expectedColumn.innerHTML='';
-    console.log('updatePieColumns prev',{prevVal,prevExp});
-    const dataMatrix = Array.isArray(matrix) ? matrix : [];
-    const availableColumns = [];
-    for(let c=1;c<header.length;c+=1){
-      const rawHeader = header[c];
-      const hasHeader = rawHeader != null && String(rawHeader).trim() !== '';
-      const hasData = dataMatrix.some((row, rowIndex) => {
-        if(rowIndex === 0 || !Array.isArray(row)){
-          return false;
-        }
-        const cell = row[c];
-        return cell != null && String(cell).trim() !== '';
+    const dataModel = buildPieStatsDataModel(Array.isArray(matrix) ? matrix : []);
+    state.statsDataModel = dataModel;
+    ensurePieStatsSelections(dataModel);
+    renderPieStatsControls(dataModel, { force: true, reason: 'columns-update' });
+    requestPieStatsContextRefresh('columns-update');
+    if(pieDebugEnabled()){
+      console.debug('Debug: pie stats columns refreshed', {
+        count: dataModel.columns?.length || 0,
+        rows: dataModel.rows?.length || 0
       });
-      if(!hasHeader && !hasData){
-        continue;
-      }
-      const txt = hasHeader ? String(rawHeader) : `Column ${c+1}`;
-      availableColumns.push({ index: c, label: txt });
-      const optVal=document.createElement('option'); optVal.value=String(c); optVal.textContent=txt; if(optVal.value===prevVal) optVal.selected=true; valueColumn.appendChild(optVal);
-      const optExp=document.createElement('option'); optExp.value=String(c); optExp.textContent=txt; if(optExp.value===prevExp) optExp.selected=true; expectedColumn.appendChild(optExp);
     }
-    if(!prevVal && availableColumns.length) valueColumn.value=String(availableColumns[0].index);
-    if(!prevExp){
-      const expectedEntry = availableColumns.find(entry => entry.label.trim().toLowerCase() === 'expected');
-      if(expectedEntry) expectedColumn.value=String(expectedEntry.index);
-      else if(availableColumns.length>1) expectedColumn.value=String(availableColumns[1].index);
-    }
-    if(typeof formControls.autoSizeSelect === 'function'){
-      formControls.autoSizeSelect(valueColumn);
-      formControls.autoSizeSelect(expectedColumn);
-    }
-    console.log('updatePieColumns',{val:valueColumn.value,exp:expectedColumn.value});
   }
 
   function updatePieColumnsIfNeeded(header, matrix){
@@ -1288,6 +2700,9 @@
           Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
         }else{
           plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
+        }
+        if(!isResizePreview){
+          primePieStatsComputation({ matrix: data, reason: 'draw-stacked-empty' });
         }
         return;
       }
@@ -1632,19 +3047,12 @@
       if(!isResizePreview){
         ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
       }
-      const vi=(parseInt($('#pieValueColumn').value||'1',10)-1);
-      const ei=(parseInt($('#pieExpectedColumn').value||'2',10)-1);
-      const observed=segmentValues.map(row=>{ const v=row[vi]; return (typeof v==='number' && isFinite(v))?v:parseFloat(v)||0; });
-      const expected=segmentValues.map(row=>{ const v=row[ei]; return (typeof v==='number' && isFinite(v))?v:parseFloat(v); });
-      console.debug('Debug: stacked pie stats data',{vi,ei,observed,expected});
       if(!isResizePreview){
-        updatePieStatsIfNeeded(segmentLabels,observed,expected);
+        primePieStatsComputation({ matrix: data, reason: 'draw-stacked' });
       }
       return;
     }
 
-    const valueColumn=$('#pieValueColumn');
-    const expectedColumn=$('#pieExpectedColumn');
     const header=data[0]||[];
     const labels=[];
     const seriesColumnsRaw=[];
@@ -1655,10 +3063,6 @@
       }
       seriesColumnsRaw.push({ index: c, label: String(colLabel), values: [] });
     }
-    const values=[];
-    const expected=[];
-    const vi=parseInt(valueColumn.value||'1',10);
-    const ei=parseInt(expectedColumn.value||'2',10);
     for(let r=1;r<data.length;r+=1){
       const row=data[r];
       if(!row || row[0]==null || row[0]===''){
@@ -1670,12 +3074,6 @@
         const numVal=parseFloat(rawVal);
         series.values.push(isNaN(numVal)?0:numVal);
       });
-      const rawV=row[vi];
-      const rawE=row[ei];
-      const v=parseFloat(rawV);
-      const e=parseFloat(rawE);
-      values.push(isNaN(v)?0:v);
-      expected.push(e);
     }
     const seriesColumns=seriesColumnsRaw.filter(series=>series.values.some(v=>typeof v==='number' && isFinite(v) && v!==0));
     if(!seriesColumns.length || !labels.length){
@@ -1683,6 +3081,9 @@
         Shared.renderPlotNotice(plotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
       }else{
         plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
+      }
+      if(!isResizePreview){
+        primePieStatsComputation({ matrix: data, reason: 'draw-empty' });
       }
       return;
     }
@@ -1969,7 +3370,7 @@
       console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
     }
     if(!isResizePreview){
-      updatePieStatsIfNeeded(labels, values, expected);
+      primePieStatsComputation({ matrix: data, reason: 'draw-radial' });
     }
   }
   pie.draw = draw;
@@ -2102,10 +3503,14 @@
     initHot();
     initControls();
     initNotes();
+    primePieStatsComputation({ matrix: getPieStatsDataMatrix(), reason: 'init' });
     state.scheduleDraw = Shared.debounceFrame(draw);
     ensurePieFontEventListener();
     console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
     ensureEmptyPayloadTemplate();
     pie.ready = true;
   };

@@ -2097,8 +2097,15 @@
 
     const graphFieldset = findGraphSelectionFieldset(panel);
     if(graphFieldset && graphFieldset.parentNode === panel){
-      if(graphFieldset.nextSibling){
-        panel.insertBefore(fieldset, graphFieldset.nextSibling);
+      let insertionAnchor = graphFieldset;
+      if(type === 'heatmap'){
+        const clusteringFieldset = panel.querySelector('.heatmap-clustering-panel');
+        if(clusteringFieldset && clusteringFieldset.parentNode === panel){
+          insertionAnchor = clusteringFieldset;
+        }
+      }
+      if(insertionAnchor.nextSibling){
+        panel.insertBefore(fieldset, insertionAnchor.nextSibling);
       }else{
         panel.appendChild(fieldset);
       }
