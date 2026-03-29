@@ -1,0 +1,515 @@
+(function(global){
+  'use strict';
+
+  const Shared = global.Shared = global.Shared || {};
+  const formulaNS = Shared.formulaEngine = Shared.formulaEngine || {};
+
+  const CELL_REF_RE = /^([A-Z]+)(\d+)$/;
+
+  const toCellKey = (row, col)=>`${row}:${col}`;
+
+  function colToLabel(col){
+    let n = Number(col);
+    if(!Number.isInteger(n) || n < 0){
+      return 'A';
+    }
+    let out = '';
+    while(n >= 0){
+      out = String.fromCharCode((n % 26) + 65) + out;
+      n = Math.floor(n / 26) - 1;
+    }
+    return out;
+  }
+
+  function labelToCol(label){
+    const source = String(label || '').trim().toUpperCase();
+    if(!source || !/^[A-Z]+$/.test(source)){
+      return null;
+    }
+    let col = 0;
+    for(let i = 0; i < source.length; i += 1){
+      col = (col * 26) + (source.charCodeAt(i) - 64);
+    }
+    return col - 1;
+  }
+
+  function parseA1(ref){
+    const match = String(ref || '').trim().toUpperCase().match(CELL_REF_RE);
+    if(!match){
+      return null;
+    }
+    const col = labelToCol(match[1]);
+    const row = Number(match[2]) - 1;
+    if(!Number.isInteger(col) || !Number.isInteger(row) || row < 0){
+      return null;
+    }
+    return { row, col };
+  }
+
+  function parseNumberLike(value){
+    if(typeof value === 'number'){
+      return Number.isFinite(value) ? value : null;
+    }
+    if(typeof value !== 'string'){
+      return null;
+    }
+    const trimmed = value.trim();
+    if(!trimmed){
+      return null;
+    }
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function createTokenizer(expr){
+    const tokens = [];
+    const source = String(expr || '');
+    let i = 0;
+    while(i < source.length){
+      const ch = source[i];
+      if(/\s/.test(ch)){
+        i += 1;
+        continue;
+      }
+      if(/[()+\-*/,:]/.test(ch)){
+        tokens.push({ type: ch, value: ch });
+        i += 1;
+        continue;
+      }
+      if(/\d|\./.test(ch)){
+        const start = i;
+        i += 1;
+        while(i < source.length && /[\d.]/.test(source[i])){
+          i += 1;
+        }
+        tokens.push({ type: 'number', value: source.slice(start, i) });
+        continue;
+      }
+      if(/[A-Za-z_]/.test(ch)){
+        const start = i;
+        i += 1;
+        while(i < source.length && /[A-Za-z0-9_]/.test(source[i])){
+          i += 1;
+        }
+        tokens.push({ type: 'ident', value: source.slice(start, i).toUpperCase() });
+        continue;
+      }
+      throw new Error(`Unexpected token '${ch}'`);
+    }
+    return tokens;
+  }
+
+  function createParser(tokens){
+    let index = 0;
+    const peek = ()=>tokens[index] || null;
+    const consume = ()=>tokens[index++] || null;
+    const expect = (type)=>{
+      const token = consume();
+      if(!token || token.type !== type){
+        throw new Error(`Expected '${type}'`);
+      }
+      return token;
+    };
+
+    const parseExpression = ()=>parseAddSub();
+
+    const parseAddSub = ()=>{
+      let node = parseMulDiv();
+      while(true){
+        const token = peek();
+        if(!token || (token.type !== '+' && token.type !== '-')){
+          break;
+        }
+        consume();
+        node = { type: 'binary', op: token.type, left: node, right: parseMulDiv() };
+      }
+      return node;
+    };
+
+    const parseMulDiv = ()=>{
+      let node = parseUnary();
+      while(true){
+        const token = peek();
+        if(!token || (token.type !== '*' && token.type !== '/')){
+          break;
+        }
+        consume();
+        node = { type: 'binary', op: token.type, left: node, right: parseUnary() };
+      }
+      return node;
+    };
+
+    const parseUnary = ()=>{
+      const token = peek();
+      if(token && (token.type === '+' || token.type === '-')){
+        consume();
+        return { type: 'unary', op: token.type, value: parseUnary() };
+      }
+      return parsePrimary();
+    };
+
+    const parseArgs = ()=>{
+      const args = [];
+      if(peek()?.type === ')'){
+        consume();
+        return args;
+      }
+      while(true){
+        const argExpr = parseExpression();
+        args.push(argExpr);
+        const token = peek();
+        if(!token){
+          throw new Error('Expected )');
+        }
+        if(token.type === ')'){
+          consume();
+          break;
+        }
+        if(token.type !== ','){
+          throw new Error('Expected , or )');
+        }
+        consume();
+      }
+      return args;
+    };
+
+    const parsePrimary = ()=>{
+      const token = consume();
+      if(!token){
+        throw new Error('Unexpected end of expression');
+      }
+      if(token.type === 'number'){
+        return { type: 'number', value: Number(token.value) };
+      }
+      if(token.type === '('){
+        const expr = parseExpression();
+        expect(')');
+        return expr;
+      }
+      if(token.type === 'ident'){
+        if(peek()?.type === '('){
+          consume();
+          return { type: 'function', name: token.value, args: parseArgs() };
+        }
+        const asCell = parseA1(token.value);
+        if(asCell){
+          if(peek()?.type === ':'){
+            consume();
+            const endToken = consume();
+            if(!endToken || endToken.type !== 'ident'){
+              throw new Error('Expected range end');
+            }
+            const endCell = parseA1(endToken.value);
+            if(!endCell){
+              throw new Error('Invalid range end');
+            }
+            return { type: 'range', start: asCell, end: endCell };
+          }
+          return { type: 'cell', ref: asCell };
+        }
+        throw new Error(`Unknown identifier ${token.value}`);
+      }
+      throw new Error(`Unexpected token ${token.type}`);
+    };
+
+    const root = parseExpression();
+    if(index < tokens.length){
+      throw new Error('Unexpected trailing expression');
+    }
+    return root;
+  }
+
+  function enumerateRange(start, end){
+    const out = [];
+    const minRow = Math.min(start.row, end.row);
+    const maxRow = Math.max(start.row, end.row);
+    const minCol = Math.min(start.col, end.col);
+    const maxCol = Math.max(start.col, end.col);
+    for(let row = minRow; row <= maxRow; row += 1){
+      for(let col = minCol; col <= maxCol; col += 1){
+        out.push({ row, col });
+      }
+    }
+    return out;
+  }
+
+  function createModel(options = {}){
+    const debugLog = typeof options.debugLog === 'function' ? options.debugLog : null;
+    const onRecalc = typeof options.onRecalculate === 'function' ? options.onRecalculate : null;
+    const headerRows = Math.max(0, Number(options.headerRows) || 0);
+
+    const raw = new Map();
+    const resolved = new Map();
+    const formulas = new Map();
+    const dependencies = new Map();
+    const dependents = new Map();
+
+    let rowCount = 0;
+    let colCount = 0;
+
+    const isFormulaValue = value=>typeof value === 'string' && value.trim().startsWith('=');
+    const normalizeRaw = value=>{
+      if(value === null || typeof value === 'undefined') return '';
+      if(typeof value === 'number') return Number.isFinite(value) ? value : '';
+      return String(value);
+    };
+    const addDependentEdge = (fromKey, toKey)=>{
+      if(!dependents.has(fromKey)){
+        dependents.set(fromKey, new Set());
+      }
+      dependents.get(fromKey).add(toKey);
+    };
+    const removeDependencyEdges = (cellKey)=>{
+      const previous = dependencies.get(cellKey);
+      if(!previous){
+        return;
+      }
+      previous.forEach(depKey=>{
+        const set = dependents.get(depKey);
+        if(set){
+          set.delete(cellKey);
+          if(!set.size){
+            dependents.delete(depKey);
+          }
+        }
+      });
+      dependencies.delete(cellKey);
+    };
+
+    const numericValue = value=>{
+      const parsed = parseNumberLike(value);
+      return parsed == null ? 0 : parsed;
+    };
+
+    const collectRefs = (node, out)=>{
+      if(!node || !out) return;
+      if(node.type === 'cell'){
+        out.add(toCellKey(node.ref.row, node.ref.col));
+        return;
+      }
+      if(node.type === 'range'){
+        enumerateRange(node.start, node.end).forEach(cell=>out.add(toCellKey(cell.row, cell.col)));
+        return;
+      }
+      if(node.type === 'binary'){
+        collectRefs(node.left, out);
+        collectRefs(node.right, out);
+        return;
+      }
+      if(node.type === 'unary'){
+        collectRefs(node.value, out);
+        return;
+      }
+      if(node.type === 'function'){
+        (node.args || []).forEach(arg=>collectRefs(arg, out));
+      }
+    };
+
+    const evaluateNode = (node, readCell)=>{
+      if(!node){ return 0; }
+      if(node.type === 'number'){ return node.value; }
+      if(node.type === 'cell'){ return readCell(node.ref.row, node.ref.col); }
+      if(node.type === 'range'){
+        return enumerateRange(node.start, node.end).map(cell=>readCell(cell.row, cell.col));
+      }
+      if(node.type === 'unary'){
+        const value = numericValue(evaluateNode(node.value, readCell));
+        return node.op === '-' ? -value : value;
+      }
+      if(node.type === 'binary'){
+        const left = numericValue(evaluateNode(node.left, readCell));
+        const right = numericValue(evaluateNode(node.right, readCell));
+        if(node.op === '+') return left + right;
+        if(node.op === '-') return left - right;
+        if(node.op === '*') return left * right;
+        if(node.op === '/') return right === 0 ? '#DIV/0!' : left / right;
+      }
+      if(node.type === 'function'){
+        const values = [];
+        (node.args || []).forEach(arg=>{
+          const value = evaluateNode(arg, readCell);
+          if(Array.isArray(value)){
+            values.push(...value);
+          }else{
+            values.push(value);
+          }
+        });
+        const nums = values.map(v=>parseNumberLike(v)).filter(v=>v != null);
+        switch(node.name){
+          case 'SUM': return nums.reduce((acc, n)=>acc + n, 0);
+          case 'AVG':
+          case 'AVERAGE': return nums.length ? (nums.reduce((acc, n)=>acc + n, 0) / nums.length) : 0;
+          case 'MIN': return nums.length ? Math.min(...nums) : 0;
+          case 'MAX': return nums.length ? Math.max(...nums) : 0;
+          case 'COUNT': return nums.length;
+          default: return '#NAME?';
+        }
+      }
+      return 0;
+    };
+
+    const evaluateCell = (cellKey, stack)=>{
+      if(stack.has(cellKey)){
+        return '#CYCLE!';
+      }
+      if(!formulas.has(cellKey)){
+        return normalizeRaw(raw.get(cellKey));
+      }
+      const formula = formulas.get(cellKey);
+      if(!formula || !formula.ast){
+        return formula?.error || '#ERROR!';
+      }
+      stack.add(cellKey);
+      const out = evaluateNode(formula.ast, (row, col)=>{
+        if(row < headerRows){
+          const headerKey = toCellKey(row, col);
+          return normalizeRaw(raw.get(headerKey));
+        }
+        const refKey = toCellKey(row, col);
+        return evaluateCell(refKey, stack);
+      });
+      stack.delete(cellKey);
+      return out;
+    };
+
+    const recalculate = (changedKeys)=>{
+      const queue = [...(changedKeys || [])];
+      const affected = new Set(queue);
+      while(queue.length){
+        const key = queue.shift();
+        const next = dependents.get(key);
+        if(!next){
+          continue;
+        }
+        next.forEach(dep=>{
+          if(!affected.has(dep)){
+            affected.add(dep);
+            queue.push(dep);
+          }
+        });
+      }
+      if(!affected.size){
+        return;
+      }
+      affected.forEach(key=>{
+        const value = evaluateCell(key, new Set());
+        resolved.set(key, value);
+      });
+      if(debugLog){
+        debugLog('formula recalculation complete', {
+          affected: affected.size,
+          seeds: changedKeys?.length || 0
+        });
+      }
+      if(onRecalc){
+        onRecalc({ affected: Array.from(affected) });
+      }
+    };
+
+    const parseFormula = (rawValue)=>{
+      const body = String(rawValue || '').trim().slice(1);
+      if(!body){
+        return { ast: null, error: '#ERROR!' };
+      }
+      try{
+        const ast = createParser(createTokenizer(body));
+        return { ast, error: null };
+      }catch(err){
+        return { ast: null, error: '#ERROR!' };
+      }
+    };
+
+    const setCellRaw = (row, col, input)=>{
+      const key = toCellKey(row, col);
+      const normalized = normalizeRaw(input);
+      raw.set(key, normalized);
+      removeDependencyEdges(key);
+      if(row >= headerRows && isFormulaValue(normalized)){
+        const parsed = parseFormula(normalized);
+        formulas.set(key, parsed);
+        const refs = new Set();
+        if(parsed.ast){
+          collectRefs(parsed.ast, refs);
+        }
+        dependencies.set(key, refs);
+        refs.forEach(refKey=>addDependentEdge(refKey, key));
+        if(debugLog){
+          debugLog('formula parsed', {
+            cell: `${colToLabel(col)}${row + 1}`,
+            refs: refs.size,
+            valid: !!parsed.ast
+          });
+        }
+      }else{
+        formulas.delete(key);
+      }
+      recalculate([key]);
+    };
+
+    const rebuildFromMatrix = (matrix)=>{
+      raw.clear();
+      resolved.clear();
+      formulas.clear();
+      dependencies.clear();
+      dependents.clear();
+      rowCount = Array.isArray(matrix) ? matrix.length : 0;
+      colCount = 0;
+      const changed = [];
+      for(let row = 0; row < rowCount; row += 1){
+        const rowData = Array.isArray(matrix[row]) ? matrix[row] : [];
+        if(rowData.length > colCount){
+          colCount = rowData.length;
+        }
+        for(let col = 0; col < rowData.length; col += 1){
+          const key = toCellKey(row, col);
+          const value = normalizeRaw(rowData[col]);
+          raw.set(key, value);
+          changed.push(key);
+        }
+      }
+      for(let i = 0; i < changed.length; i += 1){
+        const key = changed[i];
+        const [rowStr, colStr] = key.split(':');
+        const row = Number(rowStr);
+        const col = Number(colStr);
+        const value = raw.get(key);
+        if(row >= headerRows && isFormulaValue(value)){
+          const parsed = parseFormula(value);
+          formulas.set(key, parsed);
+          const refs = new Set();
+          if(parsed.ast){
+            collectRefs(parsed.ast, refs);
+          }
+          dependencies.set(key, refs);
+          refs.forEach(refKey=>addDependentEdge(refKey, key));
+        }
+      }
+      changed.forEach(key=>{
+        resolved.set(key, evaluateCell(key, new Set()));
+      });
+      if(debugLog){
+        debugLog('formula model rebuilt', { rowCount, colCount, formulas: formulas.size });
+      }
+    };
+
+    const getRawAt = (row, col)=>normalizeRaw(raw.get(toCellKey(row, col)));
+    const getResolvedAt = (row, col)=>resolved.get(toCellKey(row, col)) ?? getRawAt(row, col);
+
+    return {
+      setCellRaw,
+      rebuildFromMatrix,
+      getRawAt,
+      getResolvedAt,
+      hasFormulas(){
+        return formulas.size > 0;
+      },
+      isFormulaAt(row, col){
+        return formulas.has(toCellKey(row, col));
+      }
+    };
+  }
+
+  formulaNS.createModel = createModel;
+  formulaNS.parseA1 = parseA1;
+  formulaNS.colToLabel = colToLabel;
+})(typeof window !== 'undefined' ? window : globalThis);
