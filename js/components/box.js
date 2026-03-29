@@ -65,6 +65,14 @@
       console.debug('Debug: box component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
+  const formulaEngine = Shared.formulaEngine = Shared.formulaEngine || {};
+  if(typeof formulaEngine.createModel !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/formulaEngine.js');
+    }catch(err){
+      console.debug('Debug: box component formula engine helper require failed', { message: err?.message || String(err) });
+    }
+  }
   box.__installed = true;
   box.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -7808,6 +7816,8 @@
 	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
+  state.formulaModel = null;
+  state.formulaMatrixReady = false;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7847,6 +7857,78 @@
       boxDebug('Debug: box data toolbar activated', { reason: reason || 'unknown' });
     }
     return activated;
+  }
+
+  function ensureBoxFormulaModel(){
+    if(state.formulaModel || typeof Shared.formulaEngine?.createModel !== 'function'){
+      return state.formulaModel;
+    }
+    state.formulaModel = Shared.formulaEngine.createModel({
+      headerRows: getBoxHeaderRowCount(),
+      debugLog: (label, payload)=>{
+        if(Shared.isDebugEnabled?.()){
+          console.debug(`Debug: box formula ${label}`, payload || {});
+        }
+      },
+      onRecalculate: payload=>{
+        if(Shared.isDebugEnabled?.()){
+          console.debug('Debug: box formula recalc trigger', payload || {});
+        }
+      }
+    });
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box formula model created');
+    }
+    return state.formulaModel;
+  }
+
+  function rebuildBoxFormulaModel(hotInstance){
+    const hot = hotInstance || state.hot;
+    const model = ensureBoxFormulaModel();
+    if(!hot || !model || typeof hot.getData !== 'function'){
+      return null;
+    }
+    model.rebuildFromMatrix(hot.getData() || []);
+    state.formulaMatrixReady = true;
+    return model;
+  }
+
+  function getBoxResolvedAnalysis(hotInstance){
+    const hot = hotInstance || state.hot;
+    if(!hot){
+      return {
+        data: [],
+        rowCount: 0,
+        colCount: 0,
+        excluded: { rows: [], cols: [], cells: [] },
+        isRowExcluded: ()=>false,
+        isColumnExcluded: ()=>false,
+        isCellExcluded: ()=>false
+      };
+    }
+    const analysis = hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
+    const data = Array.isArray(analysis?.data) ? analysis.data : [];
+    const model = ensureBoxFormulaModel();
+    if(!model){
+      return analysis;
+    }
+    if(!state.formulaMatrixReady){
+      model.rebuildFromMatrix(hot.getData?.() || []);
+      state.formulaMatrixReady = true;
+    }
+    if(!model.hasFormulas?.()){
+      return analysis;
+    }
+    const resolvedData = data.map((row, rowIndex)=>{
+      if(!Array.isArray(row)){
+        return [];
+      }
+      if(rowIndex < getBoxHeaderRowCount()){
+        return row.slice();
+      }
+      return row.map((value, colIndex)=>model.getResolvedAt(rowIndex, colIndex));
+    });
+    return Object.assign({}, analysis, { data: resolvedData });
   }
 
   function ensureBoxDataViewsForHot(hotInstance, options = {}){
@@ -9278,7 +9360,7 @@
       }
       return { allowed: false, reason: 'axis-limit', value: manualMax, message, hasZeros: manualMax === 0, hasNegatives: manualMax < 0 };
     }
-    const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+    const analysis = getBoxResolvedAnalysis(state.hot);
     const dataMatrix = analysis?.data || [];
     const rowCount = analysis?.rowCount || dataMatrix.length;
     const colCount = analysis?.colCount || (dataMatrix[0]?.length || 0);
@@ -11339,6 +11421,9 @@
       syncBoxGroupedCheckboxColumnLabels(state.hot, { forceGrouped: false });
       console.debug('Debug: applyTableFormatToHot single');
     }
+    state.formulaModel = null;
+    state.formulaMatrixReady = false;
+    rebuildBoxFormulaModel(state.hot);
   }
 
     function updateTableFormatUI(){
@@ -11432,6 +11517,28 @@
 
     const createBoxTable = (container) => {
       let instance = null;
+      const FormulaCellEditor = function FormulaCellEditor() {};
+      FormulaCellEditor.prototype.init = function init(params){
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'ag-input-field-input ag-text-field-input';
+        const physicalRow = Number(params?.data?.__rowIndex);
+        const colId = params?.column?.getColId?.() || '';
+        const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+        const model = ensureBoxFormulaModel();
+        if(model && Number.isInteger(physicalRow) && Number.isInteger(col) && physicalRow >= 0 && col >= 0){
+          input.value = model.getRawAt(physicalRow, col);
+        }else{
+          input.value = params?.value ?? '';
+        }
+        this.eInput = input;
+      };
+      FormulaCellEditor.prototype.getGui = function getGui(){ return this.eInput; };
+      FormulaCellEditor.prototype.afterGuiAttached = function afterGuiAttached(){
+        this.eInput?.focus?.();
+        this.eInput?.select?.();
+      };
+      FormulaCellEditor.prototype.getValue = function getValue(){ return this.eInput?.value ?? ''; };
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
         debugLabel: 'box',
         data,
@@ -11538,6 +11645,24 @@
               ? existingEditable(params)
               : existingEditable !== false;
           };
+          const existingValueGetter = def.valueGetter;
+          def.valueGetter = params => {
+            const physicalRow = Number(params?.data?.__rowIndex);
+            if(!Number.isInteger(physicalRow) || physicalRow < getBoxHeaderRowCount()){
+              return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
+            }
+            const colId = params?.column?.getColId?.() || def.colId || '';
+            const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+            if(!Number.isInteger(col) || col < 0){
+              return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
+            }
+            const model = ensureBoxFormulaModel();
+            if(!model){
+              return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
+            }
+            return model.getResolvedAt(physicalRow, col);
+          };
+          def.cellEditor = FormulaCellEditor;
           const existingRules = def.cellClassRules && typeof def.cellClassRules === 'object'
             ? Object.assign({}, def.cellClassRules)
             : {};
@@ -11584,6 +11709,26 @@
           manualColumnMove: true,
           afterChange(changes, source){
             if(!changes || source === 'loadData') return;
+            const model = ensureBoxFormulaModel();
+            if(model){
+              changes.forEach(change => {
+                const row = Number(change?.[0]);
+                const col = Number(change?.[1]);
+                if(!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0){
+                  return;
+                }
+                const input = change[3];
+                const isFormula = typeof input === 'string' && input.trim().startsWith('=');
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: box formula input detected', { row, col, isFormula, source: source || 'edit' });
+                }
+                model.setCellRaw(row, col, input);
+              });
+              state.formulaMatrixReady = true;
+            }else{
+              state.formulaMatrixReady = false;
+            }
+            instance?.render?.();
             boxLog('boxplot afterChange', { count: changes.length, source });
             if(isBoxGroupedModeActive()){
               const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
@@ -11606,6 +11751,7 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterLoadData(){
+            rebuildBoxFormulaModel(instance);
             if(isBoxGroupedModeActive()){
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
               updateGroupedHeaders(instance);
@@ -11616,6 +11762,8 @@
             activateBoxDataToolbar('table-selection');
           },
           afterCreateCol(){
+            state.formulaMatrixReady = false;
+            rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
             console.debug('Debug: box afterCreateCol cleared selection');
             if(isBoxGroupedModeActive()){
@@ -11625,6 +11773,8 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
+            state.formulaMatrixReady = false;
+            rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
             console.debug('Debug: box afterRemoveCol cleared selection');
             if(isBoxGroupedModeActive()){
@@ -11642,6 +11792,8 @@
           afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
             if(orderChanged){
               boxLog('boxplot afterColumnMove');
+              state.formulaMatrixReady = false;
+              rebuildBoxFormulaModel(instance);
               if(isBoxGroupedModeActive()){
                 normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
                 updateGroupedHeaders(instance);
@@ -11678,6 +11830,7 @@
             wrapper,
             container: baseContainer
           });
+          rebuildBoxFormulaModel(state.hot);
           syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
         }
         return state.hot;
@@ -11712,6 +11865,7 @@
           wrapper,
           container: entry?.container || baseContainer
         });
+        rebuildBoxFormulaModel(state.hot);
         syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
       }
       const tableImport = Shared.tableImport;
@@ -23170,7 +23324,7 @@ Technical analysis record (advanced)
         }
         return;
       }
-      const analysis = hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
+      const analysis = getBoxResolvedAnalysis(hot);
       const dataMatrix = analysis.data || [];
       nCols = analysis.colCount || hot.countCols?.() || (dataMatrix[0]?.length || 0);
       nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
@@ -29867,7 +30021,7 @@ Technical analysis record (advanced)
     }
     let labels = Array.isArray(state.lastAxisLabels) ? state.lastAxisLabels.slice() : [];
     if(!styleOnly){
-      const statsAnalysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+      const statsAnalysis = getBoxResolvedAnalysis(state.hot);
       labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
       const labelCount=labels.length;
       const statsConfig=c.stats||{};
@@ -30462,4 +30616,3 @@ Technical analysis record (advanced)
       isSignificanceLabelFontStyleEvent:(detail)=>isSignificanceLabelFontStyleEvent(detail)
 	  });
 })(window);
-

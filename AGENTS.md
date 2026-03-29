@@ -54,7 +54,7 @@ This guide captures the conventions that keep the Graphitix dashboard consistent
 
 ## 5. Component Playbooks
 - **Venn (`venn.js`):** Uses cached list parsing, integrates GO/STRING analysis via Chart.js and network SVGs, and coordinates PNG/SVG/`.graph` exports. Ensure layout sync and API caching stay intact.
-- **Box (`box.js`):** Manages AG Grid state, builds SVG box/violin charts, hooks jStat statistics (t-tests, ANOVA, etc.), and persists configuration/state.
+- **Box (`box.js`):** Manages AG Grid state, builds SVG box/violin charts, hooks jStat statistics (t-tests, ANOVA, etc.), persists configuration/state, and supports Excel-like formulas in AG Grid via a resolved-value data model (raw input + computed output).
 - **Scatter (`scatter.js`):** Three-column table, regression statistics, label-based color controls, and SVG exports with optional interval shading.
 - **PCA/MDS/t-SNE/UMAP (`pca.js`):** Multi-column table, solver selection, axis persistence, t-SNE/UMAP control sync, and optional 3D rotation for PCA/MDS.
 - **Line (`line.js`):** Multi-series plotting, regression diagnostics, ARIMA/Holt-Winters forecasting, and legend sizing via `chartStyle`.

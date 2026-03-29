@@ -6,6 +6,7 @@ Graphitix is a browser-based data visualization and statistical analysis studio 
 
 - Multi-tab visualization workspace with reusable data, tab duplication, style matching, and session persistence
 - Spreadsheet-style AG Grid input with undo/redo, clipboard import, transpose paste, and CSV/TSV/TXT/XLS/XLSX/ODS ingestion
+- Excel-like formulas in AG Grid (for formula-enabled workspaces) with raw/formula input preservation plus computed-value rendering
 - Publication-ready SVG and PNG export across all graph workspaces
 - Client-side architecture with optional network access only for external enrichment/integration features
 - Statistical tooling built into the relevant workspaces instead of split across separate utilities
@@ -15,8 +16,8 @@ Graphitix is a browser-based data visualization and statistical analysis studio 
 
 | Workspace | Purpose | Key capabilities |
 | --- | --- | --- |
-| **Venn / UpSet** | Set overlap analysis | Region inspection, hypergeometric overlap testing, GO enrichment, STRING network retrieval, Venn and UpSet views |
-| **Box / Violin / Bar / Strip** | Group comparison workflows | Parametric and non-parametric tests, multiple-comparison procedures, effect sizes, diagnostics, outlier screening |
+| **Venn / UpSet** | Set overlap analysis | Region inspection, hypergeometric overlap testing, GO enrichment, STRING network retrieval, and Venn/UpSet views |
+| **Box / Violin / Bar / Strip** | Group comparison workflows | Parametric and non-parametric tests, multiple-comparison procedures, effect sizes, diagnostics, outlier screening, and Excel-like formula-aware table cells |
 | **Scatter / Volcano / MA** | Relationship and differential-expression analysis | Correlation, regression families, confidence/prediction intervals, residual diagnostics, grouped comparisons, density coloring |
 | **3D Surface** | Surface and response visualization | Mesh/surface rendering, interpolation, interactive rotation, color gradients |
 | **Heatmap** | Matrix and clustering workflows | Pearson/Spearman matrices, clustering, dendrogram overlays, matrix summary stats |
