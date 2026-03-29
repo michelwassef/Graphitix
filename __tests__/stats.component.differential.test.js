@@ -70,6 +70,16 @@ describe('Component statistical engines vs Python oracle', () => {
 
   const pieObserved = [120, 90, 60, 130];
   const pieExpected = [100, 100, 80, 120];
+  const pieContingency = [
+    [120, 100, 95],
+    [90, 100, 88],
+    [60, 80, 73],
+    [130, 120, 111]
+  ];
+  const pieContingency2x2 = [
+    [18, 12],
+    [9, 21]
+  ];
 
   const rocPairs1 = [
     { label: 1, score: 0.95 }, { label: 1, score: 0.90 }, { label: 1, score: 0.84 }, { label: 1, score: 0.82 },
@@ -190,6 +200,23 @@ describe('Component statistical engines vs Python oracle', () => {
       { id: 'box-friedman', operation: 'box_friedman', payload: { groups: friedmanGroups } },
       { id: 'box-rm-anova', operation: 'box_repeated_measures_anova', payload: { groups: friedmanGroups } },
       { id: 'pie-chi2', operation: 'pie_chi_square', payload: { observed: pieObserved, expected: pieExpected } },
+      { id: 'pie-gof-chi2', operation: 'pie_gof_test', payload: { observed: pieObserved, expected: pieExpected, method: 'chi-square' } },
+      { id: 'pie-gof-gtest', operation: 'pie_gof_test', payload: { observed: pieObserved, expected: pieExpected, method: 'g-test' } },
+      {
+        id: 'pie-cont-chi2',
+        operation: 'pie_contingency_test',
+        payload: { table: pieContingency, method: 'chi-square', sparseThreshold: 5, yatesCorrection: false }
+      },
+      {
+        id: 'pie-cont-gtest',
+        operation: 'pie_contingency_test',
+        payload: { table: pieContingency, method: 'g-test', sparseThreshold: 5, yatesCorrection: false }
+      },
+      {
+        id: 'pie-cont-yates',
+        operation: 'pie_contingency_test',
+        payload: { table: pieContingency2x2, method: 'chi-square', sparseThreshold: 5, yatesCorrection: true }
+      },
       { id: 'roc-auc', operation: 'roc_curve_metric', payload: { pairs: rocPairs1, graphType: 'roc' } },
       { id: 'roc-auc-uncertainty', operation: 'roc_auc_uncertainty', payload: { pairs: rocPairs1, alpha: 0.05 } },
       { id: 'roc-thresholds', operation: 'roc_threshold_table', payload: { pairs: rocPairs1, alpha: 0.05 } },
@@ -227,6 +254,11 @@ describe('Component statistical engines vs Python oracle', () => {
     js['box-friedman'] = boxHooks.friedmanTest(friedmanGroups);
     js['box-rm-anova'] = boxHooks.repeatedMeasuresAnova(friedmanGroups);
     js['pie-chi2'] = pieHooks.computeChiSquare(pieObserved, pieExpected);
+    js['pie-gof-chi2'] = pieHooks.computeGofStats(pieObserved, pieExpected, { method: 'chi-square' });
+    js['pie-gof-gtest'] = pieHooks.computeGofStats(pieObserved, pieExpected, { method: 'g-test' });
+    js['pie-cont-chi2'] = pieHooks.computeContingencyTest(pieContingency, { method: 'chi-square', sparseThreshold: 5, yatesCorrection: false });
+    js['pie-cont-gtest'] = pieHooks.computeContingencyTest(pieContingency, { method: 'g-test', sparseThreshold: 5, yatesCorrection: false });
+    js['pie-cont-yates'] = pieHooks.computeContingencyTest(pieContingency2x2, { method: 'chi-square', sparseThreshold: 5, yatesCorrection: true });
     js['roc-auc'] = { metric: rocHooks.computeCurveMetric(rocPairs1, 'roc') };
     js['roc-auc-uncertainty'] = rocHooks.computeSingleAucUncertainty(rocPairs1, 0.05);
     js['roc-thresholds'] = { rows: rocHooks.buildThresholdMetricsTable(rocPairs1, 0.05) };
@@ -380,6 +412,60 @@ describe('Component statistical engines vs Python oracle', () => {
       expectClose(js['pie-chi2'].chi2, ref.chi2, 'pie-chi2.chi2', { abs: 1e-6, rel: 1e-5 });
       expectClose(js['pie-chi2'].p, ref.p, 'pie-chi2.p', { abs: 1e-6, rel: 1e-5 });
       expect(js['pie-chi2'].df).toBe(ref.df);
+    }
+    {
+      const ref = get('pie-gof-chi2');
+      expect(js['pie-gof-chi2'].ok).toBe(true);
+      expect(ref.ok).toBe(true);
+      expect(String(js['pie-gof-chi2'].method)).toBe(String(ref.method));
+      expectClose(js['pie-gof-chi2'].statistic, ref.statistic, 'pie-gof-chi2.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-chi2'].pValue, ref.pValue, 'pie-gof-chi2.pValue', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-chi2'].cramersV, ref.cramersV, 'pie-gof-chi2.cramersV', { abs: 1e-6, rel: 1e-5 });
+      expect(js['pie-gof-chi2'].df).toBe(ref.df);
+    }
+    {
+      const ref = get('pie-gof-gtest');
+      expect(js['pie-gof-gtest'].ok).toBe(true);
+      expect(ref.ok).toBe(true);
+      expect(String(js['pie-gof-gtest'].method)).toBe(String(ref.method));
+      expectClose(js['pie-gof-gtest'].statistic, ref.statistic, 'pie-gof-gtest.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-gtest'].pValue, ref.pValue, 'pie-gof-gtest.pValue', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-gtest'].cramersV, ref.cramersV, 'pie-gof-gtest.cramersV', { abs: 1e-6, rel: 1e-5 });
+      expect(js['pie-gof-gtest'].df).toBe(ref.df);
+    }
+    {
+      const ref = get('pie-cont-chi2');
+      expect(js['pie-cont-chi2'].ok).toBe(true);
+      expect(ref.ok).toBe(true);
+      expect(String(js['pie-cont-chi2'].method)).toBe(String(ref.method));
+      expectClose(js['pie-cont-chi2'].statistic, ref.statistic, 'pie-cont-chi2.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-cont-chi2'].pValue, ref.pValue, 'pie-cont-chi2.pValue', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-cont-chi2'].cramersV, ref.cramersV, 'pie-cont-chi2.cramersV', { abs: 1e-6, rel: 1e-5 });
+      expect(js['pie-cont-chi2'].df).toBe(ref.df);
+      expect(js['pie-cont-chi2'].sparseCellCount).toBe(ref.sparseCellCount);
+      expect(js['pie-cont-chi2'].yatesApplied).toBe(ref.yatesApplied);
+    }
+    {
+      const ref = get('pie-cont-gtest');
+      expect(js['pie-cont-gtest'].ok).toBe(true);
+      expect(ref.ok).toBe(true);
+      expect(String(js['pie-cont-gtest'].method)).toBe(String(ref.method));
+      expectClose(js['pie-cont-gtest'].statistic, ref.statistic, 'pie-cont-gtest.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-cont-gtest'].pValue, ref.pValue, 'pie-cont-gtest.pValue', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-cont-gtest'].cramersV, ref.cramersV, 'pie-cont-gtest.cramersV', { abs: 1e-6, rel: 1e-5 });
+      expect(js['pie-cont-gtest'].df).toBe(ref.df);
+      expect(js['pie-cont-gtest'].sparseCellCount).toBe(ref.sparseCellCount);
+      expect(js['pie-cont-gtest'].yatesApplied).toBe(ref.yatesApplied);
+    }
+    {
+      const ref = get('pie-cont-yates');
+      expect(js['pie-cont-yates'].ok).toBe(true);
+      expect(ref.ok).toBe(true);
+      expect(js['pie-cont-yates'].yatesApplied).toBe(true);
+      expect(ref.yatesApplied).toBe(true);
+      expectClose(js['pie-cont-yates'].statistic, ref.statistic, 'pie-cont-yates.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-cont-yates'].pValue, ref.pValue, 'pie-cont-yates.pValue', { abs: 1e-6, rel: 1e-5 });
+      expect(js['pie-cont-yates'].df).toBe(ref.df);
     }
     {
       const ref = get('roc-auc');

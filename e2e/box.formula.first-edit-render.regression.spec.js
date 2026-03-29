@@ -14,13 +14,24 @@ test('box first UI edit commit renders value immediately', async ({ page }) => {
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
-  const targetRow = await page.evaluate(() => {
+  await page.waitForFunction(() => {
+    const box = window.Components?.box;
+    if (!box || typeof box.__getState !== 'function') {
+      return false;
+    }
+    const state = box.__getState();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
+  });
+
+  const target = await page.evaluate(() => {
     const box = window.Components?.box;
     const state = box?.__getState?.();
     const hot = state?.ensureHotForActiveTab?.() || state?.hot;
     if (!hot) {
-      return -1;
+      return null;
     }
+    const targetCol = 10;
     let visualRow = 0;
     if (typeof hot.toPhysicalRow === 'function') {
       for (let candidate = 0; candidate < 40; candidate += 1) {
@@ -30,22 +41,22 @@ test('box first UI edit commit renders value immediately', async ({ page }) => {
         }
       }
     }
-    hot.setDataAtCell([[visualRow, 0, '']], 'e2e-seed-clear');
-    return visualRow;
+    hot.setDataAtCell([[visualRow, targetCol, '']], 'e2e-seed-clear');
+    hot.gridApi?.ensureColumnVisible?.(`c${targetCol}`);
+    return { row: visualRow, col: targetCol };
   });
-  expect(targetRow).toBeGreaterThanOrEqual(0);
+  expect(target).toBeTruthy();
+  expect(target.row).toBeGreaterThanOrEqual(0);
+  expect(target.col).toBeGreaterThanOrEqual(0);
 
-  const cell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c0"]`).first();
+  const cell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.row}"] .ag-cell[col-id="c${target.col}"]`).first();
   await expect(cell).toBeVisible();
-  await cell.dblclick();
-
-  const editorInput = page.locator('#hot input.ag-text-field-input').first();
-  await expect(editorInput).toBeVisible();
-  await editorInput.fill('9');
-  await editorInput.press('Enter');
+  await cell.click();
+  await page.keyboard.type('9');
+  await page.keyboard.press('Enter');
 
   await expect.poll(async () => {
-    return await page.evaluate((rowIndex) => {
+    return await page.evaluate(({ rowIndex, colIndex }) => {
       const box = window.Components?.box;
       const state = box?.__getState?.();
       const hot = state?.ensureHotForActiveTab?.() || state?.hot;
@@ -57,9 +68,9 @@ test('box first UI edit commit renders value immediately', async ({ page }) => {
       if (!node) {
         return '';
       }
-      const value = api.getValue('c0', node);
+      const value = api.getValue(`c${colIndex}`, node);
       return value == null ? '' : String(value).trim();
-    }, targetRow);
+    }, { rowIndex: target.row, colIndex: target.col });
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]

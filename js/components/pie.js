@@ -154,6 +154,11 @@
       customPairs: new Set(),
       advancedOpen: false,
       resultsTab: 'overall',
+      advisor: {
+        open: false,
+        activated: false,
+        answers: {}
+      },
       contextSignature: null,
       lastRunSignature: null,
       pending: false,
@@ -581,7 +586,24 @@
     if(!(state.statsConfig.customPairs instanceof Set)){
       state.statsConfig.customPairs = new Set(Array.isArray(state.statsConfig.customPairs) ? state.statsConfig.customPairs : []);
     }
+    if(!state.statsConfig.advisor || typeof state.statsConfig.advisor !== 'object'){
+      state.statsConfig.advisor = { open: false, activated: false, answers: {} };
+    }
+    if(!state.statsConfig.advisor.answers || typeof state.statsConfig.advisor.answers !== 'object'){
+      state.statsConfig.advisor.answers = {};
+    }
     return state.statsConfig;
+  }
+
+  function getPieAdvisorState(){
+    const stats = getPieStatsConfig();
+    if(!stats.advisor || typeof stats.advisor !== 'object'){
+      stats.advisor = { open: false, activated: false, answers: {} };
+    }
+    if(!stats.advisor.answers || typeof stats.advisor.answers !== 'object'){
+      stats.advisor.answers = {};
+    }
+    return stats.advisor;
   }
 
   function sanitizePieStatsScope(value){
@@ -1145,6 +1167,375 @@
     return { rows, labels, skipped };
   }
 
+  function inferPieExpectedColumn(dataModel, excludedIndex){
+    const columns = Array.isArray(dataModel?.columns) ? dataModel.columns : [];
+    const expectedByName = columns.find(column => (
+      column.index !== excludedIndex
+      && String(column.label || '').trim().toLowerCase() === 'expected'
+    ));
+    if(expectedByName){
+      return expectedByName.index;
+    }
+    const firstOther = columns.find(column => column.index !== excludedIndex);
+    return firstOther ? firstOther.index : null;
+  }
+
+  function buildPieAdvisorContext(dataModel){
+    const stats = getPieStatsConfig();
+    const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
+    const selectedLabels = selected.map(index => findPieColumn(dataModel, index)?.label || `Column ${index}`);
+    const comparisonCount = estimatePieStatsComparisonCount();
+    let sparseConcern = false;
+    let sparseCellCount = 0;
+    let sparseThreshold = sanitizePieStatsSparseThreshold(stats.sparseThreshold);
+    if(selected.length >= 2){
+      const dataset = buildPieContingencyDataset(dataModel, selected);
+      const result = computePieContingencyTest(dataset.rows, {
+        method: 'chi-square',
+        sparseThreshold,
+        yatesCorrection: false
+      });
+      if(result.ok){
+        sparseCellCount = Number.isFinite(result.sparseCellCount) ? result.sparseCellCount : 0;
+        sparseThreshold = result.sparseThreshold;
+        sparseConcern = sparseCellCount > 0 || (Number.isFinite(result.minExpected) && result.minExpected < 1);
+      }
+    }
+    return {
+      selectedCount: selected.length,
+      selectedLabels,
+      comparisonCount,
+      sparseConcern,
+      sparseCellCount,
+      sparseThreshold
+    };
+  }
+
+  function ensurePieAdvisorDefaults(context){
+    const advisor = getPieAdvisorState();
+    const answers = advisor.answers;
+    if(answers.objective !== 'gof' && answers.objective !== 'compare'){
+      answers.objective = context.selectedCount >= 3 ? 'compare' : 'gof';
+    }
+    if(answers.scope !== 'all' && answers.scope !== 'reference' && answers.scope !== 'custom'){
+      answers.scope = 'all';
+    }
+    if(answers.sparse !== 'yes' && answers.sparse !== 'no' && answers.sparse !== 'unsure'){
+      answers.sparse = context.sparseConcern ? 'yes' : 'no';
+    }
+    return answers;
+  }
+
+  function buildPieAdvisorQuestions(context, answers){
+    const questions = [
+      {
+        id: 'objective',
+        prompt: 'What analysis do you want to run?',
+        help: `Detected ${context.selectedCount} selected condition${context.selectedCount === 1 ? '' : 's'}.`,
+        options: [
+          { value: 'gof', label: 'Observed vs expected (goodness-of-fit)' },
+          { value: 'compare', label: 'Compare multiple conditions (homogeneity + pairwise)' }
+        ]
+      }
+    ];
+    if(answers.objective === 'compare'){
+      questions.push({
+        id: 'scope',
+        prompt: 'How should pairwise comparisons be configured?',
+        help: `Current multiplicity family size: ${context.comparisonCount} comparison${context.comparisonCount === 1 ? '' : 's'}.`,
+        options: [
+          { value: 'all', label: 'All pairwise' },
+          { value: 'reference', label: 'Versus one reference condition' },
+          { value: 'custom', label: 'Manually selected custom pairs' }
+        ]
+      });
+      questions.push({
+        id: 'sparse',
+        prompt: 'Are sparse expected counts a concern?',
+        help: `Estimated sparse cells (< ${context.sparseThreshold} expected): ${context.sparseCellCount}.`,
+        options: [
+          { value: 'yes', label: 'Yes, sparse counts are likely' },
+          { value: 'no', label: 'No, expected counts look adequate' },
+          { value: 'unsure', label: 'Not sure' }
+        ]
+      });
+    }else{
+      questions.push({
+        id: 'sparse',
+        prompt: 'For GOF, do you expect sparse categories?',
+        help: 'Sparse categories can favor the likelihood-ratio (G) test.',
+        options: [
+          { value: 'yes', label: 'Yes' },
+          { value: 'no', label: 'No' },
+          { value: 'unsure', label: 'Not sure' }
+        ]
+      });
+    }
+    return questions;
+  }
+
+  function computePieAdvisorRecommendation(rawAnswers, context){
+    const answers = rawAnswers || {};
+    const objective = answers.objective;
+    if(objective !== 'gof' && objective !== 'compare'){
+      return {
+        ready: false,
+        message: 'Choose whether you want observed-vs-expected or multi-condition comparisons.'
+      };
+    }
+    if(objective === 'gof'){
+      if(context.selectedCount < 2){
+        return {
+          ready: false,
+          message: 'Select at least two columns so observed and expected columns can be assigned.'
+        };
+      }
+      const sparse = answers.sparse;
+      const preferG = sparse === 'yes';
+      return {
+        ready: true,
+        summary: `Use a goodness-of-fit test (${preferG ? 'G-test' : 'chi-square'}) for one observed column against one expected column.`,
+        rationale: [
+          'Goodness-of-fit is the correct analysis when one observed vector is tested against an expected vector.',
+          preferG
+            ? 'Sparse categories are better handled by the likelihood-ratio G-test.'
+            : 'Chi-square goodness-of-fit is appropriate when expected counts are not sparse.'
+        ],
+        warnings: [
+          'Observed counts must be non-negative and expected values strictly positive.',
+          'Interpret pairwise comparisons only in multi-condition mode, not in GOF mode.'
+        ],
+        apply: {
+          scope: 'gof',
+          test: preferG ? 'g-test' : 'chi-square'
+        }
+      };
+    }
+    if(context.selectedCount < 2){
+      return {
+        ready: false,
+        message: 'Select at least two conditions before running multiple comparisons.'
+      };
+    }
+    const scope = (answers.scope === 'reference' || answers.scope === 'custom') ? answers.scope : 'all';
+    const sparse = answers.sparse;
+    const preferG = sparse === 'yes' || (sparse === 'unsure' && context.sparseConcern);
+    const recommendedCorrection = context.comparisonCount > 1 ? 'holm' : 'none';
+    const scopeLabel = scope === 'reference'
+      ? 'comparisons vs a reference'
+      : scope === 'custom'
+        ? 'custom pairwise comparisons'
+        : 'all pairwise comparisons';
+    return {
+      ready: true,
+      summary: `Use an overall homogeneity test plus ${scopeLabel}, with ${recommendedCorrection === 'none' ? 'no multiplicity adjustment needed' : 'Holm multiplicity control'}.`,
+      rationale: [
+        'For multiple conditions, first test overall independence/homogeneity, then inspect pairwise contrasts.',
+        preferG
+          ? 'Sparse expected counts suggest using the likelihood-ratio G-test.'
+          : 'Chi-square is suitable when expected counts are adequately populated.',
+        recommendedCorrection === 'holm'
+          ? 'Holm provides strong family-wise error control for multiple pairwise p-values.'
+          : 'With a single comparison, multiplicity correction is not required.'
+      ],
+      warnings: [
+        'If many expected cells are sparse, interpret asymptotic p-values cautiously.',
+        'Always report effect size (Cramer\'s V) with p-values.'
+      ],
+      apply: {
+        scope,
+        test: preferG ? 'g-test' : 'chi-square',
+        correction: recommendedCorrection,
+        yatesCorrection: true
+      }
+    };
+  }
+
+  function renderPieStatsAdvisor(dataModel, controls){
+    if(!controls){
+      return;
+    }
+    const advisorState = getPieAdvisorState();
+    const context = buildPieAdvisorContext(dataModel);
+    const answers = ensurePieAdvisorDefaults(context);
+    const recommendation = computePieAdvisorRecommendation(answers, context);
+    const container = document.createElement('div');
+    container.className = 'stats-advisor';
+    container.dataset.open = advisorState.open ? '1' : '0';
+
+    const header = document.createElement('div');
+    header.className = 'stats-advisor__header';
+    const title = document.createElement('strong');
+    title.textContent = 'Statistics advisor';
+    header.appendChild(title);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'stats-advisor__toggle';
+    toggle.textContent = advisorState.open ? 'Hide advisor' : 'Guide me';
+    toggle.addEventListener('click', () => {
+      advisorState.open = !advisorState.open;
+      if(advisorState.open && !advisorState.activated){
+        advisorState.activated = true;
+      }
+      if(pieDebugEnabled()){
+        console.debug('Debug: pie statsAdvisor toggled', { open: advisorState.open });
+      }
+      renderPieStatsControls(dataModel, { force: true, reason: 'advisor-toggle' });
+    });
+    header.appendChild(toggle);
+    container.appendChild(header);
+
+    const summary = document.createElement('div');
+    summary.className = 'stats-advisor__summary';
+    if(!advisorState.activated){
+      const msg = document.createElement('div');
+      msg.textContent = 'Press the "Guide me" button to view advisor recommendations.';
+      summary.appendChild(msg);
+    }else if(recommendation.ready){
+      const summaryLine = document.createElement('div');
+      summaryLine.className = 'stats-advisor__summary-line';
+      summaryLine.textContent = `Recommendation: ${recommendation.summary}`;
+      summary.appendChild(summaryLine);
+      if(Array.isArray(recommendation.rationale) && recommendation.rationale.length){
+        const rationaleList = document.createElement('ul');
+        rationaleList.className = 'stats-advisor__rationale';
+        recommendation.rationale.forEach(item => {
+          const li = document.createElement('li');
+          li.textContent = item;
+          rationaleList.appendChild(li);
+        });
+        summary.appendChild(rationaleList);
+      }
+      if(Array.isArray(recommendation.warnings) && recommendation.warnings.length){
+        const warnTitle = document.createElement('div');
+        warnTitle.className = 'stats-advisor__warnings-title';
+        warnTitle.textContent = 'Cautions:';
+        summary.appendChild(warnTitle);
+        const warnList = document.createElement('ul');
+        warnList.className = 'stats-advisor__warnings';
+        recommendation.warnings.forEach(item => {
+          const li = document.createElement('li');
+          li.textContent = item;
+          warnList.appendChild(li);
+        });
+        summary.appendChild(warnList);
+      }
+    }else{
+      const msg = document.createElement('div');
+      msg.textContent = recommendation.message || 'Answer the advisor questions to receive a recommendation.';
+      summary.appendChild(msg);
+    }
+    container.appendChild(summary);
+
+    if(advisorState.open){
+      const questions = buildPieAdvisorQuestions(context, answers);
+      const questionsWrap = document.createElement('div');
+      questionsWrap.className = 'stats-advisor__questions';
+      questions.forEach(question => {
+        const fieldset = document.createElement('fieldset');
+        fieldset.className = 'stats-advisor__question';
+        const legend = document.createElement('legend');
+        legend.textContent = question.prompt;
+        fieldset.appendChild(legend);
+        if(question.help){
+          const hint = document.createElement('p');
+          hint.className = 'stats-advisor__hint';
+          hint.textContent = question.help;
+          fieldset.appendChild(hint);
+        }
+        (question.options || []).forEach(opt => {
+          const optionWrap = document.createElement('label');
+          optionWrap.className = 'stats-advisor__option';
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `pie-advisor-${question.id}`;
+          input.value = opt.value;
+          input.checked = answers[question.id] === opt.value;
+          input.addEventListener('change', () => {
+            answers[question.id] = opt.value;
+            if(pieDebugEnabled()){
+              console.debug('Debug: pie statsAdvisor answer change', { question: question.id, value: opt.value });
+            }
+            renderPieStatsControls(dataModel, { force: true, reason: 'advisor-answer-change' });
+          });
+          const span = document.createElement('span');
+          span.textContent = opt.label;
+          optionWrap.appendChild(input);
+          optionWrap.appendChild(span);
+          fieldset.appendChild(optionWrap);
+        });
+        questionsWrap.appendChild(fieldset);
+      });
+      container.appendChild(questionsWrap);
+
+      const actions = document.createElement('div');
+      actions.className = 'stats-advisor__actions';
+      const applyBtn = document.createElement('button');
+      applyBtn.type = 'button';
+      applyBtn.textContent = 'Apply recommendation';
+      applyBtn.disabled = !recommendation.ready || !recommendation.apply;
+      applyBtn.addEventListener('click', () => {
+        if(!recommendation.ready || !recommendation.apply){
+          return;
+        }
+        const stats = getPieStatsConfig();
+        stats.scope = sanitizePieStatsScope(recommendation.apply.scope ?? stats.scope);
+        stats.test = sanitizePieStatsTest(recommendation.apply.test ?? stats.test);
+        if(Object.prototype.hasOwnProperty.call(recommendation.apply, 'correction')){
+          stats.correction = sanitizePieStatsCorrection(recommendation.apply.correction);
+        }
+        if(Object.prototype.hasOwnProperty.call(recommendation.apply, 'yatesCorrection')){
+          stats.yatesCorrection = !!recommendation.apply.yatesCorrection;
+        }
+        ensurePieStatsSelections(dataModel);
+        if(stats.scope === 'gof'){
+          const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
+          const observed = selected[0] ?? stats.valueColumn;
+          const expected = inferPieExpectedColumn(dataModel, observed);
+          if(Number.isInteger(observed)){
+            stats.valueColumn = observed;
+          }
+          if(Number.isInteger(expected)){
+            stats.expectedColumn = expected;
+          }
+        }else if(stats.scope === 'reference'){
+          const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
+          if(!selected.includes(stats.referenceColumn)){
+            stats.referenceColumn = selected[0] ?? null;
+          }
+        }
+        if(pieDebugEnabled()){
+          console.debug('Debug: pie statsAdvisor applied', {
+            scope: stats.scope,
+            test: stats.test,
+            correction: stats.correction,
+            yatesCorrection: stats.yatesCorrection,
+            answers: { ...answers }
+          });
+        }
+        renderPieStatsControls(dataModel, { force: true, reason: 'advisor-apply' });
+        requestPieStatsContextRefresh('advisor-apply');
+      });
+      actions.appendChild(applyBtn);
+
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'stats-advisor__reset';
+      resetBtn.textContent = 'Reset answers';
+      resetBtn.addEventListener('click', () => {
+        advisorState.answers = {};
+        if(pieDebugEnabled()){
+          console.debug('Debug: pie statsAdvisor reset');
+        }
+        renderPieStatsControls(dataModel, { force: true, reason: 'advisor-reset' });
+      });
+      actions.appendChild(resetBtn);
+      container.appendChild(actions);
+    }
+
+    controls.appendChild(container);
+  }
+
   function buildPieGofDataset(dataModel, observedIndex, expectedIndex){
     const observed = [];
     const expected = [];
@@ -1625,6 +2016,9 @@
       selected: Array.from(stats.selectedCols).sort((a, b) => a - b),
       customPairs: Array.from(stats.customPairs).sort(),
       advancedOpen: !!stats.advancedOpen,
+      advisorOpen: !!stats.advisor?.open,
+      advisorActivated: !!stats.advisor?.activated,
+      advisorAnswers: stats.advisor?.answers || {},
       columns: (dataModel?.columns || []).map(column => `${column.index}:${column.label}`)
     });
     if(!options.force && signature === stats.controlsSignature){
@@ -1632,6 +2026,7 @@
     }
     stats.controlsSignature = signature;
     controls.innerHTML = '';
+    renderPieStatsAdvisor(dataModel, controls);
 
     const conditionsWrap = document.createElement('div');
     conditionsWrap.className = 'stats-conditions-section';
@@ -1933,7 +2328,12 @@
       selectedColumns: Array.from(stats.selectedCols || []).sort((a, b) => a - b),
       customPairs: Array.from(stats.customPairs || []).sort(),
       advancedOpen: !!stats.advancedOpen,
-      resultsTab: sanitizePieStatsResultsTab(stats.resultsTab)
+      resultsTab: sanitizePieStatsResultsTab(stats.resultsTab),
+      advisor: {
+        open: !!stats.advisor?.open,
+        activated: !!stats.advisor?.activated,
+        answers: { ...(stats.advisor?.answers || {}) }
+      }
     };
   }
 
@@ -1954,6 +2354,12 @@
     stats.expectedColumn = expectedColumn != null ? expectedColumn : stats.expectedColumn;
     stats.advancedOpen = !!input.advancedOpen;
     stats.resultsTab = sanitizePieStatsResultsTab(input.resultsTab ?? stats.resultsTab);
+    const advisorInput = input.advisor && typeof input.advisor === 'object' ? input.advisor : {};
+    stats.advisor = {
+      open: !!advisorInput.open,
+      activated: !!advisorInput.activated,
+      answers: (advisorInput.answers && typeof advisorInput.answers === 'object') ? { ...advisorInput.answers } : {}
+    };
     if(Array.isArray(input.selectedColumns)){
       stats.selectedCols = new Set(input.selectedColumns.map(Number).filter(value => Number.isInteger(value) && value >= 1));
     }
@@ -3581,6 +3987,8 @@
 
   pie.__testHooks = Object.assign({}, pie.__testHooks, {
     computeChiSquare: (observed, expected) => computePieChiSquare(observed, expected),
+    computeGofStats: (observed, expected, options) => computePieGofStats(observed, expected, options || {}),
+    computeContingencyTest: (table, options) => computePieContingencyTest(table, options || {}),
     updatePieStats: (labels, observed, expected) => updatePieStats(labels, observed, expected)
   });
 

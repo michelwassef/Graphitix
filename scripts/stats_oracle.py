@@ -2372,6 +2372,151 @@ def pie_chi_square(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "chi2": float(result.statistic), "p": float(result.pvalue), "df": len(observed) - 1}
 
 
+def _sanitize_pie_test_method(raw: Any) -> str:
+    method = str(raw or "chi-square").strip().lower()
+    if method in {"chi-square", "g-test", "auto"}:
+        return method
+    return "chi-square"
+
+
+def _sanitize_sparse_threshold(raw: Any) -> int:
+    try:
+        numeric = int(math.floor(float(raw)))
+    except Exception:
+        return 5
+    return max(1, min(100, numeric))
+
+
+def pie_gof_test(payload: Dict[str, Any]) -> Dict[str, Any]:
+    observed = _clean_vector(payload.get("observed"))
+    expected = _clean_vector(payload.get("expected"))
+    if not observed:
+        return {"ok": False, "message": "No observed values supplied."}
+    if len(observed) != len(expected):
+        return {"ok": False, "message": "Observed and expected vectors must have the same length."}
+    if any((not math.isfinite(obs) or obs < 0) for obs in observed) or any((not math.isfinite(exp) or exp <= 0) for exp in expected):
+        return {"ok": False, "message": "Observed values must be non-negative and expected values must be positive."}
+
+    method = _sanitize_pie_test_method(payload.get("method"))
+    test_method = "chi-square" if method == "auto" else method
+    statistic = 0.0
+    if test_method == "g-test":
+        for obs, exp in zip(observed, expected):
+            if obs > 0:
+                statistic += 2.0 * obs * math.log(obs / exp)
+    else:
+        for obs, exp in zip(observed, expected):
+            statistic += ((obs - exp) ** 2) / exp
+    df = max(1, len(observed) - 1)
+    p_value = float(1 - stats.chi2.cdf(statistic, df))
+    total = float(sum(observed))
+    cramers_v = math.sqrt(statistic / (total * df)) if total > 0 and df > 0 else float("nan")
+    return {
+        "ok": True,
+        "method": test_method,
+        "statistic": float(statistic),
+        "df": int(df),
+        "pValue": p_value,
+        "total": total,
+        "categories": len(observed),
+        "cramersV": float(cramers_v),
+    }
+
+
+def pie_contingency_test(payload: Dict[str, Any]) -> Dict[str, Any]:
+    raw_rows = payload.get("table")
+    rows: List[List[float]] = []
+    if isinstance(raw_rows, list):
+        for raw_row in raw_rows:
+            if not isinstance(raw_row, list):
+                return {"ok": False, "message": "Table rows must be arrays of counts."}
+            row = [float(value) if _is_finite_number(value) else float("nan") for value in raw_row]
+            rows.append(row)
+    row_count = len(rows)
+    col_count = len(rows[0]) if row_count else 0
+    if row_count < 2 or col_count < 2:
+        return {"ok": False, "message": "At least two categories and two conditions are required."}
+    if any(len(row) != col_count for row in rows):
+        return {"ok": False, "message": "All contingency rows must have the same number of columns."}
+
+    row_sums = [0.0] * row_count
+    col_sums = [0.0] * col_count
+    total = 0.0
+    for r in range(row_count):
+        for c in range(col_count):
+            value = rows[r][c]
+            if not math.isfinite(value) or value < 0:
+                return {"ok": False, "message": "Counts must be finite and non-negative."}
+            row_sums[r] += value
+            col_sums[c] += value
+            total += value
+    if total <= 0:
+        return {"ok": False, "message": "Total count must be greater than zero."}
+
+    sparse_threshold = _sanitize_sparse_threshold(payload.get("sparseThreshold"))
+    expected = [[0.0 for _ in range(col_count)] for _ in range(row_count)]
+    sparse_cell_count = 0
+    min_expected = float("inf")
+    for r in range(row_count):
+        for c in range(col_count):
+            exp = (row_sums[r] * col_sums[c]) / total
+            expected[r][c] = exp
+            if math.isfinite(exp):
+                min_expected = min(min_expected, exp)
+                if exp < sparse_threshold:
+                    sparse_cell_count += 1
+
+    method = _sanitize_pie_test_method(payload.get("method"))
+    test_method = "chi-square" if method == "auto" else method
+    use_yates = bool(payload.get("yatesCorrection")) and test_method == "chi-square" and row_count == 2 and col_count == 2
+    statistic = 0.0
+    if test_method == "g-test":
+        for r in range(row_count):
+            for c in range(col_count):
+                obs = rows[r][c]
+                exp = expected[r][c]
+                if exp <= 0:
+                    if obs > 0:
+                        return {"ok": False, "message": "Unable to compute G-test because expected counts contain zeros."}
+                    continue
+                if obs > 0:
+                    statistic += 2.0 * obs * math.log(obs / exp)
+    else:
+        for r in range(row_count):
+            for c in range(col_count):
+                obs = rows[r][c]
+                exp = expected[r][c]
+                if exp <= 0:
+                    if obs > 0:
+                        return {"ok": False, "message": "Unable to compute chi-square because expected counts contain zeros."}
+                    continue
+                delta = obs - exp
+                if use_yates:
+                    corrected = max(0.0, abs(delta) - 0.5)
+                    delta = corrected if delta >= 0 else -corrected
+                statistic += (delta * delta) / exp
+
+    df = max(1, (row_count - 1) * (col_count - 1))
+    p_value = float(1 - stats.chi2.cdf(statistic, df))
+    min_dim = min(row_count - 1, col_count - 1)
+    cramers_v = math.sqrt(statistic / (total * min_dim)) if min_dim > 0 and total > 0 else float("nan")
+    return {
+        "ok": True,
+        "method": test_method,
+        "statistic": float(statistic),
+        "df": int(df),
+        "pValue": p_value,
+        "total": float(total),
+        "rowCount": int(row_count),
+        "colCount": int(col_count),
+        "sparseCellCount": int(sparse_cell_count),
+        "sparseThreshold": int(sparse_threshold),
+        "minExpected": float(min_expected) if math.isfinite(min_expected) else float("nan"),
+        "cramersV": float(cramers_v),
+        "yatesApplied": bool(use_yates),
+    }
+
+
 def _prepare_pairs(raw_pairs: Any) -> List[Dict[str, float]]:
     pairs: List[Dict[str, float]] = []
     for entry in raw_pairs or []:
@@ -2889,6 +3034,10 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = hist_kolmogorov_smirnov(payload)
     elif operation == "pie_chi_square":
         result = pie_chi_square(payload)
+    elif operation == "pie_gof_test":
+        result = pie_gof_test(payload)
+    elif operation == "pie_contingency_test":
+        result = pie_contingency_test(payload)
     elif operation == "roc_curve_metric":
         result = roc_curve_metric(payload)
     elif operation == "roc_auc_uncertainty":

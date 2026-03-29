@@ -467,6 +467,9 @@
     const parseFormula = (rawValue)=>{
       const body = String(rawValue || '').trim().slice(1);
       if(!body){
+        if(debugLog){
+          debugLog('formula parse failed (empty body)', { rawValue });
+        }
         return { ast: null, error: '#ERROR!' };
       }
       try{
@@ -483,6 +486,12 @@
         const ast = createParser(createTokenizer(body), { parseRef: parseRefForModel });
         return { ast, error: null };
       }catch(err){
+        if(debugLog){
+          debugLog('formula parse failed', {
+            rawValue,
+            message: err?.message || String(err)
+          });
+        }
         return { ast: null, error: '#ERROR!' };
       }
     };
@@ -490,6 +499,19 @@
     const setCellRaw = (row, col, input)=>{
       const key = toCellKey(row, col);
       const normalized = normalizeRaw(input);
+      const previousRaw = normalizeRaw(raw.get(key));
+      rowCount = Math.max(rowCount, Number.isInteger(row) ? row + 1 : rowCount);
+      colCount = Math.max(colCount, Number.isInteger(col) ? col + 1 : colCount);
+      if(previousRaw === normalized && !formulas.has(key)){
+        if(debugLog){
+          debugLog('formula setCellRaw no-op', {
+            row,
+            col,
+            value: normalized
+          });
+        }
+        return;
+      }
       raw.set(key, normalized);
       removeDependencyEdges(key);
       if(row >= headerRows && isFormulaValue(normalized)){
@@ -505,11 +527,18 @@
           debugLog('formula parsed', {
             cell: `${colToLabel(col)}${row + 1}`,
             refs: refs.size,
-            valid: !!parsed.ast
+            valid: !!parsed.ast,
+            rawValue: normalized
           });
         }
       }else{
         formulas.delete(key);
+        if(debugLog){
+          debugLog('formula cleared', {
+            cell: `${colToLabel(col)}${row + 1}`,
+            value: normalized
+          });
+        }
       }
       recalculate([key]);
     };
