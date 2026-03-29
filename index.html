@@ -1813,13 +1813,14 @@
             </fieldset>
             <fieldset>
               <legend>Distribution fits</legend>
-              <div class="control idx-inline-051">
-                <label>Distributions</label>
-                <div id="histDistributionList" class="hist-dist-list"></div>
-              </div>
-              <div class="control idx-inline-045">
-                <label class="idx-inline-023"><input type="checkbox" id="histShowPdf" checked /> Show PDF</label>
-                <label class="idx-inline-023"><input type="checkbox" id="histShowCdf" /> Show CDF</label>
+              <div class="control hist-dist-control-grid">
+                <div class="hist-dist-control-col">
+                  <div id="histDistributionList" class="hist-dist-list"></div>
+                </div>
+                <div class="hist-dist-control-col hist-dist-control-col--toggles">
+                  <label class="idx-inline-023"><input type="checkbox" id="histShowPdf" checked /> Show Probability Density Function</label>
+                  <label class="idx-inline-023"><input type="checkbox" id="histShowCdf" /> Show Cumulative Distribution Function</label>
+                </div>
               </div>
             </fieldset>
             <fieldset data-font-controls="1" hidden>
