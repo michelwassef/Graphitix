@@ -168,8 +168,8 @@
         i += 1;
         continue;
       }
-      if(/[()+\-*/,:]/.test(ch)){
-        tokens.push({ type: ch, value: ch });
+      if(/[()+\-*/,:;]/.test(ch)){
+        tokens.push({ type: ch === ';' ? ',' : ch, value: ch });
         i += 1;
         continue;
       }

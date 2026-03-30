@@ -951,6 +951,79 @@ select {
     border-radius: 1px;
     pointer-events: none;
 }
+.hot-formula-fn-suggest {
+    position: fixed;
+    z-index: 12050;
+    background: #ffffff;
+    border: 1px solid #c7c7c7;
+    border-radius: 4px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+    padding: 2px 0;
+    max-height: min(320px, 55vh);
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.hot-formula-fn-suggest[hidden] {
+    display: none !important;
+}
+.hot-formula-fn-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    background: #ffffff;
+    color: #1f1f1f;
+    text-align: left;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.25;
+    padding: 4px 8px;
+}
+.hot-formula-fn-item:hover,
+.hot-formula-fn-item.is-active {
+    background: #dcebff;
+}
+.hot-formula-fn-item-name {
+    font-weight: 700;
+    min-width: 72px;
+}
+.hot-formula-fn-item-desc {
+    color: #555555;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.hot-formula-fn-tooltip {
+    position: fixed;
+    z-index: 12060;
+    background: #fffdf4;
+    border: 1px solid #d6ceae;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+    font-size: 12px;
+    line-height: 1.3;
+    color: #1f1f1f;
+    padding: 6px 8px;
+    pointer-events: none;
+}
+.hot-formula-fn-tooltip[hidden] {
+    display: none !important;
+}
+.hot-formula-fn-tooltip-signature {
+    white-space: nowrap;
+}
+.hot-formula-fn-tooltip-desc {
+    margin-top: 3px;
+    color: #555555;
+}
+.hot-formula-fn-name {
+    font-weight: 700;
+}
+.hot-formula-fn-arg.is-active {
+    font-weight: 700;
+    color: #000000;
+}
 .ag-theme-balham.hot-fill-handle-host {
     position: relative;
 }

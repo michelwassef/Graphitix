@@ -4206,9 +4206,165 @@
       }
       return 0;
     };
+    const FORMULA_FUNCTION_SPECS = Object.freeze([
+      Object.freeze({
+        name: 'SUM',
+        args: Object.freeze(['number1', '[number2]', '...']),
+        description: 'Adds numbers or cell ranges.'
+      }),
+      Object.freeze({
+        name: 'AVERAGE',
+        args: Object.freeze(['number1', '[number2]', '...']),
+        description: 'Returns the arithmetic mean of numbers or ranges.'
+      }),
+      Object.freeze({
+        name: 'AVG',
+        args: Object.freeze(['number1', '[number2]', '...']),
+        description: 'Alias of AVERAGE.'
+      }),
+      Object.freeze({
+        name: 'MIN',
+        args: Object.freeze(['number1', '[number2]', '...']),
+        description: 'Returns the smallest numeric value.'
+      }),
+      Object.freeze({
+        name: 'MAX',
+        args: Object.freeze(['number1', '[number2]', '...']),
+        description: 'Returns the largest numeric value.'
+      }),
+      Object.freeze({
+        name: 'COUNT',
+        args: Object.freeze(['value1', '[value2]', '...']),
+        description: 'Counts numeric values in the provided arguments.'
+      })
+    ]);
+    const FORMULA_FUNCTION_SPECS_BY_NAME = new Map(FORMULA_FUNCTION_SPECS.map(spec => [spec.name, spec]));
+    const FORMULA_FUNCTION_SUGGESTION_LIMIT = 8;
+    const escapeFormulaAssistHtml = (value)=>String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const resolveFormulaFunctionPrefixContext = (value, caretPos)=>{
+      const source = String(value ?? '');
+      const caret = Number.isFinite(Number(caretPos))
+        ? Math.max(0, Math.min(source.length, Math.floor(Number(caretPos))))
+        : source.length;
+      const before = source.slice(0, caret);
+      const afterChar = source[caret] || '';
+      if(/[A-Za-z0-9_]/.test(afterChar)){
+        return null;
+      }
+      const trimmedLeading = before.trimStart();
+      if(!trimmedLeading.startsWith('=')){
+        return null;
+      }
+      const match = before.match(/(?:^|[=+\-*/,(;])\s*([A-Za-z][A-Za-z0-9_]*)$/);
+      if(!match || !match[1]){
+        return null;
+      }
+      const rawPrefix = String(match[1] || '');
+      const start = caret - rawPrefix.length;
+      if(start < 0){
+        return null;
+      }
+      return {
+        prefix: rawPrefix.toUpperCase(),
+        start,
+        end: caret
+      };
+    };
+    const resolveFormulaFunctionCallContext = (value, caretPos)=>{
+      const source = String(value ?? '');
+      const caret = Number.isFinite(Number(caretPos))
+        ? Math.max(0, Math.min(source.length, Math.floor(Number(caretPos))))
+        : source.length;
+      const before = source.slice(0, caret);
+      if(!before.trimStart().startsWith('=')){
+        return null;
+      }
+      const stack = [];
+      let token = '';
+      let pendingIdentifier = null;
+      const flushToken = ()=>{
+        if(token){
+          pendingIdentifier = token.toUpperCase();
+          token = '';
+        }
+      };
+      for(let i = 0; i < before.length; i += 1){
+        const ch = before[i];
+        if(/[A-Za-z0-9_]/.test(ch)){
+          token += ch;
+          continue;
+        }
+        flushToken();
+        if(ch === '('){
+          const spec = pendingIdentifier ? FORMULA_FUNCTION_SPECS_BY_NAME.get(pendingIdentifier) : null;
+          if(spec){
+            stack.push({ type: 'function', name: spec.name, argIndex: 0 });
+          }else{
+            stack.push({ type: 'group' });
+          }
+          pendingIdentifier = null;
+          continue;
+        }
+        if(ch === ')'){
+          if(stack.length){
+            stack.pop();
+          }
+          pendingIdentifier = null;
+          continue;
+        }
+        if(ch === ',' || ch === ';'){
+          const top = stack[stack.length - 1];
+          if(top && top.type === 'function'){
+            top.argIndex += 1;
+          }
+          pendingIdentifier = null;
+          continue;
+        }
+        if(/\s/.test(ch)){
+          continue;
+        }
+        pendingIdentifier = null;
+      }
+      flushToken();
+      for(let i = stack.length - 1; i >= 0; i -= 1){
+        const entry = stack[i];
+        if(!entry || entry.type !== 'function'){
+          continue;
+        }
+        const spec = FORMULA_FUNCTION_SPECS_BY_NAME.get(entry.name);
+        if(!spec){
+          continue;
+        }
+        return {
+          spec,
+          argIndex: Math.max(0, Number(entry.argIndex) || 0)
+        };
+      }
+      return null;
+    };
+    const buildFormulaFunctionSignatureHtml = (spec, argIndex)=>{
+      if(!spec){
+        return '';
+      }
+      const args = Array.isArray(spec.args) ? spec.args : [];
+      const maxArgIndex = args.length > 0 ? args.length - 1 : 0;
+      const activeArg = Math.max(0, Math.min(maxArgIndex, Number(argIndex) || 0));
+      const argsHtml = args.map((arg, index)=>{
+        const cls = index === activeArg ? 'hot-formula-fn-arg is-active' : 'hot-formula-fn-arg';
+        return `<span class="${cls}">${escapeFormulaAssistHtml(arg)}</span>`;
+      }).join(', ');
+      return `<span class="hot-formula-fn-name">${escapeFormulaAssistHtml(spec.name)}</span>(${argsHtml})`;
+    };
+
     const SharedFormulaCellEditor = function SharedFormulaCellEditor() {};
     SharedFormulaCellEditor.prototype.init = function init(params){
       const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
       const input = doc.createElement('input');
       input.type = 'text';
       input.className = 'ag-input-field-input ag-text-field-input';
@@ -4235,6 +4391,195 @@
       this._startedWithTyping = !!initialTypedValue;
       input.value = initialTypedValue || (clearOnEditStart ? '' : (rawModelValue == null ? '' : String(rawModelValue)));
       this.eInput = input;
+      this.fnSuggestions = [];
+      this.fnSuggestionIndex = 0;
+      this.fnPrefixContext = null;
+      this.fnSuggestRoot = doc.createElement('div');
+      this.fnSuggestRoot.className = 'hot-formula-fn-suggest';
+      this.fnSuggestRoot.setAttribute('hidden', 'hidden');
+      this.fnSuggestRoot.setAttribute('role', 'listbox');
+      this.fnSuggestRoot.setAttribute('aria-label', 'Formula function suggestions');
+      this.fnTooltipRoot = doc.createElement('div');
+      this.fnTooltipRoot.className = 'hot-formula-fn-tooltip';
+      this.fnTooltipRoot.setAttribute('hidden', 'hidden');
+      this.fnTooltipRoot.setAttribute('aria-hidden', 'true');
+      doc.body?.appendChild?.(this.fnSuggestRoot);
+      doc.body?.appendChild?.(this.fnTooltipRoot);
+      this.getEditorRect = ()=>{
+        const rect = this.eInput?.getBoundingClientRect?.();
+        if(!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)){
+          return null;
+        }
+        return rect;
+      };
+      this.hideFunctionSuggestions = ()=>{
+        this.fnSuggestions = [];
+        this.fnSuggestionIndex = 0;
+        if(this.fnSuggestRoot){
+          this.fnSuggestRoot.setAttribute('hidden', 'hidden');
+          this.fnSuggestRoot.innerHTML = '';
+        }
+      };
+      this.hideFunctionTooltip = ()=>{
+        if(this.fnTooltipRoot){
+          this.fnTooltipRoot.setAttribute('hidden', 'hidden');
+          this.fnTooltipRoot.innerHTML = '';
+        }
+      };
+      this.hideFunctionAssist = ()=>{
+        this.hideFunctionSuggestions();
+        this.hideFunctionTooltip();
+      };
+      this.positionFunctionAssist = ()=>{
+        const rect = this.getEditorRect?.();
+        if(!rect){
+          return;
+        }
+        const viewportWidth = Number(win?.innerWidth) || 1024;
+        const viewportHeight = Number(win?.innerHeight) || 768;
+        const clampLeft = (desired, width)=>{
+          if(!Number.isFinite(desired)){
+            return 4;
+          }
+          if(!Number.isFinite(width)){
+            return Math.max(4, desired);
+          }
+          return Math.min(Math.max(4, desired), Math.max(4, viewportWidth - width - 4));
+        };
+        let suggestionsBottom = rect.bottom + 4;
+        if(this.fnSuggestRoot && !this.fnSuggestRoot.hasAttribute('hidden')){
+          const desiredWidth = Math.max(220, Math.min(420, Math.round(rect.width + 120)));
+          this.fnSuggestRoot.style.minWidth = `${Math.max(220, Math.round(rect.width))}px`;
+          this.fnSuggestRoot.style.maxWidth = '440px';
+          const menuWidth = Math.min(desiredWidth, viewportWidth - 8);
+          const left = clampLeft(rect.left, menuWidth);
+          this.fnSuggestRoot.style.left = `${left}px`;
+          this.fnSuggestRoot.style.width = `${menuWidth}px`;
+          const menuHeight = this.fnSuggestRoot.offsetHeight || 0;
+          let top = rect.bottom + 4;
+          if(menuHeight > 0 && top + menuHeight > viewportHeight - 4){
+            top = Math.max(4, rect.top - menuHeight - 4);
+          }
+          this.fnSuggestRoot.style.top = `${top}px`;
+          suggestionsBottom = top + menuHeight + 2;
+        }
+        if(this.fnTooltipRoot && !this.fnTooltipRoot.hasAttribute('hidden')){
+          const tooltipWidth = Math.min(Math.max(220, Math.round(rect.width + 80)), viewportWidth - 8);
+          const left = clampLeft(rect.left, tooltipWidth);
+          this.fnTooltipRoot.style.maxWidth = `${tooltipWidth}px`;
+          this.fnTooltipRoot.style.left = `${left}px`;
+          const tooltipHeight = this.fnTooltipRoot.offsetHeight || 0;
+          let top = suggestionsBottom;
+          if(top + tooltipHeight > viewportHeight - 4){
+            top = Math.max(4, rect.top - tooltipHeight - 4);
+          }
+          this.fnTooltipRoot.style.top = `${top}px`;
+        }
+      };
+      this.renderFunctionSuggestions = ()=>{
+        if(!this.fnSuggestRoot){
+          return;
+        }
+        const suggestions = Array.isArray(this.fnSuggestions) ? this.fnSuggestions : [];
+        if(!suggestions.length){
+          this.hideFunctionSuggestions();
+          return;
+        }
+        this.fnSuggestionIndex = Math.max(0, Math.min(suggestions.length - 1, Number(this.fnSuggestionIndex) || 0));
+        this.fnSuggestRoot.innerHTML = suggestions.map((spec, idx)=>{
+          const active = idx === this.fnSuggestionIndex;
+          const cls = active ? 'hot-formula-fn-item is-active' : 'hot-formula-fn-item';
+          return `<button type="button" class="${cls}" data-index="${idx}" role="option" aria-selected="${active ? 'true' : 'false'}"><span class="hot-formula-fn-item-name">${escapeFormulaAssistHtml(spec.name)}</span><span class="hot-formula-fn-item-desc">${escapeFormulaAssistHtml(spec.description)}</span></button>`;
+        }).join('');
+        this.fnSuggestRoot.removeAttribute('hidden');
+      };
+      this.renderFunctionTooltip = ()=>{
+        if(!this.fnTooltipRoot || !this.eInput){
+          return;
+        }
+        const value = String(this.eInput.value ?? '');
+        const caret = Number.isInteger(this.eInput.selectionStart) ? this.eInput.selectionStart : value.length;
+        const context = resolveFormulaFunctionCallContext(value, caret);
+        if(!context || !context.spec){
+          this.hideFunctionTooltip();
+          return;
+        }
+        this.fnTooltipRoot.innerHTML = `<div class="hot-formula-fn-tooltip-signature">${buildFormulaFunctionSignatureHtml(context.spec, context.argIndex)}</div><div class="hot-formula-fn-tooltip-desc">${escapeFormulaAssistHtml(context.spec.description)}</div>`;
+        this.fnTooltipRoot.removeAttribute('hidden');
+      };
+      this.updateFunctionAssist = ()=>{
+        if(!this.eInput){
+          this.hideFunctionAssist();
+          return;
+        }
+        const value = String(this.eInput.value ?? '');
+        const caret = Number.isInteger(this.eInput.selectionStart) ? this.eInput.selectionStart : value.length;
+        const context = resolveFormulaFunctionPrefixContext(value, caret);
+        this.fnPrefixContext = context;
+        if(context && context.prefix){
+          const prefix = context.prefix;
+          const suggestions = FORMULA_FUNCTION_SPECS
+            .filter(spec => spec.name.startsWith(prefix))
+            .slice(0, FORMULA_FUNCTION_SUGGESTION_LIMIT);
+          if(suggestions.length){
+            const selectedName = this.fnSuggestions[this.fnSuggestionIndex]?.name || null;
+            this.fnSuggestions = suggestions;
+            const selectedIndex = selectedName
+              ? suggestions.findIndex(spec => spec.name === selectedName)
+              : 0;
+            this.fnSuggestionIndex = selectedIndex >= 0 ? selectedIndex : 0;
+            this.renderFunctionSuggestions();
+          }else{
+            this.hideFunctionSuggestions();
+          }
+        }else{
+          this.hideFunctionSuggestions();
+        }
+        this.renderFunctionTooltip();
+        this.positionFunctionAssist();
+      };
+      this.applyFunctionSuggestion = (index)=>{
+        if(!this.eInput || !this.fnPrefixContext){
+          return false;
+        }
+        const suggestions = Array.isArray(this.fnSuggestions) ? this.fnSuggestions : [];
+        const nextIndex = Number(index);
+        if(!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= suggestions.length){
+          return false;
+        }
+        const spec = suggestions[nextIndex];
+        if(!spec || !spec.name){
+          return false;
+        }
+        const value = String(this.eInput.value ?? '');
+        const start = Math.max(0, Number(this.fnPrefixContext.start) || 0);
+        const end = Math.max(start, Number(this.fnPrefixContext.end) || start);
+        const nextValue = `${value.slice(0, start)}${spec.name}(${value.slice(end)}`;
+        this.eInput.value = nextValue;
+        const nextCaret = start + spec.name.length + 1;
+        try{
+          this.eInput.setSelectionRange(nextCaret, nextCaret);
+        }catch(err){
+          // caret placement is best-effort only
+        }
+        this.hideFunctionSuggestions();
+        this.updateFunctionAssist();
+        this.handleInput();
+        return true;
+      };
+      this.handleSuggestMouseDown = event=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        const option = target && typeof target.closest === 'function'
+          ? target.closest('.hot-formula-fn-item')
+          : null;
+        if(!option){
+          return;
+        }
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        const idx = Number(option.getAttribute('data-index'));
+        this.applyFunctionSuggestion(idx);
+      };
       this.handleInput = ()=>{
         try{
           if(enableFormulaReferenceOverlay){
@@ -4246,6 +4591,7 @@
         }catch(err){
           // ignore overlay update failures
         }
+        this.updateFunctionAssist();
       };
       this.handleFocus = ()=>{
         try{
@@ -4253,10 +4599,75 @@
         }catch(err){
           // ignore overlay update failures
         }
+        this.updateFunctionAssist();
       };
+      this.handleBlur = ()=>{
+        win?.setTimeout?.(()=>{
+          if(!this.eInput){
+            return;
+          }
+          const active = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(active === this.eInput){
+            return;
+          }
+          this.hideFunctionAssist();
+        }, 0);
+      };
+      this.handleKeyDown = event=>{
+        if(!event){
+          return;
+        }
+        const hasSuggestions = Array.isArray(this.fnSuggestions)
+          && this.fnSuggestions.length > 0
+          && this.fnSuggestRoot
+          && !this.fnSuggestRoot.hasAttribute('hidden');
+        if(hasSuggestions){
+          if(event.key === 'ArrowDown'){
+            this.fnSuggestionIndex = Math.min(this.fnSuggestions.length - 1, this.fnSuggestionIndex + 1);
+            this.renderFunctionSuggestions();
+            this.positionFunctionAssist();
+            event.preventDefault?.();
+            return;
+          }
+          if(event.key === 'ArrowUp'){
+            this.fnSuggestionIndex = Math.max(0, this.fnSuggestionIndex - 1);
+            this.renderFunctionSuggestions();
+            this.positionFunctionAssist();
+            event.preventDefault?.();
+            return;
+          }
+          if((event.key === 'Enter' || event.key === 'Tab') && this.applyFunctionSuggestion(this.fnSuggestionIndex)){
+            event.preventDefault?.();
+            return;
+          }
+          if(event.key === 'Escape'){
+            this.hideFunctionSuggestions();
+            this.positionFunctionAssist();
+            return;
+          }
+        }
+        if(event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End'){
+          win?.setTimeout?.(()=>{
+            this.updateFunctionAssist();
+          }, 0);
+        }
+      };
+      this.handleCaretChange = ()=>{
+        this.updateFunctionAssist();
+      };
+      this.handleViewportChange = ()=>{
+        this.positionFunctionAssist();
+      };
+      this.fnSuggestRoot.addEventListener('mousedown', this.handleSuggestMouseDown, true);
       input.addEventListener('input', this.handleInput);
       input.addEventListener('focus', this.handleFocus);
-      input.addEventListener('blur', this.handleFocus);
+      input.addEventListener('blur', this.handleBlur);
+      input.addEventListener('keydown', this.handleKeyDown);
+      input.addEventListener('keyup', this.handleCaretChange);
+      input.addEventListener('click', this.handleCaretChange);
+      input.addEventListener('mouseup', this.handleCaretChange);
+      win?.addEventListener?.('resize', this.handleViewportChange, true);
+      win?.addEventListener?.('scroll', this.handleViewportChange, true);
     };
     SharedFormulaCellEditor.prototype.getGui = function getGui(){ return this.eInput; };
     SharedFormulaCellEditor.prototype.afterGuiAttached = function afterGuiAttached(){
@@ -4278,6 +4689,7 @@
       }catch(err){
         // ignore overlay update failures
       }
+      this.updateFunctionAssist?.();
     };
     SharedFormulaCellEditor.prototype.getValue = function getValue(){
       return this.eInput?.value ?? '';
@@ -4289,11 +4701,46 @@
         }
         if(this.handleFocus){
           this.eInput.removeEventListener('focus', this.handleFocus);
-          this.eInput.removeEventListener('blur', this.handleFocus);
         }
+        if(this.handleBlur){
+          this.eInput.removeEventListener('blur', this.handleBlur);
+        }
+        if(this.handleKeyDown){
+          this.eInput.removeEventListener('keydown', this.handleKeyDown);
+        }
+        if(this.handleCaretChange){
+          this.eInput.removeEventListener('keyup', this.handleCaretChange);
+          this.eInput.removeEventListener('click', this.handleCaretChange);
+          this.eInput.removeEventListener('mouseup', this.handleCaretChange);
+        }
+      }
+      const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
+      if(this.handleViewportChange){
+        win?.removeEventListener?.('resize', this.handleViewportChange, true);
+        win?.removeEventListener?.('scroll', this.handleViewportChange, true);
+      }
+      if(this.fnSuggestRoot){
+        if(this.handleSuggestMouseDown){
+          this.fnSuggestRoot.removeEventListener('mousedown', this.handleSuggestMouseDown, true);
+        }
+        this.fnSuggestRoot.remove?.();
+      }
+      if(this.fnTooltipRoot){
+        this.fnTooltipRoot.remove?.();
       }
       this.handleInput = null;
       this.handleFocus = null;
+      this.handleBlur = null;
+      this.handleKeyDown = null;
+      this.handleCaretChange = null;
+      this.handleViewportChange = null;
+      this.handleSuggestMouseDown = null;
+      this.fnSuggestions = [];
+      this.fnSuggestionIndex = 0;
+      this.fnPrefixContext = null;
+      this.fnSuggestRoot = null;
+      this.fnTooltipRoot = null;
       this.eInput = null;
       this._startedWithTyping = false;
     };
