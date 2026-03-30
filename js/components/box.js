@@ -65,14 +65,6 @@
       console.debug('Debug: box component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
-  const formulaEngine = Shared.formulaEngine = Shared.formulaEngine || {};
-  if(typeof formulaEngine.createModel !== 'function' && typeof require === 'function'){
-    try{
-      require('../shared/formulaEngine.js');
-    }catch(err){
-      console.debug('Debug: box component formula engine helper require failed', { message: err?.message || String(err) });
-    }
-  }
   box.__installed = true;
   box.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -7816,8 +7808,6 @@
 	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
-  state.formulaModel = null;
-  state.formulaMatrixReady = false;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -7859,123 +7849,7 @@
     return activated;
   }
 
-  function ensureBoxFormulaModel(){
-    if(state.formulaModel || typeof Shared.formulaEngine?.createModel !== 'function'){
-      return state.formulaModel;
-    }
-    state.formulaModel = Shared.formulaEngine.createModel({
-      headerRows: getBoxHeaderRowCount(),
-      a1RowOffset: getBoxHeaderRowCount(),
-      debugLog: (label, payload)=>{
-        if(Shared.isDebugEnabled?.()){
-          console.debug(`Debug: box formula ${label}`, payload || {});
-        }
-      },
-      onRecalculate: payload=>{
-        if(Shared.isDebugEnabled?.()){
-          console.debug('Debug: box formula recalc trigger', payload || {});
-        }
-      }
-    });
-    if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: box formula model created');
-    }
-    return state.formulaModel;
-  }
-
-  function rebuildBoxFormulaModel(hotInstance){
-    const hot = hotInstance || state.hot;
-    const model = ensureBoxFormulaModel();
-    if(!hot || !model || typeof hot.getData !== 'function'){
-      if(Shared.isDebugEnabled?.()){
-        console.debug('Debug: box formula rebuild skipped', {
-          hasHot: !!hot,
-          hasModel: !!model
-        });
-      }
-      return null;
-    }
-    model.rebuildFromMatrix(hot.getData() || []);
-    state.formulaMatrixReady = true;
-    if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: box formula rebuild complete', {
-        rows: hot.countRows?.() ?? null,
-        cols: hot.countCols?.() ?? null
-      });
-    }
-    return model;
-  }
-
-  function syncBoxFormulaModelFromChanges(changes, options = {}){
-    const hot = options.hot || state.hot;
-    const source = typeof options.source === 'string' ? options.source : 'edit';
-    const model = ensureBoxFormulaModel();
-    if(!model){
-      state.formulaMatrixReady = false;
-      if(Shared.isDebugEnabled?.()){
-        console.debug('Debug: box formula change sync skipped (missing model)', {
-          source,
-          changeCount: Array.isArray(changes) ? changes.length : 0
-        });
-      }
-      return { applied: 0, skipped: 0, rebuilt: false, source };
-    }
-    const list = Array.isArray(changes) ? changes : [];
-    if(!list.length){
-      if(!state.formulaMatrixReady && hot && typeof hot.getData === 'function'){
-        model.rebuildFromMatrix(hot.getData() || []);
-        state.formulaMatrixReady = true;
-        return { applied: 0, skipped: 0, rebuilt: true, source };
-      }
-      return { applied: 0, skipped: 0, rebuilt: false, source };
-    }
-    let applied = 0;
-    let skipped = 0;
-    let rebuilt = false;
-    const needsFullRebuild = !state.formulaMatrixReady;
-    if(needsFullRebuild){
-      if(hot && typeof hot.getData === 'function'){
-        model.rebuildFromMatrix(hot.getData() || []);
-        state.formulaMatrixReady = true;
-        rebuilt = true;
-      }
-    }
-    for(let i = 0; i < list.length; i += 1){
-      const change = list[i];
-      const visualRow = Number(change?.[0]);
-      const visualCol = Number(change?.[1]);
-      if(!Number.isInteger(visualRow) || visualRow < 0 || !Number.isInteger(visualCol) || visualCol < 0){
-        skipped += 1;
-        continue;
-      }
-      const physicalRow = typeof hot?.toPhysicalRow === 'function'
-        ? hot.toPhysicalRow(visualRow)
-        : visualRow;
-      const physicalCol = typeof hot?.toPhysicalColumn === 'function'
-        ? hot.toPhysicalColumn(visualCol)
-        : visualCol;
-      if(!Number.isInteger(physicalRow) || physicalRow < 0 || !Number.isInteger(physicalCol) || physicalCol < 0){
-        skipped += 1;
-        continue;
-      }
-      const nextValue = change.length >= 4 ? change[3] : change[2];
-      model.setCellRaw(physicalRow, physicalCol, nextValue);
-      applied += 1;
-    }
-    state.formulaMatrixReady = true;
-    if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: box formula change sync complete', {
-        source,
-        changeCount: list.length,
-        applied,
-        skipped,
-        rebuilt
-      });
-    }
-    return { applied, skipped, rebuilt, source };
-  }
-
-  function getBoxResolvedAnalysis(hotInstance){
+  function getBoxAnalysis(hotInstance){
     const hot = hotInstance || state.hot;
     if(!hot){
       return {
@@ -7988,58 +7862,7 @@
         isCellExcluded: ()=>false
       };
     }
-    const analysis = hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
-    const data = Array.isArray(analysis?.data) ? analysis.data : [];
-    const model = ensureBoxFormulaModel();
-    if(!model){
-      return analysis;
-    }
-    if(!state.formulaMatrixReady){
-      model.rebuildFromMatrix(hot.getData?.() || []);
-      state.formulaMatrixReady = true;
-    }
-    if(!model.hasFormulas?.()){
-      return analysis;
-    }
-    const resolvedData = data.map((row, rowIndex)=>{
-      if(!Array.isArray(row)){
-        return [];
-      }
-      const physicalRow = typeof analysis?.toPhysicalRow === 'function'
-        ? analysis.toPhysicalRow(rowIndex)
-        : rowIndex;
-      if(!Number.isInteger(physicalRow) || physicalRow < 0 || physicalRow < getBoxHeaderRowCount()){
-        return row.slice();
-      }
-      return row.map((value, colIndex)=>{
-        if(value === null){
-          return null;
-        }
-        const physicalCol = typeof analysis?.toPhysicalColumn === 'function'
-          ? analysis.toPhysicalColumn(colIndex)
-          : colIndex;
-        if(!Number.isInteger(physicalCol) || physicalCol < 0){
-          return value;
-        }
-        return model.getResolvedAt(physicalRow, physicalCol);
-      });
-    });
-    return Object.assign({}, analysis, { data: resolvedData });
-  }
-
-  function resolveBoxFormulaOverlayHot(){
-    const activeHot = state.ensureHotForActiveTab?.() || state.hot;
-    return activeHot && typeof activeHot.setFormulaReferenceOverlay === 'function'
-      ? activeHot
-      : null;
-  }
-
-  function clearBoxFormulaRefOverlay(options = {}){
-    const hot = resolveBoxFormulaOverlayHot();
-    if(!hot || typeof hot.clearFormulaReferenceOverlay !== 'function'){
-      return;
-    }
-    hot.clearFormulaReferenceOverlay(options);
+    return hot.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
   }
 
   function ensureBoxDataViewsForHot(hotInstance, options = {}){
@@ -9471,7 +9294,7 @@
       }
       return { allowed: false, reason: 'axis-limit', value: manualMax, message, hasZeros: manualMax === 0, hasNegatives: manualMax < 0 };
     }
-    const analysis = getBoxResolvedAnalysis(state.hot);
+    const analysis = getBoxAnalysis(state.hot);
     const dataMatrix = analysis?.data || [];
     const rowCount = analysis?.rowCount || dataMatrix.length;
     const colCount = analysis?.colCount || (dataMatrix[0]?.length || 0);
@@ -11532,10 +11355,6 @@
       syncBoxGroupedCheckboxColumnLabels(state.hot, { forceGrouped: false });
       console.debug('Debug: applyTableFormatToHot single');
     }
-    state.formulaModel = null;
-    state.formulaMatrixReady = false;
-    clearBoxFormulaRefOverlay({ removeLayer: true });
-    rebuildBoxFormulaModel(state.hot);
   }
 
     function updateTableFormatUI(){
@@ -11629,76 +11448,10 @@
 
     const createBoxTable = (container) => {
       let instance = null;
-      const FormulaCellEditor = function FormulaCellEditor() {};
-      FormulaCellEditor.prototype.init = function init(params){
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'ag-input-field-input ag-text-field-input';
-        const physicalRow = Number(params?.data?.__rowIndex);
-        const colId = params?.column?.getColId?.() || '';
-        const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
-        const model = ensureBoxFormulaModel();
-        const rawModelValue = (model && Number.isInteger(physicalRow) && Number.isInteger(col) && physicalRow >= 0 && col >= 0)
-          ? model.getRawAt(physicalRow, col)
-          : (params?.value ?? '');
-        const typedChar = typeof params?.charPress === 'string' && params.charPress.length === 1
-          ? params.charPress
-          : '';
-        const eventKey = typeof params?.eventKey === 'string' ? params.eventKey : '';
-        const hasModifier = !!(params?.event && (params.event.ctrlKey || params.event.metaKey || params.event.altKey));
-        const inferredTypedKey = !typedChar && !hasModifier && eventKey.length === 1
-          ? eventKey
-          : '';
-        const clearOnEditStart = eventKey === 'Backspace' || eventKey === 'Delete';
-        const initialTypedValue = typedChar || inferredTypedKey;
-        this._startedWithTyping = !!initialTypedValue;
-        if(model && Number.isInteger(physicalRow) && Number.isInteger(col) && physicalRow >= 0 && col >= 0){
-          input.value = initialTypedValue || (clearOnEditStart ? '' : rawModelValue);
-        }else{
-          input.value = initialTypedValue || (clearOnEditStart ? '' : rawModelValue);
-        }
-        if(Shared.isDebugEnabled?.()){
-          console.debug('Debug: box formula editor init', {
-            row: physicalRow,
-            col,
-            eventKey,
-            charPress: typedChar || null,
-            inferredTypedKey: inferredTypedKey || null,
-            clearOnEditStart,
-            startedWithTyping: this._startedWithTyping,
-            initialValue: input.value
-          });
-        }
-        this.eInput = input;
-      };
-      FormulaCellEditor.prototype.getGui = function getGui(){ return this.eInput; };
-      FormulaCellEditor.prototype.afterGuiAttached = function afterGuiAttached(){
-        this.eInput?.focus?.();
-        const placeCaretAtEnd = ()=>{
-          const valueLength = this.eInput?.value?.length || 0;
-          try{
-            this.eInput?.setSelectionRange?.(valueLength, valueLength);
-          }catch(err){
-            // caret placement is best-effort only
-          }
-        };
-        placeCaretAtEnd();
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(placeCaretAtEnd);
-        }
-      };
-      FormulaCellEditor.prototype.getValue = function getValue(){ return this.eInput?.value ?? ''; };
-      FormulaCellEditor.prototype.destroy = function destroy(){
-        this._startedWithTyping = false;
-        this.eInput = null;
-        clearBoxFormulaRefOverlay({ removeLayer: true });
-      };
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
         debugLabel: 'box',
         data,
         disablePaste: true,
-        enableFormulaEvaluation: false,
-        enableFormulaReferenceSelection: true,
         pinFirstRow: true,
         colDefEnhancer(def, meta){
           const colIndex = Number(meta?.colIndex);
@@ -11801,75 +11554,6 @@
               ? existingEditable(params)
               : existingEditable !== false;
           };
-          const existingValueGetter = def.valueGetter;
-          const existingValueSetter = def.valueSetter;
-          def.valueGetter = params => {
-            const physicalRow = Number(params?.data?.__rowIndex);
-            if(!Number.isInteger(physicalRow) || physicalRow < getBoxHeaderRowCount()){
-              return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
-            }
-            const colId = params?.column?.getColId?.() || def.colId || '';
-            const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
-            if(!Number.isInteger(col) || col < 0){
-              return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
-            }
-            const model = ensureBoxFormulaModel();
-            if(!model){
-              return typeof existingValueGetter === 'function' ? existingValueGetter(params) : params?.data?.[def.field];
-            }
-            if(!state.formulaMatrixReady){
-              model.rebuildFromMatrix(instance?.getData?.() || []);
-              state.formulaMatrixReady = true;
-              if(Shared.isDebugEnabled?.()){
-                console.debug('Debug: box formula valueGetter repaired stale model', {
-                  row: physicalRow,
-                  col
-                });
-              }
-            }
-            return model.getResolvedAt(physicalRow, col);
-          };
-          def.valueSetter = params => {
-            let wrote = true;
-            if(typeof existingValueSetter === 'function'){
-              wrote = existingValueSetter(params);
-            }else if(params?.data && def?.field){
-              params.data[def.field] = params.newValue;
-              wrote = true;
-            }else{
-              wrote = false;
-            }
-            if(wrote === false){
-              if(Shared.isDebugEnabled?.()){
-                console.debug('Debug: box formula valueSetter skipped write', {
-                  col: colIndex,
-                  row: params?.data?.__rowIndex ?? params?.node?.rowIndex ?? null
-                });
-              }
-              return false;
-            }
-            const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
-            if(Number.isInteger(physicalRow) && physicalRow >= 0){
-              const model = ensureBoxFormulaModel();
-              if(model){
-                model.setCellRaw(physicalRow, colIndex, params?.newValue);
-                state.formulaMatrixReady = true;
-                if(Shared.isDebugEnabled?.()){
-                  const rawValue = params?.newValue == null ? '' : String(params.newValue);
-                  console.debug('Debug: box formula valueSetter synchronized model', {
-                    row: physicalRow,
-                    col: colIndex,
-                    source: params?.source || 'edit',
-                    isFormula: rawValue.trim().startsWith('=')
-                  });
-                }
-              }else{
-                state.formulaMatrixReady = false;
-              }
-            }
-            return true;
-          };
-          def.cellEditor = FormulaCellEditor;
           const existingRules = def.cellClassRules && typeof def.cellClassRules === 'object'
             ? Object.assign({}, def.cellClassRules)
             : {};
@@ -11918,13 +11602,6 @@
           suppressClickEdit: false,
           afterChange(changes, source){
             if(!changes || source === 'loadData') return;
-            const formulaSync = syncBoxFormulaModelFromChanges(changes, {
-              hot: instance,
-              source: source || 'edit'
-            });
-            if(Shared.isDebugEnabled?.()){
-              console.debug('Debug: box formula afterChange sync summary', formulaSync);
-            }
             instance?.render?.();
             const api = instance?.gridApi;
             if(api && typeof api.refreshCells === 'function'){
@@ -11976,8 +11653,6 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterLoadData(){
-            clearBoxFormulaRefOverlay({ removeLayer: true });
-            rebuildBoxFormulaModel(instance);
             if(isBoxGroupedModeActive()){
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
               updateGroupedHeaders(instance);
@@ -11987,37 +11662,13 @@
           afterSelectionEnd(){
             activateBoxDataToolbar('table-selection');
           },
-          afterCreateRow(index, amount, source){
-            clearBoxFormulaRefOverlay({ removeLayer: true });
-            state.formulaMatrixReady = false;
-            rebuildBoxFormulaModel(instance);
-            if(Shared.isDebugEnabled?.()){
-              console.debug('Debug: box formula rebuild afterCreateRow', {
-                index,
-                amount,
-                source: source || 'unknown'
-              });
-            }
+          afterCreateRow(){
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
-          afterRemoveRow(index, amount, physicalRows, source){
-            clearBoxFormulaRefOverlay({ removeLayer: true });
-            state.formulaMatrixReady = false;
-            rebuildBoxFormulaModel(instance);
-            if(Shared.isDebugEnabled?.()){
-              console.debug('Debug: box formula rebuild afterRemoveRow', {
-                index,
-                amount,
-                physicalRows: Array.isArray(physicalRows) ? physicalRows.slice(0, 12) : null,
-                source: source || 'unknown'
-              });
-            }
+          afterRemoveRow(){
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterCreateCol(){
-            clearBoxFormulaRefOverlay({ removeLayer: true });
-            state.formulaMatrixReady = false;
-            rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
             if(Shared.isDebugEnabled?.()){
               console.debug('Debug: box afterCreateCol cleared selection');
@@ -12029,9 +11680,6 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
-            clearBoxFormulaRefOverlay({ removeLayer: true });
-            state.formulaMatrixReady = false;
-            rebuildBoxFormulaModel(instance);
             state.selectedCols.clear();
             if(Shared.isDebugEnabled?.()){
               console.debug('Debug: box afterRemoveCol cleared selection');
@@ -12051,9 +11699,6 @@
           afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
             if(orderChanged){
               boxLog('boxplot afterColumnMove');
-              clearBoxFormulaRefOverlay({ removeLayer: true });
-              state.formulaMatrixReady = false;
-              rebuildBoxFormulaModel(instance);
               if(isBoxGroupedModeActive()){
                 normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
                 updateGroupedHeaders(instance);
@@ -12090,7 +11735,6 @@
             wrapper,
             container: baseContainer
           });
-          rebuildBoxFormulaModel(state.hot);
           syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
         }
         return state.hot;
@@ -12125,7 +11769,6 @@
           wrapper,
           container: entry?.container || baseContainer
         });
-        rebuildBoxFormulaModel(state.hot);
         syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
       }
       const tableImport = Shared.tableImport;
@@ -23584,7 +23227,7 @@ Technical analysis record (advanced)
         }
         return;
       }
-      const analysis = getBoxResolvedAnalysis(hot);
+      const analysis = getBoxAnalysis(hot);
       const dataMatrix = analysis.data || [];
       nCols = analysis.colCount || hot.countCols?.() || (dataMatrix[0]?.length || 0);
       nRows = analysis.rowCount || hot.countRows?.() || dataMatrix.length;
@@ -30281,7 +29924,7 @@ Technical analysis record (advanced)
     }
     let labels = Array.isArray(state.lastAxisLabels) ? state.lastAxisLabels.slice() : [];
     if(!styleOnly){
-      const statsAnalysis = getBoxResolvedAnalysis(state.hot);
+      const statsAnalysis = getBoxAnalysis(state.hot);
       labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
       const labelCount=labels.length;
       const statsConfig=c.stats||{};

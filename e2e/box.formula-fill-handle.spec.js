@@ -88,9 +88,8 @@ test('box fill handle propagates formulas with relative references', async ({ pa
       const box = window.Components?.box;
       const state = box?.__getState?.();
       const hot = state?.ensureHotForActiveTab?.() || state?.hot;
-      const model = state?.formulaModel;
       const api = hot?.gridApi;
-      if (!model || !api || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function') {
+      if (!hot || !api || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function') {
         return null;
       }
       const node2 = api.getDisplayedRowAtIndex(row2);
@@ -99,8 +98,8 @@ test('box fill handle propagates formulas with relative references', async ({ pa
         return null;
       }
       return {
-        raw2: String(model.getRawAt(2, 2) || ''),
-        raw3: String(model.getRawAt(3, 2) || ''),
+        raw2: String(hot.getDataAtCell(row2, 2) || ''),
+        raw3: String(hot.getDataAtCell(row3, 2) || ''),
         resolved2: String(api.getValue('c2', node2) ?? '').trim(),
         resolved3: String(api.getValue('c2', node3) ?? '').trim()
       };

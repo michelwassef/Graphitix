@@ -5810,6 +5810,24 @@
         }
         return matrix[physicalRow]?.[physicalCol];
       },
+      __hotGetDisplayDataAtCell(row, col){
+        const matrix = dataHandle.current;
+        const r = Number(row);
+        const c = Number(col);
+        if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
+          return null;
+        }
+        const physicalRow = toPhysicalRowIndex(r);
+        const physicalCol = toPhysicalColIndex(c);
+        if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+          return null;
+        }
+        if(exclusionController.isCellExcluded(physicalRow, physicalCol)){
+          return null;
+        }
+        const rawValue = matrix[physicalRow]?.[physicalCol];
+        return resolveFormulaDisplayValue(physicalRow, physicalCol, rawValue);
+      },
       getDataAtRow(row){
         const matrix = dataHandle.current;
         const r = Number(row);
@@ -9764,7 +9782,11 @@
           rowValues.push(null);
         }else{
           try{
-            rowValues.push(inst.getDataAtCell(row, col));
+            if(typeof inst.__hotGetDisplayDataAtCell === 'function'){
+              rowValues.push(inst.__hotGetDisplayDataAtCell(row, col));
+            }else{
+              rowValues.push(inst.getDataAtCell(row, col));
+            }
           }catch(err){
             console.error('Shared.hot getAnalysisData cell read error', err);
             rowValues.push(null);
