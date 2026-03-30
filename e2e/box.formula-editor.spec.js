@@ -271,7 +271,6 @@ test('box formula drag range selection inserts A1:A10 and evaluates AVERAGE', as
     intervals: [200, 400, 800]
   }).toBe(true);
 
-  await page.keyboard.type(')');
   await page.keyboard.press('Enter');
 
   await expect.poll(async () => {
@@ -295,6 +294,22 @@ test('box formula drag range selection inserts A1:A10 and evaluates AVERAGE', as
     timeout: 15_000,
     intervals: [200, 400, 800]
   }).toBe(5.5);
+
+  await expect.poll(async () => {
+    return await page.evaluate((rowIndex) => {
+      const box = window.Components?.box;
+      const state = box?.__getState?.();
+      const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+      if(!hot || typeof hot.getDataAtCell !== 'function'){
+        return '';
+      }
+      const raw = hot.getDataAtCell(rowIndex, 4);
+      return raw == null ? '' : String(raw);
+    }, rangeInfo.startRow);
+  }, {
+    timeout: 10_000,
+    intervals: [200, 400, 800]
+  }).toBe('=AVERAGE(A1:A10)');
 
   expect(issues.critical).toEqual([]);
 });

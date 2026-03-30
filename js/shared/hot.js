@@ -1775,8 +1775,18 @@
           console.debug('Debug: Shared.hot fill handle pointerdown', { debugLabel });
         }
       };
+      const handleDoubleClick = (event)=>{
+        const applied = applyFillHandleDoubleClickAutoFill();
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        event?.stopImmediatePropagation?.();
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot fill handle double-click', { debugLabel, applied });
+        }
+      };
       handle.addEventListener('pointerdown', stopEvent);
       handle.addEventListener('mousedown', stopEvent);
+      handle.addEventListener('dblclick', handleDoubleClick);
       if(container.classList){
         container.classList.add('hot-fill-handle-host');
       }
@@ -1785,6 +1795,7 @@
       cleanupFns.push(()=>{
         handle.removeEventListener('pointerdown', stopEvent);
         handle.removeEventListener('mousedown', stopEvent);
+        handle.removeEventListener('dblclick', handleDoubleClick);
         if(handle.parentNode){
           handle.parentNode.removeChild(handle);
         }
@@ -2579,6 +2590,226 @@
         return true;
       }
       return false;
+    };
+
+    const collectFillDownChangesForRows = (selection, targetRows)=>{
+      if(!selection || !Array.isArray(targetRows) || !targetRows.length){
+        return [];
+      }
+      const changes = [];
+      for(let c = selection.from.col; c <= selection.to.col; c++){
+        const seedSequence = getSeedSequenceForColumn(selection, c);
+        const fillValues = computeFillValues(seedSequence, 'down', targetRows.length);
+        const hasFormulaSeed = seedSequence.some(isFormulaLikeValue);
+        const seedLength = seedSequence.length;
+        for(let i = 0; i < targetRows.length; i++){
+          let nextValue = fillValues[i];
+          if(hasFormulaSeed && seedLength > 0){
+            const seedIndex = resolveSeedPatternIndex('down', seedLength, i);
+            const sourceRow = selection.from.row + seedIndex;
+            const sourceValue = seedSequence[seedIndex];
+            if(isFormulaLikeValue(sourceValue)){
+              nextValue = shiftFormulaForFill(sourceValue, targetRows[i] - sourceRow, 0);
+            }
+          }
+          changes.push([targetRows[i], c, nextValue]);
+        }
+      }
+      return changes;
+    };
+
+    const parseA1LooseForAutoFill = (token, a1RowOffset)=>{
+      const normalized = String(token == null ? '' : token).trim().toUpperCase().replace(/\$/g, '');
+      const match = normalized.match(/^([A-Z]+)(\d+)$/);
+      if(!match){
+        return null;
+      }
+      const letters = match[1];
+      let col = 0;
+      for(let i = 0; i < letters.length; i += 1){
+        col = (col * 26) + (letters.charCodeAt(i) - 64);
+      }
+      col -= 1;
+      const row = Number(match[2]) - 1 + a1RowOffset;
+      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+        return null;
+      }
+      return { row, col };
+    };
+
+    const extractFormulaReferenceRangesForAutoFill = (formulaValue, cache)=>{
+      const key = String(formulaValue == null ? '' : formulaValue);
+      const memo = cache instanceof Map ? cache : null;
+      if(memo && memo.has(key)){
+        return memo.get(key);
+      }
+      const formulaNS = Shared.formulaEngine || {};
+      const a1RowOffset = Math.max(0, Number(getFormulaA1RowOffset()) || 0);
+      let ranges = [];
+      if(typeof formulaNS.extractReferences === 'function'){
+        try{
+          const extracted = formulaNS.extractReferences(key, { a1RowOffset });
+          if(Array.isArray(extracted) && extracted.length){
+            ranges = extracted
+              .map(item => ({
+                start: item?.start || null,
+                end: item?.end || null
+              }))
+              .filter(item => item.start && item.end);
+          }
+        }catch(err){
+          ranges = [];
+        }
+      }
+      if(!ranges.length){
+        const tokenRe = /\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?/g;
+        const fallback = [];
+        let match;
+        while((match = tokenRe.exec(key)) !== null){
+          const token = String(match[0] || '');
+          if(!token){
+            continue;
+          }
+          const parts = token.split(':');
+          const start = parseA1LooseForAutoFill(parts[0], a1RowOffset);
+          const end = parseA1LooseForAutoFill(parts[1] || parts[0], a1RowOffset);
+          if(start && end){
+            fallback.push({ start, end });
+          }
+        }
+        ranges = fallback;
+      }
+      if(memo){
+        memo.set(key, ranges);
+      }
+      return ranges;
+    };
+
+    const isFormulaReferenceRangePopulatedForAutoFill = (range)=>{
+      if(!range?.start || !range?.end){
+        return false;
+      }
+      const minRow = Math.min(range.start.row, range.end.row);
+      const maxRow = Math.max(range.start.row, range.end.row);
+      const minCol = Math.min(range.start.col, range.end.col);
+      const maxCol = Math.max(range.start.col, range.end.col);
+      for(let row = minRow; row <= maxRow; row += 1){
+        for(let col = minCol; col <= maxCol; col += 1){
+          const value = typeof instance.__hotGetDisplayDataAtCell === 'function'
+            ? instance.__hotGetDisplayDataAtCell(row, col)
+            : instance.getDataAtCell(row, col);
+          if(!isMeaningfulValue(value)){
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+
+    const resolveFillHandleAutoFillDownTargetRow = (selection)=>{
+      if(!selection){
+        return null;
+      }
+      const visualRowCount = Math.max(0, Number(getVisualRowCount()) || 0);
+      if(visualRowCount <= 0 || selection.to.row >= (visualRowCount - 1)){
+        return null;
+      }
+      const formulaRangeCache = new Map();
+      let hasReferenceDrivenFormula = false;
+      for(let c = selection.from.col; c <= selection.to.col; c += 1){
+        const seedSequence = getSeedSequenceForColumn(selection, c);
+        for(let i = 0; i < seedSequence.length; i += 1){
+          const seedValue = seedSequence[i];
+          if(!isFormulaLikeValue(seedValue)){
+            continue;
+          }
+          const ranges = extractFormulaReferenceRangesForAutoFill(seedValue, formulaRangeCache);
+          if(Array.isArray(ranges) && ranges.length){
+            hasReferenceDrivenFormula = true;
+            break;
+          }
+        }
+        if(hasReferenceDrivenFormula){
+          break;
+        }
+      }
+      if(!hasReferenceDrivenFormula){
+        return null;
+      }
+      let targetEndRow = selection.to.row;
+      for(let targetRow = selection.to.row + 1; targetRow < visualRowCount; targetRow += 1){
+        const targetOffset = targetRow - (selection.to.row + 1);
+        let canFillRow = true;
+        for(let c = selection.from.col; c <= selection.to.col; c += 1){
+          const seedSequence = getSeedSequenceForColumn(selection, c);
+          const seedLength = seedSequence.length;
+          if(seedLength <= 0){
+            continue;
+          }
+          const hasFormulaSeed = seedSequence.some(isFormulaLikeValue);
+          if(!hasFormulaSeed){
+            continue;
+          }
+          const seedIndex = resolveSeedPatternIndex('down', seedLength, targetOffset);
+          const sourceRow = selection.from.row + seedIndex;
+          const sourceValue = seedSequence[seedIndex];
+          if(!isFormulaLikeValue(sourceValue)){
+            continue;
+          }
+          const shiftedFormula = shiftFormulaForFill(sourceValue, targetRow - sourceRow, 0);
+          const ranges = extractFormulaReferenceRangesForAutoFill(shiftedFormula, formulaRangeCache);
+          for(let i = 0; i < ranges.length; i += 1){
+            if(!isFormulaReferenceRangePopulatedForAutoFill(ranges[i])){
+              canFillRow = false;
+              break;
+            }
+          }
+          if(!canFillRow){
+            break;
+          }
+        }
+        if(!canFillRow){
+          break;
+        }
+        targetEndRow = targetRow;
+      }
+      return targetEndRow > selection.to.row ? targetEndRow : null;
+    };
+
+    const applyFillHandleDoubleClickAutoFill = ()=>{
+      const selection = normalizedSelectionRange;
+      if(!selection){
+        return false;
+      }
+      const targetEndRow = resolveFillHandleAutoFillDownTargetRow(selection);
+      if(!Number.isInteger(targetEndRow) || targetEndRow <= selection.to.row){
+        return false;
+      }
+      const targetRows = [];
+      for(let row = selection.to.row + 1; row <= targetEndRow; row += 1){
+        targetRows.push(row);
+      }
+      const changes = collectFillDownChangesForRows(selection, targetRows);
+      if(!changes.length){
+        return false;
+      }
+      instance.setDataAtCell(changes, 'fill:auto');
+      const nextSelection = {
+        from: { row: selection.from.row, col: selection.from.col },
+        to: { row: targetEndRow, col: selection.to.col }
+      };
+      setLastRange(nextSelection);
+      renderAg(instance.gridApi);
+      fireHook('afterSelectionEnd', nextSelection.from.row, nextSelection.from.col, nextSelection.to.row, nextSelection.to.col);
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot fill handle auto-fill applied', {
+          debugLabel,
+          rowsFilled: targetRows.length,
+          fromRow: selection.to.row + 1,
+          toRow: targetEndRow
+        });
+      }
+      return true;
     };
 
     const resetFillHandleDrag = (reason)=>{
@@ -4363,6 +4594,43 @@
       }).join(', ');
       return `<span class="hot-formula-fn-name">${escapeFormulaAssistHtml(spec.name)}</span>(${argsHtml})`;
     };
+    const autoCloseFormulaParentheses = (value)=>{
+      const source = String(value ?? '');
+      const trimmedLeading = source.trimStart();
+      if(!trimmedLeading.startsWith('=')){
+        return source;
+      }
+      const trailingWhitespace = source.match(/\s*$/)?.[0] || '';
+      const coreLength = Math.max(0, source.length - trailingWhitespace.length);
+      const core = source.slice(0, coreLength);
+      let depth = 0;
+      let inString = false;
+      for(let i = 0; i < core.length; i += 1){
+        const ch = core[i];
+        if(ch === '"'){
+          if(inString && core[i + 1] === '"'){
+            i += 1;
+            continue;
+          }
+          inString = !inString;
+          continue;
+        }
+        if(inString){
+          continue;
+        }
+        if(ch === '('){
+          depth += 1;
+          continue;
+        }
+        if(ch === ')' && depth > 0){
+          depth -= 1;
+        }
+      }
+      if(depth <= 0){
+        return source;
+      }
+      return `${core}${')'.repeat(depth)}${trailingWhitespace}`;
+    };
 
     const SharedFormulaCellEditor = function SharedFormulaCellEditor() {};
     SharedFormulaCellEditor.prototype.init = function init(params){
@@ -4596,6 +4864,30 @@
         }
         this.updateFunctionAssist();
       };
+      this.maybeAutoCloseFormulaParenthesesOnCommit = ()=>{
+        if(!this.eInput){
+          return false;
+        }
+        const shouldAutoClose = this.eInput.__hotFormulaAutoCloseParensOnCommit === true;
+        if(!shouldAutoClose){
+          return false;
+        }
+        const current = String(this.eInput.value ?? '');
+        const next = autoCloseFormulaParentheses(current);
+        this.eInput.__hotFormulaAutoCloseParensOnCommit = false;
+        if(next === current){
+          return false;
+        }
+        this.eInput.value = next;
+        try{
+          const caret = next.length;
+          this.eInput.setSelectionRange?.(caret, caret);
+        }catch(err){
+          // best-effort caret placement
+        }
+        this.handleInput();
+        return true;
+      };
       this.handleFocus = ()=>{
         try{
           ensureFormulaOverlayLoop('shared-formula-editor-focus');
@@ -4649,6 +4941,9 @@
             return;
           }
         }
+        if(event.key === 'Enter' || event.key === 'NumpadEnter'){
+          this.maybeAutoCloseFormulaParenthesesOnCommit();
+        }
         if(event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End'){
           win?.setTimeout?.(()=>{
             this.updateFunctionAssist();
@@ -4695,6 +4990,13 @@
       this.updateFunctionAssist?.();
     };
     SharedFormulaCellEditor.prototype.getValue = function getValue(){
+      if(typeof this.maybeAutoCloseFormulaParenthesesOnCommit === 'function'){
+        try{
+          this.maybeAutoCloseFormulaParenthesesOnCommit();
+        }catch(err){
+          // best-effort normalization only
+        }
+      }
       return this.eInput?.value ?? '';
     };
     SharedFormulaCellEditor.prototype.destroy = function destroy(){
@@ -4733,6 +5035,7 @@
         this.fnTooltipRoot.remove?.();
       }
       this.handleInput = null;
+      this.maybeAutoCloseFormulaParenthesesOnCommit = null;
       this.handleFocus = null;
       this.handleBlur = null;
       this.handleKeyDown = null;
@@ -8345,6 +8648,13 @@
         const nextValue = `${current.slice(0, replaceStart)}${reference}${current.slice(replaceEnd)}`;
         const nextCaret = replaceStart + reference.length;
         input.value = nextValue;
+        if(options.markAutoCloseOnCommit === true){
+          try{
+            input.__hotFormulaAutoCloseParensOnCommit = true;
+          }catch(err){
+            // non-critical metadata write
+          }
+        }
         try{
           input.setSelectionRange?.(nextCaret, nextCaret);
         }catch(err){
@@ -8457,7 +8767,8 @@
         const inserted = insertReferenceIntoFormulaInput(state.input, reference, {
           replaceStart: state.replaceStart,
           replaceEnd: state.replaceEnd,
-          probeToken: false
+          probeToken: false,
+          markAutoCloseOnCommit: true
         });
         if(!inserted || inserted.applied !== true){
           return false;
@@ -8514,7 +8825,9 @@
         if(!reference){
           return false;
         }
-        const inserted = insertReferenceIntoFormulaInput(context.input, reference);
+        const inserted = insertReferenceIntoFormulaInput(context.input, reference, {
+          markAutoCloseOnCommit: true
+        });
         if(!inserted || inserted.applied !== true){
           return false;
         }
