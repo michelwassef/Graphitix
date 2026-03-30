@@ -46,6 +46,103 @@
     return { row, col };
   }
 
+  function toA1(row, col, options = {}){
+    const r = Number(row);
+    const c = Number(col);
+    if(!Number.isInteger(r) || r < 0 || !Number.isInteger(c) || c < 0){
+      return null;
+    }
+    const a1RowOffset = Math.max(0, Number(options.a1RowOffset) || 0);
+    const a1Row = r - a1RowOffset + 1;
+    if(!Number.isInteger(a1Row) || a1Row < 1){
+      return null;
+    }
+    return `${colToLabel(c)}${a1Row}`;
+  }
+
+  function shiftFormulaReferences(rawFormula, options = {}){
+    const source = String(rawFormula == null ? '' : rawFormula);
+    const rowDelta = Number.isInteger(Number(options.rowDelta)) ? Number(options.rowDelta) : 0;
+    const colDelta = Number.isInteger(Number(options.colDelta)) ? Number(options.colDelta) : 0;
+    if(!rowDelta && !colDelta){
+      return source;
+    }
+    const clampToBounds = options.clampToBounds !== false;
+    const leadingWhitespaceMatch = source.match(/^\s*/);
+    const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0] : '';
+    const trimmedStart = source.slice(leadingWhitespace.length);
+    if(!trimmedStart.startsWith('=')){
+      return source;
+    }
+    const body = trimmedStart.slice(1);
+    const isAlphaNumUnderscore = ch => /[A-Za-z0-9_]/.test(ch || '');
+    const isLetter = ch => /[A-Za-z]/.test(ch || '');
+    const isDigit = ch => /[0-9]/.test(ch || '');
+
+    const readRefAt = (text, index)=>{
+      let i = index;
+      const tokenStart = i;
+      let absCol = false;
+      if(text[i] === '$'){
+        absCol = true;
+        i += 1;
+      }
+      const colStart = i;
+      while(i < text.length && isLetter(text[i])){
+        i += 1;
+      }
+      if(i === colStart){
+        return null;
+      }
+      let absRow = false;
+      if(text[i] === '$'){
+        absRow = true;
+        i += 1;
+      }
+      const rowStart = i;
+      while(i < text.length && isDigit(text[i])){
+        i += 1;
+      }
+      if(i === rowStart){
+        return null;
+      }
+      const prev = tokenStart > 0 ? text[tokenStart - 1] : '';
+      const next = i < text.length ? text[i] : '';
+      if(isAlphaNumUnderscore(prev) || isAlphaNumUnderscore(next)){
+        return null;
+      }
+      const colLabel = text.slice(colStart, absRow ? (rowStart - 1) : rowStart).toUpperCase();
+      const parsedCol = labelToCol(colLabel);
+      const parsedRow = Number(text.slice(rowStart, i)) - 1;
+      if(!Number.isInteger(parsedCol) || parsedCol < 0 || !Number.isInteger(parsedRow) || parsedRow < 0){
+        return null;
+      }
+      let shiftedCol = absCol ? parsedCol : (parsedCol + colDelta);
+      let shiftedRow = absRow ? parsedRow : (parsedRow + rowDelta);
+      if(clampToBounds){
+        shiftedCol = Math.max(0, shiftedCol);
+        shiftedRow = Math.max(0, shiftedRow);
+      }else if(shiftedCol < 0 || shiftedRow < 0){
+        return null;
+      }
+      const nextToken = `${absCol ? '$' : ''}${colToLabel(shiftedCol)}${absRow ? '$' : ''}${shiftedRow + 1}`;
+      return { end: i, token: nextToken };
+    };
+
+    let out = '';
+    for(let i = 0; i < body.length;){
+      const shifted = readRefAt(body, i);
+      if(shifted){
+        out += shifted.token;
+        i = shifted.end;
+      }else{
+        out += body[i];
+        i += 1;
+      }
+    }
+    return `${leadingWhitespace}=${out}`;
+  }
+
   function parseNumberLike(value){
     if(typeof value === 'number'){
       return Number.isFinite(value) ? value : null;
@@ -609,5 +706,7 @@
   formulaNS.createModel = createModel;
   formulaNS.extractReferences = extractReferences;
   formulaNS.parseA1 = parseA1;
+  formulaNS.toA1 = toA1;
+  formulaNS.shiftFormulaReferences = shiftFormulaReferences;
   formulaNS.colToLabel = colToLabel;
 })(typeof window !== 'undefined' ? window : globalThis);

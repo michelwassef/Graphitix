@@ -660,6 +660,55 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
+    const enableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === true
+      || hotOptions?.enableFormulaReferenceSelection === true;
+    const explicitDisableFormulaReferenceOverlay = overrides?.enableFormulaReferenceOverlay === false
+      || hotOptions?.enableFormulaReferenceOverlay === false;
+    const explicitEnableFormulaReferenceOverlay = overrides?.enableFormulaReferenceOverlay === true
+      || hotOptions?.enableFormulaReferenceOverlay === true;
+    const enableFormulaReferenceOverlay = explicitDisableFormulaReferenceOverlay
+      ? false
+      : (explicitEnableFormulaReferenceOverlay || enableFormulaReferenceSelection);
+    const resolveFormulaReferenceInput = typeof overrides?.resolveFormulaReferenceInput === 'function'
+      ? overrides.resolveFormulaReferenceInput
+      : (typeof hotOptions?.resolveFormulaReferenceInput === 'function' ? hotOptions.resolveFormulaReferenceInput : null);
+    const getFormulaA1RowOffset = ()=>{
+      const overrideOffset = Number(overrides?.formulaA1RowOffset);
+      if(Number.isInteger(overrideOffset) && overrideOffset >= 0){
+        return overrideOffset;
+      }
+      const optionOffset = Number(hotOptions?.formulaA1RowOffset);
+      if(Number.isInteger(optionOffset) && optionOffset >= 0){
+        return optionOffset;
+      }
+      return Math.max(0, Number(headerRowCount) || 0);
+    };
+    const DEFAULT_FORMULA_REFERENCE_OVERLAY_COLORS = Object.freeze([
+      '#1a73e8',
+      '#d93025',
+      '#188038',
+      '#9334e6',
+      '#e37400',
+      '#00897b'
+    ]);
+    const resolveFormulaReferenceOverlayColors = ()=>{
+      const optionColors = Array.isArray(overrides?.formulaReferenceOverlayColors)
+        ? overrides.formulaReferenceOverlayColors
+        : (Array.isArray(hotOptions?.formulaReferenceOverlayColors) ? hotOptions.formulaReferenceOverlayColors : null);
+      if(!optionColors || !optionColors.length){
+        return DEFAULT_FORMULA_REFERENCE_OVERLAY_COLORS.slice();
+      }
+      const sanitized = optionColors
+        .map(value => typeof value === 'string' ? value.trim() : '')
+        .filter(Boolean);
+      return sanitized.length ? sanitized : DEFAULT_FORMULA_REFERENCE_OVERLAY_COLORS.slice();
+    };
+    const formulaReferenceOverlayColors = resolveFormulaReferenceOverlayColors();
+    const formulaReferenceOverlayMaxCells = Number.isFinite(Number(overrides?.formulaReferenceOverlayMaxCells))
+      ? Math.max(1, Math.floor(Number(overrides.formulaReferenceOverlayMaxCells)))
+      : (Number.isFinite(Number(hotOptions?.formulaReferenceOverlayMaxCells))
+        ? Math.max(1, Math.floor(Number(hotOptions.formulaReferenceOverlayMaxCells)))
+        : 2048);
     const colDefEnhancer = typeof overrides?.colDefEnhancer === 'function' ? overrides.colDefEnhancer : null;
     let instance;
     const disableBuiltInPaste = overrides?.disablePaste === true || hotOptions.disablePaste === true;
@@ -995,6 +1044,518 @@
         }
       }
     };
+
+    const formulaReferenceOverlayState = {
+      formulaText: '',
+      ranges: [],
+      a1RowOffset: getFormulaA1RowOffset(),
+      overlayRoot: null,
+      hostRoot: null,
+      docRef: null,
+      winRef: null,
+      listenersAttached: false,
+      scrollHandler: null,
+      resizeHandler: null,
+      focusHandler: null,
+      visibilityHandler: null,
+      mutationObserver: null,
+      frameId: null,
+      frameKind: null,
+      retryTimerId: null,
+      retryCount: 0
+    };
+
+    const isFormulaReferenceOverlayDebugEnabled = ()=>{
+      try{
+        return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+      }catch(err){
+        return false;
+      }
+    };
+
+    const cancelFormulaReferenceOverlayFrame = ()=>{
+      if(formulaReferenceOverlayState.frameId == null){
+        return;
+      }
+      if(formulaReferenceOverlayState.frameKind === 'raf' && typeof global.cancelAnimationFrame === 'function'){
+        global.cancelAnimationFrame(formulaReferenceOverlayState.frameId);
+      }else{
+        global.clearTimeout?.(formulaReferenceOverlayState.frameId);
+      }
+      formulaReferenceOverlayState.frameId = null;
+      formulaReferenceOverlayState.frameKind = null;
+    };
+
+    const cancelFormulaReferenceOverlayRetry = ()=>{
+      if(formulaReferenceOverlayState.retryTimerId == null){
+        return;
+      }
+      global.clearTimeout?.(formulaReferenceOverlayState.retryTimerId);
+      formulaReferenceOverlayState.retryTimerId = null;
+    };
+
+    const clearFormulaReferenceOverlayLayer = ()=>{
+      const layer = formulaReferenceOverlayState.overlayRoot;
+      if(!layer){
+        return;
+      }
+      if(typeof layer.replaceChildren === 'function'){
+        layer.replaceChildren();
+      }else{
+        layer.innerHTML = '';
+      }
+    };
+
+    const removeFormulaReferenceOverlayLayer = ()=>{
+      const layer = formulaReferenceOverlayState.overlayRoot;
+      if(layer && layer.parentNode){
+        layer.parentNode.removeChild(layer);
+      }
+      formulaReferenceOverlayState.overlayRoot = null;
+      formulaReferenceOverlayState.hostRoot = null;
+    };
+
+    const detachFormulaReferenceOverlayListeners = ()=>{
+      if(!formulaReferenceOverlayState.listenersAttached){
+        return;
+      }
+      const hostRoot = formulaReferenceOverlayState.hostRoot;
+      const docRef = formulaReferenceOverlayState.docRef || container?.ownerDocument || document;
+      const winRef = formulaReferenceOverlayState.winRef || docRef?.defaultView || global;
+      const scrollHandler = formulaReferenceOverlayState.scrollHandler;
+      if(hostRoot && scrollHandler){
+        hostRoot.removeEventListener('scroll', scrollHandler, true);
+      }
+      if(winRef && formulaReferenceOverlayState.resizeHandler){
+        winRef.removeEventListener?.('resize', formulaReferenceOverlayState.resizeHandler, true);
+      }
+      if(winRef && formulaReferenceOverlayState.focusHandler){
+        winRef.removeEventListener?.('focus', formulaReferenceOverlayState.focusHandler, true);
+      }
+      if(docRef && formulaReferenceOverlayState.visibilityHandler){
+        docRef.removeEventListener?.('visibilitychange', formulaReferenceOverlayState.visibilityHandler, true);
+      }
+      if(formulaReferenceOverlayState.mutationObserver && typeof formulaReferenceOverlayState.mutationObserver.disconnect === 'function'){
+        try{
+          formulaReferenceOverlayState.mutationObserver.disconnect();
+        }catch(err){
+          // ignore observer disconnect failures
+        }
+      }
+      cancelFormulaReferenceOverlayRetry();
+      formulaReferenceOverlayState.retryCount = 0;
+      formulaReferenceOverlayState.docRef = null;
+      formulaReferenceOverlayState.winRef = null;
+      formulaReferenceOverlayState.focusHandler = null;
+      formulaReferenceOverlayState.visibilityHandler = null;
+      formulaReferenceOverlayState.mutationObserver = null;
+      formulaReferenceOverlayState.resizeHandler = null;
+      formulaReferenceOverlayState.scrollHandler = null;
+      formulaReferenceOverlayState.listenersAttached = false;
+    };
+
+    const scheduleFormulaReferenceOverlayRetry = (reason)=>{
+      if(!formulaReferenceOverlayState.ranges.length){
+        return;
+      }
+      if(formulaReferenceOverlayState.retryCount >= 600){
+        return;
+      }
+      if(formulaReferenceOverlayState.retryTimerId != null){
+        return;
+      }
+      formulaReferenceOverlayState.retryTimerId = global.setTimeout(()=>{
+        formulaReferenceOverlayState.retryTimerId = null;
+        formulaReferenceOverlayState.retryCount += 1;
+        scheduleFormulaReferenceOverlayRender(`retry:${reason || 'unknown'}`);
+      }, 100);
+      if(isFormulaReferenceOverlayDebugEnabled()){
+        console.debug('Debug: Shared.hot formula overlay retry scheduled', {
+          debugLabel,
+          reason: reason || 'unknown',
+          retryCount: formulaReferenceOverlayState.retryCount
+        });
+      }
+    };
+
+    const resolveFormulaReferenceOverlayHost = ()=>{
+      return instance?.rootElement || container || null;
+    };
+
+    const ensureFormulaReferenceOverlayRoot = (hostRoot)=>{
+      if(!hostRoot || !global.document){
+        return null;
+      }
+      const current = formulaReferenceOverlayState.overlayRoot;
+      if(current && current.parentNode && current.parentNode !== hostRoot){
+        current.parentNode.removeChild(current);
+      }
+      if(!formulaReferenceOverlayState.overlayRoot){
+        const layer = global.document.createElement('div');
+        layer.className = 'hot-formula-ref-overlay';
+        layer.setAttribute('aria-hidden', 'true');
+        formulaReferenceOverlayState.overlayRoot = layer;
+      }
+      const computed = global.getComputedStyle?.(hostRoot);
+      if(computed?.position === 'static'){
+        hostRoot.style.position = 'relative';
+      }
+      if(formulaReferenceOverlayState.overlayRoot.parentNode !== hostRoot){
+        hostRoot.appendChild(formulaReferenceOverlayState.overlayRoot);
+      }
+      formulaReferenceOverlayState.hostRoot = hostRoot;
+      return formulaReferenceOverlayState.overlayRoot;
+    };
+
+    const parseFormulaReferenceOverlayA1 = (refText, a1RowOffset)=>{
+      const formulaNS = Shared.formulaEngine || {};
+      const parseA1 = typeof formulaNS.parseA1 === 'function' ? formulaNS.parseA1 : null;
+      if(!parseA1){
+        return null;
+      }
+      const normalizedRef = String(refText || '').replace(/\$/g, '');
+      const parsed = parseA1(normalizedRef);
+      if(!parsed){
+        return null;
+      }
+      const offset = Math.max(0, Number(a1RowOffset) || 0);
+      return {
+        row: parsed.row + offset,
+        col: parsed.col
+      };
+    };
+
+    const extractFormulaReferenceOverlayRanges = (rawFormula, a1RowOffset)=>{
+      const source = typeof rawFormula === 'string' ? rawFormula.trim() : '';
+      if(!source || source[0] !== '='){
+        return [];
+      }
+      const offset = Math.max(0, Number(a1RowOffset) || 0);
+      const formulaNS = Shared.formulaEngine || {};
+      const parsedRanges = typeof formulaNS.extractReferences === 'function'
+        ? formulaNS.extractReferences(source, { a1RowOffset: offset })
+        : [];
+      const fallbackMatches = Array.from(source.toUpperCase().matchAll(/(\$?[A-Z]+\$?[1-9]\d*)(\s*:\s*(\$?[A-Z]+\$?[1-9]\d*))?/g));
+      const fallbackRanges = fallbackMatches.map(match => ({
+        start: parseFormulaReferenceOverlayA1(match[1], offset),
+        end: parseFormulaReferenceOverlayA1(match[3] || match[1], offset)
+      }));
+      const sourceRanges = Array.isArray(parsedRanges) && parsedRanges.length ? parsedRanges : fallbackRanges;
+      const ranges = [];
+      let tokenIndex = 0;
+      for(const entry of sourceRanges){
+        const start = entry?.start || null;
+        const end = entry?.end || start;
+        if(!start || !end){
+          tokenIndex += 1;
+          continue;
+        }
+        const startRow = Number(start.row);
+        const startCol = Number(start.col);
+        const endRow = Number(end.row);
+        const endCol = Number(end.col);
+        if(!Number.isInteger(startRow) || !Number.isInteger(startCol) || !Number.isInteger(endRow) || !Number.isInteger(endCol)){
+          tokenIndex += 1;
+          continue;
+        }
+        if(startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0){
+          tokenIndex += 1;
+          continue;
+        }
+        ranges.push({
+          start: { row: startRow, col: startCol },
+          end: { row: endRow, col: endCol },
+          colorIndex: tokenIndex % formulaReferenceOverlayColors.length
+        });
+        tokenIndex += 1;
+      }
+      return ranges;
+    };
+
+    const expandFormulaReferenceOverlayCells = (ranges)=>{
+      const uniqueCells = new Map();
+      let traversed = 0;
+      for(const range of ranges){
+        const minRow = Math.min(range.start.row, range.end.row);
+        const maxRow = Math.max(range.start.row, range.end.row);
+        const minCol = Math.min(range.start.col, range.end.col);
+        const maxCol = Math.max(range.start.col, range.end.col);
+        for(let row = minRow; row <= maxRow; row += 1){
+          for(let col = minCol; col <= maxCol; col += 1){
+            if(traversed >= formulaReferenceOverlayMaxCells){
+              break;
+            }
+            traversed += 1;
+            const key = `${row}:${col}`;
+            if(!uniqueCells.has(key)){
+              uniqueCells.set(key, { row, col, colorIndex: range.colorIndex });
+            }
+          }
+          if(traversed >= formulaReferenceOverlayMaxCells){
+            break;
+          }
+        }
+        if(traversed >= formulaReferenceOverlayMaxCells){
+          break;
+        }
+      }
+      return Array.from(uniqueCells.values());
+    };
+
+    const mapFormulaReferenceOverlayRowsToDisplayedRows = (gridApi, requiredRows)=>{
+      const rowMap = new Map();
+      if(!gridApi || typeof gridApi.getDisplayedRowCount !== 'function' || typeof gridApi.getDisplayedRowAtIndex !== 'function'){
+        return rowMap;
+      }
+      const needed = requiredRows instanceof Set ? requiredRows : new Set(requiredRows || []);
+      if(!needed.size){
+        return rowMap;
+      }
+      const totalRows = Math.max(0, Number(gridApi.getDisplayedRowCount()) || 0);
+      for(let displayRow = 0; displayRow < totalRows; displayRow += 1){
+        const node = gridApi.getDisplayedRowAtIndex(displayRow);
+        const physicalRow = Number(node?.data?.__rowIndex);
+        if(!Number.isInteger(physicalRow) || !needed.has(physicalRow) || rowMap.has(physicalRow)){
+          continue;
+        }
+        rowMap.set(physicalRow, displayRow);
+        if(rowMap.size >= needed.size){
+          break;
+        }
+      }
+      return rowMap;
+    };
+
+    const selectBestVisibleFormulaReferenceOverlayCell = (hostRoot, displayRow, colId, hostRect)=>{
+      const candidates = hostRoot.querySelectorAll(`.ag-row[row-index="${displayRow}"] .ag-cell[col-id="${colId}"]`);
+      let bestCell = null;
+      let bestArea = 0;
+      candidates.forEach(cellEl => {
+        const rect = cellEl.getBoundingClientRect();
+        if(rect.width <= 1 || rect.height <= 1){
+          return;
+        }
+        const overlapLeft = Math.max(rect.left, hostRect.left);
+        const overlapTop = Math.max(rect.top, hostRect.top);
+        const overlapRight = Math.min(rect.right, hostRect.right);
+        const overlapBottom = Math.min(rect.bottom, hostRect.bottom);
+        const overlapWidth = Math.max(0, overlapRight - overlapLeft);
+        const overlapHeight = Math.max(0, overlapBottom - overlapTop);
+        const area = overlapWidth * overlapHeight;
+        if(area <= bestArea){
+          return;
+        }
+        bestArea = area;
+        bestCell = cellEl;
+      });
+      return bestCell;
+    };
+
+    const renderFormulaReferenceOverlay = ()=>{
+      const ranges = Array.isArray(formulaReferenceOverlayState.ranges)
+        ? formulaReferenceOverlayState.ranges
+        : [];
+      if(!ranges.length){
+        clearFormulaReferenceOverlayLayer();
+        return;
+      }
+      const hostRoot = resolveFormulaReferenceOverlayHost();
+      const gridApi = instance?.gridApi || null;
+      if(!hostRoot || !gridApi){
+        clearFormulaReferenceOverlayLayer();
+        scheduleFormulaReferenceOverlayRetry('host-or-grid-missing');
+        return;
+      }
+      const overlayRoot = ensureFormulaReferenceOverlayRoot(hostRoot);
+      if(!overlayRoot || !global.document){
+        scheduleFormulaReferenceOverlayRetry('overlay-root-missing');
+        return;
+      }
+      const hostRect = hostRoot.getBoundingClientRect();
+      if(hostRect.width <= 1 || hostRect.height <= 1){
+        clearFormulaReferenceOverlayLayer();
+        scheduleFormulaReferenceOverlayRetry('host-rect-zero');
+        return;
+      }
+      const cells = expandFormulaReferenceOverlayCells(ranges);
+      if(!cells.length){
+        clearFormulaReferenceOverlayLayer();
+        return;
+      }
+      const requiredRows = new Set(cells.map(cell => cell.row));
+      const rowMap = mapFormulaReferenceOverlayRowsToDisplayedRows(gridApi, requiredRows);
+      const fragment = global.document.createDocumentFragment();
+      let drawn = 0;
+      cells.forEach(cell => {
+        const displayRow = rowMap.get(cell.row);
+        if(!Number.isInteger(displayRow) || displayRow < 0){
+          return;
+        }
+        const targetCell = selectBestVisibleFormulaReferenceOverlayCell(hostRoot, displayRow, `c${cell.col}`, hostRect);
+        if(!targetCell){
+          return;
+        }
+        const rect = targetCell.getBoundingClientRect();
+        const left = rect.left - hostRect.left + 1;
+        const top = rect.top - hostRect.top + 1;
+        const width = Math.max(0, rect.width - 2);
+        const height = Math.max(0, rect.height - 2);
+        if(width <= 0 || height <= 0){
+          return;
+        }
+        const outline = global.document.createElement('div');
+        outline.className = 'hot-formula-ref-outline';
+        outline.dataset.row = String(cell.row);
+        outline.dataset.col = String(cell.col);
+        outline.dataset.colorIndex = String(cell.colorIndex);
+        outline.style.left = `${left}px`;
+        outline.style.top = `${top}px`;
+        outline.style.width = `${width}px`;
+        outline.style.height = `${height}px`;
+        outline.style.borderColor = formulaReferenceOverlayColors[cell.colorIndex % formulaReferenceOverlayColors.length];
+        fragment.appendChild(outline);
+        drawn += 1;
+      });
+      if(drawn === 0 && rowMap.size > 0){
+        scheduleFormulaReferenceOverlayRetry('drawn-zero');
+      }else{
+        cancelFormulaReferenceOverlayRetry();
+        formulaReferenceOverlayState.retryCount = 0;
+      }
+      if(typeof overlayRoot.replaceChildren === 'function'){
+        overlayRoot.replaceChildren(fragment);
+      }else{
+        overlayRoot.innerHTML = '';
+        overlayRoot.appendChild(fragment);
+      }
+      if(isFormulaReferenceOverlayDebugEnabled()){
+        console.debug('Debug: Shared.hot formula overlay rendered', {
+          debugLabel,
+          formula: formulaReferenceOverlayState.formulaText,
+          ranges: ranges.length,
+          cells: cells.length,
+          drawn
+        });
+      }
+    };
+
+    const scheduleFormulaReferenceOverlayRender = (reason)=>{
+      cancelFormulaReferenceOverlayFrame();
+      if(!formulaReferenceOverlayState.ranges.length){
+        return;
+      }
+      const run = ()=>{
+        formulaReferenceOverlayState.frameId = null;
+        formulaReferenceOverlayState.frameKind = null;
+        renderFormulaReferenceOverlay();
+      };
+      if(typeof global.requestAnimationFrame === 'function'){
+        formulaReferenceOverlayState.frameKind = 'raf';
+        formulaReferenceOverlayState.frameId = global.requestAnimationFrame(run);
+      }else{
+        formulaReferenceOverlayState.frameKind = 'timeout';
+        formulaReferenceOverlayState.frameId = global.setTimeout(run, 0);
+      }
+      if(isFormulaReferenceOverlayDebugEnabled()){
+        console.debug('Debug: Shared.hot formula overlay scheduled', {
+          debugLabel,
+          reason: reason || 'unknown'
+        });
+      }
+    };
+
+    const attachFormulaReferenceOverlayListeners = (hostRoot)=>{
+      if(formulaReferenceOverlayState.listenersAttached || !hostRoot){
+        return;
+      }
+      const docRef = hostRoot.ownerDocument || container?.ownerDocument || document;
+      const winRef = docRef?.defaultView || global;
+      formulaReferenceOverlayState.scrollHandler = ()=>scheduleFormulaReferenceOverlayRender('scroll');
+      formulaReferenceOverlayState.resizeHandler = ()=>scheduleFormulaReferenceOverlayRender('resize');
+      formulaReferenceOverlayState.focusHandler = ()=>scheduleFormulaReferenceOverlayRender('window-focus');
+      formulaReferenceOverlayState.visibilityHandler = ()=>{
+        if(docRef?.visibilityState === 'hidden'){
+          return;
+        }
+        scheduleFormulaReferenceOverlayRender('visibility');
+      };
+      hostRoot.addEventListener('scroll', formulaReferenceOverlayState.scrollHandler, true);
+      winRef.addEventListener?.('resize', formulaReferenceOverlayState.resizeHandler, true);
+      winRef.addEventListener?.('focus', formulaReferenceOverlayState.focusHandler, true);
+      docRef.addEventListener?.('visibilitychange', formulaReferenceOverlayState.visibilityHandler, true);
+      if(typeof global.MutationObserver === 'function'){
+        try{
+          formulaReferenceOverlayState.mutationObserver = new global.MutationObserver(()=>{
+            scheduleFormulaReferenceOverlayRender('mutation');
+          });
+          formulaReferenceOverlayState.mutationObserver.observe(hostRoot, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'row-index', 'col-id']
+          });
+        }catch(err){
+          formulaReferenceOverlayState.mutationObserver = null;
+        }
+      }
+      formulaReferenceOverlayState.docRef = docRef;
+      formulaReferenceOverlayState.winRef = winRef;
+      formulaReferenceOverlayState.listenersAttached = true;
+    };
+
+    const clearFormulaReferenceOverlay = (options = {})=>{
+      formulaReferenceOverlayState.formulaText = '';
+      formulaReferenceOverlayState.ranges = [];
+      cancelFormulaReferenceOverlayFrame();
+      cancelFormulaReferenceOverlayRetry();
+      formulaReferenceOverlayState.retryCount = 0;
+      clearFormulaReferenceOverlayLayer();
+      if(options.keepListeners !== true){
+        detachFormulaReferenceOverlayListeners();
+      }
+      if(options.removeLayer === true){
+        removeFormulaReferenceOverlayLayer();
+      }
+    };
+
+    const setFormulaReferenceOverlay = (rawFormula, options = {})=>{
+      const source = typeof rawFormula === 'string' ? rawFormula.trim() : '';
+      const a1RowOffset = Number.isInteger(Number(options.a1RowOffset))
+        ? Math.max(0, Number(options.a1RowOffset))
+        : getFormulaA1RowOffset();
+      const ranges = extractFormulaReferenceOverlayRanges(source, a1RowOffset);
+      if(!ranges.length){
+        clearFormulaReferenceOverlay({
+          removeLayer: options.removeLayer === true
+        });
+        return false;
+      }
+      const hostRoot = resolveFormulaReferenceOverlayHost();
+      if(!hostRoot){
+        return false;
+      }
+      formulaReferenceOverlayState.formulaText = source;
+      formulaReferenceOverlayState.ranges = ranges;
+      formulaReferenceOverlayState.a1RowOffset = a1RowOffset;
+      cancelFormulaReferenceOverlayRetry();
+      formulaReferenceOverlayState.retryCount = 0;
+      ensureFormulaReferenceOverlayRoot(hostRoot);
+      attachFormulaReferenceOverlayListeners(hostRoot);
+      scheduleFormulaReferenceOverlayRender('formula-input');
+      return true;
+    };
+
+    const refreshFormulaReferenceOverlay = (reason)=>{
+      if(!formulaReferenceOverlayState.ranges.length){
+        return false;
+      }
+      scheduleFormulaReferenceOverlayRender(reason || 'refresh');
+      return true;
+    };
+
+    cleanupFns.push(()=>{
+      clearFormulaReferenceOverlay({ removeLayer: true });
+    });
 
     const ensureFillHandle = ()=>{
       if(fillHandle){
@@ -1503,6 +2064,45 @@
       return results;
     };
 
+    const isFormulaLikeValue = value=>typeof value === 'string' && value.trim().startsWith('=');
+
+    const resolveSeedPatternIndex = (direction, sequenceLength, outputIndex)=>{
+      const len = Math.max(0, Number(sequenceLength) || 0);
+      const idx = Math.max(0, Number(outputIndex) || 0);
+      if(len <= 0){
+        return 0;
+      }
+      if(direction === 'up' || direction === 'left'){
+        return (len - 1 - (idx % len) + len) % len;
+      }
+      return idx % len;
+    };
+
+    const shiftFormulaForFill = (value, rowDelta, colDelta)=>{
+      if(!isFormulaLikeValue(value)){
+        return normalizeFillValue(value);
+      }
+      const formulaNS = Shared.formulaEngine || {};
+      if(typeof formulaNS.shiftFormulaReferences === 'function'){
+        try{
+          const shifted = formulaNS.shiftFormulaReferences(value, { rowDelta, colDelta });
+          if(typeof shifted === 'string' && shifted.trim().startsWith('=')){
+            return shifted;
+          }
+        }catch(err){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot formula fill shift failed', {
+              debugLabel,
+              rowDelta,
+              colDelta,
+              message: err?.message || String(err)
+            });
+          }
+        }
+      }
+      return normalizeFillValue(value);
+    };
+
     const computeFillValues = (seedSequence, direction, count)=>{
       const results = [];
       const total = Math.max(0, Number(count) || 0);
@@ -1724,8 +2324,19 @@
         for(let c = selection.from.col; c <= selection.to.col; c++){
           const seedSequence = getSeedSequenceForColumn(selection, c);
           const fillValues = computeFillValues(seedSequence, direction, targetRows.length);
+          const hasFormulaSeed = seedSequence.some(isFormulaLikeValue);
+          const seedLength = seedSequence.length;
           for(let i = 0; i < targetRows.length; i++){
-            changes.push([targetRows[i], c, fillValues[i]]);
+            let nextValue = fillValues[i];
+            if(hasFormulaSeed && seedLength > 0){
+              const seedIndex = resolveSeedPatternIndex(direction, seedLength, i);
+              const sourceRow = selection.from.row + seedIndex;
+              const sourceValue = seedSequence[seedIndex];
+              if(isFormulaLikeValue(sourceValue)){
+                nextValue = shiftFormulaForFill(sourceValue, targetRows[i] - sourceRow, 0);
+              }
+            }
+            changes.push([targetRows[i], c, nextValue]);
           }
         }
       }else{
@@ -1745,8 +2356,19 @@
         for(let r = selection.from.row; r <= selection.to.row; r++){
           const seedSequence = getSeedSequenceForRow(selection, r);
           const fillValues = computeFillValues(seedSequence, direction, targetCols.length);
+          const hasFormulaSeed = seedSequence.some(isFormulaLikeValue);
+          const seedLength = seedSequence.length;
           for(let i = 0; i < targetCols.length; i++){
-            changes.push([r, targetCols[i], fillValues[i]]);
+            let nextValue = fillValues[i];
+            if(hasFormulaSeed && seedLength > 0){
+              const seedIndex = resolveSeedPatternIndex(direction, seedLength, i);
+              const sourceCol = selection.from.col + seedIndex;
+              const sourceValue = seedSequence[seedIndex];
+              if(isFormulaLikeValue(sourceValue)){
+                nextValue = shiftFormulaForFill(sourceValue, 0, targetCols[i] - sourceCol);
+              }
+            }
+            changes.push([r, targetCols[i], nextValue]);
           }
         }
       }
@@ -4336,6 +4958,9 @@
         }
       }
       scheduleFillHandleUpdate('render');
+      if(formulaReferenceOverlayState.ranges.length){
+        scheduleFormulaReferenceOverlayRender('render');
+      }
     };
 
  
@@ -4468,6 +5093,15 @@
       },
       __hotRefreshHeaderWidths: noop,
       __hotHeaderWidthManager: headerWidthManager,
+      setFormulaReferenceOverlay(rawFormula, options){
+        return setFormulaReferenceOverlay(rawFormula, options);
+      },
+      clearFormulaReferenceOverlay(options){
+        clearFormulaReferenceOverlay(options);
+      },
+      refreshFormulaReferenceOverlay(reason){
+        return refreshFormulaReferenceOverlay(reason);
+      },
       getSettings(){
         return { minRows: rowCount, minCols: colCount };
       },
@@ -5894,6 +6528,8 @@
     const initialSuppressColumnVirtualisation = typeof virtualizationState.suppressColumnVirtualisation === 'boolean'
       ? virtualizationState.suppressColumnVirtualisation
       : undefined;
+    let ensureFormulaOverlayLoop = ()=>{};
+    let stopFormulaOverlayLoop = ()=>{};
     const gridOptions = {
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
@@ -6130,7 +6766,19 @@
         fireHook('afterChange', [[rowIndex, colIndex, event.oldValue, event.newValue]], event.source || 'edit');
         triggerSchedule('afterChange', { source: event.source || 'edit' });
       },
+      onCellEditingStarted(){
+        try{
+          ensureFormulaOverlayLoop('cell-editing-started');
+        }catch(err){
+          // ignore overlay lifecycle errors
+        }
+      },
       onCellEditingStopped(event){
+        try{
+          ensureFormulaOverlayLoop('cell-editing-stopped');
+        }catch(err){
+          // ignore overlay lifecycle errors
+        }
         try{
           if(!enterPressedDuringEdit){
             return;
@@ -6592,6 +7240,364 @@
       const resolveCellCoords = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         return resolveCellCoordsFromNode(target);
+      };
+
+      const colToA1LabelFallback = (col)=>{
+        let n = Number(col);
+        if(!Number.isInteger(n) || n < 0){
+          return 'A';
+        }
+        let out = '';
+        while(n >= 0){
+          out = String.fromCharCode((n % 26) + 65) + out;
+          n = Math.floor(n / 26) - 1;
+        }
+        return out;
+      };
+
+      const resolveFormulaEditingContext = ()=>{
+        if(!enableFormulaReferenceSelection){
+          return null;
+        }
+        let input = null;
+        let editingRow = null;
+        let editingCol = null;
+        let allowExternalInput = false;
+        if(resolveFormulaReferenceInput){
+          try{
+            const resolved = resolveFormulaReferenceInput({
+              instance,
+              container,
+              headerRowCount,
+              getFormulaA1RowOffset
+            });
+            if(resolved && typeof resolved === 'object'){
+              input = resolved.input || null;
+              editingRow = Number(resolved.editingRow);
+              editingCol = Number(resolved.editingCol);
+              allowExternalInput = resolved.allowExternalInput === true;
+            }else if(resolved && resolved.nodeType === 1){
+              input = resolved;
+            }
+          }catch(err){
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot resolveFormulaReferenceInput failed', {
+                debugLabel,
+                message: err?.message || String(err)
+              });
+            }
+          }
+        }
+        if(!input){
+          const active = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(active && isEditableTarget(active)){
+            input = active;
+          }
+        }
+        if(!input){
+          return null;
+        }
+        if(!allowExternalInput && !container.contains(input)){
+          return null;
+        }
+        const textValue = String(input.value ?? '');
+        if(!textValue.trim().startsWith('=')){
+          return null;
+        }
+        if(!(Number.isInteger(editingRow) && editingRow >= 0 && Number.isInteger(editingCol) && editingCol >= 0)){
+          const api = instance?.gridApi;
+          if(api && typeof api.getEditingCells === 'function'){
+            try{
+              const editingCells = api.getEditingCells();
+              const candidate = Array.isArray(editingCells)
+                ? editingCells.find(item => {
+                  const colId = item?.column?.getColId?.() || item?.colId || '';
+                  return typeof colId === 'string' && colId.startsWith('c');
+                })
+                : null;
+              if(candidate){
+                editingRow = Number(candidate.rowIndex);
+                const colId = candidate.column?.getColId?.() || candidate.colId || '';
+                editingCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+              }
+            }catch(err){
+              // ignore editing probe errors
+            }
+          }
+        }
+        if(!Number.isInteger(editingRow) || editingRow < 0 || !Number.isInteger(editingCol) || editingCol < 0){
+          return null;
+        }
+        return { input, editingRow, editingCol };
+      };
+
+      const resolveA1ReferenceForVisualCell = (row, col)=>{
+        const visualRow = Number(row);
+        const visualCol = Number(col);
+        if(!Number.isInteger(visualRow) || visualRow < 0 || !Number.isInteger(visualCol) || visualCol < 0){
+          return null;
+        }
+        const formulaNS = Shared.formulaEngine || {};
+        const rowOffset = getFormulaA1RowOffset();
+        if(typeof formulaNS.toA1 === 'function'){
+          const ref = formulaNS.toA1(visualRow, visualCol, { a1RowOffset: rowOffset });
+          if(typeof ref === 'string' && ref){
+            return ref;
+          }
+          return null;
+        }
+        const a1Row = visualRow - rowOffset + 1;
+        if(!Number.isInteger(a1Row) || a1Row < 1){
+          return null;
+        }
+        const label = typeof formulaNS.colToLabel === 'function'
+          ? formulaNS.colToLabel(visualCol)
+          : colToA1LabelFallback(visualCol);
+        return `${label}${a1Row}`;
+      };
+
+      const insertReferenceIntoFormulaInput = (input, reference)=>{
+        if(!input || typeof reference !== 'string' || !reference){
+          return false;
+        }
+        const current = String(input.value ?? '');
+        if(!current.trim().startsWith('=')){
+          return false;
+        }
+        const length = current.length;
+        const rawStart = Number(input.selectionStart);
+        const rawEnd = Number(input.selectionEnd);
+        const defaultCaret = length;
+        let start = Number.isInteger(rawStart) ? Math.max(0, Math.min(length, rawStart)) : defaultCaret;
+        let end = Number.isInteger(rawEnd) ? Math.max(0, Math.min(length, rawEnd)) : start;
+        if(start > end){
+          const temp = start;
+          start = end;
+          end = temp;
+        }
+        let replaceStart = start;
+        let replaceEnd = end;
+        if(replaceStart === replaceEnd){
+          let left = replaceStart;
+          let right = replaceEnd;
+          const tokenChar = ch => /[A-Za-z0-9$]/.test(ch || '');
+          while(left > 0 && tokenChar(current[left - 1])){
+            left -= 1;
+          }
+          while(right < current.length && tokenChar(current[right])){
+            right += 1;
+          }
+          const token = current.slice(left, right);
+          if(/^\$?[A-Za-z]+\$?\d+$/.test(token)){
+            replaceStart = left;
+            replaceEnd = right;
+          }
+        }
+        const nextValue = `${current.slice(0, replaceStart)}${reference}${current.slice(replaceEnd)}`;
+        const nextCaret = replaceStart + reference.length;
+        input.value = nextValue;
+        try{
+          input.setSelectionRange?.(nextCaret, nextCaret);
+        }catch(err){
+          // best-effort caret placement
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        input.focus?.();
+        return true;
+      };
+
+      const tryInsertFormulaReferenceFromPointer = (event)=>{
+        const context = resolveFormulaEditingContext();
+        if(!context){
+          return false;
+        }
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(target && (target === context.input || context.input.contains?.(target))){
+          return false;
+        }
+        let coords = null;
+        const directCell = target && typeof target.closest === 'function'
+          ? target.closest('.ag-cell[col-id^="c"]')
+          : null;
+        if(directCell){
+          const colId = directCell.getAttribute?.('col-id') || '';
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          const rowAttr = directCell.closest?.('.ag-row')?.getAttribute?.('row-index') || '';
+          const row = parseVisualRowIndex(rowAttr);
+          if(Number.isInteger(row) && row >= 0 && Number.isInteger(col) && col >= 0){
+            coords = { row, col };
+          }
+        }
+        if(!coords){
+          coords = resolveCellCoords(event);
+        }
+        if(!coords){
+          const colId = directCell?.getAttribute?.('col-id') || '';
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          const row = resolveRowIndexFromEvent(event);
+          if(Number.isInteger(row) && row >= 0 && Number.isInteger(col) && col >= 0){
+            coords = { row, col };
+          }
+        }
+        if(!coords){
+          return false;
+        }
+        const reference = resolveA1ReferenceForVisualCell(coords.row, coords.col);
+        if(!reference){
+          return false;
+        }
+        const inserted = insertReferenceIntoFormulaInput(context.input, reference);
+        if(!inserted){
+          return false;
+        }
+        if(enableFormulaReferenceOverlay){
+          setFormulaReferenceOverlay(context.input.value || '', {
+            a1RowOffset: getFormulaA1RowOffset()
+          });
+          ensureFormulaOverlayLoop('pointer-insert');
+        }
+        suppressNextCellClick = true;
+        win?.setTimeout?.(()=>{ suppressNextCellClick = false; }, 50);
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        event.stopImmediatePropagation?.();
+        return true;
+      };
+
+      const hasEditingCellsForCurrentGrid = ()=>{
+        const api = instance?.gridApi;
+        if(!api || typeof api.getEditingCells !== 'function'){
+          return false;
+        }
+        try{
+          const editing = api.getEditingCells();
+          return Array.isArray(editing) && editing.some(item => {
+            const colId = item?.column?.getColId?.() || item?.colId || '';
+            return typeof colId === 'string' && colId.startsWith('c');
+          });
+        }catch(err){
+          return false;
+        }
+      };
+
+      const resolveActiveFormulaOverlayInput = ()=>{
+        let input = null;
+        let allowExternalInput = false;
+        if(resolveFormulaReferenceInput){
+          try{
+            const resolved = resolveFormulaReferenceInput({
+              instance,
+              container,
+              headerRowCount,
+              getFormulaA1RowOffset
+            });
+            if(resolved && typeof resolved === 'object' && resolved.nodeType !== 1){
+              input = resolved.input || null;
+              allowExternalInput = resolved.allowExternalInput === true;
+            }else if(resolved && resolved.nodeType === 1){
+              input = resolved;
+            }
+          }catch(err){
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot resolveActiveFormulaOverlayInput resolver failed', {
+                debugLabel,
+                message: err?.message || String(err)
+              });
+            }
+          }
+        }
+        if(!input){
+          const active = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(active && isEditableTarget(active)){
+            input = active;
+          }
+        }
+        if(!input && typeof container?.querySelector === 'function'){
+          input = container.querySelector('.ag-cell-inline-editing .ag-input-field-input,.ag-cell-inline-editing input,.ag-cell-inline-editing textarea,.ag-cell-inline-editing [contenteditable],.ag-cell-editor .ag-input-field-input,.ag-cell-editor input,.ag-cell-editor textarea,.ag-cell-editor [contenteditable]');
+        }
+        if(!input && hasEditingCellsForCurrentGrid()){
+          const active = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(active && isEditableTarget(active) && typeof active.closest === 'function' && active.closest('.ag-popup-editor,.ag-cell-editor')){
+            input = active;
+          }else{
+            input = doc?.querySelector?.('.ag-popup-editor .ag-input-field-input,.ag-popup-editor input,.ag-popup-editor textarea,.ag-popup-editor [contenteditable]') || null;
+          }
+        }
+        if(!input || !isEditableTarget(input)){
+          return null;
+        }
+        if(container.contains(input) || allowExternalInput){
+          return input;
+        }
+        const isPopupEditorInput = typeof input.closest === 'function' && !!input.closest('.ag-popup-editor,.ag-cell-editor');
+        if(isPopupEditorInput && hasEditingCellsForCurrentGrid()){
+          return input;
+        }
+        return null;
+      };
+
+      const updateFormulaReferenceOverlayFromInput = (input, options = {})=>{
+        if(!enableFormulaReferenceOverlay || !input){
+          return false;
+        }
+        const rawValue = String(input.value ?? '');
+        if(rawValue.trim().startsWith('=')){
+          return setFormulaReferenceOverlay(rawValue, {
+            a1RowOffset: Number.isInteger(Number(options.a1RowOffset))
+              ? Math.max(0, Number(options.a1RowOffset))
+              : getFormulaA1RowOffset()
+          });
+        }
+        return false;
+      };
+
+      let formulaOverlayLoopTimerId = null;
+      const stopFormulaOverlayLoopInternal = ()=>{
+        if(formulaOverlayLoopTimerId == null){
+          return;
+        }
+        win?.clearTimeout?.(formulaOverlayLoopTimerId);
+        formulaOverlayLoopTimerId = null;
+      };
+      const runFormulaOverlayLoop = (reason)=>{
+        formulaOverlayLoopTimerId = null;
+        if(!enableFormulaReferenceOverlay){
+          clearFormulaReferenceOverlay({ removeLayer: true });
+          return;
+        }
+        const input = resolveActiveFormulaOverlayInput();
+        const updated = input
+          ? updateFormulaReferenceOverlayFromInput(input, { a1RowOffset: getFormulaA1RowOffset() })
+          : false;
+        const isEditing = hasEditingCellsForCurrentGrid();
+        if(!updated && !isEditing){
+          clearFormulaReferenceOverlay({ removeLayer: true });
+          return;
+        }
+        formulaOverlayLoopTimerId = win?.setTimeout?.(()=>runFormulaOverlayLoop(`tick:${reason || 'unknown'}`), 80);
+      };
+      ensureFormulaOverlayLoop = (reason)=>{
+        if(!enableFormulaReferenceOverlay){
+          return;
+        }
+        if(formulaOverlayLoopTimerId == null){
+          runFormulaOverlayLoop(reason || 'start');
+        }
+      };
+      stopFormulaOverlayLoop = ()=>{
+        stopFormulaOverlayLoopInternal();
+      };
+
+      const handleFormulaReferenceOverlayInput = ()=>{
+        ensureFormulaOverlayLoop('input');
+      };
+
+      const handleFormulaReferenceOverlayFocusIn = ()=>{
+        ensureFormulaOverlayLoop('focusin');
+      };
+
+      const handleFormulaReferenceOverlayFocusOut = ()=>{
+        ensureFormulaOverlayLoop('focusout');
       };
 
       const selectRowByHeader = (row, extend)=>{
@@ -7326,6 +8332,9 @@
         if(event?.button !== 0){
           return;
         }
+        if(tryInsertFormulaReferenceFromPointer(event)){
+          return;
+        }
         let coords = resolveCellCoords(event);
         if(!coords){
           const target = event?.target && event.target.nodeType === 1 ? event.target : null;
@@ -8012,6 +9021,9 @@
       container.addEventListener('mousedown', handleRowHeaderMouseDown, true);
       container.addEventListener('mousedown', handleColumnHeaderMouseDown, true);
       container.addEventListener('mousedown', handleMouseDown, true);
+      container.addEventListener('input', handleFormulaReferenceOverlayInput, true);
+      container.addEventListener('focusin', handleFormulaReferenceOverlayFocusIn, true);
+      container.addEventListener('focusout', handleFormulaReferenceOverlayFocusOut, true);
       win?.addEventListener?.('mousemove', handleMouseMove, true);
       win?.addEventListener?.('pointermove', handleMouseMove, true);
       win?.addEventListener?.('mouseup', handleMouseUp, true);
@@ -8080,9 +9092,13 @@
         }
       }
       cleanupFns.push(()=>{
+        stopFormulaOverlayLoop();
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleMouseDown, true);
+        container.removeEventListener('input', handleFormulaReferenceOverlayInput, true);
+        container.removeEventListener('focusin', handleFormulaReferenceOverlayFocusIn, true);
+        container.removeEventListener('focusout', handleFormulaReferenceOverlayFocusOut, true);
         win?.removeEventListener?.('mousemove', handleMouseMove, true);
         win?.removeEventListener?.('pointermove', handleMouseMove, true);
         win?.removeEventListener?.('mouseup', handleMouseUp, true);
@@ -8449,6 +9465,31 @@
     return analysis.getRowValues(visualRow, options);
   }
 
+  function setFormulaReferenceOverlayForInstance(instance, rawFormula, options){
+    const inst = resolveInstance(instance);
+    if(!inst || typeof inst.setFormulaReferenceOverlay !== 'function'){
+      return false;
+    }
+    return inst.setFormulaReferenceOverlay(rawFormula, options);
+  }
+
+  function clearFormulaReferenceOverlayForInstance(instance, options){
+    const inst = resolveInstance(instance);
+    if(!inst || typeof inst.clearFormulaReferenceOverlay !== 'function'){
+      return false;
+    }
+    inst.clearFormulaReferenceOverlay(options);
+    return true;
+  }
+
+  function refreshFormulaReferenceOverlayForInstance(instance, reason){
+    const inst = resolveInstance(instance);
+    if(!inst || typeof inst.refreshFormulaReferenceOverlay !== 'function'){
+      return false;
+    }
+    return inst.refreshFormulaReferenceOverlay(reason);
+  }
+
   function refreshHeaderWidths(instance, options){
     const inst = resolveInstance(instance);
     if(!inst){
@@ -8501,6 +9542,9 @@
   hotNS.getIncludedDataMatrix = getIncludedDataMatrix;
   hotNS.getIncludedColumn = getIncludedColumn;
   hotNS.getIncludedRow = getIncludedRow;
+  hotNS.setFormulaReferenceOverlay = setFormulaReferenceOverlayForInstance;
+  hotNS.clearFormulaReferenceOverlay = clearFormulaReferenceOverlayForInstance;
+  hotNS.refreshFormulaReferenceOverlay = refreshFormulaReferenceOverlayForInstance;
   hotNS.refreshHeaderWidths = refreshHeaderWidths;
 
   const isMeaningfulCell = (value) => {

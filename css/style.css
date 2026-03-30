@@ -938,13 +938,13 @@ select {
     outline: 1px dashed rgba(0, 0, 0, 0.35);
     outline-offset: -2px;
 }
-.ag-theme-balham .box-formula-ref-overlay {
+.ag-theme-balham .hot-formula-ref-overlay {
     position: absolute;
     inset: 0;
     pointer-events: none;
     z-index: 7;
 }
-.ag-theme-balham .box-formula-ref-outline {
+.ag-theme-balham .hot-formula-ref-outline {
     position: absolute;
     box-sizing: border-box;
     border: 2px solid #1a73e8;
