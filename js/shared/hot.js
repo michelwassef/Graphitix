@@ -2636,6 +2636,9 @@
     let isDragSelecting = false;
     let dragAnchor = null;
     let suppressNextCellClick = false;
+    let formulaReferenceDragState = null;
+    let formulaReferenceDragLastPointer = null;
+    let formulaReferenceAutoScrollRafId = null;
     let pendingDragCell = null;
     let dragRafPending = false;
     let enterPressedDuringEdit = false;
@@ -8274,13 +8277,31 @@
         return `${label}${a1Row}`;
       };
 
-      const insertReferenceIntoFormulaInput = (input, reference)=>{
+      const resolveA1ReferenceRangeForVisualCells = (start, end)=>{
+        if(!start || !end){
+          return null;
+        }
+        const startRef = resolveA1ReferenceForVisualCell(start.row, start.col);
+        if(!startRef){
+          return null;
+        }
+        const endRef = resolveA1ReferenceForVisualCell(end.row, end.col);
+        if(!endRef){
+          return null;
+        }
+        if(start.row === end.row && start.col === end.col){
+          return startRef;
+        }
+        return `${startRef}:${endRef}`;
+      };
+
+      const insertReferenceIntoFormulaInput = (input, reference, options = {})=>{
         if(!input || typeof reference !== 'string' || !reference){
-          return false;
+          return null;
         }
         const current = String(input.value ?? '');
         if(!current.trim().startsWith('=')){
-          return false;
+          return null;
         }
         const length = current.length;
         const rawStart = Number(input.selectionStart);
@@ -8293,12 +8314,22 @@
           start = end;
           end = temp;
         }
-        let replaceStart = start;
-        let replaceEnd = end;
-        if(replaceStart === replaceEnd){
+        let replaceStart = Number.isInteger(Number(options.replaceStart))
+          ? Math.max(0, Math.min(length, Number(options.replaceStart)))
+          : start;
+        let replaceEnd = Number.isInteger(Number(options.replaceEnd))
+          ? Math.max(0, Math.min(length, Number(options.replaceEnd)))
+          : end;
+        if(replaceStart > replaceEnd){
+          const temp = replaceStart;
+          replaceStart = replaceEnd;
+          replaceEnd = temp;
+        }
+        const shouldProbeToken = options.probeToken !== false;
+        if(shouldProbeToken && replaceStart === replaceEnd){
           let left = replaceStart;
           let right = replaceEnd;
-          const tokenChar = ch => /[A-Za-z0-9$]/.test(ch || '');
+          const tokenChar = ch => /[A-Za-z0-9$:]/.test(ch || '');
           while(left > 0 && tokenChar(current[left - 1])){
             left -= 1;
           }
@@ -8306,7 +8337,7 @@
             right += 1;
           }
           const token = current.slice(left, right);
-          if(/^\$?[A-Za-z]+\$?\d+$/.test(token)){
+          if(/^\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?$/.test(token)){
             replaceStart = left;
             replaceEnd = right;
           }
@@ -8321,18 +8352,18 @@
         }
         input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
         input.focus?.();
-        return true;
+        return {
+          applied: true,
+          replaceStart,
+          replaceEnd: replaceStart + reference.length,
+          nextCaret,
+          value: nextValue
+        };
       };
 
-      const tryInsertFormulaReferenceFromPointer = (event)=>{
-        const context = resolveFormulaEditingContext();
-        if(!context){
-          return false;
-        }
+      const resolveFormulaReferenceCoordsFromPointer = (event, options = {})=>{
+        const fallbackCol = Number(options?.fallbackCol);
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
-        if(target && (target === context.input || context.input.contains?.(target))){
-          return false;
-        }
         let coords = null;
         const directCell = target && typeof target.closest === 'function'
           ? target.closest('.ag-cell[col-id^="c"]')
@@ -8350,6 +8381,23 @@
           coords = resolveCellCoords(event);
         }
         if(!coords){
+          const x = typeof event?.clientX === 'number' ? event.clientX : null;
+          const y = typeof event?.clientY === 'number' ? event.clientY : null;
+          if(x != null && y != null){
+            coords = resolveCellCoordsFromPoint(x, y);
+            if(!coords){
+              const row = estimateRowIndexFromPointer(y);
+              let col = resolveColIndexFromEvent(event);
+              if(!Number.isInteger(col) && Number.isInteger(fallbackCol) && fallbackCol >= 0){
+                col = fallbackCol;
+              }
+              if(Number.isInteger(row) && row >= 0 && Number.isInteger(col) && col >= 0){
+                coords = { row, col };
+              }
+            }
+          }
+        }
+        if(!coords){
           const colId = directCell?.getAttribute?.('col-id') || '';
           const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
           const row = resolveRowIndexFromEvent(event);
@@ -8357,25 +8405,142 @@
             coords = { row, col };
           }
         }
+        return coords;
+      };
+
+      const stopFormulaReferenceDrag = (reason)=>{
+        if(formulaReferenceAutoScrollRafId != null){
+          try{
+            if(typeof win?.cancelAnimationFrame === 'function'){
+              win.cancelAnimationFrame(formulaReferenceAutoScrollRafId);
+            }else{
+              win?.clearTimeout?.(formulaReferenceAutoScrollRafId);
+            }
+          }catch(err){
+            // ignore cancellation errors
+          }
+          formulaReferenceAutoScrollRafId = null;
+        }
+        formulaReferenceDragLastPointer = null;
+        if(!formulaReferenceDragState){
+          return false;
+        }
+        formulaReferenceDragState = null;
+        suppressNextCellClick = true;
+        win?.setTimeout?.(()=>{ suppressNextCellClick = false; }, 80);
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot formula reference drag end', { debugLabel, reason: reason || 'unknown' });
+        }
+        return true;
+      };
+
+      const updateFormulaReferenceDragFromPointer = (event, options = {})=>{
+        const state = formulaReferenceDragState;
+        if(!state?.input || !state?.anchor){
+          return false;
+        }
+        const fallbackCol = Number.isInteger(Number(options?.fallbackCol))
+          ? Number(options.fallbackCol)
+          : (state.current?.col ?? state.anchor.col);
+        const coords = resolveFormulaReferenceCoordsFromPointer(event, { fallbackCol });
         if(!coords){
           return false;
         }
-        const reference = resolveA1ReferenceForVisualCell(coords.row, coords.col);
+        const prev = state.current;
+        if(prev && prev.row === coords.row && prev.col === coords.col){
+          return true;
+        }
+        const reference = resolveA1ReferenceRangeForVisualCells(state.anchor, coords);
+        if(!reference){
+          return false;
+        }
+        const inserted = insertReferenceIntoFormulaInput(state.input, reference, {
+          replaceStart: state.replaceStart,
+          replaceEnd: state.replaceEnd,
+          probeToken: false
+        });
+        if(!inserted || inserted.applied !== true){
+          return false;
+        }
+        state.current = coords;
+        state.replaceStart = inserted.replaceStart;
+        state.replaceEnd = inserted.replaceEnd;
+        if(enableFormulaReferenceOverlay){
+          setFormulaReferenceOverlay(state.input.value || '', {
+            a1RowOffset: getFormulaA1RowOffset()
+          });
+          ensureFormulaOverlayLoop('pointer-range-drag');
+        }
+        return true;
+      };
+
+      const scheduleFormulaReferenceAutoScroll = ()=>{
+        if(formulaReferenceAutoScrollRafId != null){
+          return;
+        }
+        formulaReferenceAutoScrollRafId = raf(()=>{
+          formulaReferenceAutoScrollRafId = null;
+          if(!formulaReferenceDragState){
+            return;
+          }
+          const didScroll = maybeAutoScrollPointer(formulaReferenceDragLastPointer);
+          if(didScroll && formulaReferenceDragLastPointer){
+            updateFormulaReferenceDragFromPointer({
+              clientX: formulaReferenceDragLastPointer.x,
+              clientY: formulaReferenceDragLastPointer.y,
+              target: null
+            }, {
+              fallbackCol: formulaReferenceDragState.current?.col ?? formulaReferenceDragState.anchor?.col
+            });
+          }
+          scheduleFormulaReferenceAutoScroll();
+        });
+      };
+
+      const startFormulaReferenceDragFromPointer = (event)=>{
+        const context = resolveFormulaEditingContext();
+        if(!context){
+          return false;
+        }
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(target && (target === context.input || context.input.contains?.(target))){
+          return false;
+        }
+        const anchorCoords = resolveFormulaReferenceCoordsFromPointer(event);
+        if(!anchorCoords){
+          return false;
+        }
+        const reference = resolveA1ReferenceRangeForVisualCells(anchorCoords, anchorCoords);
         if(!reference){
           return false;
         }
         const inserted = insertReferenceIntoFormulaInput(context.input, reference);
-        if(!inserted){
+        if(!inserted || inserted.applied !== true){
           return false;
         }
+        formulaReferenceDragState = {
+          input: context.input,
+          anchor: anchorCoords,
+          current: anchorCoords,
+          replaceStart: inserted.replaceStart,
+          replaceEnd: inserted.replaceEnd
+        };
+        formulaReferenceDragLastPointer = {
+          x: typeof event?.clientX === 'number' ? event.clientX : null,
+          y: typeof event?.clientY === 'number' ? event.clientY : null
+        };
         if(enableFormulaReferenceOverlay){
           setFormulaReferenceOverlay(context.input.value || '', {
             a1RowOffset: getFormulaA1RowOffset()
           });
-          ensureFormulaOverlayLoop('pointer-insert');
+          ensureFormulaOverlayLoop('pointer-range-start');
         }
-        suppressNextCellClick = true;
-        win?.setTimeout?.(()=>{ suppressNextCellClick = false; }, 50);
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot formula reference drag start', {
+            debugLabel,
+            anchor: anchorCoords
+          });
+        }
         event.preventDefault?.();
         event.stopPropagation?.();
         event.stopImmediatePropagation?.();
@@ -9250,7 +9415,7 @@
         if(event?.button !== 0){
           return;
         }
-        if(tryInsertFormulaReferenceFromPointer(event)){
+        if(startFormulaReferenceDragFromPointer(event)){
           return;
         }
         let coords = resolveCellCoords(event);
@@ -9309,6 +9474,22 @@
           };
           queueFillDragPreviewUpdate(target);
           scheduleFillAutoScroll();
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+          return;
+        }
+        if(formulaReferenceDragState){
+          const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
+          if(buttons !== null && (buttons & 1) !== 1){
+            stopFormulaReferenceDrag('button-up');
+            return;
+          }
+          const clientX = typeof event?.clientX === 'number' ? event.clientX : null;
+          const clientY = typeof event?.clientY === 'number' ? event.clientY : null;
+          formulaReferenceDragLastPointer = { x: clientX, y: clientY };
+          updateFormulaReferenceDragFromPointer(event);
+          scheduleFormulaReferenceAutoScroll();
           event.preventDefault?.();
           event.stopPropagation?.();
           event.stopImmediatePropagation?.();
@@ -9500,6 +9681,10 @@
       };
 
       const handleMouseUp = ()=>{
+        if(formulaReferenceDragState){
+          stopFormulaReferenceDrag('mouseup');
+          return;
+        }
         if(isFillHandleDragging){
           const selection = fillDragStartSelection;
           const preview = normalizedFillPreviewRange;
@@ -10011,6 +10196,7 @@
       }
       cleanupFns.push(()=>{
         stopFormulaOverlayLoop();
+        stopFormulaReferenceDrag('cleanup');
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleMouseDown, true);
