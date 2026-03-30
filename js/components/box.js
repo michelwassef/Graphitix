@@ -11697,6 +11697,7 @@
         debugLabel: 'box',
         data,
         disablePaste: true,
+        enableFormulaEvaluation: false,
         enableFormulaReferenceSelection: true,
         pinFirstRow: true,
         colDefEnhancer(def, meta){

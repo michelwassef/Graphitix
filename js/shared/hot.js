@@ -660,8 +660,13 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
-    const enableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === true
+    const explicitDisableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === false
+      || hotOptions?.enableFormulaReferenceSelection === false;
+    const explicitEnableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === true
       || hotOptions?.enableFormulaReferenceSelection === true;
+    const enableFormulaReferenceSelection = explicitDisableFormulaReferenceSelection
+      ? false
+      : (explicitEnableFormulaReferenceSelection || true);
     const explicitDisableFormulaReferenceOverlay = overrides?.enableFormulaReferenceOverlay === false
       || hotOptions?.enableFormulaReferenceOverlay === false;
     const explicitEnableFormulaReferenceOverlay = overrides?.enableFormulaReferenceOverlay === true
@@ -669,6 +674,13 @@
     const enableFormulaReferenceOverlay = explicitDisableFormulaReferenceOverlay
       ? false
       : (explicitEnableFormulaReferenceOverlay || enableFormulaReferenceSelection);
+    const explicitDisableFormulaEvaluation = overrides?.enableFormulaEvaluation === false
+      || hotOptions?.enableFormulaEvaluation === false;
+    const explicitEnableFormulaEvaluation = overrides?.enableFormulaEvaluation === true
+      || hotOptions?.enableFormulaEvaluation === true;
+    const enableFormulaEvaluation = explicitDisableFormulaEvaluation
+      ? false
+      : (explicitEnableFormulaEvaluation || true);
     const resolveFormulaReferenceInput = typeof overrides?.resolveFormulaReferenceInput === 'function'
       ? overrides.resolveFormulaReferenceInput
       : (typeof hotOptions?.resolveFormulaReferenceInput === 'function' ? hotOptions.resolveFormulaReferenceInput : null);
@@ -860,6 +872,189 @@
     const baseRowCount = rowCount;
     const baseColCount = colCount;
     const dataHandle = { current: data };
+    const formulaEvaluationState = {
+      enabled: !!enableFormulaEvaluation,
+      model: null,
+      dirty: !!enableFormulaEvaluation,
+      headerRows: Math.max(0, Number(headerRowCount) || 0),
+      a1RowOffset: Math.max(0, Number(getFormulaA1RowOffset()) || 0),
+      unavailableLogged: false,
+      createdLogged: false
+    };
+    const isFormulaEvaluationDebugEnabled = ()=>(
+      typeof Shared.isDebugEnabled === 'function'
+      && Shared.isDebugEnabled()
+    );
+    const logFormulaEvaluationDebug = (message, payload)=>{
+      if(!isFormulaEvaluationDebugEnabled()){
+        return;
+      }
+      try{
+        console.debug(message, payload || {});
+      }catch(err){
+        // ignore debug logging failures
+      }
+    };
+    const markFormulaModelDirty = (reason)=>{
+      if(!formulaEvaluationState.enabled){
+        return;
+      }
+      formulaEvaluationState.dirty = true;
+      if(isFormulaEvaluationDebugEnabled()){
+        logFormulaEvaluationDebug('Debug: Shared.hot formula model marked dirty', {
+          debugLabel,
+          reason: reason || 'unspecified'
+        });
+      }
+    };
+    const ensureFormulaModel = (reason)=>{
+      if(!formulaEvaluationState.enabled){
+        return null;
+      }
+      const formulaNS = Shared.formulaEngine || {};
+      if(typeof formulaNS.createModel !== 'function'){
+        if(!formulaEvaluationState.unavailableLogged){
+          formulaEvaluationState.unavailableLogged = true;
+          console.warn('Shared.hot formula evaluation requested but Shared.formulaEngine.createModel is unavailable', { debugLabel });
+        }
+        return null;
+      }
+      const nextHeaderRows = Math.max(0, Number(headerRowCount) || 0);
+      const nextA1RowOffset = Math.max(0, Number(getFormulaA1RowOffset()) || 0);
+      const shouldRecreate = !formulaEvaluationState.model
+        || formulaEvaluationState.headerRows !== nextHeaderRows
+        || formulaEvaluationState.a1RowOffset !== nextA1RowOffset;
+      if(!shouldRecreate){
+        return formulaEvaluationState.model;
+      }
+      formulaEvaluationState.headerRows = nextHeaderRows;
+      formulaEvaluationState.a1RowOffset = nextA1RowOffset;
+      formulaEvaluationState.model = formulaNS.createModel({
+        headerRows: nextHeaderRows,
+        a1RowOffset: nextA1RowOffset,
+        debugLog: (msg, details)=>{
+          if(!isFormulaEvaluationDebugEnabled()){
+            return;
+          }
+          console.debug('Debug: Shared.hot formula model', {
+            debugLabel,
+            reason: reason || 'ensure',
+            message: msg,
+            details: details || null
+          });
+        }
+      });
+      formulaEvaluationState.dirty = true;
+      if(!formulaEvaluationState.createdLogged || isFormulaEvaluationDebugEnabled()){
+        formulaEvaluationState.createdLogged = true;
+        logFormulaEvaluationDebug('Debug: Shared.hot formula model created', {
+          debugLabel,
+          reason: reason || 'ensure',
+          headerRows: nextHeaderRows,
+          a1RowOffset: nextA1RowOffset
+        });
+      }
+      return formulaEvaluationState.model;
+    };
+    const rebuildFormulaModelFromMatrix = (reason)=>{
+      const model = ensureFormulaModel(reason || 'rebuild');
+      if(!model){
+        return false;
+      }
+      try{
+        model.rebuildFromMatrix(dataHandle.current || []);
+        formulaEvaluationState.dirty = false;
+        logFormulaEvaluationDebug('Debug: Shared.hot formula model rebuilt', {
+          debugLabel,
+          reason: reason || 'rebuild',
+          rows: Array.isArray(dataHandle.current) ? dataHandle.current.length : 0,
+          cols: colCount
+        });
+        return true;
+      }catch(err){
+        formulaEvaluationState.dirty = true;
+        console.error('Shared.hot formula model rebuild failed', {
+          debugLabel,
+          reason: reason || 'rebuild',
+          message: err?.message || String(err)
+        });
+        return false;
+      }
+    };
+    const ensureFormulaModelCurrent = (reason)=>{
+      const model = ensureFormulaModel(reason || 'ensure-current');
+      if(!model){
+        return null;
+      }
+      if(formulaEvaluationState.dirty){
+        rebuildFormulaModelFromMatrix(reason || 'ensure-current');
+      }
+      return formulaEvaluationState.model;
+    };
+    const setFormulaModelRawCell = (physicalRow, physicalCol, value, reason)=>{
+      if(!formulaEvaluationState.enabled){
+        return false;
+      }
+      const row = Number(physicalRow);
+      const col = Number(physicalCol);
+      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+        return false;
+      }
+      const model = ensureFormulaModel(reason || 'set-cell');
+      if(!model){
+        return false;
+      }
+      if(formulaEvaluationState.dirty){
+        return false;
+      }
+      try{
+        model.setCellRaw(row, col, value);
+        return true;
+      }catch(err){
+        console.error('Shared.hot formula model setCellRaw failed', {
+          debugLabel,
+          reason: reason || 'set-cell',
+          row,
+          col,
+          message: err?.message || String(err)
+        });
+        formulaEvaluationState.dirty = true;
+        return false;
+      }
+    };
+    const resolveFormulaRawValue = (physicalRow, physicalCol, fallbackValue)=>{
+      if(!formulaEvaluationState.enabled){
+        return fallbackValue;
+      }
+      const row = Number(physicalRow);
+      const col = Number(physicalCol);
+      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+        return fallbackValue;
+      }
+      const model = ensureFormulaModelCurrent('resolve-raw');
+      if(!model){
+        return fallbackValue;
+      }
+      return model.getRawAt(row, col);
+    };
+    const resolveFormulaDisplayValue = (physicalRow, physicalCol, fallbackValue)=>{
+      if(!formulaEvaluationState.enabled){
+        return fallbackValue;
+      }
+      const row = Number(physicalRow);
+      const col = Number(physicalCol);
+      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+        return fallbackValue;
+      }
+      if(isHeaderRow(row)){
+        return fallbackValue;
+      }
+      const model = ensureFormulaModelCurrent('resolve-display');
+      if(!model){
+        return fallbackValue;
+      }
+      return model.getResolvedAt(row, col);
+    };
     recordCall('construct', { containerId: container?.id || null, rows: data.length, cols: colCount });
     const resolveColHeaders = (count)=>{
       if(Array.isArray(colHeadersSetting)){
@@ -2733,6 +2928,33 @@
         matrix[row][col] = direction === 'undo' ? change.prev : change.next;
       }
       dataHandle.current = matrix;
+      let formulaSynchronized = false;
+      if(formulaEvaluationState.enabled){
+        const model = ensureFormulaModelCurrent('apply-physical-changes');
+        if(model){
+          try{
+            for(let i = 0; i < list.length; i += 1){
+              const change = list[i];
+              if(!change){
+                continue;
+              }
+              const row = Number(change.row);
+              const col = Number(change.col);
+              if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+                continue;
+              }
+              model.setCellRaw(row, col, direction === 'undo' ? change.prev : change.next);
+            }
+            formulaEvaluationState.dirty = false;
+            formulaSynchronized = true;
+          }catch(err){
+            formulaSynchronized = false;
+          }
+        }
+        if(!formulaSynchronized){
+          markFormulaModelDirty('apply-physical-changes');
+        }
+      }
       if(matrix.length !== prevRows){
         syncRowData(instance.gridApi);
       }
@@ -2926,6 +3148,7 @@
       }
       data = incoming ? ensureDims(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
       dataHandle.current = data;
+      markFormulaModelDirty('load-data');
       colHeaders = resolveColHeaders(colCount);
       if(explicitExclusions && typeof explicitExclusions === 'object'){
         exclusionController.importState(cloneExclusionState(explicitExclusions));
@@ -3983,6 +4206,97 @@
       }
       return 0;
     };
+    const SharedFormulaCellEditor = function SharedFormulaCellEditor() {};
+    SharedFormulaCellEditor.prototype.init = function init(params){
+      const doc = container?.ownerDocument || document;
+      const input = doc.createElement('input');
+      input.type = 'text';
+      input.className = 'ag-input-field-input ag-text-field-input';
+      input.spellcheck = false;
+      input.autocapitalize = 'off';
+      input.autocomplete = 'off';
+      input.autocorrect = 'off';
+      const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+      const colId = params?.column?.getColId?.() || params?.colDef?.colId || '';
+      const physicalCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+      const rawModelValue = (Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0)
+        ? resolveFormulaRawValue(physicalRow, physicalCol, params?.value ?? '')
+        : (params?.value ?? '');
+      const typedChar = typeof params?.charPress === 'string' && params.charPress.length === 1
+        ? params.charPress
+        : '';
+      const eventKey = typeof params?.eventKey === 'string' ? params.eventKey : '';
+      const hasModifier = !!(params?.event && (params.event.ctrlKey || params.event.metaKey || params.event.altKey));
+      const inferredTypedKey = !typedChar && !hasModifier && eventKey.length === 1
+        ? eventKey
+        : '';
+      const clearOnEditStart = eventKey === 'Backspace' || eventKey === 'Delete';
+      const initialTypedValue = typedChar || inferredTypedKey;
+      this._startedWithTyping = !!initialTypedValue;
+      input.value = initialTypedValue || (clearOnEditStart ? '' : (rawModelValue == null ? '' : String(rawModelValue)));
+      this.eInput = input;
+      this.handleInput = ()=>{
+        try{
+          if(enableFormulaReferenceOverlay){
+            setFormulaReferenceOverlay(this.eInput?.value || '', {
+              a1RowOffset: getFormulaA1RowOffset()
+            });
+          }
+          ensureFormulaOverlayLoop('shared-formula-editor-input');
+        }catch(err){
+          // ignore overlay update failures
+        }
+      };
+      this.handleFocus = ()=>{
+        try{
+          ensureFormulaOverlayLoop('shared-formula-editor-focus');
+        }catch(err){
+          // ignore overlay update failures
+        }
+      };
+      input.addEventListener('input', this.handleInput);
+      input.addEventListener('focus', this.handleFocus);
+      input.addEventListener('blur', this.handleFocus);
+    };
+    SharedFormulaCellEditor.prototype.getGui = function getGui(){ return this.eInput; };
+    SharedFormulaCellEditor.prototype.afterGuiAttached = function afterGuiAttached(){
+      this.eInput?.focus?.();
+      const placeCaretAtEnd = ()=>{
+        const valueLength = this.eInput?.value?.length || 0;
+        try{
+          this.eInput?.setSelectionRange?.(valueLength, valueLength);
+        }catch(err){
+          // caret placement is best-effort only
+        }
+      };
+      placeCaretAtEnd();
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(placeCaretAtEnd);
+      }
+      try{
+        ensureFormulaOverlayLoop('shared-formula-editor-attached');
+      }catch(err){
+        // ignore overlay update failures
+      }
+    };
+    SharedFormulaCellEditor.prototype.getValue = function getValue(){
+      return this.eInput?.value ?? '';
+    };
+    SharedFormulaCellEditor.prototype.destroy = function destroy(){
+      if(this.eInput){
+        if(this.handleInput){
+          this.eInput.removeEventListener('input', this.handleInput);
+        }
+        if(this.handleFocus){
+          this.eInput.removeEventListener('focus', this.handleFocus);
+          this.eInput.removeEventListener('blur', this.handleFocus);
+        }
+      }
+      this.handleInput = null;
+      this.handleFocus = null;
+      this.eInput = null;
+      this._startedWithTyping = false;
+    };
 
     const buildColumnDefs = ()=>{
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
@@ -4133,6 +4447,62 @@
           if(!colDef.headerComponent){
             colDef.headerComponent = HotAgColumnHeader;
           }
+          if(enableFormulaEvaluation){
+            const formulaColIndex = Number(colId.slice(1));
+            if(Number.isInteger(formulaColIndex) && formulaColIndex >= 0){
+              const existingValueGetter = colDef.valueGetter;
+              const existingValueSetter = colDef.valueSetter;
+              colDef.valueGetter = params=>{
+                const fallbackValue = typeof existingValueGetter === 'function'
+                  ? existingValueGetter(params)
+                  : (() => {
+                    const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+                    if(!Number.isInteger(physicalRow) || physicalRow < 0){
+                      return '';
+                    }
+                    const rowValues = Array.isArray(dataHandle.current?.[physicalRow]) ? dataHandle.current[physicalRow] : [];
+                    const value = rowValues[formulaColIndex];
+                    return typeof value === 'undefined' ? '' : value;
+                  })();
+                const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+                if(!Number.isInteger(physicalRow) || physicalRow < 0){
+                  return fallbackValue;
+                }
+                return resolveFormulaDisplayValue(physicalRow, formulaColIndex, fallbackValue);
+              };
+              colDef.valueSetter = params=>{
+                let wrote = true;
+                if(typeof existingValueSetter === 'function'){
+                  wrote = existingValueSetter(params);
+                }else{
+                  const matrix = dataHandle.current;
+                  const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+                  if(!Number.isInteger(physicalRow) || physicalRow < 0){
+                    wrote = false;
+                  }else{
+                    ensureDims(matrix, Math.max(physicalRow + 1, rowCount), Math.max(formulaColIndex + 1, colCount));
+                    matrix[physicalRow][formulaColIndex] = params?.newValue;
+                    dataHandle.current = matrix;
+                    wrote = true;
+                  }
+                }
+                if(wrote === false){
+                  return false;
+                }
+                const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+                const synchronized = Number.isInteger(physicalRow) && physicalRow >= 0
+                  ? setFormulaModelRawCell(physicalRow, formulaColIndex, params?.newValue, 'value-setter')
+                  : false;
+                if(!synchronized){
+                  markFormulaModelDirty('value-setter-fallback');
+                }
+                return true;
+              };
+              if(!colDef.cellEditor && !colDef.cellEditorSelector){
+                colDef.cellEditor = SharedFormulaCellEditor;
+              }
+            }
+          }
         }
         const existing = colDef.cellClassRules && typeof colDef.cellClassRules === 'object'
           ? Object.assign({}, colDef.cellClassRules)
@@ -4269,6 +4639,9 @@
       const withNested = applyNestedHeadersToDefs(enhancedDataColumnDefs);
       return rowHeaderCol ? [rowHeaderCol, ...withNested] : withNested;
     };
+    if(formulaEvaluationState.enabled){
+      rebuildFormulaModelFromMatrix('initial');
+    }
     let columnDefs = buildColumnDefs();
 
     const colIdToIndex = (id)=>{
@@ -4308,6 +4681,52 @@
         return null;
       }
       return col;
+    };
+    const syncFormulaModelForVisualChanges = (changesForHook, reason)=>{
+      if(!formulaEvaluationState.enabled){
+        return;
+      }
+      const list = Array.isArray(changesForHook) ? changesForHook : [];
+      if(!list.length){
+        return;
+      }
+      const model = ensureFormulaModelCurrent(reason || 'sync-visual-changes');
+      if(!model){
+        return;
+      }
+      let synchronized = 0;
+      for(let i = 0; i < list.length; i += 1){
+        const entry = list[i];
+        if(!Array.isArray(entry) || entry.length < 4){
+          continue;
+        }
+        const visualRow = Number(entry[0]);
+        const visualCol = Number(entry[1]);
+        if(!Number.isInteger(visualRow) || visualRow < 0 || !Number.isInteger(visualCol) || visualCol < 0){
+          continue;
+        }
+        const physicalRow = toPhysicalRowIndex(visualRow);
+        const physicalCol = toPhysicalColIndex(visualCol);
+        if(!Number.isInteger(physicalRow) || physicalRow < 0 || !Number.isInteger(physicalCol) || physicalCol < 0){
+          continue;
+        }
+        try{
+          model.setCellRaw(physicalRow, physicalCol, entry[3]);
+          synchronized += 1;
+        }catch(err){
+          markFormulaModelDirty(reason || 'sync-visual-changes-error');
+          return;
+        }
+      }
+      if(synchronized === 0){
+        return;
+      }
+      formulaEvaluationState.dirty = false;
+      logFormulaEvaluationDebug('Debug: Shared.hot formula model synchronized from visual changes', {
+        debugLabel,
+        reason: reason || 'sync-visual-changes',
+        synchronized
+      });
     };
 
     const resolveSelectedColumnSpanForHeader = (colIdx)=>{
@@ -4943,6 +5362,9 @@
         pendingRender = true;
         return;
       }
+      if(formulaEvaluationState.enabled){
+        ensureFormulaModelCurrent('render');
+      }
       if(api && typeof api.refreshHeader === 'function'){
         try{
           api.refreshHeader();
@@ -5025,6 +5447,7 @@
       colCount = cols;
       const newRowData = Array.from({ length: amount }, (_, idx)=>({ __rowIndex: startIndex + idx }));
       rowData.push(...newRowData);
+      markFormulaModelDirty('append-rows');
 
       const api = instance.gridApi;
       let usedTransaction = false;
@@ -5114,6 +5537,7 @@
         let needsRebuild = false;
         let needsSchedule = false;
         let pinConfigChanged = false;
+        let formulaSettingsChanged = false;
         const hasIncomingData = Object.prototype.hasOwnProperty.call(opts, 'data') && Array.isArray(opts.data);
         const existingExclusions = hasIncomingData && preserveExclusionsOnLoad ? exclusionController.exportState() : null;
         const hasMinRows = Number.isFinite(opts.minRows);
@@ -5129,6 +5553,7 @@
               : headerRowIndex;
             if(nextHeaderRowIndex !== headerRowIndex){
               headerRowIndex = nextHeaderRowIndex;
+              formulaSettingsChanged = true;
             }
           }
           if(Object.prototype.hasOwnProperty.call(opts, 'headerRowCount')){
@@ -5137,6 +5562,7 @@
               : headerRowCount;
             if(nextHeaderRowCount !== headerRowCount){
               headerRowCount = nextHeaderRowCount;
+              formulaSettingsChanged = true;
             }
           }
         }
@@ -5232,6 +5658,9 @@
 
         if(needsRebuild){
           colHeaders = resolveColHeaders(colCount);
+        }
+        if(formulaEvaluationState.enabled && (formulaSettingsChanged || needsSync || needsRebuild)){
+          markFormulaModelDirty('update-settings');
         }
         if(needsSync){
           syncRowData(instance.gridApi);
@@ -5491,6 +5920,7 @@
             return;
           }
           dataHandle.current = data;
+          syncFormulaModelForVisualChanges(changesForHook, 'set-data-at-cell:batch');
           if(data.length !== prevRows){
             syncRowData(instance.gridApi);
           }
@@ -5525,6 +5955,10 @@
         }
         data[physicalRow][physicalCol] = value;
         dataHandle.current = data;
+        const synchronized = setFormulaModelRawCell(physicalRow, physicalCol, value, 'set-data-at-cell:single');
+        if(formulaEvaluationState.enabled && !synchronized){
+          markFormulaModelDirty('set-data-at-cell:single');
+        }
         if(colCount !== prevCols){
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
@@ -5620,6 +6054,7 @@
           data.splice(insertAt, 0, ...rows);
           ensureDims(data, data.length, colCount);
           dataHandle.current = data;
+          markFormulaModelDirty('alter:insert-row');
           syncRowData(instance.gridApi);
           fireHook('afterCreateRow', insertAt, safeAmount, changeSource);
           if(shouldScheduleAutoGrowChange(changeSource)){
@@ -5630,6 +6065,7 @@
           exclusionController.shiftRowsForRemoval(Array.from({ length: safeAmount }, (_, idx)=>at + idx));
           ensureDims(data, rowCount, colCount);
           dataHandle.current = data;
+          markFormulaModelDirty('alter:remove-row');
           syncRowData(instance.gridApi);
           fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, changeSource);
           triggerSchedule('afterRemoveRow', { source: changeSource });
@@ -5647,6 +6083,7 @@
             data[r] = row;
           }
           dataHandle.current = data;
+          markFormulaModelDirty('alter:insert-col');
           if(Array.isArray(colHeadersSetting)){
             colHeadersSetting.splice(insertAt, 0, ...Array.from({ length: safeAmount }, ()=>''));
           }
@@ -5675,6 +6112,7 @@
           }
           exclusionController.shiftColsForRemoval(removedCols);
           dataHandle.current = data;
+          markFormulaModelDirty('alter:remove-col');
           colCount = Math.max(MIN_INPUT_COLS, colCount - safeAmount);
           ensureDims(data, data.length, colCount);
           colHeaders = resolveColHeaders(colCount);
@@ -5731,6 +6169,7 @@
           }
         }
         dataHandle.current = data;
+        syncFormulaModelForVisualChanges(changes, 'populate-from-array');
         syncRowData(instance.gridApi);
         rebuildColumns(instance.gridApi);
         if(changes.length){
@@ -5833,6 +6272,7 @@
         if(Array.isArray(value)){
           data = ensureDims(value, rowCount, colCount);
           dataHandle.current = data;
+          markFormulaModelDirty('_data-setter');
           syncRowData(instance.gridApi);
           rebuildColumns(instance.gridApi);
           renderAg(instance.gridApi);
@@ -5854,6 +6294,7 @@
         data = dataHandle.current;
         ensureDims(data, rowCount, colCount);
         dataHandle.current = data;
+        markFormulaModelDirty('_settings-setter');
         syncRowData(instance.gridApi);
         rebuildColumns(instance.gridApi);
         renderAg(instance.gridApi);
@@ -6409,6 +6850,8 @@
         }
         matrix[r] = nextRow;
       }
+      dataHandle.current = matrix;
+      markFormulaModelDirty('column-permutation');
 
       if(Array.isArray(colHeadersSetting)){
         try{
@@ -6756,8 +7199,14 @@
         const rowIndex = resolveVisualRowIndex(event) ?? 0;
         const colId = event?.column?.getColId?.() ?? event?.colId;
         const colIndex = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
+        const physicalRow = event?.node?.data?.__rowIndex;
+        const synchronized = Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(colIndex) && colIndex >= 0
+          ? setFormulaModelRawCell(physicalRow, colIndex, event?.newValue, 'ag-cell-value-changed')
+          : false;
+        if(formulaEvaluationState.enabled && !synchronized){
+          markFormulaModelDirty('ag-cell-value-changed');
+        }
         if(undoLockDepth === 0){
-          const physicalRow = event?.node?.data?.__rowIndex;
           const physicalCol = colIndex;
           if(Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0){
             pushUndoStep(`table:${debugLabel}:edit`, [{ row: physicalRow, col: physicalCol, prev: event.oldValue, next: event.newValue }]);
@@ -6765,6 +7214,9 @@
         }
         fireHook('afterChange', [[rowIndex, colIndex, event.oldValue, event.newValue]], event.source || 'edit');
         triggerSchedule('afterChange', { source: event.source || 'edit' });
+        if(formulaEvaluationState.enabled){
+          renderAg(event?.api || instance?.gridApi);
+        }
       },
       onCellEditingStarted(){
         try{
@@ -6990,6 +7442,7 @@
                       }
                       ensureDims(matrix, matrix.length, colCount);
                       dataHandle.current = matrix;
+                      markFormulaModelDirty('undo-delete-rows-restore');
                       syncRowData(instance.gridApi);
                       if(beforeExclusions){
                         exclusionController.importState(beforeExclusions);
