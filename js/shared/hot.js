@@ -54,6 +54,24 @@
     return Number.isFinite(num) ? num : 0;
   };
 
+  const toExcelColumnLabel = (colIndex)=>{
+    let n = Number(colIndex);
+    if(!Number.isInteger(n) || n < 0){
+      return 'A';
+    }
+    let out = '';
+    while(n >= 0){
+      out = String.fromCharCode((n % 26) + 65) + out;
+      n = Math.floor(n / 26) - 1;
+    }
+    return out;
+  };
+
+  const buildExcelColHeaders = (count)=>{
+    const safeCount = Math.max(0, Number(count) || 0);
+    return Array.from({ length: safeCount }, (_, idx)=>toExcelColumnLabel(idx));
+  };
+
   const parseCellKey = (key)=>{
     if(typeof key !== 'string'){
       return { row: null, col: null };
@@ -1058,7 +1076,7 @@
     recordCall('construct', { containerId: container?.id || null, rows: data.length, cols: colCount });
     const resolveColHeaders = (count)=>{
       if(Array.isArray(colHeadersSetting)){
-        return colHeadersSetting.slice(0, count).concat(Array.from({ length: Math.max(0, count - colHeadersSetting.length) }, (_, idx)=>`Column ${colHeadersSetting.length + idx + 1}`));
+        return colHeadersSetting.slice(0, count).concat(Array.from({ length: Math.max(0, count - colHeadersSetting.length) }, (_, idx)=>toExcelColumnLabel(colHeadersSetting.length + idx)));
       }
       if(typeof colHeadersSetting === 'function'){
         return Array.from({ length: count }, (_, idx)=>{
@@ -1066,14 +1084,14 @@
             const label = colHeadersSetting(idx);
             return label == null ? '' : String(label);
           }catch(err){
-            return `Column ${idx + 1}`;
+            return toExcelColumnLabel(idx);
           }
         });
       }
       if(colHeadersSetting === false){
         return null;
       }
-      return Array.from({ length: count }, (_, idx)=>`Column ${idx + 1}`);
+      return buildExcelColHeaders(count);
     };
     let colHeaders = resolveColHeaders(colCount);
     let colHeadersEnabled = colHeadersSetting !== false;
@@ -5055,7 +5073,7 @@
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
         : Array.from({ length: colCount }, (_, col)=>{
-          const headerName = colHeaders && colHeaders[col] ? colHeaders[col] : `Col ${col + 1}`;
+          const headerName = colHeaders && colHeaders[col] ? colHeaders[col] : toExcelColumnLabel(col);
           return {
             headerName,
             colId: `c${col}`,
@@ -7629,7 +7647,7 @@
           const nextHeaders = new Array(colHeadersSetting.length);
           for(let c = 0; c < colHeadersSetting.length; c++){
             const oldIndex = c < colCount ? permutation[c] : c;
-            nextHeaders[c] = (oldIndex < colHeadersSetting.length) ? colHeadersSetting[oldIndex] : `Column ${c + 1}`;
+            nextHeaders[c] = (oldIndex < colHeadersSetting.length) ? colHeadersSetting[oldIndex] : toExcelColumnLabel(c);
           }
           colHeadersSetting = nextHeaders;
         }catch(err){
@@ -8467,16 +8485,7 @@
       };
 
       const colToA1LabelFallback = (col)=>{
-        let n = Number(col);
-        if(!Number.isInteger(n) || n < 0){
-          return 'A';
-        }
-        let out = '';
-        while(n >= 0){
-          out = String.fromCharCode((n % 26) + 65) + out;
-          n = Math.floor(n / 26) - 1;
-        }
-        return out;
+        return toExcelColumnLabel(col);
       };
 
       const resolveFormulaEditingContext = ()=>{
@@ -10963,6 +10972,8 @@
   hotNS.getIncludedDataMatrix = getIncludedDataMatrix;
   hotNS.getIncludedColumn = getIncludedColumn;
   hotNS.getIncludedRow = getIncludedRow;
+  hotNS.toExcelColumnLabel = toExcelColumnLabel;
+  hotNS.buildExcelColHeaders = buildExcelColHeaders;
   hotNS.setFormulaReferenceOverlay = setFormulaReferenceOverlayForInstance;
   hotNS.clearFormulaReferenceOverlay = clearFormulaReferenceOverlayForInstance;
   hotNS.refreshFormulaReferenceOverlay = refreshFormulaReferenceOverlayForInstance;

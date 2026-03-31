@@ -9292,7 +9292,7 @@
             return def;
           },
           hotOptions: {
-            colHeaders: ['Labels','X values','Y values','Z values'],
+            colHeaders: true,
             beforeKeyDown(){
               lastKeyDownAt = Date.now();
             },
@@ -9915,63 +9915,21 @@
 
       function buildScatterAgColHeaders(hotInstance, options = {}){
         const hot = hotInstance || scatterHot || scatterRefs.hot;
-        if(!hot){
-          return ['Labels', 'X values', 'Y values', 'Z values'];
-        }
-        const data = hot.getData ? (hot.getData() || []) : [];
-        const headerRow = Array.isArray(data[0]) ? data[0] : [];
-        const colCount = typeof hot.countCols === 'function'
+        const colCount = hot && typeof hot.countCols === 'function'
           ? hot.countCols()
-          : Math.max(headerRow.length, SCATTER_SINGLE_FIXED_COLS);
-        const groupedActive = options.forceGrouped === true
-          ? true
-          : isScatterGroupedMode({
-              graphType: options.graphType || scatterCurrentGraphType,
-              tableFormat: options.tableFormat || getScatterReplicateMode()
-            });
-        const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+          : SCATTER_SINGLE_FIXED_COLS;
+        if(typeof Shared.hot?.buildExcelColHeaders === 'function'){
+          return Shared.hot.buildExcelColHeaders(Math.max(colCount, SCATTER_SINGLE_FIXED_COLS));
+        }
         const headers = new Array(Math.max(colCount, SCATTER_SINGLE_FIXED_COLS)).fill('');
-        headers[0] = 'Labels';
-        if(!groupedActive){
-          headers[1] = 'X values';
-          headers[2] = 'Y values';
-          headers[3] = 'Z values';
-          return headers;
-        }
-        const replicates = clampScatterReplicateCount(scatterReplicates);
-        const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
-        const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
-        const usedSeriesCols = computeScatterUsedSeriesColumns(data, { startCol: baseCols, replicates, xReplicatesEnabled });
-        const seriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
-        const baseNames = [];
-        for(let s = 0; s < seriesCount; s += 1){
-          const idx = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled });
-          baseNames.push(inferScatterGroupBaseName(headerRow[idx], `Group ${s + 1}`));
-        }
-        scatterSeriesGroupLabels = normalizeScatterGroupLabels(seriesCount, scatterSeriesGroupLabels, baseNames);
-        for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
-          const col = 1 + xRep;
-          if(xRep === 0){
-            headers[col] = 'X values';
-            continue;
+        for(let col = 0; col < headers.length; col += 1){
+          let n = col;
+          let label = '';
+          while(n >= 0){
+            label = String.fromCharCode((n % 26) + 65) + label;
+            n = Math.floor(n / 26) - 1;
           }
-          const label = headerRow[col] != null ? String(headerRow[col]).trim() : '';
-          headers[col] = label || `X rep ${xRep + 1}`;
-        }
-        for(let s = 0; s < seriesCount; s += 1){
-          const groupLabel = scatterSeriesGroupLabels[s] || `Group ${s + 1}`;
-          for(let rep = 0; rep < replicates; rep += 1){
-            const col = getScatterGroupedSeriesStartCol(s, replicates, { xReplicatesEnabled }) + rep;
-            if(replicates > 1){
-              headers[col] = rep === 0 ? groupLabel : ' ';
-            }else{
-              const raw = headerRow[col] != null ? String(headerRow[col]).trim() : '';
-              headers[col] = raw || groupLabel;
-            }
-          }
-        }
-        for(let col = baseCols + seriesCount * replicates; col < headers.length; col += 1){
-          headers[col] = `Column ${col + 1}`;
+          headers[col] = label || 'A';
         }
         return headers;
       }
