@@ -6610,6 +6610,22 @@
     });
   }
 
+  function removeLegacyGraphControlSections(){
+    const legacyInputIds = ['colorA', 'opacity'];
+    const removedFieldsets = new Set();
+    legacyInputIds.forEach(id => {
+      const input = document.getElementById(id);
+      const fieldset = input?.closest?.('fieldset');
+      if(fieldset && fieldset.parentElement){
+        removedFieldsets.add(fieldset);
+      }
+    });
+    removedFieldsets.forEach(fieldset => {
+      fieldset.remove();
+    });
+    debug('Debug: venn removed legacy graph control sections', { removedCount: removedFieldsets.size });
+  }
+
   venn.init = function init() {
     if (venn.ready) { debugLog('init skipped'); return; }
     const freshState = createInitialState();
@@ -6661,6 +6677,7 @@
         nABC: $('#nABC')
       }
     };
+    removeLegacyGraphControlSections();
     state.ui.countsUI = {
       A: $('#countA'),
       B: $('#countB'),
