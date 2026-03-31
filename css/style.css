@@ -609,6 +609,21 @@ select {
     white-space: nowrap;
     flex: 1 1 auto;
 }
+.ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-col-drag-handle {
+    display: none;
+}
+.ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-sort-indicator {
+    display: none;
+}
+.ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-ag-header {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+}
+.ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-ag-header-label {
+    text-align: center;
+    flex: 0 1 auto;
+}
 .ag-theme-balham .hot-sort-indicator {
     margin-left: auto;
     margin-right: 0;

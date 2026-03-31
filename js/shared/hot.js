@@ -5199,6 +5199,13 @@
             if(Number.isInteger(headerCol) && isHeaderColumnSelected(headerCol)){
               classes.push('hot-selected-column-header');
             }
+            if(Number.isInteger(headerCol) && headerCol >= 0){
+              const headerNameRaw = params?.column?.getColDef?.()?.headerName;
+              const headerName = headerNameRaw == null ? '' : String(headerNameRaw).trim();
+              if(headerName && headerName === toExcelColumnLabel(headerCol)){
+                classes.push('hot-excel-colheader');
+              }
+            }
             return classes.length ? classes.join(' ') : null;
           };
           const widthOverride = columnWidthOverrides.get(colId);

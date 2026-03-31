@@ -17,6 +17,19 @@
     }
   };
 
+  const toExcelColumnLabel = (colIndex)=>{
+    let n = Number(colIndex);
+    if(!Number.isInteger(n) || n < 0){
+      return 'A';
+    }
+    let out = '';
+    while(n >= 0){
+      out = String.fromCharCode((n % 26) + 65) + out;
+      n = Math.floor(n / 26) - 1;
+    }
+    return out;
+  };
+
   agNS.isAvailable = function isAvailable(){
     return !!(global.agGrid && (typeof global.agGrid.createGrid === 'function' || typeof global.agGrid.Grid === 'function'));
   };
@@ -50,7 +63,10 @@
     const columns = [];
     for(let c = 0; c < colCount; c++){
       const fieldId = `c${c}`;
-      const headerName = colHeaders && colHeaders[c] ? colHeaders[c] : `Col ${c + 1}`;
+      const rawHeader = colHeaders ? colHeaders[c] : null;
+      const headerName = rawHeader == null || String(rawHeader).trim() === ''
+        ? toExcelColumnLabel(c)
+        : rawHeader;
       columns.push({
         headerName,
         colId: fieldId,
