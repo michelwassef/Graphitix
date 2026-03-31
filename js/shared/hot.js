@@ -7975,10 +7975,15 @@
           schedulePinnedTopRowSync('body-scroll-follow');
         },
         onColumnResized(params){
-          if(params?.finished === false){
-            return;
+          const apiRef = params?.api || instance?.gridApi;
+          const isFinalResizeEvent = params?.finished !== false;
+          if(isFinalResizeEvent){
+            persistColumnWidthOverrides(apiRef, 'column-resized');
           }
-          persistColumnWidthOverrides(params?.api || instance?.gridApi, 'column-resized');
+          scheduleFillHandleUpdate(isFinalResizeEvent ? 'column-resize-finished' : 'column-resize-live');
+          if(formulaReferenceOverlayState.ranges.length){
+            scheduleFormulaReferenceOverlayRender(isFinalResizeEvent ? 'column-resize-finished' : 'column-resize-live');
+          }
         },
       onCellValueChanged(event){
         const valuesMatch = valuesMatchForChange(event?.oldValue, event?.newValue);

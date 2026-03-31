@@ -64,7 +64,7 @@
     for(let c = 0; c < colCount; c++){
       const fieldId = `c${c}`;
       const rawHeader = colHeaders ? colHeaders[c] : null;
-      const headerName = rawHeader == null || String(rawHeader).trim() === ''
+      const headerName = rawHeader == null || rawHeader === ''
         ? toExcelColumnLabel(c)
         : rawHeader;
       columns.push({
