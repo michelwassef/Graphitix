@@ -905,6 +905,332 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(handle.dataset.pinnedSelection).toBeUndefined();
   });
 
+  test('selection outline does not spill into row headers when center columns in range are hidden behind pinned first column', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlinePinnedLeftHiddenCenterHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-pinned-left-hidden-center',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstColumn: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    container.appendChild(bodyViewport);
+
+    const pinnedLeftViewport = document.createElement('div');
+    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
+    pinnedLeftViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 156,
+      bottom: 320,
+      width: 156,
+      height: 260
+    });
+    bodyViewport.appendChild(pinnedLeftViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    // Deliberately starts at x=0 to simulate center cells geometrically present
+    // under pinned-left overlay while being visually hidden.
+    centerViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for(let rowIndex = 2; rowIndex <= 4; rowIndex += 1){
+      const rowTop = 60 + (rowIndex * 28);
+
+      const pinnedRow = document.createElement('div');
+      pinnedRow.className = 'ag-row';
+      pinnedRow.setAttribute('row-index', String(rowIndex));
+
+      const rowHeaderCell = document.createElement('div');
+      rowHeaderCell.className = 'ag-cell';
+      rowHeaderCell.setAttribute('col-id', '__rowHeader');
+      rowHeaderCell.getBoundingClientRect = () => ({
+        left: 0,
+        top: rowTop,
+        right: 56,
+        bottom: rowTop + 28,
+        width: 56,
+        height: 28
+      });
+      pinnedRow.appendChild(rowHeaderCell);
+
+      const colA = document.createElement('div');
+      colA.className = 'ag-cell hot-selected-cell';
+      colA.setAttribute('col-id', 'c0');
+      colA.setAttribute('row-index', String(rowIndex));
+      colA.getBoundingClientRect = () => makeCellRect(56, rowTop);
+      pinnedRow.appendChild(colA);
+      pinnedLeftViewport.appendChild(pinnedRow);
+
+      const centerRow = document.createElement('div');
+      centerRow.className = 'ag-row';
+      centerRow.setAttribute('row-index', String(rowIndex));
+
+      const hiddenCenterCell = document.createElement('div');
+      hiddenCenterCell.className = 'ag-cell hot-selected-cell';
+      hiddenCenterCell.setAttribute('col-id', 'c1');
+      hiddenCenterCell.setAttribute('row-index', String(rowIndex));
+      hiddenCenterCell.getBoundingClientRect = () => makeCellRect(20, rowTop);
+      centerRow.appendChild(hiddenCenterCell);
+
+      centerViewport.appendChild(centerRow);
+    }
+
+    hot.selectCell(2, 0, 4, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.left).toBe('56px');
+    expect(outline.style.borderRightColor).toBe('transparent');
+  });
+
+  test('topmost pinned-first-column selected cell keeps visible top and side borders despite 1px seam clipping', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlineTopPinnedFirstColumnSeamHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-top-pinned-first-column-seam',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstColumn: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 61, // 1px lower than selected top-row cell top
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 259
+    });
+    container.appendChild(bodyViewport);
+
+    const pinnedLeftViewport = document.createElement('div');
+    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
+    pinnedLeftViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 61,
+      right: 156,
+      bottom: 320,
+      width: 156,
+      height: 259
+    });
+    bodyViewport.appendChild(pinnedLeftViewport);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '0');
+
+    const rowHeaderCell = document.createElement('div');
+    rowHeaderCell.className = 'ag-cell';
+    rowHeaderCell.setAttribute('col-id', '__rowHeader');
+    rowHeaderCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 56,
+      bottom: 88,
+      width: 56,
+      height: 28
+    });
+    row.appendChild(rowHeaderCell);
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell hot-selected-cell';
+    cell.setAttribute('col-id', 'c0');
+    cell.setAttribute('row-index', '0');
+    cell.getBoundingClientRect = () => ({
+      left: 56,
+      top: 60,
+      right: 156,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    pinnedLeftViewport.appendChild(row);
+
+    hot.selectCell(0, 0, 0, 0);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+    expect(outline.style.borderLeftColor).not.toBe('transparent');
+    expect(outline.style.borderRightColor).not.toBe('transparent');
+  });
+
+  test('topmost pinned-first-column selected cell keeps borders even when selected-cell class is not present yet', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlineTopPinnedFirstColumnNoSelectedClassHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-top-pinned-first-column-no-selected-class',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstColumn: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    container.appendChild(bodyViewport);
+
+    const pinnedLeftViewport = document.createElement('div');
+    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
+    pinnedLeftViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 156,
+      bottom: 320,
+      width: 156,
+      height: 260
+    });
+    bodyViewport.appendChild(pinnedLeftViewport);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '0');
+
+    const rowHeaderCell = document.createElement('div');
+    rowHeaderCell.className = 'ag-cell';
+    rowHeaderCell.setAttribute('col-id', '__rowHeader');
+    rowHeaderCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 56,
+      bottom: 88,
+      width: 56,
+      height: 28
+    });
+    row.appendChild(rowHeaderCell);
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell';
+    cell.setAttribute('col-id', 'c0');
+    cell.setAttribute('row-index', '0');
+    cell.getBoundingClientRect = () => ({
+      left: 56,
+      top: 60,
+      right: 156,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    pinnedLeftViewport.appendChild(row);
+
+    hot.selectCell(0, 0, 0, 0);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+    expect(outline.style.borderLeftColor).not.toBe('transparent');
+    expect(outline.style.borderRightColor).not.toBe('transparent');
+  });
+
   test('drag handle drag moves a selected column group together', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

@@ -2103,27 +2103,105 @@
       }
     };
 
-    const isCellRectVisibleInViewport = (cell, rect)=>{
-      if(!cell || !rect || typeof rect !== 'object'){
-        return false;
+    const resolveSelectionOcclusionEdge = (selector, edge)=>{
+      if(!container || typeof container.querySelectorAll !== 'function'){
+        return null;
       }
+      const nodes = container.querySelectorAll(selector);
+      if(!nodes || !nodes.length){
+        return null;
+      }
+      const isLeftEdge = edge === 'left';
+      let resolved = isLeftEdge ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+      let found = false;
+      for(let i = 0; i < nodes.length; i += 1){
+        const node = nodes[i];
+        if(!node || typeof node.getBoundingClientRect !== 'function'){
+          continue;
+        }
+        const rect = node.getBoundingClientRect();
+        if(!rect || rect.width <= 0 || rect.height <= 0){
+          continue;
+        }
+        const raw = rect?.[edge];
+        if(!Number.isFinite(raw)){
+          continue;
+        }
+        resolved = isLeftEdge ? Math.min(resolved, raw) : Math.max(resolved, raw);
+        found = true;
+      }
+      return found ? resolved : null;
+    };
+
+    const resolveSelectionVisibilityContext = ()=>{
+      return {
+        pinnedLeftRight: resolveSelectionOcclusionEdge(
+          '.ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container, .ag-pinned-left-header-viewport, .ag-pinned-left-header, .ag-pinned-left-floating-top',
+          'right'
+        ),
+        pinnedRightLeft: resolveSelectionOcclusionEdge(
+          '.ag-pinned-right-cols-viewport, .ag-pinned-right-cols-container, .ag-pinned-right-header-viewport, .ag-pinned-right-header, .ag-pinned-right-floating-top',
+          'left'
+        )
+      };
+    };
+
+    const resolveVisibleCellRect = (cell, rect, visibilityContext = null)=>{
+      if(!cell || !rect || typeof rect !== 'object'){
+        return null;
+      }
+      let clipLeft = Number.NEGATIVE_INFINITY;
+      let clipTop = Number.NEGATIVE_INFINITY;
+      let clipRight = Number.POSITIVE_INFINITY;
+      let clipBottom = Number.POSITIVE_INFINITY;
       const viewport = resolveFillHandleViewport(cell, { preferPinnedTop: false });
       if(!viewport || typeof viewport.getBoundingClientRect !== 'function'){
-        return true;
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom
+        };
       }
       const viewportRect = viewport.getBoundingClientRect();
-      if(!viewportRect){
-        return true;
+      if(viewportRect){
+        clipLeft = viewportRect.left;
+        clipTop = viewportRect.top;
+        clipRight = viewportRect.right;
+        clipBottom = viewportRect.bottom;
       }
-      const visibleHorizontally = rect.right > (viewportRect.left + 0.5) && rect.left < (viewportRect.right - 0.5);
-      const visibleVertically = rect.bottom > (viewportRect.top + 0.5) && rect.top < (viewportRect.bottom - 0.5);
-      return visibleHorizontally && visibleVertically;
+      const isCenterCell = !!(cell && typeof cell.closest === 'function'
+        && cell.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
+      if(isCenterCell && visibilityContext){
+        const pinnedLeftRight = visibilityContext.pinnedLeftRight;
+        const pinnedRightLeft = visibilityContext.pinnedRightLeft;
+        if(Number.isFinite(pinnedLeftRight)){
+          clipLeft = Math.max(clipLeft, pinnedLeftRight);
+        }
+        if(Number.isFinite(pinnedRightLeft)){
+          clipRight = Math.min(clipRight, pinnedRightLeft);
+        }
+      }
+      const left = Number.isFinite(clipLeft) ? Math.max(rect.left, clipLeft) : rect.left;
+      const top = Number.isFinite(clipTop) ? Math.max(rect.top, clipTop) : rect.top;
+      const right = Number.isFinite(clipRight) ? Math.min(rect.right, clipRight) : rect.right;
+      const bottom = Number.isFinite(clipBottom) ? Math.min(rect.bottom, clipBottom) : rect.bottom;
+      if(!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)){
+        return null;
+      }
+      const visibleHorizontally = right > (left + 0.5);
+      const visibleVertically = bottom > (top + 0.5);
+      if(!visibleHorizontally || !visibleVertically){
+        return null;
+      }
+      return { left, top, right, bottom };
     };
 
     const resolveVisibleSelectionBounds = ()=>{
       if(!container || typeof container.querySelectorAll !== 'function'){
         return null;
       }
+      const visibilityContext = resolveSelectionVisibilityContext();
       const selectedCells = container.querySelectorAll('.ag-cell.hot-selected-cell');
       if(!selectedCells || !selectedCells.length){
         return null;
@@ -2145,19 +2223,131 @@
         if(!rect || rect.width <= 0 || rect.height <= 0){
           continue;
         }
-        if(!isCellRectVisibleInViewport(cell, rect)){
+        const visibleRect = resolveVisibleCellRect(cell, rect, visibilityContext);
+        if(!visibleRect){
           continue;
         }
-        left = Math.min(left, rect.left);
-        top = Math.min(top, rect.top);
-        right = Math.max(right, rect.right);
-        bottom = Math.max(bottom, rect.bottom);
+        left = Math.min(left, visibleRect.left);
+        top = Math.min(top, visibleRect.top);
+        right = Math.max(right, visibleRect.right);
+        bottom = Math.max(bottom, visibleRect.bottom);
         count += 1;
       }
       if(!count){
         return null;
       }
       return { left, top, right, bottom };
+    };
+
+    const resolveSelectionOutlineEdgeVisibility = (selection, visibilityContext, options = {})=>{
+      const visible = {
+        left: false,
+        right: false,
+        top: false,
+        bottom: false
+      };
+      if(!selection || !container || typeof container.querySelectorAll !== 'function'){
+        return visible;
+      }
+      const selectedCells = container.querySelectorAll('.ag-cell.hot-selected-cell');
+      const selectedCellCount = selectedCells ? selectedCells.length : 0;
+      const edgeClipTolerance = 1.5;
+      const isEdgeClipped = (visibleEdge, rawEdge, direction)=>{
+        const raw = Number(rawEdge);
+        const clipped = Number(visibleEdge);
+        if(!Number.isFinite(raw) || !Number.isFinite(clipped)){
+          return true;
+        }
+        if(direction === 'left' || direction === 'top'){
+          return (clipped - raw) > edgeClipTolerance;
+        }
+        return (raw - clipped) > edgeClipTolerance;
+      };
+      const markVisibleFromCell = (cell, row, col, rect)=>{
+        if(!cell || !Number.isInteger(row) || !Number.isInteger(col)){
+          return;
+        }
+        const isCenterCell = !!(cell && typeof cell.closest === 'function'
+          && cell.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
+        const rawRect = (rect && typeof rect === 'object') ? rect : cell.getBoundingClientRect?.();
+        if(!rawRect || rawRect.width <= 0 || rawRect.height <= 0){
+          return;
+        }
+        // Pinned/floating cells define visible boundaries by construction.
+        // Apply occlusion-based suppression only for center-body cells.
+        if(!isCenterCell){
+          if(col === selection.from.col){
+            visible.left = true;
+          }
+          if(col === selection.to.col){
+            visible.right = true;
+          }
+          if(row === selection.from.row){
+            visible.top = true;
+          }
+          if(row === selection.to.row){
+            visible.bottom = true;
+          }
+          return;
+        }
+        const visibleRect = resolveVisibleCellRect(cell, rawRect, visibilityContext);
+        if(!visibleRect){
+          return;
+        }
+        if(col === selection.from.col && !isEdgeClipped(visibleRect.left, rawRect.left, 'left')){
+          visible.left = true;
+        }
+        if(col === selection.to.col && !isEdgeClipped(visibleRect.right, rawRect.right, 'right')){
+          visible.right = true;
+        }
+        if(row === selection.from.row && !isEdgeClipped(visibleRect.top, rawRect.top, 'top')){
+          visible.top = true;
+        }
+        if(row === selection.to.row && !isEdgeClipped(visibleRect.bottom, rawRect.bottom, 'bottom')){
+          visible.bottom = true;
+        }
+      };
+      for(let i = 0; i < selectedCellCount; i += 1){
+        const cell = selectedCells[i];
+        if(!cell || typeof cell.getBoundingClientRect !== 'function'){
+          continue;
+        }
+        if(cell.closest?.('.hot-pinned-ghost-row')){
+          continue;
+        }
+        const colId = cell.getAttribute?.('col-id');
+        const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+        if(!Number.isInteger(col)){
+          continue;
+        }
+        const rowAttr = cell.getAttribute('row-index') ?? cell.closest?.('.ag-row')?.getAttribute?.('row-index');
+        const row = parseVisualRowIndex(rowAttr);
+        if(!Number.isInteger(row)){
+          continue;
+        }
+        if(row < selection.from.row || row > selection.to.row || col < selection.from.col || col > selection.to.col){
+          continue;
+        }
+        const rect = cell.getBoundingClientRect();
+        markVisibleFromCell(cell, row, col, rect);
+        if(visible.left && visible.right && visible.top && visible.bottom){
+          break;
+        }
+      }
+      // Fallback when AG Grid has not yet applied selected-cell classes
+      // (common on certain pinned-row render paths): infer edge visibility
+      // from the actual start/end selected cells.
+      const startCell = options.startCell;
+      const endCell = options.endCell;
+      const startRectRaw = options.startRectRaw;
+      const endRectRaw = options.endRectRaw;
+      if((!visible.left || !visible.top) && startCell){
+        markVisibleFromCell(startCell, selection.from.row, selection.from.col, startRectRaw);
+      }
+      if((!visible.right || !visible.bottom) && endCell){
+        markVisibleFromCell(endCell, selection.to.row, selection.to.col, endRectRaw);
+      }
+      return visible;
     };
 
     const updateSelectionOutlinePosition = ()=>{
@@ -2172,10 +2362,11 @@
       }
       const startCell = resolveFillHandleCell(selection.from.row, selection.from.col);
       const endCell = resolveFillHandleCell(selection.to.row, selection.to.col);
+      const visibilityContext = resolveSelectionVisibilityContext();
       const startRectRaw = startCell?.getBoundingClientRect?.() || null;
       const endRectRaw = endCell?.getBoundingClientRect?.() || null;
-      const startRect = (startRectRaw && isCellRectVisibleInViewport(startCell, startRectRaw)) ? startRectRaw : null;
-      const endRect = (endRectRaw && isCellRectVisibleInViewport(endCell, endRectRaw)) ? endRectRaw : null;
+      const startRect = resolveVisibleCellRect(startCell, startRectRaw, visibilityContext);
+      const endRect = resolveVisibleCellRect(endCell, endRectRaw, visibilityContext);
       const hostRect = container?.getBoundingClientRect?.();
       if(!hostRect){
         hideSelectionOutline();
@@ -2196,10 +2387,35 @@
         hideSelectionOutline();
         return false;
       }
+      const isNodeInPinnedLeft = (node)=>!!(node && typeof node.closest === 'function'
+        && node.closest('.ag-pinned-left, .ag-pinned-left-header, .ag-pinned-left-header-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container'));
+      const isNodeInPinnedTop = (node)=>!!(node && typeof node.closest === 'function'
+        && node.closest('.ag-pinned-top, .ag-floating-top, .ag-pinned-top-viewport, .ag-floating-top-viewport'));
+      const selectionInsidePinnedLeft = isNodeInPinnedLeft(startCell) && isNodeInPinnedLeft(endCell);
+      const selectionInsidePinnedTop = isNodeInPinnedTop(startCell) && isNodeInPinnedTop(endCell);
+      const selectionIncludesPinnedDataColumn = !!(pinFirstDataColumn
+        && Number.isInteger(selection.from?.col)
+        && Number.isInteger(selection.to?.col)
+        && selection.from.col <= 0
+        && selection.to.col >= 0);
       let left = bounds.left - hostRect.left - 1;
       let top = bounds.top - hostRect.top - 1;
       let right = bounds.right - hostRect.left + 1;
       let bottom = bounds.bottom - hostRect.top + 1;
+      // Pinned containers clip outside-paint aggressively; keep outline edges
+      // inside their real cell bounds so top/side borders remain visible.
+      if(selectionInsidePinnedLeft){
+        left = Math.max(left, bounds.left - hostRect.left);
+        right = Math.min(right, bounds.right - hostRect.left);
+      }
+      if(selectionInsidePinnedTop){
+        top = Math.max(top, bounds.top - hostRect.top);
+        bottom = Math.min(bottom, bounds.bottom - hostRect.top);
+      }
+      // Keep first pinned data-column selections out of row-header space.
+      if(selectionIncludesPinnedDataColumn){
+        left = Math.max(left, bounds.left - hostRect.left);
+      }
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
       if(width <= 0 || height <= 0){
@@ -2210,20 +2426,23 @@
         && Number.isInteger(selection.from?.row)
         && selection.from.row >= 0
         && selection.from.row < pinRowCount);
-      const isNodeInPinnedLeft = (node)=>!!(node && typeof node.closest === 'function'
-        && node.closest('.ag-pinned-left, .ag-pinned-left-header, .ag-pinned-left-header-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container'));
-      const selectionInsidePinnedLeft = isNodeInPinnedLeft(startCell) && isNodeInPinnedLeft(endCell);
-      const selectionIncludesPinnedDataColumn = !!(pinFirstDataColumn
-        && Number.isInteger(selection.from?.col)
-        && Number.isInteger(selection.to?.col)
-        && selection.from.col <= 0
-        && selection.to.col >= 0);
       const shouldOverlayPinnedLeft = selectionInsidePinnedLeft || selectionIncludesPinnedDataColumn;
+      const edgeVisibility = resolveSelectionOutlineEdgeVisibility(selection, visibilityContext, {
+        startCell,
+        endCell,
+        startRectRaw,
+        endRectRaw
+      });
+      const outlineColor = 'var(--hot-selection-outline-color, #107c41)';
       outline.style.display = 'block';
       outline.style.left = `${left}px`;
       outline.style.top = `${top}px`;
       outline.style.width = `${width}px`;
       outline.style.height = `${height}px`;
+      outline.style.borderLeftColor = edgeVisibility.left ? outlineColor : 'transparent';
+      outline.style.borderRightColor = edgeVisibility.right ? outlineColor : 'transparent';
+      outline.style.borderTopColor = edgeVisibility.top ? outlineColor : 'transparent';
+      outline.style.borderBottomColor = edgeVisibility.bottom ? outlineColor : 'transparent';
       // Keep body-range outlines below pinned/header layers so they get masked
       // naturally during scroll; keep pinned-range/pinned-column outlines above.
       outline.style.zIndex = shouldOverlayPinnedLeft ? '7' : (isPinnedSelectionRange ? '5' : '2');
@@ -2293,7 +2512,20 @@
           && markerRect.right <= (viewportRect.right + edgeTolerance)
           && markerRect.top >= (viewportRect.top - edgeTolerance)
           && markerRect.bottom <= (viewportRect.bottom + edgeTolerance);
-        if(!markerInsideViewport){
+        let allowHandle = markerInsideViewport;
+        if(!allowHandle && isPinnedSelectionRow){
+          // Pinned/floating top sections often clip by 1px at container seams.
+          // Keep the handle visible when its anchor corner is still inside.
+          const centerTolerance = Math.max(1, Math.min(handleWidth, handleHeight) / 2);
+          const anchorInsideViewport = cellRect.right >= (viewportRect.left - centerTolerance)
+            && cellRect.right <= (viewportRect.right + centerTolerance)
+            && cellRect.bottom >= (viewportRect.top - centerTolerance)
+            && cellRect.bottom <= (viewportRect.bottom + centerTolerance);
+          if(anchorInsideViewport){
+            allowHandle = true;
+          }
+        }
+        if(!allowHandle){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             console.debug('Debug: Shared.hot fill handle hidden (marker overlaps viewport boundary)', {
               debugLabel,
@@ -5852,9 +6084,13 @@
         if(!scope || typeof scope.querySelector !== 'function'){
           return null;
         }
-        return scope.querySelector('.ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-center-cols-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-right-cols-viewport');
+        return scope.querySelector('.ag-pinned-left-floating-top, .ag-pinned-right-floating-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-center-cols-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-right-cols-viewport');
       };
       if(cell && typeof cell.closest === 'function'){
+        const scopedPinnedFloatingViewport = cell.closest('.ag-pinned-left-floating-top, .ag-pinned-right-floating-top');
+        if(scopedPinnedFloatingViewport){
+          return scopedPinnedFloatingViewport;
+        }
         const scopedFloatingViewport = cell.closest('.ag-floating-top-viewport, .ag-pinned-top-viewport');
         if(scopedFloatingViewport){
           return scopedFloatingViewport;
@@ -5881,6 +6117,8 @@
       }
       if(preferPinnedTop){
         const globalFloatingViewport = container.querySelector('.ag-floating-top-viewport, .ag-pinned-top-viewport')
+          || container.querySelector('.ag-floating-top .ag-pinned-left-floating-top, .ag-pinned-top .ag-pinned-left-floating-top')
+          || container.querySelector('.ag-floating-top .ag-pinned-right-floating-top, .ag-pinned-top .ag-pinned-right-floating-top')
           || container.querySelector('.ag-floating-top .ag-center-cols-viewport, .ag-pinned-top .ag-center-cols-viewport')
           || container.querySelector('.ag-floating-top .ag-pinned-left-cols-viewport, .ag-pinned-top .ag-pinned-left-cols-viewport')
           || container.querySelector('.ag-floating-top .ag-pinned-right-cols-viewport, .ag-pinned-top .ag-pinned-right-cols-viewport')
