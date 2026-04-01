@@ -1344,6 +1344,17 @@ select {
     box-shadow: none !important;
 }
 
+/* Keep native scrollbars above custom selection overlays so outlines are
+   visually occluded instead of being geometrically clipped. */
+.ag-theme-balham .ag-body-vertical-scroll,
+.ag-theme-balham .ag-body-vertical-scroll-viewport,
+.ag-theme-balham .ag-body-horizontal-scroll,
+.ag-theme-balham .ag-body-horizontal-scroll-viewport {
+    position: relative;
+    z-index: 8;
+    background-color: #f3f3f3 !important;
+}
+
 /* Defensive: kill any remaining header separator pseudo-elements */
 .ag-theme-balham .ag-header::after,
 .ag-theme-balham .ag-header-viewport::after,

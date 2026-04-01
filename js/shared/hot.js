@@ -2124,21 +2124,28 @@
         hideSelectionOutline();
         return false;
       }
-      const left = Math.min(startRect.left, endRect.left) - hostRect.left - 1;
-      const top = Math.min(startRect.top, endRect.top) - hostRect.top - 1;
-      const right = Math.max(startRect.right, endRect.right) - hostRect.left + 1;
-      const bottom = Math.max(startRect.bottom, endRect.bottom) - hostRect.top + 1;
+      let left = Math.min(startRect.left, endRect.left) - hostRect.left - 1;
+      let top = Math.min(startRect.top, endRect.top) - hostRect.top - 1;
+      let right = Math.max(startRect.right, endRect.right) - hostRect.left + 1;
+      let bottom = Math.max(startRect.bottom, endRect.bottom) - hostRect.top + 1;
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
       if(width <= 0 || height <= 0){
         hideSelectionOutline();
         return false;
       }
+      const isPinnedSelectionRange = !!(usePinnedRows
+        && Number.isInteger(selection.from?.row)
+        && selection.from.row >= 0
+        && selection.from.row < pinRowCount);
       outline.style.display = 'block';
       outline.style.left = `${left}px`;
       outline.style.top = `${top}px`;
       outline.style.width = `${width}px`;
       outline.style.height = `${height}px`;
+      // Keep body-range outlines below pinned/header layers so they get masked
+      // naturally during scroll; keep pinned-range outlines above pinned rows.
+      outline.style.zIndex = isPinnedSelectionRange ? '5' : '2';
       return true;
     };
 
