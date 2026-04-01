@@ -458,7 +458,9 @@
       console.debug('Debug: ensureHotWrapperStyles skipped - no wrapper');
       return;
     }
-    wrapper.style.overflow = 'auto';
+    wrapper.style.overflow = 'hidden';
+    wrapper.style.overflowX = 'hidden';
+    wrapper.style.overflowY = 'hidden';
     wrapper.style.width = '100%';
     wrapper.style.maxWidth = '100%';
     wrapper.style.minWidth = '0';
