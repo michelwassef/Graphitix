@@ -2103,6 +2103,43 @@
       }
     };
 
+    const resolveVisibleSelectionBounds = ()=>{
+      if(!container || typeof container.querySelectorAll !== 'function'){
+        return null;
+      }
+      const selectedCells = container.querySelectorAll('.ag-cell.hot-selected-cell');
+      if(!selectedCells || !selectedCells.length){
+        return null;
+      }
+      let left = Number.POSITIVE_INFINITY;
+      let top = Number.POSITIVE_INFINITY;
+      let right = Number.NEGATIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      let count = 0;
+      for(let i = 0; i < selectedCells.length; i += 1){
+        const cell = selectedCells[i];
+        if(!cell || typeof cell.getBoundingClientRect !== 'function'){
+          continue;
+        }
+        if(cell.closest?.('.hot-pinned-ghost-row')){
+          continue;
+        }
+        const rect = cell.getBoundingClientRect();
+        if(!rect || rect.width <= 0 || rect.height <= 0){
+          continue;
+        }
+        left = Math.min(left, rect.left);
+        top = Math.min(top, rect.top);
+        right = Math.max(right, rect.right);
+        bottom = Math.max(bottom, rect.bottom);
+        count += 1;
+      }
+      if(!count){
+        return null;
+      }
+      return { left, top, right, bottom };
+    };
+
     const updateSelectionOutlinePosition = ()=>{
       const selection = normalizedSelectionRange;
       if(!selection){
@@ -2115,21 +2152,32 @@
       }
       const startCell = resolveFillHandleCell(selection.from.row, selection.from.col);
       const endCell = resolveFillHandleCell(selection.to.row, selection.to.col);
-      if(!startCell || !endCell){
-        hideSelectionOutline();
-        return false;
-      }
-      const startRect = startCell.getBoundingClientRect?.();
-      const endRect = endCell.getBoundingClientRect?.();
+      const startRect = startCell?.getBoundingClientRect?.() || null;
+      const endRect = endCell?.getBoundingClientRect?.() || null;
       const hostRect = container?.getBoundingClientRect?.();
-      if(!startRect || !endRect || !hostRect){
+      if(!hostRect){
         hideSelectionOutline();
         return false;
       }
-      let left = Math.min(startRect.left, endRect.left) - hostRect.left - 1;
-      let top = Math.min(startRect.top, endRect.top) - hostRect.top - 1;
-      let right = Math.max(startRect.right, endRect.right) - hostRect.left + 1;
-      let bottom = Math.max(startRect.bottom, endRect.bottom) - hostRect.top + 1;
+      let bounds = null;
+      if(startRect && endRect){
+        bounds = {
+          left: Math.min(startRect.left, endRect.left),
+          top: Math.min(startRect.top, endRect.top),
+          right: Math.max(startRect.right, endRect.right),
+          bottom: Math.max(startRect.bottom, endRect.bottom)
+        };
+      }else{
+        bounds = resolveVisibleSelectionBounds();
+      }
+      if(!bounds){
+        hideSelectionOutline();
+        return false;
+      }
+      let left = bounds.left - hostRect.left - 1;
+      let top = bounds.top - hostRect.top - 1;
+      let right = bounds.right - hostRect.left + 1;
+      let bottom = bounds.bottom - hostRect.top + 1;
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
       if(width <= 0 || height <= 0){
@@ -2140,14 +2188,23 @@
         && Number.isInteger(selection.from?.row)
         && selection.from.row >= 0
         && selection.from.row < pinRowCount);
+      const isNodeInPinnedLeft = (node)=>!!(node && typeof node.closest === 'function'
+        && node.closest('.ag-pinned-left, .ag-pinned-left-header, .ag-pinned-left-header-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container'));
+      const selectionInsidePinnedLeft = isNodeInPinnedLeft(startCell) && isNodeInPinnedLeft(endCell);
+      const selectionIncludesPinnedDataColumn = !!(pinFirstDataColumn
+        && Number.isInteger(selection.from?.col)
+        && Number.isInteger(selection.to?.col)
+        && selection.from.col <= 0
+        && selection.to.col >= 0);
+      const shouldOverlayPinnedLeft = selectionInsidePinnedLeft || selectionIncludesPinnedDataColumn;
       outline.style.display = 'block';
       outline.style.left = `${left}px`;
       outline.style.top = `${top}px`;
       outline.style.width = `${width}px`;
       outline.style.height = `${height}px`;
       // Keep body-range outlines below pinned/header layers so they get masked
-      // naturally during scroll; keep pinned-range outlines above pinned rows.
-      outline.style.zIndex = isPinnedSelectionRange ? '5' : '2';
+      // naturally during scroll; keep pinned-range/pinned-column outlines above.
+      outline.style.zIndex = shouldOverlayPinnedLeft ? '7' : (isPinnedSelectionRange ? '5' : '2');
       return true;
     };
 

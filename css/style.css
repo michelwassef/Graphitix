@@ -945,7 +945,10 @@ select {
     background: transparent;
 }
 .ag-theme-balham .ag-cell.hot-selected-range-fill {
-    background: rgba(0, 0, 0, 0.16);
+    background: rgba(0, 0, 0, 0.10);
+    background-clip: padding-box;
+    border-right-color: #d6d6d6 !important;
+    border-bottom-color: #d6d6d6 !important;
 }
 .ag-theme-balham .ag-cell.hot-selected-anchor {
     background: transparent !important;
@@ -1317,6 +1320,27 @@ select {
     /* Make sure it paints above scrolling rows */
     position: relative;
     z-index: 3;
+}
+
+/* Keep pinned-left sections (row headers / pinned first data column) above
+   the selection outline so center-range borders slide underneath while scrolling. */
+.ag-theme-balham .ag-pinned-left-header,
+.ag-theme-balham .ag-pinned-left-header-viewport,
+.ag-theme-balham .ag-pinned-left-cols-clipper,
+.ag-theme-balham .ag-pinned-left-cols-viewport,
+.ag-theme-balham .ag-pinned-left-cols-container {
+    position: relative;
+    z-index: 6;
+    background: transparent;
+}
+.ag-theme-balham .ag-pinned-left-header,
+.ag-theme-balham .ag-pinned-left-header-viewport {
+    box-shadow: inset 0 -1px 0 #d6d6d6 !important;
+}
+.ag-theme-balham .ag-pinned-left-header .ag-header-cell,
+.ag-theme-balham .ag-pinned-left-header-viewport .ag-header-cell,
+.ag-theme-balham .ag-pinned-left-cols-container .ag-cell {
+    border-bottom-color: #d6d6d6 !important;
 }
 
 .ag-theme-balham .ag-pinned-top .ag-center-cols-viewport,
