@@ -2142,6 +2142,10 @@
         pinnedRightLeft: resolveSelectionOcclusionEdge(
           '.ag-pinned-right-cols-viewport, .ag-pinned-right-cols-container, .ag-pinned-right-header-viewport, .ag-pinned-right-header, .ag-pinned-right-floating-top',
           'left'
+        ),
+        pinnedTopBottom: resolveSelectionOcclusionEdge(
+          '.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-floating-top-left, .ag-floating-top-center, .ag-floating-top-right, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top',
+          'bottom'
         )
       };
     };
@@ -2155,15 +2159,9 @@
       let clipRight = Number.POSITIVE_INFINITY;
       let clipBottom = Number.POSITIVE_INFINITY;
       const viewport = resolveFillHandleViewport(cell, { preferPinnedTop: false });
-      if(!viewport || typeof viewport.getBoundingClientRect !== 'function'){
-        return {
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom
-        };
-      }
-      const viewportRect = viewport.getBoundingClientRect();
+      const viewportRect = (viewport && typeof viewport.getBoundingClientRect === 'function')
+        ? viewport.getBoundingClientRect()
+        : null;
       if(viewportRect){
         clipLeft = viewportRect.left;
         clipTop = viewportRect.top;
@@ -2172,6 +2170,8 @@
       }
       const isCenterCell = !!(cell && typeof cell.closest === 'function'
         && cell.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
+      const isFloatingTopCell = !!(cell && typeof cell.closest === 'function'
+        && cell.closest('.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top'));
       if(isCenterCell && visibilityContext){
         const pinnedLeftRight = visibilityContext.pinnedLeftRight;
         const pinnedRightLeft = visibilityContext.pinnedRightLeft;
@@ -2180,6 +2180,12 @@
         }
         if(Number.isFinite(pinnedRightLeft)){
           clipRight = Math.min(clipRight, pinnedRightLeft);
+        }
+      }
+      if(!isFloatingTopCell && visibilityContext){
+        const pinnedTopBottom = visibilityContext.pinnedTopBottom;
+        if(Number.isFinite(pinnedTopBottom)){
+          clipTop = Math.max(clipTop, pinnedTopBottom);
         }
       }
       const left = Number.isFinite(clipLeft) ? Math.max(rect.left, clipLeft) : rect.left;
@@ -2398,6 +2404,12 @@
         && Number.isInteger(selection.to?.col)
         && selection.from.col <= 0
         && selection.to.col >= 0);
+      const selectionIncludesPinnedTopRow = !!(usePinnedRows
+        && Number.isInteger(selection.from?.row)
+        && Number.isInteger(selection.to?.row)
+        && selection.from.row >= 0
+        && selection.from.row < pinRowCount
+        && selection.to.row >= selection.from.row);
       let left = bounds.left - hostRect.left - 1;
       let top = bounds.top - hostRect.top - 1;
       let right = bounds.right - hostRect.left + 1;
@@ -2415,6 +2427,10 @@
       // Keep first pinned data-column selections out of row-header space.
       if(selectionIncludesPinnedDataColumn){
         left = Math.max(left, bounds.left - hostRect.left);
+      }
+      // Keep mixed pinned-row/body selections out of column-header space.
+      if(selectionIncludesPinnedTopRow){
+        top = Math.max(top, bounds.top - hostRect.top);
       }
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);

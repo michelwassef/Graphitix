@@ -1035,6 +1035,148 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(outline.style.borderRightColor).toBe('transparent');
   });
 
+  test('selection outline does not spill into column headers when body rows in range are hidden behind pinned first row', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlinePinnedTopHiddenBodyHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-pinned-top-hidden-body',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 288
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 288
+    });
+    bodyViewport.appendChild(centerViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingCenterViewport = document.createElement('div');
+    floatingCenterViewport.className = 'ag-floating-top-viewport';
+    floatingCenterViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedCell1 = document.createElement('div');
+    pinnedCell1.className = 'ag-cell hot-selected-cell';
+    pinnedCell1.setAttribute('col-id', 'c1');
+    pinnedCell1.setAttribute('row-index', 't-0');
+    pinnedCell1.getBoundingClientRect = () => ({
+      left: 100,
+      top: 32,
+      right: 200,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    const pinnedCell2 = document.createElement('div');
+    pinnedCell2.className = 'ag-cell hot-selected-cell';
+    pinnedCell2.setAttribute('col-id', 'c2');
+    pinnedCell2.setAttribute('row-index', 't-0');
+    pinnedCell2.getBoundingClientRect = () => ({
+      left: 200,
+      top: 32,
+      right: 300,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell1);
+    pinnedRow.appendChild(pinnedCell2);
+    floatingCenterViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingCenterViewport);
+    container.appendChild(floatingTop);
+
+    // Simulate the body row selected in the range but fully hidden beneath the pinned row area.
+    const hiddenBodyRow = document.createElement('div');
+    hiddenBodyRow.className = 'ag-row';
+    hiddenBodyRow.setAttribute('row-index', '1');
+    const hiddenBodyCell1 = document.createElement('div');
+    hiddenBodyCell1.className = 'ag-cell hot-selected-cell';
+    hiddenBodyCell1.setAttribute('col-id', 'c1');
+    hiddenBodyCell1.setAttribute('row-index', '1');
+    hiddenBodyCell1.getBoundingClientRect = () => ({
+      left: 100,
+      top: 18,
+      right: 200,
+      bottom: 30,
+      width: 100,
+      height: 12
+    });
+    const hiddenBodyCell2 = document.createElement('div');
+    hiddenBodyCell2.className = 'ag-cell hot-selected-cell';
+    hiddenBodyCell2.setAttribute('col-id', 'c2');
+    hiddenBodyCell2.setAttribute('row-index', '1');
+    hiddenBodyCell2.getBoundingClientRect = () => ({
+      left: 200,
+      top: 18,
+      right: 300,
+      bottom: 30,
+      width: 100,
+      height: 12
+    });
+    hiddenBodyRow.appendChild(hiddenBodyCell1);
+    hiddenBodyRow.appendChild(hiddenBodyCell2);
+    centerViewport.appendChild(hiddenBodyRow);
+
+    hot.selectCell(0, 1, 1, 2);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.top).toBe('32px');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+  });
+
   test('topmost pinned-first-column selected cell keeps visible top and side borders despite 1px seam clipping', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
