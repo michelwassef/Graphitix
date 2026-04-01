@@ -2445,7 +2445,7 @@
         startRectRaw,
         endRectRaw
       });
-      const outlineColor = 'var(--hot-selection-outline-color, #107c41)';
+      const outlineColor = 'var(--hot-selection-outline-color, #005fb8)';
       outline.style.display = 'block';
       outline.style.left = `${left}px`;
       outline.style.top = `${top}px`;

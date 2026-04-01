@@ -1015,7 +1015,7 @@ select {
     position: absolute;
     pointer-events: none;
     box-sizing: border-box;
-    border: 2px solid var(--hot-selection-outline-color, #107c41);
+    border: 2px solid var(--hot-selection-outline-color, #005fb8);
     z-index: 6;
 }
 .hot-formula-fn-suggest {
@@ -1099,7 +1099,7 @@ select {
     position: absolute;
     width: 6px;
     height: 6px;
-    background: var(--hot-fill-handle-color, #107c41);
+    background: var(--hot-fill-handle-color, #005fb8);
     border: 1px solid #ffffff;
     border-radius: 0;
     box-shadow: none;
