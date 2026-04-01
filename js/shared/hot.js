@@ -2103,6 +2103,23 @@
       }
     };
 
+    const isCellRectVisibleInViewport = (cell, rect)=>{
+      if(!cell || !rect || typeof rect !== 'object'){
+        return false;
+      }
+      const viewport = resolveFillHandleViewport(cell, { preferPinnedTop: false });
+      if(!viewport || typeof viewport.getBoundingClientRect !== 'function'){
+        return true;
+      }
+      const viewportRect = viewport.getBoundingClientRect();
+      if(!viewportRect){
+        return true;
+      }
+      const visibleHorizontally = rect.right > (viewportRect.left + 0.5) && rect.left < (viewportRect.right - 0.5);
+      const visibleVertically = rect.bottom > (viewportRect.top + 0.5) && rect.top < (viewportRect.bottom - 0.5);
+      return visibleHorizontally && visibleVertically;
+    };
+
     const resolveVisibleSelectionBounds = ()=>{
       if(!container || typeof container.querySelectorAll !== 'function'){
         return null;
@@ -2126,6 +2143,9 @@
         }
         const rect = cell.getBoundingClientRect();
         if(!rect || rect.width <= 0 || rect.height <= 0){
+          continue;
+        }
+        if(!isCellRectVisibleInViewport(cell, rect)){
           continue;
         }
         left = Math.min(left, rect.left);
@@ -2152,8 +2172,10 @@
       }
       const startCell = resolveFillHandleCell(selection.from.row, selection.from.col);
       const endCell = resolveFillHandleCell(selection.to.row, selection.to.col);
-      const startRect = startCell?.getBoundingClientRect?.() || null;
-      const endRect = endCell?.getBoundingClientRect?.() || null;
+      const startRectRaw = startCell?.getBoundingClientRect?.() || null;
+      const endRectRaw = endCell?.getBoundingClientRect?.() || null;
+      const startRect = (startRectRaw && isCellRectVisibleInViewport(startCell, startRectRaw)) ? startRectRaw : null;
+      const endRect = (endRectRaw && isCellRectVisibleInViewport(endCell, endRectRaw)) ? endRectRaw : null;
       const hostRect = container?.getBoundingClientRect?.();
       if(!hostRect){
         hideSelectionOutline();
