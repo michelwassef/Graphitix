@@ -2455,9 +2455,18 @@
       outline.style.borderRightColor = edgeVisibility.right ? outlineColor : 'transparent';
       outline.style.borderTopColor = edgeVisibility.top ? outlineColor : 'transparent';
       outline.style.borderBottomColor = edgeVisibility.bottom ? outlineColor : 'transparent';
-      // Keep body-range outlines below pinned/header layers so they get masked
-      // naturally during scroll; keep pinned-range/pinned-column outlines above.
-      outline.style.zIndex = shouldOverlayPinnedLeft ? '7' : (isPinnedSelectionRange ? '5' : '2');
+      // Layering policy:
+      // - Pinned-left-inclusive selections stay above pinned-left masks.
+      // - Pinned-top-row selections stay above pinned-top.
+      // - Body selections stay above pinned-top unless their top edge is
+      //   actually clipped by pinned-top (i.e., scrolled underneath), in which
+      //   case they drop below so the pinned row masks overlap naturally.
+      const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
+        && !isPinnedSelectionRange
+        && edgeVisibility.top === false);
+      outline.style.zIndex = shouldOverlayPinnedLeft
+        ? '7'
+        : (bodySelectionClippedUnderPinnedTop ? '2' : '5');
       return true;
     };
 
