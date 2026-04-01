@@ -158,6 +158,19 @@
     return Number.isFinite(num) ? num : null;
   }
 
+  function normalizeNumericResult(value){
+    if(typeof value !== 'number' || !Number.isFinite(value)){
+      return value;
+    }
+    // Collapse binary floating-point artifacts (for example 33.900000000000006)
+    // while preserving normal scientific magnitudes.
+    const normalized = Number(value.toPrecision(15));
+    if(!Number.isFinite(normalized)){
+      return value;
+    }
+    return Object.is(normalized, -0) ? 0 : normalized;
+  }
+
   function createTokenizer(expr){
     const tokens = [];
     const source = String(expr || '');
@@ -469,14 +482,14 @@
       }
       if(node.type === 'unary'){
         const value = numericValue(evaluateNode(node.value, readCell));
-        return node.op === '-' ? -value : value;
+        return normalizeNumericResult(node.op === '-' ? -value : value);
       }
       if(node.type === 'binary'){
         const left = numericValue(evaluateNode(node.left, readCell));
         const right = numericValue(evaluateNode(node.right, readCell));
-        if(node.op === '+') return left + right;
-        if(node.op === '-') return left - right;
-        if(node.op === '*') return left * right;
+        if(node.op === '+') return normalizeNumericResult(left + right);
+        if(node.op === '-') return normalizeNumericResult(left - right);
+        if(node.op === '*') return normalizeNumericResult(left * right);
         if(node.op === '/') return right === 0 ? '#DIV/0!' : left / right;
       }
       if(node.type === 'function'){
@@ -491,11 +504,11 @@
         });
         const nums = values.map(v=>parseNumberLike(v)).filter(v=>v != null);
         switch(node.name){
-          case 'SUM': return nums.reduce((acc, n)=>acc + n, 0);
+          case 'SUM': return normalizeNumericResult(nums.reduce((acc, n)=>acc + n, 0));
           case 'AVG':
-          case 'AVERAGE': return nums.length ? (nums.reduce((acc, n)=>acc + n, 0) / nums.length) : 0;
-          case 'MIN': return nums.length ? Math.min(...nums) : 0;
-          case 'MAX': return nums.length ? Math.max(...nums) : 0;
+          case 'AVERAGE': return nums.length ? normalizeNumericResult(nums.reduce((acc, n)=>acc + n, 0) / nums.length) : 0;
+          case 'MIN': return nums.length ? normalizeNumericResult(Math.min(...nums)) : 0;
+          case 'MAX': return nums.length ? normalizeNumericResult(Math.max(...nums)) : 0;
           case 'COUNT': return nums.length;
           default: return '#NAME?';
         }

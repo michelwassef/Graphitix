@@ -46,4 +46,17 @@ describe('Shared.formulaEngine', () => {
     expect(ref).toBe('C1');
     expect(none).toBeNull();
   });
+
+  test('normalizes floating arithmetic artifacts in formula outputs', () => {
+    const model = window.Shared.formulaEngine.createModel({
+      headerRows: 1,
+      a1RowOffset: 1
+    });
+    model.rebuildFromMatrix([
+      ['A', 'B', 'C', 'D'],
+      ['17.3', '16.6', '=A1+B1', '=0.1+0.2']
+    ]);
+    expect(model.getResolvedAt(1, 2)).toBe(33.9);
+    expect(model.getResolvedAt(1, 3)).toBe(0.3);
+  });
 });

@@ -3312,6 +3312,7 @@
     let columnHandleLastTargetIndex = null;
     let pendingColumnHandleMoveIndex = null;
     let columnHandleMoveRafPending = false;
+    let pendingDeferredColumnMoveCommitId = null;
     let suppressColumnMoveCommitDepth = 0;
     let clearSortSelectionGuard = ()=>{};
     let armSortSelectionSnapshot = ()=>{};
@@ -8159,9 +8160,13 @@
         return;
       }
       const movedCols = Array.isArray(columnHandleDragColIds) ? columnHandleDragColIds.slice() : null;
-      commitDisplayedColumnOrderToData('columnHandleDrag', movedCols);
+      const committed = commitDisplayedColumnOrderToData('columnHandleDrag', movedCols);
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot column handle drag end', { debugLabel, colIds: columnHandleDragColIds || null });
+        console.debug('Debug: Shared.hot column handle drag end', {
+          debugLabel,
+          colIds: columnHandleDragColIds || null,
+          committed
+        });
       }
       isColumnHandleDragging = false;
       columnHandleDragColIds = null;
@@ -8222,22 +8227,106 @@
     const getDisplayedDataColumnOrder = ()=>{
       const positions = getDisplayedDataColumnPositions();
       if(!positions){
-        return null;
+        const columnStateApi = resolveColumnStateApi(instance.gridApi || null);
+        if(!columnStateApi || typeof columnStateApi.getColumnState !== 'function'){
+          return null;
+        }
+        try{
+          const state = columnStateApi.getColumnState() || [];
+          const ordered = state
+            .map(entry => entry?.colId)
+            .filter(id => typeof id === 'string' && id.startsWith('c'));
+          return ordered.length ? ordered : null;
+        }catch(err){
+          return null;
+        }
       }
       const colIds = positions.map(entry => entry.colId).filter(id => typeof id === 'string' && id.startsWith('c'));
       return colIds.length ? colIds : null;
     };
 
+    const clearDeferredColumnMoveCommit = ()=>{
+      if(pendingDeferredColumnMoveCommitId == null){
+        return;
+      }
+      const docLocal = container?.ownerDocument || document;
+      const winLocal = docLocal?.defaultView || global;
+      try{
+        if(typeof winLocal?.cancelAnimationFrame === 'function'){
+          winLocal.cancelAnimationFrame(pendingDeferredColumnMoveCommitId);
+        }else{
+          winLocal?.clearTimeout?.(pendingDeferredColumnMoveCommitId);
+        }
+      }catch(err){
+        // ignore cleanup failures
+      }
+      pendingDeferredColumnMoveCommitId = null;
+    };
+
+    const scheduleDeferredColumnMoveCommit = (reason, movedColIds)=>{
+      if(pendingDeferredColumnMoveCommitId != null){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot deferred column move commit already scheduled', {
+            debugLabel,
+            reason: reason || null,
+            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null
+          });
+        }
+        return;
+      }
+      const docLocal = container?.ownerDocument || document;
+      const winLocal = docLocal?.defaultView || global;
+      const run = ()=>{
+        pendingDeferredColumnMoveCommitId = null;
+        if(isColumnHandleDragging || suppressColumnMoveCommitDepth !== 0){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot deferred column move commit skipped (guard)', {
+              debugLabel,
+              reason: reason || null,
+              isColumnHandleDragging,
+              suppressColumnMoveCommitDepth
+            });
+          }
+          return;
+        }
+        const committed = commitDisplayedColumnOrderToData(reason || 'ag-column-moved:deferred', movedColIds);
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot deferred column move commit result', {
+            debugLabel,
+            reason: reason || null,
+            committed,
+            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null
+          });
+        }
+        if(!committed){
+          fireHook('afterColumnMove');
+          triggerSchedule('afterColumnMove', { source: reason || 'columnMove' });
+        }
+      };
+      if(typeof winLocal?.requestAnimationFrame === 'function'){
+        pendingDeferredColumnMoveCommitId = winLocal.requestAnimationFrame(run);
+      }else{
+        pendingDeferredColumnMoveCommitId = winLocal?.setTimeout?.(run, 0) || null;
+      }
+    };
+
     const applyColumnPermutationToData = (permutationOldByNew)=>{
-      if(!Array.isArray(permutationOldByNew) || permutationOldByNew.length !== colCount){
+      if(!Array.isArray(permutationOldByNew) || permutationOldByNew.length === 0){
+        return false;
+      }
+      const permutationLength = permutationOldByNew.length;
+      // Allow replaying historical column permutations even if the table has
+      // grown since the permutation was recorded (extra trailing columns keep
+      // identity mapping). Shrink is not replay-safe.
+      if(permutationLength > colCount){
         return false;
       }
       const permutation = permutationOldByNew.map(idx => Number(idx));
-      if(!permutation.every(idx => Number.isInteger(idx) && idx >= 0)){
+      if(!permutation.every(idx => Number.isInteger(idx) && idx >= 0 && idx < permutationLength)){
         return false;
       }
       const seen = new Set(permutation);
-      if(seen.size !== permutation.length){
+      if(seen.size !== permutationLength){
         return false;
       }
 
@@ -8246,7 +8335,7 @@
         const row = Array.isArray(matrix[r]) ? matrix[r] : [];
         const nextRow = new Array(Math.max(row.length, colCount));
         for(let c = 0; c < nextRow.length; c++){
-          const oldIndex = c < colCount ? permutation[c] : c;
+          const oldIndex = c < permutationLength ? permutation[c] : c;
           nextRow[c] = (oldIndex < row.length) ? row[oldIndex] : '';
         }
         matrix[r] = nextRow;
@@ -8258,7 +8347,7 @@
         try{
           const nextHeaders = new Array(colHeadersSetting.length);
           for(let c = 0; c < colHeadersSetting.length; c++){
-            const oldIndex = c < colCount ? permutation[c] : c;
+            const oldIndex = c < permutationLength ? permutation[c] : c;
             nextHeaders[c] = (oldIndex < colHeadersSetting.length) ? colHeadersSetting[oldIndex] : toExcelColumnLabel(c);
           }
           colHeadersSetting = nextHeaders;
@@ -8270,8 +8359,11 @@
 
       const exclusionState = exclusionController.exportState();
       const oldToNew = new Map();
-      for(let newIdx = 0; newIdx < permutation.length; newIdx++){
+      for(let newIdx = 0; newIdx < permutationLength; newIdx++){
         oldToNew.set(permutation[newIdx], newIdx);
+      }
+      for(let idx = permutationLength; idx < colCount; idx++){
+        oldToNew.set(idx, idx);
       }
       const nextExcludedCols = (Array.isArray(exclusionState?.cols) ? exclusionState.cols : [])
         .map(oldIdx => oldToNew.get(oldIdx))
@@ -8337,14 +8429,38 @@
     const commitDisplayedColumnOrderToData = (reason, movedColIds)=>{
       const currentOrder = getDisplayedDataColumnOrder();
       if(!currentOrder || currentOrder.length !== colCount){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot column order commit skipped (invalid displayed order)', {
+            debugLabel,
+            reason: reason || null,
+            hasOrder: !!currentOrder,
+            displayedOrderLength: Array.isArray(currentOrder) ? currentOrder.length : null,
+            colCount
+          });
+        }
         return false;
       }
       const permutationOldByNew = currentOrder.map(id => Number(id.slice(1)));
       if(!permutationOldByNew.every(idx => Number.isInteger(idx) && idx >= 0)){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot column order commit skipped (invalid permutation)', {
+            debugLabel,
+            reason: reason || null,
+            currentOrder: currentOrder.slice(),
+            permutationOldByNew: permutationOldByNew.slice()
+          });
+        }
         return false;
       }
       const isIdentity = permutationOldByNew.every((oldIdx, newIdx)=>oldIdx === newIdx);
       if(isIdentity){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot column order commit skipped (identity)', {
+            debugLabel,
+            reason: reason || null,
+            currentOrder: currentOrder.slice()
+          });
+        }
         return false;
       }
 
@@ -8355,20 +8471,66 @@
 
       const applied = applyColumnPermutation(permutationOldByNew, { reason: reason || 'columnOrderCommit', movedColIds });
       if(!applied){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot column order commit failed (apply permutation failed)', {
+            debugLabel,
+            reason: reason || null,
+            permutationOldByNew: permutationOldByNew.slice()
+          });
+        }
         return false;
       }
 
       if(hasGlobalUndo){
+        const undoLabel = `table:${debugLabel}:reorder-columns`;
         undoManager.record({
-          label: `table:${debugLabel}:reorder-columns`,
+          label: undoLabel,
           scope: undoScope,
-          undo: ()=>applyColumnPermutation(inverse, { reason: 'undo:reorder-columns', skipSelection: true }),
-          redo: ()=>applyColumnPermutation(permutationOldByNew, { reason: 'redo:reorder-columns', skipSelection: true })
+          undo: ()=>{
+            const ok = applyColumnPermutation(inverse, { reason: 'undo:reorder-columns', skipSelection: true });
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot reorder undo closure executed', {
+                debugLabel,
+                label: undoLabel,
+                ok,
+                inverseLength: inverse.length,
+                currentColCount: colCount
+              });
+            }
+            return ok;
+          },
+          redo: ()=>{
+            const ok = applyColumnPermutation(permutationOldByNew, { reason: 'redo:reorder-columns', skipSelection: true });
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot reorder redo closure executed', {
+                debugLabel,
+                label: undoLabel,
+                ok,
+                permutationLength: permutationOldByNew.length,
+                currentColCount: colCount
+              });
+            }
+            return ok;
+          }
         });
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot reorder undo record created', {
+            debugLabel,
+            reason: reason || null,
+            label: undoLabel,
+            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null,
+            permutationOldByNew: permutationOldByNew.slice()
+          });
+        }
       }
 
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot committed column order to data', { debugLabel, reason: reason || null });
+        console.debug('Debug: Shared.hot committed column order to data', {
+          debugLabel,
+          reason: reason || null,
+          movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null,
+          permutationOldByNew: permutationOldByNew.slice()
+        });
       }
       return true;
     };
@@ -8767,11 +8929,34 @@
           && finished !== false
           && !isColumnHandleDragging
           && suppressColumnMoveCommitDepth === 0;
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot onColumnMoved event', {
+            debugLabel,
+            source,
+            finished,
+            movedColIds: movedColIds.slice(),
+            isApiMove,
+            isColumnHandleDragging,
+            suppressColumnMoveCommitDepth,
+            canCommitFromEvent
+          });
+        }
         if(canCommitFromEvent){
           const committed = commitDisplayedColumnOrderToData('ag-column-moved', movedColIds);
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot onColumnMoved commit attempt result', {
+              debugLabel,
+              source,
+              finished,
+              committed,
+              movedColIds: movedColIds.slice()
+            });
+          }
           if(committed){
             return;
           }
+          scheduleDeferredColumnMoveCommit('ag-column-moved', movedColIds);
+          return;
         }
         fireHook('afterColumnMove');
         triggerSchedule('afterColumnMove', { source: source || 'columnMove' });
@@ -11014,6 +11199,31 @@
           return;
         }
         const normalizedKey = typeof key === 'string' ? key.toLowerCase() : '';
+        if((normalizedKey === 'z' || normalizedKey === 'y') && event.defaultPrevented){
+          return;
+        }
+        if(normalizedKey === 'z'){
+          const manager = Shared.undoManager || null;
+          const handled = event.shiftKey
+            ? !!(manager && typeof manager.redo === 'function' && manager.redo())
+            : !!(manager && typeof manager.undo === 'function' && manager.undo());
+          if(handled){
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+          }
+          return;
+        }
+        if(normalizedKey === 'y'){
+          const manager = Shared.undoManager || null;
+          const handled = !!(manager && typeof manager.redo === 'function' && manager.redo());
+          if(handled){
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+          }
+          return;
+        }
         if(normalizedKey === 'a'){
           event.preventDefault?.();
           event.stopPropagation?.();
@@ -11377,6 +11587,7 @@
         }
       }
       cleanupFns.push(()=>{
+        clearDeferredColumnMoveCommit();
         stopFormulaOverlayLoop();
         stopFormulaReferenceDrag('cleanup');
         pendingSortSelectionSnapshot = null;

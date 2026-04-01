@@ -28,6 +28,7 @@
   let pointer = -1;
   let applying = false;
   const listeners = new Set();
+  const handledKeyEvents = new WeakSet();
 
   const lastStates = new WeakMap();
 
@@ -315,10 +316,32 @@
   }
 
   function handleKeydown(event){
-    if(event.defaultPrevented) return;
+    if(!event){
+      return;
+    }
+    if(handledKeyEvents.has(event)){
+      return;
+    }
+    handledKeyEvents.add(event);
     const isModifier = event.ctrlKey || event.metaKey;
     if(!isModifier || event.altKey) return;
     const key = event.key ? event.key.toLowerCase() : '';
+    undoDebug('Debug: undo keydown received', {
+      key,
+      ctrlKey: !!event.ctrlKey,
+      metaKey: !!event.metaKey,
+      shiftKey: !!event.shiftKey,
+      defaultPrevented: !!event.defaultPrevented,
+      targetTag: event?.target?.tagName || null,
+      targetClass: event?.target?.className || null
+    });
+    if(key !== 'z' && key !== 'y'){
+      if(event.defaultPrevented){
+        undoDebug('Debug: undo keydown ignored (non-undo key, defaultPrevented)', { key });
+        return;
+      }
+      return;
+    }
     let handled = false;
     if(key === 'z'){
       if(event.shiftKey){
@@ -330,14 +353,28 @@
       handled = undoNamespace.redo();
     }
     if(handled){
+      undoDebug('Debug: undo keydown handled', {
+        key,
+        pointer,
+        stackLength: stack.length
+      });
       event.preventDefault();
     }else if(key === 'z' && allowNativeUndo(event.target)){
       undoDebug('Debug: native undo allowed to proceed');
+    }else{
+      undoDebug('Debug: undo keydown not handled by undo manager', {
+        key,
+        pointer,
+        stackLength: stack.length
+      });
     }
   }
 
   if(global.document){
     const doc = global.document;
+    if(typeof global.addEventListener === 'function'){
+      global.addEventListener('keydown', handleKeydown, true);
+    }
     doc.addEventListener('focusin', onFocusIn, true);
     doc.addEventListener('change', handleChange, true);
     doc.addEventListener('keydown', handleKeydown, true);

@@ -1784,6 +1784,62 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 2)).toBe('A0');
   });
 
+  test('native AG onColumnMoved commit falls back to columnState ordering when displayed-columns API is unavailable', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agNativeColumnMoveColumnStateFallbackHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-native-column-move-column-state-fallback',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getColumnState: () => [
+        { colId: '__rowHeader' },
+        { colId: 'c1' },
+        { colId: 'c2' },
+        { colId: 'c3' },
+        { colId: 'c4' },
+        { colId: 'c5' },
+        { colId: 'c6' },
+        { colId: 'c7' },
+        { colId: 'c8' },
+        { colId: 'c9' },
+        { colId: 'c10' },
+        { colId: 'c11' },
+        { colId: 'c0' }
+      ]
+    };
+    hot.gridApi.columnApi = hot.columnApi;
+
+    capturedGridOptions.onColumnMoved({
+      api: hot.gridApi,
+      columnApi: hot.columnApi,
+      source: 'uiColumnMoved',
+      finished: true
+    });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 11)).toBe('A0');
+
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    expect(hot.getDataAtCell(0, 2)).toBe('C0');
+  });
+
   test('column header context menu supports insert/delete for selected columns', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
