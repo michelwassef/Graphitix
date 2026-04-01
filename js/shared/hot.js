@@ -1520,7 +1520,7 @@
 
     const mapFormulaReferenceOverlayRowsToDisplayedRows = (gridApi, requiredRows)=>{
       const rowMap = new Map();
-      if(!gridApi || typeof gridApi.getDisplayedRowCount !== 'function' || typeof gridApi.getDisplayedRowAtIndex !== 'function'){
+      if(!gridApi || typeof gridApi.getDisplayedRowCount !== 'function'){
         return rowMap;
       }
       const needed = requiredRows instanceof Set ? requiredRows : new Set(requiredRows || []);
@@ -1528,17 +1528,13 @@
         return rowMap;
       }
       const totalRows = Math.max(0, Number(gridApi.getDisplayedRowCount()) || 0);
-      for(let displayRow = 0; displayRow < totalRows; displayRow += 1){
-        const node = gridApi.getDisplayedRowAtIndex(displayRow);
-        const physicalRow = Number(node?.data?.__rowIndex);
-        if(!Number.isInteger(physicalRow) || !needed.has(physicalRow) || rowMap.has(physicalRow)){
-          continue;
+      needed.forEach((value)=>{
+        const visualRow = Number(value);
+        if(!Number.isInteger(visualRow) || visualRow < 0 || visualRow >= totalRows){
+          return;
         }
-        rowMap.set(physicalRow, displayRow);
-        if(rowMap.size >= needed.size){
-          break;
-        }
-      }
+        rowMap.set(visualRow, visualRow);
+      });
       return rowMap;
     };
 
@@ -3316,6 +3312,14 @@
     let columnHandleLastTargetIndex = null;
     let pendingColumnHandleMoveIndex = null;
     let columnHandleMoveRafPending = false;
+    let suppressColumnMoveCommitDepth = 0;
+    let clearSortSelectionGuard = ()=>{};
+    let armSortSelectionSnapshot = ()=>{};
+    let restoreSortSelectionSnapshot = ()=>{};
+    let pendingSortSelectionSnapshot = null;
+    let suppressApiSelectionSyncForSort = false;
+    let sortSelectionGuardTimerId = null;
+    let isApplyingSortSelectionSnapshot = false;
 
     const MAX_CLIPBOARD_CELLS = 200000;
 
@@ -5538,13 +5542,23 @@
             if(event?.defaultPrevented){
               return;
             }
-            if(event?.target && typeof event.target.closest === 'function' && event.target.closest('.hot-col-drag-handle')){
+            const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+            if(!target || typeof target.closest !== 'function'){
               return;
             }
+            if(target.closest('.hot-col-drag-handle')){
+              return;
+            }
+            if(!target.closest('.hot-sort-indicator')){
+              return;
+            }
+            armSortSelectionSnapshot();
             const sortable = (typeof params?.column?.isSortable === 'function')
               ? !!params.column.isSortable()
               : (params?.column?.getColDef?.()?.sortable !== false);
             if(!sortable){
+              clearSortSelectionGuard();
+              pendingSortSelectionSnapshot = null;
               return;
             }
             const current = params?.column?.getSort?.() || null;
@@ -8272,8 +8286,14 @@
       });
 
       // Reset column state to default c0.. ordering (data has been permuted to match the requested order).
-      rebuildColumns(instance.gridApi);
-      renderAg(instance.gridApi);
+      // Guard against recursive reorder commits from AG Grid move events fired by internal updates.
+      suppressColumnMoveCommitDepth += 1;
+      try{
+        rebuildColumns(instance.gridApi);
+        renderAg(instance.gridApi);
+      }finally{
+        suppressColumnMoveCommitDepth = Math.max(0, suppressColumnMoveCommitDepth - 1);
+      }
       return true;
     };
 
@@ -8351,6 +8371,24 @@
         console.debug('Debug: Shared.hot committed column order to data', { debugLabel, reason: reason || null });
       }
       return true;
+    };
+
+    const resolveMovedDataColumnIdsFromEvent = (params)=>{
+      const candidates = [];
+      if(Array.isArray(params?.columns)){
+        candidates.push(...params.columns);
+      }else if(params?.column){
+        candidates.push(params.column);
+      }
+      const out = [];
+      for(let i = 0; i < candidates.length; i += 1){
+        const col = candidates[i];
+        const colId = (typeof col?.getColId === 'function') ? col.getColId() : col?.colId;
+        if(typeof colId === 'string' && colId.startsWith('c')){
+          out.push(colId);
+        }
+      }
+      return out;
     };
 
     const initialRowBuffer = Number.isFinite(virtualizationState.rowBuffer) ? virtualizationState.rowBuffer : undefined;
@@ -8565,6 +8603,20 @@
           syncPinnedTopRowScroll('body-scroll');
           schedulePinnedTopRowSync('body-scroll-follow');
         },
+        onSortChanged(params){
+          const apiRef = params?.api || instance?.gridApi;
+          const docLocal = container?.ownerDocument || document;
+          const winLocal = docLocal?.defaultView || global;
+          const rafLocal = typeof winLocal?.requestAnimationFrame === 'function'
+            ? winLocal.requestAnimationFrame.bind(winLocal)
+            : (fn)=>winLocal.setTimeout(fn, 16);
+          rafLocal(()=>{
+            if(isApplyingSortSelectionSnapshot){
+              return;
+            }
+            restoreSortSelectionSnapshot(apiRef);
+          });
+        },
         onColumnResized(params){
           const apiRef = params?.api || instance?.gridApi;
           const isFinalResizeEvent = params?.finished !== false;
@@ -8675,6 +8727,9 @@
         if(isDragSelecting){
           return;
         }
+        if(suppressApiSelectionSyncForSort || isApplyingSortSelectionSnapshot){
+          return;
+        }
         if(normalizedSelectionRange && (normalizedSelectionRange.from.row !== normalizedSelectionRange.to.row || normalizedSelectionRange.from.col !== normalizedSelectionRange.to.col)){
           return;
         }
@@ -8703,9 +8758,23 @@
         maybeGrowRows('click');
         maybeGrowCols('click');
       },
-      onColumnMoved(){
+      onColumnMoved(params){
+        const source = typeof params?.source === 'string' ? params.source : '';
+        const finished = params?.finished;
+        const movedColIds = resolveMovedDataColumnIdsFromEvent(params);
+        const isApiMove = source === 'api';
+        const canCommitFromEvent = !isApiMove
+          && finished !== false
+          && !isColumnHandleDragging
+          && suppressColumnMoveCommitDepth === 0;
+        if(canCommitFromEvent){
+          const committed = commitDisplayedColumnOrderToData('ag-column-moved', movedColIds);
+          if(committed){
+            return;
+          }
+        }
         fireHook('afterColumnMove');
-        triggerSchedule('afterColumnMove', { source: 'columnMove' });
+        triggerSchedule('afterColumnMove', { source: source || 'columnMove' });
       },
       onColumnHeaderContextMenu(params){
         if(hasEnterprise){
@@ -9686,6 +9755,117 @@
           && rangeA.to.col === rangeB.to.col;
       };
 
+      const cloneRange = (range)=>{
+        const normalized = normalizeRange(range);
+        if(!normalized){
+          return null;
+        }
+        return {
+          from: { row: normalized.from.row, col: normalized.from.col },
+          to: { row: normalized.to.row, col: normalized.to.col }
+        };
+      };
+
+      clearSortSelectionGuard = ()=>{
+        const docLocal = container?.ownerDocument || document;
+        const winLocal = docLocal?.defaultView || global;
+        if(sortSelectionGuardTimerId != null){
+          try{
+            winLocal?.clearTimeout?.(sortSelectionGuardTimerId);
+          }catch(err){
+            // ignore
+          }
+        }
+        sortSelectionGuardTimerId = null;
+        suppressApiSelectionSyncForSort = false;
+      };
+
+      const armSortSelectionGuard = ()=>{
+        const docLocal = container?.ownerDocument || document;
+        const winLocal = docLocal?.defaultView || global;
+        if(sortSelectionGuardTimerId != null){
+          try{
+            winLocal?.clearTimeout?.(sortSelectionGuardTimerId);
+          }catch(err){
+            // ignore
+          }
+          sortSelectionGuardTimerId = null;
+        }
+        sortSelectionGuardTimerId = winLocal?.setTimeout?.(()=>{
+          pendingSortSelectionSnapshot = null;
+          clearSortSelectionGuard();
+        }, 1200) || null;
+      };
+
+      armSortSelectionSnapshot = ()=>{
+        const rangeSnapshot = cloneRange(normalizedSelectionRange || lastRange);
+        const headerCols = selectedHeaderColumns.size
+          ? Array.from(selectedHeaderColumns).filter(idx => Number.isInteger(idx) && idx >= 0)
+          : [];
+        if(!rangeSnapshot && !headerCols.length){
+          pendingSortSelectionSnapshot = null;
+          return;
+        }
+        const anchorRow = Number(lastRange?.from?.row);
+        const anchorCol = Number(lastRange?.from?.col);
+        pendingSortSelectionSnapshot = {
+          range: rangeSnapshot,
+          headerCols,
+          anchor: (Number.isInteger(anchorRow) && Number.isInteger(anchorCol))
+            ? { row: anchorRow, col: anchorCol }
+            : null
+        };
+        suppressApiSelectionSyncForSort = true;
+        armSortSelectionGuard();
+      };
+
+      restoreSortSelectionSnapshot = (api)=>{
+        const snapshot = pendingSortSelectionSnapshot;
+        pendingSortSelectionSnapshot = null;
+        if(!snapshot){
+          clearSortSelectionGuard();
+          scheduleFillHandleUpdate('sort-changed');
+          if(formulaReferenceOverlayState.ranges.length){
+            scheduleFormulaReferenceOverlayRender('sort-changed');
+          }
+          return;
+        }
+        isApplyingSortSelectionSnapshot = true;
+        try{
+          if(Array.isArray(snapshot.headerCols) && snapshot.headerCols.length){
+            selectedHeaderColumns = new Set(snapshot.headerCols);
+          }else{
+            clearSelectedHeaderColumns();
+          }
+          if(snapshot.range){
+            const restoredRange = cloneRange(snapshot.range);
+            if(restoredRange){
+              setLastRange(restoredRange);
+              const anchor = snapshot.anchor;
+              if(anchor
+                && restoredRange.from.row === restoredRange.to.row
+                && restoredRange.from.col === restoredRange.to.col
+                && Number.isInteger(anchor.row)
+                && Number.isInteger(anchor.col)){
+                const colId = `c${anchor.col}`;
+                try{
+                  if(typeof api?.setFocusedCell === 'function'){
+                    api.setFocusedCell(anchor.row, colId);
+                  }
+                }catch(err){
+                  // ignore focus restore failures
+                }
+              }
+              fireHook('afterSelectionEnd', restoredRange.from.row, restoredRange.from.col, restoredRange.to.row, restoredRange.to.col);
+            }
+          }
+          renderAg(api || instance.gridApi);
+        }finally{
+          isApplyingSortSelectionSnapshot = false;
+          clearSortSelectionGuard();
+        }
+      };
+
       const clearHeaderSortSuppression = ()=>{
         pendingHeaderSortSuppression = null;
       };
@@ -9759,6 +9939,19 @@
           }
           return;
         }
+        if(target.closest('.hot-sort-indicator')){
+          // Sorting via the right-side icon must preserve the existing
+          // grid selection coordinates; do not rewrite selection on mousedown.
+          isHeaderDragSelecting = false;
+          headerDragScope = null;
+          headerDragAnchor = null;
+          pendingHeaderDragIndex = null;
+          headerDragRafPending = false;
+          headerDragMouseDown = false;
+          headerDragColId = null;
+          headerDragStartPointer = null;
+          return;
+        }
         if(target.closest('.ag-header-cell-resize') || target.closest('.ag-header-icon') || target.closest('.ag-header-cell-menu-button')){
           return;
         }
@@ -9796,9 +9989,17 @@
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: Shared.hot header drag selection armed', { debugLabel, scope: 'column', col });
         }
-        selectColumnByHeader(col, !!event.shiftKey, additiveSelection, {
-          deferRender: !selectionIntent
-        });
+        // Keep plain header clicks non-destructive: do not replace the active
+        // cell selection unless the user is explicitly extending/toggling a
+        // header selection with Shift/Ctrl/Cmd.
+        if(!selectionIntent){
+          focusGridContainer();
+        }
+        if(selectionIntent){
+          selectColumnByHeader(col, !!event.shiftKey, additiveSelection, {
+            deferRender: false
+          });
+        }
         // Keep sort active on plain header clicks; only suppress sorting when
         // the intent is multi-select/extend selection.
         if(event.shiftKey || additiveSelection){
@@ -9816,30 +10017,41 @@
       };
 
       const handleColumnHeaderClick = (event)=>{
-        const suppression = pendingHeaderSortSuppression;
-        if(!suppression){
-          return;
-        }
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
-          clearHeaderSortSuppression();
-          return;
-        }
-        if(!container.contains(target)){
-          clearHeaderSortSuppression();
           return;
         }
         const headerCell = target.closest('.ag-header-cell');
         if(!headerCell){
-          clearHeaderSortSuppression();
           return;
         }
-        if(!suppression.any){
-          const colId = headerCell.getAttribute('col-id');
-          if(colId !== suppression.colId){
+        const colId = headerCell.getAttribute('col-id');
+        const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
+        if(!isDataColumn){
+          const suppressionNonData = pendingHeaderSortSuppression;
+          if(suppressionNonData){
             clearHeaderSortSuppression();
-            return;
           }
+          return;
+        }
+        const onSortIndicator = !!target.closest('.hot-sort-indicator');
+        const onDragHandle = !!target.closest('.hot-col-drag-handle');
+        const onResizeHandle = !!target.closest('.ag-header-cell-resize');
+        const onMenuButton = !!target.closest('.ag-header-cell-menu-button');
+        const onHeaderIcon = !!target.closest('.ag-header-icon');
+        if(!onSortIndicator && !onDragHandle && !onResizeHandle && !onMenuButton && !onHeaderIcon){
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+          return;
+        }
+        const suppression = pendingHeaderSortSuppression;
+        if(!suppression){
+          return;
+        }
+        if(!suppression.any && colId !== suppression.colId){
+          clearHeaderSortSuppression();
+          return;
         }
         clearHeaderSortSuppression();
         event.preventDefault?.();
@@ -11062,6 +11274,12 @@
         event.preventDefault?.();
       };
 
+      const handleWindowBlur = ()=>{
+        if(isColumnHandleDragging){
+          stopColumnHandleDrag();
+        }
+      };
+
       const handleHeaderContextMenuProxy = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
@@ -11095,6 +11313,7 @@
       win?.addEventListener?.('mouseup', handleMouseUp, true);
       win?.addEventListener?.('pointerup', handleMouseUp, true);
       win?.addEventListener?.('pointercancel', handleMouseUp, true);
+      win?.addEventListener?.('blur', handleWindowBlur, true);
       win?.addEventListener?.('mouseup', handleColumnHeaderMouseUp, true);
       doc.addEventListener('click', handleColumnHeaderClick, true);
       container.addEventListener('keydown', handleKeyDown, true);
@@ -11160,6 +11379,8 @@
       cleanupFns.push(()=>{
         stopFormulaOverlayLoop();
         stopFormulaReferenceDrag('cleanup');
+        pendingSortSelectionSnapshot = null;
+        clearSortSelectionGuard();
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleMouseDown, true);
@@ -11171,6 +11392,7 @@
         win?.removeEventListener?.('mouseup', handleMouseUp, true);
         win?.removeEventListener?.('pointerup', handleMouseUp, true);
         win?.removeEventListener?.('pointercancel', handleMouseUp, true);
+        win?.removeEventListener?.('blur', handleWindowBlur, true);
         win?.removeEventListener?.('mouseup', handleColumnHeaderMouseUp, true);
         doc.removeEventListener('click', handleColumnHeaderClick, true);
         clearHeaderSortSuppression();

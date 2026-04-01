@@ -1635,8 +1635,158 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
+  test('column handle drag commits reorder on window blur if mouseup is missed', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleBlurCommitHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-blur-commit',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    header2.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header2);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header2;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    // Mouseup can be missed if the pointer leaves the window while dragging.
+    // Blurring the window must still finalize and commit the reorder.
+    global.window.dispatchEvent(new global.window.Event('blur'));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('native AG onColumnMoved commit records undo even without moved-column metadata', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agNativeColumnMoveUndoHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-native-column-move-undo',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    const totalCols = hot.countCols();
+    let displayed = Array.from({ length: totalCols }, (_, idx) => `c${idx}`);
+    const moveDisplayed = (ids, toIndex) => {
+      const list = Array.isArray(ids) ? ids : [ids];
+      const remaining = displayed.filter(id => !list.includes(id));
+      const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+      displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+    };
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: moveDisplayed
+    };
+    hot.gridApi.columnApi = hot.columnApi;
+
+    // Simulate AG Grid native drag result: display order changed first, then
+    // onColumnMoved fires with missing params.columns / params.column metadata.
+    moveDisplayed(['c0'], 2);
+    capturedGridOptions.onColumnMoved({
+      api: hot.gridApi,
+      columnApi: hot.columnApi,
+      source: 'uiColumnMoved',
+      finished: true
+    });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    expect(hot.getDataAtCell(0, 2)).toBe('C0');
+
+    expect(undoManager.redo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+  });
+
   test('column header context menu supports insert/delete for selected columns', () => {
     const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agHeaderContextMenuColsHot';
     document.body.appendChild(container);
@@ -1682,6 +1832,63 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     // After deleting cols 1..2, col1 should now contain former col3 (D0).
     expect(hot.getDataAtCell(0, 1)).toBe('D0');
+
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+
+    expect(undoManager.redo()).toBe(true);
+    expect(hot.getDataAtCell(0, 1)).toBe('D0');
+  });
+
+  test('row header context menu insert row supports undo/redo', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agRowHeaderContextMenuUndoHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-row-header-contextmenu-undo',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1']
+        ]
+      }
+    );
+
+    const evt = new global.window.MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    capturedGridOptions.onCellContextMenu({
+      event: evt,
+      column: { getColId: () => '__rowHeader' },
+      node: { rowIndex: 1, data: { __rowIndex: 1 } }
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+
+    const insertAboveEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Insert 1 row(s) above');
+    expect(insertAboveEntry).toBeTruthy();
+    insertAboveEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(2, 0)).toBe('A1');
+
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.countRows()).toBe(2);
+    expect(hot.getDataAtCell(1, 0)).toBe('A1');
+
+    expect(undoManager.redo()).toBe(true);
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(2, 0)).toBe('A1');
   });
 
   test('column header context menu shows Include only when selected column is excluded', () => {
@@ -1956,7 +2163,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(colDef.cellClassRules['hot-cell-excluded-column'](params)).toBe(false);
   });
 
-  test('clicking column header selects the full column', () => {
+  test('plain column header click preserves the active cell selection', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agColHeaderSelectHot';
@@ -1974,13 +2181,15 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header.setAttribute('col-id', 'c1');
     container.appendChild(header);
 
+    hot.selectCell(2, 2);
+
     const evt = new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
     header.dispatchEvent(evt);
 
-    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(hot.getSelectedLast()).toEqual([2, 2, 2, 2]);
   });
 
-  test('header click keeps column selection while still allowing immediate sort', () => {
+  test('header click preserves active selection and does not trigger sort unless sort icon is clicked', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agColHeaderSortGateHot';
@@ -2000,18 +2209,19 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     const sortSpy = jest.fn();
     header.addEventListener('click', sortSpy);
+    hot.selectCell(1, 2);
 
     header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
     header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
-    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
-    expect(sortSpy).toHaveBeenCalledTimes(1);
+    expect(hot.getSelectedLast()).toEqual([1, 2, 1, 2]);
+    expect(sortSpy).toHaveBeenCalledTimes(0);
 
     header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
     header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
-    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
-    expect(sortSpy).toHaveBeenCalledTimes(2);
+    expect(hot.getSelectedLast()).toEqual([1, 2, 1, 2]);
+    expect(sortSpy).toHaveBeenCalledTimes(0);
   });
 
   test('clicking row header selects the full row', () => {
@@ -2096,7 +2306,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header2.setAttribute('col-id', 'c2');
     container.appendChild(header2);
 
-    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
     header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
       bubbles: true,
       cancelable: true,
@@ -2153,7 +2363,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header2.setAttribute('col-id', 'c2');
     container.appendChild(header2);
 
-    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
     header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
       bubbles: true,
       cancelable: true,
@@ -2208,7 +2418,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header2.setAttribute('col-id', 'c2');
     container.appendChild(header2);
 
-    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
     header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
       bubbles: true,
       cancelable: true,
@@ -2261,7 +2471,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header2.setAttribute('col-id', 'c2');
     container.appendChild(header2);
 
-    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
     header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
       bubbles: true,
       cancelable: true,

@@ -81,7 +81,67 @@ test('line headers support sorting and drag reordering with visible left/right i
     });
   };
 
+  const readSelectionVisualState = async () => {
+    return await page.evaluate(() => {
+      const line = window.Components?.line;
+      const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
+      if(!hot || !hot.rootElement){
+        return null;
+      }
+      const selected = hot.getSelectedLast?.() || null;
+      const outline = hot.rootElement.querySelector('.hot-selection-outline');
+      const handle = hot.rootElement.querySelector('.hot-fill-handle');
+      const outlineStyle = outline ? window.getComputedStyle(outline) : null;
+      const handleStyle = handle ? window.getComputedStyle(handle) : null;
+      const borderBottomColor = String(outlineStyle?.borderBottomColor || '').replace(/\s+/g, '').toLowerCase();
+      const borderBottomVisible = !!outlineStyle
+        && outlineStyle.display !== 'none'
+        && outlineStyle.borderBottomStyle !== 'none'
+        && borderBottomColor !== 'transparent'
+        && borderBottomColor !== 'rgba(0,0,0,0)';
+      const handleVisible = !!handleStyle
+        && handleStyle.display !== 'none'
+        && Number.parseFloat(handleStyle.width || '0') > 0
+        && Number.parseFloat(handleStyle.height || '0') > 0;
+      return {
+        selected,
+        borderBottomVisible,
+        handleVisible
+      };
+    });
+  };
+
+  await page.evaluate(() => {
+    const line = window.Components?.line;
+    const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
+    hot?.selectCell?.(4, 2);
+  });
+  const selectionBeforeSort = await readSelectionVisualState();
+  expect(selectionBeforeSort?.selected).toEqual([4, 2, 4, 2]);
+  expect(selectionBeforeSort?.borderBottomVisible).toBeTruthy();
+  expect(selectionBeforeSort?.handleVisible).toBeTruthy();
+
+  const initialOrder = await readDisplayedDataOrder();
   await label.click();
+  await expect.poll(async () => {
+    const order = await readDisplayedDataOrder();
+    return order.join(',');
+  }, {
+    timeout: 10_000,
+    intervals: [100, 200, 400]
+  }).toBe(initialOrder.join(','));
+  await expect.poll(async () => {
+    return await readSelectionVisualState();
+  }, {
+    timeout: 10_000,
+    intervals: [100, 200, 400]
+  }).toMatchObject({
+    selected: [4, 2, 4, 2],
+    borderBottomVisible: true,
+    handleVisible: true
+  });
+
+  await sortIndicator.click();
   await expect.poll(async () => {
     const order = await readDisplayedDataOrder();
     return order.join(',');
@@ -89,8 +149,18 @@ test('line headers support sorting and drag reordering with visible left/right i
     timeout: 10_000,
     intervals: [100, 200, 400]
   }).toBe('10,20,30');
+  await expect.poll(async () => {
+    return await readSelectionVisualState();
+  }, {
+    timeout: 10_000,
+    intervals: [100, 200, 400]
+  }).toMatchObject({
+    selected: [4, 2, 4, 2],
+    borderBottomVisible: true,
+    handleVisible: true
+  });
 
-  await label.click();
+  await sortIndicator.click();
   await expect.poll(async () => {
     const order = await readDisplayedDataOrder();
     return order.join(',');
@@ -98,6 +168,16 @@ test('line headers support sorting and drag reordering with visible left/right i
     timeout: 10_000,
     intervals: [100, 200, 400]
   }).toBe('30,20,10');
+  await expect.poll(async () => {
+    return await readSelectionVisualState();
+  }, {
+    timeout: 10_000,
+    intervals: [100, 200, 400]
+  }).toMatchObject({
+    selected: [4, 2, 4, 2],
+    borderBottomVisible: true,
+    handleVisible: true
+  });
 
   await expect.poll(async () => {
     return await page.evaluate(() => {

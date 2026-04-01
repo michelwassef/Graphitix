@@ -549,9 +549,9 @@ select {
     box-sizing: border-box;
 }
 .ag-theme-balham .hot-col-drag-handle {
-    width: 12px;
+    width: 18px;
     height: 14px;
-    flex: 0 0 12px;
+    flex: 0 0 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -566,8 +566,19 @@ select {
     user-select: none;
 }
 .ag-theme-balham .hot-col-drag-handle::before {
-    content: "\22EE";
+    content: "";
     display: block;
+    width: 18px;
+    height: 10px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2.9993012 1.8988395'%3E%3Cg transform='matrix(-1 0 0 1 10.118028 -4.2828362)'%3E%3Cpath fill='none' stroke='black' stroke-width='0.16' stroke-linecap='butt' stroke-linejoin='miter' d='M10.041963 5.1855642 C9.0974854 6.1249546 9.0974854 6.1249546 9.0974854 6.1249546 M9.1171345 4.3395573 C10.061612 5.2789479 10.061612 5.2789479 10.061612 5.2789479 M7.1947914 5.1855642 C8.139269 6.1249546 8.139269 6.1249546 8.139269 6.1249546 M8.1196199 4.3395573 C7.1751424 5.2789479 7.1751424 5.2789479 7.1751424 5.2789479 m1.4373099 -0.72199 c0 1.3284989 0 1.3284989 0 1.3284989 M10.018527 5.2212074 c-2.8121496 0 -2.8121496 0 -2.8121496 0'/%3E%3C/g%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2.9993012 1.8988395'%3E%3Cg transform='matrix(-1 0 0 1 10.118028 -4.2828362)'%3E%3Cpath fill='none' stroke='black' stroke-width='0.16' stroke-linecap='butt' stroke-linejoin='miter' d='M10.041963 5.1855642 C9.0974854 6.1249546 9.0974854 6.1249546 9.0974854 6.1249546 M9.1171345 4.3395573 C10.061612 5.2789479 10.061612 5.2789479 10.061612 5.2789479 M7.1947914 5.1855642 C8.139269 6.1249546 8.139269 6.1249546 8.139269 6.1249546 M8.1196199 4.3395573 C7.1751424 5.2789479 7.1751424 5.2789479 7.1751424 5.2789479 m1.4373099 -0.72199 c0 1.3284989 0 1.3284989 0 1.3284989 M10.018527 5.2212074 c-2.8121496 0 -2.8121496 0 -2.8121496 0'/%3E%3C/g%3E%3C/svg%3E");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: 18px 10px;
+    mask-size: 18px 10px;
 }
 .ag-theme-balham .hot-col-drag-handle:active {
     cursor: grabbing;
@@ -642,6 +653,7 @@ select {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
+    cursor: pointer;
 }
 .ag-theme-balham .hot-sort-indicator::before,
 .ag-theme-balham .hot-sort-indicator::after {

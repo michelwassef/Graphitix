@@ -195,6 +195,107 @@ test('box click-to-reference remains column-accurate across repeated edits', asy
   expect(issues.critical).toEqual([]);
 });
 
+test('box formula reference highlighting follows displayed row coordinates after sort', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+
+  await page.waitForFunction(() => {
+    const box = window.Components?.box;
+    if (!box || typeof box.__getState !== 'function') {
+      return false;
+    }
+    const state = box.__getState();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    return !!(hot && hot.gridApi && typeof hot.loadData === 'function');
+  });
+
+  await page.evaluate(() => {
+    const box = window.Components.box;
+    const state = box.__getState();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    hot.loadData([
+      ['Group 1', 'Sort Key', 'Group 3', 'Group 4', 'Formula'],
+      ['P1', '30', '', '', ''],
+      ['P2', '10', '', '', ''],
+      ['P3', '20', '', '', ''],
+      ['', '', '', '', ''],
+      ['', '', '', '', '']
+    ], {
+      source: 'e2e-sort-ref-load',
+      recordUndo: false
+    });
+  });
+
+  const sortIndicator = page.locator('#hot .ag-header-cell[col-id="c1"] .hot-sort-indicator').first();
+  await expect(sortIndicator).toBeVisible();
+  await sortIndicator.click();
+
+  await expect.poll(async () => {
+    return await page.evaluate(() => {
+      const indicator = document.querySelector('#hot .ag-header-cell[col-id="c1"] .hot-sort-indicator');
+      return !!indicator && indicator.classList.contains('is-asc');
+    });
+  }, {
+    timeout: 10_000,
+    intervals: [200, 400, 800]
+  }).toBe(true);
+
+  const p1DisplayRow = await page.evaluate(() => {
+    const box = window.Components?.box;
+    const state = box?.__getState?.();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    const api = hot?.gridApi;
+    if (!api || typeof api.getDisplayedRowCount !== 'function' || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function') {
+      return null;
+    }
+    const total = api.getDisplayedRowCount();
+    for (let idx = 0; idx < total; idx += 1) {
+      const node = api.getDisplayedRowAtIndex(idx);
+      if (!node) {
+        continue;
+      }
+      const value = String(api.getValue('c0', node) ?? '').trim();
+      if (value === 'P1') {
+        return Number(node.rowIndex);
+      }
+    }
+    return null;
+  });
+  expect(Number.isInteger(p1DisplayRow)).toBe(true);
+
+  await page.evaluate((rowIndex) => {
+    const box = window.Components.box;
+    const state = box.__getState();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    hot.gridApi?.startEditingCell?.({ rowIndex, colKey: 'c4' });
+  }, p1DisplayRow);
+
+  const editorInput = page.locator('#hot input.ag-text-field-input').first();
+  await expect(editorInput).toBeVisible();
+  await editorInput.fill('=');
+
+  const refCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${p1DisplayRow}"] .ag-cell[col-id="c0"]`).first();
+  await refCell.click({ force: true });
+
+  await expect(editorInput).toHaveValue(`=A${p1DisplayRow}`);
+
+  await expect.poll(async () => {
+    return await page.evaluate((rowIndex) => {
+      return !!document.querySelector(`#hot .hot-formula-ref-outline[data-row="${rowIndex}"][data-col="0"]`);
+    }, p1DisplayRow);
+  }, {
+    timeout: 10_000,
+    intervals: [200, 400, 800]
+  }).toBe(true);
+
+  expect(issues.critical).toEqual([]);
+});
+
 test('box formula drag range selection inserts A1:A10 and evaluates AVERAGE', async ({ page }) => {
   test.setTimeout(180_000);
   const issues = registerIssueCollectors(page);
