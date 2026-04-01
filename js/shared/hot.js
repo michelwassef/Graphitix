@@ -1150,6 +1150,7 @@
     let normalizedSelectionRange = null;
     let selectedHeaderColumns = new Set();
     let normalizedCopyHighlightRange = null;
+    let selectionOutline = null;
     let fillHandle = null;
     let fillHandleUpdatePending = false;
     let isFillHandleDragging = false;
@@ -1770,6 +1771,37 @@
       clearFormulaReferenceOverlay({ removeLayer: true });
     });
 
+    const ensureSelectionOutline = ()=>{
+      if(selectionOutline){
+        return selectionOutline;
+      }
+      if(!container || typeof container.appendChild !== 'function'){
+        return null;
+      }
+      const doc = container.ownerDocument || document;
+      const outline = doc.createElement('div');
+      outline.className = 'hot-selection-outline';
+      outline.setAttribute('aria-hidden', 'true');
+      outline.style.display = 'none';
+      container.appendChild(outline);
+      selectionOutline = outline;
+      cleanupFns.push(()=>{
+        if(outline.parentNode){
+          outline.parentNode.removeChild(outline);
+        }
+        if(selectionOutline === outline){
+          selectionOutline = null;
+        }
+      });
+      return outline;
+    };
+
+    const hideSelectionOutline = ()=>{
+      if(selectionOutline && selectionOutline.style.display !== 'none'){
+        selectionOutline.style.display = 'none';
+      }
+    };
+
     const ensureFillHandle = ()=>{
       if(fillHandle){
         return fillHandle;
@@ -2069,12 +2101,55 @@
       }
     };
 
+    const updateSelectionOutlinePosition = ()=>{
+      const selection = normalizedSelectionRange;
+      if(!selection){
+        hideSelectionOutline();
+        return false;
+      }
+      const outline = ensureSelectionOutline();
+      if(!outline){
+        return false;
+      }
+      const startCell = resolveFillHandleCell(selection.from.row, selection.from.col);
+      const endCell = resolveFillHandleCell(selection.to.row, selection.to.col);
+      if(!startCell || !endCell){
+        hideSelectionOutline();
+        return false;
+      }
+      const startRect = startCell.getBoundingClientRect?.();
+      const endRect = endCell.getBoundingClientRect?.();
+      const hostRect = container?.getBoundingClientRect?.();
+      if(!startRect || !endRect || !hostRect){
+        hideSelectionOutline();
+        return false;
+      }
+      const left = Math.min(startRect.left, endRect.left) - hostRect.left - 1;
+      const top = Math.min(startRect.top, endRect.top) - hostRect.top - 1;
+      const right = Math.max(startRect.right, endRect.right) - hostRect.left + 1;
+      const bottom = Math.max(startRect.bottom, endRect.bottom) - hostRect.top + 1;
+      const width = Math.max(0, right - left);
+      const height = Math.max(0, bottom - top);
+      if(width <= 0 || height <= 0){
+        hideSelectionOutline();
+        return false;
+      }
+      outline.style.display = 'block';
+      outline.style.left = `${left}px`;
+      outline.style.top = `${top}px`;
+      outline.style.width = `${width}px`;
+      outline.style.height = `${height}px`;
+      return true;
+    };
+
     const updateFillHandlePosition = (reason)=>{
       const selection = normalizedSelectionRange;
       if(!selection){
         hideFillHandle();
+        hideSelectionOutline();
         return;
       }
+      updateSelectionOutlinePosition();
       const handle = ensureFillHandle();
       if(!handle){
         return;
@@ -2120,12 +2195,12 @@
       if(viewport && typeof viewport.getBoundingClientRect === 'function'){
         const viewportRect = viewport.getBoundingClientRect();
         const markerRect = {
-          left: cellRect.right - handleWidth,
-          top: cellRect.bottom - handleHeight,
-          right: cellRect.right,
-          bottom: cellRect.bottom
+          left: cellRect.right - (handleWidth / 2),
+          top: cellRect.bottom - (handleHeight / 2),
+          right: cellRect.right + (handleWidth / 2),
+          bottom: cellRect.bottom + (handleHeight / 2)
         };
-        const edgeTolerance = isPinnedSelectionRow ? 2 : 0.5;
+        const edgeTolerance = isPinnedSelectionRow ? Math.max(2, handleWidth / 2) : Math.max(0.5, handleWidth / 2);
         const markerInsideViewport = markerRect.left >= (viewportRect.left - edgeTolerance)
           && markerRect.right <= (viewportRect.right + edgeTolerance)
           && markerRect.top >= (viewportRect.top - edgeTolerance)
@@ -5305,6 +5380,73 @@
             && rowIndex <= normalizedSelectionRange.to.row
             && col >= normalizedSelectionRange.from.col
             && col <= normalizedSelectionRange.to.col;
+        };
+        existing['hot-selected-range-fill'] = params=>{
+          if(selectedHeaderColumns.size){
+            return false;
+          }
+          if(!normalizedSelectionRange){
+            return false;
+          }
+          const rangeRows = normalizedSelectionRange.to.row - normalizedSelectionRange.from.row + 1;
+          const rangeCols = normalizedSelectionRange.to.col - normalizedSelectionRange.from.col + 1;
+          if(rangeRows <= 1 && rangeCols <= 1){
+            return false;
+          }
+          const rowIndex = resolveVisualRowIndex(params);
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          if(!Number.isInteger(rowIndex)){
+            return false;
+          }
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(col)){
+            return false;
+          }
+          const inRange = rowIndex >= normalizedSelectionRange.from.row
+            && rowIndex <= normalizedSelectionRange.to.row
+            && col >= normalizedSelectionRange.from.col
+            && col <= normalizedSelectionRange.to.col;
+          if(!inRange){
+            return false;
+          }
+          const anchor = lastRange?.from;
+          const anchorRow = Number(anchor?.row);
+          const anchorCol = Number(anchor?.col);
+          if(Number.isInteger(anchorRow) && Number.isInteger(anchorCol) && rowIndex === anchorRow && col === anchorCol){
+            return false;
+          }
+          return true;
+        };
+        existing['hot-selected-anchor'] = params=>{
+          if(selectedHeaderColumns.size){
+            return false;
+          }
+          if(!normalizedSelectionRange){
+            return false;
+          }
+          const rowIndex = resolveVisualRowIndex(params);
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          if(!Number.isInteger(rowIndex)){
+            return false;
+          }
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(col)){
+            return false;
+          }
+          const inRange = rowIndex >= normalizedSelectionRange.from.row
+            && rowIndex <= normalizedSelectionRange.to.row
+            && col >= normalizedSelectionRange.from.col
+            && col <= normalizedSelectionRange.to.col;
+          if(!inRange){
+            return false;
+          }
+          const anchor = lastRange?.from;
+          const anchorRow = Number(anchor?.row);
+          const anchorCol = Number(anchor?.col);
+          if(Number.isInteger(anchorRow) && Number.isInteger(anchorCol)){
+            return rowIndex === anchorRow && col === anchorCol;
+          }
+          return rowIndex === normalizedSelectionRange.from.row && col === normalizedSelectionRange.from.col;
         };
         existing['hot-copy-highlight-cell'] = params=>{
           if(!normalizedCopyHighlightRange){

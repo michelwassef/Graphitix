@@ -942,7 +942,13 @@ select {
     z-index: 2;
 }
 .ag-theme-balham .ag-cell.hot-selected-cell {
-    background: rgba(26, 115, 232, 0.12);
+    background: transparent;
+}
+.ag-theme-balham .ag-cell.hot-selected-range-fill {
+    background: rgba(0, 0, 0, 0.16);
+}
+.ag-theme-balham .ag-cell.hot-selected-anchor {
+    background: transparent !important;
 }
 .ag-theme-balham .ag-cell.hot-copy-highlight-cell {
     outline: 2px dotted var(--hot-copy-highlight-color, #1a73e8);
@@ -965,6 +971,13 @@ select {
     border: 2px solid #1a73e8;
     border-radius: 1px;
     pointer-events: none;
+}
+.ag-theme-balham .hot-selection-outline {
+    position: absolute;
+    pointer-events: none;
+    box-sizing: border-box;
+    border: 2px solid var(--hot-selection-outline-color, #107c41);
+    z-index: 6;
 }
 .hot-formula-fn-suggest {
     position: fixed;
@@ -1044,31 +1057,29 @@ select {
 }
 .ag-theme-balham .hot-fill-handle {
     position: absolute;
-    width: 8px;
-    height: 8px;
-    background: var(--hot-fill-handle-color, #6aa9ff);
-    border: none;
+    width: 6px;
+    height: 6px;
+    background: var(--hot-fill-handle-color, #107c41);
+    border: 1px solid #ffffff;
     border-radius: 0;
     box-shadow: none;
-    transform: translate(-100%, -100%);
+    transform: translate(-50%, -50%);
     /* Keep below AG Grid header/pinned layers so overlap is naturally clipped. */
-    z-index: 2;
+    z-index: 7;
     cursor: grab;
     display: none;
 }
 .ag-theme-balham .hot-fill-handle:active {
     cursor: grabbing;
 }
-/* Make single-cell focus look like multi-cell selection (light blue)
-   and remove the darker focus outline applied by ag-theme-balham. */
+/* Remove AG Grid's default focus tint/ring; selection visuals are drawn by
+   custom classes and the shared selection outline layer. */
 .ag-theme-balham .ag-cell.ag-cell-focus,
 .ag-theme-balham .ag-cell:focus,
 .ag-theme-balham .ag-cell.ag-cell-range-selected {
-    background: rgba(26, 115, 232, 0.12) !important;
+    background: transparent !important;
     outline: none !important;
     box-shadow: none !important;
-    border-top: 0 !important;
-    border-left: 0 !important;
 }
 
 .ag-theme-balham .ag-cell.ag-cell-focus .ag-cell-focus-inner,
@@ -1079,21 +1090,13 @@ select {
 /* Stronger overrides to remove any remaining focus ring or dark border
    applied to a single focused cell by AG Grid's theme. Covers pseudo
    elements, borders and box-shadows used by different ag-grid versions. */
-.ag-theme-balham .ag-cell.ag-cell-focus,
-.ag-theme-balham .ag-cell.ag-cell-focus *,
 .ag-theme-balham .ag-cell.ag-cell-focus::before,
 .ag-theme-balham .ag-cell.ag-cell-focus::after,
-.ag-theme-balham .ag-cell.ag-cell-range-selected,
-.ag-theme-balham .ag-cell-range-selected,
-.ag-theme-balham .ag-range-selected .ag-cell,
-.ag-theme-balham .ag-row-selected .ag-cell,
 .ag-theme-balham .ag-cell.ag-cell-focus .ag-focus-wrapper::before,
 .ag-theme-balham .ag-cell.ag-cell-focus .ag-focus-wrapper::after {
-    background: rgba(26, 115, 232, 0.12) !important;
+    background: transparent !important;
     outline: none !important;
     box-shadow: none !important;
-    border-top: 0 !important;
-    border-left: 0 !important;
 }
 
 /* In case AG Grid adds an inner highlight element, hide its border */
@@ -1103,8 +1106,7 @@ select {
     box-shadow: none !important;
 }
 
-/* Catch-all: remove inline-style focus rings or shadows applied by JS
-   so a single focused cell visually matches range selection. */
+/* Catch-all: remove inline-style focus rings or shadows applied by JS. */
 .ag-theme-balham .ag-cell[style],
 .ag-theme-balham .ag-cell[style]::before,
 .ag-theme-balham .ag-cell[style]::after,
@@ -1133,7 +1135,7 @@ select {
 .ag-theme-balham .ag-cell.ag-focused,
 .ag-theme-balham .ag-cell-focus,
 .ag-theme-balham .ag-focus {
-    background: rgba(26, 115, 232, 0.12) !important;
+    background: transparent !important;
     box-shadow: none !important;
     outline: none !important;
 }
