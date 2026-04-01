@@ -549,20 +549,33 @@ select {
     box-sizing: border-box;
 }
 .ag-theme-balham .hot-col-drag-handle {
-    width: 10px;
+    width: 12px;
     height: 14px;
-    flex: 0 0 10px;
-    opacity: 0;
+    flex: 0 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
     cursor: grab;
-    background: transparent !important;
-    background-image: none !important;
-    border: 0 !important;
-    box-shadow: none !important;
-    color: transparent !important;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    color: #7a7a7a;
+    font-size: 11px;
+    line-height: 1;
+    user-select: none;
+}
+.ag-theme-balham .hot-col-drag-handle::before {
+    content: "\22EE";
+    display: block;
 }
 .ag-theme-balham .hot-col-drag-handle:active {
     cursor: grabbing;
-    opacity: 0;
+    opacity: 1;
+}
+.ag-theme-balham .ag-header-cell:hover .hot-col-drag-handle,
+.ag-theme-balham .ag-header-cell:focus-within .hot-col-drag-handle {
+    opacity: 1;
 }
 /* Keep AG Grid resize handles functional but invisible globally. */
 .ag-theme-balham .ag-header-cell-resize,
@@ -609,20 +622,14 @@ select {
     white-space: nowrap;
     flex: 1 1 auto;
 }
-.ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-col-drag-handle {
-    display: none;
-}
-.ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-sort-indicator {
-    display: none;
-}
 .ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-ag-header {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
+    justify-content: flex-start;
+    padding-left: 2px;
+    padding-right: 1px;
 }
 .ag-theme-balham .ag-header-cell.hot-excel-colheader .hot-ag-header-label {
     text-align: center;
-    flex: 0 1 auto;
+    flex: 1 1 auto;
 }
 .ag-theme-balham .hot-sort-indicator {
     margin-left: auto;
@@ -630,24 +637,41 @@ select {
     width: 12px;
     height: 12px;
     display: inline-flex;
+    flex-direction: column;
+    gap: 1px;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
 }
-.ag-theme-balham .hot-sort-indicator::before {
+.ag-theme-balham .hot-sort-indicator::before,
+.ag-theme-balham .hot-sort-indicator::after {
     content: "";
     display: block;
     width: 0;
     height: 0;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
-    opacity: 0.8;
+    opacity: 0.85;
+}
+.ag-theme-balham .hot-sort-indicator::before {
+    border-bottom: 6px solid #b8b8b8;
+    transform: translateY(-1px);
+}
+.ag-theme-balham .hot-sort-indicator::after {
+    border-top: 6px solid #b8b8b8;
+    transform: translateY(1px);
 }
 .ag-theme-balham .hot-sort-indicator.is-asc::before {
-    border-bottom: 8px solid #444;
+    border-bottom-color: #1a73e8;
 }
 .ag-theme-balham .hot-sort-indicator.is-desc::before {
-    border-top: 8px solid #444;
+    border-bottom-color: #b8b8b8;
+}
+.ag-theme-balham .hot-sort-indicator.is-asc::after {
+    border-top-color: #d4d4d4;
+}
+.ag-theme-balham .hot-sort-indicator.is-desc::after {
+    border-top-color: #1a73e8;
 }
 .ag-theme-balham .hot-header-row .ag-cell {
     background: #f5f5f5;

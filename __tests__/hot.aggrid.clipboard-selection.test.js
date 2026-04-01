@@ -1980,7 +1980,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
   });
 
-  test('header click only sorts after column is already selected', () => {
+  test('header click keeps column selection while still allowing immediate sort', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agColHeaderSortGateHot';
@@ -2005,13 +2005,13 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
-    expect(sortSpy).toHaveBeenCalledTimes(0);
+    expect(sortSpy).toHaveBeenCalledTimes(1);
 
     header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
     header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
-    expect(sortSpy).toHaveBeenCalledTimes(1);
+    expect(sortSpy).toHaveBeenCalledTimes(2);
   });
 
   test('clicking row header selects the full row', () => {

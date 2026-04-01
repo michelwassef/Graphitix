@@ -3310,6 +3310,7 @@
     let headerDragRafPending = false;
     let headerDragMouseDown = false;
     let headerDragColId = null;
+    let headerDragStartPointer = null;
     let isColumnHandleDragging = false;
     let columnHandleDragColIds = null;
     let columnHandleLastTargetIndex = null;
@@ -5540,18 +5541,47 @@
             if(event?.target && typeof event.target.closest === 'function' && event.target.closest('.hot-col-drag-handle')){
               return;
             }
-            if(!params?.enableSorting){
+            const sortable = (typeof params?.column?.isSortable === 'function')
+              ? !!params.column.isSortable()
+              : (params?.column?.getColDef?.()?.sortable !== false);
+            if(!sortable){
               return;
             }
+            const current = params?.column?.getSort?.() || null;
+            const next = current === 'asc' ? 'desc' : (current === 'desc' ? null : 'asc');
             if(typeof params?.progressSort === 'function'){
               params.progressSort(!!event.shiftKey);
               return;
             }
             if(typeof params?.setSort === 'function'){
-              const current = params?.column?.getSort?.();
-              const next = current === 'asc' ? 'desc' : (current === 'desc' ? null : 'asc');
               params.setSort(next, !!event.shiftKey);
               return;
+            }
+            if(typeof params?.column?.setSort === 'function'){
+              params.column.setSort(next, !!event.shiftKey);
+              return;
+            }
+            const applyColumnState = params?.api?.applyColumnState || params?.columnApi?.applyColumnState;
+            const targetApi = params?.api?.applyColumnState ? params.api : params?.columnApi;
+            const colId = params?.column?.getColId?.();
+            if(typeof applyColumnState === 'function' && targetApi && typeof colId === 'string' && colId){
+              try{
+                const statePayload = {
+                  state: [{ colId, sort: next }]
+                };
+                if(!event.shiftKey){
+                  statePayload.defaultState = { sort: null };
+                }
+                applyColumnState.call(targetApi, statePayload);
+              }catch(sortErr){
+                if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+                  console.debug('Debug: Shared.hot header sort fallback failed', {
+                    debugLabel,
+                    colId,
+                    error: sortErr?.message || String(sortErr)
+                  });
+                }
+              }
             }
           });
 
@@ -5627,8 +5657,8 @@
             colDef.pinned = 'left';
             colDef.lockPinned = true;
           }
-          if(colDef.suppressMovable !== false){
-            colDef.suppressMovable = true;
+          if(typeof colDef.suppressMovable === 'undefined'){
+            colDef.suppressMovable = false;
           }
           if(typeof colDef.sortable === 'undefined'){
             colDef.sortable = true;
@@ -7665,6 +7695,62 @@
       }
     };
 
+    const getAllDisplayedColumnIds = ()=>{
+      const api = instance.gridApi || null;
+      const columnApi = instance.columnApi || api?.columnApi || null;
+      const getAllDisplayedColumns = (columnApi && typeof columnApi.getAllDisplayedColumns === 'function')
+        ? columnApi.getAllDisplayedColumns.bind(columnApi)
+        : (api && typeof api.getAllDisplayedColumns === 'function')
+          ? api.getAllDisplayedColumns.bind(api)
+          : null;
+      if(!getAllDisplayedColumns){
+        return null;
+      }
+      try{
+        const displayed = getAllDisplayedColumns();
+        if(!Array.isArray(displayed) || !displayed.length){
+          return null;
+        }
+        const out = [];
+        for(let i = 0; i < displayed.length; i += 1){
+          const col = displayed[i];
+          const colId = (typeof col?.getColId === 'function') ? col.getColId() : (col?.colId ?? null);
+          if(typeof colId === 'string' && colId){
+            out.push(colId);
+          }
+        }
+        return out.length ? out : null;
+      }catch(err){
+        return null;
+      }
+    };
+
+    const applyDisplayedColumnOrder = (orderedColIds)=>{
+      const order = Array.isArray(orderedColIds)
+        ? orderedColIds.filter(id => typeof id === 'string' && id)
+        : [];
+      if(!order.length){
+        return false;
+      }
+      const api = instance.gridApi || null;
+      const columnApi = instance.columnApi || api?.columnApi || null;
+      const applyColumnState = (columnApi && typeof columnApi.applyColumnState === 'function')
+        ? columnApi.applyColumnState.bind(columnApi)
+        : (api && typeof api.applyColumnState === 'function')
+          ? api.applyColumnState.bind(api)
+          : null;
+      if(!applyColumnState){
+        return false;
+      }
+      try{
+        const state = order.map((colId, index)=>({ colId, order: index }));
+        const applied = applyColumnState({ state, applyOrder: true });
+        return applied !== false;
+      }catch(err){
+        return false;
+      }
+    };
+
     const getMoveColumnState = (colIdx)=>{
       const positions = getDisplayedDataColumnPositions();
       const colId = `c${colIdx}`;
@@ -7710,6 +7796,16 @@
           if(api && typeof api.moveColumn === 'function'){
             api.moveColumn(colId, toIndex); // deprecated in AG Grid >=31.1, retained as fallback
             return true;
+          }
+          const ordered = getAllDisplayedColumnIds();
+          if(Array.isArray(ordered) && ordered.length){
+            const currentIndex = ordered.indexOf(colId);
+            if(currentIndex >= 0){
+              ordered.splice(currentIndex, 1);
+              const insertIndex = Math.max(0, Math.min(toIndex, ordered.length));
+              ordered.splice(insertIndex, 0, colId);
+              return applyDisplayedColumnOrder(ordered);
+            }
           }
           return false;
         })();
@@ -8080,6 +8176,17 @@
           if(api && typeof api.moveColumns === 'function'){
             api.moveColumns(ids, toIndex);
             return true;
+          }
+          const ordered = getAllDisplayedColumnIds();
+          if(Array.isArray(ordered) && ordered.length){
+            const idSet = new Set(ids);
+            const moving = ordered.filter(colId => idSet.has(colId));
+            if(moving.length){
+              const remaining = ordered.filter(colId => !idSet.has(colId));
+              const insertIndex = Math.max(0, Math.min(toIndex, remaining.length));
+              const nextOrder = remaining.slice(0, insertIndex).concat(moving).concat(remaining.slice(insertIndex));
+              return applyDisplayedColumnOrder(nextOrder);
+            }
           }
           if(ids.length === 1){
             return moveDisplayedColumnTo(ids[0], toIndex);
@@ -9522,11 +9629,22 @@
         fireHook('afterSelectionEnd', fromRow, fromCol, toRow, toCol);
       };
 
-      const selectColumnByHeader = (col, extend, additive)=>{
+      const selectColumnByHeader = (col, extend, additive, options)=>{
         const visualCol = Number(col);
         if(!Number.isInteger(visualCol) || visualCol < 0){
           return;
         }
+        const shouldRender = options?.render !== false;
+        const deferRender = !!options?.deferRender;
+        const renderSelection = ()=>{
+          if(!shouldRender){
+            return;
+          }
+          if(deferRender){
+            return;
+          }
+          renderAg(instance.gridApi);
+        };
         clearGridCellFocus(instance.gridApi);
         focusGridContainer();
         const lastRow = Math.max(0, getVisualRowCount() - 1);
@@ -9542,7 +9660,7 @@
           }
           selectedHeaderColumns = next;
           setLastRange({ from: { row: 0, col: visualCol }, to: { row: lastRow, col: visualCol } });
-          renderAg(instance.gridApi);
+          renderSelection();
           fireHook('afterSelectionEnd', 0, visualCol, lastRow, visualCol);
           return;
         }
@@ -9554,7 +9672,7 @@
           toCol = Math.max(normalizedSelectionRange.to.col, visualCol);
         }
         setLastRange({ from: { row: 0, col: fromCol }, to: { row: lastRow, col: toCol } });
-        renderAg(instance.gridApi);
+        renderSelection();
         fireHook('afterSelectionEnd', 0, fromCol, lastRow, toCol);
       };
 
@@ -9633,6 +9751,7 @@
             headerDragAnchor = null;
             pendingHeaderDragIndex = null;
             headerDragRafPending = false;
+            headerDragStartPointer = null;
             const colIdx = Number(colId.slice(1));
             const selectedCols = resolveSelectedColumnGroup(colIdx) || [colIdx];
             const dragColIds = selectedCols.map(idx => `c${idx}`);
@@ -9659,6 +9778,7 @@
           return;
         }
         const additiveSelection = !!(event.ctrlKey || event.metaKey);
+        const selectionIntent = !!(event.shiftKey || additiveSelection);
         isDragSelecting = false;
         dragAnchor = null;
         pendingDragCell = null;
@@ -9669,14 +9789,19 @@
         headerDragRafPending = false;
         headerDragMouseDown = true;
         headerDragColId = colId;
+        headerDragStartPointer = {
+          x: typeof event?.clientX === 'number' ? event.clientX : null,
+          y: typeof event?.clientY === 'number' ? event.clientY : null
+        };
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: Shared.hot header drag selection armed', { debugLabel, scope: 'column', col });
         }
-        const selectionBefore = normalizedSelectionRange;
-        selectColumnByHeader(col, !!event.shiftKey, additiveSelection);
-        const selectionAfter = normalizedSelectionRange;
-        const selectionChanged = !rangesEqual(selectionBefore, selectionAfter);
-        if(event.shiftKey || additiveSelection || selectionChanged){
+        selectColumnByHeader(col, !!event.shiftKey, additiveSelection, {
+          deferRender: !selectionIntent
+        });
+        // Keep sort active on plain header clicks; only suppress sorting when
+        // the intent is multi-select/extend selection.
+        if(event.shiftKey || additiveSelection){
           armHeaderSortSuppression(colId);
         }
       };
@@ -10415,6 +10540,24 @@
           const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
           const leftDown = buttons !== null ? ((buttons & 1) === 1) : !!(event?.which === 1);
           if(leftDown){
+            const dragThreshold = 3;
+            const startX = Number(headerDragStartPointer?.x);
+            const startY = Number(headerDragStartPointer?.y);
+            const nextX = typeof event?.clientX === 'number' ? event.clientX : null;
+            const nextY = typeof event?.clientY === 'number' ? event.clientY : null;
+            if(Number.isFinite(startX) && Number.isFinite(startY) && Number.isFinite(nextX) && Number.isFinite(nextY)){
+              const movedX = Math.abs(nextX - startX);
+              const movedY = Math.abs(nextY - startY);
+              if(Math.max(movedX, movedY) < dragThreshold){
+                const anchorCol = (typeof headerDragColId === 'string' && headerDragColId.startsWith('c'))
+                  ? Number(headerDragColId.slice(1))
+                  : null;
+                const hoverCol = resolveColIndexFromEvent(event);
+                if(!Number.isInteger(anchorCol) || !Number.isInteger(hoverCol) || hoverCol === anchorCol){
+                  return;
+                }
+              }
+            }
             isHeaderDragSelecting = true;
             event.preventDefault?.();
             event.stopPropagation?.();
@@ -10537,6 +10680,7 @@
           headerDragRafPending = false;
           headerDragMouseDown = false;
           headerDragColId = null;
+          headerDragStartPointer = null;
           const normalized = normalizedSelectionRange;
           if(normalized){
             fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
@@ -10557,6 +10701,7 @@
           headerDragAnchor = null;
           pendingHeaderDragIndex = null;
           headerDragRafPending = false;
+          headerDragStartPointer = null;
         }
         if(!isDragSelecting){
           return;
