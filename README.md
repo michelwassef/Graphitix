@@ -5,8 +5,8 @@ Graphitix is a browser-based data visualization and statistical analysis studio 
 ## Highlights
 
 - Multi-tab visualization workspace with reusable data, tab duplication, style matching, and session persistence
-- Spreadsheet-style AG Grid input with undo/redo, clipboard import, transpose paste, and CSV/TSV/TXT/XLS/XLSX/ODS ingestion
-- Excel-like formulas in AG Grid (for formula-enabled workspaces) with raw/formula input preservation plus computed-value rendering
+- Spreadsheet-style AG Grid input with column sorting, drag-to-reorder columns, undo/redo, clipboard import, transpose paste, and CSV/TSV/TXT/XLS/XLSX/ODS ingestion
+- Excel-like AG Grid operations (for formula-enabled workspaces), including formulas with raw/formula input preservation, computed-value rendering, and fill-handle auto-fill
 - Publication-ready SVG and PNG export across all graph workspaces
 - Client-side architecture with optional network access only for external enrichment/integration features
 - Statistical tooling built into the relevant workspaces instead of split across separate utilities
