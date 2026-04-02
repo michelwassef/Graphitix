@@ -1267,6 +1267,8 @@
       a1RowOffset: getFormulaA1RowOffset(),
       overlayRoot: null,
       hostRoot: null,
+      hostPositionNode: null,
+      hostPositionInlineBeforePatch: null,
       docRef: null,
       winRef: null,
       listenersAttached: false,
@@ -1310,6 +1312,24 @@
       formulaReferenceOverlayState.retryTimerId = null;
     };
 
+    const restoreFormulaReferenceOverlayHostPosition = ()=>{
+      const hostNode = formulaReferenceOverlayState.hostPositionNode;
+      if(!hostNode){
+        return;
+      }
+      const previousInline = formulaReferenceOverlayState.hostPositionInlineBeforePatch;
+      formulaReferenceOverlayState.hostPositionNode = null;
+      formulaReferenceOverlayState.hostPositionInlineBeforePatch = null;
+      if(!hostNode.style){
+        return;
+      }
+      // Restore only when still untouched since our patch.
+      if(hostNode.style.position !== 'relative'){
+        return;
+      }
+      hostNode.style.position = previousInline || '';
+    };
+
     const clearFormulaReferenceOverlayLayer = ()=>{
       const layer = formulaReferenceOverlayState.overlayRoot;
       if(!layer){
@@ -1327,6 +1347,7 @@
       if(layer && layer.parentNode){
         layer.parentNode.removeChild(layer);
       }
+      restoreFormulaReferenceOverlayHostPosition();
       formulaReferenceOverlayState.overlayRoot = null;
       formulaReferenceOverlayState.hostRoot = null;
     };
@@ -1414,6 +1435,13 @@
       }
       const computed = global.getComputedStyle?.(hostRoot);
       if(computed?.position === 'static'){
+        if(formulaReferenceOverlayState.hostPositionNode && formulaReferenceOverlayState.hostPositionNode !== hostRoot){
+          restoreFormulaReferenceOverlayHostPosition();
+        }
+        if(formulaReferenceOverlayState.hostPositionNode !== hostRoot){
+          formulaReferenceOverlayState.hostPositionNode = hostRoot;
+          formulaReferenceOverlayState.hostPositionInlineBeforePatch = hostRoot.style?.position || '';
+        }
         hostRoot.style.position = 'relative';
       }
       if(formulaReferenceOverlayState.overlayRoot.parentNode !== hostRoot){
@@ -1538,14 +1566,30 @@
       return rowMap;
     };
 
-    const selectBestVisibleFormulaReferenceOverlayCell = (hostRoot, displayRow, colId, hostRect)=>{
-      const candidates = hostRoot.querySelectorAll(`.ag-row[row-index="${displayRow}"] .ag-cell[col-id="${colId}"]`);
-      let bestCell = null;
-      let bestArea = 0;
-      candidates.forEach(cellEl => {
+    const buildFormulaReferenceOverlayRenderedCellLookup = (hostRoot, hostRect)=>{
+      const renderedRows = new Set();
+      const lookup = new Map();
+      if(!hostRoot || typeof hostRoot.querySelectorAll !== 'function'){
+        return { renderedRows, lookup };
+      }
+      const renderedCells = hostRoot.querySelectorAll('.ag-row[row-index] .ag-cell[col-id^="c"]');
+      for(let i = 0; i < renderedCells.length; i += 1){
+        const cellEl = renderedCells[i];
+        if(!cellEl || typeof cellEl.getBoundingClientRect !== 'function'){
+          continue;
+        }
+        const colId = cellEl.getAttribute?.('col-id') || '';
+        if(typeof colId !== 'string' || !colId.startsWith('c')){
+          continue;
+        }
+        const rowAttr = cellEl.getAttribute?.('row-index') ?? cellEl.closest?.('.ag-row')?.getAttribute?.('row-index');
+        const displayRow = parseVisualRowIndex(rowAttr);
+        if(!Number.isInteger(displayRow) || displayRow < 0){
+          continue;
+        }
         const rect = cellEl.getBoundingClientRect();
-        if(rect.width <= 1 || rect.height <= 1){
-          return;
+        if(!rect || rect.width <= 1 || rect.height <= 1){
+          continue;
         }
         const overlapLeft = Math.max(rect.left, hostRect.left);
         const overlapTop = Math.max(rect.top, hostRect.top);
@@ -1554,13 +1598,18 @@
         const overlapWidth = Math.max(0, overlapRight - overlapLeft);
         const overlapHeight = Math.max(0, overlapBottom - overlapTop);
         const area = overlapWidth * overlapHeight;
-        if(area <= bestArea){
-          return;
+        if(area <= 0){
+          continue;
         }
-        bestArea = area;
-        bestCell = cellEl;
-      });
-      return bestCell;
+        renderedRows.add(displayRow);
+        const key = `${displayRow}:${colId}`;
+        const current = lookup.get(key);
+        if(current && current.area >= area){
+          continue;
+        }
+        lookup.set(key, { cellEl, rect, area });
+      }
+      return { renderedRows, lookup };
     };
 
     const renderFormulaReferenceOverlay = ()=>{
@@ -1594,6 +1643,14 @@
         clearFormulaReferenceOverlayLayer();
         return;
       }
+      const renderedLookup = buildFormulaReferenceOverlayRenderedCellLookup(hostRoot, hostRect);
+      const renderedRows = renderedLookup.renderedRows;
+      const cellLookup = renderedLookup.lookup;
+      if(!renderedRows.size || !cellLookup.size){
+        clearFormulaReferenceOverlayLayer();
+        scheduleFormulaReferenceOverlayRetry('rendered-cells-missing');
+        return;
+      }
       const requiredRows = new Set(cells.map(cell => cell.row));
       const rowMap = mapFormulaReferenceOverlayRowsToDisplayedRows(gridApi, requiredRows);
       const fragment = global.document.createDocumentFragment();
@@ -1603,11 +1660,14 @@
         if(!Number.isInteger(displayRow) || displayRow < 0){
           return;
         }
-        const targetCell = selectBestVisibleFormulaReferenceOverlayCell(hostRoot, displayRow, `c${cell.col}`, hostRect);
-        if(!targetCell){
+        if(!renderedRows.has(displayRow)){
           return;
         }
-        const rect = targetCell.getBoundingClientRect();
+        const lookupEntry = cellLookup.get(`${displayRow}:c${cell.col}`);
+        if(!lookupEntry){
+          return;
+        }
+        const rect = lookupEntry.rect;
         const left = rect.left - hostRect.left + 1;
         const top = rect.top - hostRect.top + 1;
         const width = Math.max(0, rect.width - 2);
@@ -3316,12 +3376,14 @@
     let headerDragMouseDown = false;
     let headerDragColId = null;
     let headerDragStartPointer = null;
+    let suppressNextHeaderLabelClickSelection = false;
     let isColumnHandleDragging = false;
     let columnHandleDragColIds = null;
     let columnHandleLastTargetIndex = null;
     let pendingColumnHandleMoveIndex = null;
     let columnHandleMoveRafPending = false;
     let pendingDeferredColumnMoveCommitId = null;
+    const MAX_DEFERRED_COLUMN_MOVE_COMMIT_ATTEMPTS = 8;
     let suppressColumnMoveCommitDepth = 0;
     let clearSortSelectionGuard = ()=>{};
     let armSortSelectionSnapshot = ()=>{};
@@ -6004,7 +6066,7 @@
       if(!model){
         return;
       }
-      let synchronized = 0;
+      const updates = [];
       for(let i = 0; i < list.length; i += 1){
         const entry = list[i];
         if(!Array.isArray(entry) || entry.length < 4){
@@ -6020,22 +6082,30 @@
         if(!Number.isInteger(physicalRow) || physicalRow < 0 || !Number.isInteger(physicalCol) || physicalCol < 0){
           continue;
         }
-        try{
-          model.setCellRaw(physicalRow, physicalCol, entry[3]);
-          synchronized += 1;
-        }catch(err){
-          markFormulaModelDirty(reason || 'sync-visual-changes-error');
-          return;
-        }
+        updates.push({ row: physicalRow, col: physicalCol, value: entry[3] });
       }
-      if(synchronized === 0){
+      if(updates.length === 0){
+        return;
+      }
+      try{
+        if(typeof model.setCellsRaw === 'function'){
+          model.setCellsRaw(updates);
+        }else{
+          for(let i = 0; i < updates.length; i += 1){
+            const update = updates[i];
+            model.setCellRaw(update.row, update.col, update.value);
+          }
+        }
+      }catch(err){
+        markFormulaModelDirty(reason || 'sync-visual-changes-error');
         return;
       }
       formulaEvaluationState.dirty = false;
       logFormulaEvaluationDebug('Debug: Shared.hot formula model synchronized from visual changes', {
         debugLabel,
         reason: reason || 'sync-visual-changes',
-        synchronized
+        synchronized: updates.length,
+        batched: typeof model.setCellsRaw === 'function'
       });
     };
 
@@ -8272,13 +8342,14 @@
       pendingDeferredColumnMoveCommitId = null;
     };
 
-    const scheduleDeferredColumnMoveCommit = (reason, movedColIds)=>{
+    const scheduleDeferredColumnMoveCommit = (reason, movedColIds, attempt = 0)=>{
       if(pendingDeferredColumnMoveCommitId != null){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: Shared.hot deferred column move commit already scheduled', {
             debugLabel,
             reason: reason || null,
-            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null
+            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null,
+            attempt
           });
         }
         return;
@@ -8293,9 +8364,25 @@
               debugLabel,
               reason: reason || null,
               isColumnHandleDragging,
-              suppressColumnMoveCommitDepth
+              suppressColumnMoveCommitDepth,
+              attempt
             });
           }
+          return;
+        }
+        const displayedOrder = getDisplayedDataColumnOrder();
+        const orderReady = !!(displayedOrder && displayedOrder.length === colCount);
+        if(!orderReady && attempt < (MAX_DEFERRED_COLUMN_MOVE_COMMIT_ATTEMPTS - 1)){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot deferred column move commit postponed (displayed order not ready)', {
+              debugLabel,
+              reason: reason || null,
+              attempt,
+              displayedOrderLength: Array.isArray(displayedOrder) ? displayedOrder.length : null,
+              colCount
+            });
+          }
+          scheduleDeferredColumnMoveCommit(reason, movedColIds, attempt + 1);
           return;
         }
         const committed = commitDisplayedColumnOrderToData(reason || 'ag-column-moved:deferred', movedColIds);
@@ -8304,7 +8391,9 @@
             debugLabel,
             reason: reason || null,
             committed,
-            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null
+            movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null,
+            attempt,
+            orderReady
           });
         }
         if(!committed){
@@ -9840,12 +9929,11 @@
         const updated = input
           ? updateFormulaReferenceOverlayFromInput(input, { a1RowOffset: getFormulaA1RowOffset() })
           : false;
-        const isEditing = hasEditingCellsForCurrentGrid();
-        if(!updated && !isEditing){
+        if(!updated){
           clearFormulaReferenceOverlay({ removeLayer: true });
           return;
         }
-        formulaOverlayLoopTimerId = win?.setTimeout?.(()=>runFormulaOverlayLoop(`tick:${reason || 'unknown'}`), 80);
+        formulaOverlayLoopTimerId = win?.setTimeout?.(()=>runFormulaOverlayLoop(`tick:${reason || 'unknown'}`), 120);
       };
       ensureFormulaOverlayLoop = (reason)=>{
         if(!enableFormulaReferenceOverlay){
@@ -10215,6 +10303,9 @@
         if(!target || typeof target.closest !== 'function'){
           return;
         }
+        if(!container?.contains?.(target)){
+          return;
+        }
         const headerCell = target.closest('.ag-header-cell');
         if(!headerCell){
           return;
@@ -10233,7 +10324,23 @@
         const onResizeHandle = !!target.closest('.ag-header-cell-resize');
         const onMenuButton = !!target.closest('.ag-header-cell-menu-button');
         const onHeaderIcon = !!target.closest('.ag-header-icon');
+        const col = Number(colId.slice(1));
+        const isValidCol = Number.isInteger(col) && col >= 0;
         if(!onSortIndicator && !onDragHandle && !onResizeHandle && !onMenuButton && !onHeaderIcon){
+          if(suppressNextHeaderLabelClickSelection){
+            suppressNextHeaderLabelClickSelection = false;
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            return;
+          }
+          if(isValidCol){
+            const additiveSelection = !!(event.ctrlKey || event.metaKey);
+            const extendSelection = !!event.shiftKey;
+            selectColumnByHeader(col, extendSelection, additiveSelection, {
+              deferRender: false
+            });
+          }
           event.preventDefault?.();
           event.stopPropagation?.();
           event.stopImmediatePropagation?.();
@@ -11080,6 +11187,8 @@
         }
         if(isHeaderDragSelecting){
           isHeaderDragSelecting = false;
+          suppressNextHeaderLabelClickSelection = true;
+          win?.setTimeout?.(()=>{ suppressNextHeaderLabelClickSelection = false; }, 80);
           headerDragScope = null;
           headerDragAnchor = null;
           pendingHeaderDragIndex = null;
@@ -11209,6 +11318,9 @@
         }
         const normalizedKey = typeof key === 'string' ? key.toLowerCase() : '';
         if((normalizedKey === 'z' || normalizedKey === 'y') && event.defaultPrevented){
+          return;
+        }
+        if((normalizedKey === 'z' || normalizedKey === 'y') && Shared.undoManager?.__globalKeydownAttached){
           return;
         }
         if(normalizedKey === 'z'){

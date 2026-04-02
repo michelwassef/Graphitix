@@ -2219,7 +2219,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(colDef.cellClassRules['hot-cell-excluded-column'](params)).toBe(false);
   });
 
-  test('plain column header click preserves the active cell selection', () => {
+  test('plain column header click selects the full column', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agColHeaderSelectHot';
@@ -2241,11 +2241,12 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     const evt = new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
     header.dispatchEvent(evt);
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
-    expect(hot.getSelectedLast()).toEqual([2, 2, 2, 2]);
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
   });
 
-  test('header click preserves active selection and does not trigger sort unless sort icon is clicked', () => {
+  test('plain header click selects full column and sort icon click preserves selection coordinates', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agColHeaderSortGateHot';
@@ -2261,6 +2262,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const header = document.createElement('div');
     header.className = 'ag-header-cell';
     header.setAttribute('col-id', 'c1');
+    const sortIcon = document.createElement('span');
+    sortIcon.className = 'hot-sort-indicator';
+    header.appendChild(sortIcon);
     container.appendChild(header);
 
     const sortSpy = jest.fn();
@@ -2270,14 +2274,15 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
     header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
-    expect(hot.getSelectedLast()).toEqual([1, 2, 1, 2]);
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
     expect(sortSpy).toHaveBeenCalledTimes(0);
 
-    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    hot.selectCell(1, 2);
+    sortIcon.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    sortIcon.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
     expect(hot.getSelectedLast()).toEqual([1, 2, 1, 2]);
-    expect(sortSpy).toHaveBeenCalledTimes(0);
+    expect(sortSpy).toHaveBeenCalledTimes(1);
   });
 
   test('clicking row header selects the full row', () => {

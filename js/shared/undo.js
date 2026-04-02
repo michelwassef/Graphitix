@@ -378,6 +378,7 @@
     doc.addEventListener('focusin', onFocusIn, true);
     doc.addEventListener('change', handleChange, true);
     doc.addEventListener('keydown', handleKeydown, true);
+    undoNamespace.__globalKeydownAttached = true;
     undoDebug('Debug: Shared.undoManager listeners attached');
   }
 

@@ -4,7 +4,8 @@
   const Shared = global.Shared = global.Shared || {};
   const formulaNS = Shared.formulaEngine = Shared.formulaEngine || {};
 
-  const CELL_REF_RE = /^([A-Z]+)(\d+)$/;
+  const CELL_REF_RE = /^(\$?[A-Z]+)(\$?\d+)$/;
+  const NUMBER_TOKEN_RE = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
   const toCellKey = (row, col)=>`${row}:${col}`;
 
@@ -38,8 +39,8 @@
     if(!match){
       return null;
     }
-    const col = labelToCol(match[1]);
-    const row = Number(match[2]) - 1;
+    const col = labelToCol(match[1].replace(/\$/g, ''));
+    const row = Number(match[2].replace(/\$/g, '')) - 1;
     if(!Number.isInteger(col) || !Number.isInteger(row) || row < 0){
       return null;
     }
@@ -174,6 +175,7 @@
   function createTokenizer(expr){
     const tokens = [];
     const source = String(expr || '');
+    const isAlphaNumUnderscore = ch => /[A-Za-z0-9_]/.test(ch || '');
     let i = 0;
     while(i < source.length){
       const ch = source[i];
@@ -187,15 +189,36 @@
         continue;
       }
       if(/\d|\./.test(ch)){
-        const start = i;
-        i += 1;
-        while(i < source.length && /[\d.]/.test(source[i])){
-          i += 1;
+        const numberMatch = source.slice(i).match(NUMBER_TOKEN_RE);
+        if(!numberMatch || !numberMatch[0]){
+          throw new Error('Invalid number literal');
         }
-        tokens.push({ type: 'number', value: source.slice(start, i) });
+        const numericText = numberMatch[0];
+        const parsed = Number(numericText);
+        if(!Number.isFinite(parsed)){
+          throw new Error('Invalid number literal');
+        }
+        tokens.push({ type: 'number', value: numericText });
+        i += numericText.length;
         continue;
       }
-      if(/[A-Za-z_]/.test(ch)){
+      if(ch === '$' || /[A-Za-z_]/.test(ch)){
+        if(ch !== '_'){
+          const refMatch = source.slice(i).match(/^\$?[A-Za-z]+\$?\d+/);
+          if(refMatch && refMatch[0]){
+            const tokenValue = refMatch[0];
+            const prev = i > 0 ? source[i - 1] : '';
+            const next = source[i + tokenValue.length] || '';
+            if(!isAlphaNumUnderscore(prev) && !isAlphaNumUnderscore(next)){
+              tokens.push({ type: 'ident', value: tokenValue.toUpperCase() });
+              i += tokenValue.length;
+              continue;
+            }
+          }
+        }
+        if(ch === '$'){
+          throw new Error(`Unexpected token '${ch}'`);
+        }
         const start = i;
         i += 1;
         while(i < source.length && /[A-Za-z0-9_]/.test(source[i])){
@@ -290,7 +313,11 @@
         throw new Error('Unexpected end of expression');
       }
       if(token.type === 'number'){
-        return { type: 'number', value: Number(token.value) };
+        const parsed = Number(token.value);
+        if(!Number.isFinite(parsed)){
+          throw new Error('Invalid number literal');
+        }
+        return { type: 'number', value: parsed };
       }
       if(token.type === '('){
         const expr = parseExpression();
@@ -490,7 +517,7 @@
         if(node.op === '+') return normalizeNumericResult(left + right);
         if(node.op === '-') return normalizeNumericResult(left - right);
         if(node.op === '*') return normalizeNumericResult(left * right);
-        if(node.op === '/') return right === 0 ? '#DIV/0!' : left / right;
+        if(node.op === '/') return right === 0 ? '#DIV/0!' : normalizeNumericResult(left / right);
       }
       if(node.type === 'function'){
         const values = [];
@@ -516,28 +543,40 @@
       return 0;
     };
 
-    const evaluateCell = (cellKey, stack)=>{
+    const evaluateCell = (cellKey, stack, cache = null)=>{
+      if(cache && cache.has(cellKey)){
+        return cache.get(cellKey);
+      }
       if(stack.has(cellKey)){
         return '#CYCLE!';
       }
+      const cacheValue = value=>{
+        if(cache){
+          cache.set(cellKey, value);
+        }
+        return value;
+      };
       if(!formulas.has(cellKey)){
-        return normalizeRaw(raw.get(cellKey));
+        return cacheValue(normalizeRaw(raw.get(cellKey)));
       }
       const formula = formulas.get(cellKey);
       if(!formula || !formula.ast){
-        return formula?.error || '#ERROR!';
+        return cacheValue(formula?.error || '#ERROR!');
       }
       stack.add(cellKey);
-      const out = evaluateNode(formula.ast, (row, col)=>{
-        if(row < headerRows){
-          const headerKey = toCellKey(row, col);
-          return normalizeRaw(raw.get(headerKey));
-        }
-        const refKey = toCellKey(row, col);
-        return evaluateCell(refKey, stack);
-      });
-      stack.delete(cellKey);
-      return out;
+      try{
+        const out = evaluateNode(formula.ast, (row, col)=>{
+          if(row < headerRows){
+            const headerKey = toCellKey(row, col);
+            return normalizeRaw(raw.get(headerKey));
+          }
+          const refKey = toCellKey(row, col);
+          return evaluateCell(refKey, stack, cache);
+        });
+        return cacheValue(out);
+      }finally{
+        stack.delete(cellKey);
+      }
     };
 
     const recalculate = (changedKeys)=>{
@@ -559,8 +598,9 @@
       if(!affected.size){
         return;
       }
+      const evalCache = new Map();
       affected.forEach(key=>{
-        const value = evaluateCell(key, new Set());
+        const value = evaluateCell(key, new Set(), evalCache);
         resolved.set(key, value);
       });
       if(debugLog){
@@ -606,7 +646,7 @@
       }
     };
 
-    const setCellRaw = (row, col, input)=>{
+    const setCellRawInternal = (row, col, input, options = {})=>{
       const key = toCellKey(row, col);
       const normalized = normalizeRaw(input);
       const previousRaw = normalizeRaw(raw.get(key));
@@ -620,7 +660,7 @@
             value: normalized
           });
         }
-        return;
+        return null;
       }
       raw.set(key, normalized);
       removeDependencyEdges(key);
@@ -650,7 +690,39 @@
           });
         }
       }
-      recalculate([key]);
+      if(options.recalculate !== false){
+        recalculate([key]);
+      }
+      return key;
+    };
+
+    const setCellRaw = (row, col, input)=>{
+      setCellRawInternal(row, col, input, { recalculate: true });
+    };
+
+    const setCellsRaw = (entries)=>{
+      if(!Array.isArray(entries) || !entries.length){
+        return;
+      }
+      const changedKeys = [];
+      const seen = new Set();
+      for(let i = 0; i < entries.length; i += 1){
+        const entry = entries[i];
+        const row = Number(entry?.row);
+        const col = Number(entry?.col);
+        if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+          continue;
+        }
+        const key = setCellRawInternal(row, col, entry?.value, { recalculate: false });
+        if(!key || seen.has(key)){
+          continue;
+        }
+        seen.add(key);
+        changedKeys.push(key);
+      }
+      if(changedKeys.length){
+        recalculate(changedKeys);
+      }
     };
 
     const rebuildFromMatrix = (matrix)=>{
@@ -691,8 +763,9 @@
           refs.forEach(refKey=>addDependentEdge(refKey, key));
         }
       }
+      const evalCache = new Map();
       changed.forEach(key=>{
-        resolved.set(key, evaluateCell(key, new Set()));
+        resolved.set(key, evaluateCell(key, new Set(), evalCache));
       });
       if(debugLog){
         debugLog('formula model rebuilt', { rowCount, colCount, formulas: formulas.size });
@@ -704,6 +777,7 @@
 
     return {
       setCellRaw,
+      setCellsRaw,
       rebuildFromMatrix,
       getRawAt,
       getResolvedAt,
