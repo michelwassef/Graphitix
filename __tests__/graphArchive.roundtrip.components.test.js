@@ -120,6 +120,7 @@ describe('graphArchive component round-trip', () => {
           exclusions: { rows: [], cols: [], cells: [] },
           dataViews: { version: 1, activeViewId: 'raw', views: [{ id: 'raw', kind: 'raw', title: 'Raw', data: [['', 'S1'], ['G1', '1.5']] }] },
           activeDataViewId: 'raw',
+          stats: { type: 'values', rowCount: 1, colCount: 1, min: 1.5, max: 1.5, decimals: 2 },
           config: { method: 'pearson', notes: { text: '', open: false } }
         },
         layout: { version: 1, component: 'heatmap', minSvgWidth: 580 }
@@ -133,6 +134,7 @@ describe('graphArchive component round-trip', () => {
           exclusions: { rows: [], cols: [], cells: [] },
           dataViews: { version: 1, activeViewId: 'raw', views: [{ id: 'raw', kind: 'raw', title: 'Raw', data: [['X', 'Y', 'Z'], ['1', '2', '3']] }] },
           activeDataViewId: 'raw',
+          stats: { vertexCount: 1, faceCount: 0, zMin: 3, zMax: 3, skipped: 0, gridColumns: 1, gridRows: 1, gridComplete: false },
           config: { axisMap: { x: 0, y: 1, z: 2 }, notes: { text: '', open: false } }
         },
         layout: { version: 1, component: 'surface', minSvgWidth: 620 }

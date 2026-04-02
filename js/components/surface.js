@@ -131,6 +131,7 @@
     drawPending: false,
     lastDataShape: { rows: 0, cols: 0 },
     lastAutoDrawEvaluation: null,
+    lastStats: null,
     axisSelects: { x: null, y: null, z: null },
     controls: {},
     axisMap: { x: 0, y: 1, z: 2 },
@@ -1244,6 +1245,9 @@
   }
 
   function updateStats(info){
+    state.lastStats = (info && typeof info === 'object')
+      ? (cloneSimple(info) || info)
+      : null;
     const container = state.statsEl;
     if(!container){ return; }
     while(container.firstChild){ container.removeChild(container.firstChild); }
@@ -2671,9 +2675,11 @@
     }
     applySettingsToControls();
     updateAxisOptions();
+    state.lastStats = (payload.stats && typeof payload.stats === 'object')
+      ? (cloneSimple(payload.stats) || payload.stats)
+      : null;
     if(!skipDraw){
-      state.lastStats = null;
-      updateStats(null);
+      updateStats(state.lastStats);
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
       }
@@ -2704,6 +2710,7 @@
       type: 'surface',
       data: activeHot.getData(),
       exclusions: activeHot.exportExclusions ? activeHot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(activeHot) : undefined),
+      stats: state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null,
       config: {
         axisMap: Object.assign({}, state.axisMap),
         colorScheme: state.settings?.colorScheme || 'scientific',

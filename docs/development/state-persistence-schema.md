@@ -109,10 +109,10 @@ Derived from each `createEmptyPayload` implementation.
   - `config.series` initialized
 
 - `heatmap` (`js/components/heatmap.js`)
-  - top-level: `type`, `data`, `exclusions`, `config`
+  - top-level: `type`, `data`, `exclusions`, `stats`, `config`
 
 - `surface` (`js/components/surface.js`)
-  - top-level: `type`, `data`, `exclusions`, `config`
+  - top-level: `type`, `data`, `exclusions`, `stats`, `config`
 
 - `roc` (`js/components/roc.js`)
   - top-level: `type`, `data`, `exclusions`, `stats`, `config`

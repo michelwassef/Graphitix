@@ -7324,6 +7324,7 @@
       exclusions: activeHot?.exportExclusions?.() || (activeHot ? Shared.hot.exportExclusions(activeHot) : Shared.hot.exportExclusions(null)),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
+      stats: state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null,
       config: getConfig()
     };
     payload.config = payload.config || {};
@@ -7338,7 +7339,8 @@
       hasHot: !!activeHot,
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
-      method: payload.config?.method
+      method: payload.config?.method,
+      hasStats: !!payload.stats
     });
     return payload;
   }
@@ -7516,9 +7518,11 @@
     if(state.hot){
       syncHeatmapActiveDataViewFromHot(state.hot, 'payload-load');
     }
+    state.lastStats = (obj.stats && typeof obj.stats === 'object')
+      ? (cloneSimple(obj.stats) || obj.stats)
+      : null;
     if(!skipDraw){
-      state.lastStats = null;
-      updateStats(null);
+      updateStats(state.lastStats);
       state.scheduleDraw();
     }
     if(scheduleBackup){
