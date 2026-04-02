@@ -66,4 +66,37 @@ describe('Components.box stats fallbacks', () => {
       expect(result.message).toMatch(/unavailable/i);
     });
   });
+
+  test('paired preprocessing excludes rows with non-numeric or missing matched values', () => {
+    const hooks = loadBoxHooks();
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.preprocessGroupsForAnalysis).toBe('function');
+
+    const result = hooks.preprocessGroupsForAnalysis(
+      [
+        [10, 20, 40],
+        [12, 18, 42],
+        [11, 21]
+      ],
+      ['Control', 'Treatment A', 'Treatment B'],
+      {
+        paired: true,
+        mode: 'all',
+        outlierMode: 'none',
+        rowIndicesByGroup: [
+          [1, 2, 4],
+          [1, 2, 4],
+          [1, 4]
+        ]
+      }
+    );
+
+    expect(result.groups).toEqual([
+      [10, 40],
+      [12, 42],
+      [11, 21]
+    ]);
+    expect(Array.isArray(result.auditNotes)).toBe(true);
+    expect(result.auditNotes.join(' ')).toMatch(/excluded 1 row/i);
+  });
 });

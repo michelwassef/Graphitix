@@ -14067,13 +14067,55 @@
     return { removed, kept:keep };
   }
   function preprocessGroupsForAnalysis(groups,labels,options={}){
-    const rawGroups=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite));
+    const sourceGroups=Array.isArray(groups) ? groups : [];
+    const sourceRowIndices=Array.isArray(options?.rowIndicesByGroup) ? options.rowIndicesByGroup : [];
+    const normalizedGroups=sourceGroups.map((group,groupIdx)=>{
+      const values=Array.isArray(group) ? group : [];
+      const rows=Array.isArray(sourceRowIndices[groupIdx]) ? sourceRowIndices[groupIdx] : null;
+      const entries=[];
+      for(let idx=0; idx<values.length; idx++){
+        const numeric=Number(values[idx]);
+        if(!Number.isFinite(numeric)){
+          continue;
+        }
+        const rowValue=rows && idx<rows.length ? Number(rows[idx]) : idx;
+        if(!Number.isFinite(rowValue)){
+          continue;
+        }
+        entries.push({ value:numeric, row:Math.trunc(rowValue) });
+      }
+      return entries;
+    });
+    const rawGroups=normalizedGroups.map(entries=>entries.map(entry=>entry.value));
     const mode=resolveStatsOutlierMode(options);
-    if(mode==='none'){
-      return { groups:rawGroups, labels, auditNotes:[], excludedCount:0, exclusions:[] };
-    }
     const auditNotes=[];
     const exclusions=[];
+    if(options?.paired && rawGroups.length>=2){
+      const rowSets=normalizedGroups.map(entries=>new Set(entries.map(entry=>entry.row)));
+      let commonRows=new Set(rowSets[0] || []);
+      for(let idx=1; idx<rowSets.length; idx++){
+        commonRows=new Set([...commonRows].filter(row=>rowSets[idx].has(row)));
+      }
+      const orderedRows=[...commonRows].sort((a,b)=>a-b);
+      const rowMaps=normalizedGroups.map(entries=>{
+        const map=new Map();
+        entries.forEach(entry=>{ map.set(entry.row,entry.value); });
+        return map;
+      });
+      const alignedGroups=rowMaps.map(map=>orderedRows.map(row=>map.get(row)).filter(Number.isFinite));
+      const unionRows=new Set();
+      rowSets.forEach(set=>set.forEach(row=>unionRows.add(row)));
+      const excludedRows=Math.max(0,unionRows.size-orderedRows.length);
+      if(excludedRows>0){
+        auditNotes.push(`Paired/repeated workflow excluded ${excludedRows} row(s) with at least one missing or non-numeric value across selected groups.`);
+      }
+      for(let idx=0; idx<alignedGroups.length; idx++){
+        rawGroups[idx]=alignedGroups[idx];
+      }
+    }
+    if(mode==='none'){
+      return { groups:rawGroups, labels, auditNotes, excludedCount:0, exclusions:[] };
+    }
     if(options?.paired && rawGroups.length===2){
       const paired=computePairedSamples(rawGroups[0],rawGroups[1]);
       const diffs=paired.map(item=>item.a-item.b);
@@ -21586,10 +21628,12 @@ Technical analysis record (advanced)
       return;
     }
     const rawGroups=indices.map(i=>traces[i].rawY);
+    const rawRowIndices=indices.map(i=>Array.isArray(traces[i]?.rowIndices) ? traces[i].rowIndices : null);
     const labels=indices.map(i=>traces[i].name);
     const preprocessing=preprocessGroupsForAnalysis(rawGroups,labels,{
       paired:state.statsPaired,
       mode:state.statsMode,
+      rowIndicesByGroup:rawRowIndices,
       outlierMode:state.statsOutlierMode,
       outlierAlpha:state.statsOutlierAlpha,
       outlierQ:state.statsOutlierQ
@@ -30509,9 +30553,10 @@ Technical analysis record (advanced)
 	    benchmarkDatasetLoad:opts=>benchmarkDatasetLoad(opts),
 	    benchmarkSwarmOffsets:opts=>benchmarkSwarmOffsets(opts),
 	    benchmarkSwarmModes:opts=>benchmarkSwarmModes(opts),
-	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
-	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
-	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
+      computeDagostino:(values,summary)=>computeDagostino(values,summary),
+      computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
+      computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
+      preprocessGroupsForAnalysis:(groups,labels,options={})=>preprocessGroupsForAnalysis(groups,labels,options || {}),
       computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
       resolveStripMinRadiusFloor:(sampleSize,baseRadius)=>resolveStripMinRadiusFloor(sampleSize,baseRadius),
