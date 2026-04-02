@@ -12635,7 +12635,12 @@
     const bracketSize = Number.isFinite(options.bracketSize) ? options.bracketSize : 10;
     const fontSize = Number.isFinite(options.fontSize) ? options.fontSize : 12;
     const strokeWidth = Number.isFinite(options.strokeWidth) ? options.strokeWidth : 1;
-    const levelStep = resolveSignificanceLevelStepPx(levelGap, fontSize, orientation, strokeWidth);
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, fontSize, orientation, strokeWidth, {
+      labelMode: options?.labelMode,
+      scientific: options?.pScientific,
+      decimals: options?.pDecimals,
+      bracketSize
+    });
     const adjustBracketEndpoints = options.adjustBracketEndpoints === true;
     const separateConvergingEndpoints = options.separateConvergingEndpoints !== false;
     const endpointSeparationStep = Number.isFinite(options.endpointSeparationStep)
@@ -19433,8 +19438,110 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return Math.max(6, Math.min(20, labelGap * 0.8 + strokeWidth * 1.5));
 		  }
 
-		  function resolveSignificanceLevelStepPx(levelGapCandidate, fontSizeCandidate, orientation, strokeWidthCandidate){
+		  function estimateSignificanceLabelWidthPx(fontSizeCandidate, modeCandidate, options = {}){
+		    const fontSize = Number.isFinite(fontSizeCandidate) && fontSizeCandidate > 0
+		      ? fontSizeCandidate
+		      : 12;
+		    const mode = modeCandidate === 'p' ? 'p' : 'stars';
+		    const scientific = sanitizeSignificancePScientific(options?.scientific);
+		    const decimals = sanitizeSignificancePDecimals(options?.decimals);
+		    const samples = mode === 'p'
+		      ? (scientific
+		        ? [`1.${'0'.repeat(Math.max(0, decimals))}e-10`, `1.${'0'.repeat(Math.max(0, decimals))}e-4`]
+		        : [`0.${'0'.repeat(Math.max(0, decimals))}`, `<0.${'0'.repeat(Math.max(0, Math.max(1, decimals) - 1))}1`])
+		      : ['ns', '****'];
+		    const doc = global.document;
+		    let maxWidth = 0;
+		    if(doc && typeof doc.createElement === 'function'){
+		      if(!significanceLabelMeasureCanvas){
+		        significanceLabelMeasureCanvas = doc.createElement('canvas');
+		      }
+		      const canvas = significanceLabelMeasureCanvas;
+		      const ctx = canvas && typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+		      if(ctx && typeof ctx.measureText === 'function'){
+		        ctx.font = `normal 400 ${fontSize}px sans-serif`;
+		        for(let i = 0; i < samples.length; i++){
+		          const sample = samples[i];
+		          const measured = ctx.measureText(sample);
+		          const width = Number.isFinite(measured?.width) ? measured.width : 0;
+		          if(width > maxWidth){
+		            maxWidth = width;
+		          }
+		        }
+		      }
+		    }
+		    if(maxWidth <= 0){
+		      const fallbackChars = samples.reduce((best, sample) => Math.max(best, String(sample || '').length), 0);
+		      maxWidth = Math.max(fontSize * 1.8, fallbackChars * fontSize * 0.62);
+		    }
+		    return maxWidth;
+		  }
+
+		  function resolveHorizontalSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate, options = {}){
+		    return resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate);
+		  }
+
+		  function resolveHorizontalSignificanceTerminalClearancePx(fontSizeCandidate, strokeWidthCandidate, options = {}){
+		    const fontSize = Number.isFinite(fontSizeCandidate) && fontSizeCandidate > 0
+		      ? fontSizeCandidate
+		      : 12;
+		    const bracketSize = Number.isFinite(Number(options?.bracketSize)) && Number(options.bracketSize) > 0
+		      ? Number(options.bracketSize)
+		      : 10;
+		    const labelWidth = estimateSignificanceLabelWidthPx(fontSize, options?.labelMode, {
+		      scientific: options?.scientific,
+		      decimals: options?.decimals
+		    });
+		    const strokeWidth = Number.isFinite(strokeWidthCandidate) && strokeWidthCandidate > 0
+		      ? strokeWidthCandidate
+		      : 1;
+		    return labelWidth + bracketSize * 1.4 + Math.max(4, strokeWidth * 1.5);
+		  }
+
+		  function clampHorizontalBracketInnerToExistingLabels(layer, innerCoord, y1, y2, options = {}){
+		    if(!layer || !Number.isFinite(innerCoord) || !Number.isFinite(y1) || !Number.isFinite(y2)){
+		      return innerCoord;
+		    }
+		    const gapRaw = Number(options?.gap);
+		    const gap = Number.isFinite(gapRaw) ? Math.max(0, gapRaw) : 4;
+		    const minY = Math.min(y1, y2) - 0.01;
+		    const maxY = Math.max(y1, y2) + 0.01;
+		    let clampedInner = innerCoord;
+		    const labelNodes = layer.querySelectorAll
+		      ? layer.querySelectorAll('text.box-significance-annotation')
+		      : [];
+		    for(let i = 0; i < labelNodes.length; i++){
+		      const node = labelNodes[i];
+		      if(!node || typeof node.getBBox !== 'function'){
+		        continue;
+		      }
+		      let bbox = null;
+		      try{
+		        bbox = node.getBBox();
+		      }catch(err){
+		        continue;
+		      }
+		      if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
+		        continue;
+		      }
+		      const labelMinY = bbox.y - 0.01;
+		      const labelMaxY = bbox.y + bbox.height + 0.01;
+		      if(labelMaxY < minY || labelMinY > maxY){
+		        continue;
+		      }
+		      const candidateInner = bbox.x + bbox.width + gap;
+		      if(candidateInner > clampedInner){
+		        clampedInner = candidateInner;
+		      }
+		    }
+		    return clampedInner;
+		  }
+
+		  function resolveSignificanceLevelStepPx(levelGapCandidate, fontSizeCandidate, orientation, strokeWidthCandidate, options = {}){
 		    const baseGap = Number.isFinite(levelGapCandidate) ? levelGapCandidate : ANN_LEVEL_GAP;
+		    if(orientation === 'horizontal'){
+		      return baseGap + resolveHorizontalSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate, options);
+		    }
 		    if(orientation !== 'vertical'){
 		      return baseGap;
 		    }
@@ -19906,6 +20013,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        // base outer edge, but never cross past the inner spine.
 		        outerCoordA = Math.min(innerCoord, outerCoordA);
 		        outerCoordB = Math.min(innerCoord, outerCoordB);
+		        // If a label collision pushes one endpoint inward, shift the whole bracket base
+		        // outward to that cleared coordinate so the whisker remains visible instead of
+		        // collapsing to zero length.
+		        const shiftedOuterX = Math.max(outerX, outerCoordA, outerCoordB);
+		        if(Number.isFinite(shiftedOuterX) && shiftedOuterX > outerX){
+		          outerX = shiftedOuterX;
+		        }
+		        const innerLabelGap = resolveSignificanceInterLevelClearancePx(opts.fontSize, strokeWidth);
+		        const shiftedInnerCoord = clampHorizontalBracketInnerToExistingLabels(
+		          targetLayer,
+		          outerX + bracketSize,
+		          x1,
+		          x2,
+		          { gap: innerLabelGap }
+		        );
+		        if(Number.isFinite(shiftedInnerCoord) && shiftedInnerCoord > outerX + bracketSize){
+		          outerX = shiftedInnerCoord - bracketSize;
+		        }
 		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
@@ -20836,7 +20961,12 @@ Technical analysis record (advanced)
     const baseOffset = Number.isFinite(annotationOpts.baseOffset) ? annotationOpts.baseOffset : ANN_BASE_OFFSET;
     const levelGap = Number.isFinite(annotationOpts.levelGap) ? annotationOpts.levelGap : ANN_LEVEL_GAP;
     const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
-    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth);
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth, {
+      labelMode: state.significanceLabelMode,
+      scientific: annotationOpts.pScientific,
+      decimals: annotationOpts.pDecimals,
+      bracketSize: annotationOpts.bracketSize
+    });
     const labelGapForPairs = resolveSignificanceLabelGapPx(annotationOpts.fontSize);
     const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
     const traces = Array.isArray(context?.traces) ? context.traces : [];
@@ -21399,7 +21529,12 @@ Technical analysis record (advanced)
     const baseOffset=Number.isFinite(annotationOpts.baseOffset)?annotationOpts.baseOffset:ANN_BASE_OFFSET;
     const levelGap=Number.isFinite(annotationOpts.levelGap)?annotationOpts.levelGap:ANN_LEVEL_GAP;
     const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
-    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth);
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth, {
+      labelMode: state.significanceLabelMode,
+      scientific: annotationOpts.pScientific,
+      decimals: annotationOpts.pDecimals,
+      bracketSize: annotationOpts.bracketSize
+    });
     const labelGapForPairs = resolveSignificanceLabelGapPx(annotationOpts.fontSize);
     const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
     const fallbackTraceMax = idx => {
@@ -24655,7 +24790,12 @@ Technical analysis record (advanced)
       const tickGap = axisMetrics.tickLabelGap;
       const existingViewportExtension = Math.max(0, H - significanceBasePlotHeight);
       const baseCanvasHeight = Math.max(40, significanceBasePlotHeight);
-      const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth);
+      const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth, {
+        labelMode: state.significanceLabelMode,
+        scientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
+        decimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals),
+        bracketSize: annotationBracketSize
+      });
       const annotationLabelClearance = showSignificance && maxLevelEstimate >= 0
         ? (annotationBracketSize + (annotationLabelFontSize || 12))
         : 0;
@@ -26898,33 +27038,75 @@ Technical analysis record (advanced)
       const maxCategoryWidth = Math.max(...categoryWidths, 0);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'horizontal', annotationStrokeWidth);
-      const rightExtra = showSignificance && maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * horizontalLevelStep) : 0;
+      const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'horizontal', annotationStrokeWidth, {
+        labelMode: state.significanceLabelMode,
+        scientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
+        decimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals),
+        bracketSize: annotationBracketSize
+      });
+      const horizontalLabelClearance = showSignificance && maxLevelEstimate >= 0
+        ? resolveHorizontalSignificanceTerminalClearancePx(
+            annotationLabelFontSize,
+            annotationStrokeWidth,
+            {
+              labelMode: state.significanceLabelMode,
+              scientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
+              decimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals),
+              bracketSize: annotationBracketSize
+            }
+          )
+        : 0;
+      const rightExtra = showSignificance && maxLevelEstimate >= 0
+        ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * horizontalLevelStep + horizontalLabelClearance)
+        : 0;
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxCategoryWidth, yTitleWidth: 0, axisMetrics, legendWidth: legendWidthForMargin });
+      const baseMarginRight = Number.isFinite(Number(marginLocal.right)) ? Number(marginLocal.right) : 0;
       marginLocal.top = Math.max(marginLocal.top, fs * 2);
       marginLocal.left = Math.max(marginLocal.left, maxCategoryWidth + tickLen + tickGap + fs * 0.5);
-      marginLocal.right = Math.max(marginLocal.right, rightExtra + fs);
+      marginLocal.right = Math.max(baseMarginRight, rightExtra + fs);
       marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
       const xIntervalSetting = getAxisTickInterval('x');
-      let yScale = buildAxisScale({
-        dataMin: scaleDataMin,
-        dataMax: scaleDataMax,
-        manualMin: manualYMinValue,
-        manualMax: manualYMaxValue,
-        targetTickCount: chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 })
-      });
-      if(xIntervalSetting){
-        const manual = buildManualTicks(scaleDataMin, scaleDataMax, xIntervalSetting);
-        if(manual){
-          ensureNegativeAutoAxisLowerPadding(manual);
-          yScale = manual;
-          console.debug('Debug: box x-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
+      const buildHorizontalValueScale = () => {
+        let nextScale = buildAxisScale({
+          dataMin: scaleDataMin,
+          dataMax: scaleDataMax,
+          manualMin: manualYMinValue,
+          manualMax: manualYMaxValue,
+          targetTickCount: chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 })
+        });
+        if(xIntervalSetting){
+          const manual = buildManualTicks(scaleDataMin, scaleDataMax, xIntervalSetting);
+          if(manual){
+            ensureNegativeAutoAxisLowerPadding(manual);
+            nextScale = manual;
+            console.debug('Debug: box x-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
+          }
+        }else{
+          applyLogTickOverride(nextScale);
+          ensureNegativeAutoAxisLowerPadding(nextScale);
         }
-      }else{
-        applyLogTickOverride(yScale);
-        ensureNegativeAutoAxisLowerPadding(yScale);
+        return nextScale;
+      };
+      let yScale = buildHorizontalValueScale();
+      if(showSignificance && maxLevelEstimate >= 0 && Number.isFinite(scaleDataMax) && rightExtra > 0){
+        const scaleMin = Number(yScale?.min);
+        const scaleMax = Number(yScale?.max);
+        const scaleSpan = scaleMax - scaleMin;
+        if(Number.isFinite(scaleSpan) && scaleSpan > 0){
+          const clampedScaleDataMax = Math.max(scaleMin, Math.min(scaleMax, Number(scaleDataMax)));
+          const rightHeadroomRatio = Math.max(0, (scaleMax - clampedScaleDataMax) / scaleSpan);
+          const rightHeadroomPx = plotWLocal * rightHeadroomRatio;
+          const reducedRightExtra = Math.max(0, rightExtra - rightHeadroomPx);
+          const adjustedRightMargin = Math.max(baseMarginRight, reducedRightExtra + fs);
+          if(adjustedRightMargin + 0.5 < marginLocal.right){
+            marginLocal.right = adjustedRightMargin;
+            plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
+            plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
+            yScale = buildHorizontalValueScale();
+          }
+        }
       }
       const brokenAxisEnabled = getBrokenAxisEnabled('x');
       const brokenAxisSegments = brokenAxisEnabled ? getBrokenAxisSegments('x') : [];
