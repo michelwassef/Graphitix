@@ -532,3 +532,94 @@ test('box formula reference outlines stay clipped under pinned/header overlays w
 
   expect(issues.critical).toEqual([]);
 });
+
+test('box keeps raw formula after edit session is interrupted by vertical scroll', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+
+  await page.waitForFunction(() => {
+    const box = window.Components?.box;
+    if (!box || typeof box.__getState !== 'function') {
+      return false;
+    }
+    const state = box.__getState();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
+  });
+
+  await page.evaluate(() => {
+    const box = window.Components.box;
+    const state = box.__getState();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const updates = [];
+    for (let row = 1; row <= 24; row += 1) {
+      updates.push([row, 1, String(10 + row)]);
+      updates.push([row, 2, String(20 + row)]);
+    }
+    updates.push([1, 3, '=B1+C1']);
+    hot.setDataAtCell(updates, 'e2e-scroll-interrupt-seed');
+  });
+
+  const formulaCell = page.locator('#hot .ag-center-cols-container .ag-row[row-index="1"] .ag-cell[col-id="c3"]').first();
+  await formulaCell.dblclick();
+  const editorInput = page.locator('#hot input.ag-text-field-input').first();
+  await expect(editorInput).toBeVisible();
+  await expect(editorInput).toHaveValue('=B1+C1');
+
+  await page.evaluate(() => {
+    const bodyViewport = document.querySelector('#hot .ag-body-viewport');
+    const centerViewport = document.querySelector('#hot .ag-center-cols-viewport');
+    if (bodyViewport) {
+      bodyViewport.scrollTop = 260;
+      bodyViewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+    if (centerViewport) {
+      centerViewport.scrollTop = 260;
+      centerViewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+  });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const bodyViewport = document.querySelector('#hot .ag-body-viewport');
+    const centerViewport = document.querySelector('#hot .ag-center-cols-viewport');
+    if (bodyViewport) {
+      bodyViewport.scrollTop = 0;
+      bodyViewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+    if (centerViewport) {
+      centerViewport.scrollTop = 0;
+      centerViewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+  });
+
+  await page.waitForTimeout(500);
+
+  await formulaCell.click({ force: true });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  await formulaCell.dblclick();
+  await expect(editorInput).toBeVisible();
+  await expect(editorInput).toHaveValue('=B1+C1');
+
+  await expect.poll(async () => {
+    return await page.evaluate(() => {
+      const box = window.Components?.box;
+      const state = box?.__getState?.();
+      const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+      if (!hot || typeof hot.getDataAtCell !== 'function') {
+        return null;
+      }
+      return hot.getDataAtCell(1, 3);
+    });
+  }, {
+    timeout: 10_000,
+    intervals: [200, 400, 800]
+  }).toBe('=B1+C1');
+
+  expect(issues.critical).toEqual([]);
+});

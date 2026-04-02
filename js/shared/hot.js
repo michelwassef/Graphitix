@@ -9974,6 +9974,45 @@
       : undefined;
     let ensureFormulaOverlayLoop = ()=>{};
     let stopFormulaOverlayLoop = ()=>{};
+    const formulaEditRawSnapshots = new Map();
+    let formulaEditRawSnapshotSeq = 0;
+    const buildFormulaEditSnapshotKey = (physicalRow, physicalCol)=>`${physicalRow}:${physicalCol}`;
+    const resolveEventFormulaCellContext = (event)=>{
+      const colId = event?.column?.getColId?.() ?? event?.colId ?? '';
+      const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+      if(!Number.isInteger(col) || col < 0){
+        return null;
+      }
+      const visualRow = resolveVisualRowIndex(event);
+      let physicalRow = Number(event?.node?.data?.__rowIndex ?? event?.data?.__rowIndex);
+      if(!Number.isInteger(physicalRow) || physicalRow < 0){
+        const mapped = toPhysicalRowIndex(visualRow);
+        physicalRow = Number.isInteger(mapped) ? mapped : null;
+      }
+      if(!Number.isInteger(physicalRow) || physicalRow < 0){
+        return {
+          visualRow: Number.isInteger(visualRow) ? visualRow : 0,
+          physicalRow: null,
+          col,
+          colId
+        };
+      }
+      return {
+        visualRow: Number.isInteger(visualRow) ? visualRow : 0,
+        physicalRow,
+        col,
+        colId
+      };
+    };
+    const resolveCurrentRawCellValue = (physicalRow, physicalCol)=>{
+      const row = Number(physicalRow);
+      const col = Number(physicalCol);
+      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+        return undefined;
+      }
+      const rowValues = Array.isArray(dataHandle.current?.[row]) ? dataHandle.current[row] : null;
+      return rowValues ? rowValues[col] : undefined;
+    };
     const gridOptions = {
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
@@ -10233,23 +10272,53 @@
           }
         },
       onCellValueChanged(event){
-        const valuesMatch = valuesMatchForChange(event?.oldValue, event?.newValue);
+        const context = resolveEventFormulaCellContext(event);
+        const visualRow = context?.visualRow ?? (resolveVisualRowIndex(event) ?? 0);
+        const colIndex = context?.col ?? (() => {
+          const colId = event?.column?.getColId?.() ?? event?.colId;
+          return typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
+        })();
+        const physicalRow = context?.physicalRow;
+        const snapshotKey = Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(colIndex) && colIndex >= 0
+          ? buildFormulaEditSnapshotKey(physicalRow, colIndex)
+          : null;
+        const editSnapshot = snapshotKey ? formulaEditRawSnapshots.get(snapshotKey) : null;
+        const rawCurrent = Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(colIndex) && colIndex >= 0
+          ? resolveCurrentRawCellValue(physicalRow, colIndex)
+          : undefined;
+        const isFormulaManagedCell = !!(formulaEvaluationState.enabled
+          && Number.isInteger(physicalRow)
+          && physicalRow >= 0
+          && Number.isInteger(colIndex)
+          && colIndex >= 0);
+        const normalizedOldValue = isFormulaManagedCell
+          ? (typeof editSnapshot?.rawValue !== 'undefined'
+            ? editSnapshot.rawValue
+            : resolveFormulaRawValue(physicalRow, colIndex, event?.oldValue))
+          : event?.oldValue;
+        const normalizedNewValue = isFormulaManagedCell
+          ? (typeof rawCurrent !== 'undefined'
+            ? rawCurrent
+            : resolveFormulaRawValue(physicalRow, colIndex, event?.newValue))
+          : event?.newValue;
+        const valuesMatch = valuesMatchForChange(normalizedOldValue, normalizedNewValue);
         if(valuesMatch){
+          if(snapshotKey){
+            formulaEditRawSnapshots.delete(snapshotKey);
+          }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             console.debug('Debug: Shared.hot AG change ignored (no-op)', {
               debugLabel,
               row: event?.node?.rowIndex ?? event?.rowIndex,
-              colId: event?.column?.getColId?.() ?? event?.colId
+              colId: event?.column?.getColId?.() ?? event?.colId,
+              rawOld: normalizedOldValue,
+              rawNew: normalizedNewValue
             });
           }
           return;
         }
-        const rowIndex = resolveVisualRowIndex(event) ?? 0;
-        const colId = event?.column?.getColId?.() ?? event?.colId;
-        const colIndex = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
-        const physicalRow = event?.node?.data?.__rowIndex;
         const synchronized = Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(colIndex) && colIndex >= 0
-          ? setFormulaModelRawCell(physicalRow, colIndex, event?.newValue, 'ag-cell-value-changed')
+          ? setFormulaModelRawCell(physicalRow, colIndex, normalizedNewValue, 'ag-cell-value-changed')
           : false;
         if(formulaEvaluationState.enabled && !synchronized){
           markFormulaModelDirty('ag-cell-value-changed');
@@ -10257,17 +10326,30 @@
         if(undoLockDepth === 0){
           const physicalCol = colIndex;
           if(Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0){
-            pushUndoStep(`table:${debugLabel}:edit`, [{ row: physicalRow, col: physicalCol, prev: event.oldValue, next: event.newValue }]);
+            pushUndoStep(`table:${debugLabel}:edit`, [{ row: physicalRow, col: physicalCol, prev: normalizedOldValue, next: normalizedNewValue }]);
           }
         }
         refreshColumnFiltersForDataMutation('ag-cell-value-changed');
-        fireHook('afterChange', [[rowIndex, colIndex, event.oldValue, event.newValue]], event.source || 'edit');
+        fireHook('afterChange', [[visualRow, colIndex, normalizedOldValue, normalizedNewValue]], event.source || 'edit');
         triggerSchedule('afterChange', { source: event.source || 'edit' });
+        if(snapshotKey){
+          formulaEditRawSnapshots.delete(snapshotKey);
+        }
         if(formulaEvaluationState.enabled){
           renderAg(event?.api || instance?.gridApi);
         }
       },
-      onCellEditingStarted(){
+      onCellEditingStarted(event){
+        const context = resolveEventFormulaCellContext(event);
+        if(context && Number.isInteger(context.physicalRow) && context.physicalRow >= 0 && Number.isInteger(context.col) && context.col >= 0){
+          const rawValue = resolveCurrentRawCellValue(context.physicalRow, context.col);
+          const key = buildFormulaEditSnapshotKey(context.physicalRow, context.col);
+          formulaEditRawSnapshotSeq += 1;
+          formulaEditRawSnapshots.set(key, {
+            seq: formulaEditRawSnapshotSeq,
+            rawValue
+          });
+        }
         try{
           ensureFormulaOverlayLoop('cell-editing-started');
         }catch(err){
@@ -10275,6 +10357,22 @@
         }
       },
       onCellEditingStopped(event){
+        const context = resolveEventFormulaCellContext(event);
+        if(context && Number.isInteger(context.physicalRow) && context.physicalRow >= 0 && Number.isInteger(context.col) && context.col >= 0){
+          const key = buildFormulaEditSnapshotKey(context.physicalRow, context.col);
+          const snapshot = formulaEditRawSnapshots.get(key);
+          if(snapshot){
+            const snapshotSeq = snapshot.seq;
+            const docLocal = container?.ownerDocument || document;
+            const winLocal = docLocal?.defaultView || global;
+            winLocal?.setTimeout?.(()=>{
+              const latest = formulaEditRawSnapshots.get(key);
+              if(latest && latest.seq === snapshotSeq){
+                formulaEditRawSnapshots.delete(key);
+              }
+            }, 0);
+          }
+        }
         try{
           ensureFormulaOverlayLoop('cell-editing-stopped');
         }catch(err){
