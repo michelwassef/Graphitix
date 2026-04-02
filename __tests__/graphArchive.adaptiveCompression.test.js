@@ -72,7 +72,8 @@ describe('graphArchive adaptive compression', () => {
       activeIndex: 0,
       scope: 'tab',
       useWorker: false,
-      compressionMode: 'adaptive'
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
     });
 
     const rawCsvEntry = findRawCsvEntry(JSZipMock.instance);
@@ -94,7 +95,8 @@ describe('graphArchive adaptive compression', () => {
       activeIndex: 0,
       scope: 'tab',
       useWorker: false,
-      compressionMode: 'adaptive'
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
     });
 
     const rawCsvEntry = findRawCsvEntry(JSZipMock.instance);
@@ -120,7 +122,8 @@ describe('graphArchive adaptive compression', () => {
       activeIndex: 0,
       scope: 'tab',
       useWorker: false,
-      compressionMode: 'adaptive'
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
     });
 
     const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);
@@ -181,7 +184,8 @@ describe('graphArchive adaptive compression', () => {
       activeIndex: 0,
       scope: 'tab',
       useWorker: false,
-      compressionMode: 'adaptive'
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
     });
 
     const manifest = parseManifest(JSZipMock.instance);
@@ -205,7 +209,8 @@ describe('graphArchive adaptive compression', () => {
       activeIndex: 0,
       scope: 'tab',
       useWorker: false,
-      compressionMode: 'adaptive'
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
     });
 
     const manifest = parseManifest(JSZipMock.instance);
@@ -238,7 +243,8 @@ describe('graphArchive adaptive compression', () => {
       activeIndex: 0,
       scope: 'tab',
       useWorker: false,
-      compressionMode: 'adaptive'
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
     });
 
     const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);

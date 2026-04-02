@@ -167,7 +167,7 @@
   }
 
   function resolvePayloadStoragePolicy(options = {}) {
-    const mode = options.payloadMode || 'adaptive';
+    const mode = options.payloadMode || 'full';
     const thresholdBytes = Number.isFinite(options.payloadLiteThresholdBytes)
       ? options.payloadLiteThresholdBytes
       : ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES;
@@ -912,7 +912,7 @@
           compressionMode: options.compressionMode || 'adaptive',
           compressThresholdBytes: Number.isFinite(options.compressThresholdBytes) ? options.compressThresholdBytes : ADAPTIVE_COMPRESS_THRESHOLD_BYTES,
           adaptiveCompressionLevel: Number.isFinite(options.adaptiveCompressionLevel) ? options.adaptiveCompressionLevel : ADAPTIVE_COMPRESS_LEVEL,
-          payloadMode: options.payloadMode || 'adaptive',
+          payloadMode: options.payloadMode || 'full',
           payloadLiteThresholdBytes: Number.isFinite(options.payloadLiteThresholdBytes)
             ? options.payloadLiteThresholdBytes
             : ADAPTIVE_PAYLOAD_LITE_THRESHOLD_BYTES

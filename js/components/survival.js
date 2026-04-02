@@ -15,6 +15,14 @@
       console.debug('Debug: survival component notes helper require failed', { message: err?.message || String(err) });
     }
   }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: survival component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -292,6 +300,7 @@
 
   const DEFAULT_ROWS = 100;
   const SURVIVAL_DEFAULT_COLS = 7;
+  const SURVIVAL_DATA_VIEW_MAX = 15;
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -560,6 +569,7 @@
     labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
   };
   let survivalFontEventBound = false;
+  let survivalDataViewsManager = null;
 
   function scheduleSurvivalViewRefresh(reason){
     if(typeof state.scheduleDraw !== 'function'){
@@ -973,6 +983,10 @@
         if(!state.hot && baseContainer){
           state.hot = createSurvivalTable(baseContainer);
         }
+        ensureSurvivalDataViewsForHot(state.hot, {
+          wrapper,
+          container: state.hot?.__survivalHostContainer || baseContainer
+        });
         return state.hot;
       }
       const entry = Shared.hot.ensureTableForTab({
@@ -986,12 +1000,76 @@
         state.hot = entry.instance;
         refs.hotContainer = entry.container || baseContainer;
       }
+      ensureSurvivalDataViewsForHot(state.hot, {
+        wrapper,
+        container: state.hot?.__survivalHostContainer || refs.hotContainer || baseContainer
+      });
       return state.hot;
     };
     state.hot = ensureSurvivalHotForActiveTab();
     state.ensureHotForActiveTab = ensureSurvivalHotForActiveTab;
+    ensureSurvivalDataViewsForHot(state.hot, {
+      wrapper: $('#survivalHotWrapper'),
+      container: state.hot?.__survivalHostContainer || refs.hotContainer || $('#survivalHot')
+    });
     logDebug('Grid initialized', { hasHot: !!state.hot });
     refreshCovariateControls();
+  }
+
+  function ensureSurvivalDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__survivalDataViewsManager){
+      hotInstance.__survivalDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'survival',
+        maxViews: SURVIVAL_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData, { source: 'survival-data-view-switch' });
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          Shared.workspaceToolbar?.activateSection?.('survival', 'Data');
+        }
+      });
+      logDebug('data views manager created');
+    }
+    const manager = hotInstance.__survivalDataViewsManager;
+    const hostWrapper = options.wrapper || $('#survivalHotWrapper');
+    const hostContainer = options.container || hotInstance.__survivalHostContainer || refs.hotContainer || $('#survivalHot');
+    if(hostWrapper && hostContainer){
+      manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
+      manager.refresh?.();
+    }
+    survivalDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncSurvivalActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__survivalDataViewsManager || survivalDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
   }
 
   function buildSurvivalAdvisorContext(summary, overrides){
@@ -4392,10 +4470,18 @@
   }
 
   function getGraphPayload(){
-    if(!state.hot){
+    const activeHot = state.hot || state.ensureHotForActiveTab?.();
+    if(!activeHot){
       console.debug('Debug: survival.getPayload skipped - no table instance');
       return null;
     }
+    const activeManager = ensureSurvivalDataViewsForHot(activeHot, {
+      wrapper: $('#survivalHotWrapper'),
+      container: activeHot.__survivalHostContainer || refs.hotContainer || $('#survivalHot')
+    });
+    syncSurvivalActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     const axisSettings = ensureAxisSettings();
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
@@ -4408,8 +4494,10 @@
     notesState.open = notesOpen;
     const payload = {
       type: 'survival',
-      data: state.hot.getData(),
-      exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+      data: activeHot.getData(),
+      exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      dataViews: includeDataViews ? dataViewsPayload : undefined,
+      activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
         colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('survival') || 'scientific',
         labelColors: state.labelColors,
@@ -4510,11 +4598,40 @@
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
-    if(!skipDataLoad && Array.isArray(payload.data) && state.hot){
-      state.hot.loadData(payload.data);
-      if(payload.exclusions){
-        state.hot.applyExclusions?.(payload.exclusions);
+    const hot = state.hot || state.ensureHotForActiveTab?.();
+    if(hot){
+      state.hot = hot;
+    }
+    const rawDataMatrix = Array.isArray(payload.data) ? payload.data : [];
+    const serializedViews = (payload.dataViews && typeof payload.dataViews === 'object') ? payload.dataViews : null;
+    const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
+    const dataManager = state.hot
+      ? ensureSurvivalDataViewsForHot(state.hot, {
+          wrapper: $('#survivalHotWrapper'),
+          container: state.hot.__survivalHostContainer || refs.hotContainer || $('#survivalHot')
+        })
+      : null;
+    if(dataManager){
+      if(serializedViews){
+        dataManager.deserialize(serializedViews, {
+          fallbackData: rawDataMatrix,
+          activeViewId: requestedActiveViewId,
+          silent: true,
+          activate: false
+        });
+      }else{
+        dataManager.initialize(rawDataMatrix, { rawTitle: 'Raw' });
       }
+    }
+    const matrixData = dataManager?.getActiveView?.()?.data;
+    const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
+    const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+    if(!skipDataLoad && state.hot){
+      state.hot.loadData(dataToLoad);
+      if(exclusionsToApply){
+        state.hot.applyExclusions?.(exclusionsToApply);
+      }
+      syncSurvivalActiveDataViewFromHot(state.hot, 'payload-load');
     }
     applyConfig(payload.config);
     state.lastStats = payload.stats || null;
@@ -4534,7 +4651,7 @@
     if(scheduleBackup){
       state.scheduleDraw = scheduleBackup;
     }
-    logDebug('payload applied', { source, rows: payload.data?.length || 0, hasStats: !!payload.stats });
+    logDebug('payload applied', { source, rows: dataToLoad?.length || 0, hasStats: !!payload.stats });
     return true;
   }
 

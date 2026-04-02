@@ -16,6 +16,14 @@
       console.debug('Debug: roc component notes helper require failed', { message: err?.message || String(err) });
     }
   }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: roc component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -438,6 +446,7 @@
   const ROC_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const ROC_AUTO_DRAW_COL_THRESHOLD = 5000;
   const ROC_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const ROC_DATA_VIEW_MAX = 15;
 
   function createDefaultAxisSettings(){
     return {
@@ -481,6 +490,7 @@
   let rocAutoDrawManager = null;
   let scheduleDrawRocRaw = () => {};
   let rocFontEventBound = false;
+  let rocDataViewsManager = null;
 
   function scheduleRocViewRefresh(reason){
     if(typeof state.scheduleDraw !== 'function'){
@@ -1050,6 +1060,10 @@
       if(!state.hot && baseContainer){
         state.hot = createRocTableInstance(baseContainer);
       }
+      ensureRocDataViewsForHot(state.hot, {
+        wrapper,
+        container: state.hot?.__rocHostContainer || baseContainer
+      });
       ensureRocDefaultHeaderRow(state.hot);
       return state.hot;
     }
@@ -1064,8 +1078,68 @@
       refs.hotContainer = entry.container;
       state.hot = entry.instance;
     }
+    ensureRocDataViewsForHot(state.hot, {
+      wrapper,
+      container: state.hot?.__rocHostContainer || refs.hotContainer || baseContainer
+    });
     ensureRocDefaultHeaderRow(state.hot);
     return state.hot;
+  }
+
+  function ensureRocDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__rocDataViewsManager){
+      hotInstance.__rocDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'roc',
+        maxViews: ROC_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData, { source: 'roc-data-view-switch' });
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          Shared.workspaceToolbar?.activateSection?.('roc', 'Data');
+        }
+      });
+      console.debug('Debug: roc data views manager created');
+    }
+    const manager = hotInstance.__rocDataViewsManager;
+    const hostWrapper = options.wrapper || refs.hotWrapper || document.getElementById('rocHotWrapper');
+    const hostContainer = options.container || hotInstance.__rocHostContainer || refs.hotContainer || document.getElementById('rocHot');
+    if(hostWrapper && hostContainer){
+      manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
+      manager.refresh?.();
+    }
+    rocDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncRocActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__rocDataViewsManager || rocDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
   }
 
   function clearPlotArea(reason, options = {}){
@@ -3045,7 +3119,14 @@
   }
 
   function getPayload(){
-    ensureHotForActiveTab();
+    const activeHot = ensureHotForActiveTab();
+    const activeManager = ensureRocDataViewsForHot(activeHot, {
+      wrapper: refs.hotWrapper || document.getElementById('rocHotWrapper'),
+      container: activeHot?.__rocHostContainer || refs.hotContainer || document.getElementById('rocHot')
+    });
+    syncRocActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -3057,8 +3138,10 @@
     notesState.open = notesOpen;
     const payload = {
       type: 'roc',
-      data: state.hot?.getData() || [],
-      exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+      data: activeHot?.getData?.() || [],
+      exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      dataViews: includeDataViews ? dataViewsPayload : undefined,
+      activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
         colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('roc') || 'scientific',
         borderWidth: state.borderWidth,
@@ -3155,11 +3238,35 @@
     }
     ensureHotForActiveTab();
     const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
-    if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
-      state.hot.loadData(dataMatrix);
-      if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
-        state.hot.applyExclusions(payload.exclusions);
+    const serializedViews = (payload.dataViews && typeof payload.dataViews === 'object') ? payload.dataViews : null;
+    const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
+    const dataManager = state.hot
+      ? ensureRocDataViewsForHot(state.hot, {
+          wrapper: refs.hotWrapper || document.getElementById('rocHotWrapper'),
+          container: state.hot.__rocHostContainer || refs.hotContainer || document.getElementById('rocHot')
+        })
+      : null;
+    if(dataManager){
+      if(serializedViews){
+        dataManager.deserialize(serializedViews, {
+          fallbackData: dataMatrix,
+          activeViewId: requestedActiveViewId,
+          silent: true,
+          activate: false
+        });
+      }else{
+        dataManager.initialize(dataMatrix, { rawTitle: 'Raw' });
       }
+    }
+    const matrixData = dataManager?.getActiveView?.()?.data;
+    const dataToLoad = Array.isArray(matrixData) ? matrixData : dataMatrix;
+    const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+    if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
+      state.hot.loadData(dataToLoad);
+      if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
+        state.hot.applyExclusions(exclusionsToApply);
+      }
+      syncRocActiveDataViewFromHot(state.hot, 'payload-load');
     }
     const config = payload.config || {};
     if(config.notes && typeof config.notes === 'object'){
@@ -3242,7 +3349,7 @@
     if(scheduleBackup){
       state.scheduleDraw = scheduleBackup;
     }
-    console.debug('Debug: roc payload applied', { source, rows: dataMatrix.length, graphType: refs.graphType?.value });
+    console.debug('Debug: roc payload applied', { source, rows: dataToLoad.length, graphType: refs.graphType?.value });
     return true;
   }
 

@@ -12980,8 +12980,16 @@
     }
     return isWelchStyleParametricVariant(variant) ? 'Welch ANOVA' : 'One-way ANOVA';
   }
-  function sanitizeStatsNonParametricVariant(value){
-    return value==='kolmogorovSmirnov' ? 'kolmogorovSmirnov' : 'mannWhitney';
+  function sanitizeStatsNonParametricVariant(value, fallback='mannWhitney'){
+    return new Set([
+      'mannWhitney',
+      'kolmogorovSmirnov',
+      'wilcoxonSignedRank',
+      'kruskalWallis',
+      'friedman'
+    ]).has(value)
+      ? value
+      : fallback;
   }
   function sanitizeStatsReportPScientific(value){
     return value === true || value === 'true' || value === 1 || value === '1';
@@ -18640,8 +18648,8 @@
   });
   if(state.statsTest==='parametric' && new Set(['classic','welch','ratioT','lognormalClassic','lognormalWelch']).has(selectedTestChoice) && state.statsParametricVariant!==selectedTestChoice){
     state.statsParametricVariant=selectedTestChoice;
-  }else if(state.statsTest!=='parametric' && (selectedTestChoice==='mannWhitney' || selectedTestChoice==='kolmogorovSmirnov') && state.statsNonParametricVariant!==selectedTestChoice){
-    state.statsNonParametricVariant=selectedTestChoice;
+  }else if(state.statsTest!=='parametric' && state.statsNonParametricVariant!==selectedTestChoice){
+    state.statsNonParametricVariant=sanitizeStatsNonParametricVariant(selectedTestChoice,state.statsNonParametricVariant);
   }
   testChoices.forEach(choice=>{
     const option=document.createElement('option');
@@ -18652,7 +18660,12 @@
     }
     testChoiceSel.appendChild(option);
   });
-  testChoiceSel.disabled=testChoices.length<=1;
+  testChoiceSel.disabled=testChoices.length===0;
+  if(testChoices.length===1){
+    testChoiceSel.title='Only one test is valid for the current analysis family, design, and comparison scope.';
+  }else{
+    testChoiceSel.removeAttribute('title');
+  }
   testChoiceSel.addEventListener('change',()=>{
     if(state.statsTest==='parametric'){
       state.statsParametricVariant=sanitizeStatsParametricVariant(testChoiceSel.value,state.statsParametricVariant);

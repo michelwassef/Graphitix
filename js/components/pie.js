@@ -16,6 +16,14 @@
       console.debug('Debug: pie component notes helper require failed', { message: err?.message || String(err) });
     }
   }
+  const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
+  if(typeof dataViewsApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/dataViews.js');
+    }catch(err){
+      console.debug('Debug: pie component dataViews helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -57,8 +65,10 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
+  const PIE_DATA_VIEW_MAX = 15;
   const DEFAULT_PIE_FONT_SIZE_PT = 12;
   let emptyPayloadTemplate = null;
+  let pieDataViewsManager = null;
 
   function seedPieDefaultHeaderRow(matrix){
     if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
@@ -2480,11 +2490,76 @@
       if(entry?.instance){
         state.hot = entry.instance;
       }
+      ensurePieDataViewsForHot(state.hot, {
+        wrapper,
+        container: state.hot?.__pieHostContainer || baseContainer
+      });
       ensurePieDefaultHeaderRow(state.hot);
       return state.hot;
     };
     state.hot = ensurePieHotForActiveTab();
     state.ensureHotForActiveTab = ensurePieHotForActiveTab;
+    ensurePieDataViewsForHot(state.hot, {
+      wrapper: document.getElementById('pieHotWrapper'),
+      container: state.hot?.__pieHostContainer || document.getElementById('pieHot')
+    });
+  }
+
+  function ensurePieDataViewsForHot(hotInstance, options = {}){
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    if(typeof Shared.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    if(!hotInstance.__pieDataViewsManager){
+      hotInstance.__pieDataViewsManager = Shared.dataViews.createManager({
+        componentKey: 'pie',
+        maxViews: PIE_DATA_VIEW_MAX,
+        initialData: hotInstance.getData() || [],
+        onActiveViewChanged(view){
+          if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const nextData = Array.isArray(view.data) ? view.data : [];
+          hotInstance.loadData(nextData, { source: 'pie-data-view-switch' });
+          if(view.exclusions){
+            hotInstance.applyExclusions?.(view.exclusions);
+          }
+          requestPieStatsContextRefresh('data-view-switch');
+          state.scheduleDraw?.({ reason: 'data-view-switch' });
+        },
+        onInteraction(){
+          Shared.workspaceToolbar?.activateSection?.('pie', 'Data');
+        }
+      });
+      console.debug('Debug: pie data views manager created');
+    }
+    const manager = hotInstance.__pieDataViewsManager;
+    const hostWrapper = options.wrapper || document.getElementById('pieHotWrapper');
+    const hostContainer = options.container || hotInstance.__pieHostContainer || document.getElementById('pieHot');
+    if(hostWrapper && hostContainer){
+      manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
+      manager.refresh?.();
+    }
+    pieDataViewsManager = manager;
+    return manager;
+  }
+
+  function syncPieActiveDataViewFromHot(hotInstance, reason){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    const manager = hot.__pieDataViewsManager || pieDataViewsManager;
+    if(!manager){
+      return;
+    }
+    manager.updateActiveData(hot.getData() || []);
+    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    if(reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
   }
 
   function initControls(){
@@ -2605,10 +2680,20 @@
         : !!notesState.open;
       notesState.text = notesText;
       notesState.open = notesOpen;
+      const activeHot = state.hot || state.ensureHotForActiveTab?.();
+      const activeManager = ensurePieDataViewsForHot(activeHot, {
+        wrapper: document.getElementById('pieHotWrapper'),
+        container: activeHot?.__pieHostContainer || document.getElementById('pieHot')
+      });
+      syncPieActiveDataViewFromHot(activeHot, 'payload');
+      const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+      const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const payload = {
         type:'pie',
-        data: state.hot.getData(),
-        exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+        data: activeHot?.getData?.() || [],
+        exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        dataViews: includeDataViews ? dataViewsPayload : undefined,
+        activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: collectConfig()
       };
       payload.config = payload.config || {};
@@ -2674,12 +2759,40 @@
         scheduleBackup = state.scheduleDraw;
         state.scheduleDraw = () => {};
       }
+      const hot = state.hot || state.ensureHotForActiveTab?.();
+      if(hot){
+        state.hot = hot;
+      }
       const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
-      if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
-        state.hot.loadData(dataMatrix);
-        if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
-          state.hot.applyExclusions(payload.exclusions);
+      const serializedViews = (payload.dataViews && typeof payload.dataViews === 'object') ? payload.dataViews : null;
+      const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
+      const dataManager = state.hot
+        ? ensurePieDataViewsForHot(state.hot, {
+            wrapper: document.getElementById('pieHotWrapper'),
+            container: state.hot.__pieHostContainer || document.getElementById('pieHot')
+          })
+        : null;
+      if(dataManager){
+        if(serializedViews){
+          dataManager.deserialize(serializedViews, {
+            fallbackData: dataMatrix,
+            activeViewId: requestedActiveViewId,
+            silent: true,
+            activate: false
+          });
+        }else{
+          dataManager.initialize(dataMatrix, { rawTitle: 'Raw' });
         }
+      }
+      const matrixData = dataManager?.getActiveView?.()?.data;
+      const dataToLoad = Array.isArray(matrixData) ? matrixData : dataMatrix;
+      const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+      if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
+        state.hot.loadData(dataToLoad);
+        if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
+          state.hot.applyExclusions(exclusionsToApply);
+        }
+        syncPieActiveDataViewFromHot(state.hot, 'payload-load');
       }
       const config = payload.config || {};
       if(config.notes && typeof config.notes === 'object'){
@@ -2748,7 +2861,7 @@
       if(scheduleBackup){
         state.scheduleDraw = scheduleBackup;
       }
-      console.debug('Debug: pie payload applied', { source, rows: dataMatrix.length });
+      console.debug('Debug: pie payload applied', { source, rows: dataToLoad.length });
       return true;
     }
     function collectConfig(){

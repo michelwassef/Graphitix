@@ -388,7 +388,8 @@
           activeIndex: snapshot.activeIndex,
           fileName,
           scope,
-          compression: options.compression || 'STORE'
+          compression: options.compression || 'STORE',
+          payloadMode: options.payloadMode || 'full'
         }).then(blob => {
           debug(context, 'saveWorkspaceArchiveWithScope.archiveBuilt', {
             scope,
