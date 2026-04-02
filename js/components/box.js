@@ -6523,7 +6523,7 @@
         warnings.push(context.message);
       }
       if((context.partialRowsSkipped||0)>0){
-        warnings.push(`${context.partialRowsSkipped} incomplete row${context.partialRowsSkipped===1?' was':'s were'} skipped; ensure rows are fully populated.`);
+        warnings.push(`${context.partialRowsSkipped} incomplete row${context.partialRowsSkipped===1?' was':'s were'} skipped due to missing or non-numeric values; ensure rows are fully numeric.`);
       }
       return {
         format:'grouped',
@@ -6589,7 +6589,7 @@
       warnings.push(context.message);
     }
     if((context.partialRowsSkipped||0)>0){
-      warnings.push(`${context.partialRowsSkipped} incomplete row${context.partialRowsSkipped===1?' was':'s were'} skipped; fill missing values to retain balance.`);
+      warnings.push(`${context.partialRowsSkipped} incomplete row${context.partialRowsSkipped===1?' was':'s were'} skipped due to missing or non-numeric values; fill or correct cells to retain balance.`);
     }
     return {
       format:'grouped',
@@ -6826,7 +6826,7 @@
     }
     warnings.push('Report effect sizes and confidence intervals alongside P values; statistical significance alone is not a measure of scientific importance.');
     if(paired){
-      warnings.push('If repeated-measures data contain missing values, a full mixed-effects engine is preferable to deleting incomplete subjects.');
+      warnings.push('If repeated-measures data contain missing or non-numeric values, a full mixed-effects engine is preferable to deleting incomplete subjects.');
     }
 
     const groupPhrase=groupsAnswer==='two'
@@ -13951,7 +13951,7 @@
       },
       footnotes:[
         `Approximate random-intercept mixed-effects model fitted by feasible GLS to retain incomplete repeated-measures rows (${glsFit.observationCount} observations across ${glsFit.subjectCount} row subjects).`,
-        `This path is intended for missing repeated-measures values; fixed-effect tests are Wald/F approximations rather than classical balanced ANOVA denominators.`
+        `This path is intended for missing or non-numeric repeated-measures values; fixed-effect tests are Wald/F approximations rather than classical balanced ANOVA denominators.`
       ],
       diagnostics:{
         observationCount:glsFit.observationCount,
@@ -16794,7 +16794,7 @@
     if(!rows.length && !allRows.length){
       return {
         ok: false,
-        message: 'Enter complete rows (no missing values) to run grouped analyses.',
+        message: 'Enter complete rows (no missing or non-numeric values) to run grouped analyses.',
         groupsCount,
         conditionsCount,
         groupLabels: normalizedGroups,
@@ -19236,7 +19236,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const note=document.createElement('div');
     note.style.fontSize='12px';
     note.style.color='#555';
-    note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
+    note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing or non-numeric repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
     controls.appendChild(note);
   }
   const analysisWrap=document.createElement('div');
@@ -19372,7 +19372,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }else if(state.groupedStats.analysis==='multipleComparisons'){
     analysisHelp.textContent='Grouped multiple comparisons expose Prism-style scopes: groups within conditions, conditions within groups, marginal means, or all cell means. Multiplicity can be controlled within each displayed scope or across all comparisons globally.';
   }else if(state.groupedStats.analysis==='twoWayMixed' || state.groupedStats.analysis==='threeWayMixed'){
-    analysisHelp.textContent='Mixed-effects models treat rows as repeated/random effects. When rows contain missing repeated-measures values, the mixed-effects path retains observed values instead of listwise deletion.';
+    analysisHelp.textContent='Mixed-effects models treat rows as repeated/random effects. When rows contain missing or non-numeric repeated-measures values, the mixed-effects path retains observed values instead of listwise deletion.';
   }else{
     analysisHelp.textContent='ANOVA models assume approximately normal residuals and balanced, complete rows.';
   }
@@ -20665,7 +20665,7 @@ Technical analysis record (advanced)
         const note = document.createElement('div');
         note.style.fontSize = '12px';
         note.style.color = '#555';
-        note.textContent = `${summary.partialRowsSkipped} row(s) skipped due to missing values.`;
+        note.textContent = `${summary.partialRowsSkipped} row(s) skipped due to missing or non-numeric values.`;
         statsDiv.appendChild(note);
       }
       if(!model?.ok){
@@ -21569,7 +21569,7 @@ Technical analysis record (advanced)
         const note=document.createElement('div');
         note.style.fontSize='12px';
         note.style.color='#555';
-        note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
+        note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing or non-numeric repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
         statsDiv.appendChild(note);
       }
       if(!prepared.ok){
