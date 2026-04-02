@@ -304,6 +304,44 @@ describe('Box significance whisker modes', () => {
     expect(sharedLeft).toBeCloseTo(110, 6);
   });
 
+  test('horizontal adaptive whiskers clamp against existing bars and labels in flipped mode', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.clampAdaptiveWhiskerToExistingObstacles).toBe('function');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const layer = document.createElementNS(svgNS, 'g');
+    const obstacle = document.createElementNS(svgNS, 'path');
+    obstacle.setAttribute('class', 'box-significance-annotation');
+    obstacle.setAttribute('data-sig-orientation', 'horizontal');
+    obstacle.setAttribute('data-sig-inner', '110');
+    obstacle.setAttribute('data-sig-x1', '44');
+    obstacle.setAttribute('data-sig-x2', '56');
+    layer.appendChild(obstacle);
+    const label = document.createElementNS(svgNS, 'text');
+    label.setAttribute('class', 'box-significance-annotation');
+    label.getBBox = () => ({
+      x: 116,
+      y: 45,
+      width: 12,
+      height: 10
+    });
+    layer.appendChild(label);
+
+    const clamped = hooks.clampAdaptiveWhiskerToExistingObstacles(layer, 50, 140, 92, {
+      orientation: 'horizontal',
+      gap: 4,
+      labelGap: 4,
+      xRangeHalfWidth: 8
+    });
+    expect(clamped).toBeCloseTo(132, 6);
+  });
+
+  test('horizontal stack clamp uses the rotated equivalent of vertical mode', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.clampAdaptiveOuterCoordForAnnotation).toBe('function');
+    expect(hooks.clampAdaptiveOuterCoordForAnnotation('vertical', 50, 80, 6)).toBeCloseTo(74, 6);
+    expect(hooks.clampAdaptiveOuterCoordForAnnotation('horizontal', 150, 120, 6)).toBeCloseTo(126, 6);
+  });
+
   test('significance label font size resolves from font-controls style (label key first)', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveSignificanceLabelFontSizePx).toBe('function');

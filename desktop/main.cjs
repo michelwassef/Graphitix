@@ -5,6 +5,12 @@ const path = require('node:path');
 const isDev = process.env.VENN_ELECTRON_DEV === '1';
 const defaultDevUrl = process.env.VENN_DEV_URL || 'http://127.0.0.1:4173/index.html';
 
+// Electron 41's Chromium uses the refreshed native form controls on Windows,
+// which rounds the OS-rendered <select> popup even when our CSS forces square
+// corners on the control itself. Disable that Chromium refresh so desktop
+// dropdowns match the web build's sharp-cornered menus.
+app.commandLine.appendSwitch('disable-features', 'FormControlsRefresh');
+
 function resolveProdIndexPath() {
   return path.join(__dirname, 'app', 'index.html');
 }

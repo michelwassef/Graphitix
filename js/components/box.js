@@ -19690,6 +19690,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    if(!layer || !Number.isFinite(xCoord) || !Number.isFinite(innerCoord) || !Number.isFinite(desiredOuter)){
 		      return desiredOuter;
 		    }
+		    const orientation = options?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
 		    let clampedOuter = desiredOuter;
 		    const gapRaw = Number(options?.gap);
 		    const obstacleGap = Number.isFinite(gapRaw) ? Math.max(0, gapRaw) : 2;
@@ -19708,7 +19709,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      : (hasHalfWidth ? xCoord + rangeHalfWidthRaw : xCoord);
 		    const epsilon = 0.01;
 		    const pathNodes = layer.querySelectorAll
-		      ? layer.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]')
+		      ? layer.querySelectorAll(`path.box-significance-annotation[data-sig-orientation="${orientation}"]`)
 		      : [];
 		    for(let i = 0; i < pathNodes.length; i++){
 		      const node = pathNodes[i];
@@ -19721,6 +19722,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      const minX = Math.min(x1, x2) - epsilon;
 		      const maxX = Math.max(x1, x2) + epsilon;
 		      if(probeMaxX < minX || probeMinX > maxX){
+		        continue;
+		      }
+		      if(orientation === 'horizontal'){
+		        if(inner >= innerCoord - epsilon){
+		          continue;
+		        }
+		        const candidateOuter = inner + obstacleGap;
+		        if(candidateOuter <= clampedOuter + epsilon){
+		          continue;
+		        }
+		        clampedOuter = Math.max(clampedOuter, candidateOuter);
 		        continue;
 		      }
 		      if(inner <= innerCoord + epsilon){
@@ -19749,9 +19761,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
 		        continue;
 		      }
-		      const minX = bbox.x - epsilon;
-		      const maxX = bbox.x + bbox.width + epsilon;
+		      const minX = (orientation === 'horizontal' ? bbox.y : bbox.x) - epsilon;
+		      const maxX = (orientation === 'horizontal' ? (bbox.y + bbox.height) : (bbox.x + bbox.width)) + epsilon;
 		      if(probeMaxX < minX || probeMinX > maxX){
+		        continue;
+		      }
+		      if(orientation === 'horizontal'){
+		        const left = bbox.x;
+		        const right = bbox.x + bbox.width;
+		        if(left >= innerCoord - epsilon){
+		          continue;
+		        }
+		        const candidateOuter = right + labelGap;
+		        if(candidateOuter <= clampedOuter + epsilon){
+		          continue;
+		        }
+		        clampedOuter = Math.max(clampedOuter, candidateOuter);
 		        continue;
 		      }
 		      const baselineY = Number(node.getAttribute('y'));
@@ -19779,7 +19804,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      }
 		      clampedOuter = Math.min(clampedOuter, candidateOuter);
 		    }
-		    return Math.max(innerCoord, clampedOuter);
+		    return orientation === 'horizontal'
+		      ? Math.min(innerCoord, clampedOuter)
+		      : Math.max(innerCoord, clampedOuter);
+		  }
+
+		  function clampAdaptiveOuterCoordForAnnotation(orientation, outerCoord, lowerInnerCoord, gap){
+		    if(!Number.isFinite(outerCoord) || !Number.isFinite(lowerInnerCoord)){
+		      return outerCoord;
+		    }
+		    const resolvedGap = Number.isFinite(Number(gap)) ? Math.max(0, Number(gap)) : 0;
+		    if(orientation === 'horizontal'){
+		      // Horizontal mode is the rotated analogue of the vertical stack clamp.
+		      // Rotating y := max(yOuter, lowerInner - gap) into x-space yields min(xOuter, lowerInner + gap).
+		      return Math.min(outerCoord, lowerInnerCoord + resolvedGap);
+		    }
+		    return Math.max(outerCoord, lowerInnerCoord - resolvedGap);
 		  }
 
 		  function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
@@ -19811,16 +19851,72 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    let bracketGeom = null;
 		    let labelOuterCoord = valueCoord;
 		    if(orientation==='horizontal'){
+		      let outerX = valueCoord;
+		      let outerCoordA = outerX;
+		      let outerCoordB = outerX;
+		      if(showWhiskers && whiskerMode === 'adaptive'){
+		        if(Number.isFinite(opts.outerCoordA)){ outerCoordA = Math.min(outerX, opts.outerCoordA); }
+		        if(Number.isFinite(opts.outerCoordB)){ outerCoordB = Math.min(outerX, opts.outerCoordB); }
+		        const innerCoord = outerX + bracketSize;
+		        const gapFallback = Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
+		        const obstacleGap = resolveAdaptiveWhiskerGapUnits(
+		          targetLayer,
+		          orientation,
+		          opts.whiskerObstacleGap,
+		          opts.whiskerObstacleGapPx,
+		          gapFallback
+		        );
+		        const obstacleX1 = Number.isFinite(Number(opts.obstacleX1)) ? Number(opts.obstacleX1) : x1;
+		        const obstacleX2 = Number.isFinite(Number(opts.obstacleX2)) ? Number(opts.obstacleX2) : x2;
+		        const obstacleReachA = Number.isFinite(Number(opts.obstacleReachA))
+		          ? Math.max(0, Number(opts.obstacleReachA))
+		          : Math.max(0, Math.abs(x1 - obstacleX1));
+		        const obstacleReachB = Number.isFinite(Number(opts.obstacleReachB))
+		          ? Math.max(0, Number(opts.obstacleReachB))
+		          : Math.max(0, Math.abs(x2 - obstacleX2));
+		        const dataObstacleA = Number(opts.dataObstacleCoordA);
+		        const dataObstacleB = Number(opts.dataObstacleCoordB);
+		        if(Number.isFinite(dataObstacleA)){
+		          outerCoordA = Math.max(outerCoordA, dataObstacleA + obstacleGap);
+		        }
+		        if(Number.isFinite(dataObstacleB)){
+		          outerCoordB = Math.max(outerCoordB, dataObstacleB + obstacleGap);
+		        }
+		        const labelGap = resolveAdaptiveWhiskerGapUnits(
+		          targetLayer,
+		          orientation,
+		          opts.whiskerLabelGap,
+		          opts.whiskerLabelGapPx,
+		          gapFallback
+		        );
+		        outerCoordA = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX1, innerCoord, outerCoordA, {
+		          orientation,
+		          gap: obstacleGap,
+		          labelGap,
+		          xRangeHalfWidth: obstacleReachA
+		        });
+		        outerCoordB = clampAdaptiveWhiskerToExistingObstacles(targetLayer, obstacleX2, innerCoord, outerCoordB, {
+		          orientation,
+		          gap: obstacleGap,
+		          labelGap,
+		          xRangeHalfWidth: obstacleReachB
+		        });
+		        // In flipped mode a whisker may need to shorten toward the inner spine to avoid an
+		        // existing label. Preserve that resolved coordinate instead of snapping back to the
+		        // base outer edge, but never cross past the inner spine.
+		        outerCoordA = Math.min(innerCoord, outerCoordA);
+		        outerCoordB = Math.min(innerCoord, outerCoordB);
+		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
 		        x1,
 		        x2,
-		        valueCoord,
+		        valueCoord: outerX,
 		        bracketSize,
 		        showWhiskers,
 		        whiskerMode,
-		        outerCoordA: opts.outerCoordA,
-		        outerCoordB: opts.outerCoordB
+		        outerCoordA,
+		        outerCoordB
 		      });
 		      labelOuterCoord = bracketGeom.refOuter;
 		      path.setAttribute('d', bracketGeom.d);
@@ -20857,14 +20953,8 @@ Technical analysis record (advanced)
       }
       return candidate;
     };
-    const clampAdaptiveOuterCoord = (outerCoord, lowerInnerCoord) => {
-      if(!Number.isFinite(outerCoord) || !Number.isFinite(lowerInnerCoord)){
-        return outerCoord;
-      }
-      return orientation === 'horizontal'
-        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerGap)
-        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerGap);
-    };
+    const clampAdaptiveOuterCoord = (outerCoord, lowerInnerCoord) =>
+      clampAdaptiveOuterCoordForAnnotation(orientation, outerCoord, lowerInnerCoord, adaptiveWhiskerGap);
     const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
       if(!adaptiveWhiskersEnabled){
         return helpers.annotationStyle;
@@ -21434,14 +21524,8 @@ Technical analysis record (advanced)
 	      }
 	      return candidate;
 	    };
-	    const clampAdaptiveOuterCoord = (outerCoord, lowerInnerCoord) => {
-	      if(!Number.isFinite(outerCoord) || !Number.isFinite(lowerInnerCoord)){
-	        return outerCoord;
-	      }
-	      return orientation === 'horizontal'
-	        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerGap)
-	        : Math.max(outerCoord, lowerInnerCoord - adaptiveWhiskerGap);
-	    };
+	    const clampAdaptiveOuterCoord = (outerCoord, lowerInnerCoord) =>
+	      clampAdaptiveOuterCoordForAnnotation(orientation, outerCoord, lowerInnerCoord, adaptiveWhiskerGap);
 	    const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
 	      if(!adaptiveWhiskersEnabled){
 	        return helpers.annotationStyle;
@@ -30571,6 +30655,7 @@ Technical analysis record (advanced)
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
 	    clampAdaptiveWhiskerToExistingObstacles:(layer,xCoord,innerCoord,desiredOuter,options)=>clampAdaptiveWhiskerToExistingObstacles(layer,xCoord,innerCoord,desiredOuter,options),
+	    clampAdaptiveOuterCoordForAnnotation:(orientation,outerCoord,lowerInnerCoord,gap)=>clampAdaptiveOuterCoordForAnnotation(orientation,outerCoord,lowerInnerCoord,gap),
 	    resolveSvgAxisUnitsPerPixel:(svgLike,axis)=>resolveSvgAxisUnitsPerPixel(svgLike,axis),
 	    resolveAdaptiveWhiskerGapUnits:(svgLike,orientation,gapUnits,gapPx,fallbackPx)=>resolveAdaptiveWhiskerGapUnits(svgLike,orientation,gapUnits,gapPx,fallbackPx),
       resolveSignificanceLabelFontSizePx:(fallbackPx)=>resolveSignificanceLabelFontSizePx(fallbackPx),

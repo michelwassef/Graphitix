@@ -6096,6 +6096,17 @@ select,
     border-radius: 0 !important;
 }
 
+select,
+option,
+optgroup {
+    border-radius: 0 !important;
+}
+
+select {
+    appearance: none;
+    -webkit-appearance: none;
+}
+
 /* Selection fields (text/number/select) stay sharp across the UI. */
 input[type="text"],
 input[type="number"],
