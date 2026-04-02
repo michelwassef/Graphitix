@@ -92,4 +92,52 @@ describe('data view tab export menu', () => {
     expect(call.fileName).toBe('test_log2(x+1).xlsx');
     expect(call.payload.type).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   });
+
+  test('serializes and restores active view filters without sharing references', () => {
+    const manager = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    manager.initialize([
+      ['Gene', 'Value'],
+      ['A', 1],
+      ['B', 2]
+    ]);
+
+    const filters = {
+      version: 1,
+      columns: {
+        c1: {
+          kind: 'condition',
+          operator: 'greaterThan',
+          value: '1',
+          columnType: 'numeric'
+        }
+      }
+    };
+    manager.updateActiveFilters(filters);
+    filters.columns.c1.value = '99';
+
+    const serialized = manager.serialize({ includeData: false });
+    expect(serialized.views[0].filters).toEqual({
+      version: 1,
+      columns: {
+        c1: {
+          kind: 'condition',
+          operator: 'greaterThan',
+          value: '1',
+          columnType: 'numeric'
+        }
+      }
+    });
+
+    const restored = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    restored.deserialize(serialized, {
+      fallbackData: [
+        ['Gene', 'Value'],
+        ['A', 1],
+        ['B', 2]
+      ],
+      silent: true,
+      activate: false
+    });
+    expect(restored.getActiveView()?.filters).toEqual(serialized.views[0].filters);
+  });
 });

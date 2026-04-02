@@ -598,8 +598,12 @@
       debugLog('snapshot.skip', { reason: 'noHot' }, debugLabel); // Debug: snapshot skipped - missing hot
       return null;
     }
-    const countRows = typeof hot.countRows === 'function' ? hot.countRows() : 0;
-    const countCols = typeof hot.countCols === 'function' ? hot.countCols() : 0;
+    const countRows = typeof hot.countSourceRows === 'function'
+      ? hot.countSourceRows()
+      : (typeof hot.countRows === 'function' ? hot.countRows() : 0);
+    const countCols = typeof hot.countSourceCols === 'function'
+      ? hot.countSourceCols()
+      : (typeof hot.countCols === 'function' ? hot.countCols() : 0);
     if(countRows === 0 || countCols === 0){
       debugLog('snapshot.skip', { reason: 'emptyTable', rows: countRows, cols: countCols }, debugLabel);
       return { kind: 'empty', rows: countRows, cols: countCols };
@@ -839,8 +843,12 @@
     }
     const incomingCols = filteredRows.reduce((max, row) => Math.max(max, row.length), 0);
     const incomingRows = filteredRows.length;
-    const currentRows = typeof hot.countRows === 'function' ? hot.countRows() : filteredRows.length;
-    const currentCols = typeof hot.countCols === 'function' ? hot.countCols() : incomingCols;
+    const currentRows = typeof hot.countSourceRows === 'function'
+      ? hot.countSourceRows()
+      : (typeof hot.countRows === 'function' ? hot.countRows() : filteredRows.length);
+    const currentCols = typeof hot.countSourceCols === 'function'
+      ? hot.countSourceCols()
+      : (typeof hot.countCols === 'function' ? hot.countCols() : incomingCols);
     const hotSettings = typeof hot.getSettings === 'function' ? hot.getSettings() : {};
     const previousMinRows = typeof hotSettings?.minRows === 'number' ? hotSettings.minRows : currentRows;
     const previousMinCols = typeof hotSettings?.minCols === 'number' ? hotSettings.minCols : currentCols;
@@ -1389,8 +1397,12 @@
         && (!options.onRows || options.onRows === tableImport.processRows);
       let snapshotBefore = null;
       if(expectFullReplace && hot){
-        const totalRows = typeof hot.countRows === 'function' ? hot.countRows() : filtered.length;
-        const totalCols = typeof hot.countCols === 'function' ? hot.countCols() : (filtered[0]?.length || 0);
+        const totalRows = typeof hot.countSourceRows === 'function'
+          ? hot.countSourceRows()
+          : (typeof hot.countRows === 'function' ? hot.countRows() : filtered.length);
+        const totalCols = typeof hot.countSourceCols === 'function'
+          ? hot.countSourceCols()
+          : (typeof hot.countCols === 'function' ? hot.countCols() : (filtered[0]?.length || 0));
         if(totalRows > 0 && totalCols > 0){
           const area = [0, 0, totalRows - 1, totalCols - 1];
           const captured = tableImport.captureHotSnapshot(hot, {
@@ -1561,8 +1573,12 @@
           }
         });
       }else if(isFullReplace && undoManager && typeof undoManager.record === 'function'){
-        const totalRowsAfter = typeof hot?.countRows === 'function' ? hot.countRows() : result?.nextMinRows || filtered.length;
-        const totalColsAfter = typeof hot?.countCols === 'function' ? hot.countCols() : (filtered[0]?.length || 0);
+        const totalRowsAfter = typeof hot?.countSourceRows === 'function'
+          ? hot.countSourceRows()
+          : (typeof hot?.countRows === 'function' ? hot.countRows() : (result?.nextMinRows || filtered.length));
+        const totalColsAfter = typeof hot?.countSourceCols === 'function'
+          ? hot.countSourceCols()
+          : (typeof hot?.countCols === 'function' ? hot.countCols() : (filtered[0]?.length || 0));
         let snapshotAfter = null;
         if(totalRowsAfter > 0 && totalColsAfter > 0){
           const afterArea = [0, 0, totalRowsAfter - 1, totalColsAfter - 1];

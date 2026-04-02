@@ -2492,6 +2492,9 @@
           if(view.exclusions){
             hotInstance.applyExclusions?.(view.exclusions);
           }
+          if(view.filters){
+            hotInstance.applyFilters?.(view.filters, { schedule: false });
+          }
           if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
             scheduleLine3dDatasetSync('data-view-switch');
           }
@@ -2531,6 +2534,7 @@
     }
     manager.updateActiveData(hot.getData() || []);
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
@@ -7089,6 +7093,7 @@
       type:'line',
       data:activeHot.getData(),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config:{
@@ -7292,6 +7297,8 @@
     const matrixData = Array.isArray(activeViewData) ? activeViewData : rawDataMatrix;
     const activeViewExclusions = dataManager?.getActiveView?.()?.exclusions || null;
     const exclusionsToApply = obj.exclusions || activeViewExclusions || null;
+    const activeViewFilters = dataManager?.getActiveView?.()?.filters || null;
+    const filtersToApply = obj.filters || activeViewFilters || null;
     const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
     const storedGroupShapes = Array.isArray(c.groupShapes) ? c.groupShapes.slice() : null;
     lineModeCache.twoD = null;
@@ -7344,6 +7351,9 @@
         lineHot.loadData(matrixForLoad);
         if(exclusionsToApply){
           lineHot.applyExclusions?.(exclusionsToApply);
+        }
+        if(filtersToApply){
+          lineHot.applyFilters?.(filtersToApply, { schedule: false });
         }
         if(storedGroupLabels){
           lineSeriesGroupLabels = storedGroupLabels.slice();
@@ -7440,6 +7450,9 @@
         if(exclusionsToApply){
           lineHot.applyExclusions?.(exclusionsToApply);
         }
+        if(filtersToApply){
+          lineHot.applyFilters?.(filtersToApply, { schedule: false });
+        }
       }
     }else if(!skipDataLoad){
       lineReplicates = storedReplicates;
@@ -7462,10 +7475,15 @@
     if(!skipDataLoad && lineHot){
       syncLineActiveDataViewFromHot(lineHot, 'payload-load');
     }
-    if(!lineHot && exclusionsToApply){
-      console.debug('Debug: line exclusions deferred until hot ready');
-    }else if(lineHot && exclusionsToApply && matrixData == null){
-      lineHot.applyExclusions?.(exclusionsToApply);
+    if(!lineHot && (exclusionsToApply || filtersToApply)){
+      console.debug('Debug: line visual filters/exclusions deferred until hot ready');
+    }else if(lineHot && matrixData == null){
+      if(exclusionsToApply){
+        lineHot.applyExclusions?.(exclusionsToApply);
+      }
+      if(filtersToApply){
+        lineHot.applyFilters?.(filtersToApply, { schedule: false });
+      }
     }
     lineTitleText=c.title||lineTitleText;
     lineXLabelText=c.xLabel||lineXLabelText;
@@ -12501,6 +12519,7 @@
     seedLineDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
+    payload.filters = null;
     payload.series = Array.isArray(payload.series) ? [] : [];
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){

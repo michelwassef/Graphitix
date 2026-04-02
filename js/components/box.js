@@ -7886,6 +7886,9 @@
           if(view.exclusions){
             hotInstance.applyExclusions?.(view.exclusions);
           }
+          if(view.filters){
+            hotInstance.applyFilters?.(view.filters, { schedule: false });
+          }
           if(state.tableFormat === 'grouped'){
             updateGroupedHeaders();
           }
@@ -7925,6 +7928,7 @@
     }
     manager.updateActiveData(hot.getData() || []);
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
@@ -29470,6 +29474,7 @@ Technical analysis record (advanced)
       version:4,
       data: activeHot.getData(),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
@@ -29671,6 +29676,7 @@ Technical analysis record (advanced)
     seedBoxDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
+    payload.filters = null;
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
     const tableFormat = normalizeBoxTableFormat(payload.config.tableFormat || state.tableFormat);
     payload.config.tableFormat = tableFormat;
@@ -29846,12 +29852,16 @@ Technical analysis record (advanced)
     const matrixData = dataManager?.getActiveView?.()?.data;
     const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
     const exclusionsToApply = obj.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+    const filtersToApply = obj.filters || dataManager?.getActiveView?.()?.filters || null;
     if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
       state.dataDirty = true;
       state.cachedDrawInput = null;
       state.hot.loadData(dataToLoad);
       if(exclusionsToApply){
         state.hot.applyExclusions?.(exclusionsToApply);
+      }
+      if(filtersToApply){
+        state.hot.applyFilters?.(filtersToApply, { schedule: false });
       }
       syncBoxActiveDataViewFromHot(state.hot, 'payload-load');
     }

@@ -23,6 +23,32 @@
   });
 
   const noop = ()=>{};
+  const FILTER_VERSION = 1;
+  const FILTER_KIND_SET = 'set';
+  const FILTER_KIND_CONDITION = 'condition';
+  const FILTER_MENU_MAX_VISIBLE_VALUES = 400;
+  const FILTER_OPERATORS = new Set([
+    'isBlank',
+    'isNotBlank',
+    'equals',
+    'notEqual',
+    'contains',
+    'notContains',
+    'startsWith',
+    'endsWith',
+    'greaterThan',
+    'greaterThanOrEqual',
+    'lessThan',
+    'lessThanOrEqual',
+    'between',
+    'topN',
+    'aboveAverage',
+    'belowAverage'
+  ]);
+  const EMPTY_FILTER_STATE = Object.freeze({
+    version: FILTER_VERSION,
+    columns: Object.freeze({})
+  });
 
   const appendClassName = (existing, cls)=>{
     if(!cls){
@@ -82,6 +108,112 @@
     }
     return { row: Number(parts[0]), col: Number(parts[1]) };
   };
+
+  function normalizeFilterColId(value){
+    if(typeof value !== 'string'){
+      return null;
+    }
+    const trimmed = value.trim();
+    return /^c\d+$/.test(trimmed) ? trimmed : null;
+  }
+
+  function normalizeFilterOperator(value){
+    if(typeof value !== 'string'){
+      return null;
+    }
+    const trimmed = value.trim();
+    return FILTER_OPERATORS.has(trimmed) ? trimmed : null;
+  }
+
+  function normalizeFilterSelectionValues(values){
+    const source = Array.isArray(values) ? values : [];
+    const seen = new Set();
+    const normalized = [];
+    for(let i = 0; i < source.length; i += 1){
+      const entry = source[i];
+      if(entry == null){
+        continue;
+      }
+      const text = String(entry);
+      if(seen.has(text)){
+        continue;
+      }
+      seen.add(text);
+      normalized.push(text);
+    }
+    normalized.sort();
+    return normalized;
+  }
+
+  function cloneFilterModel(model){
+    const source = model && typeof model === 'object' ? model : null;
+    if(!source){
+      return null;
+    }
+    const kind = source.kind === FILTER_KIND_CONDITION
+      ? FILTER_KIND_CONDITION
+      : FILTER_KIND_SET;
+    if(kind === FILTER_KIND_SET){
+      const selected = normalizeFilterSelectionValues(source.selected || source.values || source.keys);
+      return {
+        kind: FILTER_KIND_SET,
+        selected
+      };
+    }
+    const operator = normalizeFilterOperator(source.operator);
+    if(!operator){
+      return null;
+    }
+    const cloned = {
+      kind: FILTER_KIND_CONDITION,
+      operator
+    };
+    if(Object.prototype.hasOwnProperty.call(source, 'value')){
+      cloned.value = source.value == null ? '' : String(source.value);
+    }
+    if(Object.prototype.hasOwnProperty.call(source, 'valueTo')){
+      cloned.valueTo = source.valueTo == null ? '' : String(source.valueTo);
+    }
+    if(typeof source.columnType === 'string' && source.columnType.trim()){
+      cloned.columnType = source.columnType.trim();
+    }
+    return cloned;
+  }
+
+  function cloneFilterState(state){
+    if(!state || typeof state !== 'object'){
+      return EMPTY_FILTER_STATE;
+    }
+    const rawColumns = state.columns && typeof state.columns === 'object'
+      ? state.columns
+      : state;
+    const columnIds = Object.keys(rawColumns)
+      .map(normalizeFilterColId)
+      .filter(Boolean)
+      .sort((a, b)=>Number(a.slice(1)) - Number(b.slice(1)));
+    if(!columnIds.length){
+      return EMPTY_FILTER_STATE;
+    }
+    const columns = {};
+    for(let i = 0; i < columnIds.length; i += 1){
+      const colId = columnIds[i];
+      const cloned = cloneFilterModel(rawColumns[colId]);
+      if(cloned){
+        columns[colId] = cloned;
+      }
+    }
+    if(!Object.keys(columns).length){
+      return EMPTY_FILTER_STATE;
+    }
+    return {
+      version: FILTER_VERSION,
+      columns
+    };
+  }
+
+  function areFilterStatesEqual(left, right){
+    return JSON.stringify(cloneFilterState(left)) === JSON.stringify(cloneFilterState(right));
+  }
 
   function createExclusionController(instanceAccessor, debugLabel, scheduleChange){
     const rows = new Set();
@@ -677,6 +809,7 @@
     );
     const firstRowClassName = overrides?.firstRowClassName || 'hot-header-row';
     const preserveExclusionsOnLoad = overrides?.preserveExclusionsOnLoad === true;
+    const preserveFiltersOnLoad = overrides?.preserveFiltersOnLoad === true;
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
@@ -1102,6 +1235,450 @@
     const exclusionController = createExclusionController(()=>instance, debugLabel, (scope)=>{
       triggerSchedule(scope || 'exclusion-change', { scope });
     });
+    const FILTER_STATE_EVENT = 'hot:filter-state-changed';
+    let activeColumnFilters = new Map();
+    let compiledColumnFilters = new Map();
+    let fallbackDisplayedPhysicalRows = null;
+    let pendingFilterChangeMeta = null;
+
+    const isBlankFilterValue = (value)=>{
+      if(value == null){
+        return true;
+      }
+      return typeof value === 'string' && value.trim() === '';
+    };
+
+    const serializeFilterCellValue = (value)=>{
+      if(isBlankFilterValue(value)){
+        return '__blank__';
+      }
+      if(typeof value === 'number' && Number.isFinite(value)){
+        return `n:${String(value)}`;
+      }
+      if(typeof value === 'boolean'){
+        return `b:${value ? '1' : '0'}`;
+      }
+      return `s:${String(value)}`;
+    };
+
+    const formatFilterCellValue = (value)=>{
+      if(isBlankFilterValue(value)){
+        return '(Blanks)';
+      }
+      return String(value);
+    };
+
+    const coerceFilterNumber = (value)=>{
+      if(typeof value === 'number'){
+        return Number.isFinite(value) ? value : null;
+      }
+      if(typeof value === 'string'){
+        const trimmed = value.trim();
+        if(!trimmed){
+          return null;
+        }
+        const normalized = trimmed.replace(',', '.');
+        const num = Number(normalized);
+        return Number.isFinite(num) ? num : null;
+      }
+      return null;
+    };
+
+    const getFilterCellDisplayValue = (physicalRow, physicalCol)=>{
+      const rawValue = Array.isArray(dataHandle.current?.[physicalRow])
+        ? dataHandle.current[physicalRow][physicalCol]
+        : '';
+      return resolveFormulaDisplayValue(physicalRow, physicalCol, rawValue);
+    };
+
+    const buildColumnFilterContext = (physicalCol)=>{
+      const rowTotal = Array.isArray(dataHandle.current) ? dataHandle.current.length : 0;
+      const uniqueMap = new Map();
+      const numericValues = [];
+      let numericCount = 0;
+      let textCount = 0;
+      for(let physicalRow = 0; physicalRow < rowTotal; physicalRow += 1){
+        if(isHeaderRow(physicalRow)){
+          continue;
+        }
+        const value = getFilterCellDisplayValue(physicalRow, physicalCol);
+        const key = serializeFilterCellValue(value);
+        const existing = uniqueMap.get(key);
+        if(existing){
+          existing.count += 1;
+        }else{
+          uniqueMap.set(key, {
+            key,
+            value,
+            label: formatFilterCellValue(value),
+            count: 1,
+            blank: isBlankFilterValue(value)
+          });
+        }
+        if(isBlankFilterValue(value)){
+          continue;
+        }
+        const numericValue = coerceFilterNumber(value);
+        if(numericValue !== null){
+          numericValues.push(numericValue);
+          numericCount += 1;
+        }else{
+          textCount += 1;
+        }
+      }
+      const uniqueOptions = Array.from(uniqueMap.values()).sort((left, right)=>{
+        if(left.blank && !right.blank){
+          return 1;
+        }
+        if(!left.blank && right.blank){
+          return -1;
+        }
+        const leftNumber = coerceFilterNumber(left.value);
+        const rightNumber = coerceFilterNumber(right.value);
+        if(leftNumber !== null && rightNumber !== null){
+          return leftNumber - rightNumber;
+        }
+        return String(left.label).localeCompare(String(right.label), undefined, { sensitivity: 'base', numeric: true });
+      });
+      const columnType = numericCount > 0 && textCount === 0
+        ? 'numeric'
+        : (numericCount === 0 ? 'text' : 'mixed');
+      return {
+        physicalCol,
+        uniqueOptions,
+        numericValues,
+        numericCount,
+        textCount,
+        columnType
+      };
+    };
+
+    const exportActiveFilterState = ()=>{
+      if(!activeColumnFilters.size){
+        return EMPTY_FILTER_STATE;
+      }
+      const columns = {};
+      activeColumnFilters.forEach((model, colId)=>{
+        const cloned = cloneFilterModel(model);
+        if(cloned){
+          columns[colId] = cloned;
+        }
+      });
+      if(!Object.keys(columns).length){
+        return EMPTY_FILTER_STATE;
+      }
+      return {
+        version: FILTER_VERSION,
+        columns
+      };
+    };
+
+    const dispatchFilterStateChanged = (reason)=>{
+      const docLocal = container?.ownerDocument || document;
+      const winLocal = docLocal?.defaultView || global;
+      if(typeof winLocal?.CustomEvent !== 'function' || typeof container?.dispatchEvent !== 'function'){
+        return;
+      }
+      try{
+        container.dispatchEvent(new winLocal.CustomEvent(FILTER_STATE_EVENT, {
+          detail: {
+            reason: reason || 'filter',
+            state: exportActiveFilterState()
+          }
+        }));
+      }catch(err){
+        // ignore event dispatch failures
+      }
+    };
+
+    const buildCompiledColumnFilter = (colId, model)=>{
+      const physicalCol = Number(colId.slice(1));
+      if(!Number.isInteger(physicalCol) || physicalCol < 0 || physicalCol >= colCount){
+        return null;
+      }
+      const clonedModel = cloneFilterModel(model);
+      if(!clonedModel){
+        return null;
+      }
+      const context = buildColumnFilterContext(physicalCol);
+      if(clonedModel.kind === FILTER_KIND_SET){
+        const selected = normalizeFilterSelectionValues(clonedModel.selected);
+        const availableKeys = context.uniqueOptions.map(option => option.key);
+        const allSelected = availableKeys.length > 0
+          && availableKeys.every(key => selected.indexOf(key) !== -1);
+        if(allSelected){
+          return null;
+        }
+        const selectedSet = new Set(selected);
+        return {
+          colId,
+          physicalCol,
+          model: {
+            kind: FILTER_KIND_SET,
+            selected
+          },
+          context,
+          evaluator(physicalRow){
+            if(isHeaderRow(physicalRow)){
+              return true;
+            }
+            const value = getFilterCellDisplayValue(physicalRow, physicalCol);
+            return selectedSet.has(serializeFilterCellValue(value));
+          }
+        };
+      }
+      const operator = normalizeFilterOperator(clonedModel.operator);
+      if(!operator){
+        return null;
+      }
+      const textValue = String(clonedModel.value == null ? '' : clonedModel.value).trim();
+      const textValueLower = textValue.toLowerCase();
+      const textValueTo = String(clonedModel.valueTo == null ? '' : clonedModel.valueTo).trim();
+      const textValueToLower = textValueTo.toLowerCase();
+      const numericValue = coerceFilterNumber(clonedModel.value);
+      const numericValueTo = coerceFilterNumber(clonedModel.valueTo);
+      let threshold = null;
+      let average = null;
+      if(operator === 'topN'){
+        const count = Math.max(1, Math.floor(coerceFilterNumber(clonedModel.value) || 10));
+        const sortedDescending = context.numericValues.slice().sort((a, b)=>b - a);
+        if(!sortedDescending.length){
+          return null;
+        }
+        threshold = sortedDescending[Math.min(sortedDescending.length - 1, count - 1)];
+      }
+      if(operator === 'aboveAverage' || operator === 'belowAverage'){
+        if(!context.numericValues.length){
+          return null;
+        }
+        average = context.numericValues.reduce((sum, value)=>sum + value, 0) / context.numericValues.length;
+      }
+      if((operator === 'greaterThan'
+        || operator === 'greaterThanOrEqual'
+        || operator === 'lessThan'
+        || operator === 'lessThanOrEqual'
+        || operator === 'between')
+        && numericValue === null){
+        return null;
+      }
+      if(operator === 'between' && numericValueTo === null){
+        return null;
+      }
+      if((operator === 'contains'
+        || operator === 'notContains'
+        || operator === 'startsWith'
+        || operator === 'endsWith'
+        || operator === 'equals'
+        || operator === 'notEqual')
+        && !textValue
+        && numericValue === null
+        && operator !== 'equals'
+        && operator !== 'notEqual'){
+        return null;
+      }
+      const evaluator = (physicalRow)=>{
+        if(isHeaderRow(physicalRow)){
+          return true;
+        }
+        const value = getFilterCellDisplayValue(physicalRow, physicalCol);
+        const blank = isBlankFilterValue(value);
+        if(operator === 'isBlank'){
+          return blank;
+        }
+        if(operator === 'isNotBlank'){
+          return !blank;
+        }
+        if(blank){
+          return false;
+        }
+        const cellNumber = coerceFilterNumber(value);
+        const cellText = String(value).trim();
+        const cellTextLower = cellText.toLowerCase();
+        switch(operator){
+          case 'equals':
+            if(numericValue !== null && cellNumber !== null){
+              return cellNumber === numericValue;
+            }
+            return cellTextLower === (numericValue !== null ? String(numericValue).toLowerCase() : textValueLower);
+          case 'notEqual':
+            if(numericValue !== null && cellNumber !== null){
+              return cellNumber !== numericValue;
+            }
+            return cellTextLower !== (numericValue !== null ? String(numericValue).toLowerCase() : textValueLower);
+          case 'contains':
+            return textValueLower ? cellTextLower.includes(textValueLower) : true;
+          case 'notContains':
+            return textValueLower ? !cellTextLower.includes(textValueLower) : true;
+          case 'startsWith':
+            return textValueLower ? cellTextLower.startsWith(textValueLower) : true;
+          case 'endsWith':
+            return textValueLower ? cellTextLower.endsWith(textValueLower) : true;
+          case 'greaterThan':
+            return cellNumber !== null && cellNumber > numericValue;
+          case 'greaterThanOrEqual':
+            return cellNumber !== null && cellNumber >= numericValue;
+          case 'lessThan':
+            return cellNumber !== null && cellNumber < numericValue;
+          case 'lessThanOrEqual':
+            return cellNumber !== null && cellNumber <= numericValue;
+          case 'between': {
+            if(cellNumber === null){
+              return false;
+            }
+            const min = Math.min(numericValue, numericValueTo);
+            const max = Math.max(numericValue, numericValueTo);
+            return cellNumber >= min && cellNumber <= max;
+          }
+          case 'topN':
+            return cellNumber !== null && threshold !== null && cellNumber >= threshold;
+          case 'aboveAverage':
+            return cellNumber !== null && average !== null && cellNumber > average;
+          case 'belowAverage':
+            return cellNumber !== null && average !== null && cellNumber < average;
+          default:
+            return true;
+        }
+      };
+      return {
+        colId,
+        physicalCol,
+        model: clonedModel,
+        context,
+        evaluator
+      };
+    };
+
+    const rebuildCompiledColumnFilters = ()=>{
+      const nextCompiled = new Map();
+      activeColumnFilters.forEach((model, colId)=>{
+        const compiled = buildCompiledColumnFilter(colId, model);
+        if(compiled){
+          nextCompiled.set(colId, compiled);
+        }
+      });
+      compiledColumnFilters = nextCompiled;
+      if(!compiledColumnFilters.size){
+        fallbackDisplayedPhysicalRows = null;
+        return;
+      }
+      const nextRows = [];
+      const totalRows = Array.isArray(dataHandle.current) ? dataHandle.current.length : 0;
+      for(let physicalRow = 0; physicalRow < totalRows; physicalRow += 1){
+        let include = true;
+        compiledColumnFilters.forEach(compiled=>{
+          if(include && !compiled.evaluator(physicalRow)){
+            include = false;
+          }
+        });
+        if(include){
+          nextRows.push(physicalRow);
+        }
+      }
+      fallbackDisplayedPhysicalRows = nextRows;
+    };
+
+    const pruneActiveColumnFilters = ()=>{
+      if(!activeColumnFilters.size){
+        return false;
+      }
+      const nextFilters = new Map();
+      let changed = false;
+      activeColumnFilters.forEach((model, colId)=>{
+        const physicalCol = Number(colId.slice(1));
+        if(!Number.isInteger(physicalCol) || physicalCol < 0 || physicalCol >= colCount){
+          changed = true;
+          return;
+        }
+        const cloned = cloneFilterModel(model);
+        if(!cloned){
+          changed = true;
+          return;
+        }
+        nextFilters.set(colId, cloned);
+      });
+      if(!changed && nextFilters.size === activeColumnFilters.size){
+        return false;
+      }
+      activeColumnFilters = nextFilters;
+      return true;
+    };
+
+    const syncSelectionToFilteredRows = ()=>{
+      const visibleRows = Math.max(0, getVisualRowCount());
+      if(visibleRows <= 0){
+        lastRange = null;
+        normalizedSelectionRange = null;
+        copyHighlightRange = null;
+        normalizedCopyHighlightRange = null;
+        clearSelectedHeaderColumns();
+        return;
+      }
+      const normalized = normalizeRange(normalizedSelectionRange || lastRange);
+      if(!normalized){
+        return;
+      }
+      const lastVisibleRow = visibleRows - 1;
+      const clamped = {
+        from: {
+          row: Math.max(0, Math.min(lastVisibleRow, normalized.from.row)),
+          col: normalized.from.col
+        },
+        to: {
+          row: Math.max(0, Math.min(lastVisibleRow, normalized.to.row)),
+          col: normalized.to.col
+        }
+      };
+      setLastRange(clamped);
+    };
+
+    const applyColumnFilterRefreshLocally = (reason, options = {})=>{
+      syncSelectionToFilteredRows();
+      renderAg(instance?.gridApi || null);
+      if(options.schedule !== false){
+        triggerSchedule('filter-change', { source: reason || 'filter-change' });
+      }
+    };
+
+    const notifyColumnFiltersChanged = (reason, options = {})=>{
+      pruneActiveColumnFilters();
+      rebuildCompiledColumnFilters();
+      dispatchFilterStateChanged(reason);
+      const apiRef = instance?.gridApi || null;
+      const columnStateApi = instance?.columnApi || apiRef?.columnApi || null;
+      if(typeof columnStateApi?.refreshHeader === 'function'){
+        try{
+          columnStateApi.refreshHeader();
+        }catch(err){
+          // ignore header refresh failures
+        }
+      }else if(typeof apiRef?.refreshHeader === 'function'){
+        try{
+          apiRef.refreshHeader();
+        }catch(err){
+          // ignore header refresh failures
+        }
+      }
+      pendingFilterChangeMeta = {
+        reason: reason || 'filter-change',
+        schedule: options.schedule !== false
+      };
+      if(apiRef && typeof apiRef.onFilterChanged === 'function'){
+        try{
+          apiRef.onFilterChanged();
+          return;
+        }catch(err){
+          // fall through to local refresh path
+        }
+      }
+      applyColumnFilterRefreshLocally(reason, options);
+      pendingFilterChangeMeta = null;
+    };
+    const refreshColumnFiltersForDataMutation = (reason)=>{
+      if(!activeColumnFilters.size && !compiledColumnFilters.size){
+        return;
+      }
+      notifyColumnFiltersChanged(reason, { schedule: false });
+    };
 
     const hooks = {
       afterChange: [],
@@ -3602,7 +4179,10 @@
       if(!areMatricesEqual(beforeSnapshot.data, afterSnapshot.data)){
         return false;
       }
-      return areExclusionStatesEqual(beforeSnapshot.exclusions, afterSnapshot.exclusions);
+      if(!areExclusionStatesEqual(beforeSnapshot.exclusions, afterSnapshot.exclusions)){
+        return false;
+      }
+      return areFilterStatesEqual(beforeSnapshot.filters, afterSnapshot.filters);
     };
 
     const captureLoadDataUndoSnapshot = (maxCells)=>{
@@ -3628,7 +4208,8 @@
         rowCount,
         colCount,
         data: cloneMatrix(matrix),
-        exclusions: cloneExclusionState(exclusionController.exportState())
+        exclusions: cloneExclusionState(exclusionController.exportState()),
+        filters: cloneFilterState(exportActiveFilterState())
       };
     };
 
@@ -3836,9 +4417,13 @@
       const hasForcedCols = Number.isFinite(options.forceColCount);
       const hasForcedDims = hasForcedRows || hasForcedCols;
       const explicitExclusions = options.exclusionsState;
+      const explicitFilters = options.filtersState;
       const existingExclusions = explicitExclusions
         ? null
         : (preserveExclusionsOnLoad ? exclusionController.exportState() : null);
+      const existingFilters = explicitFilters
+        ? EMPTY_FILTER_STATE
+        : (preserveFiltersOnLoad ? cloneFilterState(exportActiveFilterState()) : EMPTY_FILTER_STATE);
       let incoming = Array.isArray(nextData) ? nextData : null;
       if(incoming && shrinkOnLoadData && !hasForcedDims){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -3897,8 +4482,22 @@
       }else{
         exclusionController.clearAll(true);
       }
+      if(explicitFilters && typeof explicitFilters === 'object'){
+        activeColumnFilters = new Map(Object.entries(cloneFilterState(explicitFilters).columns || {}));
+      }else if(existingFilters && existingFilters !== EMPTY_FILTER_STATE){
+        activeColumnFilters = new Map(Object.entries(existingFilters.columns || {}));
+      }else{
+        activeColumnFilters = new Map();
+      }
+      pruneActiveColumnFilters();
+      rebuildCompiledColumnFilters();
       syncRowData(instance.gridApi);
       rebuildColumns(instance.gridApi);
+      if(activeColumnFilters.size || compiledColumnFilters.size){
+        notifyColumnFiltersChanged(source, { schedule: false });
+      }else{
+        dispatchFilterStateChanged(source);
+      }
       recordCall('loadData', {
         containerId: container?.id || null,
         source,
@@ -3926,7 +4525,8 @@
           source: typeof source === 'string' && source ? source : 'UndoRedo.loadData',
           forceRowCount: snapshot.rowCount,
           forceColCount: snapshot.colCount,
-          exclusionsState: snapshot.exclusions
+          exclusionsState: snapshot.exclusions,
+          filtersState: snapshot.filters
         }
       )) !== false;
     };
@@ -5593,21 +6193,41 @@
           label.className = 'hot-ag-header-label';
           label.textContent = params?.displayName ?? params?.column?.getColDef?.()?.headerName ?? '';
 
-          const sortIndicator = doc.createElement('span');
-          sortIndicator.className = 'hot-sort-indicator';
+          const actionButton = doc.createElement('button');
+          actionButton.type = 'button';
+          actionButton.className = 'hot-header-action hot-filter-indicator';
+          actionButton.setAttribute('aria-label', 'Open column filter');
+          actionButton.setAttribute('title', 'Open column filter');
 
-          this.updateSortIndicator = ()=>{
+          this.updateActionState = ()=>{
+            const colId = params?.column?.getColId?.() || '';
             const sort = params?.column?.getSort?.() || '';
-            sortIndicator.classList.toggle('is-asc', sort === 'asc');
-            sortIndicator.classList.toggle('is-desc', sort === 'desc');
+            const filtered = compiledColumnFilters.has(colId);
+            actionButton.classList.toggle('is-filtered', filtered);
+            actionButton.classList.toggle('is-sorted', sort === 'asc' || sort === 'desc');
+            actionButton.classList.toggle('is-sorted-asc', sort === 'asc');
+            actionButton.classList.toggle('is-sorted-desc', sort === 'desc');
+            const titleParts = ['Open column filter'];
+            if(filtered){
+              titleParts.push('Filter active');
+            }
+            if(sort === 'asc'){
+              titleParts.push('Sorted ascending');
+            }else if(sort === 'desc'){
+              titleParts.push('Sorted descending');
+            }
+            actionButton.setAttribute('title', titleParts.join('\n'));
           };
 
-          this.sortListener = ()=>{
-            this.updateSortIndicator?.();
+          this.headerStateListener = ()=>{
+            this.updateActionState?.();
           };
 
           if(params?.api?.addEventListener){
-            params.api.addEventListener('sortChanged', this.sortListener);
+            params.api.addEventListener('sortChanged', this.headerStateListener);
+          }
+          if(typeof container?.addEventListener === 'function'){
+            container.addEventListener(FILTER_STATE_EVENT, this.headerStateListener);
           }
 
           root.addEventListener('click', (event)=>{
@@ -5621,68 +6241,36 @@
             if(target.closest('.hot-col-drag-handle')){
               return;
             }
-            if(!target.closest('.hot-sort-indicator')){
+            if(!target.closest('.hot-header-action')){
               return;
             }
-            armSortSelectionSnapshot();
-            const sortable = (typeof params?.column?.isSortable === 'function')
-              ? !!params.column.isSortable()
-              : (params?.column?.getColDef?.()?.sortable !== false);
-            if(!sortable){
-              clearSortSelectionGuard();
-              pendingSortSelectionSnapshot = null;
-              return;
-            }
-            const current = params?.column?.getSort?.() || null;
-            const next = current === 'asc' ? 'desc' : (current === 'desc' ? null : 'asc');
-            if(typeof params?.progressSort === 'function'){
-              params.progressSort(!!event.shiftKey);
-              return;
-            }
-            if(typeof params?.setSort === 'function'){
-              params.setSort(next, !!event.shiftKey);
-              return;
-            }
-            if(typeof params?.column?.setSort === 'function'){
-              params.column.setSort(next, !!event.shiftKey);
-              return;
-            }
-            const applyColumnState = params?.api?.applyColumnState || params?.columnApi?.applyColumnState;
-            const targetApi = params?.api?.applyColumnState ? params.api : params?.columnApi;
             const colId = params?.column?.getColId?.();
-            if(typeof applyColumnState === 'function' && targetApi && typeof colId === 'string' && colId){
-              try{
-                const statePayload = {
-                  state: [{ colId, sort: next }]
-                };
-                if(!event.shiftKey){
-                  statePayload.defaultState = { sort: null };
-                }
-                applyColumnState.call(targetApi, statePayload);
-              }catch(sortErr){
-                if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-                  console.debug('Debug: Shared.hot header sort fallback failed', {
-                    debugLabel,
-                    colId,
-                    error: sortErr?.message || String(sortErr)
-                  });
-                }
-              }
+            const colIndex = typeof colId === 'string' && colId.startsWith('c')
+              ? Number(colId.slice(1))
+              : null;
+            if(Number.isInteger(colIndex) && colIndex >= 0){
+              event.preventDefault?.();
+              event.stopPropagation?.();
+              event.stopImmediatePropagation?.();
+              openColumnFilterMenu(actionButton, colIndex);
             }
           });
 
           root.appendChild(handle);
           root.appendChild(label);
-          root.appendChild(sortIndicator);
+          root.appendChild(actionButton);
           this.eGui = root;
-          this.updateSortIndicator();
+          this.updateActionState();
         }
         getGui(){
           return this.eGui;
         }
         destroy(){
-          if(this.params?.api?.removeEventListener && this.sortListener){
-            this.params.api.removeEventListener('sortChanged', this.sortListener);
+          if(this.params?.api?.removeEventListener && this.headerStateListener){
+            this.params.api.removeEventListener('sortChanged', this.headerStateListener);
+          }
+          if(typeof container?.removeEventListener === 'function' && this.headerStateListener){
+            container.removeEventListener(FILTER_STATE_EVENT, this.headerStateListener);
           }
           this.eGui = null;
           this.params = null;
@@ -6044,6 +6632,10 @@
           // ignore mapping failures
         }
       }
+      if(Array.isArray(fallbackDisplayedPhysicalRows)){
+        const physical = fallbackDisplayedPhysicalRows[row];
+        return Number.isInteger(physical) && physical >= 0 ? physical : null;
+      }
       return row;
     };
 
@@ -6164,6 +6756,9 @@
         }catch(err){
           // ignore
         }
+      }
+      if(Array.isArray(fallbackDisplayedPhysicalRows)){
+        return fallbackDisplayedPhysicalRows.length;
       }
       return dataHandle.current.length;
     };
@@ -6848,6 +7443,7 @@
       if(!usedTransaction){
         applyRowData(api, rowData);
       }
+      refreshColumnFiltersForDataMutation('append-rows');
     };
 
     const flushBatch = ()=>{
@@ -7054,6 +7650,9 @@
         if(needsRebuild){
           rebuildColumns(instance.gridApi);
         }
+        if(needsSync || needsRebuild){
+          refreshColumnFiltersForDataMutation('update-settings');
+        }
         if (pinConfigChanged) {
           applyPinnedTopRowData(instance.gridApi);
 
@@ -7127,7 +7726,7 @@
         }
         renderAg(instance.gridApi);
       },
-      countRows(){ return dataHandle.current.length; },
+      countRows(){ return getVisualRowCount(); },
       countCols(){ return colCount; },
       countSourceRows(){ return dataHandle.current.length; },
       countSourceCols(){ return colCount; },
@@ -7332,6 +7931,7 @@
             colHeaders = resolveColHeaders(colCount);
             rebuildColumns(instance.gridApi);
           }
+          refreshColumnFiltersForDataMutation('set-data-at-cell:batch');
           if(!(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
             recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
           }
@@ -7367,6 +7967,7 @@
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
         }
+        refreshColumnFiltersForDataMutation('set-data-at-cell:single');
         if(!(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
           recordUndoFromVisualChanges(changeSource, [[r, c, prev, value]], changeSource);
         }
@@ -7460,6 +8061,7 @@
           dataHandle.current = data;
           markFormulaModelDirty('alter:insert-row');
           syncRowData(instance.gridApi);
+          refreshColumnFiltersForDataMutation('alter:insert-row');
           fireHook('afterCreateRow', insertAt, safeAmount, changeSource);
           if(shouldScheduleAutoGrowChange(changeSource)){
             triggerSchedule('afterCreateRow', { source: changeSource });
@@ -7471,6 +8073,7 @@
           dataHandle.current = data;
           markFormulaModelDirty('alter:remove-row');
           syncRowData(instance.gridApi);
+          refreshColumnFiltersForDataMutation('alter:remove-row');
           fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, changeSource);
           triggerSchedule('afterRemoveRow', { source: changeSource });
           }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left' || action === 'insert_col_start' || action === 'insert_col_end'){
@@ -7495,6 +8098,7 @@
             ensureDims(data, data.length, colCount);
             colHeaders = resolveColHeaders(colCount);
             rebuildColumns(instance.gridApi);
+            refreshColumnFiltersForDataMutation('alter:insert-col');
             renderAg(instance.gridApi);
             fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
             if(shouldScheduleAutoGrowChange(changeSource)){
@@ -7521,6 +8125,7 @@
           ensureDims(data, data.length, colCount);
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
+          refreshColumnFiltersForDataMutation('alter:remove-col');
           renderAg(instance.gridApi);
           fireHook('afterRemoveCol', at, safeAmount, removedCols, changeSource);
           triggerSchedule('afterRemoveCol', { source: changeSource });
@@ -7576,6 +8181,7 @@
         syncFormulaModelForVisualChanges(changes, 'populate-from-array');
         syncRowData(instance.gridApi);
         rebuildColumns(instance.gridApi);
+        refreshColumnFiltersForDataMutation('populate-from-array');
         if(changes.length){
           const sourceLabel = typeof source === 'string' ? source : 'populateFromArray';
           if(pendingCutMove && sourceLabel !== 'paste'){
@@ -7706,11 +8312,80 @@
     });
 
     let customContextMenu = null;
+    let customContextMenuCleanup = null;
     const closeCustomMenu = ()=>{
+      if(typeof customContextMenuCleanup === 'function'){
+        try{
+          customContextMenuCleanup();
+        }catch(err){
+          // ignore popup cleanup failures
+        }
+      }
+      customContextMenuCleanup = null;
       if(customContextMenu && customContextMenu.parentNode){
         customContextMenu.parentNode.removeChild(customContextMenu);
       }
       customContextMenu = null;
+    };
+    const positionCustomPopup = (popup, options = {})=>{
+      const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
+      const viewportWidth = Number(win?.innerWidth || doc?.documentElement?.clientWidth || 0);
+      const viewportHeight = Number(win?.innerHeight || doc?.documentElement?.clientHeight || 0);
+      const anchorRect = options.anchorRect || null;
+      let left = Number(options.left);
+      let top = Number(options.top);
+      if(!Number.isFinite(left)){
+        left = anchorRect ? anchorRect.left : 4;
+      }
+      if(!Number.isFinite(top)){
+        top = anchorRect ? anchorRect.bottom + 4 : 4;
+      }
+      const width = popup.offsetWidth || Number(options.width) || 0;
+      const height = popup.offsetHeight || Number(options.height) || 0;
+      if(viewportWidth > 0 && width > 0){
+        left = Math.min(Math.max(4, left), Math.max(4, viewportWidth - width - 4));
+      }else{
+        left = Math.max(4, left);
+      }
+      if(viewportHeight > 0 && height > 0){
+        const preferredAbove = anchorRect ? (anchorRect.top - height - 4) : null;
+        if(anchorRect && top + height > viewportHeight - 4 && Number.isFinite(preferredAbove) && preferredAbove >= 4){
+          top = preferredAbove;
+        }else{
+          top = Math.min(Math.max(4, top), Math.max(4, viewportHeight - height - 4));
+        }
+      }else{
+        top = Math.max(4, top);
+      }
+      popup.style.left = `${left}px`;
+      popup.style.top = `${top}px`;
+    };
+    const attachPopupDismissHandlers = (popup, options = {})=>{
+      const doc = container?.ownerDocument || document;
+      const anchor = options.anchor || null;
+      const handlePointerDown = (event)=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(!target){
+          return;
+        }
+        if(popup.contains(target) || (anchor && anchor.contains?.(target))){
+          return;
+        }
+        closeCustomMenu();
+      };
+      const handleKeyDown = (event)=>{
+        if((event?.key || '') === 'Escape'){
+          event.preventDefault?.();
+          closeCustomMenu();
+        }
+      };
+      doc.addEventListener('mousedown', handlePointerDown, true);
+      doc.addEventListener('keydown', handleKeyDown, true);
+      return ()=>{
+        doc.removeEventListener('mousedown', handlePointerDown, true);
+        doc.removeEventListener('keydown', handleKeyDown, true);
+      };
     };
     const openCustomMenu = (event, items)=>{
       closeCustomMenu();
@@ -7750,7 +8425,363 @@
       menu.style.left = `${x}px`;
       menu.style.top = `${y}px`;
       customContextMenu = menu;
-      doc.addEventListener('click', closeCustomMenu, { once: true });
+      const handleAutoClose = ()=>closeCustomMenu();
+      doc.addEventListener('click', handleAutoClose, { once: true });
+      customContextMenuCleanup = ()=>{
+        doc.removeEventListener('click', handleAutoClose);
+      };
+    };
+
+    const applyColumnSortState = (colId, nextSort, multiSort)=>{
+      const apiRef = instance?.gridApi || null;
+      const columnStateApi = instance?.columnApi || apiRef?.columnApi || null;
+      const applyColumnState = (apiRef && typeof apiRef.applyColumnState === 'function')
+        ? apiRef.applyColumnState.bind(apiRef)
+        : (columnStateApi && typeof columnStateApi.applyColumnState === 'function')
+          ? columnStateApi.applyColumnState.bind(columnStateApi)
+          : null;
+      if(!applyColumnState || typeof colId !== 'string' || !colId){
+        return false;
+      }
+      try{
+        const payload = {
+          state: [{ colId, sort: nextSort || null }]
+        };
+        if(!multiSort){
+          payload.defaultState = { sort: null };
+        }
+        applyColumnState(payload);
+        return true;
+      }catch(sortErr){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot applyColumnSortState failed', {
+            debugLabel,
+            colId,
+            sort: nextSort || null,
+            error: sortErr?.message || String(sortErr)
+          });
+        }
+        return false;
+      }
+    };
+
+    const openColumnFilterMenu = (anchorEl, colIdx)=>{
+      const idx = Number(colIdx);
+      if(!Number.isInteger(idx) || idx < 0 || idx >= colCount){
+        return;
+      }
+      const existingColId = customContextMenu?.getAttribute?.('data-col-id') || null;
+      const isSameFilterMenu = customContextMenu?.getAttribute?.('data-menu-type') === 'filter'
+        && existingColId === `c${idx}`;
+      if(isSameFilterMenu){
+        closeCustomMenu();
+        return;
+      }
+      closeCustomMenu();
+      const doc = container?.ownerDocument || document;
+      const colId = `c${idx}`;
+      const context = buildColumnFilterContext(idx);
+      const currentModel = cloneFilterModel(activeColumnFilters.get(colId));
+      const popup = doc.createElement('div');
+      popup.className = 'ag-hot-menu ag-hot-filter-menu';
+      popup.setAttribute('data-menu-type', 'filter');
+      popup.setAttribute('data-col-id', colId);
+      popup.style.position = 'fixed';
+      popup.style.zIndex = '10020';
+      popup.style.minWidth = '260px';
+      popup.style.maxWidth = '320px';
+
+      const heading = doc.createElement('div');
+      heading.className = 'ag-hot-filter-menu__heading';
+      heading.textContent = colHeaders?.[idx] || toExcelColumnLabel(idx);
+      popup.appendChild(heading);
+
+      const sortSection = doc.createElement('div');
+      sortSection.className = 'ag-hot-filter-menu__sort';
+      const buildSortButton = (label, sortValue)=>{
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.className = 'ag-hot-filter-menu__sort-button';
+        button.textContent = label;
+        button.addEventListener('click', ()=>{
+          armSortSelectionSnapshot();
+          if(applyColumnSortState(colId, sortValue, false)){
+            closeCustomMenu();
+          }
+        });
+        return button;
+      };
+      if(context.columnType === 'numeric'){
+        sortSection.appendChild(buildSortButton('Sort Smallest to Largest', 'asc'));
+        sortSection.appendChild(buildSortButton('Sort Largest to Smallest', 'desc'));
+      }else{
+        sortSection.appendChild(buildSortButton('Sort A to Z', 'asc'));
+        sortSection.appendChild(buildSortButton('Sort Z to A', 'desc'));
+      }
+      sortSection.appendChild(buildSortButton('Clear Sort', null));
+      popup.appendChild(sortSection);
+
+      const modeLabel = doc.createElement('label');
+      modeLabel.className = 'ag-hot-filter-menu__label';
+      modeLabel.textContent = 'Filter';
+      popup.appendChild(modeLabel);
+
+      const modeSelect = doc.createElement('select');
+      modeSelect.className = 'ag-hot-filter-menu__select';
+      const modeOptions = [{ value: FILTER_KIND_SET, label: 'Selected values' }];
+      modeOptions.push({ value: 'isBlank', label: 'Is blank' });
+      modeOptions.push({ value: 'isNotBlank', label: 'Is not blank' });
+      modeOptions.push({ value: 'equals', label: 'Equals' });
+      modeOptions.push({ value: 'notEqual', label: 'Does not equal' });
+      if(context.columnType !== 'numeric'){
+        modeOptions.push({ value: 'contains', label: 'Contains' });
+        modeOptions.push({ value: 'notContains', label: 'Does not contain' });
+        modeOptions.push({ value: 'startsWith', label: 'Starts with' });
+        modeOptions.push({ value: 'endsWith', label: 'Ends with' });
+      }
+      if(context.columnType !== 'text'){
+        modeOptions.push({ value: 'greaterThan', label: 'Greater than' });
+        modeOptions.push({ value: 'greaterThanOrEqual', label: 'Greater than or equal' });
+        modeOptions.push({ value: 'lessThan', label: 'Less than' });
+        modeOptions.push({ value: 'lessThanOrEqual', label: 'Less than or equal' });
+        modeOptions.push({ value: 'between', label: 'Between' });
+        modeOptions.push({ value: 'topN', label: 'Top N' });
+        modeOptions.push({ value: 'aboveAverage', label: 'Above average' });
+        modeOptions.push({ value: 'belowAverage', label: 'Below average' });
+      }
+      modeOptions.forEach(option=>{
+        const entry = doc.createElement('option');
+        entry.value = option.value;
+        entry.textContent = option.label;
+        modeSelect.appendChild(entry);
+      });
+      popup.appendChild(modeSelect);
+
+      const searchInput = doc.createElement('input');
+      searchInput.type = 'search';
+      searchInput.className = 'ag-hot-filter-menu__search';
+      searchInput.placeholder = 'Search values';
+
+      const valueSelectRow = doc.createElement('label');
+      valueSelectRow.className = 'ag-hot-filter-menu__check';
+      const valueSelectAll = doc.createElement('input');
+      valueSelectAll.type = 'checkbox';
+      const valueSelectAllText = doc.createElement('span');
+      valueSelectAllText.textContent = '(Select all shown)';
+      valueSelectRow.appendChild(valueSelectAll);
+      valueSelectRow.appendChild(valueSelectAllText);
+
+      const valueList = doc.createElement('div');
+      valueList.className = 'ag-hot-filter-menu__values';
+
+      const hint = doc.createElement('div');
+      hint.className = 'ag-hot-filter-menu__hint';
+
+      const inputWrap = doc.createElement('div');
+      inputWrap.className = 'ag-hot-filter-menu__inputs';
+      const valueInput = doc.createElement('input');
+      valueInput.type = 'text';
+      valueInput.className = 'ag-hot-filter-menu__input';
+      valueInput.placeholder = 'Value';
+      const valueToInput = doc.createElement('input');
+      valueToInput.type = 'text';
+      valueToInput.className = 'ag-hot-filter-menu__input';
+      valueToInput.placeholder = 'And';
+      inputWrap.appendChild(valueInput);
+      inputWrap.appendChild(valueToInput);
+
+      popup.appendChild(searchInput);
+      popup.appendChild(valueSelectRow);
+      popup.appendChild(valueList);
+      popup.appendChild(hint);
+      popup.appendChild(inputWrap);
+
+      const footer = doc.createElement('div');
+      footer.className = 'ag-hot-filter-menu__footer';
+      const applyButton = doc.createElement('button');
+      applyButton.type = 'button';
+      applyButton.className = 'ag-hot-filter-menu__button';
+      applyButton.textContent = 'OK';
+      const clearButton = doc.createElement('button');
+      clearButton.type = 'button';
+      clearButton.className = 'ag-hot-filter-menu__button';
+      clearButton.textContent = 'Clear';
+      const cancelButton = doc.createElement('button');
+      cancelButton.type = 'button';
+      cancelButton.className = 'ag-hot-filter-menu__button';
+      cancelButton.textContent = 'Cancel';
+      footer.appendChild(applyButton);
+      footer.appendChild(clearButton);
+      footer.appendChild(cancelButton);
+      popup.appendChild(footer);
+
+      let selectedKeys = new Set(
+        currentModel?.kind === FILTER_KIND_SET
+          ? normalizeFilterSelectionValues(currentModel.selected)
+          : context.uniqueOptions.map(option => option.key)
+      );
+
+      const renderValueList = ()=>{
+        const needle = String(searchInput.value || '').trim().toLowerCase();
+        const matching = context.uniqueOptions.filter(option=>{
+          if(!needle){
+            return true;
+          }
+          return option.label.toLowerCase().includes(needle);
+        });
+        const visible = matching.slice(0, FILTER_MENU_MAX_VISIBLE_VALUES);
+        const allShownSelected = matching.length > 0 && matching.every(option => selectedKeys.has(option.key));
+        valueSelectAll.checked = allShownSelected;
+        valueSelectAll.indeterminate = !allShownSelected && matching.some(option => selectedKeys.has(option.key));
+        valueList.innerHTML = '';
+        visible.forEach(option=>{
+          const row = doc.createElement('label');
+          row.className = 'ag-hot-filter-menu__check';
+          const checkbox = doc.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = selectedKeys.has(option.key);
+          checkbox.addEventListener('change', ()=>{
+            if(checkbox.checked){
+              selectedKeys.add(option.key);
+            }else{
+              selectedKeys.delete(option.key);
+            }
+            renderValueList();
+          });
+          const text = doc.createElement('span');
+          text.textContent = option.count > 1 ? `${option.label} (${option.count})` : option.label;
+          row.appendChild(checkbox);
+          row.appendChild(text);
+          valueList.appendChild(row);
+        });
+        if(matching.length > visible.length){
+          hint.textContent = `Showing ${visible.length} of ${matching.length} matching values. Refine the search to narrow the list.`;
+        }else if(!matching.length){
+          hint.textContent = 'No matching values.';
+        }else{
+          hint.textContent = '';
+        }
+      };
+
+      valueSelectAll.addEventListener('change', ()=>{
+        const needle = String(searchInput.value || '').trim().toLowerCase();
+        context.uniqueOptions.forEach(option=>{
+          if(needle && !option.label.toLowerCase().includes(needle)){
+            return;
+          }
+          if(valueSelectAll.checked){
+            selectedKeys.add(option.key);
+          }else{
+            selectedKeys.delete(option.key);
+          }
+        });
+        renderValueList();
+      });
+      searchInput.addEventListener('input', renderValueList);
+
+      const syncModeUi = ()=>{
+        const mode = modeSelect.value || FILTER_KIND_SET;
+        const isValueMode = mode === FILTER_KIND_SET;
+        searchInput.hidden = !isValueMode;
+        valueSelectRow.hidden = !isValueMode;
+        valueList.hidden = !isValueMode;
+        inputWrap.hidden = isValueMode;
+        valueToInput.hidden = !(mode === 'between');
+        if(mode === 'topN'){
+          valueInput.placeholder = '10';
+        }else if(mode === 'between'){
+          valueInput.placeholder = 'Minimum';
+          valueToInput.placeholder = 'Maximum';
+        }else{
+          valueInput.placeholder = 'Value';
+        }
+        if(mode === 'isBlank' || mode === 'isNotBlank' || mode === 'aboveAverage' || mode === 'belowAverage'){
+          valueInput.hidden = true;
+          valueToInput.hidden = true;
+        }else{
+          valueInput.hidden = false;
+        }
+      };
+
+      const currentMode = currentModel?.kind === FILTER_KIND_CONDITION
+        ? currentModel.operator
+        : FILTER_KIND_SET;
+      if(Array.from(modeSelect.options).some(option => option.value === currentMode)){
+        modeSelect.value = currentMode;
+      }else{
+        modeSelect.value = FILTER_KIND_SET;
+      }
+      valueInput.value = currentModel?.kind === FILTER_KIND_CONDITION ? String(currentModel.value ?? '') : '';
+      valueToInput.value = currentModel?.kind === FILTER_KIND_CONDITION ? String(currentModel.valueTo ?? '') : '';
+      modeSelect.addEventListener('change', syncModeUi);
+      syncModeUi();
+      renderValueList();
+
+      const applyCurrentFilter = ()=>{
+        const mode = modeSelect.value || FILTER_KIND_SET;
+        let nextModel = null;
+        if(mode === FILTER_KIND_SET){
+          const availableKeys = context.uniqueOptions.map(option => option.key);
+          const selected = normalizeFilterSelectionValues(Array.from(selectedKeys));
+          const allSelected = availableKeys.length > 0 && availableKeys.every(key => selected.indexOf(key) !== -1);
+          if(!allSelected){
+            nextModel = {
+              kind: FILTER_KIND_SET,
+              selected
+            };
+          }
+        }else{
+          nextModel = cloneFilterModel({
+            kind: FILTER_KIND_CONDITION,
+            operator: mode,
+            value: valueInput.value,
+            valueTo: valueToInput.value,
+            columnType: context.columnType
+          });
+          const compiled = nextModel ? buildCompiledColumnFilter(colId, nextModel) : null;
+          if(!compiled && nextModel){
+            hint.textContent = 'Enter a valid filter value.';
+            return;
+          }
+        }
+        const previousJson = JSON.stringify(cloneFilterModel(activeColumnFilters.get(colId)) || null);
+        const nextJson = JSON.stringify(nextModel || null);
+        if(nextModel){
+          activeColumnFilters.set(colId, nextModel);
+        }else{
+          activeColumnFilters.delete(colId);
+        }
+        if(previousJson !== nextJson){
+          notifyColumnFiltersChanged(`filter:${colId}`);
+        }
+        closeCustomMenu();
+      };
+
+      applyButton.addEventListener('click', applyCurrentFilter);
+      clearButton.addEventListener('click', ()=>{
+        if(activeColumnFilters.has(colId)){
+          activeColumnFilters.delete(colId);
+          notifyColumnFiltersChanged(`filter-clear:${colId}`);
+        }
+        closeCustomMenu();
+      });
+      cancelButton.addEventListener('click', ()=>closeCustomMenu());
+      popup.addEventListener('keydown', (event)=>{
+        if((event?.key || '') === 'Enter' && !(event.target instanceof HTMLTextAreaElement)){
+          event.preventDefault?.();
+          applyCurrentFilter();
+        }
+      });
+
+      doc.body.appendChild(popup);
+      positionCustomPopup(popup, {
+        anchorRect: anchorEl?.getBoundingClientRect?.() || null,
+        left: anchorEl?.getBoundingClientRect?.()?.left,
+        top: anchorEl?.getBoundingClientRect?.()?.bottom
+      });
+      customContextMenu = popup;
+      customContextMenuCleanup = attachPopupDismissHandlers(popup, { anchor: anchorEl });
+      searchInput.focus?.();
     };
 
     const getDisplayedDataColumnPositions = ()=>{
@@ -7844,6 +8875,27 @@
         return false;
       }
     };
+
+    const hasActiveSorts = ()=>{
+      const api = instance.gridApi || null;
+      const columnApi = instance.columnApi || api?.columnApi || null;
+      const getColumnState = (columnApi && typeof columnApi.getColumnState === 'function')
+        ? columnApi.getColumnState.bind(columnApi)
+        : (api && typeof api.getColumnState === 'function')
+          ? api.getColumnState.bind(api)
+          : null;
+      if(!getColumnState){
+        return false;
+      }
+      try{
+        const state = getColumnState();
+        return Array.isArray(state) && state.some(entry => entry?.sort === 'asc' || entry?.sort === 'desc');
+      }catch(err){
+        return false;
+      }
+    };
+
+    const hasVisualRowTransforms = ()=>compiledColumnFilters.size > 0 || hasActiveSorts();
 
     const getMoveColumnState = (colIdx)=>{
       const positions = getDisplayedDataColumnPositions();
@@ -8741,6 +9793,25 @@
         ensureDomOrder: true,
         alwaysShowHorizontalScroll: true,
         headerHeight: colHeadersEnabled ? 24 : 0,
+      isExternalFilterPresent(){
+        return compiledColumnFilters.size > 0;
+      },
+      doesExternalFilterPass(params){
+        if(!compiledColumnFilters.size){
+          return true;
+        }
+        const physicalRow = params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex;
+        if(!Number.isInteger(physicalRow) || physicalRow < 0){
+          return true;
+        }
+        let include = true;
+        compiledColumnFilters.forEach(compiled=>{
+          if(include && !compiled.evaluator(physicalRow)){
+            include = false;
+          }
+        });
+        return include;
+      },
       postSortRows: function(params){
         try{
           const nodes = params?.nodes;
@@ -8877,6 +9948,15 @@
             restoreSortSelectionSnapshot(apiRef);
           });
         },
+        onFilterChanged(params){
+          const meta = pendingFilterChangeMeta || { reason: 'filter-change', schedule: true };
+          pendingFilterChangeMeta = null;
+          syncSelectionToFilteredRows();
+          renderAg(params?.api || instance?.gridApi);
+          if(meta.schedule !== false){
+            triggerSchedule('filter-change', { source: meta.reason || 'filter-change' });
+          }
+        },
         onColumnResized(params){
           const apiRef = params?.api || instance?.gridApi;
           const isFinalResizeEvent = params?.finished !== false;
@@ -8916,6 +9996,7 @@
             pushUndoStep(`table:${debugLabel}:edit`, [{ row: physicalRow, col: physicalCol, prev: event.oldValue, next: event.newValue }]);
           }
         }
+        refreshColumnFiltersForDataMutation('ag-cell-value-changed');
         fireHook('afterChange', [[rowIndex, colIndex, event.oldValue, event.newValue]], event.source || 'edit');
         triggerSchedule('afterChange', { source: event.source || 'edit' });
         if(formulaEvaluationState.enabled){
@@ -9128,10 +10209,11 @@
           const uniqueRowList = Array.from(new Set(rowList));
           const canExcludeRow = uniqueRowList.some(row => !exclusionController.isRowExcluded(row));
           const canIncludeRow = uniqueRowList.some(row => exclusionController.isRowExcluded(row));
+          const visualTransformLocked = hasVisualRowTransforms();
           const items = [
             {
               label: `Insert ${rowCountToAct} row(s) above`,
-              disabled: rowCountToAct <= 0,
+              disabled: rowCountToAct <= 0 || visualTransformLocked,
               action: ()=>{
                 const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
                 instance.alter('insert_row_above', rowStart, rowCountToAct, 'row-header-menu');
@@ -9148,7 +10230,7 @@
             },
             {
               label: `Insert ${rowCountToAct} row(s) below`,
-              disabled: rowCountToAct <= 0,
+              disabled: rowCountToAct <= 0 || visualTransformLocked,
               action: ()=>{
                 const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
                 instance.alter('insert_row_below', rowEnd, rowCountToAct, 'row-header-menu');
@@ -9166,7 +10248,7 @@
             },
             {
               label: `Delete ${rowCountToAct} row(s)`,
-              disabled: rowCountToAct <= 0,
+              disabled: rowCountToAct <= 0 || visualTransformLocked,
               action: ()=>{
                 const at = rowStart;
                 const count = rowCountToAct;
@@ -10221,9 +11303,9 @@
           }
           return;
         }
-        if(target.closest('.hot-sort-indicator')){
-          // Sorting via the right-side icon must preserve the existing
-          // grid selection coordinates; do not rewrite selection on mousedown.
+        if(target.closest('.hot-header-action')){
+          // The right-side header action opens the filter popup; do not
+          // rewrite selection on mousedown.
           isHeaderDragSelecting = false;
           headerDragScope = null;
           headerDragAnchor = null;
@@ -10319,7 +11401,7 @@
           }
           return;
         }
-        const onSortIndicator = !!target.closest('.hot-sort-indicator');
+        const onSortIndicator = !!target.closest('.hot-header-action');
         const onDragHandle = !!target.closest('.hot-col-drag-handle');
         const onResizeHandle = !!target.closest('.ag-header-cell-resize');
         const onMenuButton = !!target.closest('.ag-header-cell-menu-button');
@@ -11738,6 +12820,33 @@
       });
     }
 
+    instance.__hotExportFilters = function(){
+      return exportActiveFilterState();
+    };
+    instance.__hotApplyFilters = function(payload, options = {}){
+      const normalized = cloneFilterState(payload);
+      const previous = exportActiveFilterState();
+      activeColumnFilters = new Map(Object.entries(normalized.columns || {}));
+      if(areFilterStatesEqual(previous, normalized)){
+        return previous;
+      }
+      notifyColumnFiltersChanged(options.reason || 'apply-filters', {
+        schedule: options.schedule !== false
+      });
+      return exportActiveFilterState();
+    };
+    instance.__hotClearFilters = function(options = {}){
+      const previous = exportActiveFilterState();
+      if(previous === EMPTY_FILTER_STATE || !Object.keys(previous.columns || {}).length){
+        return previous;
+      }
+      activeColumnFilters = new Map();
+      notifyColumnFiltersChanged(options.reason || 'clear-filters', {
+        schedule: options.schedule !== false
+      });
+      return EMPTY_FILTER_STATE;
+    };
+
     instance.exportExclusions = function(){
       return hotNS.exportExclusions(instance);
     };
@@ -11747,6 +12856,15 @@
     instance.clearExclusions = function(){
       return hotNS.clearExclusions(instance);
     };
+    instance.exportFilters = function(){
+      return hotNS.exportFilters(instance);
+    };
+    instance.applyFilters = function(payload, options){
+      return hotNS.applyFilters(instance, payload, options);
+    };
+    instance.clearFilters = function(options){
+      return hotNS.clearFilters(instance, options);
+    };
     instance.getAnalysisData = function(options){
       return hotNS.getAnalysisData(instance, options);
     };
@@ -11755,6 +12873,9 @@
     };
     if(overrides?.exclusions){
       exclusionController.importState(overrides.exclusions);
+    }
+    if(overrides?.filters){
+      instance.applyFilters(overrides.filters, { schedule: false });
     }
     if(typeof overrides?.onCreate === 'function'){
       try{
@@ -11860,6 +12981,30 @@
     }
     controller.clearAll();
     return true;
+  }
+
+  function exportFilters(instance){
+    const inst = resolveInstance(instance);
+    if(!inst || typeof inst.__hotExportFilters !== 'function'){
+      return EMPTY_FILTER_STATE;
+    }
+    return cloneFilterState(inst.__hotExportFilters());
+  }
+
+  function applyFilters(instance, payload, options){
+    const inst = resolveInstance(instance);
+    if(!inst || typeof inst.__hotApplyFilters !== 'function'){
+      return EMPTY_FILTER_STATE;
+    }
+    return cloneFilterState(inst.__hotApplyFilters(payload, options || {}));
+  }
+
+  function clearFilters(instance, options){
+    const inst = resolveInstance(instance);
+    if(!inst || typeof inst.__hotClearFilters !== 'function'){
+      return EMPTY_FILTER_STATE;
+    }
+    return cloneFilterState(inst.__hotClearFilters(options || {}));
   }
 
   function isRowExcluded(instance, row, options){
@@ -12159,6 +13304,9 @@
   hotNS.exportExclusions = exportExclusions;
   hotNS.applyExclusions = applyExclusions;
   hotNS.clearExclusions = clearExclusions;
+  hotNS.exportFilters = exportFilters;
+  hotNS.applyFilters = applyFilters;
+  hotNS.clearFilters = clearFilters;
   hotNS.applyExclusionsToMatrix = applyExclusionsToMatrix;
   hotNS.isRowExcluded = isRowExcluded;
   hotNS.isColumnExcluded = isColumnExcluded;

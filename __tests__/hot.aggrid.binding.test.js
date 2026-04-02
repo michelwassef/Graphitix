@@ -212,4 +212,112 @@ describe('Shared.hot AG Grid binding', () => {
     expect(hot.getDataAtCell(0, 0)).toBe('X');
     expect(hot.getDataAtCell(1, 1)).toBe('W');
   });
+
+  test('applyFilters keeps header rows visible and narrows analysis data', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotFilters';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-filters',
+        data: [
+          ['Label', 'Value'],
+          ['A', 1],
+          ['B', 2],
+          ['C', 3]
+        ]
+      }
+    );
+
+    hot.applyFilters({
+      version: 1,
+      columns: {
+        c1: {
+          kind: 'condition',
+          operator: 'greaterThan',
+          value: '1',
+          columnType: 'numeric'
+        }
+      }
+    }, { schedule: false });
+
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(0, 0)).toBe('Label');
+    expect(hot.getDataAtCell(1, 0)).toBe('B');
+    expect(hot.getDataAtCell(2, 0)).toBe('C');
+
+    const analysis = hot.getAnalysisData();
+    expect(analysis.rowCount).toBe(3);
+    expect(analysis.data.map(row => row.slice(0, 2))).toEqual([
+      ['Label', 'Value'],
+      ['B', 2],
+      ['C', 3]
+    ]);
+    expect(hot.getIncludedDataMatrix().map(row => row.slice(0, 2))).toEqual([
+      ['Label', 'Value'],
+      ['B', 2],
+      ['C', 3]
+    ]);
+  });
+
+  test('exportFilters can be cleared and reapplied', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotFilterRoundTrip';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-filter-roundtrip',
+        data: [
+          ['Label', 'Value'],
+          ['A', 1],
+          ['B', 2],
+          ['C', 2]
+        ]
+      }
+    );
+
+    hot.applyFilters({
+      version: 1,
+      columns: {
+        c1: {
+          kind: 'condition',
+          operator: 'equals',
+          value: '2',
+          columnType: 'numeric'
+        }
+      }
+    }, { schedule: false });
+
+    const exported = hot.exportFilters();
+    expect(exported).toEqual({
+      version: 1,
+      columns: {
+        c1: {
+          kind: 'condition',
+          operator: 'equals',
+          value: '2',
+          columnType: 'numeric'
+        }
+      }
+    });
+    expect(hot.countRows()).toBe(3);
+
+    hot.clearFilters({ schedule: false });
+    expect(hot.countRows()).toBe(4);
+
+    hot.applyFilters(exported, { schedule: false });
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(1, 0)).toBe('B');
+    expect(hot.getDataAtCell(2, 0)).toBe('C');
+  });
 });

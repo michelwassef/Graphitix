@@ -1107,6 +1107,9 @@
           if(view.exclusions){
             hotInstance.applyExclusions?.(view.exclusions);
           }
+          if(view.filters){
+            hotInstance.applyFilters?.(view.filters, { schedule: false });
+          }
           state.scheduleDraw?.({ reason: 'data-view-switch' });
         },
         onInteraction(){
@@ -1137,6 +1140,7 @@
     }
     manager.updateActiveData(hot.getData() || []);
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
@@ -3140,6 +3144,7 @@
       type: 'roc',
       data: activeHot?.getData?.() || [],
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+      filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
@@ -3214,6 +3219,7 @@
     seedRocDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
+    payload.filters = null;
     payload.stats = null;
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
@@ -3261,10 +3267,14 @@
     const matrixData = dataManager?.getActiveView?.()?.data;
     const dataToLoad = Array.isArray(matrixData) ? matrixData : dataMatrix;
     const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+    const filtersToApply = payload.filters || dataManager?.getActiveView?.()?.filters || null;
     if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
       state.hot.loadData(dataToLoad);
       if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
         state.hot.applyExclusions(exclusionsToApply);
+      }
+      if(filtersToApply && typeof state.hot.applyFilters === 'function'){
+        state.hot.applyFilters(filtersToApply, { schedule: false });
       }
       syncRocActiveDataViewFromHot(state.hot, 'payload-load');
     }

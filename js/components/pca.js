@@ -1675,6 +1675,9 @@
           if(view.exclusions){
             hotInstance.applyExclusions?.(view.exclusions);
           }
+          if(view.filters){
+            hotInstance.applyFilters?.(view.filters, { schedule: false });
+          }
           markPcaDataDirty('data-view-switch');
           markPcaOverlayPending('data-view-switch');
           scheduleDrawPca({ reason: 'data-view-switch' });
@@ -1712,6 +1715,7 @@
     }
     manager.updateActiveData(hot.getData() || []);
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
@@ -10403,6 +10407,7 @@
         type:'pca',
         data:activeHot?.getData?.() || [],
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,
         activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: {
@@ -10641,11 +10646,15 @@
         const matrixData = dataManager?.getActiveView?.()?.data;
         const dataToLoad = Array.isArray(matrixData) ? matrixData : rawDataMatrix;
         const exclusionsToApply = obj.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+        const filtersToApply = obj.filters || dataManager?.getActiveView?.()?.filters || null;
         if(!skipDataLoad && pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
           markPcaDataDirty(meta?.reason || 'payload-load');
           pcaHotInstance.loadData(dataToLoad);
           if(exclusionsToApply){
             pcaHotInstance.applyExclusions?.(exclusionsToApply);
+          }
+          if(filtersToApply){
+            pcaHotInstance.applyFilters?.(filtersToApply, { schedule: false });
           }
           syncPcaActiveDataViewFromHot(pcaHotInstance, 'payload-load');
         }
@@ -11033,6 +11042,7 @@
       }
       payload.data = emptyData;
       payload.exclusions = [];
+      payload.filters = null;
       payload.stats = null;
       if(payload.config){
         if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){

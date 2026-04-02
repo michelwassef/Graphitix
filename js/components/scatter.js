@@ -8751,6 +8751,9 @@
               if(view.exclusions){
                 hotInstance.applyExclusions?.(view.exclusions);
               }
+              if(view.filters){
+                hotInstance.applyFilters?.(view.filters, { schedule: false });
+              }
               ensureScatterHeaderTitles(hotInstance, {
                 graphType: scatterCurrentGraphType,
                 tableFormat: getScatterReplicateMode()
@@ -8798,6 +8801,7 @@
         }
         manager.updateActiveData(hot.getData() || []);
         manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+        manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
         if(reason === 'afterLoadData'){
           manager.refresh?.();
         }
@@ -19722,6 +19726,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         type:'scatter',
         data:activeHot?.getData?.() || [],
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,
         activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config:{
@@ -19942,6 +19947,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       const activeViewData = manager?.getActiveView?.()?.data;
       const matrixToLoad = Array.isArray(activeViewData) ? activeViewData : dataMatrix;
+      const filtersToApply = obj.filters || manager?.getActiveView?.()?.filters || null;
       if(!skipDataLoad && scatterHot && typeof scatterHot.loadData === 'function'){
         scatterState.dataDirty = true;
         scatterState.cachedCollect = null;
@@ -19951,6 +19957,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterHot.applyExclusions?.(obj.exclusions);
         }else if(manager?.getActiveView?.()?.exclusions){
           scatterHot.applyExclusions?.(manager.getActiveView().exclusions);
+        }
+        if(filtersToApply){
+          scatterHot.applyFilters?.(filtersToApply, { schedule: false });
         }
         ensureScatterHeaderTitles(scatterHot);
         if(isGroupedScatterModeActive()){
@@ -20410,6 +20419,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       payload.data = emptyData;
       payload.exclusions = [];
+      payload.filters = null;
       payload.series = Array.isArray(payload.series) ? [] : [];
       const defaultRegressionMode = resolveScatterSelectDefaultValue(scatterRegressionMode, 'linear');
       const defaultFitMethod = normalizeScatterFitMethod(resolveScatterSelectDefaultValue(scatterFitMethod, 'ols'));

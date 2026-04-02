@@ -142,7 +142,8 @@
       sourceViewId: source.sourceViewId == null ? null : String(source.sourceViewId),
       transformSpec: source.transformSpec || null,
       summary: source.summary || null,
-      exclusions: source.exclusions || null,
+      exclusions: source.exclusions ? cloneSimple(source.exclusions) : null,
+      filters: source.filters ? cloneSimple(source.filters) : null,
       createdAt: Number.isFinite(Number(source.createdAt)) ? Number(source.createdAt) : nowMs()
     };
   }
@@ -321,6 +322,7 @@
         transformSpec: null,
         summary: null,
         exclusions: null,
+        filters: null,
         createdAt: nowMs()
       };
       views.unshift(raw);
@@ -336,7 +338,8 @@
         sourceViewId: view.sourceViewId || null,
         transformSpec: view.transformSpec || null,
         summary: view.summary || null,
-        exclusions: view.exclusions || null,
+        exclusions: view.exclusions ? cloneSimple(view.exclusions) : null,
+        filters: view.filters ? cloneSimple(view.filters) : null,
         createdAt: view.createdAt
       };
     }
@@ -721,6 +724,7 @@
         transformSpec: null,
         summary: null,
         exclusions: null,
+        filters: null,
         createdAt: nowMs()
       }];
       activeViewId = 'raw';
@@ -763,7 +767,16 @@
       if(!active){
         return false;
       }
-      active.exclusions = exclusions || null;
+      active.exclusions = exclusions ? cloneSimple(exclusions) : null;
+      return true;
+    }
+
+    function updateActiveFilters(filters){
+      const active = getView(activeViewId);
+      if(!active){
+        return false;
+      }
+      active.filters = filters ? cloneSimple(filters) : null;
       return true;
     }
 
@@ -779,7 +792,8 @@
         sourceViewId: source.sourceViewId == null ? activeViewId : String(source.sourceViewId),
         transformSpec: source.transformSpec || null,
         summary: source.summary || null,
-        exclusions: source.exclusions || null,
+        exclusions: source.exclusions ? cloneSimple(source.exclusions) : null,
+        filters: source.filters ? cloneSimple(source.filters) : null,
         createdAt: nowMs()
       };
       views.push(record);
@@ -924,7 +938,8 @@
             sourceViewId: view.sourceViewId || null,
             transformSpec: view.transformSpec || null,
             summary: view.summary || null,
-            exclusions: view.exclusions || null,
+            exclusions: view.exclusions ? cloneSimple(view.exclusions) : null,
+            filters: view.filters ? cloneSimple(view.filters) : null,
             createdAt: view.createdAt
           };
           if(includeData){
@@ -981,6 +996,7 @@
           transformSpec: null,
           summary: null,
           exclusions: null,
+          filters: null,
           createdAt: nowMs()
         });
       }
@@ -1013,6 +1029,7 @@
     manager.getViews = getViews;
     manager.updateActiveData = updateActiveData;
     manager.updateActiveExclusions = updateActiveExclusions;
+    manager.updateActiveFilters = updateActiveFilters;
     manager.createDerivedView = createDerivedView;
     manager.removeView = removeView;
     manager.applyTransform = applyTransform;

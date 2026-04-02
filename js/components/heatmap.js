@@ -978,6 +978,9 @@
               : HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH
           });
           syncHeatmapHotExclusions(hotInstance, view.exclusions || null, 'active-view-change');
+          if(view.filters){
+            hotInstance.applyFilters?.(view.filters, { schedule: false });
+          }
           if(!isCorrelationView){
             markHeatmapOverlayPending('data-view-switch');
             state.scheduleDraw?.({ reason: 'data-view-switch' });
@@ -1018,6 +1021,7 @@
     }
     manager.updateActiveData(hot.getData() || []);
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
@@ -7322,6 +7326,7 @@
       type: 'heatmap',
       data: activeHot ? activeHot.getData() : [],
       exclusions: activeHot?.exportExclusions?.() || (activeHot ? Shared.hot.exportExclusions(activeHot) : Shared.hot.exportExclusions(null)),
+      filters: activeHot?.exportFilters?.() || (activeHot ? Shared.hot.exportFilters(activeHot) : Shared.hot.exportFilters(null)),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       stats: state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null,
@@ -7372,6 +7377,7 @@
     seedHeatmapDefaultHeaderRow(emptyData);
     payload.data = emptyData;
     payload.exclusions = [];
+    payload.filters = null;
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
       payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('heatmap') || 'scientific';
@@ -7488,6 +7494,8 @@
     const matrix = Array.isArray(activeViewData) ? activeViewData : rawMatrix;
     const activeViewExclusions = dataManager?.getActiveView?.()?.exclusions || null;
     const exclusionsToApply = obj.exclusions || activeViewExclusions || null;
+    const activeViewFilters = dataManager?.getActiveView?.()?.filters || null;
+    const filtersToApply = obj.filters || activeViewFilters || null;
     const config = obj.config || {};
     if(config.notes && typeof config.notes === 'object'){
       notesState.text = config.notes.text == null ? '' : String(config.notes.text);
@@ -7512,6 +7520,9 @@
       }
       if(exclusionsToApply && state.hot.applyExclusions){
         state.hot.applyExclusions(exclusionsToApply);
+      }
+      if(filtersToApply && state.hot.applyFilters){
+        state.hot.applyFilters(filtersToApply, { schedule: false });
       }
     }
     applyConfig(config);

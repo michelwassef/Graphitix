@@ -2526,6 +2526,9 @@
           if(view.exclusions){
             hotInstance.applyExclusions?.(view.exclusions);
           }
+          if(view.filters){
+            hotInstance.applyFilters?.(view.filters, { schedule: false });
+          }
           requestPieStatsContextRefresh('data-view-switch');
           state.scheduleDraw?.({ reason: 'data-view-switch' });
         },
@@ -2557,6 +2560,7 @@
     }
     manager.updateActiveData(hot.getData() || []);
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
@@ -2692,6 +2696,7 @@
         type:'pie',
         data: activeHot?.getData?.() || [],
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
+        filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,
         activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: collectConfig()
@@ -2739,6 +2744,7 @@
       seedPieDefaultHeaderRow(emptyData);
       payload.data = emptyData;
       payload.exclusions = [];
+      payload.filters = null;
       payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
       if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
         payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'scientific';
@@ -2787,10 +2793,14 @@
       const matrixData = dataManager?.getActiveView?.()?.data;
       const dataToLoad = Array.isArray(matrixData) ? matrixData : dataMatrix;
       const exclusionsToApply = payload.exclusions || dataManager?.getActiveView?.()?.exclusions || null;
+      const filtersToApply = payload.filters || dataManager?.getActiveView?.()?.filters || null;
       if(!skipDataLoad && state.hot && typeof state.hot.loadData === 'function'){
         state.hot.loadData(dataToLoad);
         if(exclusionsToApply && typeof state.hot.applyExclusions === 'function'){
           state.hot.applyExclusions(exclusionsToApply);
+        }
+        if(filtersToApply && typeof state.hot.applyFilters === 'function'){
+          state.hot.applyFilters(filtersToApply, { schedule: false });
         }
         syncPieActiveDataViewFromHot(state.hot, 'payload-load');
       }

@@ -2246,7 +2246,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
   });
 
-  test('plain header click selects full column and sort icon click preserves selection coordinates', () => {
+  test('plain header click selects full column and header action click preserves selection coordinates', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agColHeaderSortGateHot';
@@ -2262,9 +2262,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const header = document.createElement('div');
     header.className = 'ag-header-cell';
     header.setAttribute('col-id', 'c1');
-    const sortIcon = document.createElement('span');
-    sortIcon.className = 'hot-sort-indicator';
-    header.appendChild(sortIcon);
+    const headerAction = document.createElement('button');
+    headerAction.className = 'hot-header-action hot-filter-indicator';
+    header.appendChild(headerAction);
     container.appendChild(header);
 
     const sortSpy = jest.fn();
@@ -2278,8 +2278,8 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(sortSpy).toHaveBeenCalledTimes(0);
 
     hot.selectCell(1, 2);
-    sortIcon.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-    sortIcon.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    headerAction.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
     expect(hot.getSelectedLast()).toEqual([1, 2, 1, 2]);
     expect(sortSpy).toHaveBeenCalledTimes(1);
