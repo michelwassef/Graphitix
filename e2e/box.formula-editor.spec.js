@@ -414,3 +414,121 @@ test('box formula drag range selection inserts A1:A10 and evaluates AVERAGE', as
 
   expect(issues.critical).toEqual([]);
 });
+
+test('box formula reference outlines stay clipped under pinned/header overlays while scrolling', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+
+  await page.waitForFunction(() => {
+    const box = window.Components?.box;
+    if (!box || typeof box.__getState !== 'function') {
+      return false;
+    }
+    const state = box.__getState();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
+  });
+
+  await page.evaluate(() => {
+    const box = window.Components.box;
+    const state = box.__getState();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const updates = [];
+    for (let row = 1; row <= 24; row += 1) {
+      updates.push([row, 1, String(100 + row)]);
+      updates.push([row, 2, String(200 + row)]);
+      updates.push([row, 4, '']);
+    }
+    hot.setDataAtCell(updates, 'e2e-formula-clip-seed');
+    hot.gridApi?.startEditingCell?.({ rowIndex: 1, colKey: 'c4' });
+  });
+
+  const editorInput = page.locator('#hot input.ag-text-field-input').first();
+  await expect(editorInput).toBeVisible();
+  await editorInput.fill('=B2+C2');
+
+  await expect.poll(async () => {
+    return await page.evaluate(() => document.querySelectorAll('#hot .hot-formula-ref-outline').length);
+  }, {
+    timeout: 10_000,
+    intervals: [200, 400, 800]
+  }).toBeGreaterThan(0);
+
+  const scrollTargets = await page.evaluate(() => {
+    const bodyViewport = document.querySelector('#hot .ag-body-viewport');
+    const centerViewport = document.querySelector('#hot .ag-center-cols-viewport');
+    const firstOutline = document.querySelector('#hot .hot-formula-ref-outline');
+    const firstRect = firstOutline?.getBoundingClientRect?.() || null;
+    const rowHeader = document.querySelector('#hot .ag-pinned-left-cols-viewport, #hot .ag-pinned-left-header-viewport, #hot .ag-pinned-left-header');
+    const rowHeaderRect = rowHeader?.getBoundingClientRect?.() || null;
+    const headerRect = document.querySelector('#hot .ag-header, #hot .ag-header-viewport')?.getBoundingClientRect?.() || null;
+    const floatingTopRect = document.querySelector('#hot .ag-floating-top, #hot .ag-pinned-top, #hot .ag-floating-top-viewport, #hot .ag-pinned-top-viewport')?.getBoundingClientRect?.() || null;
+    const stickyRect = document.querySelector('#hot .ag-row.hot-sticky-row')?.getBoundingClientRect?.() || null;
+    const topOcclusion = Math.max(
+      Number(headerRect?.bottom || 0),
+      Number(floatingTopRect?.bottom || 0),
+      Number(stickyRect?.bottom || 0)
+    );
+    const leftOcclusion = Number(rowHeaderRect?.right || 0);
+    if (!bodyViewport || !centerViewport || !firstRect || topOcclusion <= 0 || leftOcclusion <= 0) {
+      return null;
+    }
+    const horizontalShift = Math.max(0, Math.ceil(firstRect.left - (leftOcclusion + 6)));
+    const verticalShift = Math.max(0, Math.ceil(firstRect.top - (topOcclusion + 6)));
+    return {
+      left: horizontalShift,
+      top: verticalShift
+    };
+  });
+  expect(scrollTargets).toBeTruthy();
+
+  await page.evaluate(({ left, top }) => {
+    const bodyViewport = document.querySelector('#hot .ag-body-viewport');
+    const centerViewport = document.querySelector('#hot .ag-center-cols-viewport');
+    if (bodyViewport) {
+      bodyViewport.scrollLeft = left;
+      bodyViewport.scrollTop = top;
+    }
+    if (centerViewport) {
+      centerViewport.scrollLeft = left;
+      centerViewport.scrollTop = top;
+    }
+  }, scrollTargets);
+
+  await expect.poll(async () => {
+    return await page.evaluate(() => {
+      const outlines = Array.from(document.querySelectorAll('#hot .hot-formula-ref-outline'));
+      if (!outlines.length) {
+        return false;
+      }
+      const rowHeader = document.querySelector('#hot .ag-pinned-left-cols-viewport, #hot .ag-pinned-left-header-viewport, #hot .ag-pinned-left-header');
+      const rowHeaderRect = rowHeader?.getBoundingClientRect?.() || null;
+      const headerRect = document.querySelector('#hot .ag-header, #hot .ag-header-viewport')?.getBoundingClientRect?.() || null;
+      const floatingTopRect = document.querySelector('#hot .ag-floating-top, #hot .ag-pinned-top, #hot .ag-floating-top-viewport, #hot .ag-pinned-top-viewport')?.getBoundingClientRect?.() || null;
+      const stickyRect = document.querySelector('#hot .ag-row.hot-sticky-row')?.getBoundingClientRect?.() || null;
+      const topOcclusion = Math.max(
+        Number(headerRect?.bottom || 0),
+        Number(floatingTopRect?.bottom || 0),
+        Number(stickyRect?.bottom || 0)
+      );
+      const leftOcclusion = Number(rowHeaderRect?.right || 0);
+      if (topOcclusion <= 0 || leftOcclusion <= 0) {
+        return false;
+      }
+      return outlines.every((outline) => {
+        const rect = outline.getBoundingClientRect();
+        return rect.top >= (topOcclusion - 1) && rect.left >= (leftOcclusion - 1);
+      });
+    });
+  }, {
+    timeout: 15_000,
+    intervals: [250, 500, 1000]
+  }).toBe(true);
+
+  expect(issues.critical).toEqual([]);
+});
