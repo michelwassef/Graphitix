@@ -8844,13 +8844,13 @@
         return button;
       };
       if(context.columnType === 'numeric'){
-        sortSection.appendChild(buildSortButton('Sort Smallest to Largest', 'asc'));
-        sortSection.appendChild(buildSortButton('Sort Largest to Smallest', 'desc'));
+        sortSection.appendChild(buildSortButton('Sort smallest to largest', 'asc'));
+        sortSection.appendChild(buildSortButton('Sort largest to smallest', 'desc'));
       }else{
         sortSection.appendChild(buildSortButton('Sort A to Z', 'asc'));
         sortSection.appendChild(buildSortButton('Sort Z to A', 'desc'));
       }
-      sortSection.appendChild(buildSortButton('Clear Sort', null));
+      sortSection.appendChild(buildSortButton('Clear sort', null));
       popup.appendChild(sortSection);
 
       const modeLabel = doc.createElement('label');
