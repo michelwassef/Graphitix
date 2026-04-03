@@ -1816,6 +1816,52 @@
     return global.document.getElementById(id);
   }
 
+  function bindHeatmapPasteHandler(container, hotInstance){
+    if(!container || container.__heatmapPasteHandlerBound){
+      return false;
+    }
+    if(!Shared.tableImport || typeof Shared.tableImport.handlePaste !== 'function'){
+      return false;
+    }
+    const handlePaste = async evt => {
+      debugLog('Debug: heatmap paste detected', {
+        tabId: hotInstance?.__heatmapTabId || null,
+        containerId: container?.id || null
+      });
+      let forcedOverlay = false;
+      try{
+        forcedOverlay = !!forceHeatmapOverlay('table-paste-start', { message: 'Processing pasted data...' });
+        const activeHot = hotInstance || state.ensureHotForActiveTab?.() || state.hot;
+        const result = await Shared.tableImport.handlePaste(evt, activeHot, {
+          minCols: 2,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: () => {
+            markHeatmapOverlayPending('table-paste');
+            state.scheduleDraw();
+          },
+          debugLabel: 'heatmap',
+          onProcessed: info => console.log('heatmap paste processed', info)
+        });
+        if(!result && forcedOverlay){
+          resolveHeatmapOverlay('table-paste-empty');
+        }
+      }catch(err){
+        if(forcedOverlay){
+          resolveHeatmapOverlay('table-paste-error');
+        }
+        console.error('heatmap paste error', err);
+      }
+    };
+    container.addEventListener('paste', handlePaste, true);
+    container.__heatmapPasteHandlerBound = true;
+    container.__heatmapPasteHandler = handlePaste;
+    debugLog('Debug: heatmap paste handler bound', {
+      tabId: hotInstance?.__heatmapTabId || null,
+      containerId: container?.id || null
+    });
+    return true;
+  }
+
   function initHot(){
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('heatmap initHot missing Shared.hot.createStandardTable');
@@ -1883,6 +1929,7 @@
       });
       if(instance){
         instance.__heatmapHostContainer = container || null;
+        bindHeatmapPasteHandler(container, instance);
       }
       return instance;
     };
@@ -2570,36 +2617,6 @@
         console.error('heatmap import failed', err);
       }
     });
-
-    const hotContainer = $('heatmapHot');
-    if(hotContainer && Shared.tableImport && typeof Shared.tableImport.handlePaste === 'function'){
-      hotContainer.addEventListener('paste', async evt => {
-        console.debug('Debug: heatmap paste detected');
-        let forcedOverlay = false;
-        try{
-          forcedOverlay = !!forceHeatmapOverlay('table-paste-start', { message: 'Processing pasted data...' });
-          const result = await Shared.tableImport.handlePaste(evt, state.hot, {
-            minCols: 2,
-            minRows: DEFAULT_ROWS,
-            scheduleDraw: () => {
-              markHeatmapOverlayPending('table-paste');
-              state.scheduleDraw();
-            },
-            debugLabel: 'heatmap',
-            onProcessed: info => console.log('heatmap paste processed', info)
-          });
-          if(!result && forcedOverlay){
-            resolveHeatmapOverlay('table-paste-empty');
-          }
-        }catch(err){
-          if(forcedOverlay){
-            resolveHeatmapOverlay('table-paste-error');
-          }
-          console.error('heatmap paste error', err);
-        }
-      }, true);
-    }
-
     refreshHeatmapExportControls();
 
     const statsPanel = $('heatmapStats');
