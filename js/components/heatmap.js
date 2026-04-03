@@ -383,6 +383,7 @@
   const HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH = 'heatmap-data-view-switch';
   const HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE = 'heatmap-correlation-tab-activate';
   const HEATMAP_LOAD_SOURCE_CORRELATION_SYNC = 'heatmap-correlation-view-sync';
+  const HEATMAP_RUNTIME_KEY = `heatmap-runtime-${Math.random().toString(36).slice(2, 10)}`;
 
   function shouldSkipHeatmapDataViewSyncForLoadSource(source){
     return source === HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH
@@ -430,6 +431,196 @@
     suppressClusterTouchTracking: false,
     suspendAutoClusterDefaults: false
   };
+
+  const heatmapTabContexts = new Map();
+  let activeHeatmapTabContextId = null;
+
+  function createDefaultHeatmapTabContext(){
+    return {
+      fileHandle: null,
+      fileName: 'correlation-heatmap.graph',
+      titleText: 'Heatmap',
+      logPlusOne: false,
+      activeMaterializedViewId: null,
+      dendrogramSettings: {
+        thickness: DEFAULT_DENDROGRAM_THICKNESS,
+        color: DEFAULT_DENDROGRAM_COLOR
+      },
+      labelPositions: { title: null },
+      palette: { ...DEFAULT_HEATMAP_PALETTE },
+      clusterControlsTouched: false,
+      clusterDefaultsAutoApplied: false,
+      lastDataShape: { rows: 0, cols: 0 },
+      lastAutoDrawEvaluation: null,
+      performance: { loadData: null, draw: null, evaluation: null },
+      notes: {
+        text: '',
+        open: false
+      }
+    };
+  }
+
+  function resolveHeatmapTabContextId(tabLike){
+    const explicitId = typeof tabLike === 'string'
+      ? tabLike.trim()
+      : String(tabLike?.id || '').trim();
+    if(explicitId){
+      return explicitId;
+    }
+    try{
+      const activeId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim();
+      if(activeId){
+        return activeId;
+      }
+    }catch(err){
+      console.error('heatmap resolve tab context id error', err);
+    }
+    const hotId = String(state.hot?.__heatmapTabId || '').trim();
+    return hotId || 'heatmap-default';
+  }
+
+  function ensureHeatmapTabContext(tabLike){
+    pruneHeatmapTabContexts();
+    const tabId = resolveHeatmapTabContextId(tabLike);
+    let context = heatmapTabContexts.get(tabId);
+    if(!context){
+      context = createDefaultHeatmapTabContext();
+      heatmapTabContexts.set(tabId, context);
+      debugLog('Debug: heatmap tab context created', { tabId });
+    }
+    return { tabId, context };
+  }
+
+  function pruneHeatmapTabContexts(){
+    const tabs = global.Main?.session?.workspaceState?.tabs;
+    if(!Array.isArray(tabs)){
+      return;
+    }
+    const validIds = new Set(
+      tabs
+        .filter(tab => tab && tab.type === 'heatmap' && tab.id != null)
+        .map(tab => String(tab.id))
+    );
+    if(activeHeatmapTabContextId){
+      validIds.add(activeHeatmapTabContextId);
+    }
+    Array.from(heatmapTabContexts.keys()).forEach(tabId => {
+      if(!validIds.has(tabId)){
+        heatmapTabContexts.delete(tabId);
+        debugLog('Debug: heatmap tab context pruned', { tabId });
+      }
+    });
+  }
+
+  function captureHeatmapNotesSnapshot(){
+    const noteControl = notesState.control || null;
+    const text = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const open = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = text;
+    notesState.open = open;
+    return { text, open };
+  }
+
+  function buildHeatmapTabContextSnapshotFromState(){
+    const defaults = createDefaultHeatmapTabContext();
+    return {
+      fileHandle: state.fileHandle || null,
+      fileName: typeof state.fileName === 'string' && state.fileName.trim()
+        ? state.fileName.trim()
+        : defaults.fileName,
+      titleText: state.titleText != null ? String(state.titleText) : defaults.titleText,
+      logPlusOne: !!state.logPlusOne,
+      activeMaterializedViewId: state.activeMaterializedViewId == null
+        ? null
+        : String(state.activeMaterializedViewId),
+      dendrogramSettings: cloneSimple(ensureDendrogramSettings()) || { ...defaults.dendrogramSettings },
+      labelPositions: cloneSimple(state.labelPositions || defaults.labelPositions) || { ...defaults.labelPositions },
+      palette: normalizeHeatmapPalette(state.palette),
+      clusterControlsTouched: !!state.clusterControlsTouched,
+      clusterDefaultsAutoApplied: !!state.clusterDefaultsAutoApplied,
+      lastDataShape: cloneSimple(state.lastDataShape) || { ...defaults.lastDataShape },
+      lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
+      performance: cloneSimple(state.performance) || { ...defaults.performance },
+      notes: captureHeatmapNotesSnapshot()
+    };
+  }
+
+  function applyHeatmapTabContextSnapshot(context, options = {}){
+    const defaults = createDefaultHeatmapTabContext();
+    const source = context && typeof context === 'object' ? context : defaults;
+    state.fileHandle = source.fileHandle || null;
+    setHeatmapFileName(source.fileName, {
+      force: true,
+      skipExportRefresh: options.skipExportRefresh === true
+    });
+    state.titleText = source.titleText != null ? String(source.titleText) : defaults.titleText;
+    state.logPlusOne = !!source.logPlusOne;
+    state.activeMaterializedViewId = source.activeMaterializedViewId == null
+      ? null
+      : String(source.activeMaterializedViewId);
+    state.dendrogramSettings = cloneSimple(source.dendrogramSettings) || { ...defaults.dendrogramSettings };
+    state.labelPositions = cloneSimple(source.labelPositions) || { ...defaults.labelPositions };
+    state.palette = normalizeHeatmapPalette(source.palette);
+    state.clusterControlsTouched = !!source.clusterControlsTouched;
+    state.clusterDefaultsAutoApplied = !!source.clusterDefaultsAutoApplied;
+    state.lastDataShape = cloneSimple(source.lastDataShape) || { ...defaults.lastDataShape };
+    state.lastAutoDrawEvaluation = cloneSimple(source.lastAutoDrawEvaluation) || null;
+    state.performance = cloneSimple(source.performance) || { ...defaults.performance };
+    notesState.text = source.notes?.text == null ? '' : String(source.notes.text);
+    notesState.open = !!source.notes?.open;
+    if(options.syncUi !== false){
+      syncHeatmapPaletteInputs(global.document);
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
+    }
+  }
+
+  function syncHeatmapActiveTabContextFromState(reason){
+    const tabId = activeHeatmapTabContextId || resolveHeatmapTabContextId();
+    if(!tabId){
+      return null;
+    }
+    const snapshot = buildHeatmapTabContextSnapshotFromState();
+    heatmapTabContexts.set(tabId, snapshot);
+    debugLog('Debug: heatmap tab context captured', {
+      tabId,
+      reason: reason || 'unknown'
+    });
+    return snapshot;
+  }
+
+  function activateHeatmapTabContext(tabLike, options = {}){
+    const nextTabId = resolveHeatmapTabContextId(tabLike);
+    const previousTabId = activeHeatmapTabContextId;
+    if(previousTabId && previousTabId === nextTabId && options.force !== true){
+      if(!heatmapTabContexts.has(nextTabId)){
+        syncHeatmapActiveTabContextFromState(`seed:${options.reason || 'activate'}`);
+      }
+      debugLog('Debug: heatmap tab context reused', {
+        tabId: nextTabId,
+        reason: options.reason || 'activate'
+      });
+      return heatmapTabContexts.get(nextTabId) || null;
+    }
+    if(previousTabId && previousTabId !== nextTabId){
+      syncHeatmapActiveTabContextFromState(`switch:${options.reason || 'activate'}`);
+    }
+    const { context } = ensureHeatmapTabContext(nextTabId);
+    activeHeatmapTabContextId = nextTabId;
+    applyHeatmapTabContextSnapshot(context, options);
+    debugLog('Debug: heatmap tab context activated', {
+      tabId: nextTabId,
+      previousTabId: previousTabId || null,
+      reason: options.reason || 'activate'
+    });
+    return context;
+  }
 
   function ensureHeatmapPerformanceState(){
     if(state.performance && typeof state.performance === 'object'){
@@ -950,6 +1141,11 @@
     if(typeof Shared.dataViews?.createManager !== 'function'){
       return null;
     }
+    const existingManager = hotInstance.__heatmapDataViewsManager || null;
+    if(existingManager && existingManager.__heatmapRuntimeKey !== HEATMAP_RUNTIME_KEY){
+      existingManager.unmount?.();
+      hotInstance.__heatmapDataViewsManager = null;
+    }
     if(!hotInstance.__heatmapDataViewsManager){
       hotInstance.__heatmapDataViewsManager = Shared.dataViews.createManager({
         componentKey: 'heatmap',
@@ -960,9 +1156,8 @@
             return;
           }
           const isCorrelationView = isHeatmapCorrelationMatrixDataView(view);
-          applyHeatmapDataTransformControlState(
-            resolveHeatmapDataTransformControlStateForView(view, hotInstance.__heatmapDataViewsManager || heatmapDataViewsManager)
-          );
+          const viewsManager = hotInstance.__heatmapDataViewsManager || heatmapDataViewsManager || null;
+          const nextTransformState = resolveHeatmapDataTransformControlStateForView(view, viewsManager);
           const closedViewId = String(context?.previousViewId || '').trim();
           const activeMaterializedId = String(state.activeMaterializedViewId || '').trim();
           const closedActiveMaterialized = context?.reason === 'tab-close'
@@ -971,9 +1166,11 @@
             && closedViewId === activeMaterializedId;
           const closedToNonMaterialized = context?.reason === 'tab-close'
             && !isHeatmapMaterializedDataView(view)
-            && hasHeatmapDataTransformSelection(collectSettings());
+            && !nextTransformState;
           if(closedActiveMaterialized || closedToNonMaterialized){
             clearHeatmapAdjustAndFilterControls();
+          }else{
+            applyHeatmapDataTransformControlState(nextTransformState);
           }
           if(isHeatmapMaterializedDataView(view)){
             state.activeMaterializedViewId = view.id;
@@ -996,10 +1193,23 @@
             state.scheduleDraw?.({ reason: 'data-view-switch' });
           }
         },
-        onInteraction(){
+        onInteraction(interaction){
+          if(interaction?.reason === 'tab-close'){
+            const nextActiveView = hotInstance.__heatmapDataViewsManager?.getActiveView?.() || null;
+            const nextTransformState = resolveHeatmapDataTransformControlStateForView(
+              nextActiveView,
+              hotInstance.__heatmapDataViewsManager || heatmapDataViewsManager
+            );
+            if(nextTransformState){
+              applyHeatmapDataTransformControlState(nextTransformState);
+            }else{
+              clearHeatmapAdjustAndFilterControls();
+            }
+          }
           activateHeatmapDataToolbar('data-tab-interaction');
         }
       });
+      hotInstance.__heatmapDataViewsManager.__heatmapRuntimeKey = HEATMAP_RUNTIME_KEY;
       debugLog('Debug: heatmap data views manager created', {
         tabId: hotInstance.__heatmapTabId || null
       });
@@ -7587,6 +7797,7 @@
     });
   }
   function getPayload(){
+    syncHeatmapActiveTabContextFromState('getPayload');
     const activeHot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
@@ -7830,6 +8041,7 @@
       rows: matrix.length,
       cols: matrix[0]?.length || 0
     });
+    syncHeatmapActiveTabContextFromState(`payload:${meta?.source || 'unknown'}`);
     return true;
   }
 
@@ -8026,10 +8238,13 @@
     }
   };
   heatmap.prepareForTab = function prepareForTab(){
+    const targetTab = arguments[0] || null;
     if(!heatmap.ready){
       heatmap.init();
-      return;
     }
+    activateHeatmapTabContext(targetTab, {
+      reason: 'prepare-tab'
+    });
     invalidateHeatmapTransientRenderState('prepare-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();

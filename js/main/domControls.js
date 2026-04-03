@@ -774,6 +774,9 @@
             tabId: tab.id,
             type: tab.type
           });
+          if (restored && typeof session?.clearTabRenderCache === 'function') {
+            session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
+          }
         } catch (err) {
           console.error('workspace render cache restore error', { type: tab.type, err });
           restored = false;

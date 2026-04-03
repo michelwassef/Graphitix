@@ -61,6 +61,9 @@
     dragInsertBefore: true
   };
   namespace.workspaceState = workspaceState;
+  const MAX_WARM_RENDER_CACHES_TOTAL = 6;
+  const MAX_WARM_RENDER_CACHES_PER_TYPE = 2;
+  let renderCacheCaptureSequence = 0;
   console.debug('Debug: session workspaceState initialized', { tabCount: workspaceState.tabs.length });
 
   function markSessionDirty(reason, details) {
@@ -359,6 +362,109 @@
     }
   }
 
+  function clearTabRenderCache(tab, meta = {}) {
+    if (!tab) {
+      return false;
+    }
+    const hadCache = !!(tab.renderCache || tab.renderCacheSignature || tab.renderCacheLayoutSignature);
+    tab.renderCache = null;
+    tab.renderCacheSignature = null;
+    tab.renderCacheLayoutSignature = null;
+    if (hadCache) {
+      console.debug('Debug: workspace render cache cleared', {
+        tabId: tab.id,
+        type: tab.type || null,
+        reason: meta.reason || 'clear-render-cache'
+      });
+    }
+    return hadCache;
+  }
+
+  function normalizePreservedRenderCacheTabIds(value) {
+    if (!Array.isArray(value)) {
+      return new Set();
+    }
+    return new Set(
+      value
+        .map(item => String(item || '').trim())
+        .filter(Boolean)
+    );
+  }
+
+  function getRenderCacheCapturedAt(tab) {
+    return Number(tab?.renderCache?.capturedAt) || 0;
+  }
+
+  function getRenderCacheCaptureSequence(tab) {
+    return Number(tab?.renderCache?.captureSequence) || 0;
+  }
+
+  function sortTabsByOldestRenderCache(a, b) {
+    const capturedDelta = getRenderCacheCapturedAt(a) - getRenderCacheCapturedAt(b);
+    if (capturedDelta !== 0) {
+      return capturedDelta;
+    }
+    const sequenceDelta = getRenderCacheCaptureSequence(a) - getRenderCacheCaptureSequence(b);
+    if (sequenceDelta !== 0) {
+      return sequenceDelta;
+    }
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  }
+
+  function pruneWarmRenderCaches(options = {}) {
+    const maxTotal = Math.max(0, Number(options.maxTotal ?? MAX_WARM_RENDER_CACHES_TOTAL) || 0);
+    const maxPerType = Math.max(0, Number(options.maxPerType ?? MAX_WARM_RENDER_CACHES_PER_TYPE) || 0);
+    const preserveIds = normalizePreservedRenderCacheTabIds(options.preserveTabIds);
+    const candidates = Array.isArray(workspaceState.tabs)
+      ? workspaceState.tabs.filter(tab => tab && tab.renderCache && !preserveIds.has(tab.id))
+      : [];
+    if (!candidates.length) {
+      return 0;
+    }
+    let cleared = 0;
+    const clearCache = (tab, reason) => {
+      if (clearTabRenderCache(tab, { reason })) {
+        cleared += 1;
+      }
+    };
+    const byType = new Map();
+    candidates.forEach(tab => {
+      const typeKey = String(tab.type || '');
+      const bucket = byType.get(typeKey) || [];
+      bucket.push(tab);
+      byType.set(typeKey, bucket);
+    });
+    byType.forEach((tabsForType, typeKey) => {
+      const sorted = tabsForType.slice().sort(sortTabsByOldestRenderCache);
+      if (maxPerType <= 0) {
+        sorted.forEach(tab => clearCache(tab, `warm-cache-prune:type:${typeKey || 'unknown'}`));
+        return;
+      }
+      const overflow = sorted.length - maxPerType;
+      if (overflow > 0) {
+        sorted.slice(0, overflow).forEach(tab => clearCache(tab, `warm-cache-prune:type:${typeKey || 'unknown'}`));
+      }
+    });
+    if (maxTotal >= 0) {
+      const remaining = candidates
+        .filter(tab => tab.renderCache && !preserveIds.has(tab.id))
+        .sort(sortTabsByOldestRenderCache);
+      const overflow = remaining.length - maxTotal;
+      if (overflow > 0) {
+        remaining.slice(0, overflow).forEach(tab => clearCache(tab, 'warm-cache-prune:total'));
+      }
+    }
+    if (cleared > 0) {
+      console.debug('Debug: warm render cache pruned', {
+        cleared,
+        maxTotal,
+        maxPerType,
+        preserveIds: Array.from(preserveIds)
+      });
+    }
+    return cleared;
+  }
+
   function assignTabPayload(tab, payload, meta = {}) {
     if (!tab) {
       console.debug('Debug: assignTabPayload skipped', { reason: 'no-tab', meta });
@@ -372,9 +478,7 @@
       tab.previewMarkup = null;
       tab.previewSignature = null;
       tab.previewMeta = null;
-      tab.renderCache = null;
-      tab.renderCacheSignature = null;
-      tab.renderCacheLayoutSignature = null;
+      clearTabRenderCache(tab, { reason: meta.reason || 'payload-null' });
       notifyPreviewIndicator(tab);
       console.debug('Debug: preview cleared via assignTabPayload', { tabId: tab.id, reason: meta.reason || 'payload-null' });
     }
@@ -791,22 +895,27 @@
             reason: options.reason || 'persist-active'
           });
           if (captured) {
+            const capturedAt = Date.now();
             tab.renderCache = {
               cache: captured,
               payloadSignature: tab.payloadSignature || null,
-              layoutSignature: tab.layoutSignature || null
+              layoutSignature: tab.layoutSignature || null,
+              capturedAt,
+              captureSequence: ++renderCacheCaptureSequence
             };
             tab.renderCacheSignature = tab.payloadSignature || null;
             tab.renderCacheLayoutSignature = tab.layoutSignature || null;
           } else {
-            tab.renderCache = null;
-            tab.renderCacheSignature = null;
-            tab.renderCacheLayoutSignature = null;
+            clearTabRenderCache(tab, { reason: `${options.reason || 'persist-active'}:capture-empty` });
           }
           console.debug('Debug: workspace render cache captured', {
             tabId: tab.id,
             type: tab.type,
             hasCache: !!captured
+          });
+          pruneWarmRenderCaches({
+            preserveTabIds: [tab.id, ...(options.preserveRenderCacheTabIds || [])],
+            reason: options.reason || 'persist-active'
           });
         } catch (err) {
           console.error('persistActiveTabState render cache error', { tabId: tab.id, type: tab.type, err });
@@ -1018,6 +1127,8 @@
   namespace.clonePayload = clonePayload;
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.assignTabPayload = assignTabPayload;
+  namespace.clearTabRenderCache = clearTabRenderCache;
+  namespace.pruneWarmRenderCaches = pruneWarmRenderCaches;
   namespace.getActiveTab = getActiveTab;
   namespace.generateUniqueTabTitle = generateUniqueTabTitle;
   namespace.createTab = createTab;

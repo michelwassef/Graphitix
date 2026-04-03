@@ -43,6 +43,14 @@
       console.debug('Debug: surface component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
+  const tabContextApi = Shared.tabContext = Shared.tabContext || {};
+  if(typeof tabContextApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/tabContext.js');
+    }catch(err){
+      console.debug('Debug: surface component tabContext helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scope)
@@ -86,6 +94,27 @@
   }
   const DEFAULT_FILE_NAME = 'surface.graph';
   const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
+  const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
+  const DEFAULT_SURFACE_SETTINGS = Object.freeze({
+    colorRamp: 'viridis',
+    interpolation: 'grid',
+    fontSize: 12,
+    axisStroke: 1.2,
+    axisColor: '#3b3b3b',
+    textColor: '#000000',
+    backgroundColor: '#ffffff',
+    colorScheme: 'surface-viridis',
+    showGrid: false,
+    showFrame: true,
+    showPoints: false,
+    showLegend: true
+  });
+  const DEFAULT_SURFACE_LABELS = Object.freeze({
+    title: 'Surface Plot',
+    x: DEFAULT_AXIS_LABELS.x,
+    y: DEFAULT_AXIS_LABELS.y,
+    z: DEFAULT_AXIS_LABELS.z
+  });
 
   const COLOR_RAMPS = Object.freeze({
     grayscale: { label: 'Grayscale', stops: ['#000000', '#2e2e2e', '#525252', '#737373', '#969696', '#bdbdbd', '#e0e0e0', '#ffffff'] },
@@ -101,7 +130,6 @@
     scatter: { label: 'Points only' }
   });
 
-  const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
   const SURFACE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const SURFACE_AUTO_DRAW_COL_THRESHOLD = 5000;
   const SURFACE_AUTO_DRAW_CELL_THRESHOLD = 50000;
@@ -143,33 +171,179 @@
     _pointPool: [],
     _facePoolUsed: 0,
     _pointPoolUsed: 0,
-    settings: {
-      colorRamp: 'viridis',
-      interpolation: 'grid',
-      fontSize: 12,
-      axisStroke: 1.2,
-      axisColor: '#3b3b3b',
-      textColor: '#000000',
-      backgroundColor: '#ffffff',
-      colorScheme: 'surface-viridis',
-      showGrid: false,
-      showFrame: true,
-      showPoints: false,
-      showLegend: true
-    },
+    settings: createDefaultSurfaceSettings(),
     gridStyle: null,
-    labels: { title: 'Surface Plot', x: DEFAULT_AXIS_LABELS.x, y: DEFAULT_AXIS_LABELS.y, z: DEFAULT_AXIS_LABELS.z },
-    rotation: typeof plot3d.createRotationState === 'function'
-      ? plot3d.createRotationState(DEFAULT_ROTATION)
-      : { x: DEFAULT_ROTATION.x, y: DEFAULT_ROTATION.y },
+    labels: createDefaultSurfaceLabels(),
+    rotation: createDefaultSurfaceRotation(),
     scheduleDraw: () => {},
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+  const surfaceTabContextManager = typeof Shared.tabContext?.createManager === 'function'
+    ? Shared.tabContext.createManager({
+      componentKey: 'surface',
+      createDefaultContext: createDefaultSurfaceTabContext,
+      captureState: buildSurfaceTabContextSnapshotFromState,
+      applyState: applySurfaceTabContextSnapshot,
+      resolveFallbackTabId: () => String(state.hot?.__surfaceTabId || '').trim(),
+      debugLog
+    })
+    : null;
+  const SURFACE_RUNTIME_KEY = surfaceTabContextManager?.getRuntimeKey?.()
+    || `surface-runtime-${Math.random().toString(36).slice(2, 10)}`;
   let surfaceDataViewsManager = null;
   let surfaceDataToolbarBound = false;
   let surfaceDataToolbarLastActivation = 0;
   let surfaceFontEventBound = false;
+
+  function createDefaultSurfaceSettings(){
+    return { ...DEFAULT_SURFACE_SETTINGS };
+  }
+
+  function createDefaultSurfaceLabels(){
+    return { ...DEFAULT_SURFACE_LABELS };
+  }
+
+  function createDefaultSurfaceRotation(){
+    if(typeof plot3d.createRotationState === 'function'){
+      return plot3d.createRotationState(DEFAULT_ROTATION);
+    }
+    return { x: DEFAULT_ROTATION.x, y: DEFAULT_ROTATION.y };
+  }
+
+  function createDefaultSurfaceTabContext(){
+    return {
+      autoDrawEnabled: true,
+      autoDrawReason: null,
+      autoDrawLockedByThreshold: false,
+      drawPending: false,
+      lastDataShape: { rows: 0, cols: 0 },
+      lastAutoDrawEvaluation: null,
+      lastStats: null,
+      axisMap: { x: 0, y: 1, z: 2 },
+      legendPosition: null,
+      labelPositions: { title: null, legend: null },
+      settings: createDefaultSurfaceSettings(),
+      gridStyle: createDefaultGridStyle(DEFAULT_SURFACE_SETTINGS.axisStroke),
+      labels: createDefaultSurfaceLabels(),
+      rotation: cloneSimple(createDefaultSurfaceRotation()) || createDefaultSurfaceRotation(),
+      fileName: DEFAULT_FILE_NAME,
+      fileHandle: null,
+      notes: {
+        text: '',
+        open: false
+      }
+    };
+  }
+
+  function captureSurfaceNotesSnapshot(){
+    const noteControl = notesState.control || null;
+    const text = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const open = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = text;
+    notesState.open = open;
+    return { text, open };
+  }
+
+  function normalizeSurfaceRotationSnapshot(rotation){
+    const restored = typeof plot3d.createRotationState === 'function'
+      ? plot3d.createRotationState(rotation || DEFAULT_ROTATION)
+      : {
+        x: Number(rotation?.x) || DEFAULT_ROTATION.x,
+        y: Number(rotation?.y) || DEFAULT_ROTATION.y,
+        z: Number(rotation?.z) || 0,
+        quaternion: rotation?.quaternion
+          ? {
+            w: Number(rotation.quaternion.w) || 0,
+            x: Number(rotation.quaternion.x) || 0,
+            y: Number(rotation.quaternion.y) || 0,
+            z: Number(rotation.quaternion.z) || 0
+          }
+          : null
+      };
+    return cloneSimple(restored) || createDefaultSurfaceRotation();
+  }
+
+  function setSurfaceFileName(name){
+    const normalized = (typeof name === 'string' && name.trim()) ? name.trim() : DEFAULT_FILE_NAME;
+    state.fileName = normalized;
+    return normalized;
+  }
+
+  function setSurfaceFileHandle(handle){
+    state.fileHandle = handle || null;
+    return state.fileHandle;
+  }
+
+  function buildSurfaceTabContextSnapshotFromState(){
+    const defaults = createDefaultSurfaceTabContext();
+    return {
+      autoDrawEnabled: !!state.autoDrawEnabled,
+      autoDrawReason: cloneSimple(state.autoDrawReason),
+      autoDrawLockedByThreshold: !!state.autoDrawLockedByThreshold,
+      drawPending: !!state.drawPending,
+      lastDataShape: cloneSimple(state.lastDataShape) || { ...defaults.lastDataShape },
+      lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
+      lastStats: cloneSimple(state.lastStats),
+      axisMap: cloneSimple(state.axisMap) || { ...defaults.axisMap },
+      legendPosition: cloneSimple(state.legendPosition),
+      labelPositions: cloneSimple(state.labelPositions) || cloneSimple(defaults.labelPositions),
+      settings: Object.assign(createDefaultSurfaceSettings(), cloneSimple(state.settings) || {}),
+      gridStyle: sanitizeGridStyle(state.gridStyle, state.settings?.axisStroke ?? defaults.settings.axisStroke),
+      labels: Object.assign(createDefaultSurfaceLabels(), cloneSimple(state.labels) || {}),
+      rotation: normalizeSurfaceRotationSnapshot(state.rotation),
+      fileName: setSurfaceFileName(state.fileName),
+      fileHandle: state.fileHandle || null,
+      notes: captureSurfaceNotesSnapshot()
+    };
+  }
+
+  function applySurfaceTabContextSnapshot(context, options = {}){
+    const defaults = createDefaultSurfaceTabContext();
+    const source = context && typeof context === 'object' ? context : defaults;
+    state.autoDrawEnabled = !!source.autoDrawEnabled;
+    state.autoDrawReason = cloneSimple(source.autoDrawReason) || null;
+    state.autoDrawLockedByThreshold = !!source.autoDrawLockedByThreshold;
+    state.drawPending = !!source.drawPending;
+    state.lastDataShape = cloneSimple(source.lastDataShape) || { ...defaults.lastDataShape };
+    state.lastAutoDrawEvaluation = cloneSimple(source.lastAutoDrawEvaluation) || null;
+    state.lastStats = cloneSimple(source.lastStats) || null;
+    state.axisMap = Object.assign({}, defaults.axisMap, cloneSimple(source.axisMap) || {});
+    state.legendPosition = cloneSimple(source.legendPosition) || null;
+    state.labelPositions = cloneSimple(source.labelPositions) || cloneSimple(defaults.labelPositions);
+    state.settings = Object.assign(createDefaultSurfaceSettings(), cloneSimple(source.settings) || {});
+    setGridStyle(source.gridStyle, state.settings?.axisStroke ?? defaults.settings.axisStroke);
+    state.labels = Object.assign(createDefaultSurfaceLabels(), cloneSimple(source.labels) || {});
+    state.rotation = normalizeSurfaceRotationSnapshot(source.rotation);
+    setSurfaceFileName(source.fileName);
+    setSurfaceFileHandle(source.fileHandle);
+    notesState.text = source.notes?.text == null ? '' : String(source.notes.text);
+    notesState.open = !!source.notes?.open;
+    if(options.syncUi !== false){
+      cacheDom();
+      applySettingsToControls();
+      updateAxisOptions();
+      updateStats(state.lastStats);
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
+      surfaceAutoDrawManager?.updateUi?.();
+      syncSurfaceAutoDrawNoticeWidth('tab-context-activate');
+    }
+  }
+
+  function syncSurfaceActiveTabContextFromState(reason){
+    return surfaceTabContextManager?.sync(reason) || null;
+  }
+
+  function activateSurfaceTabContext(tabLike, options = {}){
+    return surfaceTabContextManager?.activate(tabLike, options) || null;
+  }
 
   function scheduleSurfaceViewRefresh(reason){
     if(typeof state.scheduleDraw !== 'function'){
@@ -275,6 +449,11 @@
     if(typeof Shared.dataViews?.createManager !== 'function'){
       return null;
     }
+    const existingManager = hotInstance.__surfaceDataViewsManager || null;
+    if(existingManager && existingManager.__surfaceRuntimeKey !== SURFACE_RUNTIME_KEY){
+      existingManager.unmount?.();
+      hotInstance.__surfaceDataViewsManager = null;
+    }
     if(!hotInstance.__surfaceDataViewsManager){
       hotInstance.__surfaceDataViewsManager = Shared.dataViews.createManager({
         componentKey: 'surface',
@@ -300,6 +479,7 @@
           activateSurfaceDataToolbar('data-tab-interaction');
         }
       });
+      hotInstance.__surfaceDataViewsManager.__surfaceRuntimeKey = SURFACE_RUNTIME_KEY;
       debugLog('Debug: surface data views manager created', {
         tabId: hotInstance.__surfaceTabId || null
       });
@@ -2511,7 +2691,6 @@
   surface.prepareForTab = function prepareForTab(tab){
     if(!surface.ready){
       surface.init();
-      return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
@@ -2523,6 +2702,7 @@
         syncSurfaceActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
+    activateSurfaceTabContext(tab, { reason: 'prepare-tab' });
     cacheDom();
     const cacheSignature = tab?.renderCacheSignature ?? tab?.renderCache?.payloadSignature ?? null;
     const layoutSignature = tab?.renderCacheLayoutSignature ?? tab?.renderCache?.layoutSignature ?? null;
@@ -2695,6 +2875,7 @@
     if(scheduleBackup){
       state.scheduleDraw = scheduleBackup;
     }
+    syncSurfaceActiveTabContextFromState(`payload:${source}`);
     const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
     debugLog('Debug: surface payload applied', { source, rows: rowCount });
     return true;
@@ -2705,6 +2886,7 @@
     if(!activeHot || typeof activeHot.getData !== 'function'){
       return { type: 'surface', data: [] };
     }
+    syncSurfaceActiveTabContextFromState('getPayload');
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -2817,8 +2999,8 @@
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; }
+      setFileHandle: handle => { setSurfaceFileHandle(handle); syncSurfaceActiveTabContextFromState('save-file-handle'); },
+      setFileName: name => { setSurfaceFileName(name); syncSurfaceActiveTabContextFromState('save-file-name'); }
     });
     debugLog('Debug: surface save result', result);
   };
@@ -2833,8 +3015,8 @@
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; }
+      setFileHandle: handle => { setSurfaceFileHandle(handle); syncSurfaceActiveTabContextFromState('save-as-file-handle'); },
+      setFileName: name => { setSurfaceFileName(name); syncSurfaceActiveTabContextFromState('save-as-file-name'); }
     });
     debugLog('Debug: surface saveAs result', result);
   };
@@ -2846,8 +3028,8 @@
     }
     const result = await fileIO.openGraphFile({
       context: 'surface',
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; },
+      setFileHandle: handle => { setSurfaceFileHandle(handle); syncSurfaceActiveTabContextFromState('open-file-handle'); },
+      setFileName: name => { setSurfaceFileName(name); syncSurfaceActiveTabContextFromState('open-file-name'); },
       loadFromFile: blob => surface.loadFromFile(blob),
       triggerInput: () => {
         if(state.controls.graphFileInput){

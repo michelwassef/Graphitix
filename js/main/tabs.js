@@ -471,7 +471,8 @@
       if (current && current.id !== tabId && !options.skipPersist) {
         session.persistActiveTabState(current, withSessionContext({
           reason: options.reason || 'activate-switch',
-          captureRenderCache: true
+          captureRenderCache: true,
+          preserveRenderCacheTabIds: [current.id, tabId]
         }));
       }
       workspaceState.activeTabId = tabId;
