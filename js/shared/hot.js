@@ -6461,7 +6461,13 @@
           actionButton.type = 'button';
           actionButton.className = 'hot-header-action hot-filter-indicator';
           actionButton.setAttribute('aria-label', 'Open column filter');
+          actionButton.setAttribute('aria-haspopup', 'dialog');
           actionButton.setAttribute('title', 'Open column filter');
+          const sortBadge = doc.createElement('span');
+          sortBadge.className = 'hot-header-action__sort-badge';
+          sortBadge.setAttribute('aria-hidden', 'true');
+          sortBadge.hidden = true;
+          actionButton.appendChild(sortBadge);
 
           this.updateActionState = ()=>{
             const colId = params?.column?.getColId?.() || '';
@@ -6471,6 +6477,8 @@
             actionButton.classList.toggle('is-sorted', sort === 'asc' || sort === 'desc');
             actionButton.classList.toggle('is-sorted-asc', sort === 'asc');
             actionButton.classList.toggle('is-sorted-desc', sort === 'desc');
+            sortBadge.textContent = sort === 'asc' ? '↑' : (sort === 'desc' ? '↓' : '');
+            sortBadge.hidden = !(sort === 'asc' || sort === 'desc');
             const titleParts = ['Open column filter'];
             if(filtered){
               titleParts.push('Filter active');
@@ -8627,6 +8635,7 @@
     };
     const attachPopupDismissHandlers = (popup, options = {})=>{
       const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
       const anchor = options.anchor || null;
       const handlePointerDown = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
@@ -8644,11 +8653,18 @@
           closeCustomMenu();
         }
       };
+      const handleViewportChange = ()=>{
+        closeCustomMenu();
+      };
       doc.addEventListener('mousedown', handlePointerDown, true);
       doc.addEventListener('keydown', handleKeyDown, true);
+      win?.addEventListener?.('resize', handleViewportChange, true);
+      win?.addEventListener?.('scroll', handleViewportChange, true);
       return ()=>{
         doc.removeEventListener('mousedown', handlePointerDown, true);
         doc.removeEventListener('keydown', handleKeyDown, true);
+        win?.removeEventListener?.('resize', handleViewportChange, true);
+        win?.removeEventListener?.('scroll', handleViewportChange, true);
       };
     };
     const openCustomMenu = (event, items)=>{
@@ -8728,6 +8744,20 @@
         return false;
       }
     };
+    const getColumnSortState = (colId)=>{
+      const apiRef = instance?.gridApi || null;
+      const columnStateApi = resolveColumnStateApi(apiRef);
+      if(!columnStateApi || typeof columnStateApi.getColumnState !== 'function'){
+        return '';
+      }
+      try{
+        const state = columnStateApi.getColumnState() || [];
+        const entry = Array.isArray(state) ? state.find(item => item?.colId === colId) : null;
+        return entry?.sort === 'asc' || entry?.sort === 'desc' ? entry.sort : '';
+      }catch(err){
+        return '';
+      }
+    };
 
     const openColumnFilterMenu = (anchorEl, colIdx)=>{
       const idx = Number(colIdx);
@@ -8746,10 +8776,12 @@
       const colId = `c${idx}`;
       const context = buildColumnFilterContext(idx);
       const currentModel = cloneFilterModel(activeColumnFilters.get(colId));
+      const currentSort = getColumnSortState(colId);
       const popup = doc.createElement('div');
       popup.className = 'ag-hot-menu ag-hot-filter-menu';
       popup.setAttribute('data-menu-type', 'filter');
       popup.setAttribute('data-col-id', colId);
+      popup.setAttribute('role', 'dialog');
       popup.style.position = 'fixed';
       popup.style.zIndex = '10020';
       popup.style.minWidth = '260px';
@@ -8760,6 +8792,22 @@
       heading.textContent = colHeaders?.[idx] || toExcelColumnLabel(idx);
       popup.appendChild(heading);
 
+      const headingMeta = doc.createElement('div');
+      headingMeta.className = 'ag-hot-filter-menu__heading-meta';
+      const headingMetaParts = [];
+      headingMetaParts.push(context.columnType === 'numeric' ? 'Numeric values' : (context.columnType === 'mixed' ? 'Mixed values' : 'Text values'));
+      headingMetaParts.push(`${context.uniqueOptions.length} distinct`);
+      if(currentModel){
+        headingMetaParts.push('Filter active');
+      }
+      if(currentSort === 'asc'){
+        headingMetaParts.push(context.columnType === 'numeric' ? 'Sorted smallest to largest' : 'Sorted A to Z');
+      }else if(currentSort === 'desc'){
+        headingMetaParts.push(context.columnType === 'numeric' ? 'Sorted largest to smallest' : 'Sorted Z to A');
+      }
+      headingMeta.textContent = headingMetaParts.join(' • ');
+      popup.appendChild(headingMeta);
+
       const sortSection = doc.createElement('div');
       sortSection.className = 'ag-hot-filter-menu__sort';
       const buildSortButton = (label, sortValue)=>{
@@ -8767,6 +8815,9 @@
         button.type = 'button';
         button.className = 'ag-hot-filter-menu__sort-button';
         button.textContent = label;
+        const isActive = (sortValue || '') === currentSort;
+        button.disabled = sortValue === null ? !currentSort : isActive;
+        button.classList.toggle('is-active', isActive);
         button.addEventListener('click', ()=>{
           armSortSelectionSnapshot();
           if(applyColumnSortState(colId, sortValue, false)){
@@ -8835,6 +8886,9 @@
       valueSelectRow.appendChild(valueSelectAll);
       valueSelectRow.appendChild(valueSelectAllText);
 
+      const valueSummary = doc.createElement('div');
+      valueSummary.className = 'ag-hot-filter-menu__summary';
+
       const valueList = doc.createElement('div');
       valueList.className = 'ag-hot-filter-menu__values';
 
@@ -8856,6 +8910,7 @@
 
       popup.appendChild(searchInput);
       popup.appendChild(valueSelectRow);
+      popup.appendChild(valueSummary);
       popup.appendChild(valueList);
       popup.appendChild(hint);
       popup.appendChild(inputWrap);
@@ -8879,6 +8934,21 @@
       footer.appendChild(cancelButton);
       popup.appendChild(footer);
 
+      const focusPreferredField = ()=>{
+        const mode = modeSelect.value || FILTER_KIND_SET;
+        if(mode === FILTER_KIND_SET && !searchInput.hidden && !searchInput.disabled){
+          searchInput.focus?.();
+          searchInput.select?.();
+          return;
+        }
+        if(!valueInput.hidden && !valueInput.disabled){
+          valueInput.focus?.();
+          valueInput.select?.();
+          return;
+        }
+        modeSelect.focus?.();
+      };
+
       let selectedKeys = new Set(
         currentModel?.kind === FILTER_KIND_SET
           ? normalizeFilterSelectionValues(currentModel.selected)
@@ -8894,9 +8964,15 @@
           return option.label.toLowerCase().includes(needle);
         });
         const visible = matching.slice(0, FILTER_MENU_MAX_VISIBLE_VALUES);
+        const selectedMatchingCount = matching.filter(option => selectedKeys.has(option.key)).length;
+        valueSummary.textContent = needle
+          ? `${selectedMatchingCount} of ${matching.length} matching values selected`
+          : `${selectedKeys.size} of ${context.uniqueOptions.length} values selected`;
         const allShownSelected = matching.length > 0 && matching.every(option => selectedKeys.has(option.key));
         valueSelectAll.checked = allShownSelected;
         valueSelectAll.indeterminate = !allShownSelected && matching.some(option => selectedKeys.has(option.key));
+        valueSelectAll.disabled = matching.length === 0;
+        valueSelectAllText.textContent = needle ? '(Select all matching)' : '(Select all)';
         valueList.innerHTML = '';
         visible.forEach(option=>{
           const row = doc.createElement('label');
@@ -8919,11 +8995,14 @@
           valueList.appendChild(row);
         });
         if(matching.length > visible.length){
+          hint.classList.remove('is-error');
           hint.textContent = `Showing ${visible.length} of ${matching.length} matching values. Refine the search to narrow the list.`;
         }else if(!matching.length){
+          hint.classList.remove('is-error');
           hint.textContent = 'No matching values.';
         }else{
           hint.textContent = '';
+          hint.classList.remove('is-error');
         }
       };
 
@@ -8946,11 +9025,31 @@
       const syncModeUi = ()=>{
         const mode = modeSelect.value || FILTER_KIND_SET;
         const isValueMode = mode === FILTER_KIND_SET;
+        const useNumericInput = context.columnType === 'numeric'
+          && mode !== FILTER_KIND_SET
+          && mode !== 'contains'
+          && mode !== 'notContains'
+          && mode !== 'startsWith'
+          && mode !== 'endsWith'
+          && mode !== 'isBlank'
+          && mode !== 'isNotBlank'
+          && mode !== 'aboveAverage'
+          && mode !== 'belowAverage';
         searchInput.hidden = !isValueMode;
+        valueSummary.hidden = !isValueMode;
         valueSelectRow.hidden = !isValueMode;
         valueList.hidden = !isValueMode;
         inputWrap.hidden = isValueMode;
         valueToInput.hidden = !(mode === 'between');
+        valueInput.type = useNumericInput ? 'number' : 'text';
+        valueToInput.type = useNumericInput ? 'number' : 'text';
+        if(useNumericInput){
+          valueInput.step = 'any';
+          valueToInput.step = 'any';
+        }else{
+          valueInput.removeAttribute('step');
+          valueToInput.removeAttribute('step');
+        }
         if(mode === 'topN'){
           valueInput.placeholder = '10';
         }else if(mode === 'between'){
@@ -8965,6 +9064,17 @@
         }else{
           valueInput.hidden = false;
         }
+        if(!isValueMode){
+          if(mode === 'topN'){
+            hint.textContent = 'Keeps the highest numeric values in this column.';
+          }else if((mode === 'aboveAverage' || mode === 'belowAverage') && context.numericValues.length){
+            const average = context.numericValues.reduce((sum, value)=>sum + value, 0) / context.numericValues.length;
+            hint.textContent = `Column average: ${formatFilterCellValue(average)}`;
+          }else{
+            hint.textContent = '';
+          }
+          hint.classList.remove('is-error');
+        }
       };
 
       const currentMode = currentModel?.kind === FILTER_KIND_CONDITION
@@ -8977,7 +9087,10 @@
       }
       valueInput.value = currentModel?.kind === FILTER_KIND_CONDITION ? String(currentModel.value ?? '') : '';
       valueToInput.value = currentModel?.kind === FILTER_KIND_CONDITION ? String(currentModel.valueTo ?? '') : '';
-      modeSelect.addEventListener('change', syncModeUi);
+      modeSelect.addEventListener('change', ()=>{
+        syncModeUi();
+        focusPreferredField();
+      });
       syncModeUi();
       renderValueList();
 
@@ -9004,7 +9117,9 @@
           });
           const compiled = nextModel ? buildCompiledColumnFilter(colId, nextModel) : null;
           if(!compiled && nextModel){
+            hint.classList.add('is-error');
             hint.textContent = 'Enter a valid filter value.';
+            focusPreferredField();
             return;
           }
         }
@@ -9045,7 +9160,8 @@
       });
       customContextMenu = popup;
       customContextMenuCleanup = attachPopupDismissHandlers(popup, { anchor: anchorEl });
-      searchInput.focus?.();
+      clearButton.disabled = !activeColumnFilters.has(colId);
+      focusPreferredField();
     };
 
     const getDisplayedDataColumnPositions = ()=>{

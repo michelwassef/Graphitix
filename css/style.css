@@ -658,6 +658,22 @@ select {
     color: #8a8f98;
     position: relative;
 }
+.ag-theme-balham .hot-header-action__sort-badge {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    min-width: 10px;
+    height: 10px;
+    padding: 0 1px;
+    border-radius: 999px;
+    background: #1a73e8;
+    color: #ffffff;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 10px;
+    text-align: center;
+    pointer-events: none;
+}
 .ag-theme-balham .hot-header-action:hover,
 .ag-theme-balham .hot-header-action:focus-visible {
     color: #1a73e8;
@@ -1506,6 +1522,12 @@ select {
     word-break: break-word;
 }
 
+.ag-hot-filter-menu__heading-meta,
+.ag-hot-filter-menu__summary {
+    font-size: 11px;
+    color: #64748b;
+}
+
 .ag-hot-filter-menu__sort {
     display: grid;
     gap: 4px;
@@ -1523,10 +1545,24 @@ select {
     text-align: left;
 }
 
+.ag-hot-filter-menu__sort-button.is-active {
+    background: #dbeafe;
+    border-color: #60a5fa;
+    color: #0f172a;
+}
+
 .ag-hot-filter-menu__sort-button:hover,
 .ag-hot-filter-menu__button:hover {
     background: #eef4ff;
     border-color: #93c5fd;
+}
+
+.ag-hot-filter-menu__sort-button:disabled,
+.ag-hot-filter-menu__button:disabled {
+    background: #f8fafc;
+    border-color: #e5e7eb;
+    color: #94a3b8;
+    cursor: default;
 }
 
 .ag-hot-filter-menu__label {
@@ -1570,6 +1606,10 @@ select {
     min-height: 16px;
     font-size: 11px;
     color: #64748b;
+}
+
+.ag-hot-filter-menu__hint.is-error {
+    color: #b42318;
 }
 
 .ag-hot-filter-menu__inputs {
