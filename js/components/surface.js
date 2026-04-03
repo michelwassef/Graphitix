@@ -2920,24 +2920,113 @@
     return true;
   }
 
+  function captureSurfaceSvgRootState(svg){
+    if(!svg){
+      return null;
+    }
+    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family'];
+    const styleNames = ['display'];
+    const attributes = {};
+    const style = {};
+    attributeNames.forEach(name => {
+      const value = typeof svg.getAttribute === 'function' ? svg.getAttribute(name) : null;
+      if(typeof value === 'string' && value.length){
+        attributes[name] = value;
+      }
+    });
+    styleNames.forEach(name => {
+      const value = svg.style?.[name];
+      if(typeof value === 'string' && value.length){
+        style[name] = value;
+      }
+    });
+    return {
+      attributes: Object.keys(attributes).length ? attributes : null,
+      style: Object.keys(style).length ? style : null
+    };
+  }
+
+  function restoreSurfaceSvgRootState(svg, snapshot){
+    if(!svg){
+      return false;
+    }
+    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family'];
+    const styleNames = ['display'];
+    attributeNames.forEach(name => {
+      try{
+        if(typeof svg.removeAttribute === 'function'){
+          svg.removeAttribute(name);
+        }
+      }catch(err){
+        console.error('surface restore svg attribute reset error', { name, err });
+      }
+    });
+    styleNames.forEach(name => {
+      try{
+        if(svg.style){
+          svg.style[name] = '';
+        }
+      }catch(err){
+        console.error('surface restore svg style reset error', { name, err });
+      }
+    });
+    if(!snapshot || typeof snapshot !== 'object'){
+      return true;
+    }
+    const attributes = snapshot.attributes && typeof snapshot.attributes === 'object'
+      ? snapshot.attributes
+      : null;
+    const style = snapshot.style && typeof snapshot.style === 'object'
+      ? snapshot.style
+      : null;
+    if(attributes){
+      Object.entries(attributes).forEach(([name, value]) => {
+        try{
+          if(value == null || value === ''){
+            svg.removeAttribute?.(name);
+          }else{
+            svg.setAttribute?.(name, String(value));
+          }
+        }catch(err){
+          console.error('surface restore svg attribute error', { name, value, err });
+        }
+      });
+    }
+    if(style){
+      Object.entries(style).forEach(([name, value]) => {
+        try{
+          if(svg.style){
+            svg.style[name] = value || '';
+          }
+        }catch(err){
+          console.error('surface restore svg style error', { name, value, err });
+        }
+      });
+    }
+    return true;
+  }
+
   surface.captureRenderCache = function captureRenderCache(){
     cacheDom();
     const svgCache = detachChildren(state.svg);
     const statsCache = detachChildren(state.statsEl);
     const messageCache = detachChildren(state.messageEl);
+    const svgRootState = captureSurfaceSvgRootState(state.svg);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: surface render cache captured', {
         svgNodes: svgCache?.count || 0,
         statsNodes: statsCache?.count || 0,
-        messageNodes: messageCache?.count || 0
+        messageNodes: messageCache?.count || 0,
+        hasSvgRootState: !!svgRootState
       });
     }
-    return { svg: svgCache, stats: statsCache, message: messageCache };
+    return { svg: svgCache, stats: statsCache, message: messageCache, svgRootState };
   };
 
   surface.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
     cacheDom();
+    restoreSurfaceSvgRootState(state.svg, cache.svgRootState);
     const restoredSvg = restoreChildren(state.svg, cache.svg);
     const restoredStats = restoreChildren(state.statsEl, cache.stats);
     const restoredMessage = restoreChildren(state.messageEl, cache.message);
@@ -2947,7 +3036,8 @@
         restored,
         svg: restoredSvg,
         stats: restoredStats,
-        message: restoredMessage
+        message: restoredMessage,
+        svgRootState: !!cache.svgRootState
       });
     }
     return restored;

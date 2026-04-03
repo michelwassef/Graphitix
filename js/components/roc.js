@@ -1060,6 +1060,7 @@
       if(!state.hot && baseContainer){
         state.hot = createRocTableInstance(baseContainer);
       }
+      bindRocPasteHandler(state.hot?.__rocHostContainer || baseContainer || refs.hotContainer || null);
       ensureRocDataViewsForHot(state.hot, {
         wrapper,
         container: state.hot?.__rocHostContainer || baseContainer
@@ -1078,12 +1079,49 @@
       refs.hotContainer = entry.container;
       state.hot = entry.instance;
     }
+    bindRocPasteHandler(state.hot?.__rocHostContainer || refs.hotContainer || baseContainer || null);
     ensureRocDataViewsForHot(state.hot, {
       wrapper,
       container: state.hot?.__rocHostContainer || refs.hotContainer || baseContainer
     });
     ensureRocDefaultHeaderRow(state.hot);
     return state.hot;
+  }
+
+  function bindRocPasteHandler(container){
+    const tableImport = Shared.tableImport;
+    if(!container || !tableImport || typeof tableImport.handlePaste !== 'function' || container.__rocPasteBound){
+      return false;
+    }
+    container.addEventListener('paste', async event => {
+      const hot = ensureHotForActiveTab() || state.hot;
+      const forcedOverlay = !!forceRocOverlay('table-paste-start', { message: 'Processing pasted data...' });
+      try{
+        const result = await tableImport.handlePaste(event, hot, {
+          minCols: ROC_DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: () => {
+            markRocOverlayPending('table-paste');
+            state.scheduleDraw?.();
+          },
+          debugLabel: 'roc',
+          onProcessed: info => {
+            console.debug('Debug: ROC paste processed', info || {});
+          }
+        });
+        if(!result && forcedOverlay){
+          resolveRocOverlay('table-paste-empty');
+        }
+        console.debug('Debug: ROC paste finished', {rows: result?.rows || 0, cols: result?.cols || 0});
+      }catch(err){
+        if(forcedOverlay){
+          resolveRocOverlay('table-paste-error');
+        }
+        console.error('roc paste failed', err);
+      }
+    }, true);
+    container.__rocPasteBound = true;
+    return true;
   }
 
   function ensureRocDataViewsForHot(hotInstance, options = {}){
@@ -1653,37 +1691,7 @@
       }
     });
 
-    refs.hotContainer?.addEventListener('paste', async event => {
-      const tableImport = Shared.tableImport;
-      if(!tableImport || typeof tableImport.handlePaste !== 'function'){
-        console.warn('roc paste skipped: Shared.tableImport.handlePaste unavailable');
-        return;
-      }
-      const forcedOverlay = !!forceRocOverlay('table-paste-start', { message: 'Processing pasted data...' });
-      try{
-        const result = await tableImport.handlePaste(event, state.hot, {
-          minCols: ROC_DEFAULT_COLS,
-          minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markRocOverlayPending('table-paste');
-            state.scheduleDraw?.();
-          },
-          debugLabel: 'roc',
-          onProcessed: info => {
-            console.debug('Debug: ROC paste processed', info || {}); // Debug: paste processed callback
-          }
-        });
-        if(!result && forcedOverlay){
-          resolveRocOverlay('table-paste-empty');
-        }
-        console.debug('Debug: ROC paste finished', {rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
-      }catch(err){
-        if(forcedOverlay){
-          resolveRocOverlay('table-paste-error');
-        }
-        console.error('roc paste failed', err);
-      }
-    }, true);
+    bindRocPasteHandler(refs.hotContainer || state.hot?.__rocHostContainer || document.getElementById('rocHot'));
   }
 
   function computeCurveMetric(pairs, graphType){

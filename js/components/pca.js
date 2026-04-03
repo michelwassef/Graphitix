@@ -1600,6 +1600,7 @@
       if(pcaHotInstance){
         pcaHotInstance.__pcaHostContainer = baseContainer || pcaHotInstance.__pcaHostContainer || null;
         pcaHotInstance.__pcaTabId = tabId;
+        bindPcaPasteHandler(pcaHotInstance.__pcaHostContainer || baseContainer || null);
         ensurePcaDataViewsForHot(pcaHotInstance, {
           wrapper,
           container: pcaHotInstance.__pcaHostContainer || baseContainer || null
@@ -1623,6 +1624,7 @@
     if(pcaHotInstance){
       pcaHotInstance.__pcaHostContainer = entry?.container || baseContainer || pcaHotInstance.__pcaHostContainer || null;
       pcaHotInstance.__pcaTabId = tabId;
+      bindPcaPasteHandler(pcaHotInstance.__pcaHostContainer || baseContainer || null);
       ensurePcaDataViewsForHot(pcaHotInstance, {
         wrapper,
         container: pcaHotInstance.__pcaHostContainer || baseContainer || null
@@ -1631,6 +1633,51 @@
     }
     return pcaHotInstance;
   }
+
+  function bindPcaPasteHandler(container){
+    const tableImport = Shared.tableImport;
+    if(!container || !tableImport || typeof tableImport.handlePaste !== 'function' || container.__pcaPasteBound){
+      return false;
+    }
+    container.addEventListener('paste',async e=>{
+      let forcedOverlay = false;
+      try{
+        forcedOverlay = !!forcePcaOverlay('table-paste-start', { message: 'Processing pasted data...' });
+        const hot = ensurePcaHotForActiveTab();
+        const result = await tableImport.handlePaste(e, hot, {
+          minCols: DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: () => {
+            markPcaOverlayPending('table-paste');
+            evaluateAutoDrawThresholds();
+            scheduleDrawPca({ force: true, reason: 'paste-load' });
+          },
+          debugLabel: 'pca',
+          onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+          onProcessed: info => {
+            console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
+            const activeHot = ensurePcaHotForActiveTab();
+            ensurePcaLabelRow(activeHot, { source: 'pca-paste' });
+            const nextRows = activeHot?.getData?.().length || info?.rows;
+            const nextCols = activeHot?.countCols?.() || info?.cols;
+            updatePcaDataShape({ rows: nextRows, cols: nextCols });
+            evaluateAutoDrawThresholds();
+          }
+        });
+        if(!result && forcedOverlay){
+          resolvePcaOverlay('table-paste-empty');
+        }
+      }catch(err){
+        if(forcedOverlay){
+          resolvePcaOverlay('table-paste-error');
+        }
+        console.error('pca paste failed', err);
+      }
+    });
+    container.__pcaPasteBound = true;
+    return true;
+  }
+
   function resolveActiveTabId(){
     try{
       const tab = Main?.session?.getActiveTab?.();
@@ -5025,44 +5072,7 @@
           console.error('pca import failed', err);
         }
       });
-      if(tableImport && typeof tableImport.handlePaste === 'function'){
-        const pasteTarget = document.getElementById('pcaHot') || pcaHotContainer;
-        pasteTarget?.addEventListener('paste',async e=>{
-          let forcedOverlay = false;
-          try{
-            forcedOverlay = !!forcePcaOverlay('table-paste-start', { message: 'Processing pasted data...' });
-            const hot = ensurePcaHotForActiveTab();
-            const result = await tableImport.handlePaste(e, hot, {
-              minCols: DEFAULT_COLS,
-              minRows: DEFAULT_ROWS,
-              scheduleDraw: () => {
-                markPcaOverlayPending('table-paste');
-                evaluateAutoDrawThresholds();
-                scheduleDrawPca({ force: true, reason: 'paste-load' });
-              },
-              debugLabel: 'pca',
-              onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
-              onProcessed: info => {
-                console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
-                const hot = ensurePcaHotForActiveTab();
-                ensurePcaLabelRow(hot, { source: 'pca-paste' });
-                const nextRows = hot?.getData?.().length || info?.rows;
-                const nextCols = hot?.countCols?.() || info?.cols;
-                updatePcaDataShape({ rows: nextRows, cols: nextCols });
-                evaluateAutoDrawThresholds();
-              }
-            });
-            if(!result && forcedOverlay){
-              resolvePcaOverlay('table-paste-empty');
-            }
-          }catch(err){
-            if(forcedOverlay){
-              resolvePcaOverlay('table-paste-error');
-            }
-            console.error('pca paste failed', err);
-          }
-        });
-      }
+      bindPcaPasteHandler((ensurePcaHotForActiveTab()?.__pcaHostContainer) || document.getElementById('pcaHot') || pcaHotContainer);
       const pcaLoadingsContainer=document.getElementById('pcaLoadingsContainer');
       const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
       const pcaLoadingsLimitInput=document.getElementById('pcaLoadingsLimit');
