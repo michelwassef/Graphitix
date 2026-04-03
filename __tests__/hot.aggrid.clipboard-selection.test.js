@@ -2285,6 +2285,87 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(sortSpy).toHaveBeenCalledTimes(1);
   });
 
+  test('filter popup only shows condition inputs for operators that need them', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFilterPopupModesHot';
+    document.body.appendChild(container);
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-popup-modes',
+        data: [
+          ['A', 'B'],
+          [1, 2],
+          [3, 4],
+          [5, 6]
+        ]
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c1',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'B' })
+      },
+      displayName: 'B'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    const menu = document.querySelector('.ag-hot-filter-menu');
+    expect(menu).toBeTruthy();
+
+    const modeSelect = menu.querySelector('.ag-hot-filter-menu__select');
+    const inputWrap = menu.querySelector('.ag-hot-filter-menu__inputs');
+    const inputs = menu.querySelectorAll('.ag-hot-filter-menu__input');
+    expect(modeSelect).toBeTruthy();
+    expect(inputWrap).toBeTruthy();
+    expect(inputs.length).toBeGreaterThanOrEqual(2);
+
+    expect(inputWrap.hidden).toBe(true);
+    expect(inputWrap.style.display).toBe('none');
+
+    modeSelect.value = 'greaterThan';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(false);
+    expect(inputWrap.style.display).toBe('');
+    expect(inputs[0].hidden).toBe(false);
+    expect(inputs[1].hidden).toBe(true);
+
+    modeSelect.value = 'between';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(false);
+    expect(inputs[0].hidden).toBe(false);
+    expect(inputs[1].hidden).toBe(false);
+
+    modeSelect.value = 'aboveAverage';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(true);
+    expect(inputWrap.style.display).toBe('none');
+
+    modeSelect.value = 'set';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(true);
+    expect(inputWrap.style.display).toBe('none');
+  });
+
   test('clicking row header selects the full row', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

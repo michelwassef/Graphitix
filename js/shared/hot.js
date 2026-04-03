@@ -8941,12 +8941,23 @@
           searchInput.select?.();
           return;
         }
-        if(!valueInput.hidden && !valueInput.disabled){
+        if(!inputWrap.hidden && !valueInput.hidden && !valueInput.disabled){
           valueInput.focus?.();
           valueInput.select?.();
           return;
         }
         modeSelect.focus?.();
+      };
+      const setPopupSectionVisible = (element, visible)=>{
+        if(!element){
+          return;
+        }
+        element.hidden = !visible;
+        if(visible){
+          element.style.removeProperty('display');
+        }else{
+          element.style.display = 'none';
+        }
       };
 
       let selectedKeys = new Set(
@@ -9025,30 +9036,33 @@
       const syncModeUi = ()=>{
         const mode = modeSelect.value || FILTER_KIND_SET;
         const isValueMode = mode === FILTER_KIND_SET;
+        const isInputlessCondition = mode === 'isBlank'
+          || mode === 'isNotBlank'
+          || mode === 'aboveAverage'
+          || mode === 'belowAverage';
         const useNumericInput = context.columnType === 'numeric'
           && mode !== FILTER_KIND_SET
           && mode !== 'contains'
           && mode !== 'notContains'
           && mode !== 'startsWith'
           && mode !== 'endsWith'
-          && mode !== 'isBlank'
-          && mode !== 'isNotBlank'
-          && mode !== 'aboveAverage'
-          && mode !== 'belowAverage';
-        searchInput.hidden = !isValueMode;
-        valueSummary.hidden = !isValueMode;
-        valueSelectRow.hidden = !isValueMode;
-        valueList.hidden = !isValueMode;
-        inputWrap.hidden = isValueMode;
-        valueToInput.hidden = !(mode === 'between');
-        valueInput.type = useNumericInput ? 'number' : 'text';
-        valueToInput.type = useNumericInput ? 'number' : 'text';
+          && !isInputlessCondition;
+        const showConditionInputs = !isValueMode && !isInputlessCondition;
+        setPopupSectionVisible(searchInput, isValueMode);
+        setPopupSectionVisible(valueSummary, isValueMode);
+        setPopupSectionVisible(valueSelectRow, isValueMode);
+        setPopupSectionVisible(valueList, isValueMode);
+        setPopupSectionVisible(inputWrap, showConditionInputs);
+        valueInput.type = 'text';
+        valueToInput.type = 'text';
+        valueInput.inputMode = useNumericInput ? 'decimal' : 'text';
+        valueToInput.inputMode = useNumericInput ? 'decimal' : 'text';
         if(useNumericInput){
-          valueInput.step = 'any';
-          valueToInput.step = 'any';
+          valueInput.setAttribute('data-filter-input-mode', 'numeric');
+          valueToInput.setAttribute('data-filter-input-mode', 'numeric');
         }else{
-          valueInput.removeAttribute('step');
-          valueToInput.removeAttribute('step');
+          valueInput.removeAttribute('data-filter-input-mode');
+          valueToInput.removeAttribute('data-filter-input-mode');
         }
         if(mode === 'topN'){
           valueInput.placeholder = '10';
@@ -9058,12 +9072,8 @@
         }else{
           valueInput.placeholder = 'Value';
         }
-        if(mode === 'isBlank' || mode === 'isNotBlank' || mode === 'aboveAverage' || mode === 'belowAverage'){
-          valueInput.hidden = true;
-          valueToInput.hidden = true;
-        }else{
-          valueInput.hidden = false;
-        }
+        setPopupSectionVisible(valueInput, showConditionInputs);
+        setPopupSectionVisible(valueToInput, showConditionInputs && mode === 'between');
         if(!isValueMode){
           if(mode === 'topN'){
             hint.textContent = 'Keeps the highest numeric values in this column.';

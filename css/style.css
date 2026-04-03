@@ -1515,6 +1515,10 @@ select {
     color: #1f2937;
 }
 
+.ag-hot-filter-menu [hidden] {
+    display: none !important;
+}
+
 .ag-hot-filter-menu__heading {
     font-size: 12px;
     font-weight: 600;
@@ -1575,11 +1579,47 @@ select {
 .ag-hot-filter-menu__search,
 .ag-hot-filter-menu__input {
     width: 100%;
-    min-height: 28px;
-    padding: 4px 6px;
-    border: 1px solid #cbd5e1;
+    min-height: 24px;
+    padding: 2px 6px;
+    border: 1px solid #7f8ea3;
     background: #ffffff;
     color: #111827;
+    box-sizing: border-box;
+    box-shadow: none;
+}
+
+.ag-hot-filter-menu .ag-hot-filter-menu__input:not([hidden]) {
+    display: block !important;
+    width: 100% !important;
+    min-height: 24px;
+    padding: 2px 6px !important;
+    border: 1px solid #7f8ea3 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    box-sizing: border-box !important;
+    box-shadow: none !important;
+    border-radius: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: textfield;
+}
+
+.ag-hot-filter-menu .ag-hot-filter-menu__input[hidden] {
+    display: none !important;
+}
+
+.ag-hot-filter-menu__input::-webkit-outer-spin-button,
+.ag-hot-filter-menu__input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.ag-hot-filter-menu__select:focus,
+.ag-hot-filter-menu__search:focus,
+.ag-hot-filter-menu__input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 .ag-hot-filter-menu__values {
@@ -1592,10 +1632,15 @@ select {
 .ag-hot-filter-menu__check {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 6px;
+    gap: 5px;
+    padding: 2px 6px;
     font-size: 12px;
+    line-height: 1.15;
     color: #1f2937;
+}
+
+.ag-hot-filter-menu__check input[type="checkbox"] {
+    margin: 0;
 }
 
 .ag-hot-filter-menu__check:hover {
@@ -1603,9 +1648,13 @@ select {
 }
 
 .ag-hot-filter-menu__hint {
-    min-height: 16px;
     font-size: 11px;
+    line-height: 1.1;
     color: #64748b;
+}
+
+.ag-hot-filter-menu__hint:empty {
+    display: none;
 }
 
 .ag-hot-filter-menu__hint.is-error {
@@ -1614,7 +1663,7 @@ select {
 
 .ag-hot-filter-menu__inputs {
     display: grid;
-    gap: 6px;
+    gap: 4px;
 }
 
 .ag-hot-filter-menu__footer {
@@ -1622,7 +1671,6 @@ select {
     justify-content: flex-end;
     gap: 6px;
     padding-top: 8px;
-    border-top: 1px solid #e5e7eb;
 }
 
 .ag-hot-filter-menu__footer .ag-hot-filter-menu__button {
