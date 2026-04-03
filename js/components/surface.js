@@ -1996,6 +1996,7 @@
       axisLayer.setAttribute('class', 'surface-layer surface-layer-axes');
       svg.appendChild(axisLayer);
     }
+    ensureSurfaceGeometryPoolsSynced('draw-start');
     const fontInfo = typeof chartStyle.resolveScaledFontSize === 'function'
       ? chartStyle.resolveScaledFontSize({ rawSize: state.settings.fontSize, width, height, svgBox: state.svgBox, input: state.controls.fontSize })
       : { scaledPx: state.settings.fontSize, scaleInfo: null };
@@ -3188,6 +3189,73 @@
     return true;
   }
 
+  function countSurfacePoolNodesAttachedToSvg(pool, svg){
+    if(!svg || typeof svg.contains !== 'function' || !Array.isArray(pool) || !pool.length){
+      return 0;
+    }
+    let count = 0;
+    for(let i = 0; i < pool.length; i += 1){
+      const node = pool[i];
+      if(node && svg.contains(node)){
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  function syncSurfaceGeometryPoolsFromDom(reason){
+    const svg = state.svg;
+    if(!svg || typeof svg.querySelector !== 'function'){
+      state._facePool = [];
+      state._pointPool = [];
+      state._facePoolUsed = 0;
+      state._pointPoolUsed = 0;
+      return;
+    }
+    const geometryLayer = svg.querySelector('g.surface-layer-geometry');
+    const faceGroup = geometryLayer?.querySelector?.('g.surface-faces') || null;
+    const pointGroup = geometryLayer?.querySelector?.('g.surface-points') || null;
+    const nextFacePool = faceGroup && typeof faceGroup.querySelectorAll === 'function'
+      ? Array.from(faceGroup.querySelectorAll('polygon'))
+      : [];
+    const nextPointPool = pointGroup && typeof pointGroup.querySelectorAll === 'function'
+      ? Array.from(pointGroup.querySelectorAll('circle'))
+      : [];
+    state._facePool = nextFacePool;
+    state._pointPool = nextPointPool;
+    state._facePoolUsed = nextFacePool.length;
+    state._pointPoolUsed = nextPointPool.length;
+    debugLog('Debug: surface geometry pools synced from DOM', {
+      reason: reason || null,
+      faces: nextFacePool.length,
+      points: nextPointPool.length
+    });
+  }
+
+  function ensureSurfaceGeometryPoolsSynced(reason){
+    const svg = state.svg;
+    if(!svg || typeof svg.querySelector !== 'function'){
+      return;
+    }
+    const geometryLayer = svg.querySelector('g.surface-layer-geometry');
+    if(!geometryLayer){
+      return;
+    }
+    const faceGroup = geometryLayer.querySelector?.('g.surface-faces') || null;
+    const pointGroup = geometryLayer.querySelector?.('g.surface-points') || null;
+    const faceDomCount = faceGroup && typeof faceGroup.querySelectorAll === 'function'
+      ? faceGroup.querySelectorAll('polygon').length
+      : 0;
+    const pointDomCount = pointGroup && typeof pointGroup.querySelectorAll === 'function'
+      ? pointGroup.querySelectorAll('circle').length
+      : 0;
+    const attachedFaceCount = countSurfacePoolNodesAttachedToSvg(state._facePool, svg);
+    const attachedPointCount = countSurfacePoolNodesAttachedToSvg(state._pointPool, svg);
+    if(faceDomCount !== attachedFaceCount || pointDomCount !== attachedPointCount){
+      syncSurfaceGeometryPoolsFromDom(reason || 'pool-mismatch');
+    }
+  }
+
   surface.captureRenderCache = function captureRenderCache(){
     cacheDom();
     const svgCache = detachChildren(state.svg);
@@ -3212,6 +3280,9 @@
     const restoredSvg = restoreChildren(state.svg, cache.svg);
     const restoredStats = restoreChildren(state.statsEl, cache.stats);
     const restoredMessage = restoreChildren(state.messageEl, cache.message);
+    if(restoredSvg){
+      syncSurfaceGeometryPoolsFromDom('render-cache-restore');
+    }
     const restored = restoredSvg || restoredStats || restoredMessage;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: surface render cache restored', {
