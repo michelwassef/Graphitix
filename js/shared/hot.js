@@ -8664,12 +8664,18 @@
       const doc = container?.ownerDocument || document;
       const win = doc?.defaultView || global;
       const anchor = options.anchor || null;
+      const isWithinPopupOrAnchor = (target)=>{
+        if(!target || target.nodeType !== 1){
+          return false;
+        }
+        return popup.contains(target) || !!(anchor && anchor.contains?.(target));
+      };
       const handlePointerDown = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target){
           return;
         }
-        if(popup.contains(target) || (anchor && anchor.contains?.(target))){
+        if(isWithinPopupOrAnchor(target)){
           return;
         }
         closeCustomMenu();
@@ -8680,7 +8686,11 @@
           closeCustomMenu();
         }
       };
-      const handleViewportChange = ()=>{
+      const handleViewportChange = (event)=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(isWithinPopupOrAnchor(target)){
+          return;
+        }
         closeCustomMenu();
       };
       doc.addEventListener('mousedown', handlePointerDown, true);
@@ -8809,31 +8819,11 @@
       popup.setAttribute('data-menu-type', 'filter');
       popup.setAttribute('data-col-id', colId);
       popup.setAttribute('role', 'dialog');
+      popup.setAttribute('aria-label', `Filter ${colHeaders?.[idx] || toExcelColumnLabel(idx)}`);
       popup.style.position = 'fixed';
       popup.style.zIndex = '10020';
       popup.style.minWidth = '260px';
       popup.style.maxWidth = '320px';
-
-      const heading = doc.createElement('div');
-      heading.className = 'ag-hot-filter-menu__heading';
-      heading.textContent = colHeaders?.[idx] || toExcelColumnLabel(idx);
-      popup.appendChild(heading);
-
-      const headingMeta = doc.createElement('div');
-      headingMeta.className = 'ag-hot-filter-menu__heading-meta';
-      const headingMetaParts = [];
-      headingMetaParts.push(context.columnType === 'numeric' ? 'Numeric values' : (context.columnType === 'mixed' ? 'Mixed values' : 'Text values'));
-      headingMetaParts.push(`${context.uniqueOptions.length} distinct`);
-      if(currentModel){
-        headingMetaParts.push('Filter active');
-      }
-      if(currentSort === 'asc'){
-        headingMetaParts.push(context.columnType === 'numeric' ? 'Sorted smallest to largest' : 'Sorted A to Z');
-      }else if(currentSort === 'desc'){
-        headingMetaParts.push(context.columnType === 'numeric' ? 'Sorted largest to smallest' : 'Sorted Z to A');
-      }
-      headingMeta.textContent = headingMetaParts.join(' • ');
-      popup.appendChild(headingMeta);
 
       const sortSection = doc.createElement('div');
       sortSection.className = 'ag-hot-filter-menu__sort';
@@ -8918,6 +8908,7 @@
 
       const valueList = doc.createElement('div');
       valueList.className = 'ag-hot-filter-menu__values';
+      valueList.style.maxHeight = '108px';
 
       const hint = doc.createElement('div');
       hint.className = 'ag-hot-filter-menu__hint';

@@ -2331,6 +2331,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     const menu = document.querySelector('.ag-hot-filter-menu');
     expect(menu).toBeTruthy();
+    expect(menu.querySelector('.ag-hot-filter-menu__heading')).toBeNull();
+    expect(menu.querySelector('.ag-hot-filter-menu__heading-meta')).toBeNull();
+    expect(menu.getAttribute('aria-label')).toBe('Filter B');
 
     const modeSelect = menu.querySelector('.ag-hot-filter-menu__select');
     const inputWrap = menu.querySelector('.ag-hot-filter-menu__inputs');
@@ -2446,6 +2449,61 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.countRows()).toBe(2);
     expect(hot.getDataAtCell(0, 1)).toBe('Group');
     expect(hot.getDataAtCell(1, 1)).toBe('delta');
+  });
+
+  test('set-filter value list scroll does not dismiss the popup', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFilterPopupScrollHot';
+    document.body.appendChild(container);
+
+    const rows = [['Label']];
+    for(let i = 0; i < 40; i += 1){
+      rows.push([`value-${i}`]);
+    }
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: rows.length, cols: 1 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-popup-scroll',
+        data: rows
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c0');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c0',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'Label' })
+      },
+      displayName: 'Label'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    const menu = document.querySelector('.ag-hot-filter-menu');
+    const valueList = menu?.querySelector('.ag-hot-filter-menu__values');
+    expect(menu).toBeTruthy();
+    expect(valueList).toBeTruthy();
+    expect(valueList.style.maxHeight).toBe('108px');
+
+    valueList.dispatchEvent(new global.window.Event('scroll', { bubbles: false, cancelable: false }));
+
+    expect(document.querySelector('.ag-hot-filter-menu')).toBe(menu);
   });
 
   test('filter apply and clear actions are undoable', () => {

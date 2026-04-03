@@ -31,6 +31,14 @@
       console.debug('Debug: heatmap component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
+  const tabContextApi = Shared.tabContext = Shared.tabContext || {};
+  if(typeof tabContextApi.createManager !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/tabContext.js');
+    }catch(err){
+      console.debug('Debug: heatmap component tabContext helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -432,9 +440,6 @@
     suspendAutoClusterDefaults: false
   };
 
-  const heatmapTabContexts = new Map();
-  let activeHeatmapTabContextId = null;
-
   function createDefaultHeatmapTabContext(){
     return {
       fileHandle: null,
@@ -458,58 +463,6 @@
         open: false
       }
     };
-  }
-
-  function resolveHeatmapTabContextId(tabLike){
-    const explicitId = typeof tabLike === 'string'
-      ? tabLike.trim()
-      : String(tabLike?.id || '').trim();
-    if(explicitId){
-      return explicitId;
-    }
-    try{
-      const activeId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim();
-      if(activeId){
-        return activeId;
-      }
-    }catch(err){
-      console.error('heatmap resolve tab context id error', err);
-    }
-    const hotId = String(state.hot?.__heatmapTabId || '').trim();
-    return hotId || 'heatmap-default';
-  }
-
-  function ensureHeatmapTabContext(tabLike){
-    pruneHeatmapTabContexts();
-    const tabId = resolveHeatmapTabContextId(tabLike);
-    let context = heatmapTabContexts.get(tabId);
-    if(!context){
-      context = createDefaultHeatmapTabContext();
-      heatmapTabContexts.set(tabId, context);
-      debugLog('Debug: heatmap tab context created', { tabId });
-    }
-    return { tabId, context };
-  }
-
-  function pruneHeatmapTabContexts(){
-    const tabs = global.Main?.session?.workspaceState?.tabs;
-    if(!Array.isArray(tabs)){
-      return;
-    }
-    const validIds = new Set(
-      tabs
-        .filter(tab => tab && tab.type === 'heatmap' && tab.id != null)
-        .map(tab => String(tab.id))
-    );
-    if(activeHeatmapTabContextId){
-      validIds.add(activeHeatmapTabContextId);
-    }
-    Array.from(heatmapTabContexts.keys()).forEach(tabId => {
-      if(!validIds.has(tabId)){
-        heatmapTabContexts.delete(tabId);
-        debugLog('Debug: heatmap tab context pruned', { tabId });
-      }
-    });
   }
 
   function captureHeatmapNotesSnapshot(){
@@ -581,45 +534,23 @@
     }
   }
 
+  const heatmapTabContextManager = typeof Shared.tabContext?.createManager === 'function'
+    ? Shared.tabContext.createManager({
+      componentKey: 'heatmap',
+      createDefaultContext: createDefaultHeatmapTabContext,
+      captureState: buildHeatmapTabContextSnapshotFromState,
+      applyState: applyHeatmapTabContextSnapshot,
+      resolveFallbackTabId: () => String(state.hot?.__heatmapTabId || '').trim(),
+      debugLog
+    })
+    : null;
+
   function syncHeatmapActiveTabContextFromState(reason){
-    const tabId = activeHeatmapTabContextId || resolveHeatmapTabContextId();
-    if(!tabId){
-      return null;
-    }
-    const snapshot = buildHeatmapTabContextSnapshotFromState();
-    heatmapTabContexts.set(tabId, snapshot);
-    debugLog('Debug: heatmap tab context captured', {
-      tabId,
-      reason: reason || 'unknown'
-    });
-    return snapshot;
+    return heatmapTabContextManager?.sync(reason) || null;
   }
 
   function activateHeatmapTabContext(tabLike, options = {}){
-    const nextTabId = resolveHeatmapTabContextId(tabLike);
-    const previousTabId = activeHeatmapTabContextId;
-    if(previousTabId && previousTabId === nextTabId && options.force !== true){
-      if(!heatmapTabContexts.has(nextTabId)){
-        syncHeatmapActiveTabContextFromState(`seed:${options.reason || 'activate'}`);
-      }
-      debugLog('Debug: heatmap tab context reused', {
-        tabId: nextTabId,
-        reason: options.reason || 'activate'
-      });
-      return heatmapTabContexts.get(nextTabId) || null;
-    }
-    if(previousTabId && previousTabId !== nextTabId){
-      syncHeatmapActiveTabContextFromState(`switch:${options.reason || 'activate'}`);
-    }
-    const { context } = ensureHeatmapTabContext(nextTabId);
-    activeHeatmapTabContextId = nextTabId;
-    applyHeatmapTabContextSnapshot(context, options);
-    debugLog('Debug: heatmap tab context activated', {
-      tabId: nextTabId,
-      previousTabId: previousTabId || null,
-      reason: options.reason || 'activate'
-    });
-    return context;
+    return heatmapTabContextManager?.activate(tabLike, options) || null;
   }
 
   function ensureHeatmapPerformanceState(){
@@ -8417,6 +8348,8 @@
     }
     return restored;
   };
+
+  heatmap.__getState = () => state;
 
   function benchmarkHeatmapLoad(config){
     const rows = Math.max(1, Math.floor(Number(config?.rows) || 200));
