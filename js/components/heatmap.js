@@ -384,6 +384,12 @@
   const HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE = 'heatmap-correlation-tab-activate';
   const HEATMAP_LOAD_SOURCE_CORRELATION_SYNC = 'heatmap-correlation-view-sync';
 
+  function shouldSkipHeatmapDataViewSyncForLoadSource(source){
+    return source === HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH
+      || source === HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE
+      || source === HEATMAP_LOAD_SOURCE_CORRELATION_SYNC;
+  }
+
   let heatmapDataToolbarBound = false;
   let heatmapDataToolbarLastActivation = 0;
   let heatmapDataViewsManager = null;
@@ -844,7 +850,7 @@
 
   function shouldSkipHeatmapHotSchedule(scheduleMeta){
     const source = String(scheduleMeta?.source || '').trim();
-    if(source === HEATMAP_LOAD_SOURCE_CORRELATION_SYNC || source === HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE){
+    if(shouldSkipHeatmapDataViewSyncForLoadSource(source)){
       debugLog('Debug: heatmap skipped rescheduled draw for derived grid sync', {
         source
       });
@@ -954,6 +960,9 @@
             return;
           }
           const isCorrelationView = isHeatmapCorrelationMatrixDataView(view);
+          applyHeatmapDataTransformControlState(
+            resolveHeatmapDataTransformControlStateForView(view, hotInstance.__heatmapDataViewsManager || heatmapDataViewsManager)
+          );
           const closedViewId = String(context?.previousViewId || '').trim();
           const activeMaterializedId = String(state.activeMaterializedViewId || '').trim();
           const closedActiveMaterialized = context?.reason === 'tab-close'
@@ -971,11 +980,12 @@
           }else{
             state.activeMaterializedViewId = null;
           }
+          hotInstance.__heatmapPendingProgrammaticLoadSource = isCorrelationView
+            ? HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE
+            : HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH;
           const nextData = Array.isArray(view.data) ? view.data : [];
           hotInstance.loadData(nextData, {
-            source: isCorrelationView
-              ? HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE
-              : HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH
+            source: hotInstance.__heatmapPendingProgrammaticLoadSource
           });
           syncHeatmapHotExclusions(hotInstance, view.exclusions || null, 'active-view-change');
           if(view.filters){
@@ -1015,6 +1025,17 @@
     if(!hot || typeof hot.getData !== 'function'){
       return;
     }
+    const pendingLoadSource = String(hot.__heatmapPendingProgrammaticLoadSource || '').trim();
+    if((reason === 'afterChange' || reason === 'afterLoadData') && shouldSkipHeatmapDataViewSyncForLoadSource(pendingLoadSource)){
+      debugLog('Debug: heatmap active data view sync skipped for programmatic load', {
+        reason,
+        source: pendingLoadSource
+      });
+      if(reason === 'afterLoadData'){
+        hot.__heatmapPendingProgrammaticLoadSource = '';
+      }
+      return;
+    }
     const manager = hot.__heatmapDataViewsManager || heatmapDataViewsManager;
     if(!manager){
       return;
@@ -1023,6 +1044,7 @@
     manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
     manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
     if(reason === 'afterLoadData'){
+      hot.__heatmapPendingProgrammaticLoadSource = '';
       manager.refresh?.();
     }
   }
@@ -1260,8 +1282,6 @@
     global.document.addEventListener('click', event => {
       const closeButton = event.target?.closest?.('#heatmapHotWrapper .data-view-tabs__close[data-view-id]');
       if(closeButton){
-        clearHeatmapAdjustAndFilterControls();
-        state.activeMaterializedViewId = null;
         activateHeatmapDataToolbar('data-tab-close');
         return;
       }
@@ -3907,6 +3927,202 @@
     return collectHeatmapDataTransformTokens(settings).length > 0;
   }
 
+  function normalizeHeatmapDataTransformState(source){
+    const filters = source?.filters || {};
+    const adjust = source?.adjust || {};
+    const normalizeMode = (value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if(normalized === 'median'){
+        return 'median';
+      }
+      if(normalized === 'mean'){
+        return 'mean';
+      }
+      return null;
+    };
+    const toNumberOr = (value, fallback) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    return {
+      filters: {
+        presentEnabled: !!filters.presentEnabled,
+        presentThreshold: toNumberOr(filters.presentThreshold, 80),
+        sdEnabled: !!filters.sdEnabled,
+        sdThreshold: toNumberOr(filters.sdThreshold, 0),
+        absEnabled: !!filters.absEnabled,
+        absCount: Math.max(1, Math.round(toNumberOr(filters.absCount, 1))),
+        absValue: toNumberOr(filters.absValue, 0),
+        rangeEnabled: !!filters.rangeEnabled,
+        rangeThreshold: toNumberOr(filters.rangeThreshold, 0)
+      },
+      adjust: {
+        logTransform: !!adjust.logTransform,
+        logPlusOne: !!adjust.logPlusOne,
+        centerRowsMode: normalizeMode(adjust.centerRowsMode ?? adjust.centerRows),
+        normalizeRows: !!adjust.normalizeRows,
+        centerColumnsMode: normalizeMode(adjust.centerColumnsMode ?? adjust.centerColumns),
+        normalizeColumns: !!adjust.normalizeColumns
+      }
+    };
+  }
+
+  function parseHeatmapDataTransformStateFromSummary(summaryLabel){
+    const text = String(summaryLabel || '').trim();
+    if(!text || text === 'heatmap-transform'){
+      return null;
+    }
+    const parsed = normalizeHeatmapDataTransformState();
+    let matched = false;
+    text.split(/\s+\+\s+/).forEach(token => {
+      const trimmed = String(token || '').trim();
+      let match = null;
+      if(!trimmed){
+        return;
+      }
+      if(/^log2\(x\+1\)$/i.test(trimmed)){
+        parsed.adjust.logTransform = true;
+        parsed.adjust.logPlusOne = true;
+        matched = true;
+        return;
+      }
+      if(/^log2\(x\)$/i.test(trimmed)){
+        parsed.adjust.logTransform = true;
+        matched = true;
+        return;
+      }
+      match = trimmed.match(/^Present >=\s*(-?\d+(?:\.\d+)?)%$/i);
+      if(match){
+        parsed.filters.presentEnabled = true;
+        parsed.filters.presentThreshold = Number(match[1]);
+        matched = true;
+        return;
+      }
+      match = trimmed.match(/^SD >=\s*(-?\d+(?:\.\d+)?)$/i);
+      if(match){
+        parsed.filters.sdEnabled = true;
+        parsed.filters.sdThreshold = Number(match[1]);
+        matched = true;
+        return;
+      }
+      match = trimmed.match(/^Abs count >=\s*(-?\d+(?:\.\d+)?)\s*@\s*(-?\d+(?:\.\d+)?)$/i);
+      if(match){
+        parsed.filters.absEnabled = true;
+        parsed.filters.absCount = Number(match[1]);
+        parsed.filters.absValue = Number(match[2]);
+        matched = true;
+        return;
+      }
+      match = trimmed.match(/^Range >=\s*(-?\d+(?:\.\d+)?)$/i);
+      if(match){
+        parsed.filters.rangeEnabled = true;
+        parsed.filters.rangeThreshold = Number(match[1]);
+        matched = true;
+        return;
+      }
+      match = trimmed.match(/^Center rows \((mean|median)\)$/i);
+      if(match){
+        parsed.adjust.centerRowsMode = String(match[1]).toLowerCase();
+        matched = true;
+        return;
+      }
+      match = trimmed.match(/^Center cols \((mean|median)\)$/i);
+      if(match){
+        parsed.adjust.centerColumnsMode = String(match[1]).toLowerCase();
+        matched = true;
+        return;
+      }
+      if(/^Normalize rows \(z\)$/i.test(trimmed)){
+        parsed.adjust.normalizeRows = true;
+        matched = true;
+        return;
+      }
+      if(/^Normalize cols \(z\)$/i.test(trimmed)){
+        parsed.adjust.normalizeColumns = true;
+        matched = true;
+      }
+    });
+    return matched ? parsed : null;
+  }
+
+  function resolveHeatmapMaterializedTransformState(view){
+    if(!isHeatmapMaterializedDataView(view)){
+      return null;
+    }
+    const explicit = view?.transformSpec?.dataTransformState;
+    if(explicit && typeof explicit === 'object'){
+      return normalizeHeatmapDataTransformState(explicit);
+    }
+    return parseHeatmapDataTransformStateFromSummary(view?.summary?.transform);
+  }
+
+  function resolveHeatmapDataTransformControlStateForView(view, manager){
+    let candidate = view || null;
+    const viewsManager = manager || heatmapDataViewsManager || null;
+    const visited = new Set();
+    while(candidate && isHeatmapCorrelationMatrixDataView(candidate) && !visited.has(candidate.id)){
+      visited.add(candidate.id);
+      const nextId = String(candidate.sourceViewId || 'raw');
+      candidate = viewsManager?.getView?.(nextId) || null;
+    }
+    return resolveHeatmapMaterializedTransformState(candidate);
+  }
+
+  function applyHeatmapDataTransformControlState(transformState){
+    const normalized = transformState ? normalizeHeatmapDataTransformState(transformState) : null;
+    runWithHeatmapControlSuspension(() => {
+      if(normalized){
+        if(refs.filterPresentValue){ refs.filterPresentValue.value = String(normalized.filters.presentThreshold); }
+        if(refs.filterSdValue){ refs.filterSdValue.value = String(normalized.filters.sdThreshold); }
+        if(refs.filterAbsCount){ refs.filterAbsCount.value = String(normalized.filters.absCount); }
+        if(refs.filterAbsValue){ refs.filterAbsValue.value = String(normalized.filters.absValue); }
+        if(refs.filterRangeValue){ refs.filterRangeValue.value = String(normalized.filters.rangeThreshold); }
+        const rowMode = normalized.adjust.centerRowsMode || 'mean';
+        const rowRadio = global.document?.querySelector?.(`input[name="heatmapCenterGenesMode"][value="${rowMode}"]`);
+        if(rowRadio){ rowRadio.checked = true; }
+        const colMode = normalized.adjust.centerColumnsMode || 'mean';
+        const colRadio = global.document?.querySelector?.(`input[name="heatmapCenterArraysMode"][value="${colMode}"]`);
+        if(colRadio){ colRadio.checked = true; }
+        state.logPlusOne = !!normalized.adjust.logPlusOne;
+      }else{
+        state.logPlusOne = false;
+      }
+      if(refs.logTransform){
+        refs.logTransform.checked = !!normalized?.adjust?.logTransform;
+      }
+      if(refs.centerGenes){
+        refs.centerGenes.checked = !!normalized?.adjust?.centerRowsMode;
+        refs.centerGenes.dispatchEvent(new Event('change'));
+      }
+      if(refs.centerArrays){
+        refs.centerArrays.checked = !!normalized?.adjust?.centerColumnsMode;
+        refs.centerArrays.dispatchEvent(new Event('change'));
+      }
+      if(refs.normalizeGenes){
+        refs.normalizeGenes.checked = !!normalized?.adjust?.normalizeRows;
+      }
+      if(refs.normalizeArrays){
+        refs.normalizeArrays.checked = !!normalized?.adjust?.normalizeColumns;
+      }
+      if(refs.filterPresentEnable){
+        refs.filterPresentEnable.checked = !!normalized?.filters?.presentEnabled;
+        refs.filterPresentEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.filterSdEnable){
+        refs.filterSdEnable.checked = !!normalized?.filters?.sdEnabled;
+        refs.filterSdEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.filterAbsEnable){
+        refs.filterAbsEnable.checked = !!normalized?.filters?.absEnabled;
+        refs.filterAbsEnable.dispatchEvent(new Event('change'));
+      }
+      if(refs.filterRangeEnable){
+        refs.filterRangeEnable.checked = !!normalized?.filters?.rangeEnabled;
+        refs.filterRangeEnable.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
   function buildHeatmapDerivedViewTitle(settings){
     const tokens = collectHeatmapDataTransformTokens(settings);
     if(!tokens.length){
@@ -3957,6 +4173,21 @@
 
   function isHeatmapCorrelationMatrixDataView(view){
     return !!(view && view.kind === 'derived' && view.transformSpec?.type === 'heatmapCorrelationMatrix');
+  }
+
+  function resolveHeatmapMaterializationSourceView(manager, view){
+    let candidate = view || null;
+    const visited = new Set();
+    while(candidate && isHeatmapMaterializedDataView(candidate) && !visited.has(candidate.id)){
+      visited.add(candidate.id);
+      const nextId = String(candidate.sourceViewId || 'raw');
+      const nextView = manager?.getView?.(nextId) || null;
+      if(!nextView || nextView === candidate){
+        break;
+      }
+      candidate = nextView;
+    }
+    return candidate || manager?.getView?.('raw') || null;
   }
 
   function resolveHeatmapViewContext(hotInstance){
@@ -4224,6 +4455,7 @@
       if(String(manager.getActiveViewId?.() || '') === String(targetView.id) && hot && typeof hot.loadData === 'function'){
         const currentData = typeof hot.getData === 'function' ? hot.getData() : null;
         if(!areHeatmapViewMatricesEqual(currentData, data)){
+          hot.__heatmapPendingProgrammaticLoadSource = HEATMAP_LOAD_SOURCE_CORRELATION_SYNC;
           hot.loadData(data, {
             source: HEATMAP_LOAD_SOURCE_CORRELATION_SYNC
           });
@@ -4289,29 +4521,7 @@
   }
 
   function clearHeatmapAdjustAndFilterControls(){
-    runWithHeatmapControlSuspension(() => {
-      state.logPlusOne = false;
-      const toggles = [
-        refs.logTransform,
-        refs.centerGenes,
-        refs.centerArrays,
-        refs.normalizeGenes,
-        refs.normalizeArrays,
-        refs.filterPresentEnable,
-        refs.filterSdEnable,
-        refs.filterAbsEnable,
-        refs.filterRangeEnable
-      ];
-      toggles.forEach(toggle => {
-        if(!toggle){
-          return;
-        }
-        if(toggle.checked){
-          toggle.checked = false;
-        }
-        toggle.dispatchEvent(new Event('change'));
-      });
-    });
+    applyHeatmapDataTransformControlState(null);
   }
 
   function findHeatmapMaterializedViewForSource(manager, sourceViewId){
@@ -4352,7 +4562,9 @@
     const sourceViewId = viewContext.sourceViewId || 'raw';
     const keepCorrelationActive = isHeatmapCorrelationMatrixDataView(activeView);
     const sourceView = manager.getView?.(sourceViewId) || manager.getView?.('raw') || null;
-    const sourceData = Array.isArray(sourceView?.data) ? sourceView.data : (hot.getData?.() || []);
+    const materializationSourceView = resolveHeatmapMaterializationSourceView(manager, sourceView);
+    const materializationSourceViewId = String(materializationSourceView?.id || sourceView?.sourceViewId || sourceViewId || 'raw');
+    const sourceData = Array.isArray(materializationSourceView?.data) ? materializationSourceView.data : (hot.getData?.() || []);
     const sourceRaw = collectTableDataFromMatrix(sourceData);
     if(!sourceRaw){
       if(typeof global.alert === 'function'){
@@ -4363,16 +4575,24 @@
     const settings = collectSettings();
     const existingMaterialized = isHeatmapMaterializedDataView(activeView)
       ? activeView
-      : findHeatmapMaterializedViewForSource(manager, sourceViewId);
+      : (isHeatmapMaterializedDataView(sourceView)
+        ? sourceView
+        : findHeatmapMaterializedViewForSource(manager, materializationSourceViewId));
     if(!hasHeatmapDataTransformSelection(settings)){
       if(existingMaterialized){
         const wasActive = existingMaterialized.id === manager.getActiveViewId?.() && !keepCorrelationActive;
-        manager.removeView(existingMaterialized.id, { reason: 'heatmap-transform-clear', silent: true });
-        if(wasActive){
-          manager.activateView(sourceViewId, { reason: 'heatmap-transform-clear' });
+        manager.removeView(existingMaterialized.id, {
+          reason: 'heatmap-transform-clear',
+          silent: !wasActive
+        });
+        if(wasActive && materializationSourceViewId !== 'raw'){
+          manager.activateView(materializationSourceViewId, { reason: 'heatmap-transform-clear' });
         }
         if(keepCorrelationActive){
-          updateHeatmapCorrelationMatrixViewSource(manager, sourceViewId);
+          updateHeatmapCorrelationMatrixViewSource(manager, materializationSourceViewId);
+          applyHeatmapDataTransformControlState(
+            resolveHeatmapDataTransformControlStateForView(manager.getActiveView?.() || activeView, manager)
+          );
           markHeatmapOverlayPending('heatmap-transform-clear-correlation-source');
           state.scheduleDraw({ force: true, reason: 'heatmap-transform-clear-correlation-source' });
         }
@@ -4403,9 +4623,10 @@
     const createdView = manager.createDerivedView({
       title: buildHeatmapDerivedViewTitle(settings),
       data: derivedData,
-      sourceViewId,
+      sourceViewId: materializationSourceViewId,
       transformSpec: {
-        type: 'heatmapMaterialized'
+        type: 'heatmapMaterialized',
+        dataTransformState: normalizeHeatmapDataTransformState(settings)
       },
       summary: buildHeatmapDerivedViewSummary(settings, processed),
       exclusions: null,
@@ -7526,6 +7747,9 @@
       }
     }
     applyConfig(config);
+    applyHeatmapDataTransformControlState(
+      resolveHeatmapDataTransformControlStateForView(dataManager?.getActiveView?.() || null, dataManager)
+    );
     if(state.hot){
       syncHeatmapActiveDataViewFromHot(state.hot, 'payload-load');
     }
@@ -7751,6 +7975,12 @@
           wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
           container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
         });
+        applyHeatmapDataTransformControlState(
+          resolveHeatmapDataTransformControlStateForView(
+            hot.__heatmapDataViewsManager?.getActiveView?.() || null,
+            hot.__heatmapDataViewsManager || heatmapDataViewsManager
+          )
+        );
         syncHeatmapActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
