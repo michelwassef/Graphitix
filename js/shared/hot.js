@@ -6477,7 +6477,7 @@
             actionButton.classList.toggle('is-sorted', sort === 'asc' || sort === 'desc');
             actionButton.classList.toggle('is-sorted-asc', sort === 'asc');
             actionButton.classList.toggle('is-sorted-desc', sort === 'desc');
-            sortBadge.textContent = sort === 'asc' ? '↑' : (sort === 'desc' ? '↓' : '');
+            sortBadge.textContent = '';
             sortBadge.hidden = !(sort === 'asc' || sort === 'desc');
             const titleParts = ['Open column filter'];
             if(filtered){
@@ -8965,15 +8965,20 @@
           ? normalizeFilterSelectionValues(currentModel.selected)
           : context.uniqueOptions.map(option => option.key)
       );
-
-      const renderValueList = ()=>{
-        const needle = String(searchInput.value || '').trim().toLowerCase();
-        const matching = context.uniqueOptions.filter(option=>{
+      const getCurrentSearchNeedle = ()=>String(searchInput.value || '').trim().toLowerCase();
+      const getMatchingOptions = ()=>{
+        const needle = getCurrentSearchNeedle();
+        return context.uniqueOptions.filter(option=>{
           if(!needle){
             return true;
           }
           return option.label.toLowerCase().includes(needle);
         });
+      };
+
+      const renderValueList = ()=>{
+        const needle = getCurrentSearchNeedle();
+        const matching = getMatchingOptions();
         const visible = matching.slice(0, FILTER_MENU_MAX_VISIBLE_VALUES);
         const selectedMatchingCount = matching.filter(option => selectedKeys.has(option.key)).length;
         valueSummary.textContent = needle
@@ -9018,11 +9023,7 @@
       };
 
       valueSelectAll.addEventListener('change', ()=>{
-        const needle = String(searchInput.value || '').trim().toLowerCase();
-        context.uniqueOptions.forEach(option=>{
-          if(needle && !option.label.toLowerCase().includes(needle)){
-            return;
-          }
+        getMatchingOptions().forEach(option=>{
           if(valueSelectAll.checked){
             selectedKeys.add(option.key);
           }else{
@@ -9109,7 +9110,14 @@
         let nextModel = null;
         if(mode === FILTER_KIND_SET){
           const availableKeys = context.uniqueOptions.map(option => option.key);
-          const selected = normalizeFilterSelectionValues(Array.from(selectedKeys));
+          const needle = getCurrentSearchNeedle();
+          const selected = normalizeFilterSelectionValues(
+            needle
+              ? getMatchingOptions()
+                  .filter(option => selectedKeys.has(option.key))
+                  .map(option => option.key)
+              : Array.from(selectedKeys)
+          );
           const allSelected = availableKeys.length > 0 && availableKeys.every(key => selected.indexOf(key) !== -1);
           if(!allSelected){
             nextModel = {

@@ -2366,6 +2366,88 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(inputWrap.style.display).toBe('none');
   });
 
+  test('set-filter search applies matching values on OK and Enter', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFilterPopupSearchApplyHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 5, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-popup-search-apply',
+        data: [
+          ['Label', 'Group'],
+          ['a', 'alpha'],
+          ['b', 'beta'],
+          ['c', 'gamma'],
+          ['d', 'delta']
+        ]
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c1',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'Group' })
+      },
+      displayName: 'Group'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    const openMenu = () => {
+      headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      const menu = document.querySelector('.ag-hot-filter-menu');
+      expect(menu).toBeTruthy();
+      return menu;
+    };
+
+    let menu = openMenu();
+    let searchInput = menu.querySelector('.ag-hot-filter-menu__search');
+    let applyButton = menu.querySelector('.ag-hot-filter-menu__button');
+    expect(searchInput).toBeTruthy();
+    expect(applyButton?.textContent).toBe('OK');
+    searchInput.value = 'be';
+    searchInput.dispatchEvent(new global.window.Event('input', { bubbles: true }));
+    applyButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.countRows()).toBe(2);
+    expect(hot.getDataAtCell(0, 1)).toBe('Group');
+    expect(hot.getDataAtCell(1, 1)).toBe('beta');
+
+    hot.clearFilters({ schedule: false });
+    expect(hot.countRows()).toBe(5);
+
+    menu = openMenu();
+    searchInput = menu.querySelector('.ag-hot-filter-menu__search');
+    expect(searchInput).toBeTruthy();
+    searchInput.value = 'de';
+    searchInput.dispatchEvent(new global.window.Event('input', { bubbles: true }));
+    searchInput.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true
+    }));
+
+    expect(hot.countRows()).toBe(2);
+    expect(hot.getDataAtCell(0, 1)).toBe('Group');
+    expect(hot.getDataAtCell(1, 1)).toBe('delta');
+  });
+
   test('clicking row header selects the full row', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
