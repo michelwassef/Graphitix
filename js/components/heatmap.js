@@ -1431,6 +1431,50 @@
     debugLog('Debug: heatmap cached render cleared');
   }
 
+  function invalidateHeatmapTransientRenderState(reason){
+    clearHiddenDrawFlushHandle();
+    pendingDrawOptions = {};
+    deferredHiddenDrawOptions = null;
+    state.drawToken = (Number(state.drawToken) || 0) + 1;
+    clearCachedRenderState();
+    debugLog('Debug: heatmap transient render state invalidated', {
+      reason: reason || 'unknown',
+      drawToken: state.drawToken
+    });
+  }
+
+  function captureHeatmapRenderStateSnapshot(){
+    return {
+      lastRenderModel: cloneSimple(state.lastRenderModel),
+      lastViewOptions: cloneSimple(state.lastViewOptions),
+      lastStats: cloneSimple(state.lastStats),
+      textAspectMetrics: cloneSimple(state.textAspectMetrics),
+      lastDataShape: cloneSimple(state.lastDataShape),
+      lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation)
+    };
+  }
+
+  function restoreHeatmapRenderStateSnapshot(snapshot){
+    const source = snapshot && typeof snapshot === 'object' ? snapshot : null;
+    if(!source){
+      clearCachedRenderState();
+      return false;
+    }
+    state.lastRenderModel = cloneSimple(source.lastRenderModel) || null;
+    state.lastViewOptions = cloneSimple(source.lastViewOptions) || null;
+    state.lastStats = cloneSimple(source.lastStats) || null;
+    state.textAspectMetrics = cloneSimple(source.textAspectMetrics) || null;
+    state.lastDataShape = cloneSimple(source.lastDataShape) || { rows: 0, cols: 0 };
+    state.lastAutoDrawEvaluation = cloneSimple(source.lastAutoDrawEvaluation) || null;
+    debugLog('Debug: heatmap render state restored', {
+      hasModel: !!state.lastRenderModel,
+      hasViewOptions: !!state.lastViewOptions,
+      hasStats: !!state.lastStats,
+      hasTextAspectMetrics: !!state.textAspectMetrics
+    });
+    return true;
+  }
+
   function normalizeDrawOptions(options){
     if(!options){
       return {};
@@ -7701,6 +7745,7 @@
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
+    invalidateHeatmapTransientRenderState(`payload:${meta?.source || 'unknown'}`);
     const hot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
     if(hot){
       state.hot = hot;
@@ -7985,6 +8030,7 @@
       heatmap.init();
       return;
     }
+    invalidateHeatmapTransientRenderState('prepare-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
       if(hot){
@@ -8026,33 +8072,133 @@
     return true;
   }
 
+  function captureHeatmapSvgRootState(svg){
+    if(!svg){
+      return null;
+    }
+    const attributeNames = ['viewBox', 'preserveAspectRatio'];
+    const styleNames = ['display'];
+    const attributes = {};
+    const style = {};
+    attributeNames.forEach(name => {
+      const value = typeof svg.getAttribute === 'function' ? svg.getAttribute(name) : null;
+      if(typeof value === 'string' && value.length){
+        attributes[name] = value;
+      }
+    });
+    styleNames.forEach(name => {
+      const value = svg.style?.[name];
+      if(typeof value === 'string' && value.length){
+        style[name] = value;
+      }
+    });
+    return {
+      attributes: Object.keys(attributes).length ? attributes : null,
+      style: Object.keys(style).length ? style : null
+    };
+  }
+
+  function restoreHeatmapSvgRootState(svg, snapshot){
+    if(!svg){
+      return false;
+    }
+    const attributeNames = ['viewBox', 'preserveAspectRatio'];
+    const styleNames = ['display'];
+    attributeNames.forEach(name => {
+      try{
+        if(typeof svg.removeAttribute === 'function'){
+          svg.removeAttribute(name);
+        }
+      }catch(err){
+        console.error('heatmap restore svg attribute reset error', { name, err });
+      }
+    });
+    styleNames.forEach(name => {
+      try{
+        if(svg.style){
+          svg.style[name] = '';
+        }
+      }catch(err){
+        console.error('heatmap restore svg style reset error', { name, err });
+      }
+    });
+    if(!snapshot || typeof snapshot !== 'object'){
+      return true;
+    }
+    const attributes = snapshot.attributes && typeof snapshot.attributes === 'object'
+      ? snapshot.attributes
+      : null;
+    const style = snapshot.style && typeof snapshot.style === 'object'
+      ? snapshot.style
+      : null;
+    if(attributes){
+      Object.entries(attributes).forEach(([name, value]) => {
+        try{
+          if(value == null || value === ''){
+            svg.removeAttribute?.(name);
+          }else{
+            svg.setAttribute?.(name, String(value));
+          }
+        }catch(err){
+          console.error('heatmap restore svg attribute error', { name, value, err });
+        }
+      });
+    }
+    if(style){
+      Object.entries(style).forEach(([name, value]) => {
+        try{
+          if(svg.style){
+            svg.style[name] = value || '';
+          }
+        }catch(err){
+          console.error('heatmap restore svg style error', { name, value, err });
+        }
+      });
+    }
+    return true;
+  }
+
   heatmap.captureRenderCache = function captureRenderCache(){
     const svg = state.svg || $('heatmapSvg');
     const stats = state.statsEl || $('heatmapStatsContent');
     const svgCache = detachChildren(svg);
     const statsCache = detachChildren(stats);
+    const renderState = captureHeatmapRenderStateSnapshot();
+    const svgRootState = captureHeatmapSvgRootState(svg);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: heatmap render cache captured', {
         svgNodes: svgCache?.count || 0,
-        statsNodes: statsCache?.count || 0
+        statsNodes: statsCache?.count || 0,
+        hasRenderState: !!renderState,
+        hasSvgRootState: !!svgRootState
       });
     }
-    return { svg: svgCache, stats: statsCache };
+    return { svg: svgCache, stats: statsCache, renderState, svgRootState };
   };
 
   heatmap.restoreRenderCache = function restoreRenderCache(cache){
-    if(!cache){ return false; }
+    if(!cache || !cache.renderState){
+      clearCachedRenderState();
+      return false;
+    }
     const svg = state.svg || $('heatmapSvg');
     const stats = state.statsEl || $('heatmapStatsContent');
+    restoreHeatmapSvgRootState(svg, cache.svgRootState);
     const restoredSvg = restoreChildren(svg, cache.svg);
     const restoredStats = restoreChildren(stats, cache.stats);
-    const restored = restoredSvg || restoredStats;
+    const restoredState = restoreHeatmapRenderStateSnapshot(cache.renderState);
+    const restored = (restoredSvg || restoredStats) && restoredState;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: heatmap render cache restored', {
         restored,
         svg: restoredSvg,
-        stats: restoredStats
+        stats: restoredStats,
+        renderState: restoredState,
+        svgRootState: !!cache.svgRootState
       });
+    }
+    if(restored){
+      scheduleHeatmapTextAspect('render-cache-restore');
     }
     return restored;
   };
