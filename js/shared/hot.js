@@ -7364,6 +7364,33 @@
       const next = captureExclusionState();
       recordExclusionUndo(label, prev, next);
     };
+    const captureFilterState = ()=>cloneFilterState(exportActiveFilterState());
+    const applyCapturedFilterState = (state, reason, options = {})=>{
+      const normalized = cloneFilterState(state);
+      const previous = captureFilterState();
+      if(areFilterStatesEqual(previous, normalized)){
+        return previous;
+      }
+      activeColumnFilters = new Map(Object.entries(normalized.columns || {}));
+      notifyColumnFiltersChanged(reason || 'filter-change', {
+        schedule: options.schedule !== false
+      });
+      return captureFilterState();
+    };
+    const recordFilterUndo = (label, prevState, nextState)=>{
+      const before = cloneFilterState(prevState || captureFilterState());
+      const after = cloneFilterState(nextState || captureFilterState());
+      if(!hasGlobalUndo || undoLockDepth > 0 || areFilterStatesEqual(before, after)){
+        return false;
+      }
+      undoManager.record({
+        label: label || `table:${debugLabel}:filter`,
+        scope: undoScope,
+        undo: ()=>withUndoLock('undo:filter', ()=>applyCapturedFilterState(before, 'UndoRedo.undo.filter', { schedule: true })),
+        redo: ()=>withUndoLock('redo:filter', ()=>applyCapturedFilterState(after, 'UndoRedo.redo.filter', { schedule: true }))
+      });
+      return true;
+    };
 
     let batchDepth = 0;
     let pendingRender = false;
@@ -9107,6 +9134,7 @@
 
       const applyCurrentFilter = ()=>{
         const mode = modeSelect.value || FILTER_KIND_SET;
+        const previousState = captureFilterState();
         let nextModel = null;
         if(mode === FILTER_KIND_SET){
           const availableKeys = context.uniqueOptions.map(option => option.key);
@@ -9141,24 +9169,26 @@
             return;
           }
         }
-        const previousJson = JSON.stringify(cloneFilterModel(activeColumnFilters.get(colId)) || null);
-        const nextJson = JSON.stringify(nextModel || null);
         if(nextModel){
           activeColumnFilters.set(colId, nextModel);
         }else{
           activeColumnFilters.delete(colId);
         }
-        if(previousJson !== nextJson){
+        const nextState = captureFilterState();
+        if(!areFilterStatesEqual(previousState, nextState)){
           notifyColumnFiltersChanged(`filter:${colId}`);
+          recordFilterUndo(`table:${debugLabel}:filter:${colId}`, previousState, captureFilterState());
         }
         closeCustomMenu();
       };
 
       applyButton.addEventListener('click', applyCurrentFilter);
       clearButton.addEventListener('click', ()=>{
+        const previousState = captureFilterState();
         if(activeColumnFilters.has(colId)){
           activeColumnFilters.delete(colId);
           notifyColumnFiltersChanged(`filter-clear:${colId}`);
+          recordFilterUndo(`table:${debugLabel}:filter-clear:${colId}`, previousState, captureFilterState());
         }
         closeCustomMenu();
       });
@@ -13322,25 +13352,29 @@
     instance.__hotApplyFilters = function(payload, options = {}){
       const normalized = cloneFilterState(payload);
       const previous = exportActiveFilterState();
-      activeColumnFilters = new Map(Object.entries(normalized.columns || {}));
       if(areFilterStatesEqual(previous, normalized)){
         return previous;
       }
-      notifyColumnFiltersChanged(options.reason || 'apply-filters', {
+      const next = applyCapturedFilterState(normalized, options.reason || 'apply-filters', {
         schedule: options.schedule !== false
       });
-      return exportActiveFilterState();
+      if(options.recordUndo === true){
+        recordFilterUndo(options.undoLabel || `table:${debugLabel}:apply-filters`, previous, next);
+      }
+      return next;
     };
     instance.__hotClearFilters = function(options = {}){
       const previous = exportActiveFilterState();
       if(previous === EMPTY_FILTER_STATE || !Object.keys(previous.columns || {}).length){
         return previous;
       }
-      activeColumnFilters = new Map();
-      notifyColumnFiltersChanged(options.reason || 'clear-filters', {
+      const next = applyCapturedFilterState(EMPTY_FILTER_STATE, options.reason || 'clear-filters', {
         schedule: options.schedule !== false
       });
-      return EMPTY_FILTER_STATE;
+      if(options.recordUndo === true){
+        recordFilterUndo(options.undoLabel || `table:${debugLabel}:clear-filters`, previous, next);
+      }
+      return next;
     };
 
     instance.exportExclusions = function(){

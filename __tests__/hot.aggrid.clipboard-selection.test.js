@@ -2448,6 +2448,91 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 1)).toBe('delta');
   });
 
+  test('filter apply and clear actions are undoable', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agFilterUndoHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 5, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-undo',
+        data: [
+          ['Label', 'Value'],
+          ['a', 1],
+          ['b', 2],
+          ['c', 3],
+          ['d', 4]
+        ]
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c1',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'Value' })
+      },
+      displayName: 'Value'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    const openMenu = () => {
+      headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      const menu = document.querySelector('.ag-hot-filter-menu');
+      expect(menu).toBeTruthy();
+      return menu;
+    };
+
+    let menu = openMenu();
+    let modeSelect = menu.querySelector('.ag-hot-filter-menu__select');
+    let valueInput = menu.querySelector('.ag-hot-filter-menu__input');
+    let buttons = Array.from(menu.querySelectorAll('.ag-hot-filter-menu__button'));
+    let okButton = buttons.find(button => button.textContent === 'OK');
+    expect(modeSelect).toBeTruthy();
+    expect(valueInput).toBeTruthy();
+    expect(okButton).toBeTruthy();
+
+    modeSelect.value = 'greaterThan';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    valueInput.value = '2';
+    okButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(1, 1)).toBe(3);
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.countRows()).toBe(5);
+    expect(undoManager.redo()).toBe(true);
+    expect(hot.countRows()).toBe(3);
+
+    menu = openMenu();
+    buttons = Array.from(menu.querySelectorAll('.ag-hot-filter-menu__button'));
+    const clearButton = buttons.find(button => button.textContent === 'Clear');
+    expect(clearButton).toBeTruthy();
+    clearButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.countRows()).toBe(5);
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.countRows()).toBe(3);
+    expect(undoManager.redo()).toBe(true);
+    expect(hot.countRows()).toBe(5);
+  });
+
   test('clicking row header selects the full row', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
