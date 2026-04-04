@@ -30771,7 +30771,7 @@ Technical analysis record (advanced)
     return restored;
   };
   box.ensure = function(){ if(!box.ready) box.init(); };
-  box.prepareForTab = function prepareForTab(){
+  box.activateTab = function activateTab(){
     if(!box.ready){
       box.init();
       return;

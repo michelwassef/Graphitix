@@ -11075,7 +11075,7 @@
     };
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
-    pca.prepareForTab = function prepareForTab(tab){
+    pca.activateTab = function activateTab(tab){
       const payloadConfig = tab && tab.payload && tab.payload.config ? tab.payload.config : null;
       applyPcaMethodUiPreActivation(payloadConfig || {});
       const hot = ensurePcaHotForActiveTab();

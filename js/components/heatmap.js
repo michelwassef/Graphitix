@@ -31,14 +31,6 @@
       console.debug('Debug: heatmap component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
-  const tabContextApi = Shared.tabContext = Shared.tabContext || {};
-  if(typeof tabContextApi.createManager !== 'function' && typeof require === 'function'){
-    try{
-      require('../shared/tabContext.js');
-    }catch(err){
-      console.debug('Debug: heatmap component tabContext helper require failed', { message: err?.message || String(err) });
-    }
-  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -532,25 +524,6 @@
         notesState.control.setOpen(notesState.open);
       }
     }
-  }
-
-  const heatmapTabContextManager = typeof Shared.tabContext?.createManager === 'function'
-    ? Shared.tabContext.createManager({
-      componentKey: 'heatmap',
-      createDefaultContext: createDefaultHeatmapTabContext,
-      captureState: buildHeatmapTabContextSnapshotFromState,
-      applyState: applyHeatmapTabContextSnapshot,
-      resolveFallbackTabId: () => String(state.hot?.__heatmapTabId || '').trim(),
-      debugLog
-    })
-    : null;
-
-  function syncHeatmapActiveTabContextFromState(reason){
-    return heatmapTabContextManager?.sync(reason) || null;
-  }
-
-  function activateHeatmapTabContext(tabLike, options = {}){
-    return heatmapTabContextManager?.activate(tabLike, options) || null;
   }
 
   function ensureHeatmapPerformanceState(){
@@ -7728,7 +7701,6 @@
     });
   }
   function getPayload(){
-    syncHeatmapActiveTabContextFromState('getPayload');
     const activeHot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
@@ -7972,7 +7944,6 @@
       rows: matrix.length,
       cols: matrix[0]?.length || 0
     });
-    syncHeatmapActiveTabContextFromState(`payload:${meta?.source || 'unknown'}`);
     return true;
   }
 
@@ -8168,15 +8139,11 @@
       heatmap.init();
     }
   };
-  heatmap.prepareForTab = function prepareForTab(){
-    const targetTab = arguments[0] || null;
+  heatmap.activateTab = function activateTab(){
     if(!heatmap.ready){
       heatmap.init();
     }
-    activateHeatmapTabContext(targetTab, {
-      reason: 'prepare-tab'
-    });
-    invalidateHeatmapTransientRenderState('prepare-tab');
+    invalidateHeatmapTransientRenderState('activate-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
       if(hot){
@@ -8190,10 +8157,19 @@
             hot.__heatmapDataViewsManager || heatmapDataViewsManager
           )
         );
-        syncHeatmapActiveDataViewFromHot(hot, 'prepare-tab');
+        syncHeatmapActiveDataViewFromHot(hot, 'activate-tab');
       }
     }
-    scheduleDeferredHiddenDrawFlush('prepare-tab');
+    scheduleDeferredHiddenDrawFlush('activate-tab');
+  };
+
+  heatmap.captureRuntimeState = function captureRuntimeState(){
+    return buildHeatmapTabContextSnapshotFromState();
+  };
+
+  heatmap.applyRuntimeState = function applyRuntimeState(snapshot){
+    applyHeatmapTabContextSnapshot(snapshot, { syncUi: true });
+    return true;
   };
 
   function detachChildren(node){

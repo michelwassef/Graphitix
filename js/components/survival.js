@@ -5135,7 +5135,7 @@
       init();
     }
   };
-  survival.prepareForTab = function prepareForTab(){
+  survival.activateTab = function activateTab(){
     if(!survival.ready){
       init();
       return;

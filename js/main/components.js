@@ -103,9 +103,6 @@
         if (component && typeof component.activateTab === 'function') {
           return component.activateTab(tab, meta);
         }
-        if (component && typeof component.prepareForTab === 'function') {
-          return component.prepareForTab(tab, meta);
-        }
         return undefined;
       };
     }
@@ -232,7 +229,7 @@
       loadFromPayload: (payload, options) => window.Components?.box?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.box?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.box?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.box?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.box?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.box?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.box?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('box'),
@@ -250,7 +247,7 @@
       loadFromPayload: (payload, options) => window.Components?.scatter?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.scatter?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.scatter?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.scatter?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.scatter?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.scatter?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.scatter?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('scatter'),
@@ -268,7 +265,7 @@
       loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.pca?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.pca?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.pca?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.pca?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pca?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.pca?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('pca'),
@@ -285,7 +282,7 @@
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.line?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.line?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.line?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.line?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.line?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('line'),
@@ -302,7 +299,7 @@
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.heatmap?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.heatmap?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.heatmap?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.heatmap?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.heatmap?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('heatmap'),
@@ -319,7 +316,7 @@
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.surface?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.surface?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.surface?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.surface?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('surface'),
@@ -336,7 +333,7 @@
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.roc?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.roc?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.roc?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.roc?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.roc?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('roc'),
@@ -353,7 +350,7 @@
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.survival?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.survival?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.survival?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.survival?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('survival'),
@@ -370,7 +367,7 @@
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.hist?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.hist?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.hist?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.hist?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('hist'),
@@ -387,7 +384,7 @@
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
-      prepareForTab: tab => window.Components?.pie?.prepareForTab?.(tab),
+      activateTab: (tab, meta) => window.Components?.pie?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pie?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.pie?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('pie'),

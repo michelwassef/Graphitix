@@ -3686,7 +3686,7 @@
       init();
     }
   };
-  roc.prepareForTab = function prepareForTab(_tab){
+  roc.activateTab = function activateTab(_tab){
     ensureHotForActiveTab();
   };
   roc.draw = () => { void runRocDrawCycle(); };

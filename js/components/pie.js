@@ -4045,7 +4045,7 @@
   };
 
   pie.ensure = function ensure(){ if (!pie.ready) pie.init(); };
-  pie.prepareForTab = function prepareForTab(){
+  pie.activateTab = function activateTab(){
     if(!pie.ready){
       pie.init();
       return;

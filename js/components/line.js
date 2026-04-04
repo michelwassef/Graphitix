@@ -12353,7 +12353,7 @@
 
   line.init = setup;
   line.ensure = ensureReady;
-  line.prepareForTab = function prepareForTab(){
+  line.activateTab = function activateTab(){
     if(!line.ready){
       line.init();
       return;

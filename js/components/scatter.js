@@ -20469,7 +20469,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   scatter.init = setup;
   scatter.ensure = ensureReady;
   scatter.computeAdaptivePointSize = computeAdaptivePointSize;
-  scatter.prepareForTab = function prepareForTab(){
+  scatter.activateTab = function activateTab(){
     if(!scatter.ready){
       scatter.init();
       return;

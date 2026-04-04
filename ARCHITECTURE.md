@@ -67,7 +67,7 @@ Each workspace component should expose these (directly or via equivalent wrapper
 
 Optional but already supported:
 
-- `prepareForTab(tab)`
+- `activateTab(tab, meta)`
 - `captureRenderCache(meta)` / `restoreRenderCache(cache, meta)`
 
 ## 5. Persistence Flow

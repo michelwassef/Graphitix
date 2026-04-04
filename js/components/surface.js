@@ -43,14 +43,6 @@
       console.debug('Debug: surface component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
-  const tabContextApi = Shared.tabContext = Shared.tabContext || {};
-  if(typeof tabContextApi.createManager !== 'function' && typeof require === 'function'){
-    try{
-      require('../shared/tabContext.js');
-    }catch(err){
-      console.debug('Debug: surface component tabContext helper require failed', { message: err?.message || String(err) });
-    }
-  }
   const notesState = { text: '', open: false, control: null };
   const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scope)
@@ -179,18 +171,7 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
-  const surfaceTabContextManager = typeof Shared.tabContext?.createManager === 'function'
-    ? Shared.tabContext.createManager({
-      componentKey: 'surface',
-      createDefaultContext: createDefaultSurfaceTabContext,
-      captureState: buildSurfaceTabContextSnapshotFromState,
-      applyState: applySurfaceTabContextSnapshot,
-      resolveFallbackTabId: () => String(state.hot?.__surfaceTabId || '').trim(),
-      debugLog
-    })
-    : null;
-  const SURFACE_RUNTIME_KEY = surfaceTabContextManager?.getRuntimeKey?.()
-    || `surface-runtime-${Math.random().toString(36).slice(2, 10)}`;
+  const SURFACE_RUNTIME_KEY = `surface-runtime-${Math.random().toString(36).slice(2, 10)}`;
   let surfaceDataViewsManager = null;
   let surfaceDataToolbarBound = false;
   let surfaceDataToolbarLastActivation = 0;
@@ -335,14 +316,6 @@
       surfaceAutoDrawManager?.updateUi?.();
       syncSurfaceAutoDrawNoticeWidth('tab-context-activate');
     }
-  }
-
-  function syncSurfaceActiveTabContextFromState(reason){
-    return surfaceTabContextManager?.sync(reason) || null;
-  }
-
-  function activateSurfaceTabContext(tabLike, options = {}){
-    return surfaceTabContextManager?.activate(tabLike, options) || null;
   }
 
   function scheduleSurfaceViewRefresh(reason){
@@ -2689,7 +2662,7 @@
   surface.ensure = function ensure(){
     if(!surface.ready){ surface.init(); }
   };
-  surface.prepareForTab = function prepareForTab(tab){
+  surface.activateTab = function activateTab(tab){
     if(!surface.ready){
       surface.init();
     }
@@ -2700,10 +2673,9 @@
           wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
           container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
         });
-        syncSurfaceActiveDataViewFromHot(hot, 'prepare-tab');
+        syncSurfaceActiveDataViewFromHot(hot, 'activate-tab');
       }
     }
-    activateSurfaceTabContext(tab, { reason: 'prepare-tab' });
     cacheDom();
     const cacheSignature = tab?.renderCacheSignature ?? tab?.renderCache?.payloadSignature ?? null;
     const layoutSignature = tab?.renderCacheLayoutSignature ?? tab?.renderCache?.layoutSignature ?? null;
@@ -2712,7 +2684,7 @@
       && layoutSignature === (tab.layoutSignature ?? null));
     if(canRestore){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        debugLog('Debug: surface prepareForTab skipped clear (render cache)', { tabId: tab?.id || null });
+        debugLog('Debug: surface activateTab skipped clear (render cache)', { tabId: tab?.id || null });
       }
       return;
     }
@@ -2730,9 +2702,18 @@
         try{ if(Array.isArray(state._facePool)){ state._facePool.length = 0; state._facePoolUsed = 0; } }catch(e){}
         try{ if(Array.isArray(state._pointPool)){ state._pointPool.length = 0; state._pointPoolUsed = 0; } }catch(e){}
       }
-    }catch(e){ debugLog('Debug: surface prepareForTab clear failed', { message: e?.message || String(e) }); }
+    }catch(e){ debugLog('Debug: surface activateTab clear failed', { message: e?.message || String(e) }); }
     // schedule a fresh draw for the active tab
     state.scheduleDraw?.();
+  };
+
+  surface.captureRuntimeState = function captureRuntimeState(){
+    return buildSurfaceTabContextSnapshotFromState();
+  };
+
+  surface.applyRuntimeState = function applyRuntimeState(snapshot){
+    applySurfaceTabContextSnapshot(snapshot, { syncUi: true });
+    return true;
   };
 
   function applySurfacePayload(payload, meta){
@@ -2876,7 +2857,6 @@
     if(scheduleBackup){
       state.scheduleDraw = scheduleBackup;
     }
-    syncSurfaceActiveTabContextFromState(`payload:${source}`);
     const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
     debugLog('Debug: surface payload applied', { source, rows: rowCount });
     return true;
@@ -2887,7 +2867,6 @@
     if(!activeHot || typeof activeHot.getData !== 'function'){
       return { type: 'surface', data: [] };
     }
-    syncSurfaceActiveTabContextFromState('getPayload');
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -3000,8 +2979,8 @@
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { setSurfaceFileHandle(handle); syncSurfaceActiveTabContextFromState('save-file-handle'); },
-      setFileName: name => { setSurfaceFileName(name); syncSurfaceActiveTabContextFromState('save-file-name'); }
+      setFileHandle: handle => { setSurfaceFileHandle(handle); },
+      setFileName: name => { setSurfaceFileName(name); }
     });
     debugLog('Debug: surface save result', result);
   };
@@ -3016,8 +2995,8 @@
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { setSurfaceFileHandle(handle); syncSurfaceActiveTabContextFromState('save-as-file-handle'); },
-      setFileName: name => { setSurfaceFileName(name); syncSurfaceActiveTabContextFromState('save-as-file-name'); }
+      setFileHandle: handle => { setSurfaceFileHandle(handle); },
+      setFileName: name => { setSurfaceFileName(name); }
     });
     debugLog('Debug: surface saveAs result', result);
   };
@@ -3029,8 +3008,8 @@
     }
     const result = await fileIO.openGraphFile({
       context: 'surface',
-      setFileHandle: handle => { setSurfaceFileHandle(handle); syncSurfaceActiveTabContextFromState('open-file-handle'); },
-      setFileName: name => { setSurfaceFileName(name); syncSurfaceActiveTabContextFromState('open-file-name'); },
+      setFileHandle: handle => { setSurfaceFileHandle(handle); },
+      setFileName: name => { setSurfaceFileName(name); },
       loadFromFile: blob => surface.loadFromFile(blob),
       triggerInput: () => {
         if(state.controls.graphFileInput){

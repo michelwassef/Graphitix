@@ -5313,7 +5313,7 @@
   };
 
   hist.ensure = function ensure(){ if (!hist.ready) hist.init(); };
-  hist.prepareForTab = function prepareForTab(){
+  hist.activateTab = function activateTab(){
     if(!hist.ready){
       hist.init();
       return;
