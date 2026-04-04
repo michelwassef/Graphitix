@@ -6087,7 +6087,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-toolbar-host--additional-line{display:block}
 .additional-line-controls-panel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:max-content;justify-content:flex-start}
 .additional-line-controls-panel__title{font-size:11px;line-height:1.2;font-weight:600;letter-spacing:0.01em;color:#1e293b;text-transform:none;white-space:nowrap;width:100%;text-align:center;align-self:stretch}
-.additional-line-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content}
+.additional-line-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:calc(var(--workspace-toolbar-section-gap) * 2);width:max-content}
 .additional-line-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
 .additional-line-controls-panel__summary-label{font-size:11px;text-transform:none;letter-spacing:0.01em;color:#1e293b;font-weight:600}
 .additional-line-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
