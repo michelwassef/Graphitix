@@ -242,6 +242,9 @@
   const supportsWeakRef = typeof global.WeakRef === 'function';
   const nodeGroupStore = new Map();
   const toolbarHostMap = new Map();
+  function getWorkspaceToolbarApi(){
+    return Shared.workspaceToolbar || {};
+  }
   const undoManager = Shared.undoManager || null;
   let activeHost = null;
 
@@ -1549,52 +1552,11 @@
       fontInput.style.minWidth = px;
       fontInput.style.width = px;
     }
-    if(panelEl && panelEl.dataset.open === '1'){ 
-      const host = panelEl.parentElement && panelEl.parentElement.classList && panelEl.parentElement.classList.contains('font-toolbar-host') ? panelEl.parentElement : activeHost;
-      if(host){
-        const hostClasses = Array.from(host.classList || []);
-        const hasDualLayout = hostClasses.some(cls => typeof cls === 'string' && /^font-toolbar-host--.+-dual$/.test(cls));
-        const dock = host.closest('.workspace-toolbar__dock');
-        if(hasDualLayout){
-          host.style.removeProperty('min-width');
-          host.style.removeProperty('max-width');
-          host.style.removeProperty('width');
-          if(dock){
-            dock.style.removeProperty('min-width');
-            dock.style.removeProperty('max-width');
-            dock.style.removeProperty('width');
-          }
-          logDebug('toolbar dock width skipped (dual host)', {
-            reason,
-            classes: hostClasses
-          });
-          return;
-        }
-        const rect = panelEl.getBoundingClientRect();
-        if(rect.width > 0){
-          const widthPx = `${Math.ceil(rect.width)}px`;
-          host.style.minWidth = widthPx;
-          host.style.maxWidth = widthPx;
-          host.style.width = widthPx;
-          if(dock){
-            dock.style.minWidth = widthPx;
-            dock.style.maxWidth = widthPx;
-            dock.style.width = widthPx;
-          }
-          logDebug('toolbar dock width applied', {
-            reason,
-            panelWidth: Math.ceil(rect.width),
-            fieldWidth
-          });
-        }
-      }
-    } else {
-      logDebug('toolbar dock width skipped', {
-        reason,
-        panelOpen: panelEl ? panelEl.dataset.open : '0',
-        fieldWidth
-      });
-    }
+    logDebug('toolbar width sync applied', {
+      reason,
+      panelOpen: panelEl ? panelEl.dataset.open : '0',
+      fieldWidth
+    });
   }
 
   function scheduleFontToolbarWidthSync(reason){
@@ -1690,6 +1652,14 @@
   }
 
   function resolveToolbarHost(scopeId){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.resolveHost === 'function'){
+      const sharedHost = toolbarApi.resolveHost(scopeId);
+      if(sharedHost){
+        toolbarHostMap.set(scopeId || '__global__', sharedHost);
+        return sharedHost;
+      }
+    }
     if(!global.document){ return null; }
     const doc = global.document;
     const key = scopeId || '__global__';
@@ -1760,6 +1730,12 @@
 
   function showToolbarHost(host){
     if(!host){ return; }
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.showHost === 'function'){
+      toolbarApi.showHost(host);
+      logDebug('toolbar host shown', { scopeId: host.dataset?.fontToolbarScope || null, via: 'workspaceToolbar' });
+      return;
+    }
     try{
       Array.from(host.classList || []).forEach(cls => {
         if(typeof cls === 'string' && cls.indexOf('font-toolbar-host--') === 0 && cls !== 'font-toolbar-host--visible'){
@@ -1783,6 +1759,12 @@
 
   function hideToolbarHost(host){
     if(!host){ return; }
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.hideHost === 'function'){
+      toolbarApi.hideHost(host);
+      logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null, via: 'workspaceToolbar' });
+      return;
+    }
     try{
       Array.from(host.classList || []).forEach(cls => {
         if(typeof cls === 'string' && cls.indexOf('font-toolbar-host--') === 0){
@@ -3804,8 +3786,8 @@
   function openPanelForTarget(target, options){
     if(!target){ return; }
     ensurePanel();
-    const coexistWithComponent = options?.coexistWithComponent === true;
-    const coexistComponentClass = typeof options?.coexistComponentClass === 'string' ? options.coexistComponentClass.trim() : '';
+    let coexistWithComponent = options?.coexistWithComponent === true;
+    let coexistComponentClass = typeof options?.coexistComponentClass === 'string' ? options.coexistComponentClass.trim() : '';
     // Ensure axis controls are closed when opening the font (FORMAT) panel.
     // Prevent mixed UI (axis + font + per-component hosts) by closing axisControls.
     currentTarget = target;
@@ -3849,6 +3831,15 @@
     const providedHost = options?.host && options.host.nodeType === 1 ? options.host : null;
     const host = providedHost || resolveToolbarHost(currentScope);
     if(host){
+      const existingHeatmapPalette = currentScope === 'heatmap'
+        ? host.querySelector('.heatmap-palette-controls-panel')
+        : null;
+      if(existingHeatmapPalette){
+        coexistWithComponent = true;
+        if(!coexistComponentClass){
+          coexistComponentClass = 'font-toolbar-host--heatmap-dual';
+        }
+      }
       if(activeHost && activeHost !== host){
         hideToolbarHost(activeHost);
       }
@@ -3880,17 +3871,11 @@
       activeHost = host;
       showToolbarHost(host);
       if(coexistWithComponent){
-        host.classList.add('font-toolbar-host--significance');
         if(coexistComponentClass){
           host.classList.add(coexistComponentClass);
-          if(/-dual$/.test(coexistComponentClass)){
-            host.style.display = 'grid';
-            host.style.gridAutoFlow = 'column';
-            host.style.gridAutoColumns = 'max-content';
-            host.style.columnGap = '10px';
-            host.style.alignItems = 'center';
-            host.style.justifyContent = 'center';
-          }
+        }
+        if(coexistComponentClass.indexOf('significance') !== -1){
+          host.classList.add('font-toolbar-host--significance');
         }
       }
       // Remove any inline alignment overrides so CSS controls centering

@@ -177,11 +177,143 @@
   let transformHandlersBound = false;
   const contextObservers = new WeakMap();
   const transformCustomExpressionByKey = new Map();
+  const TOOLBAR_HOST_VARIANT_PREFIX = 'font-toolbar-host--';
 
   function logDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: workspaceToolbar ' + message, payload || {});
     }
+  }
+
+  function clearToolbarHostSizing(host){
+    if(!host || !host.style){ return; }
+    host.style.removeProperty('min-width');
+    host.style.removeProperty('max-width');
+    host.style.removeProperty('width');
+    const dock = typeof host.closest === 'function' ? host.closest('.workspace-toolbar__dock') : null;
+    if(dock && dock.style){
+      dock.style.removeProperty('min-width');
+      dock.style.removeProperty('max-width');
+      dock.style.removeProperty('width');
+    }
+  }
+
+  function clearToolbarHostVariants(host, preserveVisible){
+    if(!host || !host.classList){ return; }
+    Array.from(host.classList).forEach(cls => {
+      if(typeof cls !== 'string'){ return; }
+      if(cls.indexOf(TOOLBAR_HOST_VARIANT_PREFIX) !== 0){ return; }
+      if(preserveVisible && cls === 'font-toolbar-host--visible'){ return; }
+      host.classList.remove(cls);
+    });
+  }
+
+  function setDockActiveState(host, shouldActivate){
+    if(!host || typeof host.closest !== 'function'){ return; }
+    const dock = host.closest('.workspace-toolbar__dock');
+    if(!dock || !dock.classList){ return; }
+    if(shouldActivate){
+      dock.classList.add('workspace-toolbar__dock--active');
+      return;
+    }
+    const hasVisibleHost = dock.querySelector('.font-toolbar-host.font-toolbar-host--visible');
+    if(!hasVisibleHost){
+      dock.classList.remove('workspace-toolbar__dock--active');
+    }
+  }
+
+  function resolveToolbarHostAnchor(scopeId){
+    if(!doc){ return null; }
+    const key = scopeId ? String(scopeId).trim() : '';
+    if(!key){ return null; }
+    const preferredAnchor = doc.getElementById(`${key}FontHost`);
+    if(preferredAnchor){
+      logDebug('resolve host anchor preferred', { scopeId: key, anchorId: `${key}FontHost` });
+      return preferredAnchor;
+    }
+    const directButton = doc.getElementById(`${key}LoadExample`);
+    if(directButton){
+      logDebug('resolve host anchor load-example', { scopeId: key, anchorId: `${key}LoadExample` });
+      return directButton;
+    }
+    const fallbackIds = key === 'venn'
+      ? ['sample', `${key}Example`, `${key}Sample`, `${key}FontHost`]
+      : [`${key}Example`, `${key}Sample`, `${key}FontHost`];
+    for(let i = 0; i < fallbackIds.length; i += 1){
+      const candidateId = fallbackIds[i];
+      if(!candidateId){ continue; }
+      const candidate = doc.getElementById(candidateId);
+      if(candidate){
+        logDebug('resolve host anchor fallback', { scopeId: key, anchorId: candidateId });
+        return candidate;
+      }
+    }
+    const dataAnchor = doc.querySelector(`[data-font-toolbar-scope="${key}"]`);
+    if(dataAnchor){
+      logDebug('resolve host anchor data-scope', { scopeId: key });
+      return dataAnchor;
+    }
+    logDebug('resolve host anchor missing', { scopeId: key });
+    return null;
+  }
+
+  function resolveToolbarHost(scopeId){
+    if(!doc){ return null; }
+    const key = scopeId || '__global__';
+    let host = doc.querySelector(`.font-toolbar-host[data-font-toolbar-scope="${key}"]`);
+    if(host){
+      return host;
+    }
+    const anchor = resolveToolbarHostAnchor(scopeId);
+    if(!anchor || !anchor.insertAdjacentElement){
+      return null;
+    }
+    host = doc.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = key;
+    host.style.display = 'none';
+    anchor.insertAdjacentElement('afterend', host);
+    logDebug('toolbar host created', { scopeId: key });
+    return host;
+  }
+
+  function showToolbarHost(host, options){
+    if(!host){ return null; }
+    const config = options && typeof options === 'object' ? options : {};
+    clearToolbarHostSizing(host);
+    clearToolbarHostVariants(host, false);
+    host.style.removeProperty('grid-auto-flow');
+    host.style.removeProperty('grid-auto-columns');
+    host.style.removeProperty('column-gap');
+    host.style.removeProperty('row-gap');
+    host.style.removeProperty('align-items');
+    host.style.removeProperty('justify-content');
+    host.style.removeProperty('overflow-x');
+    host.style.removeProperty('overflow-y');
+    host.style.display = 'flex';
+    host.classList.add('font-toolbar-host--visible');
+    const hostClasses = Array.isArray(config.hostClasses)
+      ? config.hostClasses
+      : (config.hostClass ? [config.hostClass] : []);
+    hostClasses.filter(Boolean).forEach(cls => host.classList.add(cls));
+    setDockActiveState(host, true);
+    return host;
+  }
+
+  function hideToolbarHost(host){
+    if(!host){ return; }
+    clearToolbarHostVariants(host, false);
+    host.style.display = 'none';
+    host.style.removeProperty('grid-auto-flow');
+    host.style.removeProperty('grid-auto-columns');
+    host.style.removeProperty('column-gap');
+    host.style.removeProperty('row-gap');
+    host.style.removeProperty('align-items');
+    host.style.removeProperty('justify-content');
+    host.style.removeProperty('overflow-x');
+    host.style.removeProperty('overflow-y');
+    clearToolbarHostSizing(host);
+    setDockActiveState(host, false);
   }
 
   function appendSvgChildren(parent, elements){
@@ -225,6 +357,56 @@
     const elements = Array.isArray(spec.elements) ? spec.elements : [];
     appendSvgChildren(svg, elements);
     return svg;
+  }
+
+  function createSubPanel(options){
+    if(!doc){ return null; }
+    const config = options && typeof options === 'object' ? options : {};
+    const panel = doc.createElement('div');
+    panel.className = `workspace-toolbar__panel ${config.panelClass || ''}`.trim();
+    if(config.role){ panel.setAttribute('role', config.role); }
+    if(config.ariaLabel){ panel.setAttribute('aria-label', config.ariaLabel); }
+    if(config.dataset && typeof config.dataset === 'object'){
+      Object.keys(config.dataset).forEach(key => {
+        const value = config.dataset[key];
+        if(value !== undefined && value !== null){
+          panel.dataset[key] = String(value);
+        }
+      });
+    }
+    let title = null;
+    if(config.title){
+      title = doc.createElement('div');
+      title.className = 'workspace-toolbar__panel-title';
+      title.textContent = String(config.title);
+      panel.appendChild(title);
+    }
+    let row = null;
+    if(config.rowClass){
+      row = doc.createElement('div');
+      row.className = config.rowClass;
+      panel.appendChild(row);
+    }
+    return { panel, title, row };
+  }
+
+  function createLabeledField(options){
+    if(!doc){ return null; }
+    const config = options && typeof options === 'object' ? options : {};
+    const tagName = config.tagName || 'label';
+    const field = doc.createElement(tagName);
+    field.className = String(config.fieldClass || '').trim();
+    let label = null;
+    if(config.label){
+      label = doc.createElement(config.labelTag || 'span');
+      label.className = String(config.labelClass || '').trim();
+      label.textContent = String(config.label);
+      field.appendChild(label);
+    }
+    if(config.control && config.control.nodeType === 1){
+      field.appendChild(config.control);
+    }
+    return { field, label };
   }
 
   function createButton(config){
@@ -1358,6 +1540,13 @@
   workspaceToolbar.register = registerToolbar;
   workspaceToolbar.renderAll = renderAllToolbars;
   workspaceToolbar.renderForElement = renderToolbarForElement;
+  workspaceToolbar.resolveHost = resolveToolbarHost;
+  workspaceToolbar.showHost = showToolbarHost;
+  workspaceToolbar.hideHost = hideToolbarHost;
+  workspaceToolbar.setDockActiveState = setDockActiveState;
+  workspaceToolbar.clearHostSizing = clearToolbarHostSizing;
+  workspaceToolbar.createSubPanel = createSubPanel;
+  workspaceToolbar.createLabeledField = createLabeledField;
   workspaceToolbar.activateSection = function activateSection(toolbarKey, sectionLabel){
     if(!doc){ return false; }
     const key = String(toolbarKey || '').trim();

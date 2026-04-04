@@ -3,7 +3,6 @@
   const Shared = global.Shared = global.Shared || {};
   const dendrogramControls = Shared.dendrogramControls = Shared.dendrogramControls || {};
 
-  const hostCache = new Map();
   let panelEl = null;
   let dendrogramLabelEl = null;
   let thicknessInput = null;
@@ -12,6 +11,53 @@
   let activeHost = null;
   let hasDocListener = false;
   let applyingFromUndo = false;
+
+  function getWorkspaceToolbarApi(){
+    return Shared.workspaceToolbar || {};
+  }
+
+  function resolveToolbarHost(scopeId){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.resolveHost === 'function'){
+      return toolbarApi.resolveHost(scopeId);
+    }
+    return null;
+  }
+
+  function showToolbarHost(host, hostClass){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.showHost === 'function'){
+      toolbarApi.showHost(host, { hostClass });
+      return;
+    }
+    if(!host){ return; }
+    host.style.display = 'flex';
+    host.classList.add('font-toolbar-host--visible');
+    if(hostClass){ host.classList.add(hostClass); }
+  }
+
+  function hideToolbarHost(host){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.hideHost === 'function'){
+      toolbarApi.hideHost(host);
+      return;
+    }
+    if(!host){ return; }
+    host.classList.remove('font-toolbar-host--visible');
+    host.style.display = 'none';
+  }
+
+  function clearHostSizing(host){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.clearHostSizing === 'function'){
+      toolbarApi.clearHostSizing(host);
+      return;
+    }
+    if(!host || !host.style){ return; }
+    host.style.removeProperty('min-width');
+    host.style.removeProperty('max-width');
+    host.style.removeProperty('width');
+  }
 
   function getUndoManager(){
     const manager = global.Shared?.undoManager;
@@ -132,22 +178,6 @@
     console.debug('Debug: dendrogramControls ' + message, payload || {});
   }
 
-  function clearHostSizing(host){
-    if(!host){ return; }
-    host.style.removeProperty('min-width');
-    host.style.removeProperty('max-width');
-    host.style.removeProperty('width');
-    const dock = typeof host.closest === 'function' ? host.closest('.workspace-toolbar__dock') : null;
-    if(dock){
-      dock.style.removeProperty('min-width');
-      dock.style.removeProperty('max-width');
-      dock.style.removeProperty('width');
-      logDebug('host sizing cleared',{ scopeId: host.dataset?.fontToolbarScope || null, hasDock: true });
-    } else {
-      logDebug('host sizing cleared',{ scopeId: host.dataset?.fontToolbarScope || null, hasDock: false });
-    }
-  }
-
   function ensureDocumentListener(){
     if(hasDocListener || !global.document){ return; }
     global.document.addEventListener('click', evt => {
@@ -162,91 +192,36 @@
     logDebug('document listener attached');
   }
 
-  function resolveToolbarHost(scopeId){
-    if(!global.document){ return null; }
-    const doc = global.document;
-    const key = scopeId || '__global__';
-    if(hostCache.has(key)){
-      return hostCache.get(key);
-    }
-    let button = null;
-    const preferredAnchorId = scopeId ? `${scopeId}FontHost` : null;
-    if(preferredAnchorId){
-      const preferredAnchor = doc.getElementById(preferredAnchorId);
-      if(preferredAnchor){
-        button = preferredAnchor;
-        logDebug('resolveToolbarHost preferred anchor match',{ scopeId: key, anchorId: preferredAnchorId });
-      }
-    }
-    const buttonId = !button && scopeId ? `${scopeId}LoadExample` : null;
-    if(!button && buttonId){
-      button = doc.getElementById(buttonId);
-    }
-    if(!button && scopeId){
-      const fallbackIds = [];
-      fallbackIds.push(`${scopeId}Example`, `${scopeId}Sample`, `${scopeId}FontHost`);
-      for(let i = 0; i < fallbackIds.length && !button; i += 1){
-        const candidateId = fallbackIds[i];
-        if(!candidateId){ continue; }
-        const candidate = doc.getElementById(candidateId);
-        if(candidate){
-          button = candidate;
-          logDebug('host fallback matched',{ scopeId: key, candidateId });
-        }
-      }
-    }
-    if(!button && scopeId){
-      const dataHost = doc.querySelector(`[data-font-toolbar-scope="${key}"]`);
-      if(dataHost){
-        button = dataHost;
-        logDebug('host data attribute match',{ scopeId: key });
-      }
-    }
-    let existingHost = doc.querySelector(`.font-toolbar-host[data-font-toolbar-scope="${key}"]`);
-    if(existingHost){
-      hostCache.set(key, existingHost);
-      logDebug('host reused existing font toolbar',{ scopeId: key });
-      return existingHost;
-    }
-    if(!button){
-      logDebug('host missing button',{ scopeId: key });
-      hostCache.set(key, null);
-      return null;
-    }
-    const host = doc.createElement('div');
-    host.className = 'font-toolbar-host';
-    host.dataset.fontToolbarScope = key;
-    host.style.display = 'none';
-    button.insertAdjacentElement('afterend', host);
-    hostCache.set(key, host);
-    logDebug('host created',{ scopeId: key, buttonId });
-    return host;
-  }
-
-  function updateDockActiveState(host, shouldActivate){
-    if(!host || !host.parentElement){ return; }
-    const dock = host.parentElement;
-    if(!dock.classList || !dock.classList.contains('workspace-toolbar__dock')){ return; }
-    if(shouldActivate){
-      dock.classList.add('workspace-toolbar__dock--active');
-      return;
-    }
-    const hasVisibleHost = dock.querySelector('.font-toolbar-host.font-toolbar-host--visible');
-    if(!hasVisibleHost){
-      dock.classList.remove('workspace-toolbar__dock--active');
-    }
-  }
-
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    panelEl = doc.createElement('div');
-    panelEl.className = 'dendrogram-controls-panel';
-    panelEl.setAttribute('role', 'toolbar');
-    panelEl.setAttribute('aria-label', 'Dendrogram controls');
+    const toolbarApi = getWorkspaceToolbarApi();
+    const panelParts = typeof toolbarApi.createSubPanel === 'function'
+      ? toolbarApi.createSubPanel({
+        title: 'Dendrogram',
+        panelClass: 'dendrogram-controls-panel',
+        rowClass: 'dendrogram-controls-panel__row',
+        role: 'toolbar',
+        ariaLabel: 'Dendrogram controls'
+      })
+      : null;
+    panelEl = panelParts?.panel || doc.createElement('div');
+    if(!panelParts){
+      panelEl.className = 'workspace-toolbar__panel dendrogram-controls-panel';
+      panelEl.setAttribute('role', 'toolbar');
+      panelEl.setAttribute('aria-label', 'Dendrogram controls');
+      const panelTitle = doc.createElement('div');
+      panelTitle.className = 'workspace-toolbar__panel-title';
+      panelTitle.textContent = 'Dendrogram';
+      panelEl.appendChild(panelTitle);
+    }
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
+    const row = panelParts?.row || doc.createElement('div');
+    if(!panelParts){
+      row.className = 'dendrogram-controls-panel__row';
+    }
 
     const dendrogramGroup = doc.createElement('div');
     dendrogramGroup.className = 'dendrogram-controls-panel__summary';
@@ -257,7 +232,7 @@
     dendrogramLabelEl.className = 'dendrogram-controls-panel__summary-value';
     dendrogramGroup.appendChild(dendrogramLabelTitle);
     dendrogramGroup.appendChild(dendrogramLabelEl);
-    panelEl.appendChild(dendrogramGroup);
+    row.appendChild(dendrogramGroup);
 
     const thicknessField = doc.createElement('label');
     thicknessField.className = 'dendrogram-controls-panel__field';
@@ -276,7 +251,7 @@
     thicknessInput.setAttribute('data-undo-ignore','1');
     thicknessField.appendChild(thicknessLabel);
     thicknessField.appendChild(thicknessInput);
-    panelEl.appendChild(thicknessField);
+    row.appendChild(thicknessField);
 
     const colorField = doc.createElement('label');
     colorField.className = 'dendrogram-controls-panel__field';
@@ -290,7 +265,9 @@
     colorInput.setAttribute('data-undo-ignore','1');
     colorField.appendChild(colorLabel);
     colorField.appendChild(colorInput);
-    panelEl.appendChild(colorField);
+    row.appendChild(colorField);
+
+    panelEl.appendChild(row);
 
     if(typeof Shared.attachColorPickerNear === 'function'){
       Shared.attachColorPickerNear(colorInput);
@@ -456,9 +433,7 @@
         && (!gridPanel || gridPanel.dataset.open !== '1')
         && !additionalLineOpen
         && !hasEmbeddedForm){
-        activeHost.classList.remove('font-toolbar-host--visible');
-        activeHost.style.display = 'none';
-        updateDockActiveState(activeHost, false);
+        hideToolbarHost(activeHost);
       }
     }
     try {
@@ -499,14 +474,30 @@
     activeConfig = config;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
+      try{
+        if(host.__heatmapPaletteDocClickHandler && global.document){
+          global.document.removeEventListener('click', host.__heatmapPaletteDocClickHandler, true);
+          host.__heatmapPaletteDocClickHandler = null;
+        }
+        host.querySelectorAll('.heatmap-palette-controls-panel').forEach(node => {
+          const panel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
+          if(panel && panel.parentNode){
+            panel.parentNode.removeChild(panel);
+            return;
+          }
+          if(node.parentNode){
+            node.parentNode.removeChild(node);
+          }
+        });
+        host.classList.remove('font-toolbar-host--heatmap-dual');
+      }catch(clearErr){
+        logDebug('heatmap palette clear failed before dendrogram open', { error: clearErr?.message || String(clearErr) });
+      }
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      host.style.display = 'block';
-      host.classList.add('font-toolbar-host--visible');
-      host.classList.add('font-toolbar-host--dendrogram');
-      updateDockActiveState(host, true);
+      showToolbarHost(host, 'font-toolbar-host--dendrogram');
       activeHost = host;
     } else {
       activeHost = null;

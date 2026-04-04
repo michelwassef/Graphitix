@@ -642,36 +642,19 @@
   }
 
   function resolveHeatmapToolbarHost(doc){
+    const toolbarApi = Shared.workspaceToolbar || null;
+    if(toolbarApi && typeof toolbarApi.resolveHost === 'function'){
+      return toolbarApi.resolveHost('heatmap');
+    }
     const root = doc || global.document;
     if(!root){
       return null;
-    }
-    const anchor = root.getElementById ? root.getElementById('heatmapFontHost') : null;
-    if(anchor && anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')){
-      return anchor.nextElementSibling;
     }
     return root.querySelector('.font-toolbar-host[data-font-toolbar-scope="heatmap"]') || null;
   }
 
   function ensureHeatmapToolbarHost(doc){
-    const root = doc || global.document;
-    if(!root){
-      return null;
-    }
-    const existing = resolveHeatmapToolbarHost(root);
-    if(existing){
-      return existing;
-    }
-    const anchor = root.getElementById ? root.getElementById('heatmapFontHost') : null;
-    if(!anchor || !anchor.insertAdjacentElement){
-      return null;
-    }
-    const host = root.createElement('div');
-    host.className = 'font-toolbar-host';
-    host.dataset.fontToolbarScope = 'heatmap';
-    host.style.display = 'none';
-    anchor.insertAdjacentElement('afterend', host);
-    return host;
+    return resolveHeatmapToolbarHost(doc);
   }
 
   function resetHeatmapPaletteHostLayout(host){
@@ -707,12 +690,13 @@
     if(!host){
       return;
     }
-    host.style.display = 'block';
-    host.classList.add('font-toolbar-host--visible');
-    const dock = host.closest ? host.closest('.workspace-toolbar__dock') : null;
-    if(dock && dock.classList){
-      dock.classList.add('workspace-toolbar__dock--active');
+    const toolbarApi = Shared.workspaceToolbar || null;
+    if(toolbarApi && typeof toolbarApi.showHost === 'function'){
+      toolbarApi.showHost(host);
+      return;
     }
+    host.style.display = 'flex';
+    host.classList.add('font-toolbar-host--visible');
   }
 
   function detachHeatmapPaletteDocClick(host){
@@ -742,11 +726,12 @@
       detachHeatmapPaletteDocClick(host);
       clearHeatmapPalettePanel(host);
       resetHeatmapPaletteHostLayout(host);
-      host.classList.remove('font-toolbar-host--visible');
-      host.style.display = 'none';
-      const dock = host.closest ? host.closest('.workspace-toolbar__dock') : null;
-      if(dock && dock.classList){
-        dock.classList.remove('workspace-toolbar__dock--active');
+      const toolbarApi = Shared.workspaceToolbar || null;
+      if(toolbarApi && typeof toolbarApi.hideHost === 'function'){
+        toolbarApi.hideHost(host);
+      }else{
+        host.classList.remove('font-toolbar-host--visible');
+        host.style.display = 'none';
       }
     };
     global.document.addEventListener('click', onDocClick, true);
@@ -755,6 +740,7 @@
 
   function showHeatmapPaletteFormatControls(options = {}){
     const doc = options.document || global.document;
+    const toolbarApi = Shared.workspaceToolbar || null;
     if(!doc){
       return null;
     }
@@ -776,18 +762,29 @@
       resetHeatmapPaletteHostLayout(host);
     }
 
-    const panel = doc.createElement('div');
-    panel.className = 'workspace-toolbar__panel heatmap-palette-controls-panel';
-    panel.dataset.heatmapPaletteControls = '1';
-
-    const title = doc.createElement('div');
-    title.className = 'workspace-toolbar__panel-title';
-    title.textContent = 'Heatmap Colors';
-    panel.appendChild(title);
-
-    const form = doc.createElement('div');
-    form.className = 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row';
-    form.dataset.heatmapPaletteControls = '1';
+    const panelParts = toolbarApi && typeof toolbarApi.createSubPanel === 'function'
+      ? toolbarApi.createSubPanel({
+        title: 'Heatmap Colors',
+        panelClass: 'heatmap-palette-controls-panel',
+        rowClass: 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row',
+        dataset: { heatmapPaletteControls: '1' }
+      })
+      : null;
+    const panel = panelParts?.panel || doc.createElement('div');
+    if(!panelParts){
+      panel.className = 'workspace-toolbar__panel heatmap-palette-controls-panel';
+      panel.dataset.heatmapPaletteControls = '1';
+      const title = doc.createElement('div');
+      title.className = 'workspace-toolbar__panel-title';
+      title.textContent = 'Heatmap Colors';
+      panel.appendChild(title);
+    }
+    const form = panelParts?.row || doc.createElement('div');
+    if(!panelParts){
+      form.className = 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row';
+      form.dataset.heatmapPaletteControls = '1';
+      panel.appendChild(form);
+    }
 
     const palette = getHeatmapPalette();
     const fieldDefs = [
@@ -823,12 +820,17 @@
       form.appendChild(label);
     });
 
-    panel.appendChild(form);
     host.appendChild(panel);
-    setHeatmapToolbarHostVisible(host);
+    if(toolbarApi && typeof toolbarApi.showHost === 'function'){
+      toolbarApi.showHost(host, appendToHost ? { hostClass: 'font-toolbar-host--heatmap-dual' } : undefined);
+    }else{
+      setHeatmapToolbarHostVisible(host);
+      if(appendToHost){
+        host.classList.add('font-toolbar-host--heatmap-dual');
+      }
+    }
 
     if(appendToHost){
-      host.classList.add('font-toolbar-host--heatmap-dual');
     }else{
       attachHeatmapPaletteDocClick(host);
     }

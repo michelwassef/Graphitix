@@ -23,6 +23,7 @@ describe('Format toolbar exclusivity', () => {
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
+    require('../js/shared/workspaceToolbar.js');
     require('../js/shared/axisControls.js');
     require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
@@ -48,28 +49,24 @@ describe('Format toolbar exclusivity', () => {
     const Components = global.Components;
     const Shared = global.Shared;
 
-    // Ensure the box component is constructed by selecting the box workspace
     const graphSelection = window.Main?.tabs?.handleGraphSelection;
-    if (typeof graphSelection === 'function') {
+    if(typeof graphSelection === 'function'){
       const maybePromise = graphSelection('box');
-      if (maybePromise && typeof maybePromise.then === 'function') {
+      if(maybePromise && typeof maybePromise.then === 'function'){
         await maybePromise;
       }
       await Promise.resolve();
     }
     expect(Components && Components.box && Components.box.__installed).toBeTruthy();
 
-    // Create a dummy point element and attach to the document so box logic can use it
     const point = doc.createElementNS('http://www.w3.org/2000/svg', 'circle');
     point.setAttribute('cx', '10');
     point.setAttribute('cy', '10');
     point.setAttribute('r', '4');
     doc.body.appendChild(point);
 
-    // Simulate a component-created host (many components create this host)
     const anchorEl = doc.getElementById('boxFontHost');
     expect(anchorEl).toBeTruthy();
-    // create host and insert after anchor
     const host = doc.createElement('div');
     host.className = 'font-toolbar-host font-toolbar-host--visible';
     anchorEl.insertAdjacentElement('afterend', host);
@@ -78,24 +75,49 @@ describe('Format toolbar exclusivity', () => {
     formNode.dataset.pointControls = '1';
     host.appendChild(formNode);
 
-    // Ensure the simulated host and form exist
     expect(doc.querySelector('.font-toolbar-host.font-toolbar-host--visible')).toBeTruthy();
     expect(host.querySelector('.workspace-toolbar__form')).toBeTruthy();
 
-    // Now open the singleton font panel targeting the box anchor
     const anchor = doc.getElementById('boxFontHost');
     expect(anchor).toBeTruthy();
-    // Use the shared fontControls API to open the panel for the anchor
     Shared.fontControls.openForElement(anchor, { scopeId: 'box' });
 
-    // After opening, the host that now contains the panel should NOT contain the old form
     const activeHost = doc.querySelector('.font-toolbar-host.font-toolbar-host--visible');
     expect(activeHost).toBeTruthy();
     const leftover = activeHost.querySelector('.workspace-toolbar__form, [data-point-controls="1"]');
     expect(leftover).toBeFalsy();
 
-    // And the singleton panel should be marked as open
     const panel = doc.querySelector('.font-controls-panel');
     expect(panel && panel.dataset && panel.dataset.open === '1').toBeTruthy();
+  });
+
+  test('heatmap font controls preserve side-by-side palette toolbar layout', () => {
+    require('../js/vendor.js');
+    require('../js/shared/colorPicker.js');
+    require('../js/shared/workspaceToolbar.js');
+    require('../js/shared/fontControls.js');
+
+    const doc = global.document;
+    const Shared = global.Shared;
+
+    const anchor = doc.createElement('button');
+    anchor.id = 'heatmapFontHost';
+    doc.body.appendChild(anchor);
+
+    const host = doc.createElement('div');
+    host.className = 'font-toolbar-host font-toolbar-host--visible font-toolbar-host--heatmap-dual';
+    host.dataset.fontToolbarScope = 'heatmap';
+    anchor.insertAdjacentElement('afterend', host);
+
+    const palettePanel = doc.createElement('div');
+    palettePanel.className = 'workspace-toolbar__panel heatmap-palette-controls-panel';
+    host.appendChild(palettePanel);
+
+    Shared.fontControls.openForElement(anchor, { scopeId: 'heatmap' });
+
+    expect(host.classList.contains('font-toolbar-host--visible')).toBe(true);
+    expect(host.classList.contains('font-toolbar-host--heatmap-dual')).toBe(true);
+    expect(host.querySelector('.heatmap-palette-controls-panel')).toBeTruthy();
+    expect(host.querySelector('.font-controls-panel')).toBeTruthy();
   });
 });

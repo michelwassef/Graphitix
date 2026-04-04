@@ -3,7 +3,6 @@
   const Shared = global.Shared = global.Shared || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
 
-  const hostCache = new Map();
   let panelEl = null;
   let panelTitleEl = null;
   let tickFieldEl = null;
@@ -54,6 +53,53 @@
   let applyingFromUndo = false;
   let panelRefreshFrame = 0;
   const axisLengthUiByScope = new Map();
+
+  function getWorkspaceToolbarApi(){
+    return Shared.workspaceToolbar || {};
+  }
+
+  function resolveToolbarHost(scopeId){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.resolveHost === 'function'){
+      return toolbarApi.resolveHost(scopeId);
+    }
+    return null;
+  }
+
+  function showToolbarHost(host, hostClass){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.showHost === 'function'){
+      toolbarApi.showHost(host, { hostClass });
+      return;
+    }
+    if(!host){ return; }
+    host.style.display = 'flex';
+    host.classList.add('font-toolbar-host--visible');
+    if(hostClass){ host.classList.add(hostClass); }
+  }
+
+  function hideToolbarHost(host){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.hideHost === 'function'){
+      toolbarApi.hideHost(host);
+      return;
+    }
+    if(!host){ return; }
+    host.classList.remove('font-toolbar-host--visible');
+    host.style.display = 'none';
+  }
+
+  function clearHostSizing(host){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.clearHostSizing === 'function'){
+      toolbarApi.clearHostSizing(host);
+      return;
+    }
+    if(!host || !host.style){ return; }
+    host.style.removeProperty('min-width');
+    host.style.removeProperty('max-width');
+    host.style.removeProperty('width');
+  }
 
   function getUndoManager(){
     const manager = global.Shared?.undoManager;
@@ -1749,22 +1795,6 @@
     return true;
   }
 
-  function clearHostSizing(host){
-    if(!host){ return; }
-    host.style.removeProperty('min-width');
-    host.style.removeProperty('max-width');
-    host.style.removeProperty('width');
-    const dock = typeof host.closest === 'function' ? host.closest('.workspace-toolbar__dock') : null;
-    if(dock){
-      dock.style.removeProperty('min-width');
-      dock.style.removeProperty('max-width');
-      dock.style.removeProperty('width');
-      logDebug('host sizing cleared',{ scopeId: host.dataset?.fontToolbarScope || null, hasDock: true });
-    } else {
-      logDebug('host sizing cleared',{ scopeId: host.dataset?.fontToolbarScope || null, hasDock: false });
-    }
-  }
-
   function ensureDocumentListener(){
     if(hasDocListener || !global.document){ return; }
     global.document.addEventListener('click', evt => {
@@ -1777,82 +1807,6 @@
     });
     hasDocListener = true;
     logDebug('document listener attached');
-  }
-
-  function resolveToolbarHost(scopeId){
-    if(!global.document){ return null; }
-    const doc = global.document;
-    const key = scopeId || '__global__';
-    if(hostCache.has(key)){
-      return hostCache.get(key);
-    }
-    let button = null;
-    const preferredAnchorId = scopeId ? `${scopeId}FontHost` : null;
-    if(preferredAnchorId){
-      const preferredAnchor = doc.getElementById(preferredAnchorId);
-      if(preferredAnchor){
-        button = preferredAnchor;
-        logDebug('resolveToolbarHost preferred anchor match',{ scopeId: key, anchorId: preferredAnchorId });
-      }
-    }
-    const buttonId = !button && scopeId ? `${scopeId}LoadExample` : null;
-    if(!button && buttonId){
-      button = doc.getElementById(buttonId);
-    }
-    if(!button && scopeId){
-      const fallbackIds = [];
-      if(scopeId === 'venn'){ fallbackIds.push('sample'); }
-      fallbackIds.push(`${scopeId}Example`, `${scopeId}Sample`, `${scopeId}FontHost`);
-      for(let i = 0; i < fallbackIds.length && !button; i += 1){
-        const candidateId = fallbackIds[i];
-        if(!candidateId){ continue; }
-        const candidate = doc.getElementById(candidateId);
-        if(candidate){
-          button = candidate;
-          logDebug('host fallback matched',{ scopeId: key, candidateId });
-        }
-      }
-    }
-    if(!button && scopeId){
-      const dataHost = doc.querySelector(`[data-font-toolbar-scope="${key}"]`);
-      if(dataHost){
-        button = dataHost;
-        logDebug('host data attribute match',{ scopeId: key });
-      }
-    }
-    let existingHost = doc.querySelector(`.font-toolbar-host[data-font-toolbar-scope="${key}"]`);
-    if(existingHost){
-      hostCache.set(key, existingHost);
-      logDebug('host reused existing font toolbar',{ scopeId: key });
-      return existingHost;
-    }
-    if(!button){
-      logDebug('host missing button',{ scopeId: key });
-      hostCache.set(key, null);
-      return null;
-    }
-    const host = doc.createElement('div');
-    host.className = 'font-toolbar-host';
-    host.dataset.fontToolbarScope = key;
-    host.style.display = 'none';
-    button.insertAdjacentElement('afterend', host);
-    hostCache.set(key, host);
-    logDebug('host created',{ scopeId: key, buttonId });
-    return host;
-  }
-
-  function updateDockActiveState(host, shouldActivate){
-    if(!host || !host.parentElement){ return; }
-    const dock = host.parentElement;
-    if(!dock.classList || !dock.classList.contains('workspace-toolbar__dock')){ return; }
-    if(shouldActivate){
-      dock.classList.add('workspace-toolbar__dock--active');
-      return;
-    }
-    const hasVisibleHost = dock.querySelector('.font-toolbar-host.font-toolbar-host--visible');
-    if(!hasVisibleHost){
-      dock.classList.remove('workspace-toolbar__dock--active');
-    }
   }
 
   function updateAxisSectionActiveState(host, isActive){
@@ -2881,9 +2835,7 @@
         && (!gridPanel || gridPanel.dataset.open !== '1')
         && !additionalLineOpen
         && !hasEmbeddedForm){
-        activeHost.classList.remove('font-toolbar-host--visible');
-        activeHost.style.display = 'none';
-        updateDockActiveState(activeHost, false);
+        hideToolbarHost(activeHost);
       }
     }
     try {
@@ -2930,11 +2882,8 @@
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      host.style.display = 'block';
-      host.classList.add('font-toolbar-host--visible');
-      host.classList.add('font-toolbar-host--axis');
+      showToolbarHost(host, 'font-toolbar-host--axis');
       updateAxisSectionActiveState(host, true);
-      updateDockActiveState(host, true);
       activeHost = host;
     } else {
       activeHost = null;

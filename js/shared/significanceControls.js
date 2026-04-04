@@ -30,6 +30,10 @@
     }
   }
 
+  function getWorkspaceToolbarApi(){
+    return Shared.workspaceToolbar || {};
+  }
+
   function getUndoManager(){
     const manager = global.Shared?.undoManager;
     if(manager && typeof manager.recordStateChange === 'function'){
@@ -278,6 +282,11 @@
   }
 
   function clearHostSizing(host){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.clearHostSizing === 'function'){
+      toolbarApi.clearHostSizing(host);
+      return;
+    }
     if(!host){ return; }
     host.style.removeProperty('min-width');
     host.style.removeProperty('max-width');
@@ -313,6 +322,10 @@
   }
 
   function resolveToolbarHost(scopeId){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.resolveHost === 'function'){
+      return toolbarApi.resolveHost(scopeId);
+    }
     if(!global.document){ return null; }
     const doc = global.document;
     const key = scopeId || '__global__';
@@ -909,9 +922,14 @@
         && (!gridPanel || gridPanel.dataset.open !== '1')
         && !additionalLineOpen
         && !hasEmbeddedForm){
-        activeHost.classList.remove('font-toolbar-host--visible');
-        activeHost.style.display = 'none';
-        updateDockActiveState(activeHost, false);
+        const toolbarApi = getWorkspaceToolbarApi();
+        if(typeof toolbarApi.hideHost === 'function'){
+          toolbarApi.hideHost(activeHost);
+        }else{
+          activeHost.classList.remove('font-toolbar-host--visible');
+          activeHost.style.display = 'none';
+          updateDockActiveState(activeHost, false);
+        }
       }
     }
     logDebug('panel closed',{ reason });
@@ -945,10 +963,15 @@
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      host.style.display = 'block';
-      host.classList.add('font-toolbar-host--visible');
-      host.classList.add('font-toolbar-host--significance');
-      updateDockActiveState(host, true);
+      const toolbarApi = getWorkspaceToolbarApi();
+      if(typeof toolbarApi.showHost === 'function'){
+        toolbarApi.showHost(host, { hostClass: 'font-toolbar-host--significance' });
+      }else{
+        host.style.display = 'block';
+        host.classList.add('font-toolbar-host--visible');
+        host.classList.add('font-toolbar-host--significance');
+        updateDockActiveState(host, true);
+      }
       activeHost = host;
     }else{
       activeHost = null;

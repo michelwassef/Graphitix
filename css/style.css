@@ -3383,8 +3383,9 @@ select {
     width:100%;
 }
 .workspace-toolbar__dock--active .font-toolbar-host{
-    align-self:stretch;
-    width:100%;
+    align-self:center;
+    width:auto;
+    max-width:100%;
 }
 .workspace-toolbar__hint{
     margin:0;
@@ -5452,10 +5453,15 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .wrap { position: relative; isolation: isolate; }
 
 
-.font-toolbar-host{margin:0;display:none;justify-content:center;align-items:stretch;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:100%;padding:0}
+.font-toolbar-host{margin:0;display:none;flex:0 1 auto;min-width:0;max-width:100%;align-self:center;position:relative;overflow:visible;width:auto;padding:0;justify-content:center;align-items:stretch}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
-.font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
-.font-toolbar-host.font-toolbar-host--axis{flex:0 0 auto;justify-content:center !important;align-items:center !important;align-self:center;width:100%;max-width:100%;margin-left:0;margin-right:0}
+.font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,
+.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel,
+.font-toolbar-host.font-toolbar-host--visible>.dendrogram-controls-panel,
+.font-toolbar-host.font-toolbar-host--visible>.significance-controls-panel,
+.font-toolbar-host.font-toolbar-host--visible>.additional-line-controls-panel,
+.font-toolbar-host.font-toolbar-host--visible>.grid-controls-panel{position:static;margin:0;max-width:100%}
+.font-toolbar-host.font-toolbar-host--axis{justify-content:center;align-items:stretch}
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
 .font-toolbar-host--box-dual.font-toolbar-host--visible,
 .font-toolbar-host--heatmap-dual.font-toolbar-host--visible,
@@ -5485,60 +5491,28 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   flex:0 0 auto;
 }
 
-/* Force centering for all toolbar hosts and inner forms (override inline styles) */
-.font-toolbar-host,
-.workspace-toolbar__dock .font-toolbar-host,
-.workspace-toolbar__dock--active .font-toolbar-host,
-.font-toolbar-host.font-toolbar-host--visible,
+.font-toolbar-host .workspace-toolbar__panel,
+.font-toolbar-host .workspace-toolbar__panel--symbol{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    width:max-content;
+    max-width:100%;
+    margin-inline:auto;
+}
 .workspace-toolbar__section--dock .workspace-toolbar__form,
 .workspace-toolbar__section--dock .workspace-toolbar__form--single,
 .font-toolbar-host .workspace-toolbar__form,
 .font-toolbar-host .workspace-toolbar__form--single,
 .font-toolbar-host .additional-line-controls-panel__row,
 .font-toolbar-host .axis-controls-panel__row,
-.font-toolbar-host--line-dual,
-.font-toolbar-host--box-dual,
-.font-toolbar-host--scatter-dual,
-.font-toolbar-host--heatmap-dual,
-.font-toolbar-host--grid-dual,
-.font-toolbar-host--significance-dual{
-    justify-content:center !important;
-    align-items:center !important;
-    justify-items:center !important;
-    align-content:center !important;
-    text-align:center !important;
-}
-
-/* Ensure form containers center their children */
-.font-toolbar-host .workspace-toolbar__panel,
-.font-toolbar-host .workspace-toolbar__panel--symbol,
-.font-toolbar-host .font-controls-panel,
-.font-toolbar-host .axis-controls-panel{
-    display:flex !important;
-    justify-content:center !important;
-    align-items:center !important;
-}
-
-/* For grid-based dual hosts, center grid items */
-.font-toolbar-host--line-dual,
-.font-toolbar-host--box-dual,
-.font-toolbar-host--scatter-dual,
-.font-toolbar-host--heatmap-dual,
-.font-toolbar-host--grid-dual,
-.font-toolbar-host--significance-dual{
-    justify-items:center !important;
-    align-items:center !important;
-}
-
-/* Center individual form rows and inputs */
-.workspace-toolbar__form,
-.workspace-toolbar__form--single,
-.additional-line-controls-panel__row,
-.axis-controls-panel__row{
-    display:flex !important;
-    justify-content:center !important;
-    align-items:center !important;
-    width:100%;
+.font-toolbar-host .dendrogram-controls-panel__row{
+    justify-content:center;
+    align-items:center;
+    width:max-content;
+    max-width:100%;
+    margin-inline:auto;
 }
 .font-toolbar-host--line-dual .additional-line-controls-panel,
 .font-toolbar-host--box-dual .additional-line-controls-panel,
@@ -6128,15 +6102,16 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 
 /* Dendrogram controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.dendrogram-controls-panel{position:static;margin:0;max-width:100%}
-.font-toolbar-host--dendrogram{display:block}
-.dendrogram-controls-panel{display:flex;align-items:flex-start;gap:12px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
-.dendrogram-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:72px}
-.dendrogram-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
+.font-toolbar-host--dendrogram{display:flex}
+.dendrogram-controls-panel{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:0;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:0 1 auto;width:max-content;max-width:100%}
+.dendrogram-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content;max-width:100%;margin-inline:auto}
+.dendrogram-controls-panel__summary{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;min-width:0;min-height:52px;text-align:center}
+.dendrogram-controls-panel__summary-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .dendrogram-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-.dendrogram-controls-panel__field{display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:72px;flex:0 0 auto}
-.dendrogram-controls-panel__field--numeric{width:auto;min-width:72px}
+.dendrogram-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:0;min-height:52px;flex:0 0 auto;text-align:center}
+.dendrogram-controls-panel__field--numeric{width:auto;min-width:64px;max-width:64px}
 .dendrogram-controls-panel__field--color{min-width:64px;width:auto;align-items:center;text-align:center}
-.dendrogram-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap}
+.dendrogram-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .dendrogram-controls-panel__input{min-width:0;width:auto;max-width:96px;text-align:center}
 .dendrogram-controls-panel__input--small{width:40px;min-width:40px}
 .dendrogram-controls-panel__color-input{height:32px;width:64px;padding:0;cursor:pointer;display:block;margin:0 auto}

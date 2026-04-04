@@ -61,6 +61,10 @@
     console.debug('[gridControls] ' + message, payload);
   }
 
+  function getWorkspaceToolbarApi(){
+    return Shared.workspaceToolbar || {};
+  }
+
   function clamp(value, min, max){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){ return min; }
@@ -294,6 +298,10 @@
   }
 
   function resolveToolbarHost(scopeId){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.resolveHost === 'function'){
+      return toolbarApi.resolveHost(scopeId);
+    }
     if(!global.document){ return null; }
     const doc = global.document;
     const key = scopeId || '__global__';
@@ -343,6 +351,11 @@
   }
 
   function clearHostSizing(host){
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.clearHostSizing === 'function'){
+      toolbarApi.clearHostSizing(host);
+      return;
+    }
     if(!host){ return; }
     host.style.removeProperty('min-width');
     host.style.removeProperty('max-width');
@@ -1084,9 +1097,14 @@
         && !additionalLineOpen
         && !hasEmbeddedForm
         && !activeConfig?.keepHostVisible){
-        activeHost.classList.remove('font-toolbar-host--visible');
-        activeHost.style.display = 'none';
-        updateDockActiveState(activeHost, false);
+        const toolbarApi = getWorkspaceToolbarApi();
+        if(typeof toolbarApi.hideHost === 'function'){
+          toolbarApi.hideHost(activeHost);
+        }else{
+          activeHost.classList.remove('font-toolbar-host--visible');
+          activeHost.style.display = 'none';
+          updateDockActiveState(activeHost, false);
+        }
       }
     }
     activeConfig = null;
@@ -1121,16 +1139,26 @@
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      host.style.display = typeof config.hostDisplay === 'string' && config.hostDisplay.trim()
-        ? config.hostDisplay.trim()
-        : 'grid';
-      host.classList.add('font-toolbar-host--visible');
       host.classList.add('font-toolbar-host--grid');
       host.classList.add('font-toolbar-host--grid-dual');
       if(typeof config.hostClass === 'string' && config.hostClass){
         host.classList.add(config.hostClass);
       }
-      updateDockActiveState(host, true);
+      const requestedHostDisplay = typeof config.hostDisplay === 'string' && config.hostDisplay.trim()
+        ? config.hostDisplay.trim()
+        : 'grid';
+      const toolbarApi = getWorkspaceToolbarApi();
+      if(typeof toolbarApi.showHost === 'function'){
+        toolbarApi.showHost(host, { hostClasses: ['font-toolbar-host--grid-dual', typeof config.hostClass === 'string' ? config.hostClass : ''].filter(Boolean) });
+        host.classList.add('font-toolbar-host--grid');
+        if(requestedHostDisplay !== 'flex'){
+          host.style.display = requestedHostDisplay;
+        }
+      }else{
+        host.style.display = requestedHostDisplay;
+        host.classList.add('font-toolbar-host--visible');
+        updateDockActiveState(host, true);
+      }
       activeHost = host;
     }else{
       activeHost = null;
