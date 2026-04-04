@@ -3634,6 +3634,18 @@ select {
 
 .additional-line-controls-panel__field--symbol-fill{
     min-width:max-content;
+    width:auto;
+    padding-left:0;
+    padding-right:0;
+}
+
+.additional-line-controls-panel__field--symbol-fill .additional-line-controls-panel__field-label{
+    width:auto;
+    min-width:0;
+}
+
+.additional-line-controls-panel__field--symbol-fill .shared-shape-color-control{
+    min-width:0;
 }
 
 /* Histogram distribution swatches and other standalone swatches */
@@ -6092,6 +6104,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .additional-line-controls-panel__transparency-input{flex:0 0 96px;width:96px;min-width:96px;max-width:96px;accent-color:#1f2937}
 .additional-line-controls-panel__range-value{min-width:30px;text-align:right;font-size:12px;font-weight:600;color:#1e293b}
 .additional-line-controls-panel__field--style{min-width:90px}
+.additional-line-controls-panel__field--style.additional-line-controls-panel__field--symbol-fill{min-width:fit-content;width:fit-content}
 .additional-line-controls-panel__field--symbol-border{min-width:max-content}
 .additional-line-controls-panel__field--scatter-grouped-controls{min-width:220px;align-items:flex-start;text-align:left}
 .scatter-grouped-mode-select{min-width:180px}
