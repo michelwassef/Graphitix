@@ -3837,7 +3837,7 @@
           toolbarHost.style.gridAutoFlow = 'column';
           toolbarHost.style.gridAutoColumns = 'max-content';
           toolbarHost.style.columnGap = '10px';
-          toolbarHost.style.alignItems = 'flex-start';
+          toolbarHost.style.alignItems = 'center';
         }
         syncLineErrorBarToolbarControl(toolbarHost);
         if(markerScopeSelect){

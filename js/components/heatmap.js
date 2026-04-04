@@ -833,8 +833,8 @@
       host.style.gridAutoFlow = 'column';
       host.style.gridAutoColumns = 'max-content';
       host.style.columnGap = '10px';
-      host.style.alignItems = 'flex-start';
-      host.style.justifyContent = 'flex-start';
+      host.style.alignItems = 'center';
+      host.style.justifyContent = 'center';
     }else{
       attachHeatmapPaletteDocClick(host);
     }

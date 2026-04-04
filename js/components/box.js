@@ -1093,7 +1093,7 @@
       host.style.gridAutoFlow = 'column';
       host.style.gridAutoColumns = 'max-content';
       host.style.columnGap = '10px';
-      host.style.alignItems = 'flex-start';
+      host.style.alignItems = 'center';
     }
   }
 
@@ -1132,7 +1132,7 @@
       host.style.gridAutoFlow = 'column';
       host.style.gridAutoColumns = 'max-content';
       host.style.columnGap = '10px';
-      host.style.alignItems = 'flex-start';
+      host.style.alignItems = 'center';
       const forms = Array.from(host.children || []).filter(node => node && node.nodeType === 1);
       forms.forEach(node => {
         node.style.margin = '0';
