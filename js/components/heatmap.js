@@ -6817,24 +6817,29 @@
         return;
       }
     }
+    const isSymmetricCorrelationMatrix = rowCount === columnCount
+      && orderedRowLabels.every((label, index) => label === orderedColumnLabels[index]);
+    const skipFinalViewportExpansion = aspectLocked && isSymmetricCorrelationMatrix;
     const finalSvgRect = state.svg?.getBoundingClientRect?.();
-    applyTextAspectCorrection({
-      svg: state.svg,
-      svgBox,
-      viewBoxWidth: state.svg?.viewBox?.baseVal?.width ?? totalWidth,
-      viewBoxHeight: state.svg?.viewBox?.baseVal?.height ?? totalHeight,
-      displayWidth: finalSvgRect?.width,
-      displayHeight: finalSvgRect?.height,
-      debugLabel: 'heatmap-text-correction-final',
-      textScaleMode: HEATMAP_TEXT_SCALE_MODE
-    });
-    ensureGraphViewport(state.svg, {
-      padding: Math.max(fontSize, 16),
-      minWidth: totalWidth,
-      minHeight: totalHeight,
-      debugLabel: 'heatmap-graph-final',
-      remeasure: false
-    });
+    if(!skipFinalViewportExpansion){
+      applyTextAspectCorrection({
+        svg: state.svg,
+        svgBox,
+        viewBoxWidth: state.svg?.viewBox?.baseVal?.width ?? totalWidth,
+        viewBoxHeight: state.svg?.viewBox?.baseVal?.height ?? totalHeight,
+        displayWidth: finalSvgRect?.width,
+        displayHeight: finalSvgRect?.height,
+        debugLabel: 'heatmap-text-correction-final',
+        textScaleMode: HEATMAP_TEXT_SCALE_MODE
+      });
+      ensureGraphViewport(state.svg, {
+        padding: Math.max(fontSize, 16),
+        minWidth: totalWidth,
+        minHeight: totalHeight,
+        debugLabel: 'heatmap-graph-final',
+        remeasure: false
+      });
+    }
     const ensureTitleColumnLabelClearance = () => {
       if(!title || !columnLabelGroup || typeof title.getBoundingClientRect !== 'function'){
         return false;
@@ -6945,7 +6950,8 @@
       rows: rowCount,
       columns: columnCount,
       showRowDendrogram,
-      showColumnDendrogram
+      showColumnDendrogram,
+      skipFinalViewportExpansion
     });
     } finally {
       state.isRendering = false;
@@ -8332,6 +8338,12 @@
     }
     if(restored && !replayedFromModel){
       scheduleHeatmapTextAspect('render-cache-restore');
+    }
+    if(restored && typeof state.layout?.suppressNextSchedule === 'function'){
+      state.layout.suppressNextSchedule({
+        reason: replayedFromModel ? 'heatmap-render-cache-model-restore' : 'heatmap-render-cache-restore',
+        count: 2
+      });
     }
     return restored;
   };

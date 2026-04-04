@@ -182,4 +182,5 @@ describe('Heatmap tab context isolation', () => {
     expect(svg.querySelector('[data-test-stale-cache="1"]')).toBeNull();
     expect(svg.querySelector('[data-export-layer="heatmap-cells"]')).toBeTruthy();
   });
+
 });
