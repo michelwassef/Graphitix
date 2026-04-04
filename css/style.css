@@ -2914,6 +2914,22 @@ select {
     min-height:var(--workspace-toolbar-content-height);
     height:var(--workspace-toolbar-content-height);
     padding-top:0;
+    position:relative;
+}
+.workspace-toolbar__content::before,
+.workspace-toolbar__content::after{
+    content:'';
+    position:absolute;
+    width:1px;
+    height:100%;
+    background-color:#d1d5db;
+    z-index:20;
+}
+.workspace-toolbar__content::before{
+    left:0;
+}
+.workspace-toolbar__content::after{
+    right:0;
 }
 .workspace-toolbar__section{
     display:none;
@@ -2934,15 +2950,27 @@ select {
 }
 .workspace-toolbar__section.workspace-toolbar__section--active{
     display:flex;
+    border-right:1px solid #d1d5db;
+}
+.workspace-toolbar__section.workspace-toolbar__section--active:last-of-type{
+    border-right:none;
 }
 .workspace-toolbar__section--dock{
     flex:1 1 auto;
-    align-items:flex-start;
+    align-items:center;
     min-width:0;
+    border-right:1px solid #d1d5db;
+}
+.workspace-toolbar__section--dock:last-of-type{
+    border-right:none;
 }
 /* Keep axis toolbars anchored to the same top baseline across components. */
 .workspace-toolbar__section--dock.workspace-toolbar__section--axis-active{
-    justify-content:flex-start;
+    justify-content:center;
+    border-right:1px solid #d1d5db;
+}
+.workspace-toolbar__section--dock.workspace-toolbar__section--axis-active:last-of-type{
+    border-right:none;
 }
 .workspace-toolbar__section::after{
     display:none;
@@ -3341,7 +3369,7 @@ select {
     position:relative;
     display:flex;
     flex-direction:column;
-    align-items:flex-start;
+    align-items:center;
     justify-content:flex-start;
     gap:4px;
     width:auto;
@@ -3350,8 +3378,8 @@ select {
     text-align:left;
 }
 .workspace-toolbar__dock--active{
-    align-items:flex-start;
-    justify-content:flex-start;
+    align-items:center;
+    justify-content:center;
     width:100%;
 }
 .workspace-toolbar__dock--active .font-toolbar-host{
@@ -3396,6 +3424,16 @@ select {
 .workspace-toolbar__form--single{
     width:100%;
     align-items:flex-start;
+}
+
+/* Center toolbar form content when hosted in dock sections */
+.workspace-toolbar__section--dock .workspace-toolbar__form,
+.workspace-toolbar__section--dock .workspace-toolbar__form--single,
+.workspace-toolbar__section--dock .additional-line-controls-panel__row,
+.workspace-toolbar__section--dock .axis-controls-panel__row,
+.workspace-toolbar__dock .additional-line-controls-panel__row,
+.font-toolbar-host .additional-line-controls-panel__row{
+    justify-content:center;
 }
 .workspace-toolbar__checkbox input[type="checkbox"]{
     margin:0;
@@ -5414,10 +5452,10 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .wrap { position: relative; isolation: isolate; }
 
 
-.font-toolbar-host{margin:0;display:none;justify-content:flex-start;align-items:stretch;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:100%;padding:0}
+.font-toolbar-host{margin:0;display:none;justify-content:center;align-items:stretch;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:100%;padding:0}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
 .font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
-.font-toolbar-host.font-toolbar-host--axis{flex:0 0 auto;justify-content:flex-start;align-self:center;width:100%;max-width:100%;margin-left:0;margin-right:0}
+.font-toolbar-host.font-toolbar-host--axis{flex:0 0 auto;justify-content:center !important;align-items:center !important;align-self:center;width:100%;max-width:100%;margin-left:0;margin-right:0}
 .font-toolbar-host--line-dual.font-toolbar-host--visible,
 .font-toolbar-host--box-dual.font-toolbar-host--visible,
 .font-toolbar-host--heatmap-dual.font-toolbar-host--visible,
@@ -5434,7 +5472,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   grid-auto-columns:max-content;
   column-gap:10px;
   align-items:flex-start;
-  justify-content:flex-start;
+  justify-content:center;
   overflow-x:auto;
   overflow-y:visible;
   max-width:100%;
@@ -5445,6 +5483,62 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   width:max-content;
   min-width:max-content;
   flex:0 0 auto;
+}
+
+/* Force centering for all toolbar hosts and inner forms (override inline styles) */
+.font-toolbar-host,
+.workspace-toolbar__dock .font-toolbar-host,
+.workspace-toolbar__dock--active .font-toolbar-host,
+.font-toolbar-host.font-toolbar-host--visible,
+.workspace-toolbar__section--dock .workspace-toolbar__form,
+.workspace-toolbar__section--dock .workspace-toolbar__form--single,
+.font-toolbar-host .workspace-toolbar__form,
+.font-toolbar-host .workspace-toolbar__form--single,
+.font-toolbar-host .additional-line-controls-panel__row,
+.font-toolbar-host .axis-controls-panel__row,
+.font-toolbar-host--line-dual,
+.font-toolbar-host--box-dual,
+.font-toolbar-host--scatter-dual,
+.font-toolbar-host--heatmap-dual,
+.font-toolbar-host--grid-dual,
+.font-toolbar-host--significance-dual{
+    justify-content:center !important;
+    align-items:center !important;
+    justify-items:center !important;
+    align-content:center !important;
+    text-align:center !important;
+}
+
+/* Ensure form containers center their children */
+.font-toolbar-host .workspace-toolbar__panel,
+.font-toolbar-host .workspace-toolbar__panel--symbol,
+.font-toolbar-host .font-controls-panel,
+.font-toolbar-host .axis-controls-panel{
+    display:flex !important;
+    justify-content:center !important;
+    align-items:center !important;
+}
+
+/* For grid-based dual hosts, center grid items */
+.font-toolbar-host--line-dual,
+.font-toolbar-host--box-dual,
+.font-toolbar-host--scatter-dual,
+.font-toolbar-host--heatmap-dual,
+.font-toolbar-host--grid-dual,
+.font-toolbar-host--significance-dual{
+    justify-items:center !important;
+    align-items:center !important;
+}
+
+/* Center individual form rows and inputs */
+.workspace-toolbar__form,
+.workspace-toolbar__form--single,
+.additional-line-controls-panel__row,
+.axis-controls-panel__row{
+    display:flex !important;
+    justify-content:center !important;
+    align-items:center !important;
+    width:100%;
 }
 .font-toolbar-host--line-dual .additional-line-controls-panel,
 .font-toolbar-host--box-dual .additional-line-controls-panel,
@@ -5506,7 +5600,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   background-position:left center;
   background-size:1px calc(100% - 12px);
 }
-.axis-controls-panel{display:flex;align-items:flex-start;padding:0 8px;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
+.axis-controls-panel{display:flex;align-items:flex-start;padding:0 8px;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:100%;justify-content:center}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:56px}
 .axis-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
 .axis-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
