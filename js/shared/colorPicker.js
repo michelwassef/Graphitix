@@ -606,6 +606,7 @@
       swatch.appendChild(svg);
       swatch.dataset.shape = currentShape;
       swatch.dataset.color = currentColor;
+      swatch.style.setProperty('--shared-shape-color', currentColor);
       try{ input.value = currentColor; }catch(e){}
     };
 

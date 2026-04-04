@@ -143,4 +143,23 @@ describe('Venn additional tab opening', () => {
     expect(Main.tabs.getActiveTab()?.id).toBe(vennTab.id);
     expect(venn.__getState().ui.inputs.A.value).toContain('BRCA1');
   });
+
+  test('new venn tabs do not inherit border width from an existing venn tab', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+
+    const firstVenn = window.Components?.venn;
+    expect(firstVenn).toBeTruthy();
+    firstVenn.__getState().ui.inputs.borderWidth.value = '4.7';
+    firstVenn.refreshDiagram();
+    await flush();
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'venn');
+
+    const secondState = window.Components?.venn?.__getState();
+    expect(Main.tabs.getActiveTab()?.type).toBe('venn');
+    expect(secondState?.ui?.inputs?.borderWidth?.value).toBe('1.2');
+  });
 });

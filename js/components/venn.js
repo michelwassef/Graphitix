@@ -616,6 +616,30 @@
   const state = createInitialState();
   let emptyPayloadTemplate = null;
 
+  function createDefaultVennStyleState(){
+    return {
+      plotType: normalizePlotType(DEFAULT_PLOT_TYPE),
+      colorA: '#e74c3c',
+      colorB: '#2ecc71',
+      colorC: '#3498db',
+      opacity: '0.75',
+      borderColor: '#999999',
+      borderWidth: '1.2',
+      fontsize: '12',
+      title: DEFAULT_VENN_TITLE,
+      labelPositions: { title: null },
+      upset: {
+        ...DEFAULT_UPSET_SETTINGS,
+        traceStyles: {
+          intersectionBars: { global: {}, traces: {} },
+          setBars: { global: {}, traces: {} },
+          matrix: { global: {}, traces: {} }
+        }
+      },
+      vennTraceStyles: cloneVennTraceStyles(null)
+    };
+  }
+
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -2001,7 +2025,6 @@
       updateColorLabels(getCurrentVennLabelMap());
     }
     requestScheduledDraw('venn-trace-style');
-    saveStylePrefs();
     syncActiveVennPayload('venn-trace-style');
   }
 
@@ -5486,126 +5509,6 @@
     }
   }
 
-  const STYLE_KEY = 'vennStylePrefs';
-  const STYLE_VERSION = 4;
-  const LEGACY_DEFAULT_FONT_PT = 17;
-
-  function loadStylePrefs() {
-    const inputs = state.ui.inputs;
-    if (!inputs) return;
-    try {
-      const raw = localStorage.getItem(STYLE_KEY);
-      const saved = raw ? JSON.parse(raw) : null;
-      const savedVersion = saved && Number.isFinite(Number(saved.version)) ? Number(saved.version) : 1;
-      let migrated = false;
-      let savedFontValue = saved && typeof saved.fontsize !== 'undefined' ? saved.fontsize : null;
-      if (saved && savedVersion < STYLE_VERSION) {
-        const numeric = Number(savedFontValue);
-        const basePt = chartStyle.BASE_FONT_SIZE_PT || Number(inputs.fontsize.value) || 12;
-        if (!Number.isFinite(numeric) || Math.round(numeric) === Math.round(LEGACY_DEFAULT_FONT_PT)) {
-          savedFontValue = basePt;
-          migrated = true;
-          debug('Debug: venn loadStylePrefs font migrated', {
-            savedFont: saved.fontsize,
-            basePt,
-            savedVersion,
-            targetVersion: STYLE_VERSION
-          }); // Debug: reset legacy default font to new baseline
-        }
-      }
-      if (saved) {
-        if (saved.colorA) inputs.colorA.value = saved.colorA;
-        if (saved.colorB) inputs.colorB.value = saved.colorB;
-        if (saved.colorC) inputs.colorC.value = saved.colorC;
-        if (saved.opacity) inputs.opacity.value = saved.opacity;
-        if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
-        if (saved.borderWidth) inputs.borderWidth.value = saved.borderWidth;
-        state.analysis.vennTraceStyles = cloneVennTraceStyles(saved.vennTraceStyles);
-        if (saved.plotType && state.ui.plotType) {
-          syncPlotMode(saved.plotType, { updateTitle: true });
-        }
-        if (saved.upset && state.ui.upset) {
-          const upset = saved.upset || {};
-          if (state.ui.upset.sort) state.ui.upset.sort.value = upset.sort || DEFAULT_UPSET_SETTINGS.sort;
-          if (state.ui.upset.max) state.ui.upset.max.value = clampNumber(upset.maxIntersections, DEFAULT_UPSET_SETTINGS.maxIntersections, 1, 50);
-          if (state.ui.upset.showEmpty) state.ui.upset.showEmpty.checked = !!upset.showEmpty;
-          if (state.ui.upset.showCounts) state.ui.upset.showCounts.checked = upset.showCounts !== false;
-          if (state.ui.upset.showSetCounts) state.ui.upset.showSetCounts.checked = upset.showSetCounts !== false;
-          if (state.ui.upset.showGrid) {
-            const showGrid = Object.prototype.hasOwnProperty.call(upset, 'showGrid')
-              ? !!upset.showGrid
-              : DEFAULT_UPSET_SETTINGS.showGrid;
-            state.ui.upset.showGrid.checked = showGrid;
-          }
-          if (state.ui.upset.dotSize) state.ui.upset.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
-          if (state.ui.upset.useSetColors) {
-            const useSetColors = Object.prototype.hasOwnProperty.call(upset, 'useSetColors')
-              ? !!upset.useSetColors
-              : DEFAULT_UPSET_SETTINGS.useSetColors;
-            state.ui.upset.useSetColors.checked = useSetColors;
-          }
-          if (state.ui.upset.barColor) state.ui.upset.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
-          if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
-          if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
-          if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
-          if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
-          state.analysis.upsetAxis = {
-            color: sanitizeColor(upset.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
-            width: clampNumber(upset.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10)
-          };
-          state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(upset.traceStyles);
-        }
-        if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
-          const fontInfo = resolveFontInfo(savedFontValue);
-          inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-          debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, fontInfo, savedVersion });
-        }
-      }else{
-        state.analysis.vennTraceStyles = cloneVennTraceStyles(null);
-      }
-      if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
-        if (inputs.fontsize?.dataset) {
-          inputs.fontsize.dataset.fontBasePt = String(inputs.fontsize.value || chartStyle.BASE_FONT_SIZE_PT || 12);
-        }
-        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: Number(inputs.fontsize.value), input: inputs.fontsize, manual: true });
-        debug('Debug: venn loadStylePrefs font default', { fontSize: inputs.fontsize.value });
-      }
-      inputs.opacityVal.textContent = inputs.opacity.value;
-      inputs.borderWidthVal.textContent = inputs.borderWidth.value;
-      updateUpSetDotSizeOutput(state.ui?.upset?.dotSize?.value);
-      syncPlotMode(state.ui?.plotType?.value || DEFAULT_PLOT_TYPE, { updateTitle: false });
-      if (saved && (migrated || savedVersion < STYLE_VERSION)) {
-        saveStylePrefs();
-      }
-    } catch (err) {
-      console.warn('Debug: venn loadStylePrefs error', err);
-    }
-  }
-
-  function saveStylePrefs() {
-    const inputs = state.ui.inputs;
-    if (!inputs) return;
-    const prefs = {
-      version: STYLE_VERSION,
-      colorA: inputs.colorA.value,
-      colorB: inputs.colorB.value,
-      colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value,
-      fontsize: inputs.fontsize.value,
-      borderColor: inputs.borderColor.value,
-      borderWidth: inputs.borderWidth.value,
-      vennTraceStyles: cloneVennTraceStyles(state.analysis?.vennTraceStyles),
-      plotType: getActivePlotType(),
-      upset: resolveUpSetSettings()
-    };
-    try {
-      localStorage.setItem(STYLE_KEY, JSON.stringify(prefs));
-    } catch (err) {
-      console.warn('Debug: venn saveStylePrefs error', err);
-    }
-  }
-
   function initLayout() {
     const layoutFactory = Shared.componentLayout?.createStandardPanels;
     if (typeof layoutFactory !== 'function') {
@@ -5760,25 +5663,11 @@
     return !!emptyPayloadTemplate;
   };
 
-  function resolveDefaultControlValue(id, fallback){
-    const element = global.document?.getElementById?.(id);
-    if(!element){
-      return fallback;
-    }
-    if(typeof element.defaultValue === 'string' && element.defaultValue !== ''){
-      return element.defaultValue;
-    }
-    if(typeof element.value === 'string' && element.value !== ''){
-      return element.value;
-    }
-    return fallback;
-  }
-
   venn.createEmptyPayload = function createEmptyVennPayload(){
     if(venn.ready && !emptyPayloadTemplate){
       ensureEmptyPayloadTemplate();
     }
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn', style: {} };
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn' };
     payload.type = 'venn';
     payload.data = {
       labelA: DEFAULT_VENN_LABEL_MAP.A,
@@ -5795,28 +5684,7 @@
       nBC: 0,
       nABC: 0
     };
-    payload.style = payload.style || {};
-    payload.style.plotType = normalizePlotType(payload.style.plotType || DEFAULT_PLOT_TYPE);
-    payload.style.colorA = payload.style.colorA || resolveDefaultControlValue('colorA', '#e74c3c');
-    payload.style.colorB = payload.style.colorB || resolveDefaultControlValue('colorB', '#2ecc71');
-    payload.style.colorC = payload.style.colorC || resolveDefaultControlValue('colorC', '#3498db');
-    payload.style.opacity = payload.style.opacity || resolveDefaultControlValue('opacity', '0.75');
-    payload.style.borderColor = payload.style.borderColor || resolveDefaultControlValue('borderColor', '#999999');
-    payload.style.borderWidth = payload.style.borderWidth || resolveDefaultControlValue('borderWidth', '1.2');
-    payload.style.fontsize = payload.style.fontsize || resolveDefaultControlValue('fontsize', '12');
-    payload.style.title = payload.style.title || DEFAULT_VENN_TITLE;
-    payload.style.labelPositions = payload.style.labelPositions || { title: null };
-    payload.style.upset = payload.style.upset && typeof payload.style.upset === 'object'
-      ? { ...DEFAULT_UPSET_SETTINGS, ...payload.style.upset }
-      : { ...DEFAULT_UPSET_SETTINGS };
-    payload.style.upset.traceStyles = payload.style.upset.traceStyles && typeof payload.style.upset.traceStyles === 'object'
-      ? cloneSimple(payload.style.upset.traceStyles)
-      : {
-          intersectionBars: { global: {}, traces: {} },
-          setBars: { global: {}, traces: {} },
-          matrix: { global: {}, traces: {} }
-        };
-    payload.style.vennTraceStyles = cloneVennTraceStyles(payload.style.vennTraceStyles);
+    payload.style = createDefaultVennStyleState();
     payload.notes = { text: '', open: false };
     payload.analysis = {
       goResult: null,
@@ -5935,7 +5803,10 @@
       c.nBC.value = d.nBC || 0;
       c.nABC.value = d.nABC || 0;
     }
-    const s = obj.style || {};
+    const defaultStyle = createDefaultVennStyleState();
+    const s = obj.style && typeof obj.style === 'object'
+      ? { ...defaultStyle, ...obj.style }
+      : defaultStyle;
     const notesConfig = (obj.notes && typeof obj.notes === 'object')
       ? obj.notes
       : (s.notes && typeof s.notes === 'object' ? s.notes : null);
@@ -5959,21 +5830,21 @@
     }else{
       state.titleText = plotType === 'upset' ? DEFAULT_UPSET_TITLE : DEFAULT_VENN_TITLE;
     }
-    inputs.colorA.value = s.colorA || inputs.colorA.value;
-    inputs.colorB.value = s.colorB || inputs.colorB.value;
-    inputs.colorC.value = s.colorC || inputs.colorC.value;
-    inputs.opacity.value = s.opacity || inputs.opacity.value;
+    inputs.colorA.value = sanitizeColor(s.colorA, defaultStyle.colorA);
+    inputs.colorB.value = sanitizeColor(s.colorB, defaultStyle.colorB);
+    inputs.colorC.value = sanitizeColor(s.colorC, defaultStyle.colorC);
+    inputs.opacity.value = String(clampNumber(s.opacity, Number(defaultStyle.opacity), 0, 1));
     inputs.opacityVal.textContent = inputs.opacity.value;
-    inputs.borderColor.value = s.borderColor || inputs.borderColor.value;
-    inputs.borderWidth.value = s.borderWidth || inputs.borderWidth.value;
+    inputs.borderColor.value = sanitizeColor(s.borderColor, defaultStyle.borderColor);
+    inputs.borderWidth.value = String(clampNumber(s.borderWidth, Number(defaultStyle.borderWidth), 0));
     inputs.borderWidthVal.textContent = inputs.borderWidth.value;
-    if (s.fontsize) {
+    if (s.fontsize !== undefined && s.fontsize !== null) {
       const fontInfo = resolveFontInfo(s.fontsize);
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
       debug('Debug: venn payload font applied', { saved: s.fontsize, fontInfo });
     } else {
-      const fontInfo = resolveFontInfo(inputs.fontsize.value);
+      const fontInfo = resolveFontInfo(defaultStyle.fontsize);
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
       debug('Debug: venn payload font fallback', { fontInfo });
@@ -6091,7 +5962,6 @@
     const target = event?.currentTarget || state.ui.inputs.opacity;
     state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value;
     refreshDiagram();
-    saveStylePrefs();
     debug('Debug: venn handleOpacityInput', { value: state.ui.inputs.opacity.value }); // Debug: opacity slider change
     commitVennUndo(target, 'venn:opacity');
     if (target) {
@@ -6110,7 +5980,6 @@
     chartStyle.renderFontSizeLabel({ element: state.ui.inputs.fontsizeVal, fontInfo, input: state.ui.inputs.fontsize });
     debug('Debug: venn fontsize slider change', { raw, fontInfo });
     refreshDiagram();
-    saveStylePrefs();
     const target = event?.currentTarget || state.ui.inputs.fontsize;
     commitVennUndo(target, 'venn:fontsize');
     if (target) {
@@ -6120,7 +5989,6 @@
 
   function handleColorInput(event) {
     refreshDiagram();
-    saveStylePrefs();
     debug('Debug: venn handleColorInput'); // Debug: color change trigger
     const target = event?.currentTarget || null;
     const label = target?.id ? `venn:${target.id}` : 'venn:color';
@@ -6131,7 +5999,6 @@
 
   function handleBorderColorInput(event) {
     refreshDiagram();
-    saveStylePrefs();
     debug('Debug: venn handleBorderColorInput'); // Debug: border color update
     commitVennUndo(event?.currentTarget || state.ui.inputs.borderColor, 'venn:border-color');
   }
@@ -6140,7 +6007,6 @@
     const target = event?.currentTarget || state.ui.inputs.borderWidth;
     state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value;
     refreshDiagram();
-    saveStylePrefs();
     debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
     commitVennUndo(target, 'venn:border-width');
     if (target) {
@@ -6174,14 +6040,12 @@
     const nextType = normalizePlotType(target?.value || DEFAULT_PLOT_TYPE);
     syncPlotMode(nextType, { updateTitle: true, syncPanels: true });
     requestScheduledDraw('plot-type-change');
-    saveStylePrefs();
     debug('Debug: venn handlePlotTypeChange', { plot: nextType });
     commitVennUndo(target, 'venn:plot-type');
   }
 
   function handleUpSetControlChange(event) {
     requestScheduledDraw('upset-control-change');
-    saveStylePrefs();
     const target = event?.currentTarget || null;
     const label = target?.id ? `venn:${target.id}` : 'venn:upset-control';
     debug('Debug: venn handleUpSetControlChange', { id: target?.id || null });
@@ -6192,7 +6056,6 @@
     const target = event?.currentTarget || state.ui.upset?.dotSize;
     updateUpSetDotSizeOutput(target?.value);
     requestScheduledDraw('upset-dot-size');
-    saveStylePrefs();
     debug('Debug: venn handleUpSetDotSizeInput', { value: target?.value });
     commitVennUndo(target, 'venn:upset-dot-size');
   }
@@ -6911,7 +6774,6 @@
     } else {
       debug('Debug: string export controls unavailable', { hasExporter: !!exporter }); // Debug: string export fallback
     }
-    loadStylePrefs();
     syncPlotMode(state.ui.plotType?.value || DEFAULT_PLOT_TYPE, { updateTitle: false });
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     updateUpSetDotSizeOutput(state.ui.upset?.dotSize?.value);
