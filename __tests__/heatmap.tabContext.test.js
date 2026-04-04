@@ -6,6 +6,16 @@ describe('Heatmap tab context isolation', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
+  async function waitFor(predicate, attempts = 10) {
+    for (let index = 0; index < attempts; index += 1) {
+      if (predicate()) {
+        return true;
+      }
+      await flush();
+    }
+    return false;
+  }
+
   async function activateTabById(Main, tabId, reason) {
     const maybe = Main.tabs.activateTab(tabId, { reason: reason || 'test-activate' });
     if (maybe && typeof maybe.then === 'function') {
@@ -136,5 +146,40 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredB.clusterDefaultsAutoApplied).toBe(false);
     expect(restoredB.labelPositions).toEqual({ title: { x: 30, y: 40 } });
     expect(restoredB.dendrogramSettings).toEqual({ thickness: 2, color: '#445566' });
+  });
+
+  test('heatmap render cache restore rebuilds from cached model instead of stale svg fragments', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+
+    const heatmap = window.Components?.heatmap;
+    expect(heatmap).toBeTruthy();
+
+    const loadExample = document.getElementById('heatmapLoadExample');
+    expect(loadExample).toBeTruthy();
+    loadExample.click();
+
+    const modelReady = await waitFor(() => !!heatmap.__getState()?.lastRenderModel);
+    expect(modelReady).toBe(true);
+
+    const svg = heatmap.__getState().svg || document.getElementById('heatmapSvg');
+    expect(svg).toBeTruthy();
+    expect(svg.querySelector('[data-export-layer="heatmap-cells"]')).toBeTruthy();
+
+    const cache = heatmap.captureRenderCache();
+    expect(cache?.renderState?.lastRenderModel).toBeTruthy();
+
+    if (cache?.svg?.fragment && typeof document.createElementNS === 'function') {
+      const stale = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      stale.setAttribute('data-test-stale-cache', '1');
+      cache.svg.fragment.appendChild(stale);
+    }
+
+    expect(svg.querySelector('[data-export-layer="heatmap-cells"]')).toBeNull();
+
+    const restored = heatmap.restoreRenderCache(cache);
+    expect(restored).toBe(true);
+    expect(svg.querySelector('[data-test-stale-cache="1"]')).toBeNull();
+    expect(svg.querySelector('[data-export-layer="heatmap-cells"]')).toBeTruthy();
   });
 });

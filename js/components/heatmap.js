@@ -6764,10 +6764,6 @@
           const nextTitleY = Math.max(minTitleY, currentTitleY - overlapViewUnits - safety);
           if(nextTitleY < currentTitleY){
             title.setAttribute('y', String(nextTitleY));
-            if(state.labelPositions?.title){
-              state.labelPositions.title.y = nextTitleY;
-              state.labelPositions.title.relY = nextTitleY / Math.max(matrixTop, 1);
-            }
             debugLog('Debug: heatmap title clearance adjusted', {
               overlapPx,
               overlapViewUnits,
@@ -6899,10 +6895,6 @@
           const shiftedTitle = currentTitleY - nextTitleY;
           if(shiftedTitle > 0.01){
             title.setAttribute('y', String(nextTitleY));
-            if(state.labelPositions?.title){
-              state.labelPositions.title.y = nextTitleY;
-              state.labelPositions.title.relY = nextTitleY / Math.max(matrixTop, 1);
-            }
             remainingShiftView = Math.max(0, remainingShiftView - shiftedTitle);
             adjusted = true;
           }
@@ -8301,21 +8293,44 @@
     }
     const svg = state.svg || $('heatmapSvg');
     const stats = state.statsEl || $('heatmapStatsContent');
-    restoreHeatmapSvgRootState(svg, cache.svgRootState);
-    const restoredSvg = restoreChildren(svg, cache.svg);
-    const restoredStats = restoreChildren(stats, cache.stats);
     const restoredState = restoreHeatmapRenderStateSnapshot(cache.renderState);
-    const restored = (restoredSvg || restoredStats) && restoredState;
+    let restoredSvg = false;
+    let restoredStats = false;
+    let restored = false;
+    const replayedFromModel = !!(restoredState && state.lastRenderModel && state.lastViewOptions);
+    if(replayedFromModel){
+      try{
+        restoreHeatmapSvgRootState(svg, cache.svgRootState);
+        restoredSvg = !!renderModelWithView(state.lastRenderModel, state.lastViewOptions);
+        if(restoredSvg){
+          refreshStatsForView(state.lastViewOptions);
+          restoredStats = true;
+          restored = true;
+        }
+      }catch(err){
+        console.error('heatmap render cache replay from model error', err);
+        restoredSvg = false;
+        restoredStats = false;
+        restored = false;
+      }
+    }
+    if(!restored){
+      restoreHeatmapSvgRootState(svg, cache.svgRootState);
+      restoredSvg = restoreChildren(svg, cache.svg);
+      restoredStats = restoreChildren(stats, cache.stats);
+      restored = (restoredSvg || restoredStats) && restoredState;
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: heatmap render cache restored', {
         restored,
         svg: restoredSvg,
         stats: restoredStats,
         renderState: restoredState,
-        svgRootState: !!cache.svgRootState
+        svgRootState: !!cache.svgRootState,
+        replayedFromModel
       });
     }
-    if(restored){
+    if(restored && !replayedFromModel){
       scheduleHeatmapTextAspect('render-cache-restore');
     }
     return restored;
