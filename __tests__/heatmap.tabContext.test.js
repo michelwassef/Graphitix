@@ -148,7 +148,7 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredB.dendrogramSettings).toEqual({ thickness: 2, color: '#445566' });
   });
 
-  test('heatmap render cache restore rebuilds from cached model instead of stale svg fragments', async () => {
+  test('heatmap render cache restore prefers cached svg fragments when available', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'heatmap');
 
@@ -179,7 +179,7 @@ describe('Heatmap tab context isolation', () => {
 
     const restored = heatmap.restoreRenderCache(cache);
     expect(restored).toBe(true);
-    expect(svg.querySelector('[data-test-stale-cache="1"]')).toBeNull();
+    expect(svg.querySelector('[data-test-stale-cache="1"]')).toBeTruthy();
     expect(svg.querySelector('[data-export-layer="heatmap-cells"]')).toBeTruthy();
   });
 

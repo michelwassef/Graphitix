@@ -8303,9 +8303,14 @@
     let restoredSvg = false;
     let restoredStats = false;
     let restored = false;
-    const replayedFromModel = !!(restoredState && state.lastRenderModel && state.lastViewOptions);
-    if(replayedFromModel){
+    let replayedFromModel = false;
+    restoreHeatmapSvgRootState(svg, cache.svgRootState);
+    restoredSvg = restoreChildren(svg, cache.svg);
+    restoredStats = restoreChildren(stats, cache.stats);
+    restored = (restoredSvg || restoredStats) && restoredState;
+    if(!restored && restoredState && state.lastRenderModel && state.lastViewOptions){
       try{
+        replayedFromModel = true;
         restoreHeatmapSvgRootState(svg, cache.svgRootState);
         restoredSvg = !!renderModelWithView(state.lastRenderModel, state.lastViewOptions);
         if(restoredSvg){
@@ -8318,13 +8323,8 @@
         restoredSvg = false;
         restoredStats = false;
         restored = false;
+        replayedFromModel = false;
       }
-    }
-    if(!restored){
-      restoreHeatmapSvgRootState(svg, cache.svgRootState);
-      restoredSvg = restoreChildren(svg, cache.svg);
-      restoredStats = restoreChildren(stats, cache.stats);
-      restored = (restoredSvg || restoredStats) && restoredState;
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: heatmap render cache restored', {
@@ -8335,9 +8335,6 @@
         svgRootState: !!cache.svgRootState,
         replayedFromModel
       });
-    }
-    if(restored && !replayedFromModel){
-      scheduleHeatmapTextAspect('render-cache-restore');
     }
     if(restored && typeof state.layout?.suppressNextSchedule === 'function'){
       state.layout.suppressNextSchedule({
