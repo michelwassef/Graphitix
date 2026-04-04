@@ -837,6 +837,104 @@
     return true;
   }
 
+  function cloneMapEntries(map){
+    if(!(map instanceof Map)){
+      return [];
+    }
+    return Array.from(map.entries()).map(([key, value]) => {
+      const cloned = cloneSimple(value);
+      return [key, cloned !== null ? cloned : value];
+    });
+  }
+
+  function restoreMapEntries(entries){
+    const next = new Map();
+    if(!Array.isArray(entries)){
+      return next;
+    }
+    entries.forEach(entry => {
+      if(!Array.isArray(entry) || entry.length < 2){
+        return;
+      }
+      const key = entry[0];
+      const value = cloneSimple(entry[1]);
+      next.set(key, value !== null ? value : entry[1]);
+    });
+    return next;
+  }
+
+  function resetVennRuntimeState(){
+    cancelPendingSpeciesDetection('runtime-reset', { abortActive: true, resetIndicator: false });
+    state.persistence.fileHandle = null;
+    state.persistence.fileName = 'venn.graph';
+    state.analysis.lastParsedLists = null;
+    state.analysis.significanceCache = null;
+    state.analysis.speciesDetection = {
+      cache: new Map(),
+      pendingTimeoutId: null,
+      pendingReason: null,
+      active: null,
+      delayMs: 1200
+    };
+    if(state.ui.speciesSelect){
+      state.ui.speciesSelect.value = '';
+      state.ui.speciesSelect.style.backgroundColor = '';
+    }
+  }
+
+  function captureVennRuntimeStateSnapshot(){
+    const detection = getSpeciesDetectionState();
+    return {
+      persistence: {
+        fileHandle: state.persistence.fileHandle || null,
+        fileName: state.persistence.fileName || 'venn.graph'
+      },
+      analysis: {
+        significanceCache: cloneSimple(state.analysis.significanceCache),
+        speciesDetection: {
+          cacheEntries: cloneMapEntries(detection.cache),
+          delayMs: Number.isFinite(detection.delayMs) ? detection.delayMs : 1200
+        }
+      },
+      ui: {
+        speciesValue: state.ui.speciesSelect ? (state.ui.speciesSelect.value || '') : '',
+        speciesIndicator: state.ui.speciesSelect ? (state.ui.speciesSelect.style?.backgroundColor || '') : ''
+      }
+    };
+  }
+
+  function applyVennRuntimeStateSnapshot(snapshot){
+    resetVennRuntimeState();
+    const next = snapshot && typeof snapshot === 'object' ? snapshot : {};
+    const persistence = next.persistence && typeof next.persistence === 'object'
+      ? next.persistence
+      : {};
+    const analysis = next.analysis && typeof next.analysis === 'object'
+      ? next.analysis
+      : {};
+    const ui = next.ui && typeof next.ui === 'object'
+      ? next.ui
+      : {};
+    state.persistence.fileHandle = persistence.fileHandle || null;
+    state.persistence.fileName = persistence.fileName || 'venn.graph';
+    state.analysis.lastParsedLists = null;
+    state.analysis.significanceCache = analysis.significanceCache ? cloneSimple(analysis.significanceCache) : null;
+    const detection = getSpeciesDetectionState();
+    const detectionSnapshot = analysis.speciesDetection && typeof analysis.speciesDetection === 'object'
+      ? analysis.speciesDetection
+      : {};
+    detection.cache = restoreMapEntries(detectionSnapshot.cacheEntries);
+    detection.pendingTimeoutId = null;
+    detection.pendingReason = null;
+    detection.active = null;
+    detection.delayMs = Number.isFinite(detectionSnapshot.delayMs) ? detectionSnapshot.delayMs : 1200;
+    if(state.ui.speciesSelect){
+      state.ui.speciesSelect.value = ui.speciesValue || '';
+      state.ui.speciesSelect.style.backgroundColor = ui.speciesIndicator || '';
+    }
+    return true;
+  }
+
   function normalizeValue(value){
     return value == null ? '' : String(value);
   }
@@ -5661,10 +5759,26 @@
     console.debug('Debug: venn empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
+
+  function resolveDefaultControlValue(id, fallback){
+    const element = global.document?.getElementById?.(id);
+    if(!element){
+      return fallback;
+    }
+    if(typeof element.defaultValue === 'string' && element.defaultValue !== ''){
+      return element.defaultValue;
+    }
+    if(typeof element.value === 'string' && element.value !== ''){
+      return element.value;
+    }
+    return fallback;
+  }
+
   venn.createEmptyPayload = function createEmptyVennPayload(){
-    venn.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn' };
+    if(venn.ready && !emptyPayloadTemplate){
+      ensureEmptyPayloadTemplate();
+    }
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn', style: {} };
     payload.type = 'venn';
     payload.data = {
       labelA: DEFAULT_VENN_LABEL_MAP.A,
@@ -5682,6 +5796,27 @@
       nABC: 0
     };
     payload.style = payload.style || {};
+    payload.style.plotType = normalizePlotType(payload.style.plotType || DEFAULT_PLOT_TYPE);
+    payload.style.colorA = payload.style.colorA || resolveDefaultControlValue('colorA', '#e74c3c');
+    payload.style.colorB = payload.style.colorB || resolveDefaultControlValue('colorB', '#2ecc71');
+    payload.style.colorC = payload.style.colorC || resolveDefaultControlValue('colorC', '#3498db');
+    payload.style.opacity = payload.style.opacity || resolveDefaultControlValue('opacity', '0.75');
+    payload.style.borderColor = payload.style.borderColor || resolveDefaultControlValue('borderColor', '#999999');
+    payload.style.borderWidth = payload.style.borderWidth || resolveDefaultControlValue('borderWidth', '1.2');
+    payload.style.fontsize = payload.style.fontsize || resolveDefaultControlValue('fontsize', '12');
+    payload.style.title = payload.style.title || DEFAULT_VENN_TITLE;
+    payload.style.labelPositions = payload.style.labelPositions || { title: null };
+    payload.style.upset = payload.style.upset && typeof payload.style.upset === 'object'
+      ? { ...DEFAULT_UPSET_SETTINGS, ...payload.style.upset }
+      : { ...DEFAULT_UPSET_SETTINGS };
+    payload.style.upset.traceStyles = payload.style.upset.traceStyles && typeof payload.style.upset.traceStyles === 'object'
+      ? cloneSimple(payload.style.upset.traceStyles)
+      : {
+          intersectionBars: { global: {}, traces: {} },
+          setBars: { global: {}, traces: {} },
+          matrix: { global: {}, traces: {} }
+        };
+    payload.style.vennTraceStyles = cloneVennTraceStyles(payload.style.vennTraceStyles);
     payload.notes = { text: '', open: false };
     payload.analysis = {
       goResult: null,
@@ -6611,11 +6746,10 @@
   }
 
   function removeLegacyGraphControlSections(){
-    const legacyInputIds = ['colorA', 'opacity'];
+    const legacyNodes = Array.from(document.querySelectorAll('[data-legacy-graph-controls="1"]'));
     const removedFieldsets = new Set();
-    legacyInputIds.forEach(id => {
-      const input = document.getElementById(id);
-      const fieldset = input?.closest?.('fieldset');
+    legacyNodes.forEach(node => {
+      const fieldset = node?.closest?.('fieldset') || node;
       if(fieldset && fieldset.parentElement){
         removedFieldsets.add(fieldset);
       }
@@ -6814,10 +6948,53 @@
     refreshDiagram
   });
 
+  venn.captureRuntimeState = function captureRuntimeState(meta = {}){
+    const snapshot = captureVennRuntimeStateSnapshot();
+    debugLog('runtime state captured', {
+      reason: meta.reason || 'capture-runtime-state',
+      hasParsedLists: !!snapshot?.analysis?.lastParsedLists,
+      speciesCacheSize: snapshot?.analysis?.speciesDetection?.cacheEntries?.length || 0
+    });
+    return snapshot;
+  };
+
+  venn.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
+    applyVennRuntimeStateSnapshot(snapshot);
+    debugLog('runtime state applied', {
+      reason: meta.reason || 'apply-runtime-state',
+      hasSnapshot: !!snapshot
+    });
+    return true;
+  };
+
+  venn.deactivateTab = function deactivateTab(_tab, meta = {}){
+    cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
+      abortActive: true,
+      resetIndicator: false
+    });
+    debugLog('tab deactivated', {
+      reason: meta.reason || 'deactivate-tab'
+    });
+    return true;
+  };
+
+  venn.disposeTab = function disposeTab(_tab, meta = {}){
+    debugLog('tab disposed', {
+      reason: meta.reason || 'dispose-tab'
+    });
+    return true;
+  };
+
+  venn.__getState = function __getState(){
+    return state;
+  };
+
   venn.__testHooks = {
     state,
     populateRegion,
-    clearAnalysis
+    clearAnalysis,
+    captureRuntimeState: meta => venn.captureRuntimeState(meta),
+    applyRuntimeState: (snapshot, meta) => venn.applyRuntimeState(snapshot, meta)
   };
 
   function detachChildren(node){

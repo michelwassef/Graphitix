@@ -157,6 +157,15 @@
       return workspaceState.tabs.find(tab => tab.id === tabId) || null;
     }
 
+    function deactivateWorkspaceForTab(tab, reason) {
+      if (!tab || !tab.type || !window.Shared?.workspaceTabs?.deactivateWorkspace) {
+        return false;
+      }
+      return !!window.Shared.workspaceTabs.deactivateWorkspace(tab, workspaces?.[tab.type] || null, {
+        reason: reason || 'workspace-deactivate'
+      });
+    }
+
     function determineDuplicateSourceCandidate(preferredId) {
       if (preferredId) {
         const preferred = getTabById(preferredId);
@@ -307,6 +316,7 @@
           const currentActive = getActiveTab();
           if (currentActive && !currentActive.isWelcome) {
             session.persistActiveTabState(currentActive, withSessionContext({ reason: 'duplicate-before-create' }));
+            deactivateWorkspaceForTab(currentActive, 'duplicate-before-create');
           }
         } catch (e) {
           console.debug('Debug: duplicate persistActiveTabState failed', { err: e });
@@ -387,6 +397,9 @@
         console.warn('performTabRemoval missing index', { tabId, reason });
         return;
       }
+      if (wasActive) {
+        deactivateWorkspaceForTab(tab, reason);
+      }
       workspaceState.tabs.splice(index, 1);
       if (workspaceState.loadedWorkspaces) {
         if (workspaceState.loadedWorkspaces[tabId]) {
@@ -402,6 +415,9 @@
       }
       if (workspaceState.pendingDuplicateSource === tabId) {
         workspaceState.pendingDuplicateSource = null;
+      }
+      if (window.Shared?.workspaceTabs?.disposeTab) {
+        window.Shared.workspaceTabs.disposeTab(tab, { reason });
       }
       if (workspaceState.lastActiveGraphId === tabId) {
         const fallbackGraph = [...workspaceState.tabs].reverse().find(item => item.type && !item.isWelcome) || null;
@@ -474,6 +490,9 @@
           captureRenderCache: true,
           preserveRenderCacheTabIds: [current.id, tabId]
         }));
+      }
+      if (current && current.id !== tabId) {
+        deactivateWorkspaceForTab(current, options.reason || 'activate-switch');
       }
       workspaceState.activeTabId = tabId;
       renderTabs();
@@ -602,6 +621,7 @@
       const current = getActiveTab();
       if (current && !current.isWelcome) {
         session.persistActiveTabState(current, withSessionContext({ reason: 'add-tab-before-new' }));
+        deactivateWorkspaceForTab(current, 'add-tab-before-new');
       }
       const candidateSource = determineDuplicateSourceCandidate(current?.id);
       const newTab = session.createTab({ duplicateSource: candidateSource });

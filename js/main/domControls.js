@@ -2,6 +2,14 @@
   "use strict";
 
   const Main = window.Main = window.Main || {};
+  const Shared = window.Shared = window.Shared || {};
+  if(typeof Shared.workspaceTabs?.activateWorkspace !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/workspaceTabs.js');
+    } catch (err) {
+      console.debug('Debug: domControls workspaceTabs helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const namespace = Main.domControls = Main.domControls || {};
 
   const moduleState = {
@@ -421,6 +429,12 @@
       });
       return null;
     }
+    const workspaceInitialized = namespace.isWorkspaceInitialized(type);
+    const requiresWorkspaceInitialization = !!config?.element;
+    if (requiresWorkspaceInitialization && !workspaceInitialized) {
+      console.debug('Debug: ensureDefaultPayload deferred until workspace initialization', { type });
+      return null;
+    }
     const resolveEmptyPayload = () => {
       let templatePayload = null;
       if (typeof config.captureEmptyPayloadTemplate === 'function') {
@@ -635,13 +649,6 @@
     const cachedWorkspace = loadedWorkspaces[tab.id] || null;
     const renderedWorkspaceByType = workspaceState?.renderedWorkspaceByType || {};
     const renderedTabForType = renderedWorkspaceByType[tab.type] || null;
-    if (typeof config.prepareForTab === 'function') {
-      try {
-        config.prepareForTab(tab);
-      } catch (err) {
-        console.error('workspace prepareForTab error', err);
-      }
-    }
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
     const renderCache = tab.renderCache || null;
@@ -680,6 +687,11 @@
       && !canRestoreRender;
 
     const applyWorkspaceState = () => {
+      if (Shared.workspaceTabs?.activateWorkspace) {
+        Shared.workspaceTabs.activateWorkspace(tab, config, {
+          reason: options.reason || 'workspace-view'
+        });
+      }
       if (canReuseWorkspace) {
         loadedWorkspaces[tab.id] = {
           tabId: tab.id,
@@ -723,6 +735,11 @@
         }
         if (payload && defaultPayload) {
           payload = namespace.mergePayloadWithDefaults(tab.type, payload, defaultPayload, { cloneFn });
+        }
+        if (Shared.workspaceTabs?.applySharedPayloadState) {
+          Shared.workspaceTabs.applySharedPayloadState(tab, tab.type, payload, config, {
+            reason: options.reason || 'workspace-view'
+          });
         }
         namespace.applyWorkspacePayload(config, payload, {
           skipDraw: canRestoreRender,

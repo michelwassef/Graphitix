@@ -55,15 +55,8 @@
           console.error('duplicate prompt workspace default resolution error', { type, err });
         }
       }
-      if (typeof config.createEmptyPayload !== 'function') {
-        return null;
-      }
-      try {
-        return config.createEmptyPayload();
-      } catch (err) {
-        console.error('duplicate prompt empty payload error', { type, err });
-        return null;
-      }
+      console.debug('Debug: duplicate prompt empty payload deferred to workspace activation', { type });
+      return null;
     }
 
     function showDuplicateDecision({ tab, type, sourceTab, canDuplicate }) {

@@ -81,6 +81,49 @@
     return window.Components?.[name] || null;
   }
 
+  function invokeComponentLifecycle(name, methodName, args = []) {
+    const component = resolveComponentFromGlobal(name);
+    const handler = component && typeof component[methodName] === 'function'
+      ? component[methodName]
+      : null;
+    if (!handler) {
+      return undefined;
+    }
+    return handler.apply(component, args);
+  }
+
+  function installStandardWorkspaceLifecycle(workspace) {
+    if (!workspace || !workspace.type) {
+      return workspace;
+    }
+    const type = workspace.type;
+    if (typeof workspace.activateTab !== 'function') {
+      workspace.activateTab = (tab, meta) => {
+        const component = resolveComponentFromGlobal(type);
+        if (component && typeof component.activateTab === 'function') {
+          return component.activateTab(tab, meta);
+        }
+        if (component && typeof component.prepareForTab === 'function') {
+          return component.prepareForTab(tab, meta);
+        }
+        return undefined;
+      };
+    }
+    if (typeof workspace.deactivateTab !== 'function') {
+      workspace.deactivateTab = (tab, meta) => invokeComponentLifecycle(type, 'deactivateTab', [tab, meta]);
+    }
+    if (typeof workspace.disposeTab !== 'function') {
+      workspace.disposeTab = (tab, meta) => invokeComponentLifecycle(type, 'disposeTab', [tab, meta]);
+    }
+    if (typeof workspace.captureRuntimeState !== 'function') {
+      workspace.captureRuntimeState = meta => invokeComponentLifecycle(type, 'captureRuntimeState', [meta]);
+    }
+    if (typeof workspace.applyRuntimeState !== 'function') {
+      workspace.applyRuntimeState = (snapshot, meta) => invokeComponentLifecycle(type, 'applyRuntimeState', [snapshot, meta]);
+    }
+    return workspace;
+  }
+
   function ensureComponent(name, options = {}) {
     return loadComponentBundle(name, options).then(() => {
       const component = resolveComponentFromGlobal(name);
@@ -352,6 +395,10 @@
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pie', state, options || {})
     }
   };
+
+  Object.keys(WORKSPACES).forEach(type => {
+    installStandardWorkspaceLifecycle(WORKSPACES[type]);
+  });
 
   namespace.scheduleDraw = scheduleDraw;
   namespace.scheduleDrawBoxplot = scheduleDrawBoxplot;

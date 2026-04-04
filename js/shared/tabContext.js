@@ -2,6 +2,13 @@
   'use strict';
 
   const Shared = global.Shared = global.Shared || {};
+  if(typeof Shared.workspaceTabs?.ensureRuntimeBucket !== 'function' && typeof require === 'function'){
+    try{
+      require('./workspaceTabs.js');
+    }catch(err){
+      console.debug('Debug: tabContext workspaceTabs helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const namespace = Shared.tabContext = Shared.tabContext || {};
 
   function debugLog(label, payload){
@@ -42,7 +49,6 @@
       ? config.isValidTab
       : (tab => !!(tab && tab.type === componentKey && tab.id != null));
     const log = typeof config.debugLog === 'function' ? config.debugLog : debugLog;
-    const contexts = new Map();
     let activeTabId = null;
     const runtimeKey = `${componentKey}-runtime-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -79,21 +85,27 @@
       if(activeTabId){
         validIds.add(activeTabId);
       }
-      Array.from(contexts.keys()).forEach(tabId => {
-        if(!validIds.has(tabId)){
-          contexts.delete(tabId);
-          log(`Debug: ${componentKey} tab context pruned`, { tabId });
-        }
+      tabs.forEach(tab => {
+        Shared.workspaceTabs?.ensureTabState?.(tab);
       });
+      tabs
+        .filter(tab => tab?.sharedState?.runtime && Object.prototype.hasOwnProperty.call(tab.sharedState.runtime, componentKey))
+        .forEach(tab => {
+          const tabId = normalizeTabId(tab.id);
+          if(tabId && !validIds.has(tabId)){
+            Shared.workspaceTabs?.clearRuntimeSnapshot?.(tab, componentKey, { reason: 'prune' });
+            log(`Debug: ${componentKey} tab context pruned`, { tabId });
+          }
+        });
     }
 
     function ensure(tabLike){
       prune();
       const tabId = resolveTabId(tabLike);
-      let context = contexts.get(tabId);
+      let context = Shared.workspaceTabs?.getRuntimeSnapshot?.(tabId, componentKey) || null;
       if(!context){
         context = createDefaultContext() || {};
-        contexts.set(tabId, context);
+        Shared.workspaceTabs?.setRuntimeSnapshot?.(tabId, componentKey, context, { reason: 'ensure' });
         log(`Debug: ${componentKey} tab context created`, { tabId });
       }
       return { tabId, context };
@@ -101,7 +113,7 @@
 
     function getContext(tabLike){
       const tabId = resolveTabId(tabLike);
-      return contexts.get(tabId) || null;
+      return Shared.workspaceTabs?.getRuntimeSnapshot?.(tabId, componentKey) || null;
     }
 
     function setContext(tabLike, snapshot, meta = {}){
@@ -109,7 +121,9 @@
       const nextContext = snapshot && typeof snapshot === 'object'
         ? snapshot
         : (createDefaultContext() || {});
-      contexts.set(tabId, nextContext);
+      Shared.workspaceTabs?.setRuntimeSnapshot?.(tabId, componentKey, nextContext, {
+        reason: meta.reason || 'set-context'
+      });
       log(`Debug: ${componentKey} tab context replaced`, {
         tabId,
         reason: meta.reason || 'set-context'
@@ -126,7 +140,9 @@
       const nextContext = snapshot && typeof snapshot === 'object'
         ? snapshot
         : (createDefaultContext() || {});
-      contexts.set(tabId, nextContext);
+      Shared.workspaceTabs?.setRuntimeSnapshot?.(tabId, componentKey, nextContext, {
+        reason: reason || 'sync'
+      });
       log(`Debug: ${componentKey} tab context captured`, {
         tabId,
         reason: reason || 'sync'
@@ -138,14 +154,14 @@
       const nextTabId = resolveTabId(tabLike);
       const previousTabId = activeTabId;
       if(previousTabId && previousTabId === nextTabId && options.force !== true){
-        if(!contexts.has(nextTabId)){
+        if(!Shared.workspaceTabs?.getRuntimeSnapshot?.(nextTabId, componentKey)){
           sync(`seed:${options.reason || 'activate'}`);
         }
         log(`Debug: ${componentKey} tab context reused`, {
           tabId: nextTabId,
           reason: options.reason || 'activate'
         });
-        return contexts.get(nextTabId) || null;
+        return Shared.workspaceTabs?.getRuntimeSnapshot?.(nextTabId, componentKey) || null;
       }
       if(previousTabId && previousTabId !== nextTabId){
         sync(`switch:${options.reason || 'activate'}`);
@@ -163,7 +179,9 @@
 
     function clear(tabLike, meta = {}){
       const tabId = resolveTabId(tabLike);
-      const hadContext = contexts.delete(tabId);
+      const hadContext = Shared.workspaceTabs?.clearRuntimeSnapshot?.(tabId, componentKey, {
+        reason: meta.reason || 'clear'
+      }) || false;
       if(activeTabId === tabId){
         activeTabId = null;
       }

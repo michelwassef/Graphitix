@@ -162,6 +162,12 @@
     const heightPx = toPositiveNumber(rawDisplay.heightPx)
       || toPositiveNumber(rawDisplay.height)
       || fallback.height;
+    const defaultWidthPx = toPositiveNumber(rawDisplay.defaultWidthPx)
+      || toPositiveNumber(rawDisplay.defaultWidth)
+      || widthPx;
+    const defaultHeightPx = toPositiveNumber(rawDisplay.defaultHeightPx)
+      || toPositiveNumber(rawDisplay.defaultHeight)
+      || heightPx;
     const minWidthPx = toPositiveNumber(rawDisplay.minWidthPx)
       || toPositiveNumber(rawDisplay.minWidth)
       || Math.max(1, Math.round(widthPx * ((Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))));
@@ -190,6 +196,8 @@
       display: {
         widthPx,
         heightPx,
+        defaultWidthPx,
+        defaultHeightPx,
         minWidthPx,
         minHeightPx,
         maxWidthPx,
@@ -219,6 +227,19 @@
     const style = element.style || null;
     const data = element.dataset || null;
     const toPx = value => Number.isFinite(value) ? `${Math.round(value)}px` : '';
+    const updateDefaults = options.updateDefaults === true;
+    const existingDefaultWidthPx = data
+      ? (parsePxLike(data.graphDefaultWidth) || parsePxLike(data.resizerDefaultWidth))
+      : null;
+    const existingDefaultHeightPx = data
+      ? (parsePxLike(data.graphDefaultHeight) || parsePxLike(data.resizerDefaultHeight))
+      : null;
+    const defaultWidthPx = toPositiveNumber(display.defaultWidthPx)
+      || toPositiveNumber(display.defaultWidth)
+      || (updateDefaults ? display.widthPx : (existingDefaultWidthPx || display.widthPx));
+    const defaultHeightPx = toPositiveNumber(display.defaultHeightPx)
+      || toPositiveNumber(display.defaultHeight)
+      || (updateDefaults ? display.heightPx : (existingDefaultHeightPx || display.heightPx));
 
     if(style){
       style.width = toPx(display.widthPx);
@@ -243,8 +264,8 @@
       data.graphAspectLocked = display.aspectLocked !== false ? 'true' : 'false';
       data.graphSizingVersion = String(record.version || 1);
 
-      data.resizerDefaultWidth = String(Math.round(display.widthPx));
-      data.resizerDefaultHeight = String(Math.round(display.heightPx));
+      data.resizerDefaultWidth = String(Math.round(defaultWidthPx));
+      data.resizerDefaultHeight = String(Math.round(defaultHeightPx));
       data.resizerMinWidth = String(Math.round(display.minWidthPx));
       data.resizerMinHeight = String(Math.round(display.minHeightPx));
       data.resizerMaxWidth = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
@@ -252,8 +273,8 @@
       data.resizerAspectRatio = String(display.aspectRatio);
       data.resizerAspectLocked = display.aspectLocked !== false ? 'true' : 'false';
       data.resizerUnlimitedWidth = display.allowUnlimitedWidth === true ? 'true' : 'false';
-      data.graphDefaultWidth = String(Math.round(display.widthPx));
-      data.graphDefaultHeight = String(Math.round(display.heightPx));
+      data.graphDefaultWidth = String(Math.round(defaultWidthPx));
+      data.graphDefaultHeight = String(Math.round(defaultHeightPx));
       data.graphMinWidth = String(Math.round(display.minWidthPx));
       data.graphMinHeight = String(Math.round(display.minHeightPx));
       data.graphMaxWidth = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
@@ -287,6 +308,12 @@
       || parsePxLike(data.resizerDefaultHeight)
       || toPositiveNumber(rect.height)
       || fallback.height;
+    const defaultWidthPx = parsePxLike(data.graphDefaultWidth)
+      || parsePxLike(data.resizerDefaultWidth)
+      || widthPx;
+    const defaultHeightPx = parsePxLike(data.graphDefaultHeight)
+      || parsePxLike(data.resizerDefaultHeight)
+      || heightPx;
     const minWidthPx = parsePxLike(style.minWidth)
       || parsePxLike(data.graphMinWidthPx)
       || parsePxLike(data.resizerMinWidth)
@@ -318,6 +345,8 @@
       display: {
         widthPx,
         heightPx,
+        defaultWidthPx,
+        defaultHeightPx,
         minWidthPx,
         minHeightPx,
         maxWidthPx,
@@ -477,7 +506,10 @@
     applySizingRecordToElement({
       style: nextLayout.svgBox.style,
       dataset: nextLayout.svgBox.dataset
-    }, record, { context: options.context || 'merge-payload-into-layout' });
+    }, record, {
+      context: options.context || 'merge-payload-into-layout',
+      updateDefaults: options.updateDefaults === true
+    });
 
     debug('Debug: graphSizing.mergePayloadSizingIntoLayout', {
       context: options.context || null,
@@ -541,6 +573,7 @@
     if(!record){
       return false;
     }
+    const updateDefaults = options.updateDefaults === true;
     const attempts = Array.isArray(options.retryDelaysMs) && options.retryDelaysMs.length
       ? options.retryDelaysMs
       : [0, 40, 120, 260];
@@ -558,7 +591,7 @@
             height: record.display.heightPx,
             axis: typeof options.axis === 'string' && options.axis ? options.axis : 'both',
             reason: options.context || `${type || 'graph'}-apply`,
-            updateDefaults: options.updateDefaults !== false,
+            updateDefaults,
             updateAspectRatio: options.updateAspectRatio !== false,
             preserveAspectLock: options.preserveAspectLock !== false,
             forceExact: options.forceExact !== false
@@ -575,7 +608,14 @@
         if(!result){
           result = applySizingRecordToElement(element, record, {
             context: options.context || `${type || 'graph'}-apply`,
-            delay
+            delay,
+            updateDefaults
+          });
+        }else{
+          applySizingRecordToElement(element, record, {
+            context: options.context || `${type || 'graph'}-apply`,
+            delay,
+            updateDefaults
           });
         }
         if(result){

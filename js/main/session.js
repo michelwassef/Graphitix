@@ -2,6 +2,13 @@
   "use strict";
   const Main = window.Main = window.Main || {};
   const Shared = window.Shared = window.Shared || {};
+  if(typeof Shared.workspaceTabs?.ensureTabState !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/workspaceTabs.js');
+    } catch (err) {
+      console.debug('Debug: session workspaceTabs helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const namespace = Main.session = Main.session || {};
 
   /**
@@ -587,11 +594,15 @@
       layoutState: options.layoutState || null,
       layoutSignature: options.layoutSignature !== undefined
         ? options.layoutSignature
-        : serializePayloadSignature(options.layoutState || null)
+        : serializePayloadSignature(options.layoutState || null),
+      sharedState: options.sharedState && typeof options.sharedState === 'object'
+        ? options.sharedState
+        : { runtime: {}, resources: {}, styles: {}, metadata: {} }
     };
     if (tab.isWelcome) {
       tab.allowClose = false;
     }
+    Shared.workspaceTabs?.ensureTabState?.(tab);
     console.debug('Debug: session createTab generated', {
       id,
       index,
@@ -847,6 +858,16 @@
     try {
       const payload = config.getPayload();
       let payloadClone = clonePayload(payload);
+      if (Shared.workspaceTabs?.captureSharedPayloadState) {
+        Shared.workspaceTabs.captureSharedPayloadState(tab, tab.type, payloadClone, config, {
+          reason: options.reason || 'persist-active'
+        });
+      }
+      if (Shared.workspaceTabs?.captureRuntimeState) {
+        Shared.workspaceTabs.captureRuntimeState(tab, tab.type, config, {
+          reason: options.reason || 'persist-active'
+        });
+      }
       const layoutState = Shared.componentLayout?.captureStateFor
         ? Shared.componentLayout.captureStateFor(tab.type)
         : null;
