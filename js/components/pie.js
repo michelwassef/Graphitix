@@ -2477,6 +2477,10 @@
         if(!state.hot){
           state.hot = createPieTable(baseContainer);
         }
+        if(state.hot){
+          state.hot.__pieHostContainer = baseContainer;
+          state.hot.__pieTabId = Shared.hot.resolveActiveTabId?.() || 'pie-default';
+        }
         ensurePieDefaultHeaderRow(state.hot);
         return state.hot;
       }
@@ -2490,10 +2494,15 @@
       if(entry?.instance){
         state.hot = entry.instance;
       }
+      if(state.hot){
+        state.hot.__pieHostContainer = entry?.container || baseContainer;
+        state.hot.__pieTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'pie-default';
+      }
       ensurePieDataViewsForHot(state.hot, {
         wrapper,
-        container: state.hot?.__pieHostContainer || baseContainer
+        container: entry?.container || baseContainer
       });
+      syncPieActiveDataViewFromHot(state.hot, 'ensure-active-tab');
       ensurePieDefaultHeaderRow(state.hot);
       return state.hot;
     };
