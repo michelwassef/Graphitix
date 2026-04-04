@@ -2546,8 +2546,8 @@
       return false;
     }
     const manager = ensureLineDataViewsForHot(hot, {
-      wrapper: refs.hotWrapper,
-      container: hot.__lineHostContainer || refs.hotContainer
+      wrapper: refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null,
+      container: hot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('line data transform skipped: Shared.dataViews unavailable');
@@ -3833,11 +3833,6 @@
         if(hasOverlayEnabled){
           ensureInlineOverlayPanel();
           toolbarHost.classList.add('font-toolbar-host--line-dual');
-          toolbarHost.style.display = 'grid';
-          toolbarHost.style.gridAutoFlow = 'column';
-          toolbarHost.style.gridAutoColumns = 'max-content';
-          toolbarHost.style.columnGap = '10px';
-          toolbarHost.style.alignItems = 'center';
         }
         syncLineErrorBarToolbarControl(toolbarHost);
         if(markerScopeSelect){

@@ -5250,11 +5250,6 @@
         });
         if(overlayState){
           toolbarHost.classList.add('font-toolbar-host--scatter-dual');
-          toolbarHost.style.display = 'grid';
-          toolbarHost.style.gridAutoFlow = 'column';
-          toolbarHost.style.gridAutoColumns = 'max-content';
-          toolbarHost.style.columnGap = '10px';
-          toolbarHost.style.alignItems = 'center';
         }else{
           resetScatterDualHostLayout(toolbarHost);
         }
@@ -8813,8 +8808,8 @@
           return false;
         }
         const manager = ensureScatterDataViewsForHot(hot, {
-          wrapper: scatterHotWrapper,
-          container: hot.__scatterHostContainer || scatterHotContainer
+          wrapper: scatterHotWrapper || global.document?.getElementById?.('scatterHotWrapper') || null,
+          container: hot.__scatterHostContainer || scatterHotContainer || global.document?.getElementById?.('scatterHot') || null
         });
         if(!manager || typeof manager.applyTransform !== 'function'){
           console.warn('scatter data transform skipped: Shared.dataViews unavailable');

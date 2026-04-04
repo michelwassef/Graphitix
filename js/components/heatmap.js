@@ -829,12 +829,6 @@
 
     if(appendToHost){
       host.classList.add('font-toolbar-host--heatmap-dual');
-      host.style.display = 'grid';
-      host.style.gridAutoFlow = 'column';
-      host.style.gridAutoColumns = 'max-content';
-      host.style.columnGap = '10px';
-      host.style.alignItems = 'center';
-      host.style.justifyContent = 'center';
     }else{
       attachHeatmapPaletteDocClick(host);
     }

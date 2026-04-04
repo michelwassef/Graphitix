@@ -1089,11 +1089,6 @@
     const host = pointState?.host || null;
     if(host){
       host.classList.add('font-toolbar-host--box-dual');
-      host.style.display = 'grid';
-      host.style.gridAutoFlow = 'column';
-      host.style.gridAutoColumns = 'max-content';
-      host.style.columnGap = '10px';
-      host.style.alignItems = 'center';
     }
   }
 
@@ -1128,11 +1123,6 @@
     const host = pointState?.host || traceState?.host || null;
     if(host){
       host.classList.add('font-toolbar-host--box-dual');
-      host.style.display = 'grid';
-      host.style.gridAutoFlow = 'column';
-      host.style.gridAutoColumns = 'max-content';
-      host.style.columnGap = '10px';
-      host.style.alignItems = 'center';
       const forms = Array.from(host.children || []).filter(node => node && node.nodeType === 1);
       forms.forEach(node => {
         node.style.margin = '0';
