@@ -5021,7 +5021,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
   #vennPage .upset-controls-row--toggles{grid-template-columns:minmax(0,1fr)}
 }
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
-@media (max-width:1000px){#vennPage .wrap{flex-direction:column}#vennPage #vennInputPanel,#vennPage #vennGraphPanel{flex:1 1 auto;max-width:none}}
+@media (max-width:680px){#vennPage .wrap{flex-direction:column}#vennPage #vennInputPanel,#vennPage #vennGraphPanel{flex:1 1 auto;max-width:none}}
 #boxPage .wrap{display:flex;align-items:stretch;gap:0}
 #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
 #boxPage #boxTablePanel,#pcaPage #pcaTablePanel,#linePage #lineTablePanel,#scatterPage #scatterTablePanel{overflow-y:auto;overflow-x:hidden}
@@ -5264,7 +5264,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #surfacePage .surface-legend text{fill:#1f2a3d;font-size:11px;dominant-baseline:middle}
 #surfacePage .stats-summary span{display:flex;justify-content:space-between}
 #surfacePage .stats-summary span strong{font-weight:600}
-@media (max-width:1000px){#surfacePage .wrap{flex-direction:column}#surfacePage .panel-resizer{display:none}#surfacePage .diagram-area{flex-direction:column}#surfacePage .diagram-area .config-panel{flex:1 1 auto;max-width:none}}
+@media (max-width:680px){#surfacePage .wrap{flex-direction:column}#surfacePage .panel-resizer{display:none}#surfacePage .diagram-area{flex-direction:column}#surfacePage .diagram-area .config-panel{flex:1 1 auto;max-width:none}}
 #pcaPage .stats-panel{margin-top:8px;display:flex;flex-direction:column;gap:12px}
 #pcaPage .stats-summary{font-size:13px;color:#3b4758;line-height:1.5;display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:6px 16px}
 #pcaPage .stats-summary .stats-table-lead,
