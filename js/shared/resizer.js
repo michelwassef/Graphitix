@@ -1828,7 +1828,17 @@
       }
     }
     const minTableHint = parsePositive(opts.minTableWidth);
-    const baseMinTable = Number.isFinite(minTableHint) && minTableHint >= 0 ? minTableHint : 0;
+    let computedTableMin = NaN;
+    if((!Number.isFinite(minTableHint) || minTableHint < 0) && tablePanel && typeof global.getComputedStyle === 'function'){
+      try{
+        computedTableMin = parsePositive(global.getComputedStyle(tablePanel).minWidth);
+      }catch(err){
+        console.error('Shared.syncPanelWidths table min compute error', err);
+      }
+    }
+    const baseMinTable = Number.isFinite(minTableHint) && minTableHint >= 0
+      ? minTableHint
+      : (Number.isFinite(computedTableMin) && computedTableMin >= 0 ? computedTableMin : 0);
     let storedMinTableWidth = parsePositive(tableDataset.panelMinWidth);
     if(!Number.isFinite(storedMinTableWidth)){
       storedMinTableWidth = baseMinTable;
