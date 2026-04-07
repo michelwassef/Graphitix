@@ -2666,6 +2666,10 @@
     if(!surface.ready){
       surface.init();
     }
+    if(state.layout && typeof state.layout.syncPanels === 'function'){
+      state.layout.syncPanels({ skipSchedule: true });
+      syncSurfaceAutoDrawNoticeWidth('activate-tab');
+    }
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
       if(hot){
