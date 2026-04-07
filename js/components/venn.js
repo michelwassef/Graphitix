@@ -6829,6 +6829,20 @@
     return true;
   };
 
+  venn.activateTab = function activateTab(_tab, meta = {}){
+    if(!venn.ready){
+      venn.init();
+    }
+    if(typeof state.ui.syncPanels === 'function'){
+      state.ui.syncPanels({ skipSchedule: true });
+      debugLog('tab activated panel sync', {
+        reason: meta.reason || 'activate-tab'
+      });
+    }
+    state.ui.scheduleDraw?.();
+    return true;
+  };
+
   venn.deactivateTab = function deactivateTab(_tab, meta = {}){
     cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
       abortActive: true,
