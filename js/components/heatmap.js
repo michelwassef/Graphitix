@@ -5444,26 +5444,25 @@
     if(!svgBox || typeof svgBox.style?.setProperty !== 'function'){ return; }
     const opts = options || {};
     const locked = !!opts.locked;
+    try{
+      // Keep the rendered heatmap aspect as a display-only CSS variable.
+      // Persisting it through the inline `aspectRatio` property causes graphSizing
+      // to serialize the rendered viewBox ratio into resizer state, which then
+      // mutates the svg box geometry on tab restore.
+      svgBox.style.aspectRatio = '';
+    }catch(err){
+      console.debug('Debug: heatmap aspect ratio reset error', { error: err?.message || String(err) });
+    }
     if(locked){
       const width = Number(opts.width);
       const height = Number(opts.height);
       if(Number.isFinite(width) && Number.isFinite(height) && height > 0){
         const ratio = width / height;
         svgBox.style.setProperty('--graph-aspect-ratio', String(ratio));
-        try{
-          svgBox.style.aspectRatio = String(ratio);
-        }catch(err){
-          console.debug('Debug: heatmap aspect ratio style assignment error', { error: err?.message || String(err) });
-        }
       }
       return;
     }
     svgBox.style.setProperty('--graph-aspect-ratio', 'auto');
-    try{
-      svgBox.style.aspectRatio = 'auto';
-    }catch(err){
-      console.debug('Debug: heatmap aspect ratio auto assignment error', { error: err?.message || String(err) });
-    }
   }
 
   function resolveEmptyViewportSize(svgBox){
