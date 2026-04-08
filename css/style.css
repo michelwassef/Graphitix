@@ -4174,7 +4174,7 @@ input[type=number]::-webkit-inner-spin-button{
 }
 .stats-table-card{border:1px solid #c8d2e3;border-radius:0;background:#fff;box-shadow:0 2px 6px rgba(17,24,39,0.08);padding:0;overflow:visible;margin-top:12px;position:relative}
 .stats-table-card:first-child{margin-top:0}
-.stats-assumption-container+.stats-results-main .stats-table-card:first-child{margin-top:12px}
+.stats-assumption-container+.stats-results-main .stats-table-card:first-child,.box-stats-assumption-container+.stats-results-main .stats-table-card:first-child{margin-top:12px}
 .stats-table-caption{font-size:15px;font-weight:600;color:#1d2735;padding:16px 20px 8px 20px}
 .stats-table{width:100%;border-collapse:collapse;color:#1d2735;font-size:13px}
 .stats-table thead tr{background:#eef3fa}
@@ -4199,7 +4199,7 @@ input[type=number]::-webkit-inner-spin-button{
 .box-stats-summary-tabs__tab--active{background:#dbe7f7;border-color:#94a9c7;color:#0f172a}
 .box-stats-summary-tabs__panel[hidden]{display:none !important}
 .box-stats-summary-tabs__panel .stats-table-card{margin-top:0}
-.stats-assumption-container+.stats-results-main .box-stats-summary-tabs:first-child{margin-top:12px}
+.stats-assumption-container+.stats-results-main .box-stats-summary-tabs:first-child,.box-stats-assumption-container+.stats-results-main .box-stats-summary-tabs:first-child{margin-top:12px}
 
 /* Box stats: Assumption Checks */
 .stats-assumption-section{margin-top:10px}

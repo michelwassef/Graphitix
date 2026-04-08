@@ -20903,7 +20903,7 @@ Technical analysis record (advanced)
     }
 
     assumptionContainer = document.createElement('div');
-    assumptionContainer.className = 'stats-assumption-container';
+    assumptionContainer.className = 'box-stats-assumption-container';
     statsDiv.appendChild(assumptionContainer);
     resultsContainer = document.createElement('div');
     resultsContainer.className = 'stats-results-main';
@@ -21825,7 +21825,7 @@ Technical analysis record (advanced)
       return;
     }
     assumptionContainer=document.createElement('div');
-    assumptionContainer.className='stats-assumption-container';
+    assumptionContainer.className='box-stats-assumption-container';
     statsDiv.appendChild(assumptionContainer);
     resultsContainer=document.createElement('div');
     resultsContainer.className='stats-results-main';
