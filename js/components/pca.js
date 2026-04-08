@@ -432,19 +432,6 @@
       return false;
     }
     const source = options.source || 'pca-row-values';
-    const render = options.render !== false;
-    if(isPcaPinnedRow(hot, rowIndex)){
-      if(!Array.isArray(data[rowIndex])){
-        data[rowIndex] = [];
-      }
-      for(let c = 0; c < colCount; c += 1){
-        data[rowIndex][c] = (Array.isArray(values) && c < values.length) ? values[c] : '';
-      }
-      if(render && typeof hot.render === 'function'){
-        hot.render();
-      }
-      return true;
-    }
     if(typeof hot.setDataAtCell !== 'function'){
       return false;
     }
@@ -463,19 +450,7 @@
     if(!hot || !Number.isInteger(rowIndex) || !Number.isInteger(colIndex)){
       return false;
     }
-    const data = hot.getData?.() || [];
     const source = options.source || 'pca-cell-value';
-    const render = options.render !== false;
-    if(isPcaPinnedRow(hot, rowIndex)){
-      if(!Array.isArray(data[rowIndex])){
-        data[rowIndex] = [];
-      }
-      data[rowIndex][colIndex] = value;
-      if(render && typeof hot.render === 'function'){
-        hot.render();
-      }
-      return true;
-    }
     if(typeof hot.setDataAtCell !== 'function'){
       return false;
     }
@@ -2717,15 +2692,7 @@
         ? hotInstance.getDataAtCell(labelRowIndex, columnIndex)
         : data[labelRowIndex]?.[columnIndex]);
     const next = !parsePcaPointLabelFlag(current);
-    if(isPinnedRow){
-      if(!Array.isArray(data[labelRowIndex])){
-        data[labelRowIndex] = [];
-      }
-      data[labelRowIndex][columnIndex] = next;
-      if(typeof hotInstance.render === 'function'){
-        hotInstance.render();
-      }
-    }else if(typeof hotInstance.setDataAtCell === 'function'){
+    if(typeof hotInstance.setDataAtCell === 'function'){
       hotInstance.setDataAtCell([[labelRowIndex, columnIndex, next]], 'pca-point-label-toggle');
     }
     if(options?.ensureVisible){
