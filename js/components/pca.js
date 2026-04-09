@@ -5649,6 +5649,16 @@
         if(!pcaStatsResults){
           return null;
         }
+        const reporting = Shared.statsReporting;
+        if(reporting && typeof reporting.ensureReportHost === 'function'){
+          return reporting.ensureReportHost(pcaStatsResults, {
+            id: 'pcaStatsReportHost',
+            className: 'stats-report-host',
+            attachToTarget: true,
+            position: 'last',
+            migrateLegacyPanels: true
+          });
+        }
         let host = document.getElementById('pcaStatsReportHost');
         if(host && host.parentNode !== pcaStatsResults){
           host.parentNode?.removeChild?.(host);
@@ -5661,15 +5671,6 @@
           pcaStatsResults.appendChild(host);
         }
         pcaStatsResults.__statsReportHost = host;
-        const legacyPanels = Array.from(pcaStatsResults.children || []).filter(node => {
-          return node !== host && node?.classList?.contains?.('stats-report-panel');
-        });
-        legacyPanels.forEach(panel => {
-          host.appendChild(panel);
-        });
-        if(pcaStatsResults.lastElementChild !== host){
-          pcaStatsResults.appendChild(host);
-        }
         return host;
       }
       function renderPcaSharedStatsTable(target, config){
@@ -5700,7 +5701,7 @@
         const summaryLines = Array.isArray(options.summaryLines) ? options.summaryLines : [];
         const method = String(options.method || '').toLowerCase();
         const savedSummaryHtml = (typeof options.savedSummaryHtml === 'string' && options.savedSummaryHtml) ? options.savedSummaryHtml : null;
-        const savedResultsHtml = (typeof options.savedResultsHtml === 'string' && options.savedResultsHtml) ? options.savedResultsHtml : null;
+        const savedReportHtml = (typeof options.savedReportHtml === 'string' && options.savedReportHtml) ? options.savedReportHtml : null;
         const reportHost = ensurePcaReportHost();
         if(reportHost){
           reportHost.innerHTML = '';
@@ -5724,10 +5725,10 @@
         } else if(!reportHost){
           return;
         }
-        if(reportHost && savedResultsHtml != null){
-          reportHost.innerHTML = savedResultsHtml;
+        if(reportHost && savedReportHtml != null){
+          reportHost.innerHTML = savedReportHtml;
         }
-        if(reportHost && savedResultsHtml == null && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
+        if(reportHost && savedReportHtml == null && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
           const statsSnapshot = lastPcaStats || {};
           Shared.statsReporting.appendReportPanel(reportHost, {
             methodsText: `${(method || statsSnapshot.method || 'pca').toUpperCase()} summary statistics were generated for the current ordination result.`,
@@ -6042,7 +6043,7 @@
           summaryLines,
           method,
           savedSummaryHtml: options.savedSummaryHtml,
-          savedResultsHtml: options.savedResultsHtml
+          savedReportHtml: options.savedReportHtml
         });
         renderScreeChart({
           show: method === 'pca',
@@ -6078,24 +6079,25 @@
           eigenRows: eigenSummary.length,
           loadingsRows: Array.isArray(loadings?.rows) ? loadings.rows.length : 0,
           hasSavedSummaryHtml: !!options.savedSummaryHtml,
-          hasSavedResultsHtml: !!options.savedResultsHtml
+          hasSavedReportHtml: !!options.savedReportHtml
         });
         return true;
       }
       function normalizePcaSavedStatsHtml(statsConfig){
         const stats = statsConfig && typeof statsConfig === 'object' ? statsConfig : {};
         const savedSummaryHtml = typeof stats.summaryHtml === 'string' ? stats.summaryHtml : null;
+        const savedReportHtml = typeof stats.reportHtml === 'string' ? stats.reportHtml : null;
         const rawResultsHtml = typeof stats.resultsHtml === 'string' ? stats.resultsHtml : null;
         if(savedSummaryHtml == null && rawResultsHtml && !rawResultsHtml.includes('stats-report-panel')){
           return {
             savedSummaryHtml: rawResultsHtml,
-            savedResultsHtml: null,
+            savedReportHtml,
             legacySummaryInResults: true
           };
         }
         return {
           savedSummaryHtml,
-          savedResultsHtml: rawResultsHtml,
+          savedReportHtml: savedReportHtml || rawResultsHtml,
           legacySummaryInResults: false
         };
       }
@@ -10419,7 +10421,7 @@
       const savedSummaryHtml = (typeof pcaStatsSummary?.innerHTML === 'string' && pcaStatsSummary.innerHTML)
         ? pcaStatsSummary.innerHTML
         : null;
-      const savedResultsHtml = (typeof reportHost?.innerHTML === 'string' && reportHost.innerHTML)
+      const savedReportHtml = (typeof reportHost?.innerHTML === 'string' && reportHost.innerHTML)
         ? reportHost.innerHTML
         : null;
       return {
@@ -10432,7 +10434,8 @@
         config: {
           ...snapshotPcaConfig(axisSettings),
           stats: {
-            resultsHtml: savedResultsHtml,
+            resultsHtml: null,
+            reportHtml: savedReportHtml,
             summaryHtml: savedSummaryHtml
           },
           notes: {
@@ -10856,7 +10859,7 @@
             hasEigenSummary: Array.isArray(lastPcaStats?.eigenSummary) && lastPcaStats.eigenSummary.length > 0,
             hasScree: Array.isArray(lastPcaStats?.scree) && lastPcaStats.scree.length > 0,
             method: lastPcaStats?.method || null,
-            hasSavedResultsHtml: !!savedStatsHtml.savedResultsHtml,
+            hasSavedReportHtml: !!savedStatsHtml.savedReportHtml,
             hasSavedSummaryHtml: !!savedStatsHtml.savedSummaryHtml,
             legacySummaryInResults: !!savedStatsHtml.legacySummaryInResults,
             source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
@@ -11073,6 +11076,7 @@
           ? payload.config.stats
           : {};
         payload.config.stats.resultsHtml = null;
+        payload.config.stats.reportHtml = null;
         payload.config.stats.summaryHtml = null;
         payload.config.labels = { title: getDefaultTitleForMethod('pca') };
         payload.config.axisSelection = { x: 1, y: 2, z: 3 };

@@ -577,6 +577,24 @@
   };
 
   const refs = {};
+  function ensureRocStatsReportHost(){
+    const reporting = Shared.statsReporting;
+    if(!refs.statsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return refs.statsResults?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(refs.statsResults, {
+      id: 'rocStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+  }
+  function clearRocStatsReportHost(){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(refs.statsResults);
+    }
+  }
   let rocLegendControl = null;
   const rocOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'roc',
@@ -964,6 +982,7 @@
     refs.hotWrapper = document.getElementById('rocHotWrapper');
     refs.plotDiv = document.getElementById('rocPlot');
     refs.statsResults = document.getElementById('rocStatsResults');
+    ensureRocStatsReportHost();
     refs.statsControls = document.getElementById('rocStatsControls');
     refs.renderRow = document.getElementById('rocRenderRow');
     refs.renderButton = document.getElementById('rocRenderButton');
@@ -1202,6 +1221,7 @@
       }
     }
     if(refs.statsResults){
+      clearRocStatsReportHost();
       refs.statsResults.textContent = '';
     }
     if(state.compareSel){
@@ -2057,6 +2077,7 @@
     if(!refs.statsResults){
       return;
     }
+    clearRocStatsReportHost();
     refs.statsResults.innerHTML='';
     if(!Array.isArray(stats) || !stats.length){
       const message=document.createElement('div');

@@ -1527,6 +1527,24 @@
   }
 
   const refs = {};
+  function ensureHeatmapStatsReportHost(){
+    const reporting = Shared.statsReporting;
+    if(!state.statsEl || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return state.statsEl?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(state.statsEl, {
+      id: 'heatmapStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+  }
+  function clearHeatmapStatsReportHost(){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(state.statsEl);
+    }
+  }
 
   let scheduleDrawHeatmapRaw = () => {};
   let pendingDrawOptions = {};
@@ -2297,6 +2315,7 @@
     refs.showRowDendrogram = $('heatmapShowRowDendrogram');
     refs.showColumnDendrogram = $('heatmapShowColumnDendrogram');
     state.statsEl = $('heatmapStatsContent');
+    ensureHeatmapStatsReportHost();
 
     if(refs.cellSizeVal && refs.cellSize){
       refs.cellSizeVal.textContent = refs.cellSize.value;
@@ -5817,6 +5836,7 @@
       console.debug('Debug: heatmap stats element missing');
       return;
     }
+    clearHeatmapStatsReportHost();
     state.statsEl.textContent = '';
     if(!stats){
       state.statsEl.textContent = 'Add numeric data to draw the heatmap.';

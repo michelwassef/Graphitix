@@ -528,6 +528,24 @@
       legend: null
     }
   };
+  function ensureHistStatsReportHost(target){
+    const reporting = Shared.statsReporting;
+    if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return target?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(target, {
+      id: 'histStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+  }
+  function clearHistStatsReportHost(target){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(target);
+    }
+  }
   let histDataViewsManager = null;
   let histDataToolbarBound = false;
   let histDataToolbarLastActivation = 0;
@@ -3578,6 +3596,7 @@
       table.appendChild(bodyRow);
     });
     if(!append){
+      clearHistStatsReportHost(target);
       target.innerHTML = '';
     }
     target.appendChild(table);
@@ -3604,8 +3623,10 @@
       }
       return;
     }
+    ensureHistStatsReportHost(target);
     const entries = Array.isArray(seriesEntries) ? seriesEntries.filter(entry => Array.isArray(entry?.values) && entry.values.some(Number.isFinite)) : [];
     syncHistStatsControls(entries.length);
+    clearHistStatsReportHost(target);
     target.innerHTML = '';
     if(!entries.length){
       target.textContent = 'No data';

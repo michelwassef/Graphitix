@@ -2457,7 +2457,39 @@
       }
       return trimmed.toLowerCase();
     }
-    const rgbMatch = trimmed.match(/^rgba?\((\d+),(\d+),(\d+)/i);
+    const normalizeRgbChannel = token => {
+      if(token === undefined || token === null){ return null; }
+      const raw = String(token).trim();
+      if(!raw){ return null; }
+      if(raw.endsWith('%')){
+        const percent = Number.parseFloat(raw.slice(0, -1));
+        if(!Number.isFinite(percent)){ return null; }
+        return Math.max(0, Math.min(255, Math.round((percent / 100) * 255)));
+      }
+      const numeric = Number.parseFloat(raw);
+      if(!Number.isFinite(numeric)){ return null; }
+      return Math.max(0, Math.min(255, Math.round(numeric)));
+    };
+    const functionMatch = trimmed.match(/^rgba?\((.*)\)$/i);
+    if(functionMatch){
+      const body = String(functionMatch[1] || '')
+        .replace(/\s*\/\s*[^,]+$/i, '')
+        .trim();
+      const parts = body.includes(',')
+        ? body.split(',').map(part => part.trim())
+        : body.split(/\s+/).map(part => part.trim());
+      if(parts.length >= 3){
+        const r = normalizeRgbChannel(parts[0]);
+        const g = normalizeRgbChannel(parts[1]);
+        const b = normalizeRgbChannel(parts[2]);
+        if(Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)){
+          const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
+          const hex = [clamp(r), clamp(g), clamp(b)].map(v => v.toString(16).padStart(2, '0')).join('');
+          return `#${hex}`;
+        }
+      }
+    }
+    const rgbMatch = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
     if(rgbMatch){
       const r = Number(rgbMatch[1]);
       const g = Number(rgbMatch[2]);
@@ -2473,8 +2505,11 @@
       const helper = doc.createElement('span');
       helper.style.color = trimmed;
       doc.body.appendChild(helper);
-      const computed = global.getComputedStyle(helper).color;
+      const computed = String(global.getComputedStyle(helper).color || '').trim();
       doc.body.removeChild(helper);
+      if(!computed || computed.toLowerCase() === trimmed.toLowerCase()){
+        return '#000000';
+      }
       return parseColorToHex(computed);
     } catch(resolveErr){
       logDebug('parseColor fallback error', { color, resolveErr });

@@ -207,6 +207,16 @@ async function flushAsyncWork(iterations = 40){
   }
 }
 
+function expectSingleReportPanel(targetId, hostId){
+  const target = document.getElementById(targetId);
+  const host = document.getElementById(hostId);
+  expect(target).toBeTruthy();
+  expect(host).toBeTruthy();
+  expect(host.querySelectorAll('.stats-report-panel').length).toBe(1);
+  expect(target.querySelectorAll('.stats-report-panel').length).toBe(1);
+  expect(host.parentElement?.lastElementChild).toBe(host);
+}
+
 async function prepareBoxStats(){
   await activateWorkspace('box');
   await flushAsyncWork(20);
@@ -408,32 +418,45 @@ describe('UI stats persistence and restore', () => {
     const box = await prepareBoxStats();
     const boxPayload = box.getPayload();
     expect(boxPayload?.config?.stats).toBeTruthy();
+    expect(boxPayload.config.stats.resultsHtml || '').not.toContain('stats-report-panel');
+    expect(boxPayload.config.stats.reportHtml || '').toContain('Reporting and reproducibility');
     document.getElementById('statsResults').innerHTML = '';
     document.getElementById('boxStatsReportHost').innerHTML = '';
     box.loadFromPayload(boxPayload, { source: 'test-box-restore', skipDraw: true });
     await flushAsyncWork(40);
     expect(`${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('boxStatsReportHost')?.textContent || ''}`).toMatch(/One-way ANOVA|Reporting and reproducibility/i);
+    expect(document.getElementById('boxStatsReportHost')?.querySelectorAll('.stats-report-panel').length).toBe(1);
+    expect(document.getElementById('boxStatsReportHost')?.parentElement?.lastElementChild).toBe(document.getElementById('boxStatsReportHost'));
 
     const scatter = await prepareScatterStats();
     const scatterPayload = scatter.getPayload();
+    expect(scatterPayload?.config?.stats?.resultsHtml || '').not.toContain('stats-report-panel');
+    expect(scatterPayload?.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
     document.getElementById('scatterStatsResults').innerHTML = '';
     scatter.loadFromPayload(scatterPayload, { source: 'test-scatter-restore', skipDraw: true });
     await flushAsyncWork(40);
     expect(document.getElementById('scatterStatsResults')?.textContent || '').toMatch(/Overall test summary|Reporting and reproducibility/i);
+    expectSingleReportPanel('scatterStatsResults', 'scatterStatsReportHost');
 
     const line = await prepareLineStats();
     const linePayload = line.getPayload();
+    expect(linePayload?.config?.stats?.resultsHtml || '').not.toContain('stats-report-panel');
+    expect(linePayload?.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
     document.getElementById('lineStatsResults').innerHTML = '';
     line.loadFromPayload(linePayload, { source: 'test-line-restore', skipDraw: true });
     await flushAsyncWork(40);
     expect(document.getElementById('lineStatsResults')?.textContent || '').toMatch(/correlation coefficients|Reporting and reproducibility|Series/i);
+    expectSingleReportPanel('lineStatsResults', 'lineStatsReportHost');
 
     const pca = await preparePcaStats();
     const pcaPayload = pca.getPayload();
+    expect(pcaPayload?.config?.stats?.summaryHtml || '').toContain('Samples analysed');
+    expect(pcaPayload?.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
     document.getElementById('pcaStatsResults').innerHTML = '';
     pca.loadFromPayload(pcaPayload, { source: 'test-pca-restore', skipDraw: true });
     await flushAsyncWork(60);
     expect(document.getElementById('pcaStatsResults')?.textContent || '').toContain('Reporting and reproducibility');
+    expectSingleReportPanel('pcaStatsResults', 'pcaStatsReportHost');
 
     const heatmap = await prepareHeatmapStats('corr-columns');
     const heatmapPayload = heatmap.getPayload();
@@ -441,6 +464,7 @@ describe('UI stats persistence and restore', () => {
     heatmap.loadFromPayload(heatmapPayload, { source: 'test-heatmap-restore', skipDraw: false });
     await flushAsyncWork(120);
     expect(document.getElementById('heatmapStatsContent')?.textContent || '').toMatch(/Items analysed|Reporting and reproducibility/i);
+    expectSingleReportPanel('heatmapStatsContent', 'heatmapStatsReportHost');
   }, 120000);
 
   test('render cache restore preserves stats panels for pie, hist, roc, survival, pca, and heatmap', async () => {
@@ -451,6 +475,7 @@ describe('UI stats persistence and restore', () => {
     expect(pie.restoreRenderCache(pieCache)).toBe(true);
     await flushAsyncWork(20);
     expect(document.getElementById('pieStatsResults')?.textContent || '').toContain(pieBefore.slice(0, Math.min(20, pieBefore.length)));
+    expectSingleReportPanel('pieStatsResults', 'pieStatsReportHost');
 
     const hist = await prepareHistStats();
     const histBefore = document.getElementById('histStatsResults')?.textContent || '';
@@ -460,6 +485,7 @@ describe('UI stats persistence and restore', () => {
     await flushAsyncWork(20);
     expect(document.getElementById('histStatsResults')?.textContent || '').toContain('Descriptive statistics');
     expect(histBefore.length).toBeGreaterThan(0);
+    expectSingleReportPanel('histStatsResults', 'histStatsReportHost');
 
     const roc = await prepareRocStats();
     const rocCache = roc.captureRenderCache();
@@ -467,6 +493,7 @@ describe('UI stats persistence and restore', () => {
     expect(roc.restoreRenderCache(rocCache)).toBe(true);
     await flushAsyncWork(20);
     expect(document.getElementById('rocStatsResults')?.textContent || '').toMatch(/ROC metrics|AUC/i);
+    expectSingleReportPanel('rocStatsResults', 'rocStatsReportHost');
 
     const survival = await prepareSurvivalStats();
     const survivalCache = survival.captureRenderCache();
@@ -478,6 +505,7 @@ describe('UI stats persistence and restore', () => {
     await flushAsyncWork(20);
     expect(document.getElementById('survivalStatsLogRank')?.textContent || '').toMatch(/Survival Curve Comparisons|Pairwise Log-rank Comparisons/i);
     expect(document.getElementById('survivalStatsCox')?.textContent || '').toMatch(/Cox Model Coefficients|Reporting and reproducibility/i);
+    expectSingleReportPanel('survivalStatsCox', 'survivalStatsCoxReportHost');
 
     const pca = await preparePcaStats();
     const pcaCache = pca.captureRenderCache();
@@ -500,6 +528,7 @@ describe('UI stats persistence and restore', () => {
     expect(pca.restoreRenderCache(pcaCache)).toBe(true);
     await flushAsyncWork(40);
     expect(document.getElementById('pcaStatsResults')?.textContent || '').toContain('Reporting and reproducibility');
+    expectSingleReportPanel('pcaStatsResults', 'pcaStatsReportHost');
 
     const heatmap = await prepareHeatmapStats('values');
     const heatmapCache = heatmap.captureRenderCache();
@@ -507,5 +536,6 @@ describe('UI stats persistence and restore', () => {
     expect(heatmap.restoreRenderCache(heatmapCache)).toBe(true);
     await flushAsyncWork(20);
     expect(document.getElementById('heatmapStatsContent')?.textContent || '').toMatch(/Rows|Columns|Reporting and reproducibility/i);
+    expectSingleReportPanel('heatmapStatsContent', 'heatmapStatsReportHost');
   }, 120000);
 });

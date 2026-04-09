@@ -1215,6 +1215,22 @@
     if(!target || !report || !documentRef || !documentRef.createElement){
       return;
     }
+    if(typeof reporting.clearReportHost === 'function' && options?.replaceExisting !== false){
+      reporting.clearReportHost(target);
+    }
+    let reportTarget = resolveReportingHost(target);
+    if(
+      target
+      && reportTarget
+      && reportTarget !== target
+      && !reportTarget.isConnected
+      && typeof reporting.ensureReportHost === 'function'
+    ){
+      reportTarget = reporting.ensureReportHost(target, { attachToTarget: true, position: 'last' }) || reportTarget;
+    }
+    if(!reportTarget || !reportTarget.appendChild){
+      reportTarget = target;
+    }
     const title = typeof options?.title === 'string' && options.title.trim()
       ? options.title.trim()
       : 'Reporting and reproducibility';
@@ -1272,7 +1288,10 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: statsReporting.appendReportPanel',{ title, hasMethods: !!report.methodsText, hasResults: !!report.resultsText, hasAnalysisSpec: !!displaySpec });
     }
-    target.appendChild(panel);
+    reportTarget.appendChild(panel);
+    if(typeof reporting.pinReportHostLast === 'function'){
+      reporting.pinReportHostLast(target);
+    }
   };
 
   const SIGNIFICANCE_THRESHOLD_STORAGE_KEY = 'venn.stats.significanceThreshold';
@@ -1748,6 +1767,202 @@
     return target || null;
   }
 
+  function resolveReportingHostParent(target){
+    if(!target || target.nodeType !== 1){
+      return null;
+    }
+    const explicitHost = target.__statsReportHost;
+    if(explicitHost && explicitHost.nodeType === 1 && explicitHost.parentNode === target){
+      return target;
+    }
+    if(target.classList?.contains('stats-report-host') && target.parentNode?.nodeType === 1){
+      return target.parentNode;
+    }
+    return null;
+  }
+
+  reporting.ensureReportHost = function ensureReportHost(target, options = {}){
+    if(!target || target.nodeType !== 1){
+      return null;
+    }
+    const documentRef = target.ownerDocument || global.document;
+    if(!documentRef || typeof documentRef.createElement !== 'function'){
+      return null;
+    }
+    const desiredId = typeof options.id === 'string' && options.id.trim()
+      ? options.id.trim()
+      : null;
+    let host = target.__statsReportHost;
+    if((!host || host.nodeType !== 1) && desiredId && typeof documentRef.getElementById === 'function'){
+      const existing = documentRef.getElementById(desiredId);
+      if(existing && existing.nodeType === 1){
+        host = existing;
+      }
+    }
+    if(!host || host.nodeType !== 1){
+      host = documentRef.createElement('div');
+    }
+    if(desiredId){
+      host.id = desiredId;
+    }
+    const desiredClassName = typeof options.className === 'string' && options.className.trim()
+      ? options.className.trim()
+      : (host.className || 'stats-report-host');
+    host.className = desiredClassName;
+    target.__statsReportHost = host;
+    if(options.attachToTarget !== false && typeof target.appendChild === 'function'){
+      if(host.parentNode !== target){
+        target.appendChild(host);
+      }
+      if(options.position === 'first'){
+        if(target.firstElementChild !== host){
+          target.insertBefore(host, target.firstChild || null);
+        }
+      }else if(options.position !== 'keep' && target.lastElementChild !== host){
+        target.appendChild(host);
+      }
+    }
+    if(options.migrateLegacyPanels && host.parentNode === target){
+      const legacyPanels = Array.from(target.children || []).filter(node => node !== host && isReportingNode(node));
+      legacyPanels.forEach(panel => {
+        host.appendChild(panel);
+      });
+    }
+    if(typeof reporting.pinReportHostLast === 'function'){
+      reporting.pinReportHostLast(target);
+    }
+    return host;
+  };
+
+  reporting.pinReportHostLast = function pinReportHostLast(target){
+    const parent = resolveReportingHostParent(target);
+    if(!parent || typeof parent.appendChild !== 'function'){
+      return false;
+    }
+    const host = resolveReportingHost(parent);
+    if(!host || host === parent || host.parentNode !== parent){
+      return false;
+    }
+    if(parent.lastElementChild !== host){
+      parent.appendChild(host);
+      return true;
+    }
+    return false;
+  };
+
+  reporting.clearReportHost = function clearReportHost(target){
+    const reportHost = resolveReportingHost(target);
+    if(!reportHost || reportHost.nodeType !== 1){
+      return false;
+    }
+    if(reportHost !== target){
+      reportHost.innerHTML = '';
+      return true;
+    }
+    let removed = false;
+    Array.from(reportHost.children || []).forEach(node => {
+      if(isReportingNode(node)){
+        reportHost.removeChild(node);
+        removed = true;
+      }
+    });
+    return removed;
+  };
+
+  reporting.capturePanelHtml = function capturePanelHtml(target){
+    if(!target || target.nodeType !== 1){
+      return { resultsHtml: null, reportHtml: null };
+    }
+    const reportHost = resolveReportingHost(target);
+    const resultsHtmlFromTarget = () => {
+      const html = typeof target.innerHTML === 'string' ? target.innerHTML : '';
+      return html || null;
+    };
+    if(reportHost && reportHost !== target){
+      const reportHtml = reportHost.parentNode === target && typeof reportHost.innerHTML === 'string' && reportHost.innerHTML
+        ? reportHost.innerHTML
+        : null;
+      if(reportHost.parentNode === target){
+        const documentRef = target.ownerDocument || global.document;
+        const placeholder = documentRef?.createComment ? documentRef.createComment('stats-report-host') : null;
+        if(placeholder){
+          target.replaceChild(placeholder, reportHost);
+          const resultsHtml = resultsHtmlFromTarget();
+          placeholder.parentNode?.replaceChild?.(reportHost, placeholder);
+          return { resultsHtml, reportHtml };
+        }
+      }
+      return { resultsHtml: resultsHtmlFromTarget(), reportHtml };
+    }
+    return { resultsHtml: resultsHtmlFromTarget(), reportHtml: null };
+  };
+
+  reporting.normalizeSavedPanelHtml = function normalizeSavedPanelHtml(saved){
+    const source = saved && typeof saved === 'object' ? saved : {};
+    const normalized = {
+      resultsHtml: typeof source.resultsHtml === 'string' && source.resultsHtml ? source.resultsHtml : null,
+      reportHtml: typeof source.reportHtml === 'string' && source.reportHtml ? source.reportHtml : null,
+      legacyEmbeddedReport: false
+    };
+    if(normalized.reportHtml || !normalized.resultsHtml || !global.document?.createElement){
+      return normalized;
+    }
+    if(!normalized.resultsHtml.includes('stats-report-panel')){
+      return normalized;
+    }
+    const probe = global.document.createElement('div');
+    probe.innerHTML = normalized.resultsHtml;
+    const reportHost = global.document.createElement('div');
+    const reportNodes = Array.from(probe.children || []).filter(isReportingNode);
+    if(!reportNodes.length){
+      return normalized;
+    }
+    reportNodes.forEach(node => {
+      reportHost.appendChild(node);
+    });
+    normalized.resultsHtml = probe.innerHTML || null;
+    normalized.reportHtml = reportHost.innerHTML || null;
+    normalized.legacyEmbeddedReport = true;
+    return normalized;
+  };
+
+  reporting.restorePanelHtml = function restorePanelHtml(target, saved, options = {}){
+    if(!target || target.nodeType !== 1){
+      return { restoredMain: false, restoredReport: false };
+    }
+    const normalized = reporting.normalizeSavedPanelHtml(saved);
+    let restoredMain = false;
+    try{
+      target.innerHTML = normalized.resultsHtml || '';
+      restoredMain = normalized.resultsHtml != null;
+    }catch(err){
+      target.textContent = normalized.resultsHtml != null ? String(normalized.resultsHtml) : '';
+      restoredMain = normalized.resultsHtml != null;
+    }
+    let reportHost = null;
+    if(typeof options.ensureReportHost === 'function'){
+      reportHost = options.ensureReportHost();
+    }else{
+      reportHost = resolveReportingHost(target);
+      if(reportHost && reportHost !== target && !reportHost.isConnected && typeof target.appendChild === 'function'){
+        target.appendChild(reportHost);
+      }
+    }
+    let restoredReport = false;
+    if(reportHost && reportHost !== target){
+      reportHost.innerHTML = normalized.reportHtml || '';
+      restoredReport = normalized.reportHtml != null;
+    }
+    if(typeof reporting.pinReportHostLast === 'function'){
+      reporting.pinReportHostLast(target);
+    }
+    return {
+      restoredMain,
+      restoredReport,
+      legacyEmbeddedReport: !!normalized.legacyEmbeddedReport
+    };
+  };
+
   function findDirectChildByClass(parent, className){
     if(!parent || !className){
       return null;
@@ -1844,6 +2059,9 @@
       target.insertBefore(advancedPanel, main.nextSibling);
     }
     const advancedBody = findDirectChildByClass(advancedPanel, 'stats-results-advanced-panel__body');
+    if(typeof reporting.pinReportHostLast === 'function'){
+      reporting.pinReportHostLast(target);
+    }
     return {
       controls,
       thresholdInput,
@@ -1925,6 +2143,9 @@
         return;
       }
       redistributePanelNodes(target, scaffold);
+      if(typeof reporting.pinReportHostLast === 'function'){
+        reporting.pinReportHostLast(target);
+      }
       rewriteInlinePValueElements(target);
       const threshold = reporting.getSignificanceThreshold();
       let badgeCount = 0;

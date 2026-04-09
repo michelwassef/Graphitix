@@ -400,6 +400,24 @@
       phase: null
     }
   };
+  function ensurePieStatsReportHost(target){
+    const reporting = Shared.statsReporting;
+    if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return target?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(target, {
+      id: 'pieStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+  }
+  function clearPieStatsReportHost(target){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(target);
+    }
+  }
   let pieFontEventBound = false;
 
   function schedulePieViewRefresh(reason){
@@ -718,6 +736,7 @@
     if(!out){
       return;
     }
+    clearPieStatsReportHost(out);
     out.innerHTML = '';
     const msg = document.createElement('div');
     msg.className = 'stats-table-message';
@@ -1722,6 +1741,7 @@
     if(!out){
       return;
     }
+    clearPieStatsReportHost(out);
     out.innerHTML = '';
     const hasRenderer = Shared.statsTable && typeof Shared.statsTable.render === 'function';
     const renderTable = (tableModel, append = false) => {
@@ -1976,6 +1996,7 @@
         updatePieStatsCorrectionSummary(pairResults.length);
       }
       renderPieStatsModel(renderedModel);
+      ensurePieStatsReportHost(document.getElementById('pieStatsResults'));
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         Shared.statsReporting.appendReportPanel(document.getElementById('pieStatsResults'), {
           methodsText: renderedModel.summary.testLabel,
@@ -3069,6 +3090,8 @@
     try{
       const out=document.getElementById('pieStatsResults');
       if(!out){ console.warn('Debug: pieStatsResults element not found'); return; }
+      ensurePieStatsReportHost(out);
+      clearPieStatsReportHost(out);
       console.debug('Debug: updatePieStats start',{labelCount:labels.length,observedCount:observed.length,expectedCount:expected.length});
       if(!observed || !observed.length){ out.textContent='No data'; return; }
       if(!expected || expected.length!==observed.length || expected.some(e=>isNaN(e))){ out.textContent='Expected values required'; return; }

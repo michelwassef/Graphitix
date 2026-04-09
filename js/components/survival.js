@@ -848,6 +848,24 @@
   }
 
   const refs = {};
+  function ensureSurvivalCoxReportHost(){
+    const reporting = Shared.statsReporting;
+    if(!refs.statsCox || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return refs.statsCox?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(refs.statsCox, {
+      id: 'survivalStatsCoxReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+  }
+  function clearSurvivalStatsReportHost(target){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(target);
+    }
+  }
   let survivalLegendControl = null;
 
   function ensureSurvivalLegendControlPlacement(){
@@ -898,6 +916,7 @@
     refs.statsLogRank = $('#survivalStatsLogRank');
     refs.statsHazardRatios = $('#survivalStatsHazardRatios');
     refs.statsCox = $('#survivalStatsCox');
+    ensureSurvivalCoxReportHost();
     refs.labelColorsDiv = $('#survivalLabelColors');
     refs.labelColorsFieldset = $('#survivalLabelColorsFieldset');
     refs.showCI = $('#survivalShowCI');
@@ -3331,6 +3350,7 @@
     if(!target){
       return;
     }
+    clearSurvivalStatsReportHost(target);
     target.innerHTML = '';
     const lead = document.createElement('div');
     lead.className = 'stats-table-lead';
@@ -3348,6 +3368,7 @@
       return true;
     }
     if(!model?.append){
+      clearSurvivalStatsReportHost(target);
       target.innerHTML = '';
     }
     if(model.caption){
@@ -4075,7 +4096,10 @@
       renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
       renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
       if(refs.statsHazardRatios) refs.statsHazardRatios.innerHTML = '';
-      if(refs.statsCox) refs.statsCox.innerHTML = '';
+      if(refs.statsCox){
+        clearSurvivalStatsReportHost(refs.statsCox);
+        refs.statsCox.innerHTML = '';
+      }
       state.lastStats = null;
       return;
     }

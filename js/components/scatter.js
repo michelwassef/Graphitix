@@ -9855,6 +9855,25 @@
       const scatterStatsButton=document.getElementById('scatterComputeStats');
       const scatterStatsStatus=document.getElementById('scatterStatsStatus');
       const scatterStatsPlaceholder='Statistics will appear after calculation.';
+      function ensureScatterStatsReportHost(){
+        const reporting = Shared.statsReporting;
+        if(!scatterStatsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
+          return scatterStatsResults?.__statsReportHost || null;
+        }
+        return reporting.ensureReportHost(scatterStatsResults, {
+          id: 'scatterStatsReportHost',
+          className: 'stats-report-host',
+          attachToTarget: true,
+          position: 'last'
+        });
+      }
+      function clearScatterStatsReportHost(){
+        const reporting = Shared.statsReporting;
+        if(reporting && typeof reporting.clearReportHost === 'function'){
+          reporting.clearReportHost(scatterStatsResults);
+        }
+      }
+      ensureScatterStatsReportHost();
 
       function ensureScatterSelectOption(selectEl, value, label, options = {}){
         if(!selectEl){
@@ -10163,6 +10182,7 @@
         if(!scatterStatsResults){
           return;
         }
+        clearScatterStatsReportHost();
         scatterStatsResults.innerHTML='';
         if(message){
           const note=document.createElement('div');
@@ -12295,6 +12315,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           finishStatsPerf({ outcome: 'no-target' });
           return Promise.resolve(false);
         }
+        clearScatterStatsReportHost();
         scatterStatsResults.innerHTML='';
         if(context.graphType==='scatter'){
           if(!validateScatterFitSpecControls()){
@@ -19825,7 +19846,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             } : null,
             labelPositions: scatterLabelPositions || null,
             stats: {
-              resultsHtml: (scatterStatsResults ? (scatterStatsResults.innerHTML || '') : null),
+              ...(Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
+                ? Shared.statsReporting.capturePanelHtml(scatterStatsResults)
+                : { resultsHtml: (scatterStatsResults ? (scatterStatsResults.innerHTML || '') : null), reportHtml: null }),
               lastRunVersion: Number.isFinite(scatterState.statsLastRunVersion) ? scatterState.statsLastRunVersion : 0,
               contextSignature: scatterState.statsContextSignature || null,
               contextVersion: Number.isFinite(scatterState.statsContextVersion) ? scatterState.statsContextVersion : 0,
@@ -20216,8 +20239,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             const savedFitSpec = c.stats.fitSpec && typeof c.stats.fitSpec === 'object' ? c.stats.fitSpec : null;
             const savedShowCI = c.stats.showCI === true;
             const savedShowPI = c.stats.showPI === true;
-            if(scatterStatsResults && savedHtml != null){
-              try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
+            if(scatterStatsResults){
+              if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
+                Shared.statsReporting.restorePanelHtml(scatterStatsResults, c.stats, {
+                  ensureReportHost: () => ensureScatterStatsReportHost()
+                });
+              }else if(savedHtml != null){
+                try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
+              }
             }
             // restore control values if present
             if(savedStatType && scatterStatType){ scatterStatType.value = normalizeScatterAssociationSelection(savedStatType); }
@@ -20434,6 +20463,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         ? payload.config.stats
         : {};
       payload.config.stats.resultsHtml = null;
+      payload.config.stats.reportHtml = null;
       payload.config.stats.lastRunVersion = 0;
       payload.config.stats.contextSignature = null;
       payload.config.stats.contextVersion = 0;

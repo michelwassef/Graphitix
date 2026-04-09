@@ -163,9 +163,7 @@ describe('PCA view controls', () => {
     const payload = window.Components.pca.getPayload();
     expect(payload.stats).toBeTruthy();
     expect(payload.config?.stats?.summaryHtml).toContain('Samples analysed');
-    if(payload.config?.stats?.resultsHtml != null){
-      expect(payload.config.stats.resultsHtml).toContain('Reporting and reproducibility');
-    }
+    expect(payload.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
 
     const eigenContainer = document.getElementById('pcaEigenTableContainer');
     const loadingsContainer = document.getElementById('pcaLoadingsContainer');
@@ -231,9 +229,7 @@ describe('PCA view controls', () => {
 
     const payload = window.Components.pca.getPayload();
     expect(payload.config?.stats?.summaryHtml).toContain('Samples analysed');
-    if(payload.config?.stats?.resultsHtml != null){
-      expect(payload.config.stats.resultsHtml).toContain('Reporting and reproducibility');
-    }
+    expect(payload.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
     expect(document.querySelector('#pcaStatsReportHost > .stats-report-panel')).toBeTruthy();
     expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeFalsy();
 

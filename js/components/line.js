@@ -1793,6 +1793,7 @@
       refs.plot.style.display = 'block';
     }
     if(options.clearStats !== false && refs.statsResults){
+      clearLineStatsReportHost();
       refs.statsResults.textContent = '';
     }
     if(options.resetLegend !== false){
@@ -1807,6 +1808,7 @@
   function clearLineStatsOutputs(message){
     const placeholder = message || lineStatsDefaultPlaceholder;
     if(refs.statsResults){
+      clearLineStatsReportHost();
       refs.statsResults.textContent = placeholder;
     }
   }
@@ -2268,6 +2270,24 @@
   }); // Debug: group label state bootstrap
 
   const refs = {};
+  function ensureLineStatsReportHost(){
+    const reporting = Shared.statsReporting;
+    if(!refs.statsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return refs.statsResults?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(refs.statsResults, {
+      id: 'lineStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+  }
+  function clearLineStatsReportHost(){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(refs.statsResults);
+    }
+  }
   const lineOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'line',
     message: 'Rendering line chart...',
@@ -6963,6 +6983,7 @@
       }
     }
     if(tableRows.length){
+      clearLineStatsReportHost();
       refs.statsResults.innerHTML='';
       if(methodLabel){
         const lead=document.createElement('div');
@@ -7316,7 +7337,9 @@
         },
         labelPositions: lineLabelPositions || null,
         stats: {
-          resultsHtml: refs.statsResults ? refs.statsResults.innerHTML : null,
+          ...(Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
+            ? Shared.statsReporting.capturePanelHtml(refs.statsResults)
+            : { resultsHtml: refs.statsResults ? refs.statsResults.innerHTML : null, reportHtml: null }),
           lastRunVersion: lineStatsState.lastRunVersion || 0,
           signature: lineStatsState.signature || null,
           version: lineStatsState.version || 0,
@@ -7812,8 +7835,14 @@
         lineStatsState.signature = s.signature || lineStatsState.signature;
         lineStatsState.version = Number(s.version) || lineStatsState.version || 0;
         lineStatsState.lastRunVersion = Number(s.lastRunVersion) || 0;
-        if(refs.statsResults && typeof s.resultsHtml === 'string'){
-          refs.statsResults.innerHTML = s.resultsHtml;
+        if(refs.statsResults){
+          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
+            Shared.statsReporting.restorePanelHtml(refs.statsResults, s, {
+              ensureReportHost: () => ensureLineStatsReportHost()
+            });
+          }else if(typeof s.resultsHtml === 'string'){
+            refs.statsResults.innerHTML = s.resultsHtml;
+          }
         }
         // restore stat control values if saved
         if(s.controls && typeof s.controls === 'object'){
@@ -11136,6 +11165,7 @@
     refs.tooltip=document.getElementById('tooltip');
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
+    ensureLineStatsReportHost();
     refs.statsButton=document.getElementById('lineComputeStats');
     refs.statsStatus=document.getElementById('lineStatsStatus');
     refs.regressionMode=document.getElementById('lineRegressionMode');

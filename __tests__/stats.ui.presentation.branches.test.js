@@ -227,6 +227,13 @@ function getLabeledSelect(container, labelText){
   return null;
 }
 
+function expectReportHostAtBottom(hostId){
+  const host = document.getElementById(hostId);
+  expect(host).toBeTruthy();
+  expect(host.querySelectorAll('.stats-report-panel').length).toBe(1);
+  expect(host.parentElement?.lastElementChild).toBe(host);
+}
+
 describe('UI statistical presentation branches', () => {
   let restoreJStat;
   let restoreSvd;
@@ -341,6 +348,7 @@ describe('UI statistical presentation branches', () => {
     document.getElementById('boxComputeStats').click();
     await flushAsyncWork(30);
     expect(document.getElementById('boxStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
+    expectReportHostAtBottom('boxStatsReportHost');
     expect(`${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`).toMatch(/Pairwise comparisons|Comparisons vs reference/i);
 
     state.hot.loadData([
@@ -400,6 +408,7 @@ describe('UI statistical presentation branches', () => {
     const defaultText = statsResults?.textContent || '';
     expect(defaultText).toMatch(/Overall test summary|Coefficient diagnostics/i);
     expect(defaultText).toMatch(/Reporting and reproducibility|Series|r \(95% CI\)/i);
+    expectReportHostAtBottom('scatterStatsReportHost');
 
     const regressionSelect = document.getElementById('scatterRegressionMode');
     regressionSelect.value = 'quadratic';
@@ -426,6 +435,7 @@ describe('UI statistical presentation branches', () => {
     const defaultText = statsResults?.textContent || '';
     expect(defaultText).toMatch(/correlation coefficients|Correlation summary/i);
     expect(defaultText).toContain('Reporting and reproducibility');
+    expectReportHostAtBottom('lineStatsReportHost');
 
     const regressionMode = document.getElementById('lineRegressionMode');
     regressionMode.value = 'arima';
@@ -451,6 +461,7 @@ describe('UI statistical presentation branches', () => {
     const statsResults = document.getElementById('pieStatsResults');
     expect(statsResults?.textContent || '').toMatch(/Goodness-of-fit test|Observed vs expected/i);
     expect(statsResults?.textContent || '').toContain('Reporting and reproducibility');
+    expectReportHostAtBottom('pieStatsReportHost');
 
     const controls = document.getElementById('pieStatsControls');
     const scopeSelect = getLabeledSelect(controls, 'Comparison scope:');
@@ -480,6 +491,7 @@ describe('UI statistical presentation branches', () => {
     expect(text).toContain('Distribution shape');
     expect(text).toMatch(/Fit diagnostics|Normal fit diagnostics/i);
     expect(text).toContain('Reporting and reproducibility');
+    expectReportHostAtBottom('histStatsReportHost');
 
     const comparisonMode = document.getElementById('histStatsComparisonMode');
     comparisonMode.value = 'ks';
@@ -505,6 +517,7 @@ describe('UI statistical presentation branches', () => {
     expect(Array.from(rocControlSelects[0].options).map(option => option.value)).toEqual(expect.arrayContaining(['delong', 'bootstrap']));
     expect(statsResults?.textContent || '').toMatch(/ROC metrics|cutoff-by-cutoff metrics/i);
     expect(statsResults?.textContent || '').toContain('Reporting and reproducibility');
+    expectReportHostAtBottom('rocStatsReportHost');
 
     const graphType = document.getElementById('rocGraphType');
     graphType.value = 'pr';
@@ -551,6 +564,7 @@ describe('UI statistical presentation branches', () => {
     expect(hazardText).toMatch(/Hazard ratios|Median Survival Ratios/i);
     expect(coxText).toMatch(/Cox Model Coefficients|Cox Model Diagnostics|Residual Summaries|Scaled Schoenfeld Residual Checks/i);
     expect(coxText).toContain('Reporting and reproducibility');
+    expectReportHostAtBottom('survivalStatsCoxReportHost');
   }, 40000);
 
   test('pca stats render PCA and MDS presentation branches', async () => {
@@ -565,6 +579,7 @@ describe('UI statistical presentation branches', () => {
     expect(statsSummary).toBeTruthy();
     expect(statsResults.textContent || '').toContain('Reporting and reproducibility');
     expect(statsResults.textContent || '').toMatch(/PCA|component|variance|Reporting and reproducibility/i);
+    expectReportHostAtBottom('pcaStatsReportHost');
 
     const methodSelect = document.getElementById('pcaMethod');
     expect(methodSelect).toBeTruthy();
@@ -602,6 +617,7 @@ describe('UI statistical presentation branches', () => {
     expect(statsContent).toBeTruthy();
     const corrText = statsContent?.textContent || '';
     expect(corrText).toMatch(/Items analysed|Pairs evaluated|Strongest \|r\||Reporting and reproducibility/i);
+    expectReportHostAtBottom('heatmapStatsReportHost');
 
     const viewSelect = document.getElementById('heatmapView');
     expect(viewSelect).toBeTruthy();

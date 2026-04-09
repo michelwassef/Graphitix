@@ -1612,6 +1612,7 @@
    * @param {Function} options.onDragEnd - Callback when drag ends with {x, y} position
    * @param {Function} options.onDragStart - Callback when drag starts
    * @param {string} options.cursor - Cursor style during drag (default: 'move')
+   * @param {number} options.dragThreshold - Minimum pointer movement before drag activates
    */
   function enableLabelDrag(el, svg, options = {}) {
     if (!el || !svg) {
@@ -1619,9 +1620,13 @@
       return;
     }
     const { onDragEnd, onDragStart, cursor = 'move', syncChildX = false } = options;
+    const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
+    const dragThresholdSq = dragThreshold * dragThreshold;
+    let pointerDown = false;
     let dragging = false;
     let startPoint = { x: 0, y: 0 };
     let origPos = { x: 0, y: 0 };
+    let currentPos = { x: 0, y: 0 };
     const CAPTURE_ATTR = 'dragXOffset';
 
     el.style.cursor = cursor;
@@ -1721,38 +1726,69 @@
     const handleMouseDown = (e) => {
       // Don't start drag if user is editing text
       if (el.dataset.editing === 'true') return;
-      dragging = true;
+      if (e.button !== undefined && e.button !== 0) {
+        return;
+      }
+      pointerDown = true;
+      dragging = false;
       const loc = getTransformedPoint(e.clientX, e.clientY);
       startPoint = { x: loc.x, y: loc.y };
       origPos = {
         x: parseFloat(el.getAttribute('x') || '0'),
         y: parseFloat(el.getAttribute('y') || '0')
       };
-      captureChildAnchors();
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof onDragStart === 'function') {
-        safeCall(onDragStart, [{ x: origPos.x, y: origPos.y, element: el }], 'enableLabelDrag onDragStart error');
-      }
-      logDebug('enableLabelDrag start', { origPos, startPoint });
+      currentPos = { x: origPos.x, y: origPos.y };
+      global.addEventListener('mousemove', handleMouseMove, true);
+      global.addEventListener('mouseup', handleMouseUp, true);
     };
 
     const handleMouseMove = (e) => {
-      if (!dragging) return;
+      if (!pointerDown) return;
       const loc = getTransformedPoint(e.clientX, e.clientY);
+      const dx = loc.x - startPoint.x;
+      const dy = loc.y - startPoint.y;
+      if (!dragging) {
+        const distSq = dx * dx + dy * dy;
+        if (distSq < dragThresholdSq) {
+          return;
+        }
+        dragging = true;
+        captureChildAnchors();
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof onDragStart === 'function') {
+          safeCall(onDragStart, [{ x: origPos.x, y: origPos.y, element: el }], 'enableLabelDrag onDragStart error');
+        }
+        logDebug('enableLabelDrag start', { origPos, startPoint, dragThreshold });
+      } else {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       const newX = origPos.x + (loc.x - startPoint.x);
       const newY = origPos.y + (loc.y - startPoint.y);
       el.setAttribute('x', String(newX));
       el.setAttribute('y', String(newY));
+      currentPos = { x: newX, y: newY };
       applyChildAnchors(newX);
       updateTransformForPosition(newX, newY);
     };
 
-    const handleMouseUp = () => {
-      if (!dragging) return;
+    const handleMouseUp = (e) => {
+      if (!pointerDown) return;
+      global.removeEventListener('mousemove', handleMouseMove, true);
+      global.removeEventListener('mouseup', handleMouseUp, true);
+      const wasDragging = dragging;
+      pointerDown = false;
       dragging = false;
-      const finalX = parseFloat(el.getAttribute('x') || '0');
-      const finalY = parseFloat(el.getAttribute('y') || '0');
+      if (!wasDragging) {
+        return;
+      }
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      const finalX = Number.isFinite(currentPos.x) ? currentPos.x : parseFloat(el.getAttribute('x') || '0');
+      const finalY = Number.isFinite(currentPos.y) ? currentPos.y : parseFloat(el.getAttribute('y') || '0');
       // Record undo/redo entry for label movement
       try {
         const undoApi = Shared && Shared.undoManager;
@@ -1793,8 +1829,6 @@
     };
 
     el.addEventListener('mousedown', handleMouseDown);
-    global.addEventListener('mousemove', handleMouseMove);
-    global.addEventListener('mouseup', handleMouseUp);
 
     logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
   }
