@@ -3365,9 +3365,9 @@
       const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
         && !isPinnedSelectionRange
         && edgeVisibility.top === false);
-      outline.style.zIndex = shouldOverlayPinnedLeft
-        ? '7'
-        : (bodySelectionClippedUnderPinnedTop ? '2' : '5');
+      outline.style.zIndex = isPinnedSelectionRange
+        ? '9'
+        : (bodySelectionClippedUnderPinnedTop ? '2' : (shouldOverlayPinnedLeft ? '7' : '5'));
       return true;
     };
 
@@ -3420,6 +3420,12 @@
         handleHeight = handle.offsetHeight;
       }
       const isPinnedSelectionRow = !!(usePinnedRows && Number.isInteger(selection.to.row) && selection.to.row >= 0 && selection.to.row < pinRowCount);
+      const visibilityContext = resolveSelectionVisibilityContext();
+      const visibleCellRect = resolveVisibleCellRect(cell, cellRect, visibilityContext);
+      const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
+        && !isPinnedSelectionRow
+        && visibleCellRect
+        && (visibleCellRect.top - cellRect.top) > 1.5);
       const viewport = resolveFillHandleViewport(cell, { preferPinnedTop: isPinnedSelectionRow });
       if(viewport && typeof viewport.getBoundingClientRect === 'function'){
         const viewportRect = viewport.getBoundingClientRect();
@@ -3464,18 +3470,35 @@
           return;
         }
       }
+      const isPinnedLeftSelectionCell = !!(cell && typeof cell.closest === 'function'
+        && cell.closest('.ag-pinned-left, .ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container, .ag-pinned-left-floating-top'));
       // Keep handle above pinned top rows only when the selection itself is pinned.
-      // For body selections we keep the lower z-index so the pinned row masks overlap naturally.
-      handle.style.zIndex = isPinnedSelectionRow ? '12' : '2';
+      // For pinned-left selections, lift it just above the pinned column so the
+      // resize square is not obscured by the adjacent body cell below.
+      // Other body selections keep the lower z-index so pinned-row masks overlap naturally.
+      handle.style.zIndex = isPinnedSelectionRow
+        ? '12'
+        : ((isPinnedLeftSelectionCell && !bodySelectionClippedUnderPinnedTop) ? '7' : '2');
       if(handle.dataset){
         if(isPinnedSelectionRow){
           handle.dataset.pinnedSelection = '1';
         }else{
           delete handle.dataset.pinnedSelection;
         }
+        if(isPinnedLeftSelectionCell){
+          handle.dataset.pinnedLeftSelection = '1';
+        }else{
+          delete handle.dataset.pinnedLeftSelection;
+        }
       }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot fill handle layer', { debugLabel, pinnedSelection: isPinnedSelectionRow, zIndex: handle.style.zIndex });
+        console.debug('Debug: Shared.hot fill handle layer', {
+          debugLabel,
+          pinnedSelection: isPinnedSelectionRow,
+          pinnedLeftSelection: isPinnedLeftSelectionCell,
+          clippedUnderPinnedTop: bodySelectionClippedUnderPinnedTop,
+          zIndex: handle.style.zIndex
+        });
       }
       handle.style.display = 'block';
       handle.style.left = `${cellRect.right - hostRect.left}px`;
