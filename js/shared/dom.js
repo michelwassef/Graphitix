@@ -1613,6 +1613,8 @@
    * @param {Function} options.onDragStart - Callback when drag starts
    * @param {string} options.cursor - Cursor style during drag (default: 'move')
    * @param {number} options.dragThreshold - Minimum pointer movement before drag activates
+   * @param {('x'|'y'|null)} options.axisLock - Constrain movement to a single axis
+   * @param {boolean} options.recordUndo - Record element position changes in undo history
    */
   function enableLabelDrag(el, svg, options = {}) {
     if (!el || !svg) {
@@ -1622,6 +1624,8 @@
     const { onDragEnd, onDragStart, cursor = 'move', syncChildX = false } = options;
     const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
     const dragThresholdSq = dragThreshold * dragThreshold;
+    const axisLock = options.axisLock === 'x' || options.axisLock === 'y' ? options.axisLock : null;
+    const shouldRecordUndo = options.recordUndo !== false;
     let pointerDown = false;
     let dragging = false;
     let startPoint = { x: 0, y: 0 };
@@ -1764,8 +1768,8 @@
         e.preventDefault();
         e.stopPropagation();
       }
-      const newX = origPos.x + (loc.x - startPoint.x);
-      const newY = origPos.y + (loc.y - startPoint.y);
+      const newX = axisLock === 'y' ? origPos.x : origPos.x + dx;
+      const newY = axisLock === 'x' ? origPos.y : origPos.y + dy;
       el.setAttribute('x', String(newX));
       el.setAttribute('y', String(newY));
       currentPos = { x: newX, y: newY };
@@ -1790,37 +1794,39 @@
       const finalX = Number.isFinite(currentPos.x) ? currentPos.x : parseFloat(el.getAttribute('x') || '0');
       const finalY = Number.isFinite(currentPos.y) ? currentPos.y : parseFloat(el.getAttribute('y') || '0');
       // Record undo/redo entry for label movement
-      try {
-        const undoApi = Shared && Shared.undoManager;
-        const before = { x: origPos.x, y: origPos.y, transform: el.getAttribute('transform') };
-        const after = { x: finalX, y: finalY, transform: el.getAttribute('transform') };
-        const equals = (a, b) => a && b && a.x === b.x && a.y === b.y && String(a.transform || '') === String(b.transform || '');
-        const apply = (pos, reason) => {
-          if (!pos) return false;
-          try {
-            el.setAttribute('x', String(pos.x));
-            el.setAttribute('y', String(pos.y));
-            applyChildAnchors(pos.x);
-            updateTransformForPosition(pos.x, pos.y);
-            logDebug('enableLabelDrag apply position', { reason, x: pos.x, y: pos.y });
-            return true;
-          } catch (applyErr) {
-            console.error('Shared.enableLabelDrag apply position error', applyErr);
-            return false;
+      if (shouldRecordUndo) {
+        try {
+          const undoApi = Shared && Shared.undoManager;
+          const before = { x: origPos.x, y: origPos.y, transform: el.getAttribute('transform') };
+          const after = { x: finalX, y: finalY, transform: el.getAttribute('transform') };
+          const equals = (a, b) => a && b && a.x === b.x && a.y === b.y && String(a.transform || '') === String(b.transform || '');
+          const apply = (pos, reason) => {
+            if (!pos) return false;
+            try {
+              el.setAttribute('x', String(pos.x));
+              el.setAttribute('y', String(pos.y));
+              applyChildAnchors(pos.x);
+              updateTransformForPosition(pos.x, pos.y);
+              logDebug('enableLabelDrag apply position', { reason, x: pos.x, y: pos.y });
+              return true;
+            } catch (applyErr) {
+              console.error('Shared.enableLabelDrag apply position error', applyErr);
+              return false;
+            }
+          };
+          if (undoApi && typeof undoApi.recordStateChange === 'function' && !equals(before, after)) {
+            undoApi.recordStateChange({
+              element: el,
+              label: `move:${el.tagName.toLowerCase()}#${el.id || el.textContent || 'label'}`,
+              from: before,
+              to: after,
+              equals,
+              apply
+            });
           }
-        };
-        if (undoApi && typeof undoApi.recordStateChange === 'function' && !equals(before, after)) {
-          undoApi.recordStateChange({
-            element: el,
-            label: `move:${el.tagName.toLowerCase()}#${el.id || el.textContent || 'label'}`,
-            from: before,
-            to: after,
-            equals,
-            apply
-          });
+        } catch (err) {
+          console.error('Shared.enableLabelDrag undo record error', err);
         }
-      } catch (err) {
-        console.error('Shared.enableLabelDrag undo record error', err);
       }
       if (typeof onDragEnd === 'function') {
         safeCall(onDragEnd, [{ x: finalX, y: finalY, element: el }], 'enableLabelDrag onDragEnd error');

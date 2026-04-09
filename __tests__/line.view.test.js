@@ -89,4 +89,24 @@ describe('Line view labels', () => {
       'Central'
     ]);
   });
+
+  test('legend label clicks do not hide rendered line series', async () => {
+    const exampleBtn = document.getElementById('lineLoadExample');
+    expect(exampleBtn).toBeTruthy();
+
+    exampleBtn.click();
+    await flushAll(20);
+
+    const legendLabel = document.querySelector('#lineSvg text[data-legend-key="North"]');
+    const seriesPath = document.querySelector('#lineSvg path[data-series="North"][data-render-mode="line"]');
+
+    expect(legendLabel).toBeTruthy();
+    expect(seriesPath).toBeTruthy();
+    expect(seriesPath.style.display).not.toBe('none');
+
+    legendLabel.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAll(5);
+
+    expect(seriesPath.style.display).not.toBe('none');
+  });
 });

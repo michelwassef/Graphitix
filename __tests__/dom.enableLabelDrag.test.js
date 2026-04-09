@@ -99,4 +99,45 @@ describe('Shared.enableLabelDrag', () => {
     }));
     expect(window.Shared.undoManager.recordStateChange).toHaveBeenCalledTimes(1);
   });
+
+  test.each([
+    { axisLock: 'x', expectedX: '21', expectedY: '20' },
+    { axisLock: 'y', expectedX: '10', expectedY: '33' }
+  ])('axisLock=$axisLock constrains movement and can skip undo recording', ({ axisLock, expectedX, expectedY }) => {
+    const { svg, text } = createSvgText();
+    const onDragEnd = jest.fn();
+
+    window.Shared.enableLabelDrag(text, svg, {
+      axisLock,
+      recordUndo: false,
+      onDragEnd
+    });
+
+    text.dispatchEvent(new window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 100,
+      clientY: 120
+    }));
+    window.dispatchEvent(new window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 111,
+      clientY: 133
+    }));
+    window.dispatchEvent(new window.MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 111,
+      clientY: 133
+    }));
+
+    expect(text.getAttribute('x')).toBe(expectedX);
+    expect(text.getAttribute('y')).toBe(expectedY);
+    expect(window.Shared.undoManager.recordStateChange).not.toHaveBeenCalled();
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
 });

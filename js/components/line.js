@@ -8752,17 +8752,6 @@
 
       svg3.appendChild(frontFrameLayer);
 
-      const toggleSeriesVisibility = seriesIndex => {
-        const target = seriesElems[seriesIndex];
-        if(!target){
-          return;
-        }
-        const currentlyVisible = target.path.style.display !== 'none';
-        const nextDisplay = currentlyVisible ? 'none' : 'inline';
-        target.path.style.display = nextDisplay;
-        target.mGroup.style.display = nextDisplay;
-      };
-
       const legendRenderer = legendLayout.renderer;
       if(showLegend && legendRenderer.entries.length){
         const defaultLegendX = margin3.left + plotW3 + legendGapFor3d + appliedLegendAxisGap;
@@ -8821,9 +8810,6 @@
               return;
             }
             markFontEditable(textNode, 'legend', `legend-${idx}`);
-            textNode.style.cursor = 'pointer';
-            const seriesIndex = Number.isInteger(legendEntry?.seriesIndex) ? legendEntry.seriesIndex : idx;
-            textNode.addEventListener('click', () => toggleSeriesVisibility(seriesIndex));
           });
         }
       }
@@ -10712,26 +10698,6 @@
         seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,trendPath:trendPathEl,forecastPath:forecastPathEl,areaPath:areaPathEl});
       });
       console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
-      const toggleSeriesVisibility=index=>{
-        const target=seriesElems[index];
-        if(!target){ return; }
-        const currentlyVisible=target.path.style.display!=='none';
-        const nextDisplay=currentlyVisible?'none':'inline';
-        target.path.style.display=nextDisplay;
-        target.mGroup.style.display=nextDisplay;
-        if(target.errorGroup){
-          target.errorGroup.style.display=nextDisplay;
-        }
-        if(target.trendPath){
-          target.trendPath.style.display=nextDisplay;
-        }
-        if(target.forecastPath){
-          target.forecastPath.style.display=nextDisplay;
-        }
-        if(target.areaPath){
-          target.areaPath.style.display=nextDisplay;
-        }
-      };
       const legendRenderer=legendLayout.renderer;
       if(showLegend && legendRenderer.entries.length){
         const defaultLegendX=margin.left+plotW+legendLayout.legendGapPx;
@@ -10781,8 +10747,6 @@
             const textNode=textNodes[index];
             if(!textNode){ return; }
             markFontEditable(textNode,'legend',`legend-${index}`);
-            textNode.style.cursor='pointer';
-            textNode.addEventListener('click',()=>toggleSeriesVisibility(index));
           });
         }
       }

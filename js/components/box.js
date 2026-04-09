@@ -26257,9 +26257,38 @@ Technical analysis record (advanced)
         xTickFontCount += 1;
         if(isGroupedMode){
           t.style.cursor = 'default';
+        }else if(typeof Shared.enableLabelDrag === 'function'){
+          Shared.enableLabelDrag(t, svg, {
+            cursor: 'ew-resize',
+            axisLock: 'x',
+            recordUndo: false,
+            onDragEnd: pos => {
+              let targetIdx;
+              if(separatedSpacing){
+                let best = 0;
+                let bestDist = Infinity;
+                for(let j = 0; j < separatedSpacing.centers.length; j++){
+                  const d = Math.abs(pos.x - separatedSpacing.centers[j]);
+                  if(d < bestDist){ bestDist = d; best = j; }
+                }
+                targetIdx = best;
+              }else{
+                const bandSpan = bandW + datasetGapPx;
+                targetIdx = Math.floor((pos.x - marginLocal.left) / bandSpan);
+                targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
+              }
+              if(targetIdx !== i){
+                const moved = state.colOrder.splice(i, 1)[0];
+                state.colOrder.splice(targetIdx, 0, moved);
+              }
+              if(Shared.isDebugEnabled?.()){
+                boxLog('boxplot label drag end',{ component: 'box', from: i, to: targetIdx, orientation: 'horizontal-axis' });
+              }
+              state.scheduleDraw();
+            }
+          });
         }else{
           t.style.cursor = 'ew-resize';
-          enableLabelDrag(t, i);
         }
         xLabels.push(t);
         renderedXTicks += 1;
@@ -26274,48 +26303,6 @@ Technical analysis record (advanced)
       });
       if(xInterval && axisLabels.length){
         console.debug('Debug: box x-axis tick filter',{ interval: xInterval, rendered: renderedXTicks, total: axisLabels.length });
-      }
-      function enableLabelDrag(t, idx){
-        if(isGroupedMode){
-          return;
-        }
-        t.addEventListener('mousedown', e => {
-          e.preventDefault();
-          const svgRect = svg.getBoundingClientRect();
-          const onMove = ev => {
-            const svgX = ev.clientX - svgRect.left;
-            t.setAttribute('x', svgX);
-          };
-          const onUp = ev => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            const svgX = ev.clientX - svgRect.left;
-            let targetIdx;
-            if(separatedSpacing){
-              let best = 0;
-              let bestDist = Infinity;
-              for(let j = 0; j < separatedSpacing.centers.length; j++){
-                const d = Math.abs(svgX - separatedSpacing.centers[j]);
-                if(d < bestDist){ bestDist = d; best = j; }
-              }
-              targetIdx = best;
-            }else{
-              const bandSpan = bandW + datasetGapPx;
-              targetIdx = Math.floor((svgX - marginLocal.left) / bandSpan);
-              targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
-            }
-            if(targetIdx !== idx){
-              const moved = state.colOrder.splice(idx, 1)[0];
-              state.colOrder.splice(targetIdx, 0, moved);
-            }
-            if(Shared.isDebugEnabled?.()){
-              boxLog('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'horizontal-axis' });
-            }
-            state.scheduleDraw();
-          };
-          document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup', onUp);
-        });
       }
       const yLabelOffsetSpan = (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const defaultYX = marginLocal.left - yLabelOffsetSpan;
@@ -28788,9 +28775,26 @@ Technical analysis record (advanced)
         t.textContent = labelText;
         if(isGroupedMode){
           t.style.cursor = 'default';
+        }else if(typeof Shared.enableLabelDrag === 'function'){
+          Shared.enableLabelDrag(t, svg, {
+            cursor: 'ns-resize',
+            axisLock: 'y',
+            recordUndo: false,
+            onDragEnd: pos => {
+              let targetIdx = Math.floor((pos.y - plotTopY) / Math.max(1e-6, bandH + datasetGapPxH));
+              targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
+              if(targetIdx !== i){
+                const moved = state.colOrder.splice(i, 1)[0];
+                state.colOrder.splice(targetIdx, 0, moved);
+              }
+              if(Shared.isDebugEnabled?.()){
+                boxLog('boxplot label drag end',{ component: 'box', from: i, to: targetIdx, orientation: 'vertical-axis' });
+              }
+              state.scheduleDraw();
+            }
+          });
         }else{
           t.style.cursor = 'ns-resize';
-          enableVerticalLabelDrag(t, i);
         }
         renderedYTicks += 1;
       });
@@ -29036,36 +29040,6 @@ Technical analysis record (advanced)
             };
             console.debug('Debug: box x-label position saved', { absolute: pos, relative: { relX, relY } });
           }
-        });
-      }
-      function enableVerticalLabelDrag(t, idx){
-        if(isGroupedMode){
-          return;
-        }
-        t.addEventListener('mousedown', e => {
-          e.preventDefault();
-          const svgRect = svg.getBoundingClientRect();
-          const onMove = ev => {
-            const svgY = ev.clientY - svgRect.top;
-            t.setAttribute('y', svgY);
-          };
-          const onUp = ev => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            const svgY = ev.clientY - svgRect.top;
-            let targetIdx = Math.floor((svgY - plotTopY) / Math.max(1e-6, bandH + datasetGapPxH));
-            targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
-            if(targetIdx !== idx){
-              const moved = state.colOrder.splice(idx, 1)[0];
-              state.colOrder.splice(targetIdx, 0, moved);
-            }
-            if(Shared.isDebugEnabled?.()){
-              boxLog('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'vertical-axis' });
-            }
-            state.scheduleDraw();
-          };
-          document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup', onUp);
         });
       }
       const stackedErrorQueue = [];
