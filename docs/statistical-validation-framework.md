@@ -29,6 +29,9 @@ Catch statistical implementation regressions by validating that:
 - `__tests__/stats.extended.coverage.test.js`
   - Deterministic branch-coverage suite for statistical helpers that are not yet oracle-backed.
   - Covers box post-hoc/grouped workflows plus ROC resampling and survival derived analyses.
+- `__tests__/stats.ui.presentation.branches.test.js`
+  - UI-facing presentation-branch suite for statistics panels and reporting cards.
+  - Covers rendered stats branches in box, scatter, line, pie, hist, ROC/PR, and survival workspaces.
 
 ## Supported Statistical Operations
 
@@ -162,6 +165,36 @@ Current differential coverage includes:
   - median survival ratio summaries
   - Cox-model and hazard-ratio derived helper outputs
 
+## UI Presentation Coverage
+
+`__tests__/stats.ui.presentation.branches.test.js` covers UI-exposed statistics presentation branches that are outside pure numerical oracle comparison:
+
+- `box.js`
+  - pairwise post-hoc presentation
+  - repeated-measures non-parametric presentation
+  - grouped multiple-comparison presentation
+- `scatter.js`
+  - ungrouped regression summary, model-detail, and coefficient-card rendering
+- `line.js`
+  - correlation summary rendering
+  - forecast accuracy card rendering
+  - reporting-card integration
+- `pie.js`
+  - goodness-of-fit summary rendering
+  - pairwise contingency rendering
+- `hist.js`
+  - descriptive summary cards
+  - fit-diagnostic cards
+  - distribution-comparison card rendering
+- `roc.js`
+  - ROC metrics presentation
+  - PR metrics presentation
+  - graph-type-specific comparison-control options
+- `survival.js`
+  - log-rank and pairwise log-rank cards
+  - hazard-ratio and median-ratio cards
+  - Cox coefficient, diagnostics, residual, and Schoenfeld cards
+
 ## Current Scope Boundary
 
 The Python oracle intentionally focuses on deterministic numerical outputs.
@@ -169,7 +202,7 @@ The Python oracle intentionally focuses on deterministic numerical outputs.
 Currently excluded from oracle coverage:
 
 - config-only or UI-only options that do not change deterministic numeric outputs
-- report layout choices and advanced-card placement
+- only purely cosmetic report-layout choices that do not change which statistics cards are rendered
 - PCA graphics such as scree overlays, loadings plots, and biplots, unless a stable numeric hook is exposed
 - Cox-model secondary summaries such as Harrell's C and residual cards, until dedicated deterministic hooks/oracle implementations are added
 
