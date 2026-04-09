@@ -14072,6 +14072,7 @@
   function computeEmpiricalPValue(observed, sampled, alternative, options={}){
     const safeAlt=sanitizeStatsAlternative(alternative);
     const mode=options?.mode || 'absolute';
+    const center=Number.isFinite(Number(options?.center)) ? Number(options.center) : 0;
     let hits=1;
     const total=(Array.isArray(sampled)?sampled.length:0)+1;
     const obs=Number(observed);
@@ -14086,7 +14087,7 @@
       }else if(safeAlt==='less'){
         extreme=simulated<=obs;
       }else if(mode==='signed'){
-        extreme=Math.abs(simulated)>=Math.abs(obs);
+        extreme=Math.abs(simulated-center)>=Math.abs(obs-center);
       }else{
         extreme=Math.abs(simulated)>=Math.abs(obs);
       }
@@ -15025,7 +15026,7 @@
         }
         simulations.push(simWpos);
       }
-      const p=computeEmpiricalPValue(Wpos,simulations,alternative,{ mode:'signed' });
+      const p=computeEmpiricalPValue(Wpos,simulations,alternative,{ mode:'signed', center:effectiveN*(effectiveN+1)/4 });
       return { W, Wpos, Wneg, z:NaN, p, n, effectiveN, median:medianDiff, method:'monte-carlo', exact:false, iterations, seed, continuityCorrected:false, tieCorrected:rankInfo.tieTerm>0, tieTerm:rankInfo.tieTerm };
     }
     const mu=effectiveN*(effectiveN+1)/4;
@@ -15101,7 +15102,7 @@
         const simU1=simRankSum-(na*(na+1)/2);
         simulations.push(simU1);
       }
-      const p=computeEmpiricalPValue(U1,simulations,alternative,{ mode:'signed' });
+      const p=computeEmpiricalPValue(U1,simulations,alternative,{ mode:'signed', center:(na*nb)/2 });
       return { U,U1,U2,z:NaN,p,nA:na,nB:nb,method:'monte-carlo',exact:false,iterations,seed,continuityCorrected:false,tieCorrected:rankInfo.tieTerm>0 };
     }
     const nTotal=na+nb;
@@ -15218,7 +15219,7 @@
         }
         simulations.push(simWpos);
       }
-      const p=computeEmpiricalPValue(Wpos,simulations,alternative,{ mode:'signed' });
+      const p=computeEmpiricalPValue(Wpos,simulations,alternative,{ mode:'signed', center:nEff*(nEff+1)/4 });
       return { W,Wpos,Wneg,z:NaN,p,n:nRaw,effectiveN:nEff,method:'monte-carlo',exact:false,iterations,seed,continuityCorrected:false,tieCorrected:rankInfo.tieTerm>0 };
     }
     const mu=nEff*(nEff+1)/4;

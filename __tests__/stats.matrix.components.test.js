@@ -474,6 +474,22 @@ describe('Generated component statistics matrix', () => {
     expect(fried3.p).not.toBe(fried1.p);
   });
 
+  test('box tied Wilcoxon signed-rank Monte Carlo stays significant for strong paired shifts', () => {
+    const a = [10, 11, 9, 10, 12, 11, 10, 9, 11, 10, 12, 11];
+    const b = [20, 21, 19, 20, 22, 21, 20, 19, 21, 20, 22, 21];
+
+    const auto = boxHooks.wilcoxonSignedRank(a, b, { alternative: 'two-sided', resamplingMode: 'auto', iterations: 10000, seed: 1337 });
+    const mc = boxHooks.wilcoxonSignedRank(a, b, { alternative: 'two-sided', resamplingMode: 'monte-carlo', iterations: 10000, seed: 1337 });
+    const asym = boxHooks.wilcoxonSignedRank(a, b, { alternative: 'two-sided', resamplingMode: 'asymptotic' });
+
+    expect(auto.method).toBe('monte-carlo');
+    expect(mc.method).toBe('monte-carlo');
+    expect(auto.p).toBeLessThan(0.01);
+    expect(mc.p).toBeLessThan(0.01);
+    expectClose(auto.p, mc.p, 'wilcoxon monte-carlo auto/manual parity', { abs: 0, rel: 0 });
+    expectClose(mc.p, asym.p, 'wilcoxon monte-carlo vs asymptotic tie-heavy shift', { abs: 0.01, rel: 0.25 });
+  });
+
   testWithOracle('line matrix covers visible correlation and regression modes against oracle', () => {
     expect(lineHooks).toBeTruthy();
 
