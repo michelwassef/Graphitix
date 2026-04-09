@@ -7379,17 +7379,25 @@
       }
       return 0.5*(1+Math.erf(value/Math.SQRT2));
     };
-    let acc=0;
-    for(let i=0;i<GAUSS_HERMITE_NODES.length;i++){
-      const node=GAUSS_HERMITE_NODES[i];
-      const weight=GAUSS_HERMITE_WEIGHTS[i];
-      const t=node*Math.SQRT2;
-      const upper=normalCdf(t+q);
-      const lower=normalCdf(t);
+    const normalPdf=value=>Math.exp(-0.5*value*value)/Math.sqrt(2*Math.PI);
+    const bound=Math.max(8,Math.min(40,q+8));
+    const segments=1024;
+    const step=(2*bound)/segments;
+    const integrand=value=>{
+      const upper=normalCdf(value+q);
+      const lower=normalCdf(value);
       const span=Math.max(0,Math.min(1,upper-lower));
-      acc+=weight*Math.pow(span,r-1);
+      if(!(span>0)){
+        return 0;
+      }
+      return r*normalPdf(value)*Math.pow(span,r-1);
+    };
+    let acc=integrand(-bound)+integrand(bound);
+    for(let idx=1; idx<segments; idx+=1){
+      const x=-bound+(idx*step);
+      acc+=(idx % 2 === 0 ? 2 : 4)*integrand(x);
     }
-    const result=acc/Math.sqrt(Math.PI);
+    const result=(step/3)*acc;
     const clamped=Math.max(0,Math.min(1,result));
     console.debug('Debug: box studentizedRangeCDFInfinite',{ q, r, result:clamped });
     return clamped;
@@ -31708,7 +31716,17 @@ Technical analysis record (advanced)
       bartlettVarianceDiagnostics:(groups,labels,options={})=>computeBartlettVarianceDiagnostics(groups,labels,options || {}),
       lognormalComparison:(values,options={})=>computeLognormalComparison(values,options || {}),
       linearTrendTest:(groups,labels,options={})=>computeLinearTrendTest(groups,labels,options || {}),
+      tukeyComparisons:(groups,labels,options={})=>computeTukeyComparisons(groups,labels,options || {}),
+      gamesHowellComparisons:(groups,labels,options={})=>computeGamesHowellComparisons(groups,labels,options || {}),
       tamhaneT2Comparisons:(groups,labels,options={})=>computeTamhaneT2Comparisons(groups,labels,options || {}),
+      dunnettComparisons:(groups,labels,referenceIndex,options={})=>computeDunnettComparisons(groups,labels,referenceIndex,options || {}),
+      dunnComparisons:(groups,labels,options={})=>computeDunnComparisons(groups,labels,options || {}),
+      nemenyiComparisons:(groups,labels,options={})=>computeNemenyiComparisons(groups,labels,options || {}),
+      estimateGroupedMultipleComparisonCount:(data,options={})=>estimateGroupedMultipleComparisonCount(data,options || {}),
+      analyzeRowWiseTTests:data=>analyzeRowWiseTTests(data),
+      analyzeGroupedMultipleComparisons:data=>analyzeGroupedMultipleComparisons(data),
+      applyPValueCorrection:(values,method)=>applyPValueCorrection(values,method),
+      resolveCorrectionMeta:(method,count)=>resolveCorrectionMeta(method,count),
       lognormalAnova:groups=>anova((Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite).map(Math.log))),
       lognormalWelchAnova:groups=>computeWelchAnova((Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite).map(Math.log))),
 	    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),

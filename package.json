@@ -5,7 +5,7 @@
   "main": "./index.js",
   "scripts": {
     "test": "jest",
-    "test:stats": "jest __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js __tests__/stats.matrix.components.test.js",
+    "test:stats": "jest __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js __tests__/stats.matrix.components.test.js __tests__/stats.extended.coverage.test.js",
     "docs:arch-map": "node scripts/generate-architecture-map.js",
     "docs:component-contracts": "node scripts/generate-component-contracts.js",
     "dev:entrypoint": "node scripts/change-entrypoint.js",

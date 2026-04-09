@@ -490,6 +490,35 @@ describe('Generated component statistics matrix', () => {
     expectClose(mc.p, asym.p, 'wilcoxon monte-carlo vs asymptotic tie-heavy shift', { abs: 0.01, rel: 0.25 });
   });
 
+  test('box tied one-sample Wilcoxon Monte Carlo stays significant for strong shifts from H0', () => {
+    const values = [25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30, 30];
+    const auto = boxHooks.wilcoxonOneSample(values, 20, { alternative: 'two-sided', resamplingMode: 'auto', iterations: 10000, seed: 4242 });
+    const mc = boxHooks.wilcoxonOneSample(values, 20, { alternative: 'two-sided', resamplingMode: 'monte-carlo', iterations: 10000, seed: 4242 });
+    const asym = boxHooks.wilcoxonOneSample(values, 20, { alternative: 'two-sided', resamplingMode: 'asymptotic' });
+
+    expect(auto.method).toBe('monte-carlo');
+    expect(mc.method).toBe('monte-carlo');
+    expect(auto.p).toBeLessThan(0.01);
+    expect(mc.p).toBeLessThan(0.01);
+    expectClose(auto.p, mc.p, 'one-sample wilcoxon monte-carlo auto/manual parity', { abs: 0, rel: 0 });
+    expectClose(mc.p, asym.p, 'one-sample wilcoxon monte-carlo vs asymptotic tie-heavy shift', { abs: 0.01, rel: 0.25 });
+  });
+
+  test('box tied Mann-Whitney Monte Carlo stays significant for strong group shifts', () => {
+    const a = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5];
+    const b = [11, 11, 12, 12, 13, 13, 14, 14, 15, 15];
+    const auto = boxHooks.mannWhitney(a, b, { alternative: 'two-sided', resamplingMode: 'auto', iterations: 10000, seed: 7171 });
+    const mc = boxHooks.mannWhitney(a, b, { alternative: 'two-sided', resamplingMode: 'monte-carlo', iterations: 10000, seed: 7171 });
+    const asym = boxHooks.mannWhitney(a, b, { alternative: 'two-sided', resamplingMode: 'asymptotic' });
+
+    expect(auto.method).toBe('monte-carlo');
+    expect(mc.method).toBe('monte-carlo');
+    expect(auto.p).toBeLessThan(0.01);
+    expect(mc.p).toBeLessThan(0.01);
+    expectClose(auto.p, mc.p, 'mann-whitney monte-carlo auto/manual parity', { abs: 0, rel: 0 });
+    expectClose(mc.p, asym.p, 'mann-whitney monte-carlo vs asymptotic tie-heavy shift', { abs: 0.01, rel: 0.25 });
+  });
+
   testWithOracle('line matrix covers visible correlation and regression modes against oracle', () => {
     expect(lineHooks).toBeTruthy();
 

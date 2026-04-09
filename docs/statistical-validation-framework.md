@@ -26,6 +26,9 @@ Catch statistical implementation regressions by validating that:
 - `__tests__/stats.matrix.components.test.js`
   - Generated coverage-matrix suite for `box.js`, `line.js`, and `scatter.js`.
   - Exhaustively exercises exposed analysis branches and parameter combinations where practical.
+- `__tests__/stats.extended.coverage.test.js`
+  - Deterministic branch-coverage suite for statistical helpers that are not yet oracle-backed.
+  - Covers box post-hoc/grouped workflows plus ROC resampling and survival derived analyses.
 
 ## Supported Statistical Operations
 
@@ -79,6 +82,13 @@ Current differential coverage includes:
   - normal-vs-lognormal AICc comparison
   - linear trend test across ordered groups
   - Tamhane T2 unequal-variance post-hoc approximation
+  - Tukey HSD
+  - Games-Howell
+  - Dunn post-hoc
+  - Nemenyi post-hoc
+  - Dunnett / Dunnett T3 approximations
+  - grouped row-wise Welch t-tests
+  - grouped multiple-comparison scopes and multiplicity-family handling
 - Pie/proportion:
   - chi-square goodness-of-fit
 - ROC/PR:
@@ -87,6 +97,8 @@ Current differential coverage includes:
   - ROC cutoff-by-cutoff threshold metrics
   - PR average precision
   - paired DeLong ROC AUC difference
+  - bootstrap curve-difference resampling
+  - permutation curve-difference resampling
 - Correlation engines:
   - Pearson
   - Spearman
@@ -95,6 +107,9 @@ Current differential coverage includes:
   - log-rank test
   - Gehan-Breslow-Wilcoxon weighted log-rank test
   - log-rank trend test for ordered groups
+  - pairwise survival comparisons with multiplicity adjustment
+  - median survival ratios
+  - Cox-model group contrasts and derived hazard-ratio tables
 
 ## Component Matrix Coverage
 
@@ -125,8 +140,27 @@ Current differential coverage includes:
   - fit-method wiring checks, including LOWESS span propagation
 - `roc.js`
   - ROC AUC, DeLong AUC difference, AUC uncertainty, and threshold-table diagnostic metrics
+  - bootstrap and permutation curve-difference helpers
 - `survival.js`
   - log-rank, Gehan-Breslow-Wilcoxon, and ordered log-rank trend engines
+  - pairwise survival-comparison correction paths
+  - median survival ratios
+  - Cox-model fitting and derived hazard-ratio helpers
+
+## Extended Helper Coverage
+
+`__tests__/stats.extended.coverage.test.js` closes several deterministic gaps that were previously outside the oracle-backed suites:
+
+- `box.js`
+  - Tukey, Games-Howell, Dunn, Nemenyi, and Dunnett helper paths
+  - grouped row-wise and grouped multiple-comparison workflows
+  - tie-heavy Monte Carlo rank-test regressions
+- `roc.js`
+  - bootstrap and permutation curve-difference helpers
+- `survival.js`
+  - pairwise comparison correction handling
+  - median survival ratio summaries
+  - Cox-model and hazard-ratio derived helper outputs
 
 ## Current Scope Boundary
 
@@ -134,7 +168,7 @@ The Python oracle intentionally focuses on deterministic numerical outputs.
 
 Currently excluded from oracle coverage:
 
-- config-only or UI-only options such as grouped multiple-comparison scopes
+- config-only or UI-only options that do not change deterministic numeric outputs
 - report layout choices and advanced-card placement
 - PCA graphics such as scree overlays, loadings plots, and biplots, unless a stable numeric hook is exposed
 - Cox-model secondary summaries such as Harrell's C and residual cards, until dedicated deterministic hooks/oracle implementations are added
