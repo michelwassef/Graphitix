@@ -1859,11 +1859,12 @@
       return;
     }
     const candidates = [];
+    const reportingHost = resolveReportingHost(target);
     const pushCandidate = node => {
       if(!node){
         return;
       }
-      if(node === scaffold.controls || node === scaffold.main || node === scaffold.advancedPanel){
+      if(node === scaffold.controls || node === scaffold.main || node === scaffold.advancedPanel || node === reportingHost){
         return;
       }
       if(node.nodeType === 3){
@@ -1882,7 +1883,6 @@
     Array.from(scaffold.main.childNodes).forEach(pushCandidate);
     Array.from(scaffold.advancedBody.childNodes).forEach(pushCandidate);
     const unique = Array.from(new Set(candidates));
-    const reportingHost = resolveReportingHost(target);
     const reportingNodes = [];
     unique.forEach(node => {
       if(isReportingNode(node)){

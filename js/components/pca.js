@@ -5645,6 +5645,33 @@
           dockEigenExportButton(pcaDefaultEigenExportHost);
         }
       }
+      function ensurePcaReportHost(){
+        if(!pcaStatsResults){
+          return null;
+        }
+        let host = document.getElementById('pcaStatsReportHost');
+        if(host && host.parentNode !== pcaStatsResults){
+          host.parentNode?.removeChild?.(host);
+          host = null;
+        }
+        if(!host){
+          host = document.createElement('div');
+          host.id = 'pcaStatsReportHost';
+          host.className = 'stats-report-host';
+          pcaStatsResults.appendChild(host);
+        }
+        pcaStatsResults.__statsReportHost = host;
+        const legacyPanels = Array.from(pcaStatsResults.children || []).filter(node => {
+          return node !== host && node?.classList?.contains?.('stats-report-panel');
+        });
+        legacyPanels.forEach(panel => {
+          host.appendChild(panel);
+        });
+        if(pcaStatsResults.lastElementChild !== host){
+          pcaStatsResults.appendChild(host);
+        }
+        return host;
+      }
       function renderPcaSharedStatsTable(target, config){
         if(!target || !Shared.statsTable || typeof Shared.statsTable.render !== 'function'){
           return null;
@@ -5665,9 +5692,6 @@
         }
       }
       function renderPcaSummaryPanel(options = {}){
-        if(!pcaStatsSummary){
-          return;
-        }
         pcaStatsSummary?.setAttribute?.('data-stats-advanced', '0');
         pcaScreeVarianceRow?.setAttribute?.('data-stats-advanced', '0');
         pcaVarianceSummary?.setAttribute?.('data-stats-advanced', '0');
@@ -5675,33 +5699,37 @@
         pcaLoadingsContainer?.setAttribute?.('data-stats-advanced', '1');
         const summaryLines = Array.isArray(options.summaryLines) ? options.summaryLines : [];
         const method = String(options.method || '').toLowerCase();
-        const savedHtml = typeof options.savedHtml === 'string' ? options.savedHtml : null;
-        if(pcaStatsResults){
-          pcaStatsResults.querySelectorAll('.stats-report-panel').forEach(node => {
-            node.parentNode?.removeChild?.(node);
-          });
+        const savedSummaryHtml = (typeof options.savedSummaryHtml === 'string' && options.savedSummaryHtml) ? options.savedSummaryHtml : null;
+        const savedResultsHtml = (typeof options.savedResultsHtml === 'string' && options.savedResultsHtml) ? options.savedResultsHtml : null;
+        const reportHost = ensurePcaReportHost();
+        if(reportHost){
+          reportHost.innerHTML = '';
         }
-        if(savedHtml != null){
-          pcaStatsSummary.innerHTML = savedHtml;
-          if(pcaStatsResults){
-            pcaStatsSummary.querySelectorAll('.stats-report-panel').forEach(node => {
-              pcaStatsResults.appendChild(node);
+        if(pcaStatsSummary){
+          if(savedSummaryHtml != null){
+            pcaStatsSummary.innerHTML = savedSummaryHtml;
+            debugLog('Debug: pca summary panel restored from saved html', {
+              length: savedSummaryHtml.length,
+              hasReportPanel: savedSummaryHtml.includes('stats-report-panel')
             });
+          } else if(summaryLines.length){
+            pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
+          } else if(method === 'pca'){
+            pcaStatsSummary.innerHTML = '<div class="stats-table-message">Component variance summary appears alongside the scree plot.</div>';
+          } else {
+            pcaStatsSummary.innerHTML = '<div class="stats-table-message">No statistics computed.</div>';
           }
-          debugLog('Debug: pca summary panel restored from saved html', {
-            length: savedHtml.length,
-            hasReportPanel: savedHtml.includes('stats-report-panel')
-          });
-        } else if(summaryLines.length){
-          pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
-        } else if(method === 'pca'){
-          pcaStatsSummary.innerHTML = '<div class="stats-table-message">Component variance summary appears alongside the scree plot.</div>';
-        } else {
-          pcaStatsSummary.innerHTML = '<div class="stats-table-message">No statistics computed.</div>';
+        } else if(reportHost && savedSummaryHtml != null){
+          reportHost.innerHTML = savedSummaryHtml;
+        } else if(!reportHost){
+          return;
         }
-        if(pcaStatsResults && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
+        if(reportHost && savedResultsHtml != null){
+          reportHost.innerHTML = savedResultsHtml;
+        }
+        if(reportHost && savedResultsHtml == null && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function' && (summaryLines.length || lastPcaStats)){
           const statsSnapshot = lastPcaStats || {};
-          Shared.statsReporting.appendReportPanel(pcaStatsResults, {
+          Shared.statsReporting.appendReportPanel(reportHost, {
             methodsText: `${(method || statsSnapshot.method || 'pca').toUpperCase()} summary statistics were generated for the current ordination result.`,
             resultsText: [
               summaryLines.length ? summaryLines.join(' ') : null,
@@ -5721,12 +5749,14 @@
             }
           }, { title: 'Reporting and reproducibility' });
         }
+        ensurePcaReportHost();
       }
       function ensurePcaDynamicStatsCard(cardId, title, anchor){
         const host = pcaStatsResults || pcaStatsSummary?.parentElement;
         if(!host){
           return { card: null, body: null };
         }
+        const reportHost = host === pcaStatsResults ? ensurePcaReportHost() : null;
         let card = document.getElementById(cardId);
         if(!card){
           card = document.createElement('div');
@@ -5744,6 +5774,8 @@
           const anchorNode = anchor || pcaLoadingsContainer || null;
           if(anchorNode && anchorNode.parentNode === host){
             anchorNode.insertAdjacentElement('afterend', card);
+          }else if(reportHost && reportHost.parentNode === host){
+            host.insertBefore(card, reportHost);
           }else{
             host.appendChild(card);
           }
@@ -6009,7 +6041,8 @@
         renderPcaSummaryPanel({
           summaryLines,
           method,
-          savedHtml: options.savedSummaryHtml
+          savedSummaryHtml: options.savedSummaryHtml,
+          savedResultsHtml: options.savedResultsHtml
         });
         renderScreeChart({
           show: method === 'pca',
@@ -6044,9 +6077,27 @@
           screePoints: screeData.length,
           eigenRows: eigenSummary.length,
           loadingsRows: Array.isArray(loadings?.rows) ? loadings.rows.length : 0,
-          hasSavedSummaryHtml: !!options.savedSummaryHtml
+          hasSavedSummaryHtml: !!options.savedSummaryHtml,
+          hasSavedResultsHtml: !!options.savedResultsHtml
         });
         return true;
+      }
+      function normalizePcaSavedStatsHtml(statsConfig){
+        const stats = statsConfig && typeof statsConfig === 'object' ? statsConfig : {};
+        const savedSummaryHtml = typeof stats.summaryHtml === 'string' ? stats.summaryHtml : null;
+        const rawResultsHtml = typeof stats.resultsHtml === 'string' ? stats.resultsHtml : null;
+        if(savedSummaryHtml == null && rawResultsHtml && !rawResultsHtml.includes('stats-report-panel')){
+          return {
+            savedSummaryHtml: rawResultsHtml,
+            savedResultsHtml: null,
+            legacySummaryInResults: true
+          };
+        }
+        return {
+          savedSummaryHtml,
+          savedResultsHtml: rawResultsHtml,
+          legacySummaryInResults: false
+        };
       }
       function updateScreeVarianceRowVisibility(){
         if(!pcaScreeVarianceRow){ return; }
@@ -6056,10 +6107,12 @@
         pcaScreeVarianceRow.style.display = (screeVisible || biplotVisible) ? 'flex' : 'none';
       }
       function resetStatsPanel(message){
+        const reportHost = ensurePcaReportHost();
         if(pcaStatsSummary){
           pcaStatsSummary.innerHTML = message ? `<div class="stats-table-message">${message}</div>` : '';
-        } else if(pcaStatsResults){
-          pcaStatsResults.innerHTML = message ? `<div class="stats-table-message">${message}</div>` : '';
+        }
+        if(reportHost){
+          reportHost.innerHTML = '';
         }
         if(pcaScreePlot){
           pcaScreePlot.innerHTML = '';
@@ -6635,6 +6688,7 @@
           loadingsRows: opts.loadingsRows,
           biplot: opts.biplot
         });
+        ensurePcaReportHost();
       }
       function handleEigenExport(){
         if(!lastPcaStats || !['pca','mds'].includes(lastPcaStats.method)){
@@ -10377,8 +10431,12 @@
       const cachedStatsRender = pcaState.cachedRender && typeof pcaState.cachedRender === 'object'
         ? pcaState.cachedRender
         : null;
+      const reportHost = ensurePcaReportHost();
       const savedSummaryHtml = (typeof pcaStatsSummary?.innerHTML === 'string' && pcaStatsSummary.innerHTML)
         ? pcaStatsSummary.innerHTML
+        : null;
+      const savedResultsHtml = (typeof reportHost?.innerHTML === 'string' && reportHost.innerHTML)
+        ? reportHost.innerHTML
         : null;
       return {
         type:'pca',
@@ -10390,7 +10448,8 @@
         config: {
           ...snapshotPcaConfig(axisSettings),
           stats: {
-            resultsHtml: savedSummaryHtml
+            resultsHtml: savedResultsHtml,
+            summaryHtml: savedSummaryHtml
           },
           notes: {
             text: notesText,
@@ -10803,9 +10862,7 @@
           debugLog('Debug: pca font size base restored',{ value: pcaFontSize.value });
         }
         chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
-        const savedStatsHtml = (c.stats && typeof c.stats === 'object' && typeof c.stats.resultsHtml === 'string')
-          ? c.stats.resultsHtml
-          : null;
+        const savedStatsHtml = normalizePcaSavedStatsHtml(c.stats);
         const restoredStats = (obj.stats && typeof obj.stats === 'object')
           ? obj.stats
           : ((c.stats && typeof c.stats === 'object') ? c.stats : null);
@@ -10815,9 +10872,12 @@
             hasEigenSummary: Array.isArray(lastPcaStats?.eigenSummary) && lastPcaStats.eigenSummary.length > 0,
             hasScree: Array.isArray(lastPcaStats?.scree) && lastPcaStats.scree.length > 0,
             method: lastPcaStats?.method || null,
+            hasSavedResultsHtml: !!savedStatsHtml.savedResultsHtml,
+            hasSavedSummaryHtml: !!savedStatsHtml.savedSummaryHtml,
+            legacySummaryInResults: !!savedStatsHtml.legacySummaryInResults,
             source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
           });
-          restorePcaStatsFromPayload({ savedSummaryHtml: savedStatsHtml });
+          restorePcaStatsFromPayload(savedStatsHtml);
         }else{
           resetStatsPanel('');
           lastPcaStats = null;
@@ -11029,6 +11089,7 @@
           ? payload.config.stats
           : {};
         payload.config.stats.resultsHtml = null;
+        payload.config.stats.summaryHtml = null;
         payload.config.labels = { title: getDefaultTitleForMethod('pca') };
         payload.config.axisSelection = { x: 1, y: 2, z: 3 };
         payload.config.rotation = {

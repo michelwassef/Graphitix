@@ -150,6 +150,47 @@ function ensureJStatStub(){
   };
 }
 
+function ensureSvdStub(){
+  const previousGlobal = global.SVDJS;
+  const previousWindow = typeof window !== 'undefined' ? window.SVDJS : undefined;
+  global.__svdCallCount = 0;
+  const stub = {
+    SVD(matrix = []){
+      global.__svdCallCount = (global.__svdCallCount || 0) + 1;
+      const rows = Array.isArray(matrix) ? matrix.length : 0;
+      const cols = rows > 0 && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+      const componentCount = Math.max(1, Math.min(rows, cols, 3));
+      const q = Array.from({ length: componentCount }, (_, idx) => componentCount - idx + 1);
+      const u = Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: componentCount }, (_, k) => ((r + 1) / (componentCount + k + 1)))
+      );
+      const v = Array.from({ length: cols }, (_, c) =>
+        Array.from({ length: componentCount }, (_, k) => ((c + 1) / (componentCount + k + 1)))
+      );
+      return { u, v, q };
+    }
+  };
+  global.SVDJS = stub;
+  if(typeof window !== 'undefined'){
+    window.SVDJS = stub;
+  }
+  return () => {
+    delete global.__svdCallCount;
+    if(typeof previousGlobal === 'undefined'){
+      delete global.SVDJS;
+    }else{
+      global.SVDJS = previousGlobal;
+    }
+    if(typeof window !== 'undefined'){
+      if(typeof previousWindow === 'undefined'){
+        delete window.SVDJS;
+      }else{
+        window.SVDJS = previousWindow;
+      }
+    }
+  };
+}
+
 async function activateWorkspace(type){
   const graphSelection = window.Main?.tabs?.handleGraphSelection;
   expect(typeof graphSelection).toBe('function');
@@ -188,6 +229,7 @@ function getLabeledSelect(container, labelText){
 
 describe('UI statistical presentation branches', () => {
   let restoreJStat;
+  let restoreSvd;
 
   beforeEach(() => {
     jest.resetModules();
@@ -213,6 +255,7 @@ describe('UI statistical presentation branches', () => {
       global.__resetGrid__();
     }
     restoreJStat = ensureJStatStub();
+    restoreSvd = ensureSvdStub();
 
     require('../js/vendor.js');
     require('../js/shared/fileIO.js');
@@ -256,6 +299,10 @@ describe('UI statistical presentation branches', () => {
     if(typeof restoreJStat === 'function'){
       restoreJStat();
       restoreJStat = null;
+    }
+    if(typeof restoreSvd === 'function'){
+      restoreSvd();
+      restoreSvd = null;
     }
     if(typeof global.__suppressTestDebugLogs === 'function'){
       global.__suppressTestDebugLogs();
@@ -505,4 +552,66 @@ describe('UI statistical presentation branches', () => {
     expect(coxText).toMatch(/Cox Model Coefficients|Cox Model Diagnostics|Residual Summaries|Scaled Schoenfeld Residual Checks/i);
     expect(coxText).toContain('Reporting and reproducibility');
   }, 40000);
+
+  test('pca stats render PCA and MDS presentation branches', async () => {
+    await activateWorkspace('pca');
+    document.getElementById('pcaLoadExample').click();
+    const pcaState = window.Components?.pca?.__state;
+    await waitFor(() => !!pcaState?.performance?.draw, { iterations: 120 });
+
+    const statsResults = document.getElementById('pcaStatsResults');
+    const statsSummary = document.getElementById('pcaStatsSummary');
+    expect(statsResults).toBeTruthy();
+    expect(statsSummary).toBeTruthy();
+    expect(statsResults.textContent || '').toContain('Reporting and reproducibility');
+    expect(statsResults.textContent || '').toMatch(/PCA|component|variance|Reporting and reproducibility/i);
+
+    const methodSelect = document.getElementById('pcaMethod');
+    expect(methodSelect).toBeTruthy();
+    const initialTimestamp = pcaState?.performance?.draw?.timestamp || 0;
+    methodSelect.value = 'mds';
+    methodSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => (pcaState?.performance?.draw?.timestamp || 0) > initialTimestamp, { iterations: 160 });
+
+    const mdsText = await waitFor(() => {
+      const combined = [
+        document.getElementById('pcaStatsSummary')?.textContent || '',
+        document.getElementById('pcaStatsResults')?.textContent || '',
+        document.getElementById('pcaEigenTableContainer')?.textContent || '',
+        document.getElementById('pcaVarianceSummary')?.textContent || ''
+      ].join(' ');
+      return /Stress|inertia|MDS/i.test(combined) ? combined : null;
+    }, { iterations: 160 });
+    expect(pcaState?.lastMethod).toBe('mds');
+    expect(mdsText).toMatch(/Stress|inertia|MDS/i);
+    expect(document.getElementById('pcaStatsResults')?.textContent || '').toContain('Reporting and reproducibility');
+  }, 50000);
+
+  test('heatmap stats render correlation and value-summary presentation branches', async () => {
+    await activateWorkspace('heatmap');
+    const loadBtn = document.getElementById('heatmapLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(120);
+
+    const heatmap = window.Components?.heatmap;
+    heatmap?.draw?.();
+    await flushAsyncWork(100);
+
+    const statsContent = document.getElementById('heatmapStatsContent');
+    expect(statsContent).toBeTruthy();
+    const corrText = statsContent?.textContent || '';
+    expect(corrText).toMatch(/Items analysed|Pairs evaluated|Strongest \|r\||Reporting and reproducibility/i);
+
+    const viewSelect = document.getElementById('heatmapView');
+    expect(viewSelect).toBeTruthy();
+    viewSelect.value = 'values';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(100);
+    heatmap?.draw?.();
+    await flushAsyncWork(100);
+
+    const valueText = document.getElementById('heatmapStatsContent')?.textContent || '';
+    expect(valueText).toMatch(/Rows|Columns|Cells with data|Minimum|Maximum|Mean|Reporting and reproducibility/i);
+  }, 50000);
 });

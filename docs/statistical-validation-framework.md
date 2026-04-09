@@ -31,7 +31,10 @@ Catch statistical implementation regressions by validating that:
   - Covers box post-hoc/grouped workflows plus ROC resampling and survival derived analyses.
 - `__tests__/stats.ui.presentation.branches.test.js`
   - UI-facing presentation-branch suite for statistics panels and reporting cards.
-  - Covers rendered stats branches in box, scatter, line, pie, hist, ROC/PR, and survival workspaces.
+  - Covers rendered stats branches in box, scatter, line, pie, hist, ROC/PR, survival, PCA, and heatmap workspaces.
+- `__tests__/stats.ui.persistence.restore.test.js`
+  - UI-facing persistence/restore suite for statistics panels and cached statistical render payloads.
+  - Covers payload restore and render-cache restoration across the major stats workspaces.
 
 ## Supported Statistical Operations
 
@@ -194,6 +197,20 @@ Current differential coverage includes:
   - log-rank and pairwise log-rank cards
   - hazard-ratio and median-ratio cards
   - Cox coefficient, diagnostics, residual, and Schoenfeld cards
+- `pca.js`
+  - PCA summary/reporting cards
+  - MDS inertia/stress presentation
+- `heatmap.js`
+  - correlation-matrix statistics presentation
+  - value-summary / matrix-summary presentation
+
+## UI Persistence Coverage
+
+`__tests__/stats.ui.persistence.restore.test.js` covers statistics persistence and UI restoration paths that are separate from the live rendering assertions:
+
+- payload restore for `box`, `scatter`, `line`, `pca`, and `heatmap`
+- cached stats-panel restore for `pie`, `hist`, `roc`, `survival`, `pca`, and `heatmap`
+- saved statistics HTML reattachment and stats-panel hydration after component restore
 
 ## Current Scope Boundary
 
