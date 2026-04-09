@@ -552,7 +552,7 @@
 	  };
 	  const BOX_SWARM_WORKER = {
 	    url: 'js/workers/box.worker.js',
-	    minPoints: 4000,
+	    minPoints: 1000,
 	    timeoutMs: 20000
 	  };
   function shouldUseBoxStatsWorker(valueCount){
@@ -577,10 +577,23 @@
   }
   function shouldUseBoxSwarmWorker(pointCount){
     const count = Number(pointCount) || 0;
-    if(count >= BOX_SWARM_WORKER.minPoints && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: box swarm worker disabled to keep strict-spacing parity',{ count });
+    if(count < BOX_SWARM_WORKER.minPoints){
+      return false;
     }
-    return false;
+    const workerApi = Shared.Workers;
+    if(!workerApi || typeof workerApi.runTask !== 'function'){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box swarm worker unavailable', { count, reason: 'runTask-missing' });
+      }
+      return false;
+    }
+    if(typeof workerApi.isSupported === 'function' && workerApi.isSupported() === false){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box swarm worker unavailable', { count, reason: 'unsupported' });
+      }
+      return false;
+    }
+    return true;
   }
   function runBoxSwarmWorker(payload){
     const workerApi = Shared.Workers;
@@ -651,6 +664,7 @@
   const AUTO_ZERO_AXIS_ADDITIONAL_TICK_SOURCE = 'box-auto-zero-reference';
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
+  const BOX_POINT_CANVAS_THRESHOLD = 1200;
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
@@ -2765,6 +2779,219 @@
     return path;
   }
 
+  let boxPointResizeCanvasSupported = null;
+
+  function canUseBoxPointResizeCanvas(){
+    if(boxPointResizeCanvasSupported != null){
+      return boxPointResizeCanvasSupported;
+    }
+    try{
+      const doc = global.document;
+      const canvas = doc && typeof doc.createElement === 'function'
+        ? doc.createElement('canvas')
+        : null;
+      boxPointResizeCanvasSupported = !!(canvas && typeof canvas.getContext === 'function' && canvas.getContext('2d'));
+    }catch(err){
+      boxPointResizeCanvasSupported = false;
+    }
+    return boxPointResizeCanvasSupported;
+  }
+
+  function appendBoxPointCanvasShapePath(ctx, shape, x, y, radius){
+    const safeRadius = Math.max(0.2, Number(radius) || 0.2);
+    if(shape === 'circle'){
+      ctx.moveTo(x + safeRadius, y);
+      ctx.arc(x, y, safeRadius, 0, Math.PI * 2);
+      return;
+    }
+    if(shape === 'square'){
+      ctx.rect(x - safeRadius, y - safeRadius, safeRadius * 2, safeRadius * 2);
+      return;
+    }
+    if(shape === 'triangle'){
+      ctx.moveTo(x, y - safeRadius);
+      ctx.lineTo(x + safeRadius, y + safeRadius);
+      ctx.lineTo(x - safeRadius, y + safeRadius);
+      ctx.closePath();
+      return;
+    }
+    if(shape === 'diamond'){
+      ctx.moveTo(x, y - safeRadius);
+      ctx.lineTo(x + safeRadius, y);
+      ctx.lineTo(x, y + safeRadius);
+      ctx.lineTo(x - safeRadius, y);
+      ctx.closePath();
+      return;
+    }
+    if(shape === 'cross'){
+      const size = Math.max(safeRadius * 2, 2);
+      const half = size / 2;
+      const bar = Math.max(size / 3, 2);
+      const hb = bar / 2;
+      const top = y - half;
+      const bottom = y + half;
+      const left = x - half;
+      const right = x + half;
+      ctx.moveTo(left, top + hb);
+      ctx.lineTo(left + hb, top);
+      ctx.lineTo(x, y - hb);
+      ctx.lineTo(right - hb, top);
+      ctx.lineTo(right, top + hb);
+      ctx.lineTo(x + hb, y);
+      ctx.lineTo(right, bottom - hb);
+      ctx.lineTo(right - hb, bottom);
+      ctx.lineTo(x, y + hb);
+      ctx.lineTo(left + hb, bottom);
+      ctx.lineTo(left, bottom - hb);
+      ctx.lineTo(x - hb, y);
+      ctx.closePath();
+      return;
+    }
+    if(shape === 'plus'){
+      const size = Math.max(safeRadius * 2, 2);
+      const half = size / 2;
+      const bar = Math.max(size / 3, 2);
+      const hb = bar / 2;
+      ctx.moveTo(x - hb, y - half);
+      ctx.lineTo(x + hb, y - half);
+      ctx.lineTo(x + hb, y - hb);
+      ctx.lineTo(x + half, y - hb);
+      ctx.lineTo(x + half, y + hb);
+      ctx.lineTo(x + hb, y + hb);
+      ctx.lineTo(x + hb, y + half);
+      ctx.lineTo(x - hb, y + half);
+      ctx.lineTo(x - hb, y + hb);
+      ctx.lineTo(x - half, y + hb);
+      ctx.lineTo(x - half, y - hb);
+      ctx.lineTo(x - hb, y - hb);
+      ctx.closePath();
+      return;
+    }
+    if(shape === 'star'){
+      const innerRadius = Math.max(safeRadius * 0.45, 1);
+      for(let k = 0; k < 5; k += 1){
+        const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
+        const outerX = x + Math.cos(a) * safeRadius;
+        const outerY = y + Math.sin(a) * safeRadius;
+        const b = a + Math.PI / 5;
+        const innerX = x + Math.cos(b) * innerRadius;
+        const innerY = y + Math.sin(b) * innerRadius;
+        if(k === 0){
+          ctx.moveTo(outerX, outerY);
+        }else{
+          ctx.lineTo(outerX, outerY);
+        }
+        ctx.lineTo(innerX, innerY);
+      }
+      ctx.closePath();
+      return;
+    }
+    ctx.moveTo(x + safeRadius, y);
+    ctx.arc(x, y, safeRadius, 0, Math.PI * 2);
+  }
+
+  function renderBoxPointResizeCanvasPreview(config){
+    const doc = config?.doc || global.document;
+    const group = config?.group || null;
+    const points = Array.isArray(config?.points) ? config.points : [];
+    if(!doc || !group || !points.length || !canUseBoxPointResizeCanvas()){
+      return false;
+    }
+    const radius = Math.max(0.5, Number(config?.radius) || 0.5);
+    const strokeWidth = Math.max(0, Number(config?.strokeWidth) || 0);
+    const padding = Math.max(2, radius + strokeWidth + 2);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    points.forEach(point => {
+      if(point.x < minX) minX = point.x;
+      if(point.x > maxX) maxX = point.x;
+      if(point.y < minY) minY = point.y;
+      if(point.y > maxY) maxY = point.y;
+    });
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+      return false;
+    }
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+    const width = Math.max(1, Math.ceil(maxX - minX));
+    const height = Math.max(1, Math.ceil(maxY - minY));
+    const foreignObject = doc.createElementNS(NS, 'foreignObject');
+    foreignObject.setAttribute('x', String(minX));
+    foreignObject.setAttribute('y', String(minY));
+    foreignObject.setAttribute('width', String(width));
+    foreignObject.setAttribute('height', String(height));
+    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    const canvas = doc.createElement('canvas');
+    canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    canvas.style.display = 'block';
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    canvas.style.background = 'transparent';
+    canvas.style.pointerEvents = 'none';
+    const dpr = Math.max(1, global.window?.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.ceil(width * dpr));
+    canvas.height = Math.max(1, Math.ceil(height * dpr));
+    const ctx = canvas.getContext('2d');
+    if(!ctx){
+      return false;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    points.forEach(point => {
+      appendBoxPointCanvasShapePath(ctx, config.shape, point.x - minX, point.y - minY, radius);
+    });
+    if(config.fill && config.fill !== 'none'){
+      ctx.fillStyle = config.fill;
+      ctx.globalAlpha = Math.max(0, Math.min(1, Number(config.fillOpacity)));
+      ctx.fill();
+    }
+    if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
+      ctx.strokeStyle = config.stroke;
+      ctx.lineWidth = strokeWidth;
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    foreignObject.appendChild(canvas);
+    group.appendChild(foreignObject);
+    return true;
+  }
+
+  function shouldUseBoxPointCanvasPreview(drawOptions, renderOptions = {}){
+    const requestedRenderer = drawOptions?.pointRenderer;
+    if(requestedRenderer === 'canvas'){
+      return true;
+    }
+    if(requestedRenderer === 'svg'){
+      return false;
+    }
+    if(drawOptions?.forceCanvasPointPreview === true){
+      return true;
+    }
+    const pointCount = Number(renderOptions?.pointCount);
+    const threshold = Number.isFinite(Number(renderOptions?.threshold))
+      ? Math.max(0, Number(renderOptions.threshold))
+      : BOX_POINT_CANVAS_THRESHOLD;
+    if(Number.isFinite(pointCount) && pointCount > threshold){
+      return true;
+    }
+    if(drawOptions?.viewOnly !== true){
+      return false;
+    }
+    const reason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
+    return reason === 'resize-live'
+      || reason === 'resize-observe'
+      || reason === 'resize';
+  }
+
+  function shouldRetainPreviousBoxFrame(drawOptions){
+    return drawOptions?.viewOnly === true;
+  }
+
   function partitionArray(arr, left, right, pivotIndex){
     const pivotValue = arr[pivotIndex];
     [arr[pivotIndex], arr[right]] = [arr[right], arr[pivotIndex]];
@@ -4034,6 +4261,45 @@
       return null;
     }
     return Math.max(0, availableHalfWidth);
+  }
+
+  function resolveFastStripAutoSizeProfile(config){
+    const pointCounts = Array.isArray(config?.pointCounts) ? config.pointCounts : [];
+    const baseRadius = Number(config?.baseRadius);
+    const radiusStep = Number(config?.radiusStep);
+    const thresholdRaw = Number(config?.threshold);
+    const threshold = Number.isFinite(thresholdRaw) && thresholdRaw > 0
+      ? thresholdRaw
+      : BOX_POINT_CANVAS_THRESHOLD;
+    if(!pointCounts.length || !Number.isFinite(baseRadius) || baseRadius <= 0){
+      return null;
+    }
+    let maxPointCount = 0;
+    let totalPointCount = 0;
+    for(let i = 0; i < pointCounts.length; i += 1){
+      const count = Math.max(0, Number(pointCounts[i]) || 0);
+      if(count > maxPointCount){
+        maxPointCount = count;
+      }
+      totalPointCount += count;
+    }
+    if(maxPointCount <= threshold && totalPointCount <= threshold){
+      return null;
+    }
+    const minRadiusFloor = resolveStripMinRadiusFloor(maxPointCount, baseRadius);
+    const candidateRadius = Math.max(minRadiusFloor, baseRadius * 0.08);
+    const roundedRadius = roundStripPointControlValue(candidateRadius, radiusStep, 'down');
+    const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0
+      ? roundedRadius
+      : candidateRadius;
+    return {
+      radius: resolvedRadius,
+      halfWidthCap: null,
+      fitted: false,
+      strategy: 'density-floor-fast',
+      maxPointCount,
+      totalPointCount
+    };
   }
 
   function validateStripSwarmFit(config){
@@ -7798,6 +8064,8 @@
 	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
+  state.scheduleResizePreview = function(){};
+  state.resizeObserveDrawMutedUntil = 0;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -8955,6 +9223,58 @@
         ? (rectHeight / zoomScale)
         : (Number.isFinite(styleHeight) && styleHeight > 0 ? (styleHeight / zoomScale) : NaN));
     return { width, height, zoomScale };
+  }
+
+  function applyBoxLiveResizePreview(options = {}){
+    const svg = els.plotDiv?.querySelector?.('svg') || els.svgBox?.querySelector?.('svg') || null;
+    const plotHost = els.plotDiv || null;
+    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
+    if(!svg || !plotHost){
+      return false;
+    }
+    const rect = plotHost.getBoundingClientRect?.() || null;
+    const fallbackBaseSize = resolveBoxSvgBoxBaseSize(svgBox);
+    const width = Math.max(
+      50,
+      Math.round(rect?.width || plotHost.clientWidth || fallbackBaseSize.width || svg.clientWidth || 50)
+    );
+    const height = Math.max(
+      40,
+      Math.round(rect?.height || plotHost.clientHeight || fallbackBaseSize.height || svg.clientHeight || 40)
+    );
+    if(!svg.getAttribute('viewBox')){
+      const baseViewport = resolveBoxBaseViewportSize(svg);
+      svg.setAttribute('viewBox', `0 0 ${baseViewport.width} ${baseViewport.height}`);
+    }
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('preserveAspectRatio', svgBox?.dataset?.resizerAspectLocked === 'true' ? 'xMidYMid meet' : 'none');
+    svg.setAttribute('data-box-live-resize-preview', 'true');
+    if(svg.style){
+      svg.style.display = 'block';
+      svg.style.overflow = 'visible';
+    }
+    if(plotHost.style){
+      plotHost.style.overflow = 'visible';
+    }
+    const zoomViewport = svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
+    const zoomContent = svgBox?.querySelector?.('.resizer-zoom-content') || null;
+    if(zoomViewport?.style){
+      zoomViewport.style.overflow = 'visible';
+    }
+    if(zoomContent?.style){
+      zoomContent.style.overflow = 'visible';
+    }
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box live resize preview applied', {
+        reason: options.reason || null,
+        phase: options.resizePhase || null,
+        width,
+        height,
+        aspectLocked: svgBox?.dataset?.resizerAspectLocked === 'true'
+      });
+    }
+    return true;
   }
 
   function applyBoxViewportExtensions(nextExtensions, options = {}){
@@ -23073,6 +23393,8 @@ Technical analysis record (advanced)
     let nRows = 0;
     let nCols = 0;
     let traceCount = 0;
+    let cleanupPendingPlotFrame = null;
+    let pendingPlotFrameCommitted = true;
     try{
     boxLog('boxplot draw start',{token, viewOnly, reason: drawOpts?.reason || null});
     hideBoxTooltip('draw-start');
@@ -23797,12 +24119,20 @@ Technical analysis record (advanced)
     const colorPickerLabels = isGroupedMode ? groupedGroups : traceLabels;
     console.debug('Debug: box color picker labels resolved',{ isGroupedMode, labelCount: colorPickerLabels.length, labels: colorPickerLabels });
     state.lastAxisLabels = Array.isArray(axisLabels) ? axisLabels.slice() : [];
-    if(getBoxColorMode()==='individual'){
-      updateBoxColorPickers(colorPickerLabels, { grouped: isGroupedMode });
-    }else if(els.boxColorPerBox){
-      els.boxColorPerBox.innerHTML='';
+    const refreshSupportingUi = viewOnly !== true;
+    if(refreshSupportingUi){
+      if(getBoxColorMode()==='individual'){
+        updateBoxColorPickers(colorPickerLabels, { grouped: isGroupedMode });
+      }else if(els.boxColorPerBox){
+        els.boxColorPerBox.innerHTML='';
+      }
+      renderStatsControls(traces);
+    }else if(debugEnabled){
+      console.debug('Debug: box supporting UI refresh skipped for view-only draw', {
+        reason: drawOpts?.reason || null,
+        traceCount: traces.length
+      });
     }
-    renderStatsControls(traces);
     const needSortedValues = graphTypeRaw === 'violin';
     const transformModeKey = logScale
       ? (state.logPlusOne ? 'log-plus-one' : 'log')
@@ -23864,7 +24194,16 @@ Technical analysis record (advanced)
       }
     }
     syncBoxThemeSurfaceForCurrentScheme();
-    while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
+    const retainPreviousPlotFrame = shouldRetainPreviousBoxFrame(drawOpts) && !!els.plotDiv?.firstChild;
+    const retainedPlotNodes = retainPreviousPlotFrame ? Array.from(els.plotDiv.childNodes || []) : null;
+    if(!retainPreviousPlotFrame){
+      while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
+    }else if(debugEnabled){
+      console.debug('Debug: box retaining previous plot frame during async redraw', {
+        reason: drawOpts?.reason || null,
+        retainedNodeCount: retainedPlotNodes?.length || 0
+      });
+    }
     const W = Math.max(50, Math.floor(els.plotDiv.clientWidth || 50));
     const H = Math.max(40, Math.floor(els.plotDiv.clientHeight || 40));
     const storedSignificanceBaseHeight = Number(state.significanceBasePlotHeightPx);
@@ -23904,6 +24243,56 @@ Technical analysis record (advanced)
     chartStyle.applySvgDefaults(svg);
     svg.addEventListener('mouseleave', handleBoxPlotMouseLeave);
     els.plotDiv.appendChild(svg);
+    pendingPlotFrameCommitted = !retainPreviousPlotFrame;
+    cleanupPendingPlotFrame = () => {
+      if(pendingPlotFrameCommitted || !retainPreviousPlotFrame || !svg){
+        return false;
+      }
+      if(svg.parentNode === els.plotDiv){
+        svg.parentNode.removeChild(svg);
+      }
+      return true;
+    };
+    const commitPendingPlotFrame = () => {
+      if(pendingPlotFrameCommitted || !retainPreviousPlotFrame || !svg){
+        return false;
+      }
+      if(Array.isArray(retainedPlotNodes)){
+        retainedPlotNodes.forEach(node => {
+          if(node && node.parentNode === els.plotDiv){
+            node.parentNode.removeChild(node);
+          }
+        });
+      }
+      if(svg.style){
+        svg.style.removeProperty('position');
+        svg.style.removeProperty('left');
+        svg.style.removeProperty('top');
+        svg.style.removeProperty('opacity');
+        svg.style.removeProperty('pointer-events');
+        svg.style.removeProperty('z-index');
+      }
+      svg.removeAttribute('data-box-pending-render');
+      svg.removeAttribute('aria-hidden');
+      pendingPlotFrameCommitted = true;
+      if(debugEnabled){
+        console.debug('Debug: box pending plot frame committed', {
+          reason: drawOpts?.reason || null,
+          removedNodeCount: retainedPlotNodes?.length || 0
+        });
+      }
+      return true;
+    };
+    if(retainPreviousPlotFrame && svg.style){
+      svg.setAttribute('data-box-pending-render', '1');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.style.position = 'absolute';
+      svg.style.left = '0';
+      svg.style.top = '0';
+      svg.style.opacity = '0';
+      svg.style.pointerEvents = 'none';
+      svg.style.zIndex = '0';
+    }
     const doc = svg.ownerDocument || global.document;
     const gridLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const referenceLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
@@ -25159,6 +25548,26 @@ Technical analysis record (advanced)
           }
           return null;
         }
+        const fastStripProfile = resolveFastStripAutoSizeProfile({
+          pointCounts: traces
+            .map((trace, traceIndex) => hasExplicitPointSize(traceIndex) ? 0 : (Array.isArray(trace?.y) ? trace.y.length : 0))
+            .filter(count => count > 0),
+          baseRadius: pointRadius,
+          radiusStep: 0.1,
+          threshold: BOX_POINT_CANVAS_THRESHOLD
+        });
+        if(fastStripProfile){
+          if(debugEnabled){
+            console.debug('Debug: box strip auto size fast path', {
+              orientation: 'vertical',
+              maxPointCount: fastStripProfile.maxPointCount,
+              totalPointCount: fastStripProfile.totalPointCount,
+              radius: fastStripProfile.radius,
+              strategy: fastStripProfile.strategy
+            });
+          }
+          return fastStripProfile;
+        }
         const axisSpacing = localBandWidthForTrace();
         const traceProfiles = [];
         let limitingRadius = Infinity;
@@ -25937,6 +26346,12 @@ Technical analysis record (advanced)
         const useBatchPath = !disableBatchPath
           && pointCount > BOX_POINT_BATCH_THRESHOLD
           && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+        const useResizeCanvasPreview = shouldUseBoxPointCanvasPreview(drawOpts, {
+            pointCount,
+            threshold: BOX_POINT_CANVAS_THRESHOLD
+          })
+          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
+          && canUseBoxPointResizeCanvas();
         if(debugEnabled && debugLabel === 'individual'){
           console.debug('Debug: box strip point render resolved',{
             orientation: 'vertical',
@@ -25975,7 +26390,45 @@ Technical analysis record (advanced)
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(useBatchPath){
+        if(useResizeCanvasPreview){
+          const pts = new Array(pointCount);
+          for(let idx = 0; idx < pointCount; idx++){
+            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
+            const offset = clampOffset(rawOffset, rawValues[idx]);
+            const abs = Math.abs(offset);
+            if(abs > maxOffsetUsed){
+              maxOffsetUsed = abs;
+            }
+            const pointX = cx + offset;
+            const pointY = pointCoords[idx];
+            pts[idx] = { x: pointX, y: pointY };
+            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+              const rowKey = rowIndices[idx];
+              if(rowKey != null){
+                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
+              }
+            }
+          }
+          renderBoxPointResizeCanvasPreview({
+            doc: document,
+            group,
+            points: pts,
+            radius: effectiveRadius,
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidth || 0),
+            shape: effectiveShape
+          });
+          if(debugEnabled){
+            console.debug('Debug: box resize canvas preview rendered', {
+              orientation: 'vertical',
+              traceIndex,
+              pointCount,
+              mode: debugLabel
+            });
+          }
+        }else if(useBatchPath){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
             const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
@@ -27374,6 +27827,12 @@ Technical analysis record (advanced)
         const useBatchPath = !disableBatchPath
           && pointCount > BOX_POINT_BATCH_THRESHOLD
           && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+        const useResizeCanvasPreview = shouldUseBoxPointCanvasPreview(drawOpts, {
+            pointCount,
+            threshold: BOX_POINT_CANVAS_THRESHOLD
+          })
+          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
+          && canUseBoxPointResizeCanvas();
         if(debugEnabled && debugLabel === 'individual'){
           console.debug('Debug: box strip point render resolved',{
             orientation: 'horizontal',
@@ -27412,7 +27871,45 @@ Technical analysis record (advanced)
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(useBatchPath){
+        if(useResizeCanvasPreview){
+          const pts = new Array(pointCount);
+          for(let idx = 0; idx < pointCount; idx++){
+            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
+            const offset = clampOffset(rawOffset, rawValues[idx]);
+            const abs = Math.abs(offset);
+            if(abs > maxOffsetUsed){
+              maxOffsetUsed = abs;
+            }
+            const pointX = pointCoords[idx];
+            const pointY = cy + offset;
+            pts[idx] = { x: pointX, y: pointY };
+            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+              const rowKey = rowIndices[idx];
+              if(rowKey != null){
+                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
+              }
+            }
+          }
+          renderBoxPointResizeCanvasPreview({
+            doc: document,
+            group,
+            points: pts,
+            radius: effectiveRadius,
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidthH || 0),
+            shape: effectiveShape
+          });
+          if(debugEnabled){
+            console.debug('Debug: box resize canvas preview rendered', {
+              orientation: 'horizontal',
+              traceIndex,
+              pointCount,
+              mode: debugLabel
+            });
+          }
+        }else if(useBatchPath){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
             const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
@@ -27715,6 +28212,26 @@ Technical analysis record (advanced)
             });
           }
           return null;
+        }
+        const fastStripProfile = resolveFastStripAutoSizeProfile({
+          pointCounts: traces
+            .map((trace, traceIndex) => hasExplicitPointSize(traceIndex) ? 0 : (Array.isArray(trace?.y) ? trace.y.length : 0))
+            .filter(count => count > 0),
+          baseRadius: pointRadius,
+          radiusStep: 0.1,
+          threshold: BOX_POINT_CANVAS_THRESHOLD
+        });
+        if(fastStripProfile){
+          if(debugEnabled){
+            console.debug('Debug: box strip auto size fast path', {
+              orientation: 'horizontal',
+              maxPointCount: fastStripProfile.maxPointCount,
+              totalPointCount: fastStripProfile.totalPointCount,
+              radius: fastStripProfile.radius,
+              strategy: fastStripProfile.strategy
+            });
+          }
+          return fastStripProfile;
         }
         const axisSpacing = localBandHeightForTrace();
         const traceProfiles = [];
@@ -29163,8 +29680,9 @@ Technical analysis record (advanced)
       ? Math.max(0, Math.ceil(Number(orientationResult.bottomViewportExtension)))
       : 0;
     const requiredViewportExtension = requiredSignificanceViewportExtension + requiredBottomViewportExtension;
+    const resizeDrawReason = typeof drawOpts?.reason === 'string' ? drawOpts.reason : '';
     const shouldDeferViewportExtensionSync = state.resizeInteractionActive
-      && drawOpts?.reason === 'resize'
+      && resizeDrawReason.startsWith('resize')
       && drawOpts?.resizePhase !== 'end';
     let extensionUpdate = {
       changed: false,
@@ -29399,6 +29917,7 @@ Technical analysis record (advanced)
       fillParent: useFillParentViewport,
       preserveBaseAspect: !disableViewportAspectNormalization
     });
+    commitPendingPlotFrame();
     state.layout?.syncPanels?.({ skipSchedule: true });
     traceCount = traces.length;
     boxLog('boxplot render complete');
@@ -29406,6 +29925,9 @@ Technical analysis record (advanced)
       drawOutcome = 'error';
       throw err;
     }finally{
+      if(!pendingPlotFrameCommitted && typeof cleanupPendingPlotFrame === 'function'){
+        cleanupPendingPlotFrame();
+      }
       if(drawOutcome === 'success'){
         state.dataDirty = false;
       }
@@ -30618,6 +31140,7 @@ Technical analysis record (advanced)
         resizeTarget: () => els.plotDiv?.closest('.svgbox') || els.graphPanel?.querySelector('.svgbox')
       },
         scheduleDraw: state.scheduleDraw,
+        skipScheduleOnResizePhases: ['move', 'observe', 'end', 'programmatic', 'reset', 'undo', 'redo', 'aspect-toggle'],
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -30629,13 +31152,47 @@ Technical analysis record (advanced)
       },
       resizableBoxOptions: {
         onResize: phase => {
+          const currentPhase = typeof phase === 'string' ? phase : '';
           if(phase === 'move'){
             state.resizeInteractionActive = true;
-          }else if(phase === 'end' || phase === 'programmatic'){
+            state.scheduleResizePreview?.({ reason: 'resize-live', resizePhase: currentPhase || null });
+            return;
+          }
+          if(phase === 'observe'){
+            if(state.resizeInteractionActive){
+              state.scheduleResizePreview?.({ reason: 'resize-observe', resizePhase: currentPhase || null });
+              return;
+            }
+            if(Date.now() <= (Number(state.resizeObserveDrawMutedUntil) || 0)){
+              boxDebug('Debug: box resize observe draw muted');
+              return;
+            }
+            state.scheduleDraw?.({
+              viewOnly: true,
+              reason: 'resize-observe',
+              resizePhase: currentPhase || null
+            });
+            return;
+          }
+          if(
+            phase === 'end'
+            || phase === 'programmatic'
+            || phase === 'reset'
+            || phase === 'undo'
+            || phase === 'redo'
+            || phase === 'aspect-toggle'
+          ){
+            state.resizeInteractionActive = false;
+            state.resizeObserveDrawMutedUntil = Date.now() + 180;
+          }else{
             state.resizeInteractionActive = false;
           }
           boxDebug('Debug: box layout onResize schedule trigger');
-          state.scheduleDraw?.({ viewOnly: true, reason: 'resize', resizePhase: phase || null });
+          state.scheduleDraw?.({
+            viewOnly: true,
+            reason: 'resize-settled',
+            resizePhase: currentPhase || null
+          });
         }
       }
     });
@@ -30649,8 +31206,37 @@ Technical analysis record (advanced)
     ensureSignificanceLabelFontEventListener();
     initNotes();
     const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
+    const scheduleBoxResizePreview = Shared.debounceFrame
+      ? Shared.debounceFrame(opts => {
+          try{
+            applyBoxLiveResizePreview(opts || {});
+          }catch(err){
+            console.error('box resize preview error', err);
+          }
+        })
+      : opts => {
+          try{
+            applyBoxLiveResizePreview(opts || {});
+          }catch(err){
+            console.error('box resize preview error', err);
+          }
+        };
+    state.scheduleResizePreview = scheduleBoxResizePreview;
     const scheduleBoxDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
+      const mutedUntil = Number(state.resizeObserveDrawMutedUntil) || 0;
+      if(!nextOpts.reason && mutedUntil > Date.now()){
+        boxDebug('Debug: box post-resize observer draw suppressed');
+        return;
+      }
+      if(
+        !nextOpts.force
+        && state.resizeInteractionActive
+        && (nextOpts.reason === 'resize-live' || nextOpts.reason === 'resize-observe' || !nextOpts.reason)
+      ){
+        state.scheduleResizePreview?.(nextOpts);
+        return;
+      }
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
       if(nextOpts.force){
         markBoxOverlayPending(overlayReason);
@@ -30824,11 +31410,15 @@ Technical analysis record (advanced)
       computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
       preprocessGroupsForAnalysis:(groups,labels,options={})=>preprocessGroupsForAnalysis(groups,labels,options || {}),
       computeSwarmOffsets:(points,options)=>computeSwarmOffsets(points,options),
+      shouldUseBoxSwarmWorker:(pointCount)=>shouldUseBoxSwarmWorker(pointCount),
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
       resolveStripMinRadiusFloor:(sampleSize,baseRadius)=>resolveStripMinRadiusFloor(sampleSize,baseRadius),
+      resolveFastStripAutoSizeProfile:config=>resolveFastStripAutoSizeProfile(config),
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
+      shouldUseBoxPointCanvasPreview:(opts, renderOptions)=>shouldUseBoxPointCanvasPreview(opts, renderOptions),
+      shouldRetainPreviousBoxFrame:(opts)=>shouldRetainPreviousBoxFrame(opts),
       shouldAutoScaleBoxAxisToVisibleFeature:(graphType,pointMode)=>shouldAutoScaleBoxAxisToVisibleFeature(graphType,pointMode),
       resolveTraceVisibleUpperBoundForAutoAxis:options=>resolveTraceVisibleUpperBoundForAutoAxis(options),
       isBoxPointConnectionModeEligible:(graphType,pointMode)=>isBoxPointConnectionModeEligible(graphType,pointMode),

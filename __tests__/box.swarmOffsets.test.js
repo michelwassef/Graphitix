@@ -274,4 +274,75 @@ describe('Box swarm offset constraints', () => {
     expect(combinedHalfExtent).toBeLessThanOrEqual(Number(halfExtentLimit) + 1e-6);
   });
 
+  test('dense point canvas preview is restricted to resize preview reasons', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldUseBoxPointCanvasPreview).toBe('function');
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-live' }, { pointCount: 100 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-observe' }, { pointCount: 100 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize-settled' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'significance-viewport-extension' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'font-style-change' }, { pointCount: 100, threshold: 1200 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize-live' }, { pointCount: 100, threshold: 1200 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'canvas' })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'svg', viewOnly: false, reason: 'resize-settled' }, { pointCount: 1800, threshold: 1200 })).toBe(false);
+  });
+
+  test('swarm worker gate only enables for large traces when workers are supported', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldUseBoxSwarmWorker).toBe('function');
+    const shared = window.Shared = window.Shared || {};
+    const originalWorkers = shared.Workers;
+    try{
+      shared.Workers = {
+        runTask: jest.fn(),
+        isSupported: () => true
+      };
+      expect(hooks.shouldUseBoxSwarmWorker(999)).toBe(false);
+      expect(hooks.shouldUseBoxSwarmWorker(1000)).toBe(true);
+      shared.Workers = {
+        runTask: jest.fn(),
+        isSupported: () => false
+      };
+      expect(hooks.shouldUseBoxSwarmWorker(5000)).toBe(false);
+      shared.Workers = {
+        isSupported: () => true
+      };
+      expect(hooks.shouldUseBoxSwarmWorker(5000)).toBe(false);
+    }finally{
+      shared.Workers = originalWorkers;
+    }
+  });
+
+  test('fast strip auto-size estimator activates for dense datasets', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveFastStripAutoSizeProfile).toBe('function');
+    const light = hooks.resolveFastStripAutoSizeProfile({
+      pointCounts: [200, 300],
+      baseRadius: 5,
+      radiusStep: 0.1,
+      threshold: 1200
+    });
+    expect(light).toBe(null);
+    const dense = hooks.resolveFastStripAutoSizeProfile({
+      pointCounts: [1400, 900],
+      baseRadius: 5,
+      radiusStep: 0.1,
+      threshold: 1200
+    });
+    expect(dense).toBeTruthy();
+    expect(dense.strategy).toBe('density-floor-fast');
+    expect(Number.isFinite(Number(dense.radius))).toBe(true);
+    expect(Number(dense.radius)).toBeGreaterThan(0);
+    expect(Number(dense.radius)).toBeLessThanOrEqual(5);
+  });
+
+  test('previous box frame is retained for view-only redraws', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldRetainPreviousBoxFrame).toBe('function');
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-settled' })).toBe(true);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-observe' })).toBe(true);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'significance-viewport-extension' })).toBe(true);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: false, reason: 'resize-settled' })).toBe(false);
+  });
+
 });

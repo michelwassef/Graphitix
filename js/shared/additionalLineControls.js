@@ -544,21 +544,40 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    panelEl = doc.createElement('div');
-    panelEl.className = 'additional-line-controls-panel';
-    panelEl.setAttribute('role', 'toolbar');
-    panelEl.setAttribute('aria-label', 'Additional line controls');
+    const toolbarApi = getWorkspaceToolbarApi();
+    const sharedPanel = toolbarApi && typeof toolbarApi.createSubPanel === 'function'
+      ? toolbarApi.createSubPanel({
+          panelClass: 'workspace-toolbar__panel--additional-line additional-line-controls-panel',
+          role: 'toolbar',
+          ariaLabel: 'Additional line controls',
+          title: 'Line',
+          rowClass: 'additional-line-controls-panel__row'
+        })
+      : null;
+    if(sharedPanel && sharedPanel.panel){
+      panelEl = sharedPanel.panel;
+      panelTitleEl = sharedPanel.title;
+      panelFieldsRowEl = sharedPanel.row;
+      if(panelTitleEl){
+        panelTitleEl.classList.add('additional-line-controls-panel__title');
+      }
+    }else{
+      panelEl = doc.createElement('div');
+      panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--additional-line additional-line-controls-panel';
+      panelEl.setAttribute('role', 'toolbar');
+      panelEl.setAttribute('aria-label', 'Additional line controls');
+      panelTitleEl = doc.createElement('div');
+      panelTitleEl.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title';
+      panelTitleEl.textContent = 'Line';
+      panelEl.appendChild(panelTitleEl);
+
+      panelFieldsRowEl = doc.createElement('div');
+      panelFieldsRowEl.className = 'additional-line-controls-panel__row';
+      panelEl.appendChild(panelFieldsRowEl);
+    }
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
-    panelTitleEl = doc.createElement('div');
-    panelTitleEl.className = 'additional-line-controls-panel__title';
-    panelTitleEl.textContent = 'Line';
-    panelEl.appendChild(panelTitleEl);
-
-    panelFieldsRowEl = doc.createElement('div');
-    panelFieldsRowEl.className = 'additional-line-controls-panel__row';
-    panelEl.appendChild(panelFieldsRowEl);
 
     const summary = doc.createElement('div');
     summary.className = 'additional-line-controls-panel__summary';

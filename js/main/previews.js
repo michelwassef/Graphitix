@@ -333,7 +333,21 @@
       console.debug('Debug: preview capture skipped', { reason: 'no-config-element', type: config?.type || null, tabId: tab?.id || null });
       return null;
     }
-    let svg = config.element.querySelector('.svgbox svg');
+    let svg = null;
+    if (typeof config.getPreviewSvg === 'function') {
+      try {
+        svg = config.getPreviewSvg() || null;
+      } catch (err) {
+        console.debug('Debug: preview getPreviewSvg failed', {
+          type: config.type,
+          tabId: tab?.id || null,
+          message: err?.message || String(err)
+        });
+      }
+    }
+    if (!svg) {
+      svg = config.element.querySelector('.svgbox svg');
+    }
     if (!svg) {
       const tagged = config.element.querySelector('svg[data-preview-source="true"]');
       if (tagged) {

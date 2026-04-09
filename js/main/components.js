@@ -224,6 +224,7 @@
       element: document.getElementById('boxPage'),
       ensure: () => ensureComponent('box'),
       draw: () => scheduleDrawBoxplot(),
+      getPreviewSvg: () => window.Components?.box?.getPreviewSvg?.(),
       getPayload: () => window.Components?.box?.getPayload?.(),
       loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.box?.loadFromPayload?.(payload, options),

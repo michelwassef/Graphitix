@@ -374,21 +374,44 @@
       })();
 
       const userResizeOptions = config?.resizableBoxOptions || {};
+      const shouldSkipResizePhaseSchedule = (() => {
+        const configuredPhases = config?.skipScheduleOnResizePhases;
+        if(typeof configuredPhases === 'function'){
+          return phase => {
+            try{
+              return !!configuredPhases(phase, { elements, component: componentName });
+            }catch(err){
+              console.error('Shared.componentLayout skipScheduleOnResizePhases error', err);
+              return false;
+            }
+          };
+        }
+        if(configuredPhases instanceof Set){
+          return phase => configuredPhases.has(phase);
+        }
+        if(Array.isArray(configuredPhases)){
+          const normalized = new Set(configuredPhases.map(phase => String(phase)));
+          return phase => normalized.has(String(phase));
+        }
+        return () => false;
+      })();
       const isDisplayOnlyZoomPhase = phase => phase === 'zoom';
       const onResize = phase => {
         const zoomDisplayOnly = isDisplayOnlyZoomPhase(phase);
+        const phaseSkipSchedule = shouldSkipResizePhaseSchedule(phase);
         // Zoom must behave like a pure magnifier: keep geometry/layout data stable
         // and avoid triggering component draw callbacks that recompute chart geometry.
         // Manual drag resize phases continue to use the normal redraw pipeline.
         console.debug('Debug: componentLayout resizable onResize', {
           component: componentName,
           phase,
-          zoomDisplayOnly
+          zoomDisplayOnly,
+          phaseSkipSchedule
         });
         const flags = evaluateScheduleFlags({
           source: 'resize',
           phase,
-          skipSchedule: zoomDisplayOnly
+          skipSchedule: zoomDisplayOnly || phaseSkipSchedule
         });
         syncPanels({
           skipSchedule: flags.skipSchedule || zoomDisplayOnly,

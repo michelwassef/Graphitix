@@ -119,4 +119,52 @@ describe('componentLayout zoom behavior contract', () => {
     const lastSyncCall = syncPanelSpy.mock.calls[syncPanelSpy.mock.calls.length - 1];
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
   });
+
+  test('configured resize phases can skip internal schedule while keeping user callbacks', () => {
+    const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => {
+      if(typeof scheduleDraw === 'function'){
+        scheduleDraw();
+      }
+      return { table, graph, config, options };
+    });
+    window.Shared.syncPanelWidths = syncPanelSpy;
+
+    const scheduleDraw = jest.fn();
+    const userResize = jest.fn();
+
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      },
+      scheduleDraw,
+      skipScheduleOnResizePhases: ['programmatic'],
+      resizableBoxOptions: {
+        onResize: userResize
+      }
+    });
+
+    const svgBox = layout.elements.svgBox;
+    scheduleDraw.mockClear();
+    userResize.mockClear();
+    syncPanelSpy.mockClear();
+
+    window.Shared.applyResizableBoxSize(svgBox, {
+      width: 520,
+      height: 460,
+      reason: 'programmatic-test'
+    });
+
+    expect(scheduleDraw).not.toHaveBeenCalled();
+    expect(userResize).toHaveBeenCalledWith('programmatic', expect.any(Object));
+
+    expect(syncPanelSpy).toHaveBeenCalled();
+    const lastSyncCall = syncPanelSpy.mock.calls[syncPanelSpy.mock.calls.length - 1];
+    expect(lastSyncCall[4]?.skipSchedule).toBe(true);
+  });
 });
