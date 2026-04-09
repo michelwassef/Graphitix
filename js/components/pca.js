@@ -8585,7 +8585,17 @@
         entries: legendMeasureEntries,
         fontSize: fs,
         strokeWidth: borderWidthPx,
-        textColor: pcaThemeTextColor
+        textColor: pcaThemeTextColor,
+        onSwatchClick: ({ event, swatch, index }) => {
+          const legendEntry = Number.isInteger(index) ? legendEntries[index] : null;
+          if(!legendEntry || !swatch){
+            return;
+          }
+          if(event){
+            event.stopPropagation();
+          }
+          handleLegendColorChange(legendEntry, swatch);
+        }
       });
       const legendRenderer = legendLayout.renderer || { entries: [], rowGap: 0, swatchSize: 0, swatchGap: 0, baselineOffset: 0 };
       const legendVisible = showLegend && legendRenderer.entries.length > 0;
@@ -9453,65 +9463,10 @@
 
       debugLog('Debug: pca axis range resolved',{ xMin, xMax, yMin, yMax, equalScaleEnabled: shouldEqualScale });
 
-      const W = Math.max(50, Math.floor(plotEl.clientWidth || 50));
+      plotEl.style.aspectRatio = '';
+      plotEl.style.padding = '';
+      let W = Math.max(50, Math.floor(plotEl.clientWidth || 50));
       const H = Math.max(40, Math.floor(plotEl.clientHeight || 40));
-
-      plotEl.style.position = 'relative';
-      const layeredRoot = document.createElement('div');
-      layeredRoot.className = 'pca-layered-plot';
-      layeredRoot.style.position = 'relative';
-      layeredRoot.style.width = `${W}px`;
-      layeredRoot.style.height = `${H}px`;
-      layeredRoot.style.flex = '0 0 auto';
-      plotEl.appendChild(layeredRoot);
-
-      const svg = document.createElementNS(NS, 'svg');
-      svg.setAttribute('id', 'pcaSvg');
-      svg.setAttribute('width', String(W));
-      svg.setAttribute('height', String(H));
-      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-      svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
-      svg.dataset.viewMode = effectiveViewMode;
-      chartStyle.applySvgDefaults(svg);
-      svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
-      const shouldUseCanvasPoints = points.length >= PCA_FAST_POINT_THRESHOLD;
-      let fastPointCanvas = null;
-      let fastPointCtx = null;
-      if(shouldUseCanvasPoints){
-        fastPointCanvas = document.createElement('canvas');
-        fastPointCanvas.className = 'pca-fast-points-layer';
-        fastPointCanvas.width = W;
-        fastPointCanvas.height = H;
-        fastPointCanvas.style.position = 'absolute';
-        fastPointCanvas.style.left = '0';
-        fastPointCanvas.style.top = '0';
-        fastPointCanvas.style.width = `${W}px`;
-        fastPointCanvas.style.height = `${H}px`;
-        fastPointCanvas.style.pointerEvents = 'none';
-        layeredRoot.appendChild(fastPointCanvas);
-        fastPointCtx = typeof fastPointCanvas.getContext === 'function'
-          ? fastPointCanvas.getContext('2d')
-          : null;
-        if(!fastPointCtx){
-          fastPointCtx = createNoopCanvasContext();
-        }
-        if(fastPointCtx){
-          if(typeof fastPointCtx.clearRect === 'function'){
-            fastPointCtx.clearRect(0, 0, W, H);
-          }
-          try {
-            fastPointCtx.imageSmoothingEnabled = false;
-          } catch(err){ /* ignore */ }
-          fastPointModeActive = true;
-        }
-      }
-      layeredRoot.appendChild(svg);
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        fontControls.enableForSvg(svg,{ scopeId: 'pca' });
-        debugLog('Debug: pca fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
-      } else {
-        debugLog('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
-      }
 
       function niceNum(range, round) {
         const exp = Math.floor(Math.log10(range));
@@ -9707,6 +9662,94 @@
         }else{
           debugLog('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
         }
+      }
+      let legendOrigin2d = null;
+      if(legendVisible){
+        const defaultLegendX = margin.left + plotW + legendLayout.legendGapPx + appliedLegendAxisGap;
+        const defaultLegendY = margin.top;
+        const legendPos = pcaState.labelPositions?.legend;
+        let absoluteLegendX = defaultLegendX;
+        let absoluteLegendY = defaultLegendY;
+        if(legendPos){
+          if(legendPos.relX !== undefined && legendPos.relY !== undefined){
+            absoluteLegendX = margin.left + plotW + legendPos.relX * legendLayout.legendGapPx;
+            absoluteLegendY = margin.top + legendPos.relY * plotH;
+          }else if(legendPos.x !== undefined && legendPos.y !== undefined){
+            absoluteLegendX = legendPos.x;
+            absoluteLegendY = legendPos.y;
+          }
+        }
+        legendOrigin2d = { defaultLegendX, defaultLegendY, absoluteLegendX, absoluteLegendY };
+        const legendOuterPadding = Math.max(Math.round(fs * 0.75), 12);
+        const legendContentWidth = Math.max(legendRenderer.width || 0, 0);
+        const minimumRenderWidth = Math.max(W, Math.ceil(absoluteLegendX + legendContentWidth + legendOuterPadding));
+        if(minimumRenderWidth > W){
+          debugLog('Debug: pca 2d legend width extended render area', {
+            plotWidth: W,
+            minimumRenderWidth,
+            legendX: absoluteLegendX,
+            legendContentWidth,
+            legendOuterPadding
+          });
+          W = minimumRenderWidth;
+        }
+      }
+      plotEl.style.position = 'relative';
+      plotEl.style.minWidth = W > Math.max(50, Math.floor(plotEl.clientWidth || 50)) ? `${W}px` : '';
+      const layeredRoot = document.createElement('div');
+      layeredRoot.className = 'pca-layered-plot';
+      layeredRoot.style.position = 'relative';
+      layeredRoot.style.width = `${W}px`;
+      layeredRoot.style.height = `${H}px`;
+      layeredRoot.style.flex = '0 0 auto';
+      plotEl.appendChild(layeredRoot);
+
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('id', 'pcaSvg');
+      svg.setAttribute('width', String(W));
+      svg.setAttribute('height', String(H));
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+      svg.dataset.viewMode = effectiveViewMode;
+      chartStyle.applySvgDefaults(svg);
+      svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
+      const shouldUseCanvasPoints = points.length >= PCA_FAST_POINT_THRESHOLD;
+      let fastPointCanvas = null;
+      let fastPointCtx = null;
+      if(shouldUseCanvasPoints){
+        fastPointCanvas = document.createElement('canvas');
+        fastPointCanvas.className = 'pca-fast-points-layer';
+        fastPointCanvas.width = W;
+        fastPointCanvas.height = H;
+        fastPointCanvas.style.position = 'absolute';
+        fastPointCanvas.style.left = '0';
+        fastPointCanvas.style.top = '0';
+        fastPointCanvas.style.width = `${W}px`;
+        fastPointCanvas.style.height = `${H}px`;
+        fastPointCanvas.style.pointerEvents = 'none';
+        layeredRoot.appendChild(fastPointCanvas);
+        fastPointCtx = typeof fastPointCanvas.getContext === 'function'
+          ? fastPointCanvas.getContext('2d')
+          : null;
+        if(!fastPointCtx){
+          fastPointCtx = createNoopCanvasContext();
+        }
+        if(fastPointCtx){
+          if(typeof fastPointCtx.clearRect === 'function'){
+            fastPointCtx.clearRect(0, 0, W, H);
+          }
+          try {
+            fastPointCtx.imageSmoothingEnabled = false;
+          } catch(err){ /* ignore */ }
+          fastPointModeActive = true;
+        }
+      }
+      layeredRoot.appendChild(svg);
+      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+        fontControls.enableForSvg(svg,{ scopeId: 'pca' });
+        debugLog('Debug: pca fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+      } else {
+        debugLog('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
       }
       const x2px = value => margin.left + ((value - xScale.min) * plotW) / (xScale.max - xScale.min);
       const y2px = value => margin.top + plotH - ((value - yScale.min) * plotH) / (yScale.max - yScale.min);
@@ -10245,85 +10288,26 @@
       }
 
       if(legendVisible){
-        const defaultLegendX = margin.left + plotW + legendLayout.legendGapPx + appliedLegendAxisGap;
-        const defaultLegendY = margin.top;
-        const legendPos = pcaState.labelPositions?.legend;
-        
-        // Convert relative positions to absolute if needed for 2D legend
-        let absoluteLegendX = defaultLegendX;
-        let absoluteLegendY = defaultLegendY;
-        if (legendPos) {
-          if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
-            // Use relative positioning
-            absoluteLegendX = margin.left + plotW + legendPos.relX * legendLayout.legendGapPx;
-            absoluteLegendY = margin.top + legendPos.relY * plotH;
-          } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-            // Use absolute positioning (backward compatibility)
-            absoluteLegendX = legendPos.x;
-            absoluteLegendY = legendPos.y;
-          }
-        }
-        
-        const legendOriginX = absoluteLegendX;
-        const legendOriginY = absoluteLegendY;
-        const legendSpacing=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
-        const legendMarkerSize=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
-        const legendTextOffset=legendMarkerSize+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
+        const legendOriginX = legendOrigin2d?.absoluteLegendX ?? (margin.left + plotW + legendLayout.legendGapPx + appliedLegendAxisGap);
+        const legendOriginY = legendOrigin2d?.absoluteLegendY ?? margin.top;
         debugLog('Debug: pca legend layout',{
           legendX: legendOriginX,
           legendY: legendOriginY,
-          legendSpacing,
-          legendMarkerSize,
-          legendTextOffset,
+          legendWidth: legendRenderer.width || 0,
+          legendHeight: legendRenderer.height || 0,
           legendVisible,
           appliedLegendAxisGap
         });
-        const legendDoc = svg?.ownerDocument || global.document;
-        const legendGroup = add('g', {
-          'data-role': 'pca-legend',
-          transform: `translate(${legendOriginX},${legendOriginY})`
+        const legendGroup = legendRenderer.draw(svg, {
+          x: legendOriginX,
+          y: legendOriginY
         });
-        const legendAdd = (tag, attrs, text) => {
-          if(!legendDoc){ return null; }
-          const node = legendDoc.createElementNS(NS, tag);
-          Object.keys(attrs || {}).forEach(key => node.setAttribute(key, String(attrs[key])));
-          if(text){ node.textContent = text; }
-          legendGroup.appendChild(node);
-          return node;
-        };
-        legendEntries.forEach((entry, i) => {
-          const itemY = i * (legendMarkerSize + legendSpacing);
-          const marker = drawShape(legendAdd, entry.shape || 'circle', {
-            cx: legendMarkerSize / 2,
-            cy: itemY + legendMarkerSize / 2,
-            radius: legendMarkerSize / 2,
-            fill: entry.color,
-            stroke: borderColor,
-            strokeWidth: 0,
-            opacity: 1
+        if(legendGroup && typeof legendGroup.querySelectorAll === 'function'){
+          const textNodes = legendGroup.querySelectorAll('text');
+          Array.from(textNodes).forEach((node, idx) => {
+            try{ markFontEditable(node, 'legend', `legend-${idx}`); }catch(err){}
           });
-          if(marker){
-            marker.style.cursor = 'pointer';
-            marker.dataset.legendKey = entry.key;
-            if(Number.isInteger(entry.groupIndex)){
-              marker.dataset.legendGroupIndex = String(entry.groupIndex);
-            } else if(entry.labelValue){
-              marker.dataset.legendLabel = entry.labelValue;
-            }
-            marker.addEventListener('click',(evt)=>{
-              if(evt){ evt.stopPropagation(); }
-              handleLegendColorChange(entry, marker);
-            });
-          }
-          const legendText = legendAdd('text', {
-            x: legendTextOffset,
-            y: itemY + legendMarkerSize / 2,
-            'font-size': fs,
-            'dominant-baseline': 'middle',
-            fill: chartStyle.TEXT_COLOR,
-          }, entry.label);
-          markFontEditable(legendText,'legend',`legend-${i}`);
-        });
+        }
         if(typeof Shared.enableLegendDrag === 'function'){
           Shared.enableLegendDrag(legendGroup, svg, {
             undoLabel: 'pca-legend-2d',

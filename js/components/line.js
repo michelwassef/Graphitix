@@ -4678,6 +4678,126 @@
     return result;
   }
 
+  function resolveLineSeriesAnchorColumnIndex(seriesIndex, options = {}){
+    const idx = Number(seriesIndex);
+    if(!Number.isInteger(idx) || idx < 0){
+      return null;
+    }
+    if(options.viewMode === '3d'){
+      return 1 + idx * 2;
+    }
+    const replicates = Math.max(
+      LINE_MIN_REPLICATES,
+      clampLineReplicateCount(options.replicates ?? lineReplicates)
+    );
+    return 1 + idx * replicates;
+  }
+
+  function resolveLine2dSeriesLabelsFromHeader(headerRow, seriesCount, options = {}){
+    const header = Array.isArray(headerRow) ? headerRow : [];
+    const replicates = Math.max(
+      LINE_MIN_REPLICATES,
+      clampLineReplicateCount(options.replicates ?? lineReplicates)
+    );
+    const inferredCount = Math.max(0, Math.ceil(Math.max(0, header.length - 1) / Math.max(replicates, 1)));
+    const total = Math.max(0, Number.isInteger(seriesCount) ? seriesCount : inferredCount);
+    const labels = new Array(total);
+    for(let s = 0; s < total; s += 1){
+      const fallback = `Series ${s + 1}`;
+      const anchorCol = resolveLineSeriesAnchorColumnIndex(s, { replicates });
+      const rawLabel = Number.isInteger(anchorCol) && anchorCol < header.length ? header[anchorCol] : fallback;
+      labels[s] = inferSeriesBaseName(rawLabel, fallback);
+    }
+    return labels;
+  }
+
+  function migrateLineSeriesLabelKey(previousLabel, nextLabel){
+    const previous = previousLabel == null ? '' : String(previousLabel).trim();
+    const next = nextLabel == null ? '' : String(nextLabel).trim();
+    if(!previous || !next || previous === next){
+      return;
+    }
+    if(lineLabelColors && Object.prototype.hasOwnProperty.call(lineLabelColors, previous)){
+      if(!Object.prototype.hasOwnProperty.call(lineLabelColors, next)){
+        lineLabelColors[next] = lineLabelColors[previous];
+      }
+      delete lineLabelColors[previous];
+    }
+    if(lineSeriesStyles && Object.prototype.hasOwnProperty.call(lineSeriesStyles, previous)){
+      if(!Object.prototype.hasOwnProperty.call(lineSeriesStyles, next)){
+        lineSeriesStyles[next] = Object.assign({}, lineSeriesStyles[previous]);
+      }
+      delete lineSeriesStyles[previous];
+    }
+  }
+
+  function syncLineSeriesLabelState(nextLabels, options = {}){
+    const previous = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    const next = Array.isArray(nextLabels)
+      ? nextLabels.map((label, idx) => {
+          const fallback = `Series ${idx + 1}`;
+          const trimmed = label == null ? '' : String(label).trim();
+          return trimmed || fallback;
+        })
+      : [];
+    const maxCount = Math.max(previous.length, next.length);
+    let changed = previous.length !== next.length;
+    for(let idx = 0; idx < maxCount; idx += 1){
+      const prevLabel = previous[idx] == null ? '' : String(previous[idx]).trim();
+      const nextLabel = next[idx] == null ? '' : String(next[idx]).trim();
+      if(prevLabel !== nextLabel){
+        changed = true;
+        migrateLineSeriesLabelKey(prevLabel, nextLabel);
+      }
+    }
+    if(!changed){
+      return false;
+    }
+    lineSeriesGroupLabels = next;
+    lineDebug('Debug: line series labels synced', {
+      reason: options.reason || null,
+      previous,
+      next
+    });
+    if(options.refreshControls === true){
+      if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+        renderLine3dList();
+      }else if(lineReplicates > LINE_MIN_REPLICATES && isLineGroupedModeActive()){
+        renderLineGroupedList();
+      }
+    }
+    return true;
+  }
+
+  function syncLineSeriesGroupLabelsFromHeader(hotInstance, options = {}){
+    if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+      return false;
+    }
+    const hot = hotInstance || lineHot;
+    const headerRow = Array.isArray(options.headerRow)
+      ? options.headerRow
+      : (Array.isArray(hot?.getData?.()) ? hot.getData()[0] : []);
+    if(!Array.isArray(headerRow)){
+      return false;
+    }
+    const replicates = Math.max(
+      LINE_MIN_REPLICATES,
+      clampLineReplicateCount(options.replicates ?? lineReplicates)
+    );
+    const countFromCols = Number.isFinite(options.colCount)
+      ? Math.max(0, Math.ceil(Math.max(0, Number(options.colCount) - 1) / Math.max(replicates, 1)))
+      : Math.max(0, Math.ceil(Math.max(0, headerRow.length - 1) / Math.max(replicates, 1)));
+    const nextLabels = resolveLine2dSeriesLabelsFromHeader(
+      headerRow,
+      Number.isInteger(options.seriesCount) ? options.seriesCount : countFromCols,
+      { replicates }
+    );
+    return syncLineSeriesLabelState(nextLabels, {
+      reason: options.reason || 'table-header',
+      refreshControls: options.refreshControls === true
+    });
+  }
+
   function isLineGroupedModeActive(){
     return refs.replicateMode?.value === 'grouped' && lineViewState.viewMode !== '3d';
   }
@@ -4777,7 +4897,7 @@
       }
     }
     if(nextLabels.length){
-      lineSeriesGroupLabels = nextLabels.slice();
+      syncLineSeriesLabelState(nextLabels, { reason: options.source || 'line-grouped-header-normalize' });
     }
     if(!changes.length){
       return false;
@@ -5085,7 +5205,7 @@
       }
       nextGroupLabels[s] = resolved || `Series ${s+1}`;
     }
-    lineSeriesGroupLabels = nextGroupLabels;
+    syncLineSeriesLabelState(nextGroupLabels, { reason: 'line-replicate-matrix' });
     const storedShapes = Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [];
     const overrideShapes = Array.isArray(options?.groupShapes) ? options.groupShapes : null;
     const nextShapes = new Array(seriesCount);
@@ -5199,21 +5319,29 @@
     const fallback = `Series ${idx+1}`;
     const resolved = sanitized || fallback;
     if(existing === resolved) return;
-    const nextLabels = lineSeriesGroupLabels.slice();
-    nextLabels[idx] = resolved;
-    lineSeriesGroupLabels = nextLabels;
-    if(existing && existing !== resolved && lineLabelColors[existing]){
-      if(!lineLabelColors[resolved]){
-        lineLabelColors[resolved] = lineLabelColors[existing];
-      }
-      delete lineLabelColors[existing];
+    const nextLabels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    while(nextLabels.length <= idx){
+      nextLabels.push(`Series ${nextLabels.length + 1}`);
     }
+    nextLabels[idx] = resolved;
+    syncLineSeriesLabelState(nextLabels, { reason: 'line-group-label-edit' });
     console.debug('Debug: updateLineSeriesGroupLabel', {
       index: idx,
       existing,
       resolved
     });
-    if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+    const is3dMode = lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d';
+    if(!is3dMode && lineHot && typeof lineHot.setDataAtCell === 'function'){
+      const headerCol = resolveLineSeriesAnchorColumnIndex(idx, { replicates: lineReplicates });
+      if(Number.isInteger(headerCol)){
+        const current = lineHot.getDataAtCell?.(0, headerCol);
+        const currentTrimmed = current == null ? '' : String(current).trim();
+        if(currentTrimmed !== resolved){
+          lineHot.setDataAtCell([[0, headerCol, resolved]], 'line-group-label-edit');
+        }
+      }
+    }
+    if(is3dMode){
       updateLine3dNestedHeaders();
       renderLine3dList();
     }else{
@@ -8875,18 +9003,14 @@
       lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X';
       const replicates=Math.max(LINE_MIN_REPLICATES,lineReplicates);
       const totalSeries=Math.max(0,Math.floor((header.length-1)/replicates));
+      const headerSeriesLabels = resolveLine2dSeriesLabelsFromHeader(header, totalSeries, { replicates });
+      syncLineSeriesLabelState(headerSeriesLabels, { reason: 'line-draw' });
       ensureLineGroupShapeCapacity(totalSeries);
       const series=[];
       for(let s=0;s<totalSeries;s++){
-        const baseIdx=1+s*replicates;
         const fallback=`Series ${s+1}`;
-        const label=baseIdx<header.length?header[baseIdx]:fallback;
-        const baseName=inferSeriesBaseName(label,fallback);
-        const stored = lineSeriesGroupLabels?.[s];
-        const resolvedName = stored && String(stored).trim() ? String(stored).trim() : baseName;
-        if(!lineSeriesGroupLabels[s] && resolvedName){
-          lineSeriesGroupLabels[s] = resolvedName;
-        }
+        const resolvedName = headerSeriesLabels[s] || fallback;
+        const baseName = resolvedName;
         const shape = getLineGroupShape(s);
         series.push({name:resolvedName,baseName,points:[],shape});
       }
@@ -11678,12 +11802,19 @@
           afterChange(changes, source){
             if(changes && source !== 'loadData'){
               console.debug('Debug: line afterChange', { count: changes.length, source });
+              const headerTouched = changes.some(change => Number(change?.[0]) === 0);
               if(isLineGroupedModeActive()){
-                const headerTouched = changes.some(change => Number(change?.[0]) === 0);
                 if(headerTouched && source !== 'line-grouped-header-normalize'){
                   normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
                 }
                 updateLineNestedHeaders();
+              }
+              if(headerTouched){
+                syncLineSeriesGroupLabelsFromHeader(instance, {
+                  reason: `line-afterChange:${source}`,
+                  refreshControls: true,
+                  colCount: typeof instance?.countCols === 'function' ? instance.countCols() : undefined
+                });
               }
               revalidateActiveLineLogAxis('x','data-edit');
               revalidateActiveLineLogAxis('y','data-edit');
@@ -11698,6 +11829,11 @@
               normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
               updateLineNestedHeaders();
             }
+            syncLineSeriesGroupLabelsFromHeader(instance, {
+              reason: 'line-afterLoadData',
+              refreshControls: true,
+              colCount: typeof instance?.countCols === 'function' ? instance.countCols() : undefined
+            });
             syncLineActiveDataViewFromHot(instance, 'afterLoadData');
           },
           afterSelectionEnd(){
