@@ -313,6 +313,49 @@ describe('Box swarm offset constraints', () => {
     }
   });
 
+  test('huge-trace approximation gate only enables for very large non-indexed traces', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldUseBoxApproximatePointCanvas).toBe('function');
+    expect(hooks.shouldUseBoxApproximatePointCanvas({ pointCount: 8000, threshold: 8000 })).toBe(false);
+    expect(hooks.shouldUseBoxApproximatePointCanvas({ pointCount: 9001, threshold: 8000 })).toBe(true);
+    expect(hooks.shouldUseBoxApproximatePointCanvas({
+      pointCount: 12000,
+      threshold: 8000,
+      collectsPointByRow: true
+    })).toBe(false);
+  });
+
+  test('huge-trace approximation bins compress dense point clouds deterministically', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxApproximatePointBins).toBe('function');
+    const pointCount = 12000;
+    const coords = new Float64Array(pointCount);
+    const raws = new Float64Array(pointCount);
+    for(let idx = 0; idx < pointCount; idx += 1){
+      const band = idx % 240;
+      coords[idx] = 100 + band * 0.28;
+      raws[idx] = 50 + band * 0.5;
+    }
+    const layout = hooks.buildBoxApproximatePointBins({
+      coords,
+      raws,
+      orientation: 'vertical',
+      radius: 3,
+      maxHalfWidth: 48,
+      widthScaleMode: 'density'
+    });
+    expect(layout).toBeTruthy();
+    expect(layout.orientation).toBe('vertical');
+    expect(Array.isArray(layout.bins)).toBe(true);
+    expect(layout.bins.length).toBeGreaterThan(0);
+    expect(layout.bins.length).toBeLessThan(pointCount / 10);
+    expect(Number.isFinite(Number(layout.thickness))).toBe(true);
+    expect(Number(layout.thickness)).toBeGreaterThan(0);
+    expect(Number.isFinite(Number(layout.maxOffsetUsed))).toBe(true);
+    expect(Number(layout.maxOffsetUsed)).toBeGreaterThan(0);
+    expect(layout.bins[0].coord).toBeLessThanOrEqual(layout.bins[layout.bins.length - 1].coord);
+  });
+
   test('fast strip auto-size estimator activates for dense datasets', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveFastStripAutoSizeProfile).toBe('function');

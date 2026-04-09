@@ -665,6 +665,7 @@
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
   const BOX_POINT_CANVAS_THRESHOLD = 1200;
+  const BOX_POINT_APPROX_THRESHOLD = 8000;
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
@@ -2954,6 +2955,225 @@
       ctx.lineWidth = strokeWidth;
       ctx.globalAlpha = 1;
       ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    foreignObject.appendChild(canvas);
+    group.appendChild(foreignObject);
+    return true;
+  }
+
+  function shouldUseBoxApproximatePointCanvas(renderOptions = {}){
+    const pointCount = Number(renderOptions?.pointCount);
+    const threshold = Number.isFinite(Number(renderOptions?.threshold))
+      ? Math.max(0, Number(renderOptions.threshold))
+      : BOX_POINT_APPROX_THRESHOLD;
+    if(!Number.isFinite(pointCount) || pointCount <= threshold){
+      return false;
+    }
+    if(renderOptions?.collectsPointByRow === true){
+      return false;
+    }
+    return true;
+  }
+
+  function buildBoxApproximatePointBins(config){
+    const coordsInput = config?.coords;
+    const rawsInput = config?.raws;
+    const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
+    const raws = (Array.isArray(rawsInput) || ArrayBuffer.isView(rawsInput)) ? rawsInput : coords;
+    const pointCount = coords ? coords.length : 0;
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const pointRadius = Math.max(0.4, Number(config?.radius) || 0.4);
+    const maxHalfWidthRaw = Number(config?.maxHalfWidth);
+    const maxHalfWidth = Number.isFinite(maxHalfWidthRaw) && maxHalfWidthRaw > 0
+      ? maxHalfWidthRaw
+      : Math.max(pointRadius * 1.1, 1);
+    if(!coords || !pointCount || !Number.isFinite(maxHalfWidth) || maxHalfWidth <= 0){
+      return null;
+    }
+    const densityBoost = pointCount >= BOX_POINT_APPROX_THRESHOLD * 4
+      ? 1.9
+      : (pointCount >= BOX_POINT_APPROX_THRESHOLD * 2 ? 1.55 : 1.3);
+    const thickness = Math.max(1, Math.min(10, pointRadius * densityBoost));
+    const binSize = Math.max(1, Math.min(12, thickness));
+    const binsByIndex = new Map();
+    let maxCount = 0;
+    for(let idx = 0; idx < pointCount; idx += 1){
+      const coord = Number(coords[idx]);
+      if(!Number.isFinite(coord)){
+        continue;
+      }
+      const rawValue = Number(raws?.[idx]);
+      const safeRaw = Number.isFinite(rawValue) ? rawValue : coord;
+      const binIndex = Math.round(coord / binSize);
+      let entry = binsByIndex.get(binIndex);
+      if(!entry){
+        entry = {
+          count: 0,
+          coordSum: 0,
+          rawSum: 0
+        };
+        binsByIndex.set(binIndex, entry);
+      }
+      entry.count += 1;
+      entry.coordSum += coord;
+      entry.rawSum += safeRaw;
+      if(entry.count > maxCount){
+        maxCount = entry.count;
+      }
+    }
+    if(!binsByIndex.size || maxCount <= 0){
+      return null;
+    }
+    const widthScaleMode = typeof config?.widthScaleMode === 'string' ? config.widthScaleMode : 'density';
+    const violinBounds = typeof config?.violinBounds === 'function' ? config.violinBounds : null;
+    const bins = Array.from(binsByIndex.entries())
+      .map(([, entry]) => {
+        const coord = entry.coordSum / entry.count;
+        const raw = entry.rawSum / entry.count;
+        const density = entry.count / maxCount;
+        let halfWidth = widthScaleMode === 'density'
+          ? maxHalfWidth * Math.pow(Math.max(density, 1 / maxCount), 0.58)
+          : Math.min(maxHalfWidth, pointRadius * (0.85 + Math.log2(entry.count + 1)));
+        halfWidth = Math.max(pointRadius * 0.55, halfWidth);
+        if(violinBounds){
+          const maxHalf = Number(violinBounds(raw));
+          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+            halfWidth = 0;
+          }else{
+            halfWidth = Math.min(halfWidth, Math.max(0, maxHalf - pointRadius));
+          }
+        }
+        return {
+          coord,
+          raw,
+          count: entry.count,
+          density,
+          halfWidth
+        };
+      })
+      .filter(entry => Number.isFinite(entry.halfWidth) && entry.halfWidth > 0)
+      .sort((a, b) => a.coord - b.coord);
+    if(!bins.length){
+      return null;
+    }
+    let maxOffsetUsed = 0;
+    bins.forEach(entry => {
+      if(entry.halfWidth > maxOffsetUsed){
+        maxOffsetUsed = entry.halfWidth;
+      }
+    });
+    return {
+      bins,
+      orientation,
+      thickness,
+      pointCount,
+      maxCount,
+      maxOffsetUsed
+    };
+  }
+
+  function renderBoxApproximatePointCanvas(config){
+    const doc = config?.doc || global.document;
+    const group = config?.group || null;
+    const bins = Array.isArray(config?.bins) ? config.bins : [];
+    if(!doc || !group || !bins.length || !canUseBoxPointResizeCanvas()){
+      return false;
+    }
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const center = Number(config?.center);
+    const thickness = Math.max(1, Number(config?.thickness) || 1);
+    if(!Number.isFinite(center)){
+      return false;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    bins.forEach(bin => {
+      const coord = Number(bin?.coord);
+      const halfWidth = Number(bin?.halfWidth);
+      if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
+        return;
+      }
+      if(orientation === 'vertical'){
+        minX = Math.min(minX, center - halfWidth);
+        maxX = Math.max(maxX, center + halfWidth);
+        minY = Math.min(minY, coord - thickness / 2);
+        maxY = Math.max(maxY, coord + thickness / 2);
+      }else{
+        minX = Math.min(minX, coord - thickness / 2);
+        maxX = Math.max(maxX, coord + thickness / 2);
+        minY = Math.min(minY, center - halfWidth);
+        maxY = Math.max(maxY, center + halfWidth);
+      }
+    });
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+      return false;
+    }
+    const strokeWidth = Math.max(0, Number(config?.strokeWidth) || 0);
+    const padding = Math.max(2, thickness + strokeWidth + 2);
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+    const width = Math.max(1, Math.ceil(maxX - minX));
+    const height = Math.max(1, Math.ceil(maxY - minY));
+    const foreignObject = doc.createElementNS(NS, 'foreignObject');
+    foreignObject.setAttribute('x', String(minX));
+    foreignObject.setAttribute('y', String(minY));
+    foreignObject.setAttribute('width', String(width));
+    foreignObject.setAttribute('height', String(height));
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    const canvas = doc.createElement('canvas');
+    canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    canvas.style.display = 'block';
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    canvas.style.background = 'transparent';
+    canvas.style.pointerEvents = 'none';
+    const dpr = Math.max(1, global.window?.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.ceil(width * dpr));
+    canvas.height = Math.max(1, Math.ceil(height * dpr));
+    const ctx = canvas.getContext('2d');
+    if(!ctx){
+      return false;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const drawSegments = (lineWidth, color, alpha) => {
+      if(!color || color === 'none' || lineWidth <= 0){
+        return;
+      }
+      ctx.beginPath();
+      bins.forEach(bin => {
+        const coord = Number(bin?.coord);
+        const halfWidth = Number(bin?.halfWidth);
+        if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
+          return;
+        }
+        if(orientation === 'vertical'){
+          const y = coord - minY;
+          ctx.moveTo(center - halfWidth - minX, y);
+          ctx.lineTo(center + halfWidth - minX, y);
+        }else{
+          const x = coord - minX;
+          ctx.moveTo(x, center - halfWidth - minY);
+          ctx.lineTo(x, center + halfWidth - minY);
+        }
+      });
+      const effectiveAlpha = Number.isFinite(Number(alpha)) ? Number(alpha) : 1;
+      ctx.globalAlpha = Math.max(0, Math.min(1, effectiveAlpha));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    };
+    if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
+      drawSegments(Math.max(1, thickness + strokeWidth * 2), config.stroke, 1);
+    }
+    if(config.fill && config.fill !== 'none'){
+      drawSegments(thickness, config.fill, Number(config.fillOpacity));
     }
     ctx.globalAlpha = 1;
     foreignObject.appendChild(canvas);
@@ -26236,6 +26456,30 @@ Technical analysis record (advanced)
           ? resolvedMaxHalfWidth
           : null;
         const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+        const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+        const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(drawOpts, {
+            pointCount,
+            threshold: BOX_POINT_CANVAS_THRESHOLD
+          })
+          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
+          && canUseBoxPointResizeCanvas();
+        const useApproximateCanvas = canvasPointLayerEnabled
+          && shouldUseBoxApproximatePointCanvas({
+            pointCount,
+            threshold: BOX_POINT_APPROX_THRESHOLD,
+            collectsPointByRow: collectPointsByRow instanceof Map
+          });
+        const approximateLayout = useApproximateCanvas
+          ? buildBoxApproximatePointBins({
+              coords: pointCoords,
+              raws: rawValues,
+              orientation: 'vertical',
+              radius: swarmPointRadius,
+              maxHalfWidth: resolvedMaxHalfWidth,
+              widthScaleMode,
+              violinBounds
+            })
+          : null;
         const verticalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
           ? (pointLayoutCache.vertical = pointLayoutCache.vertical || {})
           : null;
@@ -26261,7 +26505,7 @@ Technical analysis record (advanced)
           verticalScaleSig
         ].join('|');
         let swarm = null;
-        if(verticalCacheBucket && traceIndex != null){
+        if(!approximateLayout && verticalCacheBucket && traceIndex != null){
           const cachedLayout = verticalCacheBucket[traceIndex];
           if(
             cachedLayout
@@ -26273,7 +26517,7 @@ Technical analysis record (advanced)
             swarm = cachedLayout.swarm;
           }
         }
-        if(!swarm){
+        if(!approximateLayout && !swarm){
           swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
             axisSpacing: localBand,
             pointRadius: swarmPointRadius,
@@ -26298,9 +26542,11 @@ Technical analysis record (advanced)
         if(drawToken != null && drawToken !== state.drawToken){
           return null;
         }
-        const effectiveRadius = resolvedRadius != null
+        const effectiveRadius = approximateLayout
+          ? swarmPointRadius
+          : (resolvedRadius != null
           ? resolvedRadius
-          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
+          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius));
         const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
         const themedPointDefaults = useClassicStripDefaults
           ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
@@ -26333,8 +26579,7 @@ Technical analysis record (advanced)
           : 'none';
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
-        const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
-        const spreadScale = useStrictStripSpacing
+        const spreadScale = !approximateLayout && useStrictStripSpacing
           ? computeStripSpreadScale({
               minCenterPitch,
               effectiveRadius,
@@ -26343,20 +26588,17 @@ Technical analysis record (advanced)
               minGapPx: minInterDatasetGapPx
             })
           : 1;
-        const useBatchPath = !disableBatchPath
+        const useBatchPath = !approximateLayout
+          && !disableBatchPath
           && pointCount > BOX_POINT_BATCH_THRESHOLD
           && BATCHABLE_POINT_SHAPES.has(effectiveShape);
-        const useResizeCanvasPreview = shouldUseBoxPointCanvasPreview(drawOpts, {
-            pointCount,
-            threshold: BOX_POINT_CANVAS_THRESHOLD
-          })
-          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
-          && canUseBoxPointResizeCanvas();
+        const useResizeCanvasPreview = !approximateLayout && canvasPointLayerEnabled;
         if(debugEnabled && debugLabel === 'individual'){
           console.debug('Debug: box strip point render resolved',{
             orientation: 'vertical',
             traceIndex,
             pointCount,
+            useApproximateCanvas,
             useBatchPath,
             baseRadius: fallbackRadius,
             overrideRadius: resolvedRadius,
@@ -26390,7 +26632,31 @@ Technical analysis record (advanced)
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(useResizeCanvasPreview){
+        if(approximateLayout){
+          maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
+          renderBoxApproximatePointCanvas({
+            doc: document,
+            group,
+            bins: approximateLayout.bins,
+            orientation: 'vertical',
+            center: cx,
+            thickness: approximateLayout.thickness,
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+          });
+          if(debugEnabled){
+            console.debug('Debug: box approximate point canvas rendered', {
+              orientation: 'vertical',
+              traceIndex,
+              pointCount,
+              binCount: approximateLayout.bins.length,
+              thickness: approximateLayout.thickness,
+              maxOffsetUsed
+            });
+          }
+        }else if(useResizeCanvasPreview){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
             const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
@@ -27719,6 +27985,30 @@ Technical analysis record (advanced)
           ? resolvedMaxHalfWidth
           : null;
         const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+        const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
+        const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(drawOpts, {
+            pointCount,
+            threshold: BOX_POINT_CANVAS_THRESHOLD
+          })
+          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
+          && canUseBoxPointResizeCanvas();
+        const useApproximateCanvas = canvasPointLayerEnabled
+          && shouldUseBoxApproximatePointCanvas({
+            pointCount,
+            threshold: BOX_POINT_APPROX_THRESHOLD,
+            collectsPointByRow: collectPointsByRow instanceof Map
+          });
+        const approximateLayout = useApproximateCanvas
+          ? buildBoxApproximatePointBins({
+              coords: pointCoords,
+              raws: rawValues,
+              orientation: 'horizontal',
+              radius: swarmPointRadius,
+              maxHalfWidth: resolvedMaxHalfWidth,
+              widthScaleMode,
+              violinBounds
+            })
+          : null;
         const horizontalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
           ? (pointLayoutCache.horizontal = pointLayoutCache.horizontal || {})
           : null;
@@ -27742,7 +28032,7 @@ Technical analysis record (advanced)
           horizontalScaleSig
         ].join('|');
         let swarm = null;
-        if(horizontalCacheBucket && traceIndex != null){
+        if(!approximateLayout && horizontalCacheBucket && traceIndex != null){
           const cachedLayout = horizontalCacheBucket[traceIndex];
           if(
             cachedLayout
@@ -27754,7 +28044,7 @@ Technical analysis record (advanced)
             swarm = cachedLayout.swarm;
           }
         }
-        if(!swarm){
+        if(!approximateLayout && !swarm){
           swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
             axisSpacing: localBand,
             pointRadius: swarmPointRadius,
@@ -27779,9 +28069,11 @@ Technical analysis record (advanced)
         if(drawToken != null && drawToken !== state.drawToken){
           return null;
         }
-        const effectiveRadius = resolvedRadius != null
+        const effectiveRadius = approximateLayout
+          ? swarmPointRadius
+          : (resolvedRadius != null
           ? resolvedRadius
-          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
+          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius));
         const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
         const themedPointDefaultsH = useClassicStripDefaults
           ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
@@ -27814,8 +28106,7 @@ Technical analysis record (advanced)
           : 'none';
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
-        const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
-        const spreadScale = useStrictStripSpacing
+        const spreadScale = !approximateLayout && useStrictStripSpacing
           ? computeStripSpreadScale({
               minCenterPitch,
               effectiveRadius,
@@ -27824,20 +28115,17 @@ Technical analysis record (advanced)
               minGapPx: minInterDatasetGapPx
             })
           : 1;
-        const useBatchPath = !disableBatchPath
+        const useBatchPath = !approximateLayout
+          && !disableBatchPath
           && pointCount > BOX_POINT_BATCH_THRESHOLD
           && BATCHABLE_POINT_SHAPES.has(effectiveShape);
-        const useResizeCanvasPreview = shouldUseBoxPointCanvasPreview(drawOpts, {
-            pointCount,
-            threshold: BOX_POINT_CANVAS_THRESHOLD
-          })
-          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
-          && canUseBoxPointResizeCanvas();
+        const useResizeCanvasPreview = !approximateLayout && canvasPointLayerEnabled;
         if(debugEnabled && debugLabel === 'individual'){
           console.debug('Debug: box strip point render resolved',{
             orientation: 'horizontal',
             traceIndex,
             pointCount,
+            useApproximateCanvas,
             useBatchPath,
             baseRadius: fallbackRadius,
             overrideRadius: resolvedRadius,
@@ -27871,7 +28159,31 @@ Technical analysis record (advanced)
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(useResizeCanvasPreview){
+        if(approximateLayout){
+          maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
+          renderBoxApproximatePointCanvas({
+            doc: document,
+            group,
+            bins: approximateLayout.bins,
+            orientation: 'horizontal',
+            center: cy,
+            thickness: approximateLayout.thickness,
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidthH || 0)
+          });
+          if(debugEnabled){
+            console.debug('Debug: box approximate point canvas rendered', {
+              orientation: 'horizontal',
+              traceIndex,
+              pointCount,
+              binCount: approximateLayout.bins.length,
+              thickness: approximateLayout.thickness,
+              maxOffsetUsed
+            });
+          }
+        }else if(useResizeCanvasPreview){
           const pts = new Array(pointCount);
           for(let idx = 0; idx < pointCount; idx++){
             const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
@@ -31414,6 +31726,8 @@ Technical analysis record (advanced)
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
       resolveStripMinRadiusFloor:(sampleSize,baseRadius)=>resolveStripMinRadiusFloor(sampleSize,baseRadius),
       resolveFastStripAutoSizeProfile:config=>resolveFastStripAutoSizeProfile(config),
+      shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
+      buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
