@@ -356,6 +356,32 @@ describe('Box swarm offset constraints', () => {
     expect(layout.bins[0].coord).toBeLessThanOrEqual(layout.bins[layout.bins.length - 1].coord);
   });
 
+  test('canvas-backed point groups expose an interaction proxy for toolbar selection', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
+    document.body.innerHTML = '<div id="boxPlot"><svg><g data-export-layer="box-points" data-trace="7"><path data-point-proxy="1" data-trace="7"></path></g></svg></div>';
+    const node = hooks.findBoxPointNodeForTrace('7', null);
+    expect(node).toBeTruthy();
+    expect(node.getAttribute('data-point-proxy')).toBe('1');
+    document.body.innerHTML = '';
+  });
+
+  test('interaction mask path is generated from binned density geometry', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxPointInteractionMaskPath).toBe('function');
+    const d = hooks.buildBoxPointInteractionMaskPath({
+      bins: [
+        { coord: 100, halfWidth: 12 },
+        { coord: 116, halfWidth: 18 }
+      ],
+      orientation: 'vertical',
+      center: 240
+    });
+    expect(typeof d).toBe('string');
+    expect(d).toContain('M 228 100 L 252 100');
+    expect(d).toContain('M 222 116 L 258 116');
+  });
+
   test('fast strip auto-size estimator activates for dense datasets', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveFastStripAutoSizeProfile).toBe('function');

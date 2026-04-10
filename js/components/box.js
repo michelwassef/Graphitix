@@ -1034,14 +1034,22 @@
     if(!plot){
       return fallbackNode || null;
     }
+    const pointSelector = 'circle:not([data-point-proxy="1"]), rect:not([data-point-proxy="1"]), path:not([data-point-proxy="1"])';
+    const proxySelector = '[data-point-proxy="1"]';
     if(traceIndex != null){
-      const selector = `g[data-export-layer="box-points"][data-trace="${traceIndex}"] circle, g[data-export-layer="box-points"][data-trace="${traceIndex}"] rect, g[data-export-layer="box-points"][data-trace="${traceIndex}"] path`;
-      const node = plot.querySelector(selector);
+      const node = plot.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"] ${pointSelector}`);
       if(node){
         return node;
       }
+      const proxyNode = plot.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"] ${proxySelector}`);
+      if(proxyNode){
+        return proxyNode;
+      }
     }
-    return fallbackNode || plot.querySelector('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] rect, g[data-export-layer="box-points"] path') || null;
+    return fallbackNode
+      || plot.querySelector(`g[data-export-layer="box-points"] ${pointSelector}`)
+      || plot.querySelector(`g[data-export-layer="box-points"] ${proxySelector}`)
+      || null;
   }
 
   function findBoxSummaryNodeForTrace(traceIndex, fallbackNode){
@@ -1324,6 +1332,32 @@
     return Math.min(1, Math.max(0, numeric));
   }
 
+  function readBoxPointSourceAttr(node, attrNames){
+    if(!node || !Array.isArray(attrNames)){
+      return '';
+    }
+    for(let idx = 0; idx < attrNames.length; idx += 1){
+      const attrName = String(attrNames[idx] || '').trim();
+      if(!attrName || typeof node.getAttribute !== 'function'){
+        continue;
+      }
+      const raw = node.getAttribute(attrName);
+      if(raw != null && String(raw).trim()){
+        return String(raw).trim();
+      }
+    }
+    return '';
+  }
+
+  function readBoxPointSourceNumber(node, attrNames){
+    const raw = readBoxPointSourceAttr(node, attrNames);
+    if(!raw){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
   function clampSummaryOpacity(value){
     if(value == null || String(value).trim() === ''){ return null; }
     const numeric = Number(value);
@@ -1548,7 +1582,7 @@
     const doc = global.document;
     const plot = doc ? doc.getElementById('boxPlot') : null;
     if(plot){
-      const nodes = plot.querySelectorAll('[data-box-shape],[data-export-layer="box-points"] circle,[data-export-layer="box-points"] path,[data-export-layer="box-points"] rect,[data-summary-line="1"]');
+      const nodes = plot.querySelectorAll('[data-box-shape],[data-export-layer="box-points"] circle:not([data-point-proxy="1"]),[data-export-layer="box-points"] path:not([data-point-proxy="1"]),[data-export-layer="box-points"] rect:not([data-point-proxy="1"]),[data-summary-line="1"]');
       nodes.forEach(node => {
         const next = String(pendingBoxGlobalOpacity);
         const tag = (node.tagName || '').toLowerCase();
@@ -1729,7 +1763,7 @@
           ? state.pointStyles[traceIndex]
           : {};
         state.pointStyles[traceIndex] = Object.assign({}, prev, patch);
-        if(typeof state.scheduleDraw === 'function'){
+        if(!tryApplyBoxStripPointStyleLive(patch, { traceIndex, persistState: false }) && typeof state.scheduleDraw === 'function'){
           scheduleBoxViewRefresh('point-style-trace-change');
         }
       };
@@ -1739,7 +1773,7 @@
           state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, patch);
         });
         state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
-        if(typeof state.scheduleDraw === 'function'){
+        if(!tryApplyBoxStripPointStyleLive(patch, { persistState: false }) && typeof state.scheduleDraw === 'function'){
           scheduleBoxViewRefresh('point-style-global-change');
         }
       };
@@ -1809,11 +1843,17 @@
           shapeOptions: Shared.getShapePickerOptions ? Shared.getShapePickerOptions() : [{ value: 'circle', label: 'Circle' }],
           getColor(ctx){
             const style = resolvePointStyle(ctx);
-            return style.fill || sourcePoint.getAttribute('fill') || '#000000';
+            return style.fill
+              || readBoxPointSourceAttr(sourcePoint, ['data-point-fill', 'fill'])
+              || '#000000';
           },
           getShape(ctx){
             const style = resolvePointStyle(ctx);
-            return sanitizeShape(style.shape || sourcePoint.getAttribute('data-shape') || 'circle');
+            return sanitizeShape(
+              style.shape
+              || readBoxPointSourceAttr(sourcePoint, ['data-point-shape', 'data-shape'])
+              || 'circle'
+            );
           },
           onColorInput(value, ctx){
             if(ctx.scope === 'trace'){
@@ -1842,7 +1882,10 @@
           label: 'Border',
           getColor(ctx){
             const style = resolvePointStyle(ctx);
-            return style.stroke || style.borderColor || sourcePoint.getAttribute('stroke') || '#000000';
+            return style.stroke
+              || style.borderColor
+              || readBoxPointSourceAttr(sourcePoint, ['data-point-stroke', 'stroke'])
+              || '#000000';
           },
           onColorInput(value, ctx){
             if(ctx.scope === 'trace'){
@@ -1862,7 +1905,7 @@
             const style = resolvePointStyle(ctx);
             if(Number.isFinite(Number(style.borderWidth))){ return Number(style.borderWidth); }
             if(Number.isFinite(Number(style.strokeWidth))){ return Number(style.strokeWidth); }
-            return Number(sourcePoint.getAttribute('stroke-width')) || 0;
+            return readBoxPointSourceNumber(sourcePoint, ['data-point-stroke-width', 'stroke-width']) || 0;
           },
           onWidthChange(value, ctx){
             const next = Math.max(0, Number(value) || 0);
@@ -1877,9 +1920,9 @@
           get(ctx){
             const style = resolvePointStyle(ctx);
             if(Number.isFinite(Number(style.size))){ return Number(style.size); }
-            const explicit = Number(sourcePoint.getAttribute('data-point-size'));
+            const explicit = readBoxPointSourceNumber(sourcePoint, ['data-point-size']);
             if(Number.isFinite(explicit) && explicit > 0){ return explicit / 2; }
-            return Number(sourcePoint.getAttribute('r')) || 4;
+            return readBoxPointSourceNumber(sourcePoint, ['r']) || 4;
           },
           onChange(value, ctx){
             const rounded = roundStripPointControlValue(value, 0.1);
@@ -1898,7 +1941,8 @@
             if(Number.isFinite(Number(style.opacity))){
               return 1 - Math.min(1, Math.max(0, Number(style.opacity)));
             }
-            const attrOpacity = readSvgOpacityAttr(sourcePoint, 'fill-opacity');
+            const proxyOpacity = readBoxPointSourceNumber(sourcePoint, ['data-point-fill-opacity']);
+            const attrOpacity = proxyOpacity == null ? readSvgOpacityAttr(sourcePoint, 'fill-opacity') : proxyOpacity;
             const opacity = attrOpacity == null ? 1 : attrOpacity;
             return 1 - opacity;
           },
@@ -2953,7 +2997,10 @@
     if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
       ctx.strokeStyle = config.stroke;
       ctx.lineWidth = strokeWidth;
-      ctx.globalAlpha = 1;
+      const strokeOpacity = Number.isFinite(Number(config.strokeOpacity))
+        ? Number(config.strokeOpacity)
+        : Number(config.fillOpacity);
+      ctx.globalAlpha = Math.max(0, Math.min(1, Number.isFinite(strokeOpacity) ? strokeOpacity : 1));
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -3170,7 +3217,7 @@
       ctx.stroke();
     };
     if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
-      drawSegments(Math.max(1, thickness + strokeWidth * 2), config.stroke, 1);
+      drawSegments(Math.max(1, thickness + strokeWidth * 2), config.stroke, Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity));
     }
     if(config.fill && config.fill !== 'none'){
       drawSegments(thickness, config.fill, Number(config.fillOpacity));
@@ -3179,6 +3226,262 @@
     foreignObject.appendChild(canvas);
     group.appendChild(foreignObject);
     return true;
+  }
+
+  function buildBoxPointInteractionMaskPath(config){
+    const bins = Array.isArray(config?.bins) ? config.bins : [];
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const center = Number(config?.center);
+    if(!bins.length || !Number.isFinite(center)){
+      return '';
+    }
+    const parts = [];
+    bins.forEach(bin => {
+      const coord = Number(bin?.coord);
+      const halfWidth = Number(bin?.halfWidth);
+      if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
+        return;
+      }
+      if(orientation === 'vertical'){
+        parts.push(`M ${center - halfWidth} ${coord} L ${center + halfWidth} ${coord}`);
+      }else{
+        parts.push(`M ${coord} ${center - halfWidth} L ${coord} ${center + halfWidth}`);
+      }
+    });
+    return parts.join(' ');
+  }
+
+  function attachBoxPointSelectionProxy(el, data){
+    if(!el){ return; }
+    if(data){
+      el.__boxPointData = data;
+    }
+    try{
+      el.style.cursor = 'pointer';
+    }catch(e){}
+    el.addEventListener('click', handleBoxPointClick);
+  }
+
+  function syncBoxPointProxyStyle(node, config){
+    if(!node || typeof node.setAttribute !== 'function'){
+      return;
+    }
+    const fill = typeof config?.fill === 'string' ? config.fill : '';
+    const stroke = typeof config?.stroke === 'string' ? config.stroke : '';
+    const fillOpacity = Number(config?.fillOpacity);
+    const strokeOpacity = Number(config?.strokeOpacity);
+    const strokeWidth = Number(config?.strokeWidth);
+    const pointRadius = Number(config?.pointRadius);
+    const shape = typeof config?.shape === 'string' && config.shape.trim()
+      ? config.shape.trim()
+      : 'circle';
+    if(fill){
+      node.setAttribute('data-point-fill', fill);
+    }else{
+      node.removeAttribute('data-point-fill');
+    }
+    if(stroke){
+      node.setAttribute('data-point-stroke', stroke);
+    }else{
+      node.removeAttribute('data-point-stroke');
+    }
+    if(Number.isFinite(fillOpacity)){
+      node.setAttribute('data-point-fill-opacity', String(Math.max(0, Math.min(1, fillOpacity))));
+    }else{
+      node.removeAttribute('data-point-fill-opacity');
+    }
+    if(Number.isFinite(strokeOpacity)){
+      node.setAttribute('data-point-stroke-opacity', String(Math.max(0, Math.min(1, strokeOpacity))));
+    }else{
+      node.removeAttribute('data-point-stroke-opacity');
+    }
+    if(Number.isFinite(strokeWidth)){
+      node.setAttribute('data-point-stroke-width', String(Math.max(0, strokeWidth)));
+    }else{
+      node.removeAttribute('data-point-stroke-width');
+    }
+    if(Number.isFinite(pointRadius) && pointRadius > 0){
+      node.setAttribute('data-point-size', String(pointRadius * 2));
+    }else{
+      node.removeAttribute('data-point-size');
+    }
+    node.setAttribute('data-shape', shape);
+  }
+
+  function renderBoxPointInteractionMask(config){
+    const doc = config?.doc || global.document;
+    const group = config?.group || null;
+    if(!doc || !group){
+      return null;
+    }
+    const d = buildBoxPointInteractionMaskPath(config);
+    if(!d){
+      return null;
+    }
+    const path = doc.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#000000');
+    path.setAttribute('stroke-opacity', '0.001');
+    path.setAttribute('stroke-width', String(Math.max(8, Number(config?.hitStrokeWidth) || 8)));
+    path.setAttribute('pointer-events', 'stroke');
+    path.setAttribute('vector-effect', 'non-scaling-stroke');
+    path.setAttribute('data-point-proxy', '1');
+    path.setAttribute('data-box-point-hit-mask', '1');
+    path.setAttribute('data-export-ignore', '1');
+    if(config?.traceIndex != null){
+      path.setAttribute('data-trace', String(config.traceIndex));
+    }
+    syncBoxPointProxyStyle(path, {
+      fill: config?.fill,
+      stroke: config?.stroke,
+      fillOpacity: config?.fillOpacity,
+      strokeOpacity: config?.strokeOpacity,
+      strokeWidth: config?.strokeWidth,
+      pointRadius: config?.pointRadius,
+      shape: config?.shape
+    });
+    attachBoxPointSelectionProxy(path, config?.pointData || null);
+    group.appendChild(path);
+    return path;
+  }
+
+  function clearBoxCanvasPointGroupArtifacts(group){
+    if(!group || !group.children){
+      return;
+    }
+    Array.from(group.children).forEach(child => {
+      if(!child || typeof child.getAttribute !== 'function'){
+        return;
+      }
+      const tagName = String(child.tagName || '').toLowerCase();
+      if(tagName === 'foreignobject' && child.getAttribute('data-point-renderer')){
+        child.remove();
+        return;
+      }
+      if(child.getAttribute('data-box-point-hit-mask') === '1'){
+        child.remove();
+      }
+    });
+  }
+
+  function renderStoredBoxCanvasPointGroup(group){
+    const renderState = group && group.__boxCanvasRenderState;
+    if(!group || !renderState){
+      return false;
+    }
+    clearBoxCanvasPointGroupArtifacts(group);
+    const doc = renderState.doc || global.document;
+    const style = renderState.style || {};
+    let rendered = false;
+    if(renderState.renderer === 'canvas-approx'){
+      rendered = renderBoxApproximatePointCanvas({
+        doc,
+        group,
+        bins: renderState.bins,
+        orientation: renderState.orientation,
+        center: renderState.center,
+        thickness: renderState.thickness,
+        fill: style.fill,
+        fillOpacity: style.fillOpacity,
+        strokeOpacity: style.strokeOpacity,
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth
+      });
+    }else{
+      rendered = renderBoxPointResizeCanvasPreview({
+        doc,
+        group,
+        points: renderState.points,
+        radius: renderState.pointRadius,
+        fill: style.fill,
+        fillOpacity: style.fillOpacity,
+        strokeOpacity: style.strokeOpacity,
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth,
+        shape: renderState.shape
+      });
+    }
+    if(!rendered){
+      return false;
+    }
+    renderBoxPointInteractionMask({
+      doc,
+      group,
+      bins: Array.isArray(renderState.hitBins) && renderState.hitBins.length ? renderState.hitBins : renderState.bins,
+      orientation: renderState.hitOrientation || renderState.orientation,
+      center: Number.isFinite(Number(renderState.hitCenter)) ? Number(renderState.hitCenter) : renderState.center,
+      hitStrokeWidth: renderState.hitStrokeWidth,
+      traceIndex: renderState.traceIndex,
+      pointData: renderState.pointData || null,
+      fill: style.fill,
+      fillOpacity: style.fillOpacity,
+      strokeOpacity: style.strokeOpacity,
+      stroke: style.stroke,
+      strokeWidth: style.strokeWidth,
+      pointRadius: renderState.pointRadius,
+      shape: renderState.shape
+    });
+    return true;
+  }
+
+  function applyBoxCanvasPointGroupStyleLive(group, patch){
+    const renderState = group && group.__boxCanvasRenderState;
+    if(!group || !renderState || !patch || typeof patch !== 'object'){
+      return false;
+    }
+    const style = Object.assign({}, renderState.style || {});
+    let changed = false;
+    if(patch.fill != null){
+      style.fill = String(patch.fill);
+      changed = true;
+    }
+    if(patch.stroke != null){
+      style.stroke = String(patch.stroke);
+      changed = true;
+    }
+    if(patch.opacity != null){
+      const opacity = Number(patch.opacity);
+      if(Number.isFinite(opacity)){
+        style.fillOpacity = Math.max(0, Math.min(1, opacity));
+        style.strokeOpacity = Math.max(0, Math.min(1, opacity));
+        changed = true;
+      }
+    }
+    if(patch.borderWidth != null || patch.strokeWidth != null){
+      const widthRaw = patch.borderWidth != null ? patch.borderWidth : patch.strokeWidth;
+      const width = Number(widthRaw);
+      if(Number.isFinite(width)){
+        style.strokeWidth = Math.max(0, width);
+        changed = true;
+      }
+    }
+    if(patch.shape != null){
+      renderState.shape = String(patch.shape || 'circle');
+      changed = true;
+    }
+    if(patch.size != null){
+      const nextRadius = Number(patch.size);
+      if(Number.isFinite(nextRadius) && nextRadius > 0){
+        const previousRadius = Number(renderState.pointRadius);
+        renderState.pointRadius = nextRadius;
+        if(renderState.renderer === 'canvas-approx'){
+          const scale = Number.isFinite(previousRadius) && previousRadius > 0
+            ? (nextRadius / previousRadius)
+            : 1;
+          renderState.thickness = Math.max(1, Math.min(24, (Number(renderState.thickness) || 1) * scale));
+          renderState.hitStrokeWidth = Math.max(10, (Number(renderState.hitStrokeWidth) || 10) * scale);
+        }else{
+          renderState.hitStrokeWidth = Math.max(10, nextRadius * 2 + 8);
+        }
+        changed = true;
+      }
+    }
+    if(!changed){
+      return false;
+    }
+    renderState.style = style;
+    return renderStoredBoxCanvasPointGroup(group);
   }
 
   function shouldUseBoxPointCanvasPreview(drawOptions, renderOptions = {}){
@@ -10673,11 +10976,47 @@
       return [];
     }
     return Array.from(
-      plot.querySelectorAll('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] rect, g[data-export-layer="box-points"] path')
+      plot.querySelectorAll('g[data-export-layer="box-points"] circle:not([data-point-proxy="1"]), g[data-export-layer="box-points"] rect:not([data-point-proxy="1"]), g[data-export-layer="box-points"] path:not([data-point-proxy="1"])')
     );
   }
 
-  function tryApplyBoxStripPointStyleLive(patch){
+  function resolveBoxPointGroupsForLiveStyle(traceIndex){
+    const plot = global.document?.getElementById?.('boxPlot');
+    if(!plot || typeof plot.querySelectorAll !== 'function'){
+      return [];
+    }
+    const groups = Array.from(plot.querySelectorAll('g[data-export-layer="box-points"]'));
+    if(traceIndex == null){
+      return groups;
+    }
+    const targetTrace = String(traceIndex);
+    return groups.filter(group => String(group.getAttribute('data-trace') || '').trim() === targetTrace);
+  }
+
+  function applyBoxPointProxyStyleLive(group, patch){
+    if(!group || !patch || typeof patch !== 'object' || typeof group.querySelectorAll !== 'function'){
+      return false;
+    }
+    const proxies = Array.from(group.querySelectorAll('[data-point-proxy="1"]'));
+    if(!proxies.length){
+      return false;
+    }
+    const pointRadius = Number(patch.size);
+    proxies.forEach(node => {
+      syncBoxPointProxyStyle(node, {
+        fill: patch.fill != null ? patch.fill : node.getAttribute('data-point-fill'),
+        stroke: patch.stroke != null ? patch.stroke : node.getAttribute('data-point-stroke'),
+        fillOpacity: patch.opacity != null ? patch.opacity : readBoxPointSourceNumber(node, ['data-point-fill-opacity']),
+        strokeOpacity: patch.opacity != null ? patch.opacity : readBoxPointSourceNumber(node, ['data-point-stroke-opacity']),
+        strokeWidth: patch.borderWidth != null ? patch.borderWidth : (patch.strokeWidth != null ? patch.strokeWidth : readBoxPointSourceNumber(node, ['data-point-stroke-width'])),
+        pointRadius: Number.isFinite(pointRadius) && pointRadius > 0 ? pointRadius : ((readBoxPointSourceNumber(node, ['data-point-size']) || 0) / 2),
+        shape: patch.shape != null ? patch.shape : readBoxPointSourceAttr(node, ['data-shape'])
+      });
+    });
+    return true;
+  }
+
+  function tryApplyBoxStripPointStyleLive(patch, options){
     if(!patch || typeof patch !== 'object'){
       return false;
     }
@@ -10688,8 +11027,11 @@
     if(graphType !== 'strip'){
       return false;
     }
-    const nodes = resolveBoxPointNodesForLiveStyle();
-    if(!nodes.length){
+    const opts = options && typeof options === 'object' ? options : {};
+    const traceIndex = opts.traceIndex != null ? String(opts.traceIndex) : null;
+    const persistState = opts.persistState !== false;
+    const groups = resolveBoxPointGroupsForLiveStyle(traceIndex);
+    if(!groups.length){
       return false;
     }
     const stylePatch = {};
@@ -10706,24 +11048,80 @@
         stylePatch.borderWidth = Math.max(0, widthNumeric);
       }
     }
+    if(patch.opacity != null){
+      const opacityNumeric = Number(patch.opacity);
+      if(Number.isFinite(opacityNumeric)){
+        stylePatch.opacity = Math.max(0, Math.min(1, opacityNumeric));
+      }
+    }
+    if(patch.size != null){
+      const sizeNumeric = Number(patch.size);
+      if(Number.isFinite(sizeNumeric) && sizeNumeric > 0){
+        stylePatch.size = sizeNumeric;
+      }
+    }
+    if(patch.shape != null){
+      stylePatch.shape = String(patch.shape || 'circle');
+    }
     if(!Object.keys(stylePatch).length){
       return false;
     }
-    state.pointStyles = state.pointStyles || {};
-    Object.keys(state.pointStyles).forEach(key => {
-      state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, stylePatch);
+    if(persistState){
+      state.pointStyles = state.pointStyles || {};
+      if(traceIndex != null){
+        const previous = state.pointStyles[traceIndex] && typeof state.pointStyles[traceIndex] === 'object'
+          ? state.pointStyles[traceIndex]
+          : {};
+        state.pointStyles[traceIndex] = Object.assign({}, previous, stylePatch);
+      }else{
+        Object.keys(state.pointStyles).forEach(key => {
+          state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, stylePatch);
+        });
+        state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, stylePatch);
+      }
+    }
+    let applied = false;
+    let geometryFallbackNeeded = false;
+    groups.forEach(group => {
+      if(applyBoxCanvasPointGroupStyleLive(group, stylePatch)){
+        applied = true;
+        return;
+      }
+      const nodes = Array.from(group.querySelectorAll('circle:not([data-point-proxy="1"]), rect:not([data-point-proxy="1"]), path:not([data-point-proxy="1"])'));
+      if(!nodes.length){
+        if(applyBoxPointProxyStyleLive(group, stylePatch)){
+          applied = true;
+        }
+        return;
+      }
+      if(stylePatch.fill != null){
+        nodes.forEach(node => node.setAttribute('fill', stylePatch.fill));
+        applied = true;
+      }
+      if(stylePatch.stroke != null){
+        nodes.forEach(node => node.setAttribute('stroke', stylePatch.stroke));
+        applied = true;
+      }
+      if(stylePatch.borderWidth != null){
+        nodes.forEach(node => node.setAttribute('stroke-width', String(stylePatch.borderWidth)));
+        applied = true;
+      }
+      if(stylePatch.opacity != null){
+        nodes.forEach(node => {
+          node.setAttribute('fill-opacity', String(stylePatch.opacity));
+          node.setAttribute('stroke-opacity', String(stylePatch.opacity));
+        });
+        applied = true;
+      }
+      if(stylePatch.size != null || stylePatch.shape != null){
+        geometryFallbackNeeded = true;
+      }
+      applyBoxPointProxyStyleLive(group, stylePatch);
     });
-    state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, stylePatch);
-    if(stylePatch.fill != null){
-      nodes.forEach(node => node.setAttribute('fill', stylePatch.fill));
+    if(geometryFallbackNeeded){
+      return false;
     }
-    if(stylePatch.stroke != null){
-      nodes.forEach(node => node.setAttribute('stroke', stylePatch.stroke));
-    }
-    if(stylePatch.borderWidth != null){
-      nodes.forEach(node => node.setAttribute('stroke-width', String(stylePatch.borderWidth)));
-    }
-    return true;
+    return applied;
   }
 
   function tryApplyBoxStripPaletteLive(options){
@@ -26627,21 +27025,41 @@ Technical analysis record (advanced)
         };
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
+        const pointSelectionData = {
+          seriesName: tooltipSeriesName,
+          categoryName: tooltipCategoryName,
+          groupName: tooltipGroupName,
+          value: meanValue,
+          rawValue: meanValue,
+          index: null
+        };
         let maxOffsetUsed = 0;
         if(approximateLayout){
           maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
-          renderBoxApproximatePointCanvas({
+          group.__boxCanvasRenderState = {
             doc: document,
-            group,
+            renderer: 'canvas-approx',
             bins: approximateLayout.bins,
             orientation: 'vertical',
             center: cx,
             thickness: approximateLayout.thickness,
-            fill: effectiveFill,
-            fillOpacity: effectiveOpacity,
-            stroke: effectiveStroke,
-            strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
-          });
+            hitBins: approximateLayout.bins,
+            hitOrientation: 'vertical',
+            hitCenter: cx,
+            hitStrokeWidth: Math.max(12, approximateLayout.thickness + effectiveRadius * 2 + 8),
+            traceIndex,
+            pointData: pointSelectionData,
+            pointRadius: effectiveRadius,
+            shape: effectiveShape,
+            style: {
+              fill: effectiveFill,
+              fillOpacity: effectiveOpacity,
+              strokeOpacity: effectiveOpacity,
+              stroke: effectiveStroke,
+              strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+            }
+          };
+          renderStoredBoxCanvasPointGroup(group);
           if(debugEnabled){
             console.debug('Debug: box approximate point canvas rendered', {
               orientation: 'vertical',
@@ -26671,17 +27089,40 @@ Technical analysis record (advanced)
               }
             }
           }
-          renderBoxPointResizeCanvasPreview({
-            doc: document,
-            group,
-            points: pts,
+          const interactionLayout = buildBoxApproximatePointBins({
+            coords: pointCoords,
+            raws: rawValues,
+            orientation: 'vertical',
             radius: effectiveRadius,
-            fill: effectiveFill,
-            fillOpacity: effectiveOpacity,
-            stroke: effectiveStroke,
-            strokeWidth: Math.max(0, effectiveStrokeWidth || 0),
-            shape: effectiveShape
+            maxHalfWidth: Math.max(
+              effectiveRadius * 1.5,
+              Number(resolvedMaxHalfWidth) || 0,
+              maxOffsetUsed || 0
+            ),
+            widthScaleMode,
+            violinBounds
           });
+          group.__boxCanvasRenderState = {
+            doc: document,
+            renderer: 'canvas-preview',
+            points: pts,
+            pointRadius: effectiveRadius,
+            shape: effectiveShape,
+            hitBins: interactionLayout?.bins || null,
+            hitOrientation: 'vertical',
+            hitCenter: cx,
+            hitStrokeWidth: Math.max(10, effectiveRadius * 2 + 8),
+            traceIndex,
+            pointData: pointSelectionData,
+            style: {
+              fill: effectiveFill,
+              fillOpacity: effectiveOpacity,
+              strokeOpacity: effectiveOpacity,
+              stroke: effectiveStroke,
+              strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+            }
+          };
+          renderStoredBoxCanvasPointGroup(group);
           if(debugEnabled){
             console.debug('Debug: box resize canvas preview rendered', {
               orientation: 'vertical',
@@ -28156,21 +28597,41 @@ Technical analysis record (advanced)
         };
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
+        const pointSelectionData = {
+          seriesName: tooltipSeriesName,
+          categoryName: tooltipCategoryName,
+          groupName: tooltipGroupName,
+          value: meanValue,
+          rawValue: meanValue,
+          index: null
+        };
         let maxOffsetUsed = 0;
         if(approximateLayout){
           maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
-          renderBoxApproximatePointCanvas({
+          group.__boxCanvasRenderState = {
             doc: document,
-            group,
+            renderer: 'canvas-approx',
             bins: approximateLayout.bins,
             orientation: 'horizontal',
             center: cy,
             thickness: approximateLayout.thickness,
-            fill: effectiveFill,
-            fillOpacity: effectiveOpacity,
-            stroke: effectiveStroke,
-            strokeWidth: Math.max(0, effectiveStrokeWidthH || 0)
-          });
+            hitBins: approximateLayout.bins,
+            hitOrientation: 'horizontal',
+            hitCenter: cy,
+            hitStrokeWidth: Math.max(12, approximateLayout.thickness + effectiveRadius * 2 + 8),
+            traceIndex,
+            pointData: pointSelectionData,
+            pointRadius: effectiveRadius,
+            shape: effectiveShape,
+            style: {
+              fill: effectiveFill,
+              fillOpacity: effectiveOpacity,
+              strokeOpacity: effectiveOpacity,
+              stroke: effectiveStroke,
+              strokeWidth: Math.max(0, effectiveStrokeWidthH || 0)
+            }
+          };
+          renderStoredBoxCanvasPointGroup(group);
           if(debugEnabled){
             console.debug('Debug: box approximate point canvas rendered', {
               orientation: 'horizontal',
@@ -28200,17 +28661,40 @@ Technical analysis record (advanced)
               }
             }
           }
-          renderBoxPointResizeCanvasPreview({
-            doc: document,
-            group,
-            points: pts,
+          const interactionLayout = buildBoxApproximatePointBins({
+            coords: pointCoords,
+            raws: rawValues,
+            orientation: 'horizontal',
             radius: effectiveRadius,
-            fill: effectiveFill,
-            fillOpacity: effectiveOpacity,
-            stroke: effectiveStroke,
-            strokeWidth: Math.max(0, effectiveStrokeWidthH || 0),
-            shape: effectiveShape
+            maxHalfWidth: Math.max(
+              effectiveRadius * 1.5,
+              Number(resolvedMaxHalfWidth) || 0,
+              maxOffsetUsed || 0
+            ),
+            widthScaleMode,
+            violinBounds
           });
+          group.__boxCanvasRenderState = {
+            doc: document,
+            renderer: 'canvas-preview',
+            points: pts,
+            pointRadius: effectiveRadius,
+            shape: effectiveShape,
+            hitBins: interactionLayout?.bins || null,
+            hitOrientation: 'horizontal',
+            hitCenter: cy,
+            hitStrokeWidth: Math.max(10, effectiveRadius * 2 + 8),
+            traceIndex,
+            pointData: pointSelectionData,
+            style: {
+              fill: effectiveFill,
+              fillOpacity: effectiveOpacity,
+              strokeOpacity: effectiveOpacity,
+              stroke: effectiveStroke,
+              strokeWidth: Math.max(0, effectiveStrokeWidthH || 0)
+            }
+          };
+          renderStoredBoxCanvasPointGroup(group);
           if(debugEnabled){
             console.debug('Debug: box resize canvas preview rendered', {
               orientation: 'horizontal',
@@ -31725,6 +32209,8 @@ Technical analysis record (advanced)
       resolveFastStripAutoSizeProfile:config=>resolveFastStripAutoSizeProfile(config),
       shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
       buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
+      buildBoxPointInteractionMaskPath:config=>buildBoxPointInteractionMaskPath(config),
+      findBoxPointNodeForTrace:(traceIndex,fallbackNode)=>findBoxPointNodeForTrace(traceIndex,fallbackNode),
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
