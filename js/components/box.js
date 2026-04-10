@@ -10421,11 +10421,11 @@
   }
 
   function resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor, options = {}){
-    if(isBoxGrayscaleScheme(options.schemeId)){
-      return '#000000';
-    }
     if(summaryStyle && typeof summaryStyle.color === 'string' && summaryStyle.color.trim() && summaryStyle.color !== 'none'){
       return summaryStyle.color.trim();
+    }
+    if(isBoxGrayscaleScheme(options.schemeId)){
+      return '#000000';
     }
     if(typeof fillColor === 'string' && fillColor.trim() && fillColor !== 'none'){
       return fillColor.trim();
@@ -27389,7 +27389,9 @@ Technical analysis record (advanced)
               return resolvedHalfSpan;
             })();
             const summaryStyle = getSummaryStyle(i);
-            const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor);
+            const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor, {
+              schemeId: getBoxSelectedColorSchemeId()
+            });
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
             const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
             const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
@@ -29605,7 +29607,9 @@ Technical analysis record (advanced)
               return resolvedHalfSpan;
             })();
             const summaryStyle = getSummaryStyle(i);
-            const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor);
+            const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor, {
+              schemeId: getBoxSelectedColorSchemeId()
+            });
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
             const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
             const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
@@ -31724,6 +31728,7 @@ Technical analysis record (advanced)
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
+      resolveBoxSummaryOverlayColor:(summaryStyle,fillColor,borderColor,options={})=>resolveBoxSummaryOverlayColor(summaryStyle,fillColor,borderColor,options || {}),
       shouldUseBoxPointCanvasPreview:(opts, renderOptions)=>shouldUseBoxPointCanvasPreview(opts, renderOptions),
       shouldRetainPreviousBoxFrame:(opts)=>shouldRetainPreviousBoxFrame(opts),
       shouldAutoScaleBoxAxisToVisibleFeature:(graphType,pointMode)=>shouldAutoScaleBoxAxisToVisibleFeature(graphType,pointMode),
