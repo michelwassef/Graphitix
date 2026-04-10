@@ -3154,7 +3154,6 @@
     formatField.appendChild(formatButtonsRow);
     logDebug('font datalist initialized', { count: uniqueFonts.length });
     controlsRow.appendChild(fontField);
-    controlsRow.appendChild(formatField);
 
     function createFontMenuOption(value, label){
       const optionBtn = doc.createElement('button');
@@ -3379,6 +3378,7 @@
     sizeField.appendChild(sizeLabel);
     sizeField.appendChild(sizeComboWrapper);
     controlsRow.appendChild(sizeField);
+    controlsRow.appendChild(formatField);
 
     sizeMenuToggle.addEventListener('mousedown', (evt) => {
       evt.preventDefault();
