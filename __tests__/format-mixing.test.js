@@ -120,4 +120,122 @@ describe('Format toolbar exclusivity', () => {
     expect(host.querySelector('.heatmap-palette-controls-panel')).toBeTruthy();
     expect(host.querySelector('.font-controls-panel')).toBeTruthy();
   });
+
+  test('heatmap palette toolbar does not appear just by opening the workspace', async () => {
+    require('../js/vendor.js');
+    require('../js/shared/fileIO.js');
+    require('../js/shared/debounce.js');
+    require('../js/shared/undo.js');
+    require('../js/shared/resizer.js');
+    require('../js/shared/dom.js');
+    require('../js/shared/exporter.js');
+    require('../js/shared/chartStyle.js');
+    require('../js/shared/graphSizing.js');
+    require('../js/shared/regression.js');
+    require('../js/shared/stats.js');
+    require('../js/shared/stats-table.js');
+    require('../js/shared/colorPicker.js');
+    require('../js/shared/editHighlight.js');
+    require('../js/shared/workspaceToolbar.js');
+    require('../js/shared/axisControls.js');
+    require('../js/shared/additionalLineControls.js');
+    require('../js/shared/significanceControls.js');
+    require('../js/shared/fontControls.js');
+    require('../js/shared/formControls.js');
+    require('../js/shared/hot.js');
+    require('../js/shared/componentLayout.js');
+    require('../js/shared/tableImport.js');
+    require('../js/main/components.js');
+    require('../js/main/session.js');
+    require('../js/main/domControls.js');
+    require('../js/main/sessionActions.js');
+    require('../js/main/styleSync.js');
+    require('../js/main/tabDrag.js');
+    require('../js/main/previews.js');
+    require('../js/main/tabs/unsavedPrompt.js');
+    require('../js/main/tabs/duplicatePrompt.js');
+    require('../js/main/tabs/render.js');
+    require('../js/main/tabs.js');
+    require('../js/main.js');
+
+    const graphSelection = window.Main?.tabs?.handleGraphSelection;
+    expect(typeof graphSelection).toBe('function');
+    const maybePromise = graphSelection('heatmap');
+    if(maybePromise && typeof maybePromise.then === 'function'){
+      await maybePromise;
+    }
+    await Promise.resolve();
+
+    const host = document.querySelector('.font-toolbar-host[data-font-toolbar-scope="heatmap"]');
+    expect(host?.classList?.contains('font-toolbar-host--visible')).not.toBe(true);
+    expect(host?.querySelector('.heatmap-palette-controls-panel')).toBeFalsy();
+  });
+
+  test('clicking a heatmap cell opens the heatmap palette toolbar', async () => {
+    require('../js/vendor.js');
+    require('../js/shared/fileIO.js');
+    require('../js/shared/debounce.js');
+    require('../js/shared/undo.js');
+    require('../js/shared/resizer.js');
+    require('../js/shared/dom.js');
+    require('../js/shared/exporter.js');
+    require('../js/shared/chartStyle.js');
+    require('../js/shared/graphSizing.js');
+    require('../js/shared/regression.js');
+    require('../js/shared/stats.js');
+    require('../js/shared/stats-table.js');
+    require('../js/shared/colorPicker.js');
+    require('../js/shared/editHighlight.js');
+    require('../js/shared/workspaceToolbar.js');
+    require('../js/shared/axisControls.js');
+    require('../js/shared/additionalLineControls.js');
+    require('../js/shared/significanceControls.js');
+    require('../js/shared/fontControls.js');
+    require('../js/shared/formControls.js');
+    require('../js/shared/hot.js');
+    require('../js/shared/componentLayout.js');
+    require('../js/shared/tableImport.js');
+    require('../js/main/components.js');
+    require('../js/main/session.js');
+    require('../js/main/domControls.js');
+    require('../js/main/sessionActions.js');
+    require('../js/main/styleSync.js');
+    require('../js/main/tabDrag.js');
+    require('../js/main/previews.js');
+    require('../js/main/tabs/unsavedPrompt.js');
+    require('../js/main/tabs/duplicatePrompt.js');
+    require('../js/main/tabs/render.js');
+    require('../js/main/tabs.js');
+    require('../js/main.js');
+
+    const flushAsyncWork = async (iterations = 10) => {
+      for(let i = 0; i < iterations; i += 1){
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    };
+
+    const graphSelection = window.Main?.tabs?.handleGraphSelection;
+    expect(typeof graphSelection).toBe('function');
+    const maybePromise = graphSelection('heatmap');
+    if(maybePromise && typeof maybePromise.then === 'function'){
+      await maybePromise;
+    }
+    await flushAsyncWork(4);
+
+    const loadExample = document.getElementById('heatmapLoadExample');
+    expect(loadExample).toBeTruthy();
+    loadExample.click();
+    await flushAsyncWork(12);
+
+    const svg = document.getElementById('heatmapSvg');
+    expect(svg).toBeTruthy();
+    const cellRect = svg.querySelector('[data-export-layer="heatmap-cells"] rect');
+    expect(cellRect).toBeTruthy();
+    cellRect.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(4);
+
+    const host = document.querySelector('.font-toolbar-host[data-font-toolbar-scope="heatmap"]');
+    expect(host?.classList?.contains('font-toolbar-host--visible')).toBe(true);
+    expect(host?.querySelector('.heatmap-palette-controls-panel')).toBeTruthy();
+  });
 });

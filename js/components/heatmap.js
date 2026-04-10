@@ -366,6 +366,14 @@
     zero: '#ffffff',
     positive: '#ff0000'
   });
+  const DEFAULT_HEATMAP_VALUE_SCALE = Object.freeze({
+    min: null,
+    max: null
+  });
+  const DEFAULT_HEATMAP_LEGEND_HEIGHT_MODE = 'match-heatmap';
+  const HEATMAP_FIXED_LEGEND_HEIGHT_RATIO = 0.3;
+  const HEATMAP_FIXED_LEGEND_HEIGHT_MIN = 80;
+  const HEATMAP_FIXED_LEGEND_HEIGHT_MAX = 200;
   const HEATMAP_TEXT_SCALE_MODE = 'preserve-fit';
   const HEATMAP_TRANSFORM_SCOPE_DEFAULT = Object.freeze({
     headerRows: 1,
@@ -426,6 +434,9 @@
     },
     labelPositions: { title: null },
     palette: { ...DEFAULT_HEATMAP_PALETTE },
+    valueScale: { ...DEFAULT_HEATMAP_VALUE_SCALE },
+    lastResolvedValueScale: null,
+    legendHeightMode: DEFAULT_HEATMAP_LEGEND_HEIGHT_MODE,
     clusterControlsTouched: false,
     clusterDefaultsAutoApplied: false,
     suppressClusterTouchTracking: false,
@@ -445,6 +456,8 @@
       },
       labelPositions: { title: null },
       palette: { ...DEFAULT_HEATMAP_PALETTE },
+      valueScale: { ...DEFAULT_HEATMAP_VALUE_SCALE },
+      legendHeightMode: DEFAULT_HEATMAP_LEGEND_HEIGHT_MODE,
       clusterControlsTouched: false,
       clusterDefaultsAutoApplied: false,
       lastDataShape: { rows: 0, cols: 0 },
@@ -485,6 +498,8 @@
       dendrogramSettings: cloneSimple(ensureDendrogramSettings()) || { ...defaults.dendrogramSettings },
       labelPositions: cloneSimple(state.labelPositions || defaults.labelPositions) || { ...defaults.labelPositions },
       palette: normalizeHeatmapPalette(state.palette),
+      valueScale: normalizeHeatmapValueScale(state.valueScale),
+      legendHeightMode: normalizeHeatmapLegendHeightMode(state.legendHeightMode),
       clusterControlsTouched: !!state.clusterControlsTouched,
       clusterDefaultsAutoApplied: !!state.clusterDefaultsAutoApplied,
       lastDataShape: cloneSimple(state.lastDataShape) || { ...defaults.lastDataShape },
@@ -510,6 +525,9 @@
     state.dendrogramSettings = cloneSimple(source.dendrogramSettings) || { ...defaults.dendrogramSettings };
     state.labelPositions = cloneSimple(source.labelPositions) || { ...defaults.labelPositions };
     state.palette = normalizeHeatmapPalette(source.palette);
+    state.valueScale = normalizeHeatmapValueScale(source.valueScale);
+    state.legendHeightMode = normalizeHeatmapLegendHeightMode(source.legendHeightMode);
+    state.lastResolvedValueScale = null;
     state.clusterControlsTouched = !!source.clusterControlsTouched;
     state.clusterDefaultsAutoApplied = !!source.clusterDefaultsAutoApplied;
     state.lastDataShape = cloneSimple(source.lastDataShape) || { ...defaults.lastDataShape };
@@ -600,13 +618,71 @@
     };
   }
 
+  function normalizeHeatmapScaleNumber(value){
+    if(value == null){
+      return null;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return null;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function normalizeHeatmapValueScale(scale){
+    const next = scale && typeof scale === 'object' ? scale : {};
+    return {
+      min: normalizeHeatmapScaleNumber(next.min),
+      max: normalizeHeatmapScaleNumber(next.max)
+    };
+  }
+
+  function normalizeHeatmapLegendHeightMode(value){
+    return value === 'fixed' ? 'fixed' : DEFAULT_HEATMAP_LEGEND_HEIGHT_MODE;
+  }
+
+  function isHeatmapValueView(view){
+    const normalized = typeof view === 'string' ? view.trim() : '';
+    return normalized ? !normalized.startsWith('corr') : false;
+  }
+
+  function getHeatmapCurrentView(){
+    return refs.view?.value || state.lastViewOptions?.view || 'corr-columns';
+  }
+
+  function formatHeatmapScaleInputValue(value){
+    if(!Number.isFinite(value)){
+      return '';
+    }
+    const decimals = clampDecimals(refs.decimals?.value);
+    if(chartStyle && typeof chartStyle.formatScientific === 'function'){
+      return chartStyle.formatScientific(value, { maxDecimals: decimals ?? 2 });
+    }
+    return value.toFixed(decimals ?? 2);
+  }
+
   function getHeatmapPalette(){
     state.palette = normalizeHeatmapPalette(state.palette);
     return { ...state.palette };
   }
 
+  function getHeatmapValueScale(){
+    state.valueScale = normalizeHeatmapValueScale(state.valueScale);
+    return { ...state.valueScale };
+  }
+
+  function getHeatmapLegendHeightMode(){
+    state.legendHeightMode = normalizeHeatmapLegendHeightMode(state.legendHeightMode);
+    return state.legendHeightMode;
+  }
+
   function syncHeatmapPaletteInputs(doc){
     const palette = getHeatmapPalette();
+    const valueScale = getHeatmapValueScale();
+    const legendHeightMode = getHeatmapLegendHeightMode();
+    const resolvedValueScale = state.lastResolvedValueScale && typeof state.lastResolvedValueScale === 'object'
+      ? state.lastResolvedValueScale
+      : null;
     if(refs.colorNegative){ refs.colorNegative.value = palette.negative; }
     if(refs.colorZero){ refs.colorZero.value = palette.zero; }
     if(refs.colorPositive){ refs.colorPositive.value = palette.positive; }
@@ -619,6 +695,41 @@
       if(key && palette[key]){
         input.value = palette[key];
       }
+    });
+    root.querySelectorAll('.heatmap-palette-controls-panel input[data-heatmap-value-scale-bound]').forEach(input => {
+      const key = input?.dataset?.heatmapValueScaleBound || '';
+      if(key !== 'min' && key !== 'max'){
+        return;
+      }
+      const overrideValue = valueScale[key];
+      input.value = Number.isFinite(overrideValue) ? String(overrideValue) : '';
+      const placeholderValue = Number.isFinite(resolvedValueScale?.[key])
+        ? formatHeatmapScaleInputValue(resolvedValueScale[key])
+        : '';
+      input.placeholder = placeholderValue;
+      input.title = placeholderValue
+        ? `Leave blank to use ${placeholderValue}`
+        : `Leave blank to use the data ${key}`;
+    });
+    root.querySelectorAll('.heatmap-palette-controls-panel [data-heatmap-legend-height-mode]').forEach(select => {
+      select.value = legendHeightMode;
+    });
+    const valueView = isHeatmapValueView(getHeatmapCurrentView());
+    root.querySelectorAll('.heatmap-palette-controls-panel [data-heatmap-value-scale-field]').forEach(field => {
+      field.hidden = false;
+      field.setAttribute('aria-disabled', valueView ? 'false' : 'true');
+      field.title = valueView ? '' : 'Available for Heatmap type = values.';
+      const controls = typeof field.querySelectorAll === 'function'
+        ? field.querySelectorAll('input, select, textarea, button')
+        : [];
+      controls.forEach(control => {
+        control.disabled = !valueView;
+        if(!valueView){
+          control.title = 'Available for Heatmap type = values.';
+        }else{
+          control.removeAttribute('title');
+        }
+      });
     });
     return palette;
   }
@@ -637,6 +748,49 @@
     debugLog('Debug: heatmap palette updated', {
       reason: options.reason || 'palette-change',
       palette: next
+    });
+    return next;
+  }
+
+  function updateHeatmapValueScale(patch, options = {}){
+    const previous = getHeatmapValueScale();
+    const next = normalizeHeatmapValueScale({ ...previous, ...(patch || {}) });
+    if(previous.min === next.min && previous.max === next.max){
+      syncHeatmapPaletteInputs(options.document);
+      return next;
+    }
+    state.valueScale = next;
+    syncHeatmapPaletteInputs(options.document);
+    if(options.skipSchedule !== true){
+      state.scheduleDraw({
+        viewOnly: true,
+        reason: options.reason || 'value-scale-change'
+      });
+    }
+    debugLog('Debug: heatmap value scale updated', {
+      reason: options.reason || 'value-scale-change',
+      valueScale: next
+    });
+    return next;
+  }
+
+  function updateHeatmapLegendHeightMode(mode, options = {}){
+    const next = normalizeHeatmapLegendHeightMode(mode);
+    if(getHeatmapLegendHeightMode() === next){
+      syncHeatmapPaletteInputs(options.document);
+      return next;
+    }
+    state.legendHeightMode = next;
+    syncHeatmapPaletteInputs(options.document);
+    if(options.skipSchedule !== true){
+      state.scheduleDraw({
+        viewOnly: true,
+        reason: options.reason || 'legend-height-mode-change'
+      });
+    }
+    debugLog('Debug: heatmap legend height mode updated', {
+      reason: options.reason || 'legend-height-mode-change',
+      legendHeightMode: next
     });
     return next;
   }
@@ -787,6 +941,8 @@
     }
 
     const palette = getHeatmapPalette();
+    const valueScale = getHeatmapValueScale();
+    const legendHeightMode = getHeatmapLegendHeightMode();
     const fieldDefs = [
       { key: 'negative', label: 'Negative' },
       { key: 'zero', label: 'Neutral' },
@@ -820,7 +976,73 @@
       form.appendChild(label);
     });
 
+    const scaleFieldDefs = [
+      { key: 'min', label: 'Min' },
+      { key: 'max', label: 'Max' }
+    ];
+    scaleFieldDefs.forEach(field => {
+      const label = doc.createElement('label');
+      label.className = 'additional-line-controls-panel__field heatmap-palette-controls__field';
+      label.dataset.heatmapValueScaleField = '1';
+
+      const caption = doc.createElement('span');
+      caption.className = 'additional-line-controls-panel__field-label';
+      caption.textContent = field.label;
+      label.appendChild(caption);
+
+      const input = doc.createElement('input');
+      input.type = 'number';
+      input.step = 'any';
+      input.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small';
+      input.dataset.heatmapValueScaleBound = field.key;
+      input.setAttribute('aria-label', `Heatmap ${field.label.toLowerCase()} scale bound`);
+      if(Number.isFinite(valueScale[field.key])){
+        input.value = String(valueScale[field.key]);
+      }
+      input.addEventListener('change', () => {
+        updateHeatmapValueScale({ [field.key]: input.value }, {
+          reason: `value-scale-${field.key}`,
+          document: doc
+        });
+      });
+      label.appendChild(input);
+
+      form.appendChild(label);
+    });
+
+    const legendField = doc.createElement('label');
+    legendField.className = 'additional-line-controls-panel__field heatmap-palette-controls__field';
+
+    const legendCaption = doc.createElement('span');
+    legendCaption.className = 'additional-line-controls-panel__field-label';
+    legendCaption.textContent = 'Legend';
+    legendField.appendChild(legendCaption);
+
+    const legendSelect = doc.createElement('select');
+    legendSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
+    legendSelect.dataset.heatmapLegendHeightMode = '1';
+    [
+      { value: 'match-heatmap', label: 'Match heatmap' },
+      { value: 'fixed', label: 'Fixed height' }
+    ].forEach(optionConfig => {
+      const option = doc.createElement('option');
+      option.value = optionConfig.value;
+      option.textContent = optionConfig.label;
+      legendSelect.appendChild(option);
+    });
+    legendSelect.value = legendHeightMode;
+    legendSelect.addEventListener('change', () => {
+      updateHeatmapLegendHeightMode(legendSelect.value, {
+        reason: 'legend-height-mode',
+        document: doc
+      });
+    });
+    legendField.appendChild(legendSelect);
+
+    form.appendChild(legendField);
+
     host.appendChild(panel);
+    syncHeatmapPaletteInputs(doc);
     if(toolbarApi && typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host, appendToHost ? { hostClass: 'font-toolbar-host--heatmap-dual' } : undefined);
     }else{
@@ -852,6 +1074,13 @@
       ? target.closest('[data-heatmap-palette-trigger="legend"]')
       : null;
     if(legendTarget){
+      showHeatmapPaletteFormatControls({ document: global.document });
+      return;
+    }
+    const cellTarget = typeof target.closest === 'function'
+      ? target.closest('[data-export-layer="heatmap-cells"], [data-layer="cells"]')
+      : null;
+    if(cellTarget){
       showHeatmapPaletteFormatControls({ document: global.document });
       return;
     }
@@ -2335,6 +2564,8 @@
       zero: refs.colorZero?.value,
       positive: refs.colorPositive?.value
     });
+    state.valueScale = normalizeHeatmapValueScale(state.valueScale);
+    state.legendHeightMode = normalizeHeatmapLegendHeightMode(state.legendHeightMode);
     syncHeatmapPaletteInputs(global.document);
 
     const schedule = () => {
@@ -2484,6 +2715,7 @@
         hideRowDendrogram,
         hideColumnDendrogram
       });
+      syncHeatmapPaletteInputs(global.document);
     };
 
     const registerFilter = (enableEl, valueEls = []) => {
@@ -3905,6 +4137,8 @@
       cellSize: Math.max(12, Number(refs.cellSize?.value) || 60),
       fontSize: Math.max(8, Number(refs.fontSize?.value) || DEFAULT_HEATMAP_FONT_SIZE_PT),
       palette: getHeatmapPalette(),
+      valueScale: getHeatmapValueScale(),
+      legendHeightMode: getHeatmapLegendHeightMode(),
       filters: {
         presentEnabled: !!refs.filterPresentEnable?.checked,
         presentThreshold: Number(refs.filterPresentValue?.value),
@@ -3959,6 +4193,8 @@
       fontSize: settings.fontSize,
       palette: settings.palette,
       colors: settings.palette,
+      valueScale: settings.valueScale,
+      legendHeightMode: settings.legendHeightMode,
       correlationMethod: settings.correlationMethod
     };
   }
@@ -4847,6 +5083,57 @@
       const sourceRow = matrix[rowIdx];
       return columnOrder.map(colIdx => sourceRow[colIdx]);
     });
+  }
+
+  function resolveHeatmapValueScaleStats(stats, overrides){
+    const normalizedOverrides = normalizeHeatmapValueScale(overrides);
+    const autoMin = Number(stats?.min);
+    const autoMax = Number(stats?.max);
+    const hasMinOverride = Number.isFinite(normalizedOverrides.min);
+    const hasMaxOverride = Number.isFinite(normalizedOverrides.max);
+    const customized = hasMinOverride || hasMaxOverride;
+    let min = hasMinOverride ? normalizedOverrides.min : autoMin;
+    let max = hasMaxOverride ? normalizedOverrides.max : autoMax;
+
+    if(Number.isFinite(min) && Number.isFinite(max) && min > max){
+      if(hasMinOverride && hasMaxOverride){
+        [min, max] = [max, min];
+      }else{
+        min = autoMin;
+        max = autoMax;
+      }
+    }
+
+    if(customized && Number.isFinite(min) && Number.isFinite(max) && min === max && autoMin !== autoMax){
+      min = autoMin;
+      max = autoMax;
+    }
+
+    const resolved = {
+      min,
+      max,
+      autoMin,
+      autoMax,
+      customized,
+      hasMinOverride,
+      hasMaxOverride
+    };
+    debugLog('Debug: heatmap value scale resolved', resolved);
+    return resolved;
+  }
+
+  function resolveHeatmapModelValueScale(model, viewOptions){
+    if(!model || model.type !== 'values'){
+      return null;
+    }
+    const baseStats = model.valueStats?.stats || {
+      min: model.valueStats?.min,
+      max: model.valueStats?.max
+    };
+    const overrideScale = (viewOptions && Object.prototype.hasOwnProperty.call(viewOptions, 'valueScale'))
+      ? viewOptions.valueScale
+      : model.valueStats?.scale;
+    return resolveHeatmapValueScaleStats(baseStats, overrideScale);
   }
 
   function createValueColorMapper(stats, palette){
@@ -5744,6 +6031,8 @@
 
   function renderEmpty(message){
     clearCachedRenderState();
+    state.lastResolvedValueScale = null;
+    syncHeatmapPaletteInputs(global.document);
     if(!state.svg) return;
     if(state.emptyPlotNoticeEl && state.emptyPlotNoticeEl.parentNode){
       state.emptyPlotNoticeEl.parentNode.removeChild(state.emptyPlotNoticeEl);
@@ -5935,6 +6224,9 @@
       if(Number.isFinite(stats.mean)){
         appendStatRow('Mean', stats.mean.toFixed(stats.decimals ?? 2));
       }
+      if(stats.scaleCustomized && Number.isFinite(stats.scaleMin) && Number.isFinite(stats.scaleMax)){
+        appendStatRow('Color scale', `${stats.scaleMin.toFixed(stats.decimals ?? 2)} to ${stats.scaleMax.toFixed(stats.decimals ?? 2)} (custom)`);
+      }
       if(stats.logApplied !== undefined){
         appendStatRow('Log transform', stats.logApplied ? 'Applied' : 'Not applied');
       }
@@ -6008,6 +6300,7 @@
     showValues,
     decimals,
     colorScale,
+    legendHeightMode,
     layoutAdjust
   }){
     state.isRendering = true;
@@ -6473,8 +6766,18 @@
       }
     }
     const scaleStartX = dataStartX + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
+    const resolvedLegendHeightMode = normalizeHeatmapLegendHeightMode(legendHeightMode);
+    const scaleHeight = resolvedLegendHeightMode === 'fixed'
+      ? Math.min(
+          heatmapHeight,
+          HEATMAP_FIXED_LEGEND_HEIGHT_MAX,
+          Math.max(
+            HEATMAP_FIXED_LEGEND_HEIGHT_MIN,
+            heatmapHeight * HEATMAP_FIXED_LEGEND_HEIGHT_RATIO
+          )
+        )
+      : heatmapHeight;
     const scaleStartY = dataStartY;
-    const scaleHeight = heatmapHeight;
     // Scale strokes using the minimum axis factor so thickness only changes when both axes stretch.
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
     const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
@@ -6978,6 +7281,8 @@
   }
 
   function renderCorrelationHeatmap(processed, settings, drawToken){
+    state.lastResolvedValueScale = null;
+    syncHeatmapPaletteInputs(global.document);
     const viewContext = resolveHeatmapViewContext();
     const axis = settings.view === 'corr-columns' ? 'columns' : 'rows';
     const labels = axis === 'columns' ? processed.columnLabels : processed.rowLabels;
@@ -7123,6 +7428,9 @@
       const orderedCells = orderedMatrix.map(row => row.map(value => ({ value })));
       const min = processed.stats.min;
       const max = processed.stats.max;
+      const resolvedValueScale = resolveHeatmapValueScaleStats(processed.stats, settings.valueScale);
+      state.lastResolvedValueScale = resolvedValueScale;
+      syncHeatmapPaletteInputs(global.document);
       const showRowDendrogram = !!(resolvedRow && settings.clustering.rows.showDendrogram);
       const showColumnDendrogram = !!(resolvedColumn && settings.clustering.columns.showDendrogram);
       const model = {
@@ -7136,7 +7444,7 @@
         columnClustering: resolvedColumn,
         showRowDendrogram,
         showColumnDendrogram,
-        valueStats: { min, max, stats: processed.stats },
+        valueStats: { min, max, stats: processed.stats, scale: resolvedValueScale },
         adjustmentSummary: processed.adjustmentSummary
       };
       const viewOptions = extractViewOptions(settings);
@@ -7150,6 +7458,9 @@
         mean: processed.stats.mean,
         decimals: settings.decimals,
         finiteCount: processed.stats.finiteCount,
+        scaleMin: resolvedValueScale.min,
+        scaleMax: resolvedValueScale.max,
+        scaleCustomized: resolvedValueScale.customized,
         rowsFiltered: processed.stats.rowsFiltered,
         columnsRemoved: processed.stats.columnsRemoved,
         logApplied: processed.stats.logApplied,
@@ -7327,12 +7638,13 @@
         fontSize: viewOptions.fontSize,
         showValues: viewOptions.showValues,
         decimals: viewOptions.decimals,
-        colorScale: createCorrelationColorScale(viewOptions)
+        colorScale: createCorrelationColorScale(viewOptions),
+        legendHeightMode: viewOptions.legendHeightMode
       };
     }
     if(model.type === 'values'){
-      const stats = model.valueStats?.stats || {};
-      const colorMapper = createValueColorMapper(stats, viewOptions.palette);
+      const scaleStats = resolveHeatmapModelValueScale(model, viewOptions) || model.valueStats?.scale || model.valueStats?.stats || {};
+      const colorMapper = createValueColorMapper(scaleStats, viewOptions.palette);
       const orderedCells = model.cells.map((row, rowIndex) => row.map((cell, columnIndex) => {
         const value = cell?.value;
         const fill = colorMapper(value);
@@ -7359,7 +7671,9 @@
         fontSize: viewOptions.fontSize,
         showValues: viewOptions.showValues,
         decimals: viewOptions.decimals,
-        colorScale: createValueColorScale({ min: model.valueStats?.min, max: model.valueStats?.max }, viewOptions.palette, viewOptions.decimals)
+        colorScale: createValueColorScale(scaleStats, viewOptions.palette, viewOptions.decimals),
+        legendHeightMode: viewOptions.legendHeightMode,
+        resolvedValueScale: scaleStats
       };
     }
     return null;
@@ -7370,6 +7684,13 @@
     if(!payload){
       debugLog('Debug: heatmap renderModelWithView skipped - missing payload');
       return false;
+    }
+    if(model?.type === 'values'){
+      state.lastResolvedValueScale = payload.resolvedValueScale || resolveHeatmapModelValueScale(model, viewOptions);
+      syncHeatmapPaletteInputs(global.document);
+    }else{
+      state.lastResolvedValueScale = null;
+      syncHeatmapPaletteInputs(global.document);
     }
     drawHeatmap(payload);
     state.lastRenderModel = model;
@@ -7385,6 +7706,16 @@
     stats.decimals = viewOptions?.decimals ?? stats.decimals;
     if(stats.type === 'correlation'){
       stats.useAbs = !!viewOptions?.useAbsolute;
+      state.lastResolvedValueScale = null;
+      syncHeatmapPaletteInputs(global.document);
+    }
+    if(stats.type === 'values'){
+      const resolvedScale = resolveHeatmapModelValueScale(state.lastRenderModel, viewOptions);
+      state.lastResolvedValueScale = resolvedScale;
+      stats.scaleMin = resolvedScale?.min;
+      stats.scaleMax = resolvedScale?.max;
+      stats.scaleCustomized = !!resolvedScale?.customized;
+      syncHeatmapPaletteInputs(global.document);
     }
     updateStats(stats);
   }
@@ -7554,6 +7885,8 @@
       significanceDisplay: refs.significanceDisplay?.value === 'pvalue' ? 'pvalue' : 'star',
       decimals: clampDecimals(refs.decimals?.value),
       colors: getHeatmapPalette(),
+      valueScale: getHeatmapValueScale(),
+      legendHeightMode: getHeatmapLegendHeightMode(),
       cellSize: Number(refs.cellSize?.value) || 60,
       fontSize: Number(refs.fontSize?.value) || DEFAULT_HEATMAP_FONT_SIZE_PT,
       fontStyles: exportFontStyles('heatmap') || undefined,
@@ -7639,6 +7972,9 @@
       if(refs.significanceDisplay) refs.significanceDisplay.value = config.significanceDisplay === 'pvalue' ? 'pvalue' : 'star';
       if(refs.decimals) refs.decimals.value = String(clampDecimals(config.decimals));
       state.palette = normalizeHeatmapPalette(config.colors);
+      state.valueScale = normalizeHeatmapValueScale(config.valueScale);
+      state.legendHeightMode = normalizeHeatmapLegendHeightMode(config.legendHeightMode);
+      state.lastResolvedValueScale = null;
       syncHeatmapPaletteInputs(global.document);
       if(refs.cellSize){
         refs.cellSize.value = String(config.cellSize || 60);

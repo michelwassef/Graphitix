@@ -102,6 +102,109 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
+  test('value scale override and fixed legend height serialize and affect the rendered legend', async () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    const heatmap = window.Components?.heatmap;
+    expect(hot).toBeTruthy();
+    expect(heatmap).toBeTruthy();
+
+    hot.loadData([
+      ['Gene', 'ArrayA', 'ArrayB'],
+      ['Gene1', 0, 10],
+      ['Gene2', 20, 30],
+      ['Gene3', 40, 5]
+    ]);
+    const page = document.getElementById('heatmapPage');
+    if(page){
+      page.hidden = false;
+      page.removeAttribute('hidden');
+    }
+
+    const viewSelect = document.getElementById('heatmapView');
+    viewSelect.value = 'values';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(8);
+    const state = heatmap.__getState();
+    state.valueScale = { min: null, max: 30 };
+    state.legendHeightMode = 'fixed';
+    heatmap.draw();
+    await flushAsyncWork(10);
+
+    const savedPayload = heatmap.getPayload();
+    expect(savedPayload.config.valueScale).toEqual({ min: null, max: 30 });
+    expect(savedPayload.config.legendHeightMode).toBe('fixed');
+    heatmap.loadFromPayload(savedPayload, { source: 'test-value-scale-restore', skipDraw: true });
+    expect(heatmap.__getState().valueScale).toEqual({ min: null, max: 30 });
+    expect(heatmap.__getState().legendHeightMode).toBe('fixed');
+
+    const svg = document.getElementById('heatmapSvg');
+    const scaleGroup = Array.from(svg.getElementsByTagName('g')).find(node => node.getAttribute('class') === 'heatmap-color-scale');
+    const scaleRect = scaleGroup ? scaleGroup.getElementsByTagName('rect')[0] : null;
+    expect(scaleRect).toBeTruthy();
+    expect(Number(scaleRect.getAttribute('height'))).toBeLessThan(180);
+
+    const cellLayer = Array.from(svg.getElementsByTagName('g')).find(node => node.getAttribute('data-export-layer') === 'heatmap-cells');
+    const cellRects = cellLayer ? Array.from(cellLayer.getElementsByTagName('rect')) : [];
+    const saturatedRect = cellRects.find(rect => (rect.querySelector('title')?.textContent || '').includes('Gene2 vs ArrayB: 30.00'));
+    expect(saturatedRect).toBeTruthy();
+    expect(saturatedRect.getAttribute('fill')).toBe('rgb(255,0,0)');
+
+    const statsContent = document.getElementById('heatmapStatsContent');
+    expect(statsContent?.textContent || '').toContain('Color scale');
+  });
+
+  test('value scale changes affect cached view-only redraws', async () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    const heatmap = window.Components?.heatmap;
+    expect(hot).toBeTruthy();
+    expect(heatmap).toBeTruthy();
+
+    hot.loadData([
+      ['Gene', 'ArrayA', 'ArrayB'],
+      ['Gene1', 0, 10],
+      ['Gene2', 20, 30],
+      ['Gene3', 40, 5]
+    ]);
+
+    const page = document.getElementById('heatmapPage');
+    if(page){
+      page.hidden = false;
+      page.removeAttribute('hidden');
+    }
+
+    const viewSelect = document.getElementById('heatmapView');
+    viewSelect.value = 'values';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(8);
+
+    heatmap.draw();
+    await flushAsyncWork(10);
+
+    const svg = document.getElementById('heatmapSvg');
+    const getCellRect = () => {
+      const cellLayer = Array.from(svg.getElementsByTagName('g')).find(node => node.getAttribute('data-export-layer') === 'heatmap-cells');
+      const cellRects = cellLayer ? Array.from(cellLayer.getElementsByTagName('rect')) : [];
+      return cellRects.find(rect => (rect.querySelector('title')?.textContent || '').includes('Gene2 vs ArrayB: 30.00')) || null;
+    };
+
+    const beforeRect = getCellRect();
+    expect(beforeRect).toBeTruthy();
+    const beforeFill = beforeRect.getAttribute('fill');
+    expect(beforeFill).not.toBe('rgb(255,0,0)');
+
+    const state = heatmap.__getState();
+    state.valueScale = { min: 0, max: 20 };
+    state.scheduleDraw({ viewOnly: true, reason: 'test-value-scale-view-only' });
+    await flushAsyncWork(10);
+
+    const afterRect = getCellRect();
+    expect(afterRect).toBeTruthy();
+    expect(afterRect.getAttribute('fill')).toBe('rgb(255,0,0)');
+
+    const statsContent = document.getElementById('heatmapStatsContent');
+    expect(statsContent?.textContent || '').toContain('0.00 to 20.00');
+  });
+
   test('data transform controls create a derived data tab while keeping raw tab', () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();
