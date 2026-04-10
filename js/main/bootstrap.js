@@ -20,10 +20,11 @@
 
   if(typeof require === 'function'){
     try {
-      require('../shared/workspaceToolbar.js');
-      debug('Debug: Main.bootstrap workspaceToolbar required');
+      require('../shared/workspaceToolbarAccess.js');
+      Shared.getWorkspaceToolbarApi?.();
+      debug('Debug: Main.bootstrap workspaceToolbar access initialized');
     } catch(err){
-      debug('Debug: Main.bootstrap workspaceToolbar require failed', { err });
+      debug('Debug: Main.bootstrap workspaceToolbar access init failed', { err });
     }
   }
 

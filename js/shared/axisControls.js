@@ -55,6 +55,17 @@
   const axisLengthUiByScope = new Map();
 
   function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    if(typeof require === 'function'){
+      try{
+        require('./workspaceToolbarAccess.js');
+      }catch(err){}
+    }
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -1976,33 +1987,27 @@
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
     styleLabel.textContent = 'Thickness';
-    const styleControl = doc.createElement('div');
-    styleControl.className = 'shared-border-style-control';
-    styleChipEl = doc.createElement('button');
-    styleChipEl.type = 'button';
-    styleChipEl.className = 'shared-border-style-chip';
-    styleChipEl.title = 'Click to edit axis line color. Wheel or Alt+drag to adjust line thickness.';
-    styleChipPreviewEl = doc.createElement('span');
-    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
-    styleChipValueEl = doc.createElement('span');
-    styleChipValueEl.className = 'shared-border-style-chip-value';
-    styleChipEl.appendChild(styleChipPreviewEl);
-    styleChipEl.appendChild(styleChipValueEl);
-    thicknessInput = doc.createElement('input');
-    thicknessInput.type = 'number';
-    thicknessInput.min = '0.25';
-    thicknessInput.max = '10';
-    thicknessInput.step = '0.25';
-    thicknessInput.placeholder = '1';
-    thicknessInput.className = 'axis-controls-panel__input additional-line-controls-panel__input axis-controls-panel__input--small';
-    thicknessInput.setAttribute('data-undo-ignore','1');
-    thicknessInput.hidden = true;
-    colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    colorInput.className = 'shared-border-style-input axis-controls-panel__color-input';
-    colorInput.setAttribute('data-undo-ignore','1');
-    styleControl.appendChild(styleChipEl);
-    styleControl.appendChild(colorInput);
+    const toolbarApi = getWorkspaceToolbarApi();
+    const styleControlParts = toolbarApi.createBorderStyleControl({
+      chipTitle: 'Click to edit axis line color. Wheel or Alt+drag to adjust line thickness.',
+      includeThicknessInput: true,
+      thicknessInputClass: 'axis-controls-panel__input additional-line-controls-panel__input axis-controls-panel__input--small',
+      thicknessInputAttrs: {
+        min: '0.25',
+        max: '10',
+        step: '0.25',
+        placeholder: '1',
+        'data-undo-ignore': '1'
+      },
+      colorInputClass: 'shared-border-style-input axis-controls-panel__color-input',
+      colorInputAttrs: { 'data-undo-ignore': '1' }
+    });
+    const styleControl = styleControlParts.control;
+    styleChipEl = styleControlParts.chip;
+    styleChipPreviewEl = styleControlParts.preview;
+    styleChipValueEl = styleControlParts.value;
+    thicknessInput = styleControlParts.thicknessInput;
+    colorInput = styleControlParts.colorInput;
     styleField.appendChild(styleLabel);
     // Keep thickness input in DOM for shared event wiring while using the style chip UI.
     styleField.appendChild(thicknessInput);

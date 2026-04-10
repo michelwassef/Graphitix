@@ -12,7 +12,6 @@
   let thicknessLabelEl = null;
   let thicknessInput = null;
   let colorField = null;
-  let colorLabelEl = null;
   let colorInput = null;
   let styleField = null;
   let styleLabelEl = null;
@@ -62,6 +61,17 @@
   }
 
   function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    if(typeof require === 'function'){
+      try{
+        require('./workspaceToolbarAccess.js');
+      }catch(err){}
+    }
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -684,7 +694,6 @@
 
     if(panelTitleEl){ panelTitleEl.textContent = controls.panelTitle; }
     if(thicknessLabelEl){ thicknessLabelEl.textContent = controls.thicknessLabel; }
-    if(colorLabelEl){ colorLabelEl.textContent = controls.colorLabel; }
     if(styleLabelEl){ styleLabelEl.textContent = controls.colorLabel; }
     if(patternLabelEl){ patternLabelEl.textContent = controls.patternLabel; }
     if(transparencyLabelEl){ transparencyLabelEl.textContent = controls.transparencyLabel; }
@@ -738,22 +747,21 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    panelEl = doc.createElement('div');
-    panelEl.className = 'grid-controls-panel';
-    panelEl.setAttribute('role', 'toolbar');
-    panelEl.setAttribute('aria-label', 'Grid controls');
+    const toolbarApi = getWorkspaceToolbarApi();
+    const panelParts = toolbarApi.createSubPanel({
+      panelClass: 'grid-controls-panel',
+      role: 'toolbar',
+      ariaLabel: 'Grid controls',
+      title: 'Grid',
+      rowClass: 'grid-controls-panel__row'
+    });
+    panelEl = panelParts.panel;
     panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
-
-    panelTitleEl = doc.createElement('div');
-    panelTitleEl.className = 'grid-controls-panel__title';
-    panelTitleEl.textContent = 'Grid';
-    panelEl.appendChild(panelTitleEl);
-
-    fieldsRowEl = doc.createElement('div');
-    fieldsRowEl.className = 'grid-controls-panel__row';
-    panelEl.appendChild(fieldsRowEl);
+    panelTitleEl = panelParts.title;
+    fieldsRowEl = panelParts.row;
+    panelTitleEl.classList.add('grid-controls-panel__title');
 
     thicknessField = doc.createElement('div');
     thicknessField.className = 'grid-controls-panel__field grid-controls-panel__field--numeric';
@@ -776,54 +784,36 @@
     styleLabelEl = doc.createElement('div');
     styleLabelEl.className = 'grid-controls-panel__field-label';
     styleLabelEl.textContent = 'Line';
-    styleControlEl = doc.createElement('div');
-    styleControlEl.className = 'shared-border-style-control';
-    styleChipEl = doc.createElement('button');
-    styleChipEl.type = 'button';
-    styleChipEl.className = 'shared-border-style-chip';
-    styleChipEl.title = 'Click to edit grid line color. Wheel or Alt+drag to adjust line width.';
-    styleChipPreviewEl = doc.createElement('span');
-    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
-    styleChipValueEl = doc.createElement('span');
-    styleChipValueEl.className = 'shared-border-style-chip-value';
-    styleChipEl.appendChild(styleChipPreviewEl);
-    styleChipEl.appendChild(styleChipValueEl);
-    colorLabelEl = doc.createElement('div');
-    colorLabelEl.className = 'grid-controls-panel__field-label';
-    colorLabelEl.textContent = 'Line';
-    colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    colorInput.className = 'shared-border-style-input grid-controls-panel__color-input';
-    colorInput.setAttribute('data-undo-ignore', '1');
-    colorInput.value = DEFAULTS.color;
-    styleControlEl.appendChild(styleChipEl);
-    styleControlEl.appendChild(colorInput);
+    const styleControlParts = toolbarApi.createBorderStyleControl({
+      chipTitle: 'Click to edit grid line color. Wheel or Alt+drag to adjust line width.',
+      colorInputClass: 'shared-border-style-input grid-controls-panel__color-input',
+      colorInputAttrs: { 'data-undo-ignore': '1' },
+      colorValue: DEFAULTS.color
+    });
+    styleControlEl = styleControlParts.control;
+    styleChipEl = styleControlParts.chip;
+    styleChipPreviewEl = styleControlParts.preview;
+    styleChipValueEl = styleControlParts.value;
+    colorInput = styleControlParts.colorInput;
     styleField.appendChild(styleLabelEl);
     styleField.appendChild(styleControlEl);
     fieldsRowEl.appendChild(styleField);
 
     colorField = styleField;
 
-    patternField = doc.createElement('div');
-    patternField.className = 'grid-controls-panel__field grid-controls-panel__field--pattern';
-    patternLabelEl = doc.createElement('div');
-    patternLabelEl.className = 'grid-controls-panel__field-label';
-    patternLabelEl.textContent = 'Pattern';
-    patternField.appendChild(patternLabelEl);
-    patternSelect = doc.createElement('select');
-    patternSelect.className = 'grid-controls-panel__input grid-controls-panel__input--select';
-    patternSelect.setAttribute('data-undo-ignore', '1');
-    [
-      { value: 'solid', label: 'Solid' },
-      { value: 'dashed', label: 'Dashed' },
-      { value: 'dotted', label: 'Dotted' }
-    ].forEach(optCfg => {
-      const opt = doc.createElement('option');
-      opt.value = optCfg.value;
-      opt.textContent = optCfg.label;
-      patternSelect.appendChild(opt);
+    const patternFieldParts = toolbarApi.createLinePatternField({
+      fieldTag: 'div',
+      fieldClass: 'grid-controls-panel__field grid-controls-panel__field--pattern',
+      label: 'Pattern',
+      labelTag: 'div',
+      labelClass: 'grid-controls-panel__field-label',
+      selectClass: 'grid-controls-panel__input grid-controls-panel__input--select',
+      selectAttrs: { 'data-undo-ignore': '1' },
+      solidLabel: 'Solid'
     });
-    patternField.appendChild(patternSelect);
+    patternField = patternFieldParts.field;
+    patternLabelEl = patternFieldParts.label;
+    patternSelect = patternFieldParts.select;
     fieldsRowEl.appendChild(patternField);
 
     transparencyField = doc.createElement('div');
@@ -832,21 +822,22 @@
     transparencyLabelEl.className = 'grid-controls-panel__field-label';
     transparencyLabelEl.textContent = 'Transparency';
     transparencyField.appendChild(transparencyLabelEl);
-    const transparencyWrap = doc.createElement('div');
-    transparencyWrap.className = 'grid-controls-panel__range';
-    transparencyInput = doc.createElement('input');
-    transparencyInput.type = 'range';
-    transparencyInput.className = 'grid-controls-panel__transparency-input';
-    transparencyInput.setAttribute('data-undo-ignore', '1');
-    transparencyInput.min = '0';
-    transparencyInput.max = '100';
-    transparencyInput.step = '1';
-    transparencyInput.value = String(DEFAULTS.transparency);
-    transparencyWrap.appendChild(transparencyInput);
-    transparencyValueEl = doc.createElement('span');
-    transparencyValueEl.className = 'grid-controls-panel__range-value';
-    transparencyValueEl.textContent = '0%';
-    transparencyWrap.appendChild(transparencyValueEl);
+    const transparencyParts = toolbarApi.createTransparencyControl({
+      wrapClass: 'grid-controls-panel__range',
+      inputClass: 'grid-controls-panel__transparency-input',
+      inputAttrs: {
+        min: '0',
+        max: '100',
+        step: '1',
+        value: String(DEFAULTS.transparency),
+        'data-undo-ignore': '1'
+      },
+      valueClass: 'grid-controls-panel__range-value',
+      valueText: '0%'
+    });
+    const transparencyWrap = transparencyParts.wrap;
+    transparencyInput = transparencyParts.input;
+    transparencyValueEl = transparencyParts.value;
     transparencyField.appendChild(transparencyWrap);
     fieldsRowEl.appendChild(transparencyField);
 

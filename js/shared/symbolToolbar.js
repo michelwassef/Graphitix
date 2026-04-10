@@ -30,6 +30,21 @@
     return null;
   }
 
+  function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    if(typeof require === 'function'){
+      try{
+        require('./workspaceToolbarAccess.js');
+      }catch(err){}
+    }
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    return Shared.workspaceToolbar || {};
+  }
+
   function clampNumeric(value, min, fallback){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -274,6 +289,11 @@
 
   function hideHost(host){
     if(!host){ return; }
+    const toolbarApi = getWorkspaceToolbarApi();
+    if(typeof toolbarApi.hideHost === 'function'){
+      toolbarApi.hideHost(host);
+      return;
+    }
     resetHostPresentation(host, { keepVisible: false });
     host.style.display = 'none';
     const dock = host.closest('.workspace-toolbar__dock');
@@ -303,39 +323,35 @@
       host.innerHTML = '';
     }
 
-    const panel = doc.createElement('div');
-    panel.className = 'workspace-toolbar__panel workspace-toolbar__panel--symbol';
-
     const panelTitleText = typeof cfg.panelTitle === 'string' && cfg.panelTitle.trim()
       ? cfg.panelTitle.trim()
       : 'Symbol';
-    const panelTitleEl = doc.createElement('div');
-    panelTitleEl.className = 'workspace-toolbar__panel-title';
-    panelTitleEl.textContent = panelTitleText;
-    panel.appendChild(panelTitleEl);
-
-    const wrap = doc.createElement('div');
     const className = cfg.formClass || 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls';
     const normalizedClassName = /\badditional-line-controls-panel__row\b/.test(className)
       ? className
       : `${className} additional-line-controls-panel__row`;
-    wrap.className = normalizedClassName;
+    const toolbarApi = getWorkspaceToolbarApi();
+    const sharedPanel = toolbarApi.createSubPanel({
+      panelClass: 'workspace-toolbar__panel--symbol',
+      role: 'toolbar',
+      ariaLabel: panelTitleText,
+      title: panelTitleText,
+      rowClass: normalizedClassName
+    });
+    const panel = sharedPanel.panel;
+    const wrap = sharedPanel.row;
     if(cfg.formDataKey){
       wrap.dataset[cfg.formDataKey] = '1';
     }
 
     const makeInput = (labelText, inputEl, extraClass) => {
-      const lbl = doc.createElement('label');
-      lbl.className = 'additional-line-controls-panel__field';
+      const classNames = ['additional-line-controls-panel__field'];
       if(extraClass){
         String(extraClass)
           .split(/\s+/)
           .filter(Boolean)
-          .forEach(cls => lbl.classList.add(cls));
+          .forEach(cls => classNames.push(cls));
       }
-      const span = doc.createElement('span');
-      span.className = 'additional-line-controls-panel__field-label';
-      span.textContent = labelText;
       if(inputEl && inputEl.classList){
         inputEl.classList.add('workspace-toolbar__input-control');
         const tagName = String(inputEl.tagName || '').toUpperCase();
@@ -345,9 +361,13 @@
           inputEl.classList.add('additional-line-controls-panel__input', 'additional-line-controls-panel__input--small');
         }
       }
-      lbl.appendChild(span);
-      lbl.appendChild(inputEl);
-      return lbl;
+      const fieldParts = toolbarApi.createLabeledField({
+        fieldClass: classNames.join(' '),
+        label: labelText,
+        labelClass: 'additional-line-controls-panel__field-label',
+        control: inputEl
+      });
+      return fieldParts.field;
     };
 
     const scopeCfg = cfg.scope || {};
@@ -935,25 +955,17 @@
     const fillLabel = makeInput(fillCfg.label || 'Fill/Shape', fillControlElement, 'additional-line-controls-panel__field--style additional-line-controls-panel__field--symbol-fill');
     wrap.appendChild(fillLabel);
 
-    const borderInput = doc.createElement('input');
-    borderInput.type = 'color';
-    borderInput.setAttribute('data-undo-ignore', '1');
-    borderInput.value = currentBorderColor || '#000000';
-    const borderControl = doc.createElement('div');
-    borderControl.className = 'shared-border-style-control';
-    const borderChip = doc.createElement('button');
-    borderChip.type = 'button';
-    borderChip.className = 'shared-border-style-chip';
-    borderChip.title = 'Click to edit border color. Wheel or Alt+drag to adjust border thickness.';
-    const borderPreview = doc.createElement('span');
-    borderPreview.className = 'shared-border-style-chip-preview';
-    const borderValue = doc.createElement('span');
-    borderValue.className = 'shared-border-style-chip-value';
-    borderChip.appendChild(borderPreview);
-    borderChip.appendChild(borderValue);
-    borderInput.className = 'shared-border-style-input';
-    borderControl.appendChild(borderChip);
-    borderControl.appendChild(borderInput);
+    const borderControlParts = toolbarApi.createBorderStyleControl({
+      chipTitle: 'Click to edit border color. Wheel or Alt+drag to adjust border thickness.',
+      colorInputClass: 'shared-border-style-input',
+      colorInputAttrs: { 'data-undo-ignore': '1' },
+      colorValue: currentBorderColor || '#000000'
+    });
+    const borderInput = borderControlParts.colorInput;
+    const borderControl = borderControlParts.control;
+    const borderChip = borderControlParts.chip;
+    const borderPreview = borderControlParts.preview;
+    const borderValue = borderControlParts.value;
 
     syncBorderChipUi = () => {
       const widthText = Number.isFinite(currentBorderWidth) ? (Math.round(currentBorderWidth * 10) / 10).toString() : '0';
@@ -1069,17 +1081,20 @@
       const transparencyLabel = doc.createElement('span');
       transparencyLabel.className = 'additional-line-controls-panel__field-label';
       transparencyLabel.textContent = transparencyCfg.label || 'Transparency';
-      const transparencyWrap = doc.createElement('div');
-      transparencyWrap.className = 'additional-line-controls-panel__range';
-      const transparencyInput = doc.createElement('input');
-      transparencyInput.type = 'range';
-      transparencyInput.min = '0';
-      transparencyInput.max = '100';
-      transparencyInput.step = '1';
-      transparencyInput.className = 'additional-line-controls-panel__transparency-input';
-      transparencyInput.setAttribute('data-undo-ignore', '1');
-      const transparencyValue = doc.createElement('span');
-      transparencyValue.className = 'additional-line-controls-panel__range-value';
+      const transparencyParts = toolbarApi.createTransparencyControl({
+        wrapClass: 'additional-line-controls-panel__range',
+        inputClass: 'additional-line-controls-panel__transparency-input',
+        inputAttrs: {
+          min: '0',
+          max: '100',
+          step: '1',
+          'data-undo-ignore': '1'
+        },
+        valueClass: 'additional-line-controls-panel__range-value'
+      });
+      const transparencyWrap = transparencyParts.wrap;
+      const transparencyInput = transparencyParts.input;
+      const transparencyValue = transparencyParts.value;
       const resolveTransparencyPercent = () => {
         const raw = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(getContext()) : 0;
         const numeric = Number(raw);
@@ -1167,13 +1182,25 @@
     if(typeof cfg.hostClass === 'string' && cfg.hostClass.trim()){
       host.classList.add(cfg.hostClass.trim());
     }
-    host.style.display = (typeof cfg.hostDisplay === 'string' && cfg.hostDisplay.trim())
-      ? cfg.hostDisplay.trim()
-      : 'block';
-    host.classList.add('font-toolbar-host--visible');
-    const dock = host.closest('.workspace-toolbar__dock');
-    if(dock){
-      dock.classList.add('workspace-toolbar__dock--active');
+    if(toolbarApi && typeof toolbarApi.showHost === 'function'){
+      toolbarApi.showHost(host, {
+        hostClasses: [typeof cfg.hostClass === 'string' ? cfg.hostClass.trim() : ''].filter(Boolean)
+      });
+      const requestedDisplay = (typeof cfg.hostDisplay === 'string' && cfg.hostDisplay.trim())
+        ? cfg.hostDisplay.trim()
+        : '';
+      if(requestedDisplay && requestedDisplay !== 'flex'){
+        host.style.display = requestedDisplay;
+      }
+    }else{
+      host.style.display = (typeof cfg.hostDisplay === 'string' && cfg.hostDisplay.trim())
+        ? cfg.hostDisplay.trim()
+        : 'block';
+      host.classList.add('font-toolbar-host--visible');
+      const dock = host.closest('.workspace-toolbar__dock');
+      if(dock){
+        dock.classList.add('workspace-toolbar__dock--active');
+      }
     }
 
     try{

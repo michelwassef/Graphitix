@@ -31,6 +31,17 @@
   }
 
   function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    if(typeof require === 'function'){
+      try{
+        require('./workspaceToolbarAccess.js');
+      }catch(err){}
+    }
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -438,7 +449,7 @@
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
     panelEl = doc.createElement('div');
-    panelEl.className = 'significance-controls-panel additional-line-controls-panel';
+    panelEl.className = 'workspace-toolbar__panel significance-controls-panel additional-line-controls-panel';
     panelEl.setAttribute('role', 'toolbar');
     panelEl.setAttribute('aria-label', 'Significance bar controls');
     panelEl.style.display = 'none';
@@ -446,7 +457,7 @@
     panelEl.hidden = true;
 
     const panelTitle = doc.createElement('div');
-    panelTitle.className = 'additional-line-controls-panel__title significance-controls-panel__title';
+    panelTitle.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title significance-controls-panel__title';
     panelTitle.textContent = 'Significance bars, p-value format';
     panelEl.appendChild(panelTitle);
 
@@ -461,33 +472,27 @@
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
     styleLabel.textContent = 'Border';
-    thicknessInput = doc.createElement('input');
-    thicknessInput.type = 'number';
-    thicknessInput.min = '0.25';
-    thicknessInput.max = '10';
-    thicknessInput.step = '0.25';
-    thicknessInput.placeholder = '1';
-    thicknessInput.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small significance-controls-panel__input significance-controls-panel__input--small';
-    thicknessInput.setAttribute('data-undo-ignore','1');
-    thicknessInput.hidden = true;
-    colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    colorInput.className = 'shared-border-style-input significance-controls-panel__color-input';
-    colorInput.setAttribute('data-undo-ignore','1');
-    const styleControl = doc.createElement('div');
-    styleControl.className = 'shared-border-style-control';
-    styleChipEl = doc.createElement('button');
-    styleChipEl.type = 'button';
-    styleChipEl.className = 'shared-border-style-chip';
-    styleChipEl.title = 'Click to edit significance bar color. Wheel or Alt+drag to adjust thickness.';
-    styleChipPreviewEl = doc.createElement('span');
-    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
-    styleChipValueEl = doc.createElement('span');
-    styleChipValueEl.className = 'shared-border-style-chip-value';
-    styleChipEl.appendChild(styleChipPreviewEl);
-    styleChipEl.appendChild(styleChipValueEl);
-    styleControl.appendChild(styleChipEl);
-    styleControl.appendChild(colorInput);
+    const toolbarApi = getWorkspaceToolbarApi();
+    const styleControlParts = toolbarApi.createBorderStyleControl({
+      chipTitle: 'Click to edit significance bar color. Wheel or Alt+drag to adjust thickness.',
+      includeThicknessInput: true,
+      thicknessInputClass: 'additional-line-controls-panel__input additional-line-controls-panel__input--small significance-controls-panel__input significance-controls-panel__input--small',
+      thicknessInputAttrs: {
+        min: '0.25',
+        max: '10',
+        step: '0.25',
+        placeholder: '1',
+        'data-undo-ignore': '1'
+      },
+      colorInputClass: 'shared-border-style-input significance-controls-panel__color-input',
+      colorInputAttrs: { 'data-undo-ignore': '1' }
+    });
+    thicknessInput = styleControlParts.thicknessInput;
+    colorInput = styleControlParts.colorInput;
+    const styleControl = styleControlParts.control;
+    styleChipEl = styleControlParts.chip;
+    styleChipPreviewEl = styleControlParts.preview;
+    styleChipValueEl = styleControlParts.value;
     styleField.appendChild(styleLabel);
     // Keep hidden input in DOM for existing event/undo wiring.
     styleField.appendChild(thicknessInput);

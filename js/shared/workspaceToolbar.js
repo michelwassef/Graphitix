@@ -409,6 +409,166 @@
     return { field, label };
   }
 
+  function createBorderStyleControl(options){
+    if(!doc){ return null; }
+    const config = options && typeof options === 'object' ? options : {};
+    const control = doc.createElement('div');
+    control.className = String(config.controlClass || 'shared-border-style-control').trim();
+
+    const chip = doc.createElement('button');
+    chip.type = 'button';
+    chip.className = String(config.chipClass || 'shared-border-style-chip').trim();
+    if(config.chipTitle){
+      chip.title = String(config.chipTitle);
+    }
+    const chipAriaLabel = config.chipAriaLabel || null;
+    if(chipAriaLabel){
+      chip.setAttribute('aria-label', String(chipAriaLabel));
+    }
+
+    const preview = doc.createElement('span');
+    preview.className = String(config.previewClass || 'shared-border-style-chip-preview').trim();
+    const value = doc.createElement('span');
+    value.className = String(config.valueClass || 'shared-border-style-chip-value').trim();
+    chip.appendChild(preview);
+    chip.appendChild(value);
+    control.appendChild(chip);
+
+    let thicknessInput = null;
+    if(config.includeThicknessInput){
+      thicknessInput = doc.createElement('input');
+      thicknessInput.type = 'number';
+      thicknessInput.className = String(config.thicknessInputClass || '').trim();
+      if(config.thicknessInputHidden !== false){
+        thicknessInput.hidden = true;
+      }
+      const thicknessAttrs = config.thicknessInputAttrs && typeof config.thicknessInputAttrs === 'object'
+        ? config.thicknessInputAttrs
+        : {};
+      Object.keys(thicknessAttrs).forEach(key => {
+        const valueAttr = thicknessAttrs[key];
+        if(valueAttr === undefined || valueAttr === null){ return; }
+        if(key in thicknessInput && key !== 'className'){
+          try{
+            thicknessInput[key] = valueAttr;
+            return;
+          }catch(err){}
+        }
+        thicknessInput.setAttribute(key, String(valueAttr));
+      });
+    }
+
+    const colorInput = doc.createElement('input');
+    colorInput.type = 'color';
+    colorInput.className = String(config.colorInputClass || 'shared-border-style-input').trim();
+    const colorAttrs = config.colorInputAttrs && typeof config.colorInputAttrs === 'object'
+      ? config.colorInputAttrs
+      : {};
+    Object.keys(colorAttrs).forEach(key => {
+      const valueAttr = colorAttrs[key];
+      if(valueAttr === undefined || valueAttr === null){ return; }
+      if(key in colorInput && key !== 'className'){
+        try{
+          colorInput[key] = valueAttr;
+          return;
+        }catch(err){}
+      }
+      colorInput.setAttribute(key, String(valueAttr));
+    });
+    if(config.colorValue !== undefined && config.colorValue !== null){
+      colorInput.value = String(config.colorValue);
+    }
+
+    control.appendChild(colorInput);
+    return { control, chip, preview, value, colorInput, thicknessInput };
+  }
+
+  function createTransparencyControl(options){
+    if(!doc){ return null; }
+    const config = options && typeof options === 'object' ? options : {};
+    const wrap = doc.createElement('div');
+    wrap.className = String(config.wrapClass || '').trim();
+
+    const input = doc.createElement('input');
+    input.type = 'range';
+    input.className = String(config.inputClass || '').trim();
+    const inputAttrs = config.inputAttrs && typeof config.inputAttrs === 'object'
+      ? config.inputAttrs
+      : {};
+    Object.keys(inputAttrs).forEach(key => {
+      const valueAttr = inputAttrs[key];
+      if(valueAttr === undefined || valueAttr === null){ return; }
+      if(key in input && key !== 'className'){
+        try{
+          input[key] = valueAttr;
+          return;
+        }catch(err){}
+      }
+      input.setAttribute(key, String(valueAttr));
+    });
+
+    const value = doc.createElement(config.valueTag || 'span');
+    value.className = String(config.valueClass || '').trim();
+    value.textContent = config.valueText == null ? '' : String(config.valueText);
+
+    wrap.appendChild(input);
+    wrap.appendChild(value);
+    return { wrap, input, value };
+  }
+
+  function createLinePatternField(options){
+    if(!doc){ return null; }
+    const config = options && typeof options === 'object' ? options : {};
+    const select = doc.createElement('select');
+    select.className = String(config.selectClass || '').trim();
+    const selectAttrs = config.selectAttrs && typeof config.selectAttrs === 'object'
+      ? config.selectAttrs
+      : {};
+    Object.keys(selectAttrs).forEach(key => {
+      const valueAttr = selectAttrs[key];
+      if(valueAttr === undefined || valueAttr === null){ return; }
+      if(key in select && key !== 'className'){
+        try{
+          select[key] = valueAttr;
+          return;
+        }catch(err){}
+      }
+      select.setAttribute(key, String(valueAttr));
+    });
+
+    const patternOptions = Array.isArray(config.options) && config.options.length
+      ? config.options
+      : [
+          { value: 'solid', label: config.solidLabel || 'Continuous' },
+          { value: 'dashed', label: 'Dashed' },
+          { value: 'dotted', label: 'Dotted' }
+        ];
+    patternOptions.forEach(optionConfig => {
+      if(!optionConfig || typeof optionConfig !== 'object'){ return; }
+      const option = doc.createElement('option');
+      option.value = String(optionConfig.value || '');
+      option.textContent = optionConfig.label == null ? option.value : String(optionConfig.label);
+      select.appendChild(option);
+    });
+
+    const fieldParts = createLabeledField({
+      tagName: config.fieldTag || 'label',
+      fieldClass: config.fieldClass,
+      label: config.label,
+      labelClass: config.labelClass,
+      labelTag: config.labelTag || 'span',
+      control: select
+    });
+    if(!fieldParts || !fieldParts.field){
+      return null;
+    }
+    return {
+      field: fieldParts.field,
+      label: fieldParts.label,
+      select
+    };
+  }
+
   function createButton(config){
     if(!config || !doc){ return null; }
     const button = doc.createElement('button');
@@ -1547,6 +1707,9 @@
   workspaceToolbar.clearHostSizing = clearToolbarHostSizing;
   workspaceToolbar.createSubPanel = createSubPanel;
   workspaceToolbar.createLabeledField = createLabeledField;
+  workspaceToolbar.createBorderStyleControl = createBorderStyleControl;
+  workspaceToolbar.createTransparencyControl = createTransparencyControl;
+  workspaceToolbar.createLinePatternField = createLinePatternField;
   workspaceToolbar.activateSection = function activateSection(toolbarKey, sectionLabel){
     if(!doc){ return false; }
     const key = String(toolbarKey || '').trim();

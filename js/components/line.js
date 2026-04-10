@@ -2427,10 +2427,10 @@
         return;
       }
       panel = doc.createElement('div');
-      panel.className = 'additional-line-controls-panel line-errorbar-inline-panel';
+      panel.className = 'workspace-toolbar__panel additional-line-controls-panel line-errorbar-inline-panel';
       panel.dataset.lineErrorBarToolbar = '1';
       const title = doc.createElement('div');
-      title.className = 'additional-line-controls-panel__title';
+      title.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title';
       title.textContent = 'Error bars';
       panel.appendChild(title);
       const row = doc.createElement('div');
@@ -3637,10 +3637,10 @@
           }
           clearInlineOverlayPanel();
           const panel = doc.createElement('div');
-          panel.className = 'additional-line-controls-panel line-overlay-inline-panel';
+          panel.className = 'workspace-toolbar__panel additional-line-controls-panel line-overlay-inline-panel';
           panel.dataset.lineOverlayPanel = '1';
           const title = doc.createElement('div');
-          title.className = 'additional-line-controls-panel__title';
+          title.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title';
           title.textContent = 'Overlay';
           panel.appendChild(title);
           const row = doc.createElement('div');
@@ -3662,68 +3662,53 @@
           scopeField.appendChild(scopeLabel);
           scopeField.appendChild(scopeSelect);
           row.appendChild(scopeField);
+          const toolbarApi = Shared.workspaceToolbar || {};
           const styleField = doc.createElement('label');
           styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style';
           const styleLabel = doc.createElement('span');
           styleLabel.className = 'additional-line-controls-panel__field-label';
           styleLabel.textContent = 'Line';
-          const styleControl = doc.createElement('div');
-          styleControl.className = 'shared-border-style-control';
-          const styleChip = doc.createElement('button');
-          styleChip.type = 'button';
-          styleChip.className = 'shared-border-style-chip';
-          styleChip.title = 'Click to edit color. Use mouse wheel to adjust line thickness.';
-          const styleChipPreview = doc.createElement('span');
-          styleChipPreview.className = 'shared-border-style-chip-preview';
-          const styleChipValue = doc.createElement('span');
-          styleChipValue.className = 'shared-border-style-chip-value';
-          styleChip.appendChild(styleChipPreview);
-          styleChip.appendChild(styleChipValue);
-          const colorInput = doc.createElement('input');
-          colorInput.type = 'color';
-          colorInput.className = 'shared-border-style-input additional-line-controls-panel__color-input';
-          styleControl.appendChild(styleChip);
-          styleControl.appendChild(colorInput);
+          const styleControlParts = toolbarApi.createBorderStyleControl({
+            chipTitle: 'Click to edit color. Use mouse wheel to adjust line thickness.',
+            colorInputClass: 'shared-border-style-input additional-line-controls-panel__color-input'
+          });
+          const styleControl = styleControlParts.control;
+          const styleChip = styleControlParts.chip;
+          const styleChipPreview = styleControlParts.preview;
+          const styleChipValue = styleControlParts.value;
+          const colorInput = styleControlParts.colorInput;
           styleField.appendChild(styleLabel);
           styleField.appendChild(styleControl);
           row.appendChild(styleField);
-          const patternField = doc.createElement('label');
-          patternField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern';
-          const patternLabel = doc.createElement('span');
-          patternLabel.className = 'additional-line-controls-panel__field-label';
-          patternLabel.textContent = 'Line pattern';
-          const patternSelect = doc.createElement('select');
-          patternSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
-          [
-            { value: 'solid', label: 'Continuous' },
-            { value: 'dashed', label: 'Dashed' },
-            { value: 'dotted', label: 'Dotted' }
-          ].forEach(option => {
-            const opt = doc.createElement('option');
-            opt.value = option.value;
-            opt.textContent = option.label;
-            patternSelect.appendChild(opt);
+          const patternFieldParts = toolbarApi.createLinePatternField({
+            fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern',
+            label: 'Line pattern',
+            labelClass: 'additional-line-controls-panel__field-label',
+            selectClass: 'additional-line-controls-panel__input additional-line-controls-panel__input--select',
+            solidLabel: 'Continuous'
           });
-          patternField.appendChild(patternLabel);
-          patternField.appendChild(patternSelect);
+          const patternField = patternFieldParts.field;
+          const patternLabel = patternFieldParts.label;
+          const patternSelect = patternFieldParts.select;
           row.appendChild(patternField);
           const transparencyField = doc.createElement('label');
           transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
           const transparencyLabel = doc.createElement('span');
           transparencyLabel.className = 'additional-line-controls-panel__field-label';
           transparencyLabel.textContent = 'Line transparency';
-          const transparencyWrap = doc.createElement('div');
-          transparencyWrap.className = 'additional-line-controls-panel__range';
-          const transparencyInput = doc.createElement('input');
-          transparencyInput.type = 'range';
-          transparencyInput.min = '0';
-          transparencyInput.max = '100';
-          transparencyInput.step = '1';
-          transparencyInput.className = 'additional-line-controls-panel__transparency-input';
-          const transparencyValue = doc.createElement('span');
-          transparencyValue.className = 'additional-line-controls-panel__range-value';
-          transparencyWrap.appendChild(transparencyInput);
-          transparencyWrap.appendChild(transparencyValue);
+          const transparencyParts = toolbarApi.createTransparencyControl({
+            wrapClass: 'additional-line-controls-panel__range',
+            inputClass: 'additional-line-controls-panel__transparency-input',
+            inputAttrs: {
+              min: '0',
+              max: '100',
+              step: '1'
+            },
+            valueClass: 'additional-line-controls-panel__range-value'
+          });
+          const transparencyWrap = transparencyParts.wrap;
+          const transparencyInput = transparencyParts.input;
+          const transparencyValue = transparencyParts.value;
           transparencyField.appendChild(transparencyLabel);
           transparencyField.appendChild(transparencyWrap);
           row.appendChild(transparencyField);

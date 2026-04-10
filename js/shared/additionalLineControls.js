@@ -25,7 +25,6 @@
   let styleDragState = null;
   let suppressStyleChipClick = false;
   let colorField = null;
-  let colorLabelEl = null;
   let colorInput = null;
   let patternField = null;
   let patternLabelEl = null;
@@ -48,6 +47,17 @@
   }
 
   function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    if(typeof require === 'function'){
+      try{
+        require('./workspaceToolbarAccess.js');
+      }catch(err){}
+    }
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -347,9 +357,6 @@
     if(thicknessLabelEl){
       thicknessLabelEl.textContent = controls.thicknessLabel;
     }
-    if(colorLabelEl){
-      colorLabelEl.textContent = controls.colorLabel;
-    }
     if(styleLabelEl){
       styleLabelEl.textContent = controls.colorLabel;
     }
@@ -545,35 +552,18 @@
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
     const toolbarApi = getWorkspaceToolbarApi();
-    const sharedPanel = toolbarApi && typeof toolbarApi.createSubPanel === 'function'
-      ? toolbarApi.createSubPanel({
-          panelClass: 'workspace-toolbar__panel--additional-line additional-line-controls-panel',
-          role: 'toolbar',
-          ariaLabel: 'Additional line controls',
-          title: 'Line',
-          rowClass: 'additional-line-controls-panel__row'
-        })
-      : null;
-    if(sharedPanel && sharedPanel.panel){
-      panelEl = sharedPanel.panel;
-      panelTitleEl = sharedPanel.title;
-      panelFieldsRowEl = sharedPanel.row;
-      if(panelTitleEl){
-        panelTitleEl.classList.add('additional-line-controls-panel__title');
-      }
-    }else{
-      panelEl = doc.createElement('div');
-      panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--additional-line additional-line-controls-panel';
-      panelEl.setAttribute('role', 'toolbar');
-      panelEl.setAttribute('aria-label', 'Additional line controls');
-      panelTitleEl = doc.createElement('div');
-      panelTitleEl.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title';
-      panelTitleEl.textContent = 'Line';
-      panelEl.appendChild(panelTitleEl);
-
-      panelFieldsRowEl = doc.createElement('div');
-      panelFieldsRowEl.className = 'additional-line-controls-panel__row';
-      panelEl.appendChild(panelFieldsRowEl);
+    const sharedPanel = toolbarApi.createSubPanel({
+      panelClass: 'workspace-toolbar__panel--additional-line additional-line-controls-panel',
+      role: 'toolbar',
+      ariaLabel: 'Additional line controls',
+      title: 'Line',
+      rowClass: 'additional-line-controls-panel__row'
+    });
+    panelEl = sharedPanel.panel;
+    panelTitleEl = sharedPanel.title;
+    panelFieldsRowEl = sharedPanel.row;
+    if(panelTitleEl){
+      panelTitleEl.classList.add('additional-line-controls-panel__title');
     }
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
@@ -625,54 +615,34 @@
     styleLabelEl = doc.createElement('span');
     styleLabelEl.className = 'additional-line-controls-panel__field-label';
     styleLabelEl.textContent = 'Line';
-    styleControlEl = doc.createElement('div');
-    styleControlEl.className = 'shared-border-style-control';
-    styleChipEl = doc.createElement('button');
-    styleChipEl.type = 'button';
-    styleChipEl.className = 'shared-border-style-chip';
-    styleChipEl.title = 'Click to edit line color. Wheel or Alt+drag to adjust line thickness.';
-    styleChipPreviewEl = doc.createElement('span');
-    styleChipPreviewEl.className = 'shared-border-style-chip-preview';
-    styleChipValueEl = doc.createElement('span');
-    styleChipValueEl.className = 'shared-border-style-chip-value';
-    styleChipEl.appendChild(styleChipPreviewEl);
-    styleChipEl.appendChild(styleChipValueEl);
-    colorLabelEl = doc.createElement('span');
-    colorLabelEl.className = 'additional-line-controls-panel__field-label';
-    colorLabelEl.textContent = 'Color';
-    colorInput = doc.createElement('input');
-    colorInput.type = 'color';
-    colorInput.className = 'shared-border-style-input additional-line-controls-panel__color-input';
-    colorInput.setAttribute('data-undo-ignore','1');
-    styleControlEl.appendChild(styleChipEl);
-    styleControlEl.appendChild(colorInput);
+    const toolbarUiApi = getWorkspaceToolbarApi();
+    const styleControlParts = toolbarUiApi.createBorderStyleControl({
+      chipTitle: 'Click to edit line color. Wheel or Alt+drag to adjust line thickness.',
+      colorInputClass: 'shared-border-style-input additional-line-controls-panel__color-input',
+      colorInputAttrs: { 'data-undo-ignore': '1' }
+    });
+    styleControlEl = styleControlParts.control;
+    styleChipEl = styleControlParts.chip;
+    styleChipPreviewEl = styleControlParts.preview;
+    styleChipValueEl = styleControlParts.value;
+    colorInput = styleControlParts.colorInput;
     styleField.appendChild(styleLabelEl);
     styleField.appendChild(styleControlEl);
     panelFieldsRowEl.appendChild(styleField);
 
     colorField = styleField;
 
-    patternField = doc.createElement('label');
-    patternField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern';
-    patternLabelEl = doc.createElement('span');
-    patternLabelEl.className = 'additional-line-controls-panel__field-label';
-    patternLabelEl.textContent = 'Pattern';
-    patternSelect = doc.createElement('select');
-    patternSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
-    patternSelect.setAttribute('data-undo-ignore','1');
-    const options = [
-      { value: 'solid', label: 'Continuous' },
-      { value: 'dashed', label: 'Dashed' },
-      { value: 'dotted', label: 'Dotted' }
-    ];
-    options.forEach(opt => {
-      const optionEl = doc.createElement('option');
-      optionEl.value = opt.value;
-      optionEl.textContent = opt.label;
-      patternSelect.appendChild(optionEl);
+    const patternFieldParts = toolbarUiApi.createLinePatternField({
+      fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern',
+      label: 'Pattern',
+      labelClass: 'additional-line-controls-panel__field-label',
+      selectClass: 'additional-line-controls-panel__input additional-line-controls-panel__input--select',
+      selectAttrs: { 'data-undo-ignore': '1' },
+      solidLabel: 'Continuous'
     });
-    patternField.appendChild(patternLabelEl);
-    patternField.appendChild(patternSelect);
+    patternField = patternFieldParts.field;
+    patternLabelEl = patternFieldParts.label;
+    patternSelect = patternFieldParts.select;
     panelFieldsRowEl.appendChild(patternField);
 
     transparencyField = doc.createElement('label');
@@ -680,20 +650,21 @@
     transparencyLabelEl = doc.createElement('span');
     transparencyLabelEl.className = 'additional-line-controls-panel__field-label';
     transparencyLabelEl.textContent = 'Transparency';
-    const transparencyWrap = doc.createElement('div');
-    transparencyWrap.className = 'additional-line-controls-panel__range';
-    transparencyInput = doc.createElement('input');
-    transparencyInput.type = 'range';
-    transparencyInput.min = '0';
-    transparencyInput.max = '100';
-    transparencyInput.step = '1';
-    transparencyInput.className = 'additional-line-controls-panel__transparency-input';
-    transparencyInput.setAttribute('data-undo-ignore','1');
-    transparencyValueEl = doc.createElement('span');
-    transparencyValueEl.className = 'additional-line-controls-panel__range-value';
-    transparencyValueEl.textContent = '0%';
-    transparencyWrap.appendChild(transparencyInput);
-    transparencyWrap.appendChild(transparencyValueEl);
+    const transparencyParts = toolbarUiApi.createTransparencyControl({
+      wrapClass: 'additional-line-controls-panel__range',
+      inputClass: 'additional-line-controls-panel__transparency-input',
+      inputAttrs: {
+        min: '0',
+        max: '100',
+        step: '1',
+        'data-undo-ignore': '1'
+      },
+      valueClass: 'additional-line-controls-panel__range-value',
+      valueText: '0%'
+    });
+    const transparencyWrap = transparencyParts.wrap;
+    transparencyInput = transparencyParts.input;
+    transparencyValueEl = transparencyParts.value;
     transparencyField.appendChild(transparencyLabelEl);
     transparencyField.appendChild(transparencyWrap);
     panelFieldsRowEl.appendChild(transparencyField);

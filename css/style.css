@@ -1537,6 +1537,23 @@ select {
     border-radius: 10px;
     background-clip: border-box;
 }
+.ag-theme-balham .ag-horizontal-left-spacer,
+.ag-theme-balham .ag-horizontal-right-spacer,
+.ag-theme-balham .ag-floating-top,
+.ag-theme-balham .ag-pinned-left-floating-top,
+.ag-theme-balham .ag-pinned-right-floating-top {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.ag-theme-balham .ag-horizontal-left-spacer::-webkit-scrollbar,
+.ag-theme-balham .ag-horizontal-right-spacer::-webkit-scrollbar,
+.ag-theme-balham .ag-floating-top::-webkit-scrollbar,
+.ag-theme-balham .ag-pinned-left-floating-top::-webkit-scrollbar,
+.ag-theme-balham .ag-pinned-right-floating-top::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none;
+}
 
 /* Defensive: kill any remaining header separator pseudo-elements */
 .ag-theme-balham .ag-header::after,
@@ -3781,7 +3798,10 @@ select {
     font-size:11px;
     color:#1f2937;
 }
-.workspace-toolbar__panel-title{
+.workspace-toolbar__panel-title,
+.additional-line-controls-panel__title,
+.grid-controls-panel__title,
+.significance-controls-panel__title{
     font-size:11px;
     line-height:1.2;
     font-weight:600;
@@ -5852,13 +5872,18 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__toggle--active{background:#1e293b;color:#f8fafc;border-color:#0f172a}
 .font-controls-panel__footer{display:none}
 
-/* Refactor alignment: axis/font toolbars share the same structural layout primitives
-   as symbol/line toolbars: panel title + single row + homogeneous fields. */
+/* Toolbar layout contract: all live toolbar families share the same shell,
+   row, field, and label baseline. Component blocks below only keep true
+   special cases such as widths, custom controls, and toggle layouts. */
 .axis-controls-panel,
-.font-controls-panel{
+.font-controls-panel,
+.dendrogram-controls-panel,
+.significance-controls-panel,
+.additional-line-controls-panel,
+.grid-controls-panel{
     display:flex;
     flex-direction:column;
-    align-items:flex-start;
+    align-items:center;
     justify-content:flex-start;
     gap:0;
     padding:0;
@@ -5874,19 +5899,38 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     padding-left:8px;
 }
 .axis-controls-panel__row,
-.font-controls-panel__controls{
+.font-controls-panel__controls,
+.dendrogram-controls-panel__row,
+.significance-controls-panel__row,
+.additional-line-controls-panel__row,
+.grid-controls-panel__row{
     display:grid;
     grid-auto-flow:column;
     grid-auto-columns:max-content;
     align-items:start;
-    gap:var(--workspace-toolbar-section-gap);
     width:max-content;
+    max-width:100%;
+    margin-inline:auto;
+}
+.axis-controls-panel__row,
+.font-controls-panel__controls,
+.dendrogram-controls-panel__row,
+.significance-controls-panel__row,
+.grid-controls-panel__row{
+    gap:var(--workspace-toolbar-section-gap);
+}
+.additional-line-controls-panel__row{
+    gap:calc(var(--workspace-toolbar-section-gap) * 2);
 }
 .axis-controls-panel .axis-controls-panel__row.additional-line-controls-panel__row{
     gap:0 var(--axis-toolbar-section-gap);
 }
 .axis-controls-panel__field,
-.font-controls-panel__field{
+.font-controls-panel__field,
+.dendrogram-controls-panel__field,
+.significance-controls-panel__field,
+.additional-line-controls-panel__field,
+.grid-controls-panel__field{
     display:flex;
     flex-direction:column;
     align-items:center;
@@ -5900,7 +5944,14 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 }
 .axis-controls-panel__field-label,
 .font-controls-panel__field-label,
-.axis-controls-panel__summary-label{
+.dendrogram-controls-panel__field-label,
+.significance-controls-panel__field-label,
+.additional-line-controls-panel__field-label,
+.grid-controls-panel__field-label,
+.axis-controls-panel__summary-label,
+.dendrogram-controls-panel__summary-label,
+.significance-controls-panel__summary-label,
+.additional-line-controls-panel__summary-label{
     font-weight:600;
     color:#1e293b;
     font-size:11px;
@@ -6110,15 +6161,11 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 /* Dendrogram controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.dendrogram-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host--dendrogram{display:flex}
-.dendrogram-controls-panel{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:0;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:0 1 auto;width:max-content;max-width:100%}
-.dendrogram-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content;max-width:100%;margin-inline:auto}
+.dendrogram-controls-panel{flex:0 1 auto}
 .dendrogram-controls-panel__summary{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;min-width:0;min-height:52px;text-align:center}
-.dendrogram-controls-panel__summary-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .dendrogram-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-.dendrogram-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:0;min-height:52px;flex:0 0 auto;text-align:center}
 .dendrogram-controls-panel__field--numeric{width:auto;min-width:64px;max-width:64px}
 .dendrogram-controls-panel__field--color{min-width:64px;width:auto;align-items:center;text-align:center}
-.dendrogram-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .dendrogram-controls-panel__input{min-width:0;width:auto;max-width:96px;text-align:center}
 .dendrogram-controls-panel__input--small{width:40px;min-width:40px}
 .dendrogram-controls-panel__color-input{height:32px;width:64px;padding:0;cursor:pointer;display:block;margin:0 auto}
@@ -6136,18 +6183,8 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .significance-controls-panel__summary{display:flex;min-width:92px;align-items:center;text-align:center}
 .significance-controls-panel__summary-label,
 .significance-controls-panel__summary-value{text-align:center}
-.significance-controls-panel__row{
-    display:grid;
-    grid-auto-flow:column;
-    grid-auto-columns:max-content;
-    align-items:start;
-    gap:var(--workspace-toolbar-section-gap);
-    width:max-content;
-}
-.significance-controls-panel__field{min-width:0;min-height:52px;align-items:center;justify-content:flex-start;text-align:center}
 .significance-controls-panel__field--toggle{min-width:0;align-items:center}
 .significance-controls-panel__field--text-style{min-width:96px;align-items:center}
-.significance-controls-panel__field-label{font-size:11px;text-transform:none;letter-spacing:0.01em}
 .significance-controls-panel__input{max-width:108px}
 .significance-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .significance-controls-panel__input--square{border-radius:0}
@@ -6161,16 +6198,12 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 /* Additional line controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.additional-line-controls-panel{position:relative;margin:0;max-width:100%}
 .font-toolbar-host--additional-line{display:block}
-.additional-line-controls-panel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:max-content;justify-content:flex-start}
-.additional-line-controls-panel__title{font-size:11px;line-height:1.2;font-weight:600;letter-spacing:0.01em;color:#1e293b;text-transform:none;white-space:nowrap;width:100%;text-align:center;align-self:stretch}
-.additional-line-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:calc(var(--workspace-toolbar-section-gap) * 2);width:max-content}
+.additional-line-controls-panel{flex:1 1 auto}
+.additional-line-controls-panel__title{display:block}
 .additional-line-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:92px}
-.additional-line-controls-panel__summary-label{font-size:11px;text-transform:none;letter-spacing:0.01em;color:#1e293b;font-weight:600}
 .additional-line-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-.additional-line-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:0;min-height:52px;flex:0 0 auto;text-align:center}
 .additional-line-controls-panel__summary[hidden],
 .additional-line-controls-panel__field[hidden]{display:none !important}
-.additional-line-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .additional-line-controls-panel__input{min-width:0;width:auto;max-width:108px;text-align:center}
 .additional-line-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .additional-line-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
@@ -6188,12 +6221,9 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 /* Grid controls panel */
 .font-toolbar-host.font-toolbar-host--visible>.grid-controls-panel{position:static;margin:0;max-width:100%}
 .font-toolbar-host--grid{display:block}
-.grid-controls-panel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border-radius:0;border:none;background:transparent;color:#0f172a;font-family:var(--ui-font-family);box-shadow:none;flex:1 1 auto;width:max-content;justify-content:flex-start}
-.grid-controls-panel__title{font-size:11px;line-height:1.2;font-weight:600;letter-spacing:0.01em;color:#1e293b;text-transform:none;white-space:nowrap;width:100%;text-align:center;align-self:stretch}
-.grid-controls-panel__row{display:grid;grid-auto-flow:column;grid-auto-columns:max-content;align-items:start;gap:var(--workspace-toolbar-section-gap);width:max-content}
-.grid-controls-panel__field{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:0;min-height:52px;flex:0 0 auto;text-align:center}
+.grid-controls-panel{flex:1 1 auto}
+.grid-controls-panel__title{display:block}
 .grid-controls-panel__field[hidden]{display:none !important}
-.grid-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;text-transform:none;letter-spacing:0.01em;white-space:nowrap;display:flex;align-items:flex-end;justify-content:center;line-height:14px;min-height:14px;margin:0}
 .grid-controls-panel__input{min-width:0;width:auto;max-width:108px;text-align:center}
 .grid-controls-panel__input--small{width:64px;min-width:64px;max-width:64px}
 .grid-controls-panel__input--select{min-width:108px;max-width:140px;text-align:left;padding-right:20px}
