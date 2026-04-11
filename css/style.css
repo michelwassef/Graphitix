@@ -513,6 +513,7 @@ select {
 .ag-theme-balham .ag-center-cols-container {
     border-color: #d6d6d6;
     border-radius: 0 !important;
+    touch-action: manipulation;
 }
 .ag-theme-balham .ag-row {
     border-bottom: 0 !important;
@@ -523,6 +524,7 @@ select {
     border-right: 1px solid #d6d6d6 !important;
     border-bottom: 1px solid #d6d6d6 !important;
     box-sizing: border-box;
+    touch-action: manipulation;
 }
 .ag-theme-balham .ag-header-row {
     background: #f5f5f5;

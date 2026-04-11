@@ -828,6 +828,22 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
+    const isLikelyTouchDevice = (() => {
+      try{
+        if(typeof global.matchMedia === 'function'){
+          if(global.matchMedia('(pointer: coarse)').matches || global.matchMedia('(hover: none)').matches){
+            return true;
+          }
+        }
+      }catch(err){
+        // ignore media query failures
+      }
+      const nav = global.navigator;
+      return !!(nav && (nav.maxTouchPoints > 0 || 'ontouchstart' in global));
+    })();
+    const singleClickEdit = typeof hotOptions.singleClickEdit === 'boolean'
+      ? hotOptions.singleClickEdit
+      : isLikelyTouchDevice;
     const explicitDisableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === false
       || hotOptions?.enableFormulaReferenceSelection === false;
     const explicitEnableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === true
@@ -10665,6 +10681,7 @@
         suppressHeaderMenuButton: true,
         comparator: valueComparator
       },
+      singleClickEdit,
       getRowHeight(params){
         if(!usePinnedRows){
           return undefined;
