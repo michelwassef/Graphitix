@@ -17,6 +17,10 @@
     return (rows || []).filter(row => Array.isArray(row) && row.some(cell => String(cell ?? '').trim() !== ''));
   }
 
+  function isPrismBlankCell(value){
+    return String(value ?? '').trim() === '';
+  }
+
   function detectDelimiter(text, fallback){
     if(typeof text !== 'string' || !text){
       return fallback || ',';
@@ -1184,7 +1188,8 @@
         }
         let prismMeta = null;
         let importRows = filtered;
-        const isXYTable = tableClass === 'XYDataTable' || tableFormat === 'xy';
+        const isXYTable = tableClass === 'XYDataTable' || tableFormat === 'xy' || tableFormat === 'survival';
+        const isPieTable = tableFormat === 'parts_of_whole';
         if(isXYTable && dataFormat === 'y_replicates'){
           const replicateCountRaw = Number(tableInfo?.replicatesCount);
           const replicatesCount = Number.isFinite(replicateCountRaw) && replicateCountRaw > 0 ? replicateCountRaw : 1;
@@ -1224,6 +1229,43 @@
             xTitle: prismGraphLabels.xLabel || xTitle || rowTitleLabel || ''
           };
           prismDebug('xy.line', { replicatesCount, seriesCount: groupLabels.length, rows: dataRows.length });
+        }else if(isXYTable && tableFormat === 'survival' && dataFormat === 'y_single'){
+          const hasRowTitles = !!rowTitlesId;
+          const xIndex = hasRowTitles ? 1 : 0;
+          const yStart = xIndex + 1;
+          const groupLabels = dataSetTitles.length
+            ? dataSetTitles.slice()
+            : Array.from({ length: Math.max(1, dataSetIds.length || 1) }, (_, idx) => `Group ${idx + 1}`);
+          const survivalRows = [];
+          filtered.forEach(row => {
+            const src = Array.isArray(row) ? row : [];
+            const timeValue = src[xIndex] ?? '';
+            for(let s = 0; s < groupLabels.length; s += 1){
+              const eventValue = src[yStart + s] ?? '';
+              if(isPrismBlankCell(eventValue)){
+                continue;
+              }
+              survivalRows.push([
+                groupLabels[s] || `Group ${s + 1}`,
+                timeValue,
+                eventValue,
+                '',
+                '',
+                '',
+                ''
+              ]);
+            }
+          });
+          importRows = survivalRows;
+          prismMeta = {
+            kind: 'survival',
+            dataFormat,
+            tableClass,
+            seriesCount: groupLabels.length,
+            groupLabels: groupLabels.slice(),
+            xTitle: prismGraphLabels.xLabel || xTitle || 'Time'
+          };
+          prismDebug('xy.survival', { seriesCount: groupLabels.length, rows: survivalRows.length, hasRowTitles });
         }else if(isXYTable && dataFormat === 'y_single'){
           const hasRowTitles = !!rowTitlesId;
           const xIndex = hasRowTitles ? 1 : 0;
@@ -1260,6 +1302,36 @@
             headerRow
           };
           prismDebug('xy.scatter', { seriesCount, rows: scatterRows.length, hasRowTitles });
+        }else if(isPieTable && dataFormat === 'y_single'){
+          const hasRowTitles = !!rowTitlesId;
+          const categoryIndex = hasRowTitles ? 0 : -1;
+          const valueStart = hasRowTitles ? 1 : 0;
+          const headerRow = [
+            rowTitleLabel || 'Category',
+            prismGraphLabels.yLabel || dataSetTitles[0] || 'Value',
+            dataSetTitles[1] || 'Expected'
+          ];
+          const pieRows = filtered.map((row, rowIndex) => {
+            const src = Array.isArray(row) ? row : [];
+            const categoryValue = categoryIndex >= 0
+              ? (src[categoryIndex] ?? '')
+              : (`Category ${rowIndex + 1}`);
+            return [
+              categoryValue,
+              src[valueStart] ?? '',
+              src[valueStart + 1] ?? ''
+            ];
+          });
+          importRows = [headerRow, ...pieRows];
+          prismMeta = {
+            kind: 'pie',
+            dataFormat,
+            tableClass,
+            seriesCount: dataSetTitles.length || 1,
+            categoryTitle: rowTitleLabel || 'Category',
+            valueTitles: dataSetTitles.slice()
+          };
+          prismDebug('table.pie', { seriesCount: dataSetTitles.length || 1, rows: pieRows.length, hasRowTitles });
         }else if(dataSetIds.length){
           if(dataSetTitles.some(title => String(title).trim() !== '')){
             importRows = [dataSetTitles.map(title => title), ...filtered];
@@ -1335,8 +1407,13 @@
       }
       const reason = stage || 'tableImport.handlePaste';
       let cleared = false;
-      if(Shared.hot && typeof Shared.hot.clearCopyHighlight === 'function'){
+      if(Shared.hot && typeof Shared.hot.clearClipboardOutline === 'function'){
+        cleared = Shared.hot.clearClipboardOutline(hot, reason);
+      }else if(Shared.hot && typeof Shared.hot.clearCopyHighlight === 'function'){
         cleared = Shared.hot.clearCopyHighlight(hot, reason);
+      }else if(hot && typeof hot.__hotClearClipboardOutline === 'function'){
+        hot.__hotClearClipboardOutline(reason);
+        cleared = true;
       }else if(hot && typeof hot.__hotClearCopyHighlight === 'function'){
         hot.__hotClearCopyHighlight(reason);
         cleared = true;

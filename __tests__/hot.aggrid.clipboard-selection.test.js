@@ -47,6 +47,14 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     capturedApi = null;
   });
 
+  const waitForNextFrame = async () => {
+    if (typeof global.window.requestAnimationFrame === 'function') {
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  };
+
   test('pastes plain text into the selected cell via paste event', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -2889,6 +2897,411 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(2, 0)).toBe('');
     expect(hot.getDataAtCell(2, 1)).toBe('');
     expect(hot.getDataAtCell(1, 2)).toBe('C');
+  });
+
+  test('copy outline follows copied cells while scrolling', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCopyOutlineScrollHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async () => {})
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 6, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-outline-scroll',
+        data: Shared.createEmptyData(6, 3)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 200
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    let verticalOffset = 0;
+    const makeRect = (left, top) => ({
+      left,
+      top: top + verticalOffset,
+      right: left + 100,
+      bottom: top + verticalOffset + 28,
+      width: 100,
+      height: 28
+    });
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '2');
+    const cellA = document.createElement('div');
+    cellA.className = 'ag-cell hot-selected-cell';
+    cellA.setAttribute('col-id', 'c0');
+    cellA.setAttribute('row-index', '2');
+    cellA.getBoundingClientRect = () => makeRect(60, 116);
+    row.appendChild(cellA);
+    const cellB = document.createElement('div');
+    cellB.className = 'ag-cell hot-selected-cell';
+    cellB.setAttribute('col-id', 'c1');
+    cellB.setAttribute('row-index', '2');
+    cellB.getBoundingClientRect = () => makeRect(160, 116);
+    row.appendChild(cellB);
+    centerViewport.appendChild(row);
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    hot.selectCell(2, 0, 2, 1);
+
+    const copyEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    container.dispatchEvent(copyEvt);
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-clipboard-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.left).toBe('59px');
+    expect(outline.style.top).toBe('115px');
+    const selectionOutline = container.querySelector('.hot-selection-outline');
+    if (selectionOutline) {
+      expect(selectionOutline.style.display).toBe('none');
+    }
+
+    verticalOffset = 56;
+    bodyViewport.dispatchEvent(new global.window.Event('scroll', { bubbles: true }));
+    await waitForNextFrame();
+
+    expect(outline.style.top).toBe('171px');
+  });
+
+  test('cut keeps clipboard outline visible until paste clears it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCutOutlineHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 220
+    });
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cut-outline',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', '', ''],
+          ['', '', ''],
+          ['', '', '']
+        ]
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 188
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell hot-selected-cell';
+    cell.setAttribute('col-id', 'c0');
+    cell.setAttribute('row-index', '1');
+    cell.getBoundingClientRect = () => ({
+      left: 60,
+      top: 60,
+      right: 160,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    centerViewport.appendChild(row);
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    hot.selectCell(1, 0);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-clipboard-outline');
+    expect(clipboardText.trim()).toBe('A');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+    await waitForNextFrame();
+
+    expect(outline.style.display).toBe('none');
+  });
+
+  test('paste into another AG Grid clears the original clipboard outline', async () => {
+    const Shared = global.window.Shared;
+    const sourceContainer = document.createElement('div');
+    sourceContainer.id = 'agCopySourceHot';
+    document.body.appendChild(sourceContainer);
+
+    sourceContainer.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 220
+    });
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const sourceHot = Shared.hot.createStandardTable(
+      sourceContainer,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-source',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', '', ''],
+          ['', '', ''],
+          ['', '', '']
+        ]
+      }
+    );
+
+    const sourceBodyViewport = document.createElement('div');
+    sourceBodyViewport.className = 'ag-body-viewport';
+    sourceBodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 188
+    });
+    sourceContainer.appendChild(sourceBodyViewport);
+
+    const sourceCenterViewport = document.createElement('div');
+    sourceCenterViewport.className = 'ag-center-cols-viewport';
+    sourceCenterViewport.getBoundingClientRect = sourceBodyViewport.getBoundingClientRect;
+    sourceBodyViewport.appendChild(sourceCenterViewport);
+
+    const sourceRow = document.createElement('div');
+    sourceRow.className = 'ag-row';
+    sourceRow.setAttribute('row-index', '1');
+    const sourceCell = document.createElement('div');
+    sourceCell.className = 'ag-cell hot-selected-cell';
+    sourceCell.setAttribute('col-id', 'c0');
+    sourceCell.setAttribute('row-index', '1');
+    sourceCell.getBoundingClientRect = () => ({
+      left: 60,
+      top: 60,
+      right: 160,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    sourceRow.appendChild(sourceCell);
+    sourceCenterViewport.appendChild(sourceRow);
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    sourceHot.selectCell(1, 0);
+    const copyEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    sourceContainer.dispatchEvent(copyEvt);
+    await waitForNextFrame();
+
+    const outline = sourceContainer.querySelector('.hot-clipboard-outline');
+    expect(clipboardText.trim()).toBe('A');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+
+    const targetContainer = document.createElement('div');
+    targetContainer.id = 'agCopyTargetHot';
+    document.body.appendChild(targetContainer);
+
+    const targetHot = Shared.hot.createStandardTable(
+      targetContainer,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-target',
+        data: Shared.createEmptyData(4, 3)
+      }
+    );
+
+    targetHot.selectCell(0, 0);
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    targetContainer.dispatchEvent(pasteEvt);
+    await waitForNextFrame();
+
+    expect(targetHot.getDataAtCell(0, 0)).toBe('A');
+    expect(outline.style.display).toBe('none');
+  });
+
+  test('paste selects the full pasted block with live selection chrome', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteSelectionBlockHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 5, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-selection-block',
+        data: Shared.createEmptyData(5, 5)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 228
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for (let rowIndex = 1; rowIndex <= 2; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const rowTop = 32 + (rowIndex * 28);
+      for (let colIndex = 1; colIndex <= 2; colIndex += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-cell hot-selected-cell';
+        cell.setAttribute('col-id', `c${colIndex}`);
+        cell.setAttribute('row-index', String(rowIndex));
+        cell.getBoundingClientRect = () => makeCellRect(60 + ((colIndex - 1) * 100), rowTop);
+        row.appendChild(cell);
+      }
+      centerViewport.appendChild(row);
+    }
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    hot.selectCell(1, 1);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(pasteEvt);
+    await waitForNextFrame();
+
+    expect(hot.getSelectedLast()).toEqual([1, 1, 2, 2]);
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.left).toBe('59px');
+    expect(outline.style.top).toBe('59px');
+    expect(outline.style.width).toBe('202px');
+    expect(outline.style.height).toBe('58px');
+    const clipboardOutline = container.querySelector('.hot-clipboard-outline');
+    if (clipboardOutline) {
+      expect(clipboardOutline.style.display).toBe('none');
+    }
   });
 
   test('undo after cut+paste restores both source and destination', async () => {

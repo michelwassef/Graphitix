@@ -49,6 +49,21 @@
     version: FILTER_VERSION,
     columns: Object.freeze({})
   });
+  hotNS.__instanceSeq = Number.isInteger(hotNS.__instanceSeq) ? hotNS.__instanceSeq : 0;
+  hotNS.__activeClipboardSelectionOwner = hotNS.__activeClipboardSelectionOwner || null;
+
+  const clearActiveClipboardSelectionOwner = (reason)=>{
+    const owner = hotNS.__activeClipboardSelectionOwner;
+    if(owner && typeof owner.__hotSetClipboardOutlineState === 'function'){
+      owner.__hotSetClipboardOutlineState(null, reason || 'Shared.hot.clearActiveClipboardSelectionOwner', {
+        skipGlobal: true
+      });
+    }
+    if(hotNS.__activeClipboardSelectionOwner === owner){
+      hotNS.__activeClipboardSelectionOwner = null;
+    }
+    return !!owner;
+  };
 
   const appendClassName = (existing, cls)=>{
     if(!cls){
@@ -1608,8 +1623,7 @@
       if(visibleRows <= 0){
         lastRange = null;
         normalizedSelectionRange = null;
-        copyHighlightRange = null;
-        normalizedCopyHighlightRange = null;
+        setClipboardOutlineState(null, 'filter-empty', { render: false });
         clearSelectedHeaderColumns();
         return;
       }
@@ -1724,12 +1738,14 @@
     addHook('afterColumnMove', userAfterColumnMove);
     addHook('beforeKeyDown', userBeforeKeyDown);
 
+    const hotInstanceId = `hot-${++hotNS.__instanceSeq}`;
     let lastRange = null;
-    let copyHighlightRange = null;
     let normalizedSelectionRange = null;
     let selectedHeaderColumns = new Set();
-    let normalizedCopyHighlightRange = null;
+    let clipboardOutlineState = null;
+    let normalizedClipboardOutlineRanges = [];
     let selectionOutline = null;
+    let clipboardOutlines = [];
     let fillHandle = null;
     let fillHandleUpdatePending = false;
     let isFillHandleDragging = false;
@@ -1745,6 +1761,8 @@
     let fillAutoScrollRafId = null;
     let selectionDragLastPointer = null;
     let selectionAutoScrollRafId = null;
+    let pendingSelectionReassertRange = null;
+    let selectionReassertScheduled = false;
 
     const normalizeRange = (range)=>{
       if(!range || !range.from || !range.to){
@@ -1767,6 +1785,34 @@
       lastRange = range || null;
       normalizedSelectionRange = normalizeRange(lastRange);
       scheduleFillHandleUpdate('selection');
+    };
+
+    const scheduleSelectionReassert = (range, reason)=>{
+      pendingSelectionReassertRange = normalizeRange(range);
+      if(!pendingSelectionReassertRange || selectionReassertScheduled || !container){
+        return;
+      }
+      selectionReassertScheduled = true;
+      const doc = container.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const rafLocal = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+      rafLocal(()=>{
+        selectionReassertScheduled = false;
+        const nextRange = pendingSelectionReassertRange;
+        pendingSelectionReassertRange = null;
+        if(!nextRange){
+          return;
+        }
+        clearSelectedHeaderColumns();
+        setLastRange(nextRange);
+        renderAg(instance?.gridApi || null);
+        fireHook('afterSelectionEnd', nextRange.from.row, nextRange.from.col, nextRange.to.row, nextRange.to.col);
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot paste selection reasserted', { debugLabel, reason: reason || null, range: nextRange });
+        }
+      });
     };
 
     const clearSelectedHeaderColumns = ()=>{
@@ -1813,9 +1859,74 @@
       }
     };
 
-    const setCopyHighlightRange = (range)=>{
-      copyHighlightRange = range || null;
-      normalizedCopyHighlightRange = normalizeRange(copyHighlightRange);
+    const normalizeRangeList = (ranges)=>{
+      const source = Array.isArray(ranges)
+        ? ranges
+        : (ranges ? [ranges] : []);
+      const normalized = [];
+      for(let i = 0; i < source.length; i += 1){
+        const entry = normalizeRange(source[i]);
+        if(entry){
+          normalized.push(entry);
+        }
+      }
+      return normalized;
+    };
+
+    const hasClipboardOutline = ()=>normalizedClipboardOutlineRanges.length > 0;
+
+    const areNormalizedRangesEqual = (leftRange, rightRange)=>{
+      const left = normalizeRange(leftRange);
+      const right = normalizeRange(rightRange);
+      if(!left || !right){
+        return false;
+      }
+      return left.from.row === right.from.row
+        && left.from.col === right.from.col
+        && left.to.row === right.to.row
+        && left.to.col === right.to.col;
+    };
+
+    const shouldSuppressLiveSelectionChrome = ()=>{
+      if(!normalizedSelectionRange || !hasClipboardOutline()){
+        return false;
+      }
+      for(let i = 0; i < normalizedClipboardOutlineRanges.length; i += 1){
+        if(areNormalizedRangesEqual(normalizedSelectionRange, normalizedClipboardOutlineRanges[i])){
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const setClipboardOutlineState = (payload, reason, options = {})=>{
+      const normalizedRanges = payload ? normalizeRangeList(payload.ranges) : [];
+      const nextState = normalizedRanges.length
+        ? {
+            mode: payload?.mode === 'cut' ? 'cut' : 'copy',
+            ranges: normalizedRanges,
+            clipboardText: typeof payload?.clipboardText === 'string' ? payload.clipboardText : ''
+          }
+        : null;
+      if(!options.skipGlobal){
+        if(nextState){
+          const activeOwner = hotNS.__activeClipboardSelectionOwner;
+          if(activeOwner && activeOwner !== instance && typeof activeOwner.__hotSetClipboardOutlineState === 'function'){
+            activeOwner.__hotSetClipboardOutlineState(null, reason || 'clipboard-replaced', { skipGlobal: true });
+          }
+          if(instance){
+            hotNS.__activeClipboardSelectionOwner = instance;
+          }
+        }else if(hotNS.__activeClipboardSelectionOwner === instance){
+          hotNS.__activeClipboardSelectionOwner = null;
+        }
+      }
+      clipboardOutlineState = nextState;
+      normalizedClipboardOutlineRanges = nextState ? nextState.ranges.slice() : [];
+      if(options.render !== false){
+        renderAg(instance?.gridApi || null);
+      }
+      return nextState;
     };
 
     const setFillPreviewRange = (range, options)=>{
@@ -2701,6 +2812,54 @@
       }
     };
 
+    const ensureClipboardOutline = (index)=>{
+      const outlineIndex = Number(index);
+      if(!Number.isInteger(outlineIndex) || outlineIndex < 0){
+        return null;
+      }
+      if(clipboardOutlines[outlineIndex]){
+        return clipboardOutlines[outlineIndex];
+      }
+      if(!container || typeof container.appendChild !== 'function'){
+        return null;
+      }
+      const doc = container.ownerDocument || document;
+      const outline = doc.createElement('div');
+      outline.className = 'hot-clipboard-outline';
+      outline.setAttribute('aria-hidden', 'true');
+      outline.style.display = 'none';
+      ['top', 'right', 'bottom', 'left'].forEach(edge=>{
+        const edgeEl = doc.createElement('div');
+        edgeEl.className = 'hot-clipboard-outline-edge';
+        edgeEl.dataset.edge = edge;
+        outline.appendChild(edgeEl);
+      });
+      container.appendChild(outline);
+      clipboardOutlines[outlineIndex] = outline;
+      cleanupFns.push(()=>{
+        if(outline.parentNode){
+          outline.parentNode.removeChild(outline);
+        }
+        const existingIndex = clipboardOutlines.indexOf(outline);
+        if(existingIndex >= 0){
+          clipboardOutlines.splice(existingIndex, 1);
+        }
+      });
+      return outline;
+    };
+
+    const hideClipboardOutline = (outline)=>{
+      if(outline && outline.style.display !== 'none'){
+        outline.style.display = 'none';
+      }
+    };
+
+    const hideClipboardOutlines = ()=>{
+      for(let i = 0; i < clipboardOutlines.length; i += 1){
+        hideClipboardOutline(clipboardOutlines[i]);
+      }
+    };
+
     const ensureFillHandle = ()=>{
       if(fillHandle){
         return fillHandle;
@@ -3100,49 +3259,68 @@
       return { left, top, right, bottom };
     };
 
-    const resolveVisibleSelectionBounds = ()=>{
-      if(!container || typeof container.querySelectorAll !== 'function'){
-        return null;
+    const forEachRenderedCellInRange = (range, visitor)=>{
+      const normalized = normalizeRange(range);
+      if(!normalized || !container || typeof container.querySelectorAll !== 'function' || typeof visitor !== 'function'){
+        return 0;
       }
-      const visibilityContext = resolveSelectionVisibilityContext();
-      const selectedCells = container.querySelectorAll('.ag-cell.hot-selected-cell');
-      if(!selectedCells || !selectedCells.length){
-        return null;
-      }
-      let left = Number.POSITIVE_INFINITY;
-      let top = Number.POSITIVE_INFINITY;
-      let right = Number.NEGATIVE_INFINITY;
-      let bottom = Number.NEGATIVE_INFINITY;
+      const cells = container.querySelectorAll('.ag-cell');
       let count = 0;
-      for(let i = 0; i < selectedCells.length; i += 1){
-        const cell = selectedCells[i];
+      for(let i = 0; i < cells.length; i += 1){
+        const cell = cells[i];
         if(!cell || typeof cell.getBoundingClientRect !== 'function'){
           continue;
         }
         if(cell.closest?.('.hot-pinned-ghost-row')){
           continue;
         }
+        const colId = cell.getAttribute?.('col-id');
+        if(typeof colId !== 'string' || !colId.startsWith('c')){
+          continue;
+        }
+        const col = Number(colId.slice(1));
+        if(!Number.isInteger(col) || col < normalized.from.col || col > normalized.to.col){
+          continue;
+        }
+        const rowAttr = cell.getAttribute('row-index') ?? cell.closest?.('.ag-row')?.getAttribute?.('row-index');
+        const row = parseVisualRowIndex(rowAttr);
+        if(!Number.isInteger(row) || row < normalized.from.row || row > normalized.to.row){
+          continue;
+        }
+        count += 1;
+        visitor(cell, row, col);
+      }
+      return count;
+    };
+
+    const resolveVisibleRangeBounds = (range, visibilityContext)=>{
+      let left = Number.POSITIVE_INFINITY;
+      let top = Number.POSITIVE_INFINITY;
+      let right = Number.NEGATIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      let count = 0;
+      forEachRenderedCellInRange(range, cell=>{
         const rect = cell.getBoundingClientRect();
         if(!rect || rect.width <= 0 || rect.height <= 0){
-          continue;
+          return;
         }
         const visibleRect = resolveVisibleCellRect(cell, rect, visibilityContext);
         if(!visibleRect){
-          continue;
+          return;
         }
         left = Math.min(left, visibleRect.left);
         top = Math.min(top, visibleRect.top);
         right = Math.max(right, visibleRect.right);
         bottom = Math.max(bottom, visibleRect.bottom);
         count += 1;
-      }
+      });
       if(!count){
         return null;
       }
       return { left, top, right, bottom };
     };
 
-    const resolveSelectionOutlineEdgeVisibility = (selection, visibilityContext, options = {})=>{
+    const resolveRangeOutlineEdgeVisibility = (selection, visibilityContext, options = {})=>{
       const visible = {
         left: false,
         right: false,
@@ -3152,8 +3330,6 @@
       if(!selection || !container || typeof container.querySelectorAll !== 'function'){
         return visible;
       }
-      const selectedCells = container.querySelectorAll('.ag-cell.hot-selected-cell');
-      const selectedCellCount = selectedCells ? selectedCells.length : 0;
       const edgeClipTolerance = 1.5;
       const isEdgeClipped = (visibleEdge, rawEdge, direction)=>{
         const raw = Number(rawEdge);
@@ -3210,36 +3386,10 @@
           visible.bottom = true;
         }
       };
-      for(let i = 0; i < selectedCellCount; i += 1){
-        const cell = selectedCells[i];
-        if(!cell || typeof cell.getBoundingClientRect !== 'function'){
-          continue;
-        }
-        if(cell.closest?.('.hot-pinned-ghost-row')){
-          continue;
-        }
-        const colId = cell.getAttribute?.('col-id');
-        const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
-        if(!Number.isInteger(col)){
-          continue;
-        }
-        const rowAttr = cell.getAttribute('row-index') ?? cell.closest?.('.ag-row')?.getAttribute?.('row-index');
-        const row = parseVisualRowIndex(rowAttr);
-        if(!Number.isInteger(row)){
-          continue;
-        }
-        if(row < selection.from.row || row > selection.to.row || col < selection.from.col || col > selection.to.col){
-          continue;
-        }
+      forEachRenderedCellInRange(selection, (cell, row, col)=>{
         const rect = cell.getBoundingClientRect();
         markVisibleFromCell(cell, row, col, rect);
-        if(visible.left && visible.right && visible.top && visible.bottom){
-          break;
-        }
-      }
-      // Fallback when AG Grid has not yet applied selected-cell classes
-      // (common on certain pinned-row render paths): infer edge visibility
-      // from the actual start/end selected cells.
+      });
       const startCell = options.startCell;
       const endCell = options.endCell;
       const startRectRaw = options.startRectRaw;
@@ -3253,28 +3403,17 @@
       return visible;
     };
 
-    const updateSelectionOutlinePosition = ()=>{
-      const selection = normalizedSelectionRange;
-      if(!selection){
-        hideSelectionOutline();
-        return false;
+    const resolveRangeOutlinePlacement = (selection, visibilityContext, hostRect)=>{
+      const normalized = normalizeRange(selection);
+      if(!normalized || !hostRect){
+        return null;
       }
-      const outline = ensureSelectionOutline();
-      if(!outline){
-        return false;
-      }
-      const startCell = resolveFillHandleCell(selection.from.row, selection.from.col);
-      const endCell = resolveFillHandleCell(selection.to.row, selection.to.col);
-      const visibilityContext = resolveSelectionVisibilityContext();
+      const startCell = resolveFillHandleCell(normalized.from.row, normalized.from.col);
+      const endCell = resolveFillHandleCell(normalized.to.row, normalized.to.col);
       const startRectRaw = startCell?.getBoundingClientRect?.() || null;
       const endRectRaw = endCell?.getBoundingClientRect?.() || null;
       const startRect = resolveVisibleCellRect(startCell, startRectRaw, visibilityContext);
       const endRect = resolveVisibleCellRect(endCell, endRectRaw, visibilityContext);
-      const hostRect = container?.getBoundingClientRect?.();
-      if(!hostRect){
-        hideSelectionOutline();
-        return false;
-      }
       let bounds = null;
       if(startRect && endRect){
         bounds = {
@@ -3284,11 +3423,10 @@
           bottom: Math.max(startRect.bottom, endRect.bottom)
         };
       }else{
-        bounds = resolveVisibleSelectionBounds();
+        bounds = resolveVisibleRangeBounds(normalized, visibilityContext);
       }
       if(!bounds){
-        hideSelectionOutline();
-        return false;
+        return null;
       }
       const isNodeInPinnedLeft = (node)=>!!(node && typeof node.closest === 'function'
         && node.closest('.ag-pinned-left, .ag-pinned-left-header, .ag-pinned-left-header-viewport, .ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container'));
@@ -3297,16 +3435,16 @@
       const selectionInsidePinnedLeft = isNodeInPinnedLeft(startCell) && isNodeInPinnedLeft(endCell);
       const selectionInsidePinnedTop = isNodeInPinnedTop(startCell) && isNodeInPinnedTop(endCell);
       const selectionIncludesPinnedDataColumn = !!(pinFirstDataColumn
-        && Number.isInteger(selection.from?.col)
-        && Number.isInteger(selection.to?.col)
-        && selection.from.col <= 0
-        && selection.to.col >= 0);
+        && Number.isInteger(normalized.from?.col)
+        && Number.isInteger(normalized.to?.col)
+        && normalized.from.col <= 0
+        && normalized.to.col >= 0);
       const selectionIncludesPinnedTopRow = !!(usePinnedRows
-        && Number.isInteger(selection.from?.row)
-        && Number.isInteger(selection.to?.row)
-        && selection.from.row >= 0
-        && selection.from.row < pinRowCount
-        && selection.to.row >= selection.from.row);
+        && Number.isInteger(normalized.from?.row)
+        && Number.isInteger(normalized.to?.row)
+        && normalized.from.row >= 0
+        && normalized.from.row < pinRowCount
+        && normalized.to.row >= normalized.from.row);
       let left = bounds.left - hostRect.left - 1;
       let top = bounds.top - hostRect.top - 1;
       let right = bounds.right - hostRect.left + 1;
@@ -3332,48 +3470,120 @@
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
       if(width <= 0 || height <= 0){
-        hideSelectionOutline();
-        return false;
+        return null;
       }
       const isPinnedSelectionRange = !!(usePinnedRows
-        && Number.isInteger(selection.from?.row)
-        && selection.from.row >= 0
-        && selection.from.row < pinRowCount);
+        && Number.isInteger(normalized.from?.row)
+        && normalized.from.row >= 0
+        && normalized.from.row < pinRowCount);
       const shouldOverlayPinnedLeft = selectionInsidePinnedLeft || selectionIncludesPinnedDataColumn;
-      const edgeVisibility = resolveSelectionOutlineEdgeVisibility(selection, visibilityContext, {
+      const edgeVisibility = resolveRangeOutlineEdgeVisibility(normalized, visibilityContext, {
         startCell,
         endCell,
         startRectRaw,
         endRectRaw
       });
-      const outlineColor = 'var(--hot-selection-outline-color, #005fb8)';
-      outline.style.display = 'block';
-      outline.style.left = `${left}px`;
-      outline.style.top = `${top}px`;
-      outline.style.width = `${width}px`;
-      outline.style.height = `${height}px`;
-      outline.style.borderLeftColor = edgeVisibility.left ? outlineColor : 'transparent';
-      outline.style.borderRightColor = edgeVisibility.right ? outlineColor : 'transparent';
-      outline.style.borderTopColor = edgeVisibility.top ? outlineColor : 'transparent';
-      outline.style.borderBottomColor = edgeVisibility.bottom ? outlineColor : 'transparent';
-      // Layering policy:
-      // - Pinned-left-inclusive selections stay above pinned-left masks.
-      // - Pinned-top-row selections stay above pinned-top.
-      // - Body selections stay above pinned-top unless their top edge is
-      //   actually clipped by pinned-top (i.e., scrolled underneath), in which
-      //   case they drop below so the pinned row masks overlap naturally.
       const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
         && !isPinnedSelectionRange
         && edgeVisibility.top === false);
-      outline.style.zIndex = isPinnedSelectionRange
-        ? '9'
-        : (bodySelectionClippedUnderPinnedTop ? '2' : (shouldOverlayPinnedLeft ? '7' : '5'));
+      return {
+        left,
+        top,
+        width,
+        height,
+        edgeVisibility,
+        zIndex: isPinnedSelectionRange
+          ? '9'
+          : (bodySelectionClippedUnderPinnedTop ? '2' : (shouldOverlayPinnedLeft ? '7' : '5'))
+      };
+    };
+
+    const updateSelectionOutlinePosition = ()=>{
+      const selection = normalizedSelectionRange;
+      if(!selection || shouldSuppressLiveSelectionChrome()){
+        hideSelectionOutline();
+        return false;
+      }
+      const outline = ensureSelectionOutline();
+      if(!outline){
+        return false;
+      }
+      const hostRect = container?.getBoundingClientRect?.();
+      if(!hostRect){
+        hideSelectionOutline();
+        return false;
+      }
+      const visibilityContext = resolveSelectionVisibilityContext();
+      const placement = resolveRangeOutlinePlacement(selection, visibilityContext, hostRect);
+      if(!placement){
+        hideSelectionOutline();
+        return false;
+      }
+      const outlineColor = 'var(--hot-selection-outline-color, #005fb8)';
+      outline.style.display = 'block';
+      outline.style.left = `${placement.left}px`;
+      outline.style.top = `${placement.top}px`;
+      outline.style.width = `${placement.width}px`;
+      outline.style.height = `${placement.height}px`;
+      outline.style.borderLeftColor = placement.edgeVisibility.left ? outlineColor : 'transparent';
+      outline.style.borderRightColor = placement.edgeVisibility.right ? outlineColor : 'transparent';
+      outline.style.borderTopColor = placement.edgeVisibility.top ? outlineColor : 'transparent';
+      outline.style.borderBottomColor = placement.edgeVisibility.bottom ? outlineColor : 'transparent';
+      outline.style.zIndex = placement.zIndex;
+      return true;
+    };
+
+    const updateClipboardOutlinePosition = ()=>{
+      if(!hasClipboardOutline()){
+        hideClipboardOutlines();
+        return false;
+      }
+      const hostRect = container?.getBoundingClientRect?.();
+      if(!hostRect){
+        hideClipboardOutlines();
+        return false;
+      }
+      const visibilityContext = resolveSelectionVisibilityContext();
+      for(let i = 0; i < normalizedClipboardOutlineRanges.length; i += 1){
+        const range = normalizedClipboardOutlineRanges[i];
+        const outline = ensureClipboardOutline(i);
+        if(!outline){
+          continue;
+        }
+        const placement = resolveRangeOutlinePlacement(range, visibilityContext, hostRect);
+        if(!placement){
+          hideClipboardOutline(outline);
+          continue;
+        }
+        outline.style.display = 'block';
+        outline.style.left = `${placement.left}px`;
+        outline.style.top = `${placement.top}px`;
+        outline.style.width = `${placement.width}px`;
+        outline.style.height = `${placement.height}px`;
+        outline.style.zIndex = placement.zIndex;
+        outline.dataset.mode = clipboardOutlineState?.mode === 'cut' ? 'cut' : 'copy';
+        const edges = outline.querySelectorAll('.hot-clipboard-outline-edge');
+        for(let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1){
+          const edge = edges[edgeIndex];
+          const edgeName = edge?.dataset?.edge;
+          edge.style.display = placement.edgeVisibility[edgeName] ? 'block' : 'none';
+        }
+      }
+      for(let i = normalizedClipboardOutlineRanges.length; i < clipboardOutlines.length; i += 1){
+        hideClipboardOutline(clipboardOutlines[i]);
+      }
       return true;
     };
 
     const updateFillHandlePosition = (reason)=>{
+      updateClipboardOutlinePosition();
       const selection = normalizedSelectionRange;
       if(!selection){
+        hideFillHandle();
+        hideSelectionOutline();
+        return;
+      }
+      if(shouldSuppressLiveSelectionChrome()){
         hideFillHandle();
         hideSelectionOutline();
         return;
@@ -5007,19 +5217,16 @@
       }
       const ok = await writeClipboardText(text);
       if(ok){
-        if(useSelectedColumns && isContiguousColumnSelection(selectedColumns)){
-          setCopyHighlightRange({
-            from: { row: rowSpan.startRow, col: selectedColumns[0] },
-            to: { row: rowSpan.endRow, col: selectedColumns[selectedColumns.length - 1] }
-          });
-        }else if(useSelectedColumns){
-          setCopyHighlightRange(null);
-        }else{
-          setCopyHighlightRange(normalized);
-        }
-        renderAg(instance.gridApi);
-        fireAfterCopy(useSelectedColumns
+        const ranges = useSelectedColumns
           ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+          : (normalized ? [normalized] : []);
+        setClipboardOutlineState({
+          mode: 'copy',
+          ranges,
+          clipboardText: normalizeClipboardText(text)
+        }, 'copy');
+        fireAfterCopy(useSelectedColumns
+          ? ranges
           : normalized);
       }
       return ok;
@@ -5043,8 +5250,16 @@
       if(!ok){
         return false;
       }
-      fireAfterCopy(useSelectedColumns
+      const copiedRanges = useSelectedColumns
         ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+        : (normalized ? [normalized] : []);
+      setClipboardOutlineState({
+        mode: 'cut',
+        ranges: copiedRanges,
+        clipboardText: normalizeClipboardText(text)
+      }, 'cut');
+      fireAfterCopy(useSelectedColumns
+        ? copiedRanges
         : normalized);
       try{
         const matrix = dataHandle.current;
@@ -5108,8 +5323,6 @@
           normalized.to.row
         );
       instance.setDataAtCell(changes, 'cut');
-      setCopyHighlightRange(null);
-      renderAg(instance.gridApi);
       return true;
     };
 
@@ -6783,24 +6996,6 @@
           }
           return rowIndex === normalizedSelectionRange.from.row && col === normalizedSelectionRange.from.col;
         };
-        existing['hot-copy-highlight-cell'] = params=>{
-          if(!normalizedCopyHighlightRange){
-            return false;
-          }
-          const rowIndex = resolveVisualRowIndex(params);
-          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
-          if(!Number.isInteger(rowIndex)){
-            return false;
-          }
-          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
-          if(!Number.isInteger(col)){
-            return false;
-          }
-          return rowIndex >= normalizedCopyHighlightRange.from.row
-            && rowIndex <= normalizedCopyHighlightRange.to.row
-            && col >= normalizedCopyHighlightRange.from.col
-            && col <= normalizedCopyHighlightRange.to.col;
-        };
         existing['hot-fill-preview-cell'] = params=>{
           if(!normalizedFillPreviewRange){
             return false;
@@ -7059,6 +7254,9 @@
     };
     const updateSelectionFromApi = (api)=>{
       if(!api){
+        return;
+      }
+      if(pendingSelectionReassertRange){
         return;
       }
       clearSelectedHeaderColumns();
@@ -7812,11 +8010,17 @@
 
     instance = {
       rootElement: container,
+      __hotInstanceId: hotInstanceId,
       __hotDebugLabel: debugLabel,
       __hotExclusionController: exclusionController,
+      __hotSetClipboardOutlineState(payload, reason, options){
+        return setClipboardOutlineState(payload, reason, options);
+      },
+      __hotClearClipboardOutline(){
+        setClipboardOutlineState(null, 'instance-clear-clipboard-outline');
+      },
       __hotClearCopyHighlight(){
-        setCopyHighlightRange(null);
-        renderAg(instance.gridApi);
+        return this.__hotClearClipboardOutline();
       },
       __hotRefreshHeaderWidths: noop,
       __hotHeaderWidthManager: headerWidthManager,
@@ -8568,6 +8772,9 @@
       },
       destroy(){
         flushPendingCutMove('destroy');
+        if(hotNS.__activeClipboardSelectionOwner === instance){
+          hotNS.__activeClipboardSelectionOwner = null;
+        }
         runCleanup();
         if(autoGrowthState.viewportScrollAttached){
           const handler = autoGrowthState.viewportScrollHandler;
@@ -12870,10 +13077,12 @@
           resetFillHandleDrag('escape');
           return;
         }
+        if(isEscape && hasClipboardOutline()){
+          setClipboardOutlineState(null, 'escape');
+        }
         const isEnter = key === 'Enter' || key === 'NumpadEnter' || keyCode === 13;
-        if(isEnter && normalizedCopyHighlightRange){
-          setCopyHighlightRange(null);
-          renderAg(instance.gridApi);
+        if(isEnter && hasClipboardOutline()){
+          setClipboardOutlineState(null, 'enter');
         }
         if(isEnter && !isEditableTarget(event.target)){
           const selection = normalizedSelectionRange || normalizeRange(lastRange);
@@ -12928,8 +13137,7 @@
               );
             if(changes.length){
               instance.setDataAtCell(changes, 'delete');
-              setCopyHighlightRange(null);
-              renderAg(instance.gridApi);
+              setClipboardOutlineState(null, 'delete');
             }
           }
           return;
@@ -13203,13 +13411,15 @@
           }else{
             instance.populateFromArray(selection.from.row, selection.from.col, block, endRow, endCol, 'clipboard', 'paste');
           }
-          setLastRange({
+          const pastedSelectionRange = {
             from: { row: selection.from.row, col: useSelectedColumns ? selectedColumns[0] : selection.from.col },
             to: { row: endRow, col: endCol }
-          });
-          setCopyHighlightRange(null);
+          };
+          setLastRange(pastedSelectionRange);
+          clearActiveClipboardSelectionOwner('paste');
           renderAg(instance.gridApi);
-          fireHook('afterSelectionEnd', selection.from.row, useSelectedColumns ? selectedColumns[0] : selection.from.col, endRow, endCol);
+          fireHook('afterSelectionEnd', pastedSelectionRange.from.row, pastedSelectionRange.from.col, pastedSelectionRange.to.row, pastedSelectionRange.to.col);
+          scheduleSelectionReassert(pastedSelectionRange, 'paste');
         }catch(err){
           console.error('Shared.hot AG paste handler failed', { debugLabel, err });
         }finally{
@@ -13823,21 +14033,32 @@
     return false;
   }
 
-  hotNS.clearCopyHighlight = function(instance, reason){
+  hotNS.clearClipboardOutline = function(instance, reason){
     const inst = resolveInstance(instance);
-    const label = reason || 'Shared.hot.clearCopyHighlight';
-    const debugLabel = getInstanceDebugLabel(inst);
-    if(inst && typeof inst.__hotClearCopyHighlight === 'function'){
-      inst.__hotClearCopyHighlight(label);
-      console.debug('Debug: Shared.hot.clearCopyHighlight invoked', { debugLabel, reason: label });
+    const label = reason || 'Shared.hot.clearClipboardOutline';
+    const activeOwner = hotNS.__activeClipboardSelectionOwner;
+    const target = activeOwner && typeof activeOwner.__hotClearClipboardOutline === 'function'
+      ? activeOwner
+      : inst;
+    const debugLabel = getInstanceDebugLabel(target);
+    if(target && typeof target.__hotClearClipboardOutline === 'function'){
+      target.__hotClearClipboardOutline(label);
+      console.debug('Debug: Shared.hot.clearClipboardOutline invoked', { debugLabel, reason: label });
       return true;
     }
-    console.debug('Debug: Shared.hot.clearCopyHighlight skipped', {
+    if(clearActiveClipboardSelectionOwner(label)){
+      console.debug('Debug: Shared.hot.clearClipboardOutline invoked via active-owner fallback', { reason: label });
+      return true;
+    }
+    console.debug('Debug: Shared.hot.clearClipboardOutline skipped', {
       debugLabel,
       reason: label,
-      hasHandler: !!(inst && inst.__hotClearCopyHighlight)
+      hasHandler: !!(inst && inst.__hotClearClipboardOutline)
     });
     return false;
+  };
+  hotNS.clearCopyHighlight = function(instance, reason){
+    return hotNS.clearClipboardOutline(instance, reason || 'Shared.hot.clearCopyHighlight');
   };
 
   Shared.ensureHotWrapperStyles = ensureHotWrapperStyles;

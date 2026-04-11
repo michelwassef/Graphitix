@@ -1062,10 +1062,6 @@ select {
 .ag-theme-balham .ag-cell.hot-selected-anchor {
     background: transparent !important;
 }
-.ag-theme-balham .ag-cell.hot-copy-highlight-cell {
-    outline: 2px dotted var(--hot-copy-highlight-color, #1a73e8);
-    outline-offset: -2px;
-}
 .ag-theme-balham .ag-cell.hot-fill-preview-cell {
     background: rgba(0, 0, 0, 0.08);
     outline: 1px dashed rgba(0, 0, 0, 0.35);
@@ -1090,6 +1086,77 @@ select {
     box-sizing: border-box;
     border: 2px solid var(--hot-selection-outline-color, #005fb8);
     z-index: 6;
+}
+.ag-theme-balham .hot-clipboard-outline {
+    position: absolute;
+    pointer-events: none;
+    box-sizing: border-box;
+    z-index: 8;
+    --hot-clipboard-outline-color: var(--hot-selection-outline-color, #005fb8);
+    --hot-clipboard-outline-thickness: 2px;
+    --hot-clipboard-outline-segment: 8px;
+    --hot-clipboard-outline-speed: 0.45s;
+}
+.ag-theme-balham .hot-clipboard-outline-edge {
+    position: absolute;
+    pointer-events: none;
+    background-repeat: repeat;
+    animation: hot-clipboard-outline-march var(--hot-clipboard-outline-speed) linear infinite;
+}
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="top"],
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="bottom"] {
+    left: 0;
+    width: 100%;
+    height: var(--hot-clipboard-outline-thickness);
+    background-image: repeating-linear-gradient(
+        90deg,
+        var(--hot-clipboard-outline-color) 0 calc(var(--hot-clipboard-outline-segment) / 2),
+        transparent calc(var(--hot-clipboard-outline-segment) / 2) var(--hot-clipboard-outline-segment)
+    );
+    background-size: var(--hot-clipboard-outline-segment) var(--hot-clipboard-outline-thickness);
+}
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="top"] {
+    top: 0;
+}
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="bottom"] {
+    bottom: 0;
+    animation-direction: reverse;
+}
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="left"],
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="right"] {
+    top: 0;
+    height: 100%;
+    width: var(--hot-clipboard-outline-thickness);
+    background-image: repeating-linear-gradient(
+        180deg,
+        var(--hot-clipboard-outline-color) 0 calc(var(--hot-clipboard-outline-segment) / 2),
+        transparent calc(var(--hot-clipboard-outline-segment) / 2) var(--hot-clipboard-outline-segment)
+    );
+    background-size: var(--hot-clipboard-outline-thickness) var(--hot-clipboard-outline-segment);
+    animation-name: hot-clipboard-outline-march-vertical;
+}
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="left"] {
+    left: 0;
+}
+.ag-theme-balham .hot-clipboard-outline-edge[data-edge="right"] {
+    right: 0;
+    animation-direction: reverse;
+}
+@keyframes hot-clipboard-outline-march {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: calc(var(--hot-clipboard-outline-segment) * -1) 0;
+    }
+}
+@keyframes hot-clipboard-outline-march-vertical {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: 0 calc(var(--hot-clipboard-outline-segment) * -1);
+    }
 }
 .hot-formula-fn-suggest {
     position: fixed;
