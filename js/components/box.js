@@ -10507,6 +10507,12 @@
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
       if(!els.boxShowSignificance.dataset?.boxHandlerAttached){
         els.boxShowSignificance.addEventListener('change',()=>{
+          if(!isPairwiseSignificanceSupported()){
+            els.boxShowSignificance.checked = false;
+            state.showSignificanceBars = false;
+            state.pendingAutoShowSignificance = false;
+            return;
+          }
           state.showSignificanceBars = !!els.boxShowSignificance.checked;
           console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
           requestStatsContextRefresh('significance-toggle');
@@ -13375,6 +13381,12 @@
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
       if(!els.boxShowSignificance.dataset?.boxHandlerAttached){
         els.boxShowSignificance.addEventListener('change',()=>{
+          if(!isPairwiseSignificanceSupported()){
+            els.boxShowSignificance.checked = false;
+            state.showSignificanceBars = false;
+            state.pendingAutoShowSignificance = false;
+            return;
+          }
           state.showSignificanceBars = !!els.boxShowSignificance.checked;
           console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
           requestStatsContextRefresh('significance-toggle');
@@ -21540,22 +21552,36 @@ Technical analysis record (advanced)
     }
   }
 
+  function isPairwiseSignificanceSupported(){
+    return state.tableFormat !== 'grouped';
+  }
+
   function updateSignificanceControlState(options){
     if(!els.boxShowSignificance){
       return;
     }
     const groupedModeActive = state.tableFormat === 'grouped';
     const statsReady = !!options?.statsReady;
-    const significanceSupported = !groupedModeActive;
+    const significanceSupported = isPairwiseSignificanceSupported();
     els.boxShowSignificance.disabled = !statsReady || !significanceSupported;
     const label = (typeof els.boxShowSignificance.closest === 'function'
       ? els.boxShowSignificance.closest('label')
       : els.boxShowSignificance.parentElement) || null;
+    if(els.boxSignificanceControls){
+      const shouldShowControls = !groupedModeActive;
+      els.boxSignificanceControls.hidden = !shouldShowControls;
+      els.boxSignificanceControls.setAttribute('aria-hidden', shouldShowControls ? 'false' : 'true');
+      if(els.boxSignificanceControls.style){
+        els.boxSignificanceControls.style.display = shouldShowControls ? 'flex' : 'none';
+      }
+    }
     if(!significanceSupported){
       const msg = 'Pairwise comparison bars are unavailable in grouped replicates mode.';
       els.boxShowSignificance.title = msg;
       if(label){ label.title = msg; }
       els.boxShowSignificance.checked = false;
+      state.showSignificanceBars = false;
+      state.pendingAutoShowSignificance = false;
       if(els.boxSignificanceLabelMode){
         els.boxSignificanceLabelMode.disabled = true;
         els.boxSignificanceLabelMode.title = msg;
@@ -22204,7 +22230,8 @@ Technical analysis record (advanced)
       return;
     }
     const userInitiated = !!(evt && evt.isTrusted);
-    if(userInitiated && !state.showSignificanceBars){
+    const canShowSignificance = isPairwiseSignificanceSupported();
+    if(userInitiated && canShowSignificance && !state.showSignificanceBars){
       state.pendingAutoShowSignificance = true;
       let toggledViaControl = false;
       if(els.boxShowSignificance){
@@ -22277,7 +22304,7 @@ Technical analysis record (advanced)
     };
 
     const applyStatsSuccess = () => {
-      if(state.pendingAutoShowSignificance){
+      if(canShowSignificance && state.pendingAutoShowSignificance){
         state.showSignificanceBars = true;
         if(els.boxShowSignificance){
           els.boxShowSignificance.checked = true;
@@ -22292,7 +22319,7 @@ Technical analysis record (advanced)
       const nextSignificanceMaxLevel = Number.isFinite(state.significanceMaxLevel)
         ? Number(state.significanceMaxLevel)
         : null;
-      const shouldReflowForSignificance = !!state.showSignificanceBars
+      const shouldReflowForSignificance = canShowSignificance && !!state.showSignificanceBars
         && nextSignificanceMaxLevel !== previousSignificanceMaxLevel;
       if(shouldReflowForSignificance){
         state.scheduleDraw();
@@ -24080,7 +24107,7 @@ Technical analysis record (advanced)
     const borderWidthRaw = Number(getBoxBorderWidthValue());
     const errorBarWidthInput = Number(getBoxErrorBarWidthValue());
     const errorBarWidthRaw = Number.isFinite(errorBarWidthInput) ? errorBarWidthInput : borderWidthRaw;
-    const showSignificance = !!state.showSignificanceBars;
+    const showSignificance = isPairwiseSignificanceSupported() && !!state.showSignificanceBars;
     const containerRect = els.svgBox?.getBoundingClientRect?.();
     const previousSignificanceViewportExtension = Number.isFinite(Number(state.significanceViewportExtensionPx))
       ? Math.max(0, Number(state.significanceViewportExtensionPx))
