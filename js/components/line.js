@@ -109,6 +109,12 @@
     plot3d.isInteractivePointerTarget = target => plot3d.isLegendPointerTarget(target);
   }
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
+  function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    return Shared.workspaceToolbar || {};
+  }
   line.__installed = true;
   line.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -2426,21 +2432,16 @@
       if(!doc){
         return;
       }
-      panel = doc.createElement('div');
-      panel.className = 'workspace-toolbar__panel additional-line-controls-panel line-errorbar-inline-panel';
+      const toolbarApi = getWorkspaceToolbarApi();
+      const panelParts = toolbarApi.createSubPanel({
+        panelClass: 'additional-line-controls-panel line-errorbar-inline-panel',
+        title: 'Error bars',
+        rowClass: 'additional-line-controls-panel__row'
+      });
+      panel = panelParts.panel;
       panel.dataset.lineErrorBarToolbar = '1';
-      const title = doc.createElement('div');
-      title.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title';
-      title.textContent = 'Error bars';
-      panel.appendChild(title);
-      const row = doc.createElement('div');
-      row.className = 'additional-line-controls-panel__row';
-      panel.appendChild(row);
-      const field = doc.createElement('label');
-      field.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric';
-      const label = doc.createElement('span');
-      label.className = 'additional-line-controls-panel__field-label';
-      label.textContent = 'Error Bar Thickness';
+      panelParts.title.classList.add('additional-line-controls-panel__title');
+      const row = panelParts.row;
       const input = doc.createElement('input');
       input.type = 'number';
       input.min = refs.errorBarWidth.min || '0';
@@ -2462,10 +2463,13 @@
       };
       input.addEventListener('input', applyToolbarValue);
       input.addEventListener('change', applyToolbarValue);
-      field.appendChild(label);
-      field.appendChild(input);
+      const field = toolbarApi.createLabeledField({
+        fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric',
+        label: 'Error Bar Thickness',
+        labelClass: 'additional-line-controls-panel__field-label',
+        control: input
+      }).field;
       row.appendChild(field);
-      panel.appendChild(row);
       targetHost.appendChild(panel);
       lineErrorBarToolbarPanel = panel;
       lineErrorBarToolbarInput = input;
@@ -3636,21 +3640,16 @@
             return null;
           }
           clearInlineOverlayPanel();
-          const panel = doc.createElement('div');
-          panel.className = 'workspace-toolbar__panel additional-line-controls-panel line-overlay-inline-panel';
+          const toolbarApi = getWorkspaceToolbarApi();
+          const panelParts = toolbarApi.createSubPanel({
+            panelClass: 'additional-line-controls-panel line-overlay-inline-panel',
+            title: 'Overlay',
+            rowClass: 'additional-line-controls-panel__row'
+          });
+          const panel = panelParts.panel;
           panel.dataset.lineOverlayPanel = '1';
-          const title = doc.createElement('div');
-          title.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title';
-          title.textContent = 'Overlay';
-          panel.appendChild(title);
-          const row = doc.createElement('div');
-          row.className = 'additional-line-controls-panel__row';
-          panel.appendChild(row);
-          const scopeField = doc.createElement('label');
-          scopeField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--scope';
-          const scopeLabel = doc.createElement('span');
-          scopeLabel.className = 'additional-line-controls-panel__field-label';
-          scopeLabel.textContent = 'Scope';
+          panelParts.title.classList.add('additional-line-controls-panel__title');
+          const row = panelParts.row;
           const scopeSelect = doc.createElement('select');
           scopeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
           overlayScopeOptions.forEach(option => {
@@ -3659,15 +3658,13 @@
             opt.textContent = option.label;
             scopeSelect.appendChild(opt);
           });
-          scopeField.appendChild(scopeLabel);
-          scopeField.appendChild(scopeSelect);
+          const scopeField = toolbarApi.createLabeledField({
+            fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--scope',
+            label: 'Scope',
+            labelClass: 'additional-line-controls-panel__field-label',
+            control: scopeSelect
+          }).field;
           row.appendChild(scopeField);
-          const toolbarApi = Shared.workspaceToolbar || {};
-          const styleField = doc.createElement('label');
-          styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style';
-          const styleLabel = doc.createElement('span');
-          styleLabel.className = 'additional-line-controls-panel__field-label';
-          styleLabel.textContent = 'Line';
           const styleControlParts = toolbarApi.createBorderStyleControl({
             chipTitle: 'Click to edit color. Use mouse wheel to adjust line thickness.',
             colorInputClass: 'shared-border-style-input additional-line-controls-panel__color-input'
@@ -3677,8 +3674,14 @@
           const styleChipPreview = styleControlParts.preview;
           const styleChipValue = styleControlParts.value;
           const colorInput = styleControlParts.colorInput;
-          styleField.appendChild(styleLabel);
-          styleField.appendChild(styleControl);
+          const styleFieldParts = toolbarApi.createLabeledField({
+            fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--style',
+            label: 'Line',
+            labelClass: 'additional-line-controls-panel__field-label',
+            control: styleControl
+          });
+          const styleField = styleFieldParts.field;
+          const styleLabel = styleFieldParts.label;
           row.appendChild(styleField);
           const patternFieldParts = toolbarApi.createLinePatternField({
             fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern',
@@ -3691,11 +3694,6 @@
           const patternLabel = patternFieldParts.label;
           const patternSelect = patternFieldParts.select;
           row.appendChild(patternField);
-          const transparencyField = doc.createElement('label');
-          transparencyField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency';
-          const transparencyLabel = doc.createElement('span');
-          transparencyLabel.className = 'additional-line-controls-panel__field-label';
-          transparencyLabel.textContent = 'Line transparency';
           const transparencyParts = toolbarApi.createTransparencyControl({
             wrapClass: 'additional-line-controls-panel__range',
             inputClass: 'additional-line-controls-panel__transparency-input',
@@ -3709,8 +3707,14 @@
           const transparencyWrap = transparencyParts.wrap;
           const transparencyInput = transparencyParts.input;
           const transparencyValue = transparencyParts.value;
-          transparencyField.appendChild(transparencyLabel);
-          transparencyField.appendChild(transparencyWrap);
+          const transparencyFieldParts = toolbarApi.createLabeledField({
+            fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency',
+            label: 'Line transparency',
+            labelClass: 'additional-line-controls-panel__field-label',
+            control: transparencyWrap
+          });
+          const transparencyField = transparencyFieldParts.field;
+          const transparencyLabel = transparencyFieldParts.label;
           row.appendChild(transparencyField);
           const thicknessInput = doc.createElement('input');
           thicknessInput.type = 'number';

@@ -34,14 +34,6 @@
     if(typeof Shared.getWorkspaceToolbarApi === 'function'){
       return Shared.getWorkspaceToolbarApi();
     }
-    if(typeof require === 'function'){
-      try{
-        require('./workspaceToolbarAccess.js');
-      }catch(err){}
-    }
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -448,22 +440,21 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    panelEl = doc.createElement('div');
-    panelEl.className = 'workspace-toolbar__panel significance-controls-panel additional-line-controls-panel';
-    panelEl.setAttribute('role', 'toolbar');
-    panelEl.setAttribute('aria-label', 'Significance bar controls');
+    const toolbarApi = getWorkspaceToolbarApi();
+    const panelParts = toolbarApi.createSubPanel({
+      panelClass: 'significance-controls-panel additional-line-controls-panel',
+      role: 'toolbar',
+      ariaLabel: 'Significance bar controls',
+      title: 'Significance bars, p-value format',
+      rowClass: 'additional-line-controls-panel__row significance-controls-panel__row'
+    });
+    panelEl = panelParts.panel;
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
+    panelParts.title.classList.add('additional-line-controls-panel__title', 'significance-controls-panel__title');
 
-    const panelTitle = doc.createElement('div');
-    panelTitle.className = 'workspace-toolbar__panel-title additional-line-controls-panel__title significance-controls-panel__title';
-    panelTitle.textContent = 'Significance bars, p-value format';
-    panelEl.appendChild(panelTitle);
-
-    const row = doc.createElement('div');
-    row.className = 'additional-line-controls-panel__row significance-controls-panel__row';
-    panelEl.appendChild(row);
+    const row = panelParts.row;
 
     summaryValueEl = null;
 
@@ -472,7 +463,6 @@
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
     styleLabel.textContent = 'Border';
-    const toolbarApi = getWorkspaceToolbarApi();
     const styleControlParts = toolbarApi.createBorderStyleControl({
       chipTitle: 'Click to edit significance bar color. Wheel or Alt+drag to adjust thickness.',
       includeThicknessInput: true,

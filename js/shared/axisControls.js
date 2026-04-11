@@ -58,14 +58,6 @@
     if(typeof Shared.getWorkspaceToolbarApi === 'function'){
       return Shared.getWorkspaceToolbarApi();
     }
-    if(typeof require === 'function'){
-      try{
-        require('./workspaceToolbarAccess.js');
-      }catch(err){}
-    }
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -1830,22 +1822,22 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    panelEl = doc.createElement('div');
-    panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--axis axis-controls-panel';
-    panelEl.setAttribute('role', 'toolbar');
-    panelEl.setAttribute('aria-label', 'Axis controls');
+    const toolbarApi = getWorkspaceToolbarApi();
+    const panelParts = toolbarApi.createSubPanel({
+      panelClass: 'workspace-toolbar__panel--axis axis-controls-panel',
+      role: 'toolbar',
+      ariaLabel: 'Axis controls',
+      title: 'Axis',
+      rowClass: 'additional-line-controls-panel__row axis-controls-panel__row'
+    });
+    panelEl = panelParts.panel;
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
+    panelTitleEl = panelParts.title;
+    panelTitleEl.classList.add('axis-controls-panel__title');
 
-    panelTitleEl = doc.createElement('div');
-    panelTitleEl.className = 'workspace-toolbar__panel-title axis-controls-panel__title';
-    panelTitleEl.textContent = 'Axis';
-    panelEl.appendChild(panelTitleEl);
-
-    const fieldsRowEl = doc.createElement('div');
-    fieldsRowEl.className = 'additional-line-controls-panel__row axis-controls-panel__row';
-    panelEl.appendChild(fieldsRowEl);
+    const fieldsRowEl = panelParts.row;
 
     const tickField = doc.createElement('label');
     tickField.className = 'axis-controls-panel__field additional-line-controls-panel__field';
@@ -1987,7 +1979,6 @@
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
     styleLabel.textContent = 'Thickness';
-    const toolbarApi = getWorkspaceToolbarApi();
     const styleControlParts = toolbarApi.createBorderStyleControl({
       chipTitle: 'Click to edit axis line color. Wheel or Alt+drag to adjust line thickness.',
       includeThicknessInput: true,

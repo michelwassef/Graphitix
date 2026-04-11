@@ -18,16 +18,6 @@
   };
   debug('Debug: Main.bootstrap namespace initialized', { module: 'js/main/bootstrap.js' });
 
-  if(typeof require === 'function'){
-    try {
-      require('../shared/workspaceToolbarAccess.js');
-      Shared.getWorkspaceToolbarApi?.();
-      debug('Debug: Main.bootstrap workspaceToolbar access initialized');
-    } catch(err){
-      debug('Debug: Main.bootstrap workspaceToolbar access init failed', { err });
-    }
-  }
-
   const GRAPH_TYPES = [
     { type: 'box', label: 'Distribution Charts', hint: 'Group comparisons', description: 'Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.' },
     { type: 'scatter', label: 'XY Plots', hint: 'Correlation & expression', description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.' },

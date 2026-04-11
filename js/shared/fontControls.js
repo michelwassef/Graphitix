@@ -246,14 +246,6 @@
     if(typeof Shared.getWorkspaceToolbarApi === 'function'){
       return Shared.getWorkspaceToolbarApi();
     }
-    if(typeof require === 'function'){
-      try{
-        require('./workspaceToolbarAccess.js');
-      }catch(err){}
-    }
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
     return Shared.workspaceToolbar || {};
   }
   const undoManager = Shared.undoManager || null;
@@ -1597,7 +1589,6 @@
 
   function exitFloatingMode(meta){
     if(!panelEl){ return; }
-    panelEl.classList.remove('font-controls-panel--floating');
     panelEl.style.removeProperty('transform');
     panelEl.style.removeProperty('left');
     panelEl.style.removeProperty('top');
@@ -2932,10 +2923,15 @@
         logDebug('selectionchange tracking attach failed', { error: err?.message || String(err) });
       }
     }
-    panelEl = doc.createElement('div');
-    panelEl.className = 'workspace-toolbar__panel workspace-toolbar__panel--font font-controls-panel';
-    panelEl.setAttribute('role', 'toolbar');
-    panelEl.setAttribute('aria-label', 'Font controls');
+    const toolbarApi = getWorkspaceToolbarApi();
+    const panelParts = toolbarApi.createSubPanel({
+      panelClass: 'workspace-toolbar__panel--font font-controls-panel',
+      role: 'toolbar',
+      ariaLabel: 'Font controls',
+      title: 'Font',
+      rowClass: 'font-controls-panel__controls additional-line-controls-panel__row'
+    });
+    panelEl = panelParts.panel;
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.setAttribute('aria-hidden', 'true');
@@ -2943,14 +2939,7 @@
     if(panelEl.dataset.scope){
       delete panelEl.dataset.scope;
     }
-
-    const panelTitleEl = doc.createElement('div');
-    panelTitleEl.className = 'workspace-toolbar__panel-title';
-    panelTitleEl.textContent = 'Font';
-    panelEl.appendChild(panelTitleEl);
-
-    const controlsRow = doc.createElement('div');
-    controlsRow.className = 'font-controls-panel__controls additional-line-controls-panel__row';
+    const controlsRow = panelParts.row;
 
     scopeFieldEl = doc.createElement('label');
     scopeFieldEl.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--scope';
@@ -3445,8 +3434,6 @@
 
     logDebug('format toggles initialized', { toggleCount: formatButtonsRow.children.length });
     resolveFormatRowWidth();
-
-    panelEl.appendChild(controlsRow);
 
     footerEl = doc.createElement('div');
     footerEl.className = 'font-controls-panel__footer';

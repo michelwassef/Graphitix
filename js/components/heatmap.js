@@ -32,6 +32,12 @@
     }
   }
   const notesState = { text: '', open: false, control: null };
+  function getWorkspaceToolbarApi(){
+    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
+      return Shared.getWorkspaceToolbarApi();
+    }
+    return Shared.workspaceToolbar || {};
+  }
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -796,7 +802,7 @@
   }
 
   function resolveHeatmapToolbarHost(doc){
-    const toolbarApi = Shared.workspaceToolbar || null;
+    const toolbarApi = getWorkspaceToolbarApi();
     if(toolbarApi && typeof toolbarApi.resolveHost === 'function'){
       return toolbarApi.resolveHost('heatmap');
     }
@@ -844,7 +850,7 @@
     if(!host){
       return;
     }
-    const toolbarApi = Shared.workspaceToolbar || null;
+    const toolbarApi = getWorkspaceToolbarApi();
     if(toolbarApi && typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host);
       return;
@@ -880,7 +886,7 @@
       detachHeatmapPaletteDocClick(host);
       clearHeatmapPalettePanel(host);
       resetHeatmapPaletteHostLayout(host);
-      const toolbarApi = Shared.workspaceToolbar || null;
+      const toolbarApi = getWorkspaceToolbarApi();
       if(toolbarApi && typeof toolbarApi.hideHost === 'function'){
         toolbarApi.hideHost(host);
       }else{
@@ -894,7 +900,7 @@
 
   function showHeatmapPaletteFormatControls(options = {}){
     const doc = options.document || global.document;
-    const toolbarApi = Shared.workspaceToolbar || null;
+    const toolbarApi = getWorkspaceToolbarApi();
     if(!doc){
       return null;
     }
@@ -916,29 +922,14 @@
       resetHeatmapPaletteHostLayout(host);
     }
 
-    const panelParts = toolbarApi && typeof toolbarApi.createSubPanel === 'function'
-      ? toolbarApi.createSubPanel({
-        title: 'Heatmap Colors',
-        panelClass: 'heatmap-palette-controls-panel',
-        rowClass: 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row',
-        dataset: { heatmapPaletteControls: '1' }
-      })
-      : null;
-    const panel = panelParts?.panel || doc.createElement('div');
-    if(!panelParts){
-      panel.className = 'workspace-toolbar__panel heatmap-palette-controls-panel';
-      panel.dataset.heatmapPaletteControls = '1';
-      const title = doc.createElement('div');
-      title.className = 'workspace-toolbar__panel-title';
-      title.textContent = 'Heatmap Colors';
-      panel.appendChild(title);
-    }
-    const form = panelParts?.row || doc.createElement('div');
-    if(!panelParts){
-      form.className = 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row';
-      form.dataset.heatmapPaletteControls = '1';
-      panel.appendChild(form);
-    }
+    const panelParts = toolbarApi.createSubPanel({
+      title: 'Heatmap Colors',
+      panelClass: 'heatmap-palette-controls-panel',
+      rowClass: 'workspace-toolbar__form workspace-toolbar__form--single heatmap-palette-controls additional-line-controls-panel__row',
+      dataset: { heatmapPaletteControls: '1' }
+    });
+    const panel = panelParts.panel;
+    const form = panelParts.row;
 
     const palette = getHeatmapPalette();
     const valueScale = getHeatmapValueScale();

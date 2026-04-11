@@ -16,14 +16,6 @@
     if(typeof Shared.getWorkspaceToolbarApi === 'function'){
       return Shared.getWorkspaceToolbarApi();
     }
-    if(typeof require === 'function'){
-      try{
-        require('./workspaceToolbarAccess.js');
-      }catch(err){}
-    }
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
     return Shared.workspaceToolbar || {};
   }
 
@@ -207,32 +199,18 @@
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
     const toolbarApi = getWorkspaceToolbarApi();
-    const panelParts = typeof toolbarApi.createSubPanel === 'function'
-      ? toolbarApi.createSubPanel({
-        title: 'Dendrogram',
-        panelClass: 'dendrogram-controls-panel',
-        rowClass: 'dendrogram-controls-panel__row',
-        role: 'toolbar',
-        ariaLabel: 'Dendrogram controls'
-      })
-      : null;
-    panelEl = panelParts?.panel || doc.createElement('div');
-    if(!panelParts){
-      panelEl.className = 'workspace-toolbar__panel dendrogram-controls-panel';
-      panelEl.setAttribute('role', 'toolbar');
-      panelEl.setAttribute('aria-label', 'Dendrogram controls');
-      const panelTitle = doc.createElement('div');
-      panelTitle.className = 'workspace-toolbar__panel-title';
-      panelTitle.textContent = 'Dendrogram';
-      panelEl.appendChild(panelTitle);
-    }
+    const panelParts = toolbarApi.createSubPanel({
+      title: 'Dendrogram',
+      panelClass: 'dendrogram-controls-panel',
+      rowClass: 'dendrogram-controls-panel__row',
+      role: 'toolbar',
+      ariaLabel: 'Dendrogram controls'
+    });
+    panelEl = panelParts.panel;
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
-    const row = panelParts?.row || doc.createElement('div');
-    if(!panelParts){
-      row.className = 'dendrogram-controls-panel__row';
-    }
+    const row = panelParts.row;
 
     const dendrogramGroup = doc.createElement('div');
     dendrogramGroup.className = 'dendrogram-controls-panel__summary';
@@ -245,12 +223,6 @@
     dendrogramGroup.appendChild(dendrogramLabelEl);
     row.appendChild(dendrogramGroup);
 
-    const thicknessField = doc.createElement('label');
-    thicknessField.className = 'dendrogram-controls-panel__field';
-    thicknessField.classList.add('dendrogram-controls-panel__field--numeric');
-    const thicknessLabel = doc.createElement('span');
-    thicknessLabel.className = 'dendrogram-controls-panel__field-label';
-    thicknessLabel.textContent = 'Thickness';
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
     thicknessInput.min = '0.25';
@@ -260,25 +232,25 @@
     thicknessInput.className = 'dendrogram-controls-panel__input';
     thicknessInput.classList.add('dendrogram-controls-panel__input--small');
     thicknessInput.setAttribute('data-undo-ignore','1');
-    thicknessField.appendChild(thicknessLabel);
-    thicknessField.appendChild(thicknessInput);
-    row.appendChild(thicknessField);
+    const thicknessFieldParts = toolbarApi.createLabeledField({
+      fieldClass: 'dendrogram-controls-panel__field dendrogram-controls-panel__field--numeric',
+      label: 'Thickness',
+      labelClass: 'dendrogram-controls-panel__field-label',
+      control: thicknessInput
+    });
+    row.appendChild(thicknessFieldParts.field);
 
-    const colorField = doc.createElement('label');
-    colorField.className = 'dendrogram-controls-panel__field';
-    colorField.classList.add('dendrogram-controls-panel__field--color');
-    const colorLabel = doc.createElement('span');
-    colorLabel.className = 'dendrogram-controls-panel__field-label';
-    colorLabel.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'dendrogram-controls-panel__color-input';
     colorInput.setAttribute('data-undo-ignore','1');
-    colorField.appendChild(colorLabel);
-    colorField.appendChild(colorInput);
-    row.appendChild(colorField);
-
-    panelEl.appendChild(row);
+    const colorFieldParts = toolbarApi.createLabeledField({
+      fieldClass: 'dendrogram-controls-panel__field dendrogram-controls-panel__field--color',
+      label: 'Color',
+      labelClass: 'dendrogram-controls-panel__field-label',
+      control: colorInput
+    });
+    row.appendChild(colorFieldParts.field);
 
     if(typeof Shared.attachColorPickerNear === 'function'){
       Shared.attachColorPickerNear(colorInput);

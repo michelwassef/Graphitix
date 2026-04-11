@@ -34,14 +34,6 @@
     if(typeof Shared.getWorkspaceToolbarApi === 'function'){
       return Shared.getWorkspaceToolbarApi();
     }
-    if(typeof require === 'function'){
-      try{
-        require('./workspaceToolbarAccess.js');
-      }catch(err){}
-    }
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
     return Shared.workspaceToolbar || {};
   }
 
