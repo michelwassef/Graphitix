@@ -898,29 +898,35 @@
     const existingCards = Array.from(dom.selectionGrid.querySelectorAll('[data-graph-type]'));
     if (existingCards.length) {
       const infoByType = new Map(graphTypes.map(info => [info.type, info]));
-      existingCards.forEach(card => {
-        const { graphType } = card.dataset;
-        const info = infoByType.get(graphType);
-        if (!info) {
-          console.debug('Debug: removing orphaned welcome card', { graphType });
-          card.remove();
-          return;
-        }
-        const hint = card.querySelector('.graph-card__hint');
-        const title = card.querySelector('.graph-card__title');
-        const description = card.querySelector('.graph-card__description');
-        if (hint) hint.textContent = info.hint || 'Workspace';
-        if (title) title.textContent = info.label;
-        if (description) description.textContent = info.description;
-        if (!card.dataset.boundClick && typeof handleGraphSelection === 'function') {
+      
+      // Always regenerate - ensures we have the correct structure
+      const fragment = document.createDocumentFragment();
+      graphTypes.forEach(info => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'graph-card';
+        card.setAttribute('role', 'listitem');
+        card.dataset.graphType = info.type;
+        card.innerHTML = `
+          <div class="graph-card__icon">${info.icon || '📊'}</div>
+          <div class="graph-card__content">
+            <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
+            <h3 class="graph-card__title">${info.label}</h3>
+            <p class="graph-card__description">${info.description}</p>
+          </div>
+        `;
+        card.dataset.boundClick = 'true';
+        if (typeof handleGraphSelection === 'function') {
           card.addEventListener('click', () => {
             console.debug('Debug: graph card selected', { type: info.type });
             handleGraphSelection(info.type);
           });
-          card.dataset.boundClick = 'true';
         }
+        fragment.appendChild(card);
       });
-      console.debug('Debug: selection cards hydrated', { count: existingCards.length });
+      dom.selectionGrid.innerHTML = '';
+      dom.selectionGrid.appendChild(fragment);
+      console.debug('Debug: selection cards regenerated', { count: graphTypes.length });
       return;
     }
     const fragment = document.createDocumentFragment();
@@ -931,9 +937,12 @@
       card.setAttribute('role', 'listitem');
       card.dataset.graphType = info.type;
       card.innerHTML = `
-        <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
-        <h3 class="graph-card__title">${info.label}</h3>
-        <p class="graph-card__description">${info.description}</p>
+        <div class="graph-card__icon">${info.icon || '📊'}</div>
+        <div class="graph-card__content">
+          <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
+          <h3 class="graph-card__title">${info.label}</h3>
+          <p class="graph-card__description">${info.description}</p>
+        </div>
       `;
       card.dataset.boundClick = 'true';
       if (typeof handleGraphSelection === 'function') {

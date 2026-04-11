@@ -672,9 +672,12 @@
         card.setAttribute('role', 'listitem');
         card.dataset.graphType = info.type;
         card.innerHTML = `
-        <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
-        <h3 class="graph-card__title">${info.label}</h3>
-        <p class="graph-card__description">${info.description}</p>
+        <div class="graph-card__icon">${info.icon || '📊'}</div>
+        <div class="graph-card__content">
+          <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
+          <h3 class="graph-card__title">${info.label}</h3>
+          <p class="graph-card__description">${info.description}</p>
+        </div>
       `;
         card.dataset.boundClick = 'true';
         card.addEventListener('click', () => {
