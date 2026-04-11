@@ -12339,6 +12339,14 @@
     }
     state.tableFormat = normalized;
     console.debug('Debug: setTableFormat',{ mode: normalized });
+    if(normalized === 'grouped' && (state.showSignificanceBars || state.pendingAutoShowSignificance)){
+      state.showSignificanceBars = false;
+      state.pendingAutoShowSignificance = false;
+      if(els.boxShowSignificance){
+        els.boxShowSignificance.checked = false;
+      }
+      console.debug('Debug: grouped mode disables pairwise significance bars');
+    }
     if(normalized === 'grouped' && getBoxColorMode()==='unified' && !opts.skipColorSwitch){
       if(els.boxColorIndividual){
         els.boxColorIndividual.checked = true;
@@ -21536,17 +21544,31 @@ Technical analysis record (advanced)
     if(!els.boxShowSignificance){
       return;
     }
+    const groupedModeActive = state.tableFormat === 'grouped';
     const statsReady = !!options?.statsReady;
-    els.boxShowSignificance.disabled = !statsReady;
+    const significanceSupported = !groupedModeActive;
+    els.boxShowSignificance.disabled = !statsReady || !significanceSupported;
     const label = (typeof els.boxShowSignificance.closest === 'function'
       ? els.boxShowSignificance.closest('label')
       : els.boxShowSignificance.parentElement) || null;
+    if(!significanceSupported){
+      const msg = 'Pairwise comparison bars are unavailable in grouped replicates mode.';
+      els.boxShowSignificance.title = msg;
+      if(label){ label.title = msg; }
+      els.boxShowSignificance.checked = false;
+      if(els.boxSignificanceLabelMode){
+        els.boxSignificanceLabelMode.disabled = true;
+        els.boxSignificanceLabelMode.title = msg;
+      }
+      return;
+    }
     if(!statsReady){
       const msg = 'Compute statistics first to enable significance bars.';
       els.boxShowSignificance.title = msg;
       if(label){ label.title = msg; }
       if(els.boxSignificanceLabelMode){
         els.boxSignificanceLabelMode.disabled = true;
+        els.boxSignificanceLabelMode.title = msg;
       }
       if(state.showSignificanceBars || state.pendingAutoShowSignificance){
         els.boxShowSignificance.checked = true;
@@ -21556,6 +21578,7 @@ Technical analysis record (advanced)
       if(label){ label.title = ''; }
       if(els.boxSignificanceLabelMode){
         els.boxSignificanceLabelMode.disabled = false;
+        els.boxSignificanceLabelMode.title = '';
       }
     }
   }
