@@ -3550,9 +3550,216 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 0)).toBe('');
 
     expect(typeof hot.undo).toBe('function');
-    hot.undo();
+    expect(hot.undo()).toBe(true);
 
     expect(hot.getDataAtCell(1, 0)).toBe('A');
     expect(hot.getDataAtCell(1, 1)).toBe('');
+  });
+
+  test('undo after cut without paste restores the cleared source range', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUndoCutOnlyHot';
+    document.body.appendChild(container);
+
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async () => {})
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-cut-only',
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', '', ''],
+          ['C', 'D', '', ''],
+          ['', '', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+
+    expect(hot.undo()).toBe(true);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('A');
+    expect(hot.getDataAtCell(1, 1)).toBe('B');
+    expect(hot.getDataAtCell(2, 0)).toBe('C');
+    expect(hot.getDataAtCell(2, 1)).toBe('D');
+  });
+
+  test('global undo after cut+paste restores the moved block as a single step', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agUndoMoveGlobalHot';
+    document.body.appendChild(container);
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-move-global',
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', '', ''],
+          ['C', 'D', '', ''],
+          ['', '', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    hot.selectCell(1, 2);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+    expect(hot.getDataAtCell(1, 3)).toBe('B');
+    expect(hot.getDataAtCell(2, 2)).toBe('C');
+    expect(hot.getDataAtCell(2, 3)).toBe('D');
+
+    expect(undoManager.undo()).toBe(true);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('A');
+    expect(hot.getDataAtCell(1, 1)).toBe('B');
+    expect(hot.getDataAtCell(2, 0)).toBe('C');
+    expect(hot.getDataAtCell(2, 1)).toBe('D');
+    expect(hot.getDataAtCell(1, 2)).toBe('');
+    expect(hot.getDataAtCell(1, 3)).toBe('');
+    expect(hot.getDataAtCell(2, 2)).toBe('');
+    expect(hot.getDataAtCell(2, 3)).toBe('');
+
+    expect(undoManager.redo()).toBe(true);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+    expect(hot.getDataAtCell(1, 3)).toBe('B');
+    expect(hot.getDataAtCell(2, 2)).toBe('C');
+    expect(hot.getDataAtCell(2, 3)).toBe('D');
+  });
+
+  test('Ctrl+Z inside the grid prefers grid undo over later global undo entries', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agUndoBridgeHot';
+    document.body.appendChild(container);
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-bridge',
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', '', ''],
+          ['C', 'D', '', ''],
+          ['', '', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    hot.selectCell(1, 2);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+
+    let marker = 'after';
+    undoManager.record({
+      label: 'manual:later-entry',
+      scope: 'manual',
+      undo: () => {
+        marker = 'before';
+        return true;
+      },
+      redo: () => {
+        marker = 'after';
+        return true;
+      }
+    });
+
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'z',
+      ctrlKey: true
+    }));
+
+    expect(marker).toBe('after');
+    expect(hot.getDataAtCell(1, 0)).toBe('A');
+    expect(hot.getDataAtCell(1, 1)).toBe('B');
+    expect(hot.getDataAtCell(2, 0)).toBe('C');
+    expect(hot.getDataAtCell(2, 1)).toBe('D');
+    expect(hot.getDataAtCell(1, 2)).toBe('');
+    expect(hot.getDataAtCell(1, 3)).toBe('');
+    expect(hot.getDataAtCell(2, 2)).toBe('');
+    expect(hot.getDataAtCell(2, 3)).toBe('');
+
+    expect(undoManager.undo()).toBe(true);
+    expect(marker).toBe('before');
   });
 });

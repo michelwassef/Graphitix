@@ -98,4 +98,37 @@ describe('tableImport Prism import mappings', () => {
       graphType: 'box'
     });
   });
+
+  test('keeps explicit Prism individual-value subtype for column data', async () => {
+    const result = await importPrismFixture('individual-chart.prism');
+
+    expect(result.prismMeta).toMatchObject({
+      kind: 'column',
+      dataFormat: 'y_single',
+      tableClass: 'DataTable',
+      graphType: 'strip'
+    });
+  });
+
+  test('captures explicit Prism violin subtype for column data', async () => {
+    const result = await importPrismFixture('violin-chart.prism');
+
+    expect(result.prismMeta).toMatchObject({
+      kind: 'column',
+      dataFormat: 'y_single',
+      tableClass: 'DataTable',
+      graphType: 'violin'
+    });
+  });
+
+  test('captures Prism violin subtype variant for column data', async () => {
+    const result = await importPrismFixture('violin-chart2.prism');
+
+    expect(result.prismMeta).toMatchObject({
+      kind: 'column',
+      dataFormat: 'y_single',
+      tableClass: 'DataTable',
+      graphType: 'violin'
+    });
+  });
 });

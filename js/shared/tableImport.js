@@ -291,7 +291,7 @@
       const timer = global.setTimeout ? global.setTimeout(() => {
         reject(new Error('Timed out loading pako script'));
       }, 5000) : null;
-      script.src = 'https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js';
+      script.src = 'libs/pako.min.js';
       script.onload = () => {
         if(timer){
           global.clearTimeout(timer);
@@ -620,15 +620,34 @@
     if(!data || !token){
       return false;
     }
-    const text = typeof token === 'string' ? token : String(token || '');
-    if(!text){
-      return false;
+    let pattern = null;
+    if(typeof token === 'string'){
+      const text = token;
+      if(!text){
+        return false;
+      }
+      const encoder = global.TextEncoder ? new global.TextEncoder() : null;
+      if(!encoder){
+        return false;
+      }
+      pattern = encoder.encode(text);
+    }else if(token instanceof Uint8Array){
+      pattern = token;
+    }else if(ArrayBuffer.isView(token)){
+      pattern = new Uint8Array(token.buffer, token.byteOffset, token.byteLength);
+    }else if(token instanceof ArrayBuffer){
+      pattern = new Uint8Array(token);
+    }else{
+      const text = String(token || '');
+      if(!text){
+        return false;
+      }
+      const encoder = global.TextEncoder ? new global.TextEncoder() : null;
+      if(!encoder){
+        return false;
+      }
+      pattern = encoder.encode(text);
     }
-    const encoder = global.TextEncoder ? new global.TextEncoder() : null;
-    if(!encoder){
-      return false;
-    }
-    const pattern = encoder.encode(text);
     if(!pattern.length || pattern.length > data.length){
       return false;
     }
@@ -643,9 +662,61 @@
     return false;
   }
 
-  function inferPrismPreferredGraphType(strings, tableFormat, inflatedData){
+  function prismWordSequenceToBytes(words){
+    if(!Array.isArray(words) || !words.length){
+      return new Uint8Array(0);
+    }
+    const bytes = new Uint8Array(words.length * 2);
+    words.forEach((value, index) => {
+      const normalized = Number(value) >>> 0;
+      bytes[index * 2] = normalized & 0xFF;
+      bytes[index * 2 + 1] = (normalized >>> 8) & 0xFF;
+    });
+    return bytes;
+  }
+
+  function prismDataIncludesWordSequence(data, words){
+    const pattern = prismWordSequenceToBytes(words);
+    if(!pattern.length){
+      return false;
+    }
+    return prismDataIncludes(data, pattern);
+  }
+
+  function prismReadUInt16LE(data, offset){
+    if(!data || offset < 0 || offset + 1 >= data.length){
+      return null;
+    }
+    return data[offset] | (data[offset + 1] << 8);
+  }
+
+  function inferPrismColumnGraphTypeFromWrapper(rawData){
+    if(!rawData){
+      return '';
+    }
+    const primaryKind = prismReadUInt16LE(rawData, 548);
+    const secondaryKind = prismReadUInt16LE(rawData, 572);
+    const tertiaryKind = prismReadUInt16LE(rawData, 574);
+    const subtypeKind = prismReadUInt16LE(rawData, 576);
+    if(primaryKind === 11 && secondaryKind === 11 && tertiaryKind === 11 && subtypeKind === 17){
+      return 'violin';
+    }
+    if(primaryKind === 4 && secondaryKind === 4 && tertiaryKind === 4 && subtypeKind === 2){
+      return 'box';
+    }
+    if(primaryKind === 3 && secondaryKind === 3 && tertiaryKind === 3 && subtypeKind === 1){
+      return 'strip';
+    }
+    return '';
+  }
+
+  function inferPrismPreferredGraphType(strings, tableFormat, rawData, inflatedData){
     const format = normalizePrismString(tableFormat).toLowerCase();
     if(format === 'column'){
+      const wrapperGraphType = inferPrismColumnGraphTypeFromWrapper(rawData);
+      if(wrapperGraphType){
+        return wrapperGraphType;
+      }
       if(prismDataIncludes(inflatedData, 'PCFF_Plot::BarBoxBordercolor')){
         return 'box';
       }
@@ -1276,7 +1347,7 @@
             }
             prismGraphLabels = { title, xLabel, yLabel };
             const inflated = await inflatePrismGraphData(graphBuffer);
-            prismPreferredGraphType = inferPrismPreferredGraphType(normalizedStrings, tableFormat, inflated);
+            prismPreferredGraphType = inferPrismPreferredGraphType(normalizedStrings, tableFormat, new Uint8Array(graphBuffer), inflated);
             let fontColor = '';
             let axisColor = '';
             if(inflated){

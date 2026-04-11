@@ -4697,9 +4697,10 @@
     let undoLockDepth = 0;
     let undoStepSeq = 0;
 
-    let pendingCutMove = null;
-    let pendingCutMoveTimer = null;
-    let pendingPasteText = '';
+    let lockedMutationChangeCapture = null;
+    if(!Object.prototype.hasOwnProperty.call(hotNS, '__pendingClipboardMove')){
+      hotNS.__pendingClipboardMove = null;
+    }
 
     const withUndoLock = (phase, fn)=>{
       undoLockDepth += 1;
@@ -4797,16 +4798,66 @@
       return normalized;
     };
 
-    const dedupePhysicalChanges = (changes)=>{
-      const seen = new Map();
-      (Array.isArray(changes) ? changes : []).forEach(change=>{
-        if(!change){
-          return;
+    const composePhysicalChanges = (changeGroups)=>{
+      const composed = new Map();
+      const groups = Array.isArray(changeGroups) ? changeGroups : [changeGroups];
+      for(let groupIndex = 0; groupIndex < groups.length; groupIndex += 1){
+        const group = Array.isArray(groups[groupIndex]) ? groups[groupIndex] : [];
+        for(let changeIndex = 0; changeIndex < group.length; changeIndex += 1){
+          const change = group[changeIndex];
+          if(!change){
+            continue;
+          }
+          const row = Number(change.row);
+          const col = Number(change.col);
+          if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+            continue;
+          }
+          const key = `${row}:${col}`;
+          const prev = change.prev;
+          const next = change.next;
+          if(!composed.has(key)){
+            if(valuesMatchForChange(prev, next)){
+              continue;
+            }
+            composed.set(key, { row, col, prev, next });
+            continue;
+          }
+          const existing = composed.get(key);
+          existing.next = next;
+          if(valuesMatchForChange(existing.prev, existing.next)){
+            composed.delete(key);
+          }
         }
-        const key = `${change.row}:${change.col}`;
-        seen.set(key, change);
-      });
-      return Array.from(seen.values());
+      }
+      return Array.from(composed.values());
+    };
+
+    const captureLockedMutationChanges = (changes)=>{
+      if(!Array.isArray(lockedMutationChangeCapture) || !Array.isArray(changes) || !changes.length){
+        return;
+      }
+      for(let i = 0; i < changes.length; i += 1){
+        const entry = changes[i];
+        if(!Array.isArray(entry)){
+          continue;
+        }
+        lockedMutationChangeCapture.push(entry.slice());
+      }
+    };
+
+    const captureLockedMutationChangesDuring = (fn)=>{
+      const previousCapture = lockedMutationChangeCapture;
+      const captured = [];
+      lockedMutationChangeCapture = captured;
+      try{
+        if(typeof fn === 'function'){
+          fn();
+        }
+      }finally{
+        lockedMutationChangeCapture = previousCapture;
+      }
+      return captured;
     };
 
     const areMatricesEqual = (left, right)=>{
@@ -4979,6 +5030,50 @@
       renderAg(instance.gridApi);
     };
 
+    const invalidatePendingClipboardMove = (reason, matcher)=>{
+      const pending = hotNS.__pendingClipboardMove;
+      if(!pending){
+        return false;
+      }
+      if(typeof matcher === 'function' && !matcher(pending)){
+        return false;
+      }
+      hotNS.__pendingClipboardMove = null;
+      if(pending.step && pending.step.pendingClipboardMove){
+        pending.step.pendingClipboardMove = false;
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot pending clipboard move invalidated', {
+          debugLabel,
+          reason: reason || null
+        });
+      }
+      return true;
+    };
+
+    const applyUndoStep = (step, direction)=>{
+      if(!step){
+        return false;
+      }
+      const operations = Array.isArray(step.operations) && step.operations.length
+        ? step.operations
+        : [{ apply: applyPhysicalChanges, changes: step.changes }];
+      let applied = false;
+      for(let i = 0; i < operations.length; i += 1){
+        const operation = operations[i];
+        const safeChanges = composePhysicalChanges([operation?.changes]);
+        if(!safeChanges.length){
+          continue;
+        }
+        const applyOperation = typeof operation?.apply === 'function'
+          ? operation.apply
+          : applyPhysicalChanges;
+        applyOperation(safeChanges, direction, `UndoRedo.${direction}`);
+        applied = true;
+      }
+      return applied;
+    };
+
     const applyUndoStepById = (direction, id)=>{
       const idx = undoStack.findIndex(step => step?.id === id);
       if(idx < 0){
@@ -4990,8 +5085,9 @@
           return false;
         }
         const step = undoStack[undoPointer];
+        invalidatePendingClipboardMove(`undo:${step?.label || id}`, pending => pending?.step?.id === step?.id);
         withUndoLock('undo', ()=>{
-          applyPhysicalChanges(step.changes, 'undo', 'UndoRedo.undo');
+          applyUndoStep(step, 'undo');
         });
         undoPointer = Math.max(-1, undoPointer - 1);
         return true;
@@ -5002,20 +5098,35 @@
         return false;
       }
       const step = undoStack[undoPointer + 1];
+      invalidatePendingClipboardMove(`redo:${step?.label || id}`, pending => pending?.step?.id === step?.id);
       withUndoLock('redo', ()=>{
-        applyPhysicalChanges(step.changes, 'redo', 'UndoRedo.redo');
+        applyUndoStep(step, 'redo');
       });
       undoPointer += 1;
       return true;
     };
 
-    const pushUndoStep = (label, physicalChanges)=>{
-      if(!Array.isArray(physicalChanges) || !physicalChanges.length){
+    const pushUndoStep = (label, physicalChanges, options = {})=>{
+      const safeChanges = composePhysicalChanges([physicalChanges]);
+      const safeOperations = Array.isArray(options.operations)
+        ? options.operations
+          .map(operation=>{
+            const operationChanges = composePhysicalChanges([operation?.changes]);
+            if(!operationChanges.length){
+              return null;
+            }
+            return {
+              apply: typeof operation?.apply === 'function' ? operation.apply : applyPhysicalChanges,
+              changes: operationChanges
+            };
+          })
+          .filter(Boolean)
+        : [];
+      if(!safeChanges.length && !safeOperations.length){
         return;
       }
-      const safeChanges = dedupePhysicalChanges(physicalChanges);
-      if(!safeChanges.length){
-        return;
+      if(options.preservePendingClipboardMove !== true){
+        invalidatePendingClipboardMove(options.invalidateReason || label || 'pushUndoStep');
       }
       if(undoPointer < undoStack.length - 1){
         undoStack = undoStack.slice(0, undoPointer + 1);
@@ -5025,6 +5136,12 @@
         label: label || `table:${debugLabel}:change`,
         changes: safeChanges
       };
+      if(safeOperations.length){
+        step.operations = safeOperations;
+      }
+      if(options.pendingClipboardMove === true){
+        step.pendingClipboardMove = true;
+      }
       undoStack.push(step);
       if(undoStack.length > UNDO_STACK_LIMIT){
         const overflow = undoStack.length - UNDO_STACK_LIMIT;
@@ -5040,64 +5157,99 @@
           redo: ()=>applyUndoStepById('redo', step.id)
         });
       }
+      return step;
     };
 
-    const flushPendingCutMove = (reason)=>{
-      if(pendingCutMoveTimer){
-        try{
-          const doc = container?.ownerDocument || document;
-          const win = doc.defaultView || global;
-          win?.clearTimeout?.(pendingCutMoveTimer);
-        }catch(err){
-          // ignore
-        }
-        pendingCutMoveTimer = null;
+    const registerPendingClipboardMove = (clipboardText, sourceChanges)=>{
+      const safeSourceChanges = composePhysicalChanges([sourceChanges]);
+      if(!safeSourceChanges.length || !clipboardText){
+        hotNS.__pendingClipboardMove = null;
+        return null;
       }
-      if(!pendingCutMove){
-        return;
+      const step = pushUndoStep(`table:${debugLabel}:cut`, safeSourceChanges, {
+        preservePendingClipboardMove: true,
+        pendingClipboardMove: true,
+        operations: [
+          {
+            apply: applyPhysicalChanges,
+            changes: safeSourceChanges
+          }
+        ]
+      });
+      if(!step){
+        hotNS.__pendingClipboardMove = null;
+        return null;
       }
-      const pending = pendingCutMove;
-      pendingCutMove = null;
-      pushUndoStep(`table:${debugLabel}:cut`, pending.changes);
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot AG cut undo step flushed', { debugLabel, reason: reason || null });
-      }
+      const pending = {
+        step,
+        clipboardText,
+        sourceChanges: safeSourceChanges,
+        sourceInstance: instance,
+        sourceDebugLabel: debugLabel,
+        sourceApplyPhysicalChanges: applyPhysicalChanges
+      };
+      hotNS.__pendingClipboardMove = pending;
+      return pending;
     };
 
-    const finalizePendingCutMoveForPaste = (sourceLabel, changesForHook, options = {})=>{
-      if(pendingCutMove && sourceLabel !== 'paste'){
-        flushPendingCutMove(options.reason || 'nonPaste');
+    const getPendingClipboardMoveForPaste = (clipboardText)=>{
+      const pending = hotNS.__pendingClipboardMove;
+      if(!pending || !pending.step || pending.step.pendingClipboardMove !== true){
+        return null;
+      }
+      if(!clipboardText || clipboardText !== pending.clipboardText){
+        return null;
+      }
+      return pending;
+    };
+
+    const upgradePendingClipboardMoveForPaste = (pending, pastePhysicalChanges, targetApplyPhysicalChanges, targetLabel)=>{
+      if(!pending || !pending.step){
         return false;
       }
-      if(sourceLabel !== 'paste' || !pendingCutMove){
-        return false;
-      }
-      const clipboardText = normalizeClipboardText(
-        typeof options.clipboardText === 'string' ? options.clipboardText : pendingPasteText
-      );
-      if(!clipboardText || clipboardText !== pendingCutMove.clipboardText){
-        return false;
-      }
-      const pastePhysical = buildPhysicalChangeListFromVisualChanges(changesForHook);
-      const composite = dedupePhysicalChanges([...(pendingCutMove.changes || []), ...pastePhysical]);
-      const timerToClear = pendingCutMoveTimer;
-      pendingCutMove = null;
-      pendingCutMoveTimer = null;
-      pendingPasteText = '';
-      if(timerToClear){
-        try{
-          const doc = container?.ownerDocument || document;
-          const win = doc.defaultView || global;
-          win?.clearTimeout?.(timerToClear);
-        }catch(err){
-          // ignore
+      const step = pending.step;
+      const sourceChanges = composePhysicalChanges([pending.sourceChanges]);
+      const targetChanges = composePhysicalChanges([pastePhysicalChanges]);
+      const sourceApply = typeof pending.sourceApplyPhysicalChanges === 'function'
+        ? pending.sourceApplyPhysicalChanges
+        : applyPhysicalChanges;
+      const targetApply = typeof targetApplyPhysicalChanges === 'function'
+        ? targetApplyPhysicalChanges
+        : applyPhysicalChanges;
+      const operations = [];
+      if(sourceApply === targetApply){
+        operations.push({
+          apply: sourceApply,
+          changes: composePhysicalChanges([sourceChanges, targetChanges])
+        });
+      }else{
+        if(sourceChanges.length){
+          operations.push({
+            apply: sourceApply,
+            changes: sourceChanges
+          });
+        }
+        if(targetChanges.length){
+          operations.push({
+            apply: targetApply,
+            changes: targetChanges
+          });
         }
       }
-      pushUndoStep(`table:${debugLabel}:move`, composite);
+      step.label = `table:${pending.sourceDebugLabel}:move`;
+      step.pendingClipboardMove = false;
+      step.clipboardMoveMerged = true;
+      step.operations = operations;
+      step.changes = operations.length === 1
+        ? operations[0].changes.slice()
+        : sourceChanges.slice();
+      hotNS.__pendingClipboardMove = null;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot AG move undo step recorded', {
+        console.debug('Debug: Shared.hot clipboard move step upgraded for paste', {
           debugLabel,
-          changes: composite.length
+          sourceDebugLabel: pending.sourceDebugLabel,
+          targetDebugLabel: targetLabel || debugLabel,
+          operationCount: operations.length
         });
       }
       return true;
@@ -5274,7 +5426,7 @@
       }
       const totalCells = rowCountLocal * colCountLocal;
       if(totalCells > MAX_CLIPBOARD_CELLS){
-        console.warn('Shared.hot AG copy skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
+        console.warn('Shared.hot AG clipboard export skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
         return null;
       }
       const matrix = dataHandle.current;
@@ -5326,7 +5478,7 @@
       const endRowResolved = Number.isInteger(rowEnd) ? Math.max(startRow, rowEnd) : startRow;
       const totalCells = (endRowResolved - startRow + 1) * sortedColumns.length;
       if(totalCells > MAX_CLIPBOARD_CELLS){
-        console.warn('Shared.hot AG copy skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
+        console.warn('Shared.hot AG clipboard export skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
         return null;
       }
       const matrix = dataHandle.current;
@@ -5451,6 +5603,7 @@
       }
       const ok = await writeClipboardText(text);
       if(ok){
+        invalidatePendingClipboardMove('copy');
         const ranges = useSelectedColumns
           ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
           : (normalized ? [normalized] : []);
@@ -5467,9 +5620,7 @@
     };
 
     const cutSelectionToClipboard = async ()=>{
-      if(pendingCutMove){
-        flushPendingCutMove('new-cut');
-      }
+      invalidatePendingClipboardMove('new-cut');
       const normalized = getEffectiveSelectionRange();
       const selectedColumns = getSelectedHeaderColumnsSorted();
       const useSelectedColumns = selectedColumns.length > 0;
@@ -5484,71 +5635,18 @@
       if(!ok){
         return false;
       }
+      const normalizedClipboard = normalizeClipboardText(text);
       const copiedRanges = useSelectedColumns
         ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
         : (normalized ? [normalized] : []);
       setClipboardOutlineState({
         mode: 'cut',
         ranges: copiedRanges,
-        clipboardText: normalizeClipboardText(text)
+        clipboardText: normalizedClipboard
       }, 'cut');
       fireAfterCopy(useSelectedColumns
         ? copiedRanges
         : normalized);
-      try{
-        const matrix = dataHandle.current;
-        const cutChanges = [];
-        const startRow = useSelectedColumns ? rowSpan.startRow : normalized.from.row;
-        const endRow = useSelectedColumns ? rowSpan.endRow : normalized.to.row;
-        const startCol = useSelectedColumns ? selectedColumns[0] : normalized.from.col;
-        const endCol = useSelectedColumns ? selectedColumns[selectedColumns.length - 1] : normalized.to.col;
-        for(let r = startRow; r <= endRow; r += 1){
-          const columns = useSelectedColumns ? selectedColumns : null;
-          if(columns){
-            for(let i = 0; i < columns.length; i += 1){
-              const c = columns[i];
-              const physicalRow = toPhysicalRowIndex(r);
-              const physicalCol = toPhysicalColIndex(c);
-              if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
-                continue;
-              }
-              const prev = matrix?.[physicalRow]?.[physicalCol];
-              cutChanges.push({ row: physicalRow, col: physicalCol, prev, next: '' });
-            }
-            continue;
-          }
-          for(let c = startCol; c <= endCol; c += 1){
-            const physicalRow = toPhysicalRowIndex(r);
-            const physicalCol = toPhysicalColIndex(c);
-            if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
-              continue;
-            }
-            const prev = matrix?.[physicalRow]?.[physicalCol];
-            cutChanges.push({ row: physicalRow, col: physicalCol, prev, next: '' });
-          }
-        }
-        pendingCutMove = {
-          clipboardText: normalizeClipboardText(text),
-          createdAt: Date.now(),
-          changes: dedupePhysicalChanges(cutChanges)
-        };
-        const doc = container?.ownerDocument || document;
-        const win = doc.defaultView || global;
-        pendingCutMoveTimer = win?.setTimeout?.(()=>flushPendingCutMove('timeout'), 15000) || null;
-      }catch(err){
-        pendingCutMove = null;
-        pendingCutMoveTimer = null;
-      }
-      const rowCountLocal = useSelectedColumns
-        ? (rowSpan.endRow - rowSpan.startRow + 1)
-        : (normalized.to.row - normalized.from.row + 1);
-      const colCountLocal = useSelectedColumns
-        ? selectedColumns.length
-        : (normalized.to.col - normalized.from.col + 1);
-      const totalCells = rowCountLocal * colCountLocal;
-      if(totalCells > MAX_CLIPBOARD_CELLS){
-        return true;
-      }
       const changes = useSelectedColumns
         ? buildVisualClearChangesForColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
         : buildVisualClearChangesForColumns(
@@ -5556,7 +5654,11 @@
           normalized.from.row,
           normalized.to.row
         );
-      instance.setDataAtCell(changes, 'cut');
+      const capturedChanges = withUndoLock('clipboard-cut-clear', ()=>captureLockedMutationChangesDuring(()=>{
+        instance.setDataAtCell(changes, 'cut');
+      })) || [];
+      const cutPhysicalChanges = buildPhysicalChangeListFromVisualChanges(capturedChanges);
+      registerPendingClipboardMove(normalizedClipboard, cutPhysicalChanges);
       return true;
     };
 
@@ -8709,12 +8811,8 @@
             rebuildColumns(instance.gridApi);
           }
           refreshColumnFiltersForDataMutation('set-data-at-cell:batch');
-          const finalizedMoveUndo = finalizePendingCutMoveForPaste(changeSource, changesForHook, {
-            reason: 'setDataAtCell:batch'
-          });
-          if(!finalizedMoveUndo && !(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
-            recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
-          }
+          captureLockedMutationChanges(changesForHook);
+          recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
           fireHook('afterChange', changesForHook, changeSource);
           triggerSchedule('afterChange', { source: changeSource });
           renderAg(instance.gridApi);
@@ -8748,12 +8846,8 @@
           rebuildColumns(instance.gridApi);
         }
         refreshColumnFiltersForDataMutation('set-data-at-cell:single');
-        const finalizedMoveUndo = finalizePendingCutMoveForPaste(changeSource, [[r, c, prev, value]], {
-          reason: 'setDataAtCell:single'
-        });
-        if(!finalizedMoveUndo && !(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
-          recordUndoFromVisualChanges(changeSource, [[r, c, prev, value]], changeSource);
-        }
+        captureLockedMutationChanges([[r, c, prev, value]]);
+        recordUndoFromVisualChanges(changeSource, [[r, c, prev, value]], changeSource);
         fireHook('afterChange', [[r, c, prev, value]], changeSource);
         triggerSchedule('afterChange', { source: changeSource });
         renderAg(instance.gridApi);
@@ -8967,12 +9061,8 @@
         refreshColumnFiltersForDataMutation('populate-from-array');
         if(changes.length){
           const sourceLabel = typeof source === 'string' ? source : 'populateFromArray';
-          const finalizedMoveUndo = finalizePendingCutMoveForPaste(sourceLabel, changes, {
-            reason: 'populateFromArray'
-          });
-          if(!finalizedMoveUndo){
-            recordUndoFromVisualChanges(sourceLabel, changes, sourceLabel);
-          }
+          captureLockedMutationChanges(changes);
+          recordUndoFromVisualChanges(sourceLabel, changes, sourceLabel);
         }
         if(changes.length){
           fireHook('afterChange', changes, source || 'populateFromArray');
@@ -9011,7 +9101,7 @@
         return step ? applyUndoStepById('redo', step.id) : false;
       },
       destroy(){
-        flushPendingCutMove('destroy');
+        invalidatePendingClipboardMove('destroy', pending => pending?.sourceInstance === instance);
         if(hotNS.__activeClipboardSelectionOwner === instance){
           hotNS.__activeClipboardSelectionOwner = null;
         }
@@ -13622,10 +13712,13 @@
             }
           }catch(e){/* ignore */}
         }
-        pendingPasteText = normalizeClipboardText(plain);
+        const normalizedClipboardText = normalizeClipboardText(plain);
+        const pendingClipboardMove = getPendingClipboardMoveForPaste(normalizedClipboardText);
+        if(hotNS.__pendingClipboardMove && !pendingClipboardMove){
+          invalidatePendingClipboardMove('paste-mismatch');
+        }
         const rows = parsePastedText(plain);
         if(!rows.length){
-          pendingPasteText = '';
           return;
         }
         event.preventDefault?.();
@@ -13645,30 +13738,48 @@
           ? selectedColumns[selectedColumns.length - 1]
           : (selection.from.col + (block[0]?.length || 1) - 1);
         try{
-          if(useSelectedColumns){
-            const sourceColCount = block.reduce((max, row)=>Math.max(max, Array.isArray(row) ? row.length : 0), 0);
-            const changes = [];
-            for(let r = 0; r < block.length; r += 1){
-              const sourceRow = Array.isArray(block[r]) ? block[r] : [block[r]];
-              for(let c = 0; c < selectedColumns.length; c += 1){
-                const visualCol = selectedColumns[c];
-                let sourceColIndex = 0;
-                if(sourceColCount > 1){
-                  if(sourceColCount >= selectedColumns.length){
-                    sourceColIndex = c;
-                  }else{
-                    sourceColIndex = c % sourceColCount;
+          let capturedPasteChanges = [];
+          const applyPasteMutation = ()=>{
+            if(useSelectedColumns){
+              const sourceColCount = block.reduce((max, row)=>Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+              const changes = [];
+              for(let r = 0; r < block.length; r += 1){
+                const sourceRow = Array.isArray(block[r]) ? block[r] : [block[r]];
+                for(let c = 0; c < selectedColumns.length; c += 1){
+                  const visualCol = selectedColumns[c];
+                  let sourceColIndex = 0;
+                  if(sourceColCount > 1){
+                    if(sourceColCount >= selectedColumns.length){
+                      sourceColIndex = c;
+                    }else{
+                      sourceColIndex = c % sourceColCount;
+                    }
                   }
+                  const value = sourceRow[sourceColIndex];
+                  changes.push([selection.from.row + r, visualCol, value == null ? '' : value]);
                 }
-                const value = sourceRow[sourceColIndex];
-                changes.push([selection.from.row + r, visualCol, value == null ? '' : value]);
               }
+              if(changes.length){
+                instance.setDataAtCell(changes, 'paste');
+              }
+              return;
             }
-            if(changes.length){
-              instance.setDataAtCell(changes, 'paste');
-            }
-          }else{
             instance.populateFromArray(selection.from.row, selection.from.col, block, endRow, endCol, 'clipboard', 'paste');
+          };
+
+          if(pendingClipboardMove){
+            capturedPasteChanges = withUndoLock('clipboard-move-paste', ()=>captureLockedMutationChangesDuring(()=>{
+              applyPasteMutation();
+            })) || [];
+            const pastePhysicalChanges = buildPhysicalChangeListFromVisualChanges(capturedPasteChanges);
+            upgradePendingClipboardMoveForPaste(
+              pendingClipboardMove,
+              pastePhysicalChanges,
+              applyPhysicalChanges,
+              debugLabel
+            );
+          }else{
+            applyPasteMutation();
           }
           const pastedSelectionRange = {
             from: { row: selection.from.row, col: useSelectedColumns ? selectedColumns[0] : selection.from.col },
@@ -13688,9 +13799,30 @@
           scheduleSelectionReassert(pastedSelectionRange, 'paste');
         }catch(err){
           console.error('Shared.hot AG paste handler failed', { debugLabel, err });
-        }finally{
-          pendingPasteText = '';
         }
+      };
+
+      container.__undoManagerHandleKeydown = (event)=>{
+        if(!event){
+          return false;
+        }
+        const normalizedKey = typeof event.key === 'string' ? event.key.toLowerCase() : '';
+        if((!event.ctrlKey && !event.metaKey) || event.altKey){
+          return false;
+        }
+        if(normalizedKey !== 'z' && normalizedKey !== 'y'){
+          return false;
+        }
+        if(isEditableTarget(event.target) || isInlineEditorActive()){
+          return false;
+        }
+        if(normalizedKey === 'z'){
+          if(event.shiftKey){
+            return !!(typeof instance.redo === 'function' && instance.redo());
+          }
+          return !!(typeof instance.undo === 'function' && instance.undo());
+        }
+        return !!(typeof instance.redo === 'function' && instance.redo());
       };
 
       const handleContextMenu = (event)=>{
@@ -13921,6 +14053,13 @@
         container.removeEventListener('keydown', handleKeyDown, true);
         container.removeEventListener('contextmenu', handleContextMenu, true);
         container.removeEventListener('contextmenu', handleHeaderContextMenuProxy, true);
+        if(container.__undoManagerHandleKeydown){
+          try{
+            delete container.__undoManagerHandleKeydown;
+          }catch(err){
+            container.__undoManagerHandleKeydown = null;
+          }
+        }
         if(!disableBuiltInPaste){
           container.removeEventListener('paste', handlePaste, true);
           try{ document.removeEventListener('paste', handlePaste, true); }catch(e){}

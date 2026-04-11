@@ -315,6 +315,30 @@
     return false;
   }
 
+  function resolveUndoBridgeTarget(target){
+    if(!target){
+      return null;
+    }
+    if(target.nodeType === 1){
+      return target;
+    }
+    if(target.nodeType === 3){
+      return target.parentElement || target.parentNode || null;
+    }
+    return null;
+  }
+
+  function findUndoKeydownBridge(target){
+    let node = resolveUndoBridgeTarget(target);
+    while(node && node !== global.document){
+      if(typeof node.__undoManagerHandleKeydown === 'function'){
+        return node.__undoManagerHandleKeydown;
+      }
+      node = node.parentElement || node.parentNode || null;
+    }
+    return null;
+  }
+
   function handleKeydown(event){
     if(!event){
       return;
@@ -341,6 +365,25 @@
         return;
       }
       return;
+    }
+    const undoBridge = findUndoKeydownBridge(event.target);
+    if(undoBridge){
+      let bridged = false;
+      try{
+        bridged = undoBridge(event) === true;
+      }catch(err){
+        console.error('Shared.undoManager undo bridge error', err);
+      }
+      if(bridged){
+        undoDebug('Debug: undo keydown handled by bridge', {
+          key,
+          targetTag: event?.target?.tagName || null
+        });
+        event.preventDefault();
+        event.stopPropagation?.();
+        event.stopImmediatePropagation?.();
+        return;
+      }
     }
     let handled = false;
     if(key === 'z'){
