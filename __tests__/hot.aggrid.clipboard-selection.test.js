@@ -3304,6 +3304,202 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     }
   });
 
+  test('paste keeps full pasted block selected even if AG sync reports only the anchor cell', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteSelectionStabilizedHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 5, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-selection-stabilized',
+        data: Shared.createEmptyData(5, 5)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 228
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for (let rowIndex = 1; rowIndex <= 2; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const rowTop = 32 + (rowIndex * 28);
+      for (let colIndex = 1; colIndex <= 2; colIndex += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-cell hot-selected-cell';
+        cell.setAttribute('col-id', `c${colIndex}`);
+        cell.setAttribute('row-index', String(rowIndex));
+        cell.getBoundingClientRect = () => makeCellRect(60 + ((colIndex - 1) * 100), rowTop);
+        row.appendChild(cell);
+      }
+      centerViewport.appendChild(row);
+    }
+
+    capturedGridOptions?.onFirstDataRendered?.();
+    hot.selectCell(1, 1);
+
+    capturedApi.getFocusedCell = jest.fn(() => ({
+      rowIndex: 1,
+      column: { getColId: () => 'c1' }
+    }));
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(pasteEvt);
+
+    capturedGridOptions?.onSelectionChanged?.({ api: capturedApi });
+
+    for (let i = 0; i < 3; i += 1) {
+      await waitForNextFrame();
+    }
+
+    expect(hot.getSelectedLast()).toEqual([1, 1, 2, 2]);
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.width).toBe('202px');
+    expect(outline.style.height).toBe('58px');
+  });
+
+  test('paste selection lock ignores repeated anchor-only syncs until user makes a new selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteSelectionLockHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 5, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-selection-lock',
+        data: Shared.createEmptyData(5, 5)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 228
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for (let rowIndex = 1; rowIndex <= 2; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const rowTop = 32 + (rowIndex * 28);
+      for (let colIndex = 1; colIndex <= 2; colIndex += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-cell hot-selected-cell';
+        cell.setAttribute('col-id', `c${colIndex}`);
+        cell.setAttribute('row-index', String(rowIndex));
+        cell.getBoundingClientRect = () => makeCellRect(60 + ((colIndex - 1) * 100), rowTop);
+        row.appendChild(cell);
+      }
+      centerViewport.appendChild(row);
+    }
+
+    capturedGridOptions?.onFirstDataRendered?.();
+    hot.selectCell(1, 1);
+
+    capturedApi.getFocusedCell = jest.fn(() => ({
+      rowIndex: 1,
+      column: { getColId: () => 'c1' }
+    }));
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(pasteEvt);
+
+    for (let i = 0; i < 4; i += 1) {
+      capturedGridOptions?.onSelectionChanged?.({ api: capturedApi });
+      await waitForNextFrame();
+      expect(hot.getSelectedLast()).toEqual([1, 1, 2, 2]);
+    }
+
+    const clickEvt = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    const clickedCell = document.createElement('div');
+    clickedCell.className = 'ag-cell';
+    clickedCell.setAttribute('col-id', 'c3');
+    const clickedRow = document.createElement('div');
+    clickedRow.className = 'ag-row';
+    clickedRow.setAttribute('row-index', '3');
+    clickedRow.appendChild(clickedCell);
+    centerViewport.appendChild(clickedRow);
+    clickedCell.dispatchEvent(clickEvt);
+    hot.selectCell(3, 3);
+    expect(hot.getSelectedLast()).toEqual([3, 3, 3, 3]);
+  });
+
   test('undo after cut+paste restores both source and destination', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

@@ -12932,6 +12932,18 @@
         }
       });
       Promise.resolve(importPromise).then(result => {
+        const prismMeta = result?.prismMeta;
+        const prismGraphType = normalizeBoxGraphType(prismMeta?.graphType || '');
+        if(prismMeta?.kind === 'column' && prismGraphType && els.boxGraphType){
+          if(els.boxGraphType.value !== prismGraphType){
+            els.boxGraphType.value = prismGraphType;
+            els.boxGraphType.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          console.debug('Debug: box prism graph type applied', {
+            prismGraphType,
+            seriesCount: prismMeta?.seriesCount || 0
+          });
+        }
         if(!result && forcedOverlay){
           resolveBoxLoading('file-import-empty');
         }

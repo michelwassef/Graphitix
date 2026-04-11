@@ -5,11 +5,17 @@ describe('tableImport Prism import mappings', () => {
   beforeEach(() => {
     jest.resetModules();
     global.JSZip = require('jszip');
+    window.JSZip = global.JSZip;
+    global.pako = require('pako');
+    window.pako = global.pako;
     require('../js/shared/tableImport.js');
   });
 
   afterEach(() => {
     delete global.JSZip;
+    delete window.JSZip;
+    delete global.pako;
+    delete window.pako;
   });
 
   async function importPrismFixture(fixtureName) {
@@ -80,5 +86,16 @@ describe('tableImport Prism import mappings', () => {
       ['Treated', '130', '0', '', '', '', ''],
       ['Treated', '150', '0', '', '', '', '']
     ]);
+  });
+
+  test('captures explicit Prism box graph subtype for column data', async () => {
+    const result = await importPrismFixture('box-chart.prism');
+
+    expect(result.prismMeta).toMatchObject({
+      kind: 'column',
+      dataFormat: 'y_single',
+      tableClass: 'DataTable',
+      graphType: 'box'
+    });
   });
 });

@@ -1623,11 +1623,12 @@
       if(visibleRows <= 0){
         lastRange = null;
         normalizedSelectionRange = null;
+        clearSelectionRangeOverride();
         setClipboardOutlineState(null, 'filter-empty', { render: false });
         clearSelectedHeaderColumns();
         return;
       }
-      const normalized = normalizeRange(normalizedSelectionRange || lastRange);
+      const normalized = getEffectiveSelectionRange();
       if(!normalized){
         return;
       }
@@ -1643,6 +1644,9 @@
         }
       };
       setLastRange(clamped);
+      if(selectionRangeOverride){
+        setSelectionRangeOverride(clamped);
+      }
     };
 
     const applyColumnFilterRefreshLocally = (reason, options = {})=>{
@@ -1761,7 +1765,11 @@
     let fillAutoScrollRafId = null;
     let selectionDragLastPointer = null;
     let selectionAutoScrollRafId = null;
+    let selectionRangeOverride = null;
+    let pasteSelectionLockRange = null;
     let pendingSelectionReassertRange = null;
+    let pendingSelectionReassertReason = null;
+    let pendingSelectionReassertAttempts = 0;
     let selectionReassertScheduled = false;
 
     const normalizeRange = (range)=>{
@@ -1787,9 +1795,111 @@
       scheduleFillHandleUpdate('selection');
     };
 
-    const scheduleSelectionReassert = (range, reason)=>{
-      pendingSelectionReassertRange = normalizeRange(range);
-      if(!pendingSelectionReassertRange || selectionReassertScheduled || !container){
+    const setSelectionRangeOverride = (range)=>{
+      const normalized = normalizeRange(range);
+      selectionRangeOverride = normalized
+        ? {
+            from: { row: normalized.from.row, col: normalized.from.col },
+            to: { row: normalized.to.row, col: normalized.to.col }
+          }
+        : null;
+      scheduleFillHandleUpdate('selection-override');
+    };
+
+    const clearSelectionRangeOverride = ()=>{
+      if(!selectionRangeOverride){
+        return;
+      }
+      selectionRangeOverride = null;
+      scheduleFillHandleUpdate('selection-override-cleared');
+    };
+
+    const getEffectiveSelectionRange = ()=>{
+      return selectionRangeOverride || normalizedSelectionRange || normalizeRange(lastRange);
+    };
+
+    const syncGridApiSelectionToRange = (api, range)=>{
+      const normalized = normalizeRange(range);
+      if(!api || !normalized){
+        return false;
+      }
+      const anchorColId = `c${normalized.from.col}`;
+      let synced = false;
+      try{
+        if(typeof api.clearRangeSelection === 'function'){
+          api.clearRangeSelection();
+          synced = true;
+        }
+      }catch(err){
+        // best-effort only
+      }
+      try{
+        if(typeof api.addCellRange === 'function'){
+          api.addCellRange({
+            rowStartIndex: normalized.from.row,
+            rowEndIndex: normalized.to.row,
+            columnStart: `c${normalized.from.col}`,
+            columnEnd: `c${normalized.to.col}`
+          });
+          synced = true;
+        }
+      }catch(err){
+        // best-effort only
+      }
+      try{
+        if(typeof api.setFocusedCell === 'function'){
+          api.setFocusedCell(normalized.from.row, anchorColId);
+          synced = true;
+        }
+      }catch(err){
+        // best-effort only
+      }
+      try{
+        if(typeof api.redrawRows === 'function'){
+          api.redrawRows();
+        }
+      }catch(err){
+        // best-effort only
+      }
+      return synced;
+    };
+
+    const applyProgrammaticSelectionRange = (range, options = {})=>{
+      const normalized = normalizeRange(range);
+      if(!normalized){
+        return false;
+      }
+      const api = options.api || instance?.gridApi || null;
+      pendingSelectionReassertRange = normalized;
+      if(options.preservePasteSelectionLock !== true){
+        clearPasteDrivenSelectionState();
+      }
+      clearSelectedHeaderColumns();
+      setLastRange(normalized);
+      if(options.syncGridApi !== false){
+        syncGridApiSelectionToRange(api, normalized);
+      }
+      if(options.render !== false){
+        renderAg(api);
+      }
+      if(options.fireHook){
+        fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
+      }
+      return true;
+    };
+
+    const scheduleSelectionReassert = (range, reason, options = {})=>{
+      const normalized = normalizeRange(range);
+      if(!normalized || !container){
+        return;
+      }
+      pendingSelectionReassertRange = normalized;
+      pendingSelectionReassertReason = reason || null;
+      pendingSelectionReassertAttempts = Math.max(
+        pendingSelectionReassertAttempts,
+        Number.isFinite(options.attempts) ? Math.max(1, Number(options.attempts)) : 6
+      );
+      if(selectionReassertScheduled){
         return;
       }
       selectionReassertScheduled = true;
@@ -1798,21 +1908,42 @@
       const rafLocal = typeof win?.requestAnimationFrame === 'function'
         ? win.requestAnimationFrame.bind(win)
         : (fn)=>win.setTimeout(fn, 16);
-      rafLocal(()=>{
+      const run = ()=>{
         selectionReassertScheduled = false;
         const nextRange = pendingSelectionReassertRange;
-        pendingSelectionReassertRange = null;
-        if(!nextRange){
+        const nextReason = pendingSelectionReassertReason;
+        const remaining = pendingSelectionReassertAttempts;
+        if(!nextRange || remaining <= 0){
+          pendingSelectionReassertRange = null;
+          pendingSelectionReassertReason = null;
+          pendingSelectionReassertAttempts = 0;
           return;
         }
-        clearSelectedHeaderColumns();
-        setLastRange(nextRange);
-        renderAg(instance?.gridApi || null);
-        fireHook('afterSelectionEnd', nextRange.from.row, nextRange.from.col, nextRange.to.row, nextRange.to.col);
+        pendingSelectionReassertAttempts = Math.max(0, remaining - 1);
+        applyProgrammaticSelectionRange(nextRange, {
+          api: instance?.gridApi || null,
+          render: true,
+          syncGridApi: true,
+          fireHook: false,
+          preservePasteSelectionLock: true
+        });
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot paste selection reasserted', { debugLabel, reason: reason || null, range: nextRange });
+          console.debug('Debug: Shared.hot selection reasserted', {
+            debugLabel,
+            reason: nextReason,
+            range: nextRange,
+            remainingAttempts: pendingSelectionReassertAttempts
+          });
         }
-      });
+        if(pendingSelectionReassertAttempts > 0){
+          selectionReassertScheduled = true;
+          rafLocal(run);
+        }else{
+          pendingSelectionReassertRange = null;
+          pendingSelectionReassertReason = null;
+        }
+      };
+      rafLocal(run);
     };
 
     const clearSelectedHeaderColumns = ()=>{
@@ -1887,12 +2018,60 @@
         && left.to.col === right.to.col;
     };
 
+    const cloneNormalizedRange = (range)=>{
+      const normalized = normalizeRange(range);
+      if(!normalized){
+        return null;
+      }
+      return {
+        from: { row: normalized.from.row, col: normalized.from.col },
+        to: { row: normalized.to.row, col: normalized.to.col }
+      };
+    };
+
+    const rangeContainsRange = (outerRange, innerRange)=>{
+      const outer = normalizeRange(outerRange);
+      const inner = normalizeRange(innerRange);
+      if(!outer || !inner){
+        return false;
+      }
+      return inner.from.row >= outer.from.row
+        && inner.from.col >= outer.from.col
+        && inner.to.row <= outer.to.row
+        && inner.to.col <= outer.to.col;
+    };
+
+    const armPasteSelectionLock = (range)=>{
+      pasteSelectionLockRange = cloneNormalizedRange(range);
+    };
+
+    const clearPasteSelectionLock = ()=>{
+      pasteSelectionLockRange = null;
+    };
+
+    const clearPasteDrivenSelectionState = ()=>{
+      clearPasteSelectionLock();
+      clearSelectionRangeOverride();
+    };
+
+    const shouldIgnoreApiSelectionRange = (range)=>{
+      const nextRange = normalizeRange(range);
+      if(!pasteSelectionLockRange || !nextRange){
+        return false;
+      }
+      if(areNormalizedRangesEqual(pasteSelectionLockRange, nextRange)){
+        return false;
+      }
+      return rangeContainsRange(pasteSelectionLockRange, nextRange);
+    };
+
     const shouldSuppressLiveSelectionChrome = ()=>{
-      if(!normalizedSelectionRange || !hasClipboardOutline()){
+      const activeSelection = getEffectiveSelectionRange();
+      if(!activeSelection || !hasClipboardOutline()){
         return false;
       }
       for(let i = 0; i < normalizedClipboardOutlineRanges.length; i += 1){
-        if(areNormalizedRangesEqual(normalizedSelectionRange, normalizedClipboardOutlineRanges[i])){
+        if(areNormalizedRangesEqual(activeSelection, normalizedClipboardOutlineRanges[i])){
           return true;
         }
       }
@@ -3499,7 +3678,7 @@
     };
 
     const updateSelectionOutlinePosition = ()=>{
-      const selection = normalizedSelectionRange;
+      const selection = getEffectiveSelectionRange();
       if(!selection || shouldSuppressLiveSelectionChrome()){
         hideSelectionOutline();
         return false;
@@ -3577,7 +3756,7 @@
 
     const updateFillHandlePosition = (reason)=>{
       updateClipboardOutlinePosition();
-      const selection = normalizedSelectionRange;
+      const selection = getEffectiveSelectionRange();
       if(!selection){
         hideFillHandle();
         hideSelectionOutline();
@@ -4345,7 +4524,7 @@
     };
 
     const applyFillHandleDoubleClickAutoFill = ()=>{
-      const selection = normalizedSelectionRange;
+      const selection = getEffectiveSelectionRange();
       if(!selection){
         return false;
       }
@@ -4404,7 +4583,7 @@
       if(isFillHandleDragging){
         return;
       }
-      const selection = normalizedSelectionRange;
+      const selection = getEffectiveSelectionRange();
       if(!selection){
         return;
       }
@@ -4869,6 +5048,45 @@
       }
     };
 
+    const finalizePendingCutMoveForPaste = (sourceLabel, changesForHook, options = {})=>{
+      if(pendingCutMove && sourceLabel !== 'paste'){
+        flushPendingCutMove(options.reason || 'nonPaste');
+        return false;
+      }
+      if(sourceLabel !== 'paste' || !pendingCutMove){
+        return false;
+      }
+      const clipboardText = normalizeClipboardText(
+        typeof options.clipboardText === 'string' ? options.clipboardText : pendingPasteText
+      );
+      if(!clipboardText || clipboardText !== pendingCutMove.clipboardText){
+        return false;
+      }
+      const pastePhysical = buildPhysicalChangeListFromVisualChanges(changesForHook);
+      const composite = dedupePhysicalChanges([...(pendingCutMove.changes || []), ...pastePhysical]);
+      const timerToClear = pendingCutMoveTimer;
+      pendingCutMove = null;
+      pendingCutMoveTimer = null;
+      pendingPasteText = '';
+      if(timerToClear){
+        try{
+          const doc = container?.ownerDocument || document;
+          const win = doc.defaultView || global;
+          win?.clearTimeout?.(timerToClear);
+        }catch(err){
+          // ignore
+        }
+      }
+      pushUndoStep(`table:${debugLabel}:move`, composite);
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot AG move undo step recorded', {
+          debugLabel,
+          changes: composite.length
+        });
+      }
+      return true;
+    };
+
     const buildPhysicalChangeListFromVisualChanges = (changesForHook)=>{
       const list = [];
       if(!Array.isArray(changesForHook)){
@@ -5070,7 +5288,7 @@
     };
 
     const resolveRowSpanForSelection = ()=>{
-      const normalized = normalizedSelectionRange || normalizeRange(lastRange);
+      const normalized = getEffectiveSelectionRange();
       if(normalized){
         return {
           startRow: normalized.from.row,
@@ -5205,7 +5423,7 @@
     };
 
     const copySelectionToClipboard = async ()=>{
-      const normalized = normalizedSelectionRange || normalizeRange(lastRange);
+      const normalized = getEffectiveSelectionRange();
       const selectedColumns = getSelectedHeaderColumnsSorted();
       const useSelectedColumns = selectedColumns.length > 0;
       const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
@@ -5236,7 +5454,7 @@
       if(pendingCutMove){
         flushPendingCutMove('new-cut');
       }
-      const normalized = normalizedSelectionRange || normalizeRange(lastRange);
+      const normalized = getEffectiveSelectionRange();
       const selectedColumns = getSelectedHeaderColumnsSorted();
       const useSelectedColumns = selectedColumns.length > 0;
       const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
@@ -6909,6 +7127,7 @@
           ? Object.assign({}, colDef.cellClassRules)
           : {};
         existing['hot-selected-cell'] = params=>{
+          const activeSelection = getEffectiveSelectionRange();
           const rowIndex = resolveVisualRowIndex(params);
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
           if(!Number.isInteger(rowIndex)){
@@ -6921,23 +7140,24 @@
           if(selectedHeaderColumns.size && selectedHeaderColumns.has(col)){
             return true;
           }
-          if(!normalizedSelectionRange){
+          if(!activeSelection){
             return false;
           }
-          return rowIndex >= normalizedSelectionRange.from.row
-            && rowIndex <= normalizedSelectionRange.to.row
-            && col >= normalizedSelectionRange.from.col
-            && col <= normalizedSelectionRange.to.col;
+          return rowIndex >= activeSelection.from.row
+            && rowIndex <= activeSelection.to.row
+            && col >= activeSelection.from.col
+            && col <= activeSelection.to.col;
         };
         existing['hot-selected-range-fill'] = params=>{
+          const activeSelection = getEffectiveSelectionRange();
           if(selectedHeaderColumns.size){
             return false;
           }
-          if(!normalizedSelectionRange){
+          if(!activeSelection){
             return false;
           }
-          const rangeRows = normalizedSelectionRange.to.row - normalizedSelectionRange.from.row + 1;
-          const rangeCols = normalizedSelectionRange.to.col - normalizedSelectionRange.from.col + 1;
+          const rangeRows = activeSelection.to.row - activeSelection.from.row + 1;
+          const rangeCols = activeSelection.to.col - activeSelection.from.col + 1;
           if(rangeRows <= 1 && rangeCols <= 1){
             return false;
           }
@@ -6950,10 +7170,10 @@
           if(!Number.isInteger(col)){
             return false;
           }
-          const inRange = rowIndex >= normalizedSelectionRange.from.row
-            && rowIndex <= normalizedSelectionRange.to.row
-            && col >= normalizedSelectionRange.from.col
-            && col <= normalizedSelectionRange.to.col;
+          const inRange = rowIndex >= activeSelection.from.row
+            && rowIndex <= activeSelection.to.row
+            && col >= activeSelection.from.col
+            && col <= activeSelection.to.col;
           if(!inRange){
             return false;
           }
@@ -6966,10 +7186,11 @@
           return true;
         };
         existing['hot-selected-anchor'] = params=>{
+          const activeSelection = getEffectiveSelectionRange();
           if(selectedHeaderColumns.size){
             return false;
           }
-          if(!normalizedSelectionRange){
+          if(!activeSelection){
             return false;
           }
           const rowIndex = resolveVisualRowIndex(params);
@@ -6981,10 +7202,10 @@
           if(!Number.isInteger(col)){
             return false;
           }
-          const inRange = rowIndex >= normalizedSelectionRange.from.row
-            && rowIndex <= normalizedSelectionRange.to.row
-            && col >= normalizedSelectionRange.from.col
-            && col <= normalizedSelectionRange.to.col;
+          const inRange = rowIndex >= activeSelection.from.row
+            && rowIndex <= activeSelection.to.row
+            && col >= activeSelection.from.col
+            && col <= activeSelection.to.col;
           if(!inRange){
             return false;
           }
@@ -6994,9 +7215,10 @@
           if(Number.isInteger(anchorRow) && Number.isInteger(anchorCol)){
             return rowIndex === anchorRow && col === anchorCol;
           }
-          return rowIndex === normalizedSelectionRange.from.row && col === normalizedSelectionRange.from.col;
+          return rowIndex === activeSelection.from.row && col === activeSelection.from.col;
         };
         existing['hot-fill-preview-cell'] = params=>{
+          const activeSelection = getEffectiveSelectionRange();
           if(!normalizedFillPreviewRange){
             return false;
           }
@@ -7009,11 +7231,11 @@
           if(!Number.isInteger(col)){
             return false;
           }
-          if(normalizedSelectionRange
-            && rowIndex >= normalizedSelectionRange.from.row
-            && rowIndex <= normalizedSelectionRange.to.row
-            && col >= normalizedSelectionRange.from.col
-            && col <= normalizedSelectionRange.to.col){
+          if(activeSelection
+            && rowIndex >= activeSelection.from.row
+            && rowIndex <= activeSelection.to.row
+            && col >= activeSelection.from.col
+            && col <= activeSelection.to.col){
             return false;
           }
           return rowIndex >= normalizedFillPreviewRange.from.row
@@ -7203,7 +7425,7 @@
         }
         return { start: idx, count: 1 };
       }
-      const normalized = normalizedSelectionRange;
+      const normalized = getEffectiveSelectionRange();
       const lastRow = Math.max(0, getVisualRowCount() - 1);
       const isFullColumnSelection = normalized
         && normalized.from.row === 0
@@ -7223,7 +7445,7 @@
       if(!Number.isInteger(idx) || idx < 0){
         return { start: 0, count: 0 };
       }
-      const normalized = normalizedSelectionRange;
+      const normalized = getEffectiveSelectionRange();
       const isFullRowSelection = normalized
         && normalized.from.col === 0
         && normalized.to.col === Math.max(0, colCount - 1)
@@ -7256,7 +7478,7 @@
       if(!api){
         return;
       }
-      if(pendingSelectionReassertRange){
+      if(pendingSelectionReassertRange || selectionRangeOverride){
         return;
       }
       clearSelectedHeaderColumns();
@@ -7271,10 +7493,15 @@
             const endColId = range.endColumn?.getColId?.() ?? startColId;
             const startCol = colIdToIndex(startColId);
             const endCol = colIdToIndex(endColId);
-            setLastRange({
+            const nextRange = {
               from: { row: Math.min(startRow, endRow), col: Math.min(startCol, endCol) },
               to: { row: Math.max(startRow, endRow), col: Math.max(startCol, endCol) }
-            });
+            };
+            if(shouldIgnoreApiSelectionRange(nextRange)){
+              return;
+            }
+            clearPasteDrivenSelectionState();
+            setLastRange(nextRange);
             renderAg(api);
             fireHook('afterSelectionEnd', startRow, startCol, endRow, endCol);
             return;
@@ -7289,6 +7516,11 @@
           if(focused && Number.isInteger(focused.rowIndex)){
             const row = focused.rowIndex;
             const col = colIdToIndex(focused.column?.getColId?.());
+            const nextRange = { from: { row, col }, to: { row, col } };
+            if(shouldIgnoreApiSelectionRange(nextRange)){
+              return;
+            }
+            clearPasteDrivenSelectionState();
             setLastRange({ from: { row, col }, to: { row, col } });
             renderAg(api);
             fireHook('afterSelectionEnd', row, col, row, col);
@@ -7459,7 +7691,7 @@
       if(totalRows >= autoGrowthConfig.rowCap){
         return false;
       }
-      const selection = normalizedSelectionRange || normalizeRange(lastRange);
+      const selection = getEffectiveSelectionRange();
       let nearSelection = false;
       if(selection && Number.isInteger(selection.to?.row)){
         nearSelection = (totalRows - 1 - selection.to.row) <= autoGrowthConfig.selectionThreshold;
@@ -7480,7 +7712,7 @@
       if(colCount >= autoGrowthConfig.colCap){
         return false;
       }
-      const selection = normalizedSelectionRange || normalizeRange(lastRange);
+      const selection = getEffectiveSelectionRange();
       let nearSelection = false;
       if(selection && Number.isInteger(selection.to?.col)){
         nearSelection = (colCount - 1 - selection.to.col) <= autoGrowthConfig.selectionThreshold;
@@ -8281,27 +8513,30 @@
       toPhysicalRow(row){ return toPhysicalRowIndex(row); },
       toPhysicalColumn(col){ return toPhysicalColIndex(col); },
       getSelectedLast(){
-        if(!normalizedSelectionRange){
+        const selection = getEffectiveSelectionRange();
+        if(!selection){
           return null;
         }
         return [
-          normalizedSelectionRange.from.row,
-          normalizedSelectionRange.from.col,
-          normalizedSelectionRange.to.row,
-          normalizedSelectionRange.to.col
+          selection.from.row,
+          selection.from.col,
+          selection.to.row,
+          selection.to.col
         ];
       },
       getSelectedRangeLast(){
-        return normalizedSelectionRange ? Object.assign({}, normalizedSelectionRange) : null;
+        const selection = getEffectiveSelectionRange();
+        return selection ? Object.assign({}, selection) : null;
       },
       selectCell(row, col, endRow, endCol){
+        clearPasteDrivenSelectionState();
         const r1 = Number(row);
         const c1 = Number(col);
         const r2 = Number.isFinite(endRow) ? Number(endRow) : r1;
         const c2 = Number.isFinite(endCol) ? Number(endCol) : c1;
         setLastRange({ from: { row: r1, col: c1 }, to: { row: r2, col: c2 } });
         renderAg(instance.gridApi);
-        const normalized = normalizedSelectionRange || normalizeRange(lastRange) || { from: { row: r1, col: c1 }, to: { row: r2, col: c2 } };
+        const normalized = getEffectiveSelectionRange() || { from: { row: r1, col: c1 }, to: { row: r2, col: c2 } };
         fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
       },
       getDataAtCell(row, col){
@@ -8458,7 +8693,10 @@
             rebuildColumns(instance.gridApi);
           }
           refreshColumnFiltersForDataMutation('set-data-at-cell:batch');
-          if(!(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
+          const finalizedMoveUndo = finalizePendingCutMoveForPaste(changeSource, changesForHook, {
+            reason: 'setDataAtCell:batch'
+          });
+          if(!finalizedMoveUndo && !(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
             recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
           }
           fireHook('afterChange', changesForHook, changeSource);
@@ -8494,7 +8732,10 @@
           rebuildColumns(instance.gridApi);
         }
         refreshColumnFiltersForDataMutation('set-data-at-cell:single');
-        if(!(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
+        const finalizedMoveUndo = finalizePendingCutMoveForPaste(changeSource, [[r, c, prev, value]], {
+          reason: 'setDataAtCell:single'
+        });
+        if(!finalizedMoveUndo && !(changeSource === 'cut' && pendingCutMove) && !(changeSource === 'paste' && pendingCutMove)){
           recordUndoFromVisualChanges(changeSource, [[r, c, prev, value]], changeSource);
         }
         fireHook('afterChange', [[r, c, prev, value]], changeSource);
@@ -8710,27 +8951,10 @@
         refreshColumnFiltersForDataMutation('populate-from-array');
         if(changes.length){
           const sourceLabel = typeof source === 'string' ? source : 'populateFromArray';
-          if(pendingCutMove && sourceLabel !== 'paste'){
-            flushPendingCutMove('nonPaste');
-          }
-          if(sourceLabel === 'paste' && pendingCutMove && normalizeClipboardText(pendingPasteText) === pendingCutMove.clipboardText){
-            const pastePhysical = buildPhysicalChangeListFromVisualChanges(changes);
-            const composite = dedupePhysicalChanges([...(pendingCutMove.changes || []), ...pastePhysical]);
-            const timerToClear = pendingCutMoveTimer;
-            pendingCutMove = null;
-            pendingPasteText = '';
-            pendingCutMoveTimer = null;
-            if(timerToClear){
-              try{
-                const doc = container?.ownerDocument || document;
-                const win = doc.defaultView || global;
-                win?.clearTimeout?.(timerToClear);
-              }catch(err){
-                // ignore
-              }
-            }
-            pushUndoStep(`table:${debugLabel}:move`, composite);
-          }else{
+          const finalizedMoveUndo = finalizePendingCutMoveForPaste(sourceLabel, changes, {
+            reason: 'populateFromArray'
+          });
+          if(!finalizedMoveUndo){
             recordUndoFromVisualChanges(sourceLabel, changes, sourceLabel);
           }
         }
@@ -9617,7 +9841,7 @@
     };
 
     const getFullColumnSelectionColumns = ()=>{
-      const normalized = normalizedSelectionRange;
+      const normalized = getEffectiveSelectionRange();
       if(!normalized){
         return [];
       }
@@ -10818,7 +11042,8 @@
         if(suppressApiSelectionSyncForSort || isApplyingSortSelectionSnapshot){
           return;
         }
-        if(normalizedSelectionRange && (normalizedSelectionRange.from.row !== normalizedSelectionRange.to.row || normalizedSelectionRange.from.col !== normalizedSelectionRange.to.col)){
+        const activeSelection = getEffectiveSelectionRange();
+        if(activeSelection && (activeSelection.from.row !== activeSelection.to.row || activeSelection.from.col !== activeSelection.to.col)){
           return;
         }
         updateSelectionFromApi(params.api);
@@ -10833,6 +11058,7 @@
         if(isDragSelecting){
           return;
         }
+        clearPasteDrivenSelectionState();
         clearSelectedHeaderColumns();
         const row = resolveVisualRowIndex(params) ?? 0;
         const colId = params?.column?.getColId?.();
@@ -11060,7 +11286,7 @@
           return;
         }
         const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
-        const sel = normalizedSelectionRange || normalizeRange(lastRange) || {
+        const sel = getEffectiveSelectionRange() || {
           from: { row: params?.node?.rowIndex ?? 0, col: colIdx },
           to: { row: params?.node?.rowIndex ?? 0, col: colIdx }
         };
@@ -11993,6 +12219,7 @@
         if(event?.button !== 0){
           return;
         }
+        clearPasteDrivenSelectionState();
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
           return;
@@ -12024,6 +12251,7 @@
         if(event?.button !== 0){
           return;
         }
+        clearPasteDrivenSelectionState();
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
           return;
@@ -12700,6 +12928,7 @@
         if(event?.button !== 0){
           return;
         }
+        clearPasteDrivenSelectionState();
         if(startFormulaReferenceDragFromPointer(event)){
           return;
         }
@@ -13025,7 +13254,7 @@
           headerDragMouseDown = false;
           headerDragColId = null;
           headerDragStartPointer = null;
-          const normalized = normalizedSelectionRange;
+          const normalized = getEffectiveSelectionRange();
           if(normalized){
             fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -13053,7 +13282,7 @@
         isDragSelecting = false;
         dragRafPending = false;
         resetSelectionAutoScroll();
-        const normalized = normalizedSelectionRange;
+        const normalized = getEffectiveSelectionRange();
         if(normalized && (normalized.from.row !== normalized.to.row || normalized.from.col !== normalized.to.col)){
           suppressNextCellClick = true;
           win?.setTimeout?.(()=>{ suppressNextCellClick = false; }, 50);
@@ -13072,6 +13301,20 @@
         fireHook('beforeKeyDown', event);
         const key = event.key || '';
         const keyCode = typeof event.keyCode === 'number' ? event.keyCode : null;
+        const normalizedKey = typeof key === 'string' ? key.toLowerCase() : '';
+        const isCmd = !!(event.ctrlKey || event.metaKey);
+        const isSelectionNavigationKey = key === 'ArrowLeft'
+          || key === 'ArrowRight'
+          || key === 'ArrowUp'
+          || key === 'ArrowDown'
+          || key === 'Tab'
+          || key === 'Home'
+          || key === 'End'
+          || key === 'PageUp'
+          || key === 'PageDown';
+        if(!isCmd && (isSelectionNavigationKey || key === 'Enter' || key === 'NumpadEnter')){
+          clearPasteDrivenSelectionState();
+        }
         const isEscape = key === 'Escape' || keyCode === 27;
         if(isEscape && isFillHandleDragging){
           resetFillHandleDrag('escape');
@@ -13085,7 +13328,7 @@
           setClipboardOutlineState(null, 'enter');
         }
         if(isEnter && !isEditableTarget(event.target)){
-          const selection = normalizedSelectionRange || normalizeRange(lastRange);
+          const selection = getEffectiveSelectionRange();
           if(selection
             && selection.from.row === selection.to.row
             && selection.from.col === selection.to.col){
@@ -13123,7 +13366,7 @@
         if((isDelete || isBackspace) && !isEditableTarget(event.target)){
           const selectedColumns = getSelectedHeaderColumnsSorted();
           const useSelectedColumns = selectedColumns.length > 0;
-          const selection = normalizedSelectionRange || normalizeRange(lastRange);
+          const selection = getEffectiveSelectionRange();
           if(selection || useSelectedColumns){
             event.preventDefault?.();
             event.stopPropagation?.();
@@ -13142,11 +13385,9 @@
           }
           return;
         }
-        const isCmd = !!(event.ctrlKey || event.metaKey);
         if(!isCmd || isEditableTarget(event.target)){
           return;
         }
-        const normalizedKey = typeof key === 'string' ? key.toLowerCase() : '';
         if((normalizedKey === 'z' || normalizedKey === 'y') && event.defaultPrevented){
           return;
         }
@@ -13179,6 +13420,7 @@
           event.preventDefault?.();
           event.stopPropagation?.();
           event.stopImmediatePropagation?.();
+          clearPasteDrivenSelectionState();
           const lastRow = Math.max(0, getVisualRowCount() - 1);
           const lastCol = Math.max(0, colCount - 1);
           setLastRange({ from: { row: 0, col: 0 }, to: { row: lastRow, col: lastCol } });
@@ -13287,7 +13529,7 @@
             return;
           }
         }
-        let selection = normalizedSelectionRange || normalizeRange(lastRange);
+        let selection = getEffectiveSelectionRange();
         if(!selection){
           const coords = resolveCellCoords(event);
           if(coords){
@@ -13415,9 +13657,16 @@
             from: { row: selection.from.row, col: useSelectedColumns ? selectedColumns[0] : selection.from.col },
             to: { row: endRow, col: endCol }
           };
-          setLastRange(pastedSelectionRange);
+          armPasteSelectionLock(pastedSelectionRange);
+          setSelectionRangeOverride(pastedSelectionRange);
+          applyProgrammaticSelectionRange(pastedSelectionRange, {
+            api: instance.gridApi,
+            render: true,
+            syncGridApi: true,
+            fireHook: false,
+            preservePasteSelectionLock: true
+          });
           clearActiveClipboardSelectionOwner('paste');
-          renderAg(instance.gridApi);
           fireHook('afterSelectionEnd', pastedSelectionRange.from.row, pastedSelectionRange.from.col, pastedSelectionRange.to.row, pastedSelectionRange.to.col);
           scheduleSelectionReassert(pastedSelectionRange, 'paste');
         }catch(err){

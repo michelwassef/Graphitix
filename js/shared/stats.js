@@ -1985,7 +1985,21 @@
   }
 
   function suppressThresholdControlsForPanel(target){
-    return !!(target && (target.id === 'surfaceStatsSummary' || target.id === 'pcaStatsResults'));
+    if(!target){
+      return false;
+    }
+    const targetId = typeof target.id === 'string' ? target.id : '';
+    if(targetId === 'surfaceStatsSummary' || targetId === 'pcaStatsResults'){
+      return true;
+    }
+    if(
+      targetId === 'survivalStatsLogRank'
+      || targetId === 'survivalStatsHazardRatios'
+      || targetId === 'survivalStatsCox'
+    ){
+      return true;
+    }
+    return false;
   }
 
   function ensurePanelScaffold(target, state){

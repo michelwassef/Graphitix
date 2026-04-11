@@ -5053,12 +5053,56 @@
         console.warn('Survival import skipped: Shared.tableImport.openFile unavailable');
         return;
       }
+      const applySurvivalPrismStyle = style => {
+        if(!style || typeof style !== 'object'){
+          return;
+        }
+        const title = style.title != null ? String(style.title).trim() : '';
+        const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
+        const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+        const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
+        const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
+        const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
+        const fontSizeValue = Number(style.fontSize);
+        if(title){
+          state.titleText = title;
+        }
+        if(xLabel && refs.xLabel){
+          refs.xLabel.value = xLabel;
+        }
+        if(yLabel && refs.yLabel){
+          refs.yLabel.value = yLabel;
+        }
+        if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && refs.fontSize){
+          refs.fontSize.value = String(fontSizeValue);
+          if(refs.fontSize.dataset){
+            refs.fontSize.dataset.fontBasePt = String(fontSizeValue);
+          }
+          chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: fontSizeValue, input: refs.fontSize, manual: true });
+        }
+        if(axisColor){
+          updateAxisColor(axisColor);
+        }
+        if(fontFamily || fontColor){
+          const graphStyle = {};
+          if(fontFamily){
+            graphStyle.fontFamily = fontFamily;
+          }
+          if(fontColor){
+            graphStyle.fill = fontColor;
+          }
+          importFontStyles('survival', { __graph__: graphStyle });
+        }
+        logDebug('prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
+        state.scheduleDraw?.({ force: true, reason: 'import-prism-style' });
+      };
       Shared.tableImport.openFile(refs.fileInput, {
         hot: state.hot,
         minCols: SURVIVAL_DEFAULT_COLS,
         minRows: DEFAULT_ROWS,
         scheduleDraw: state.scheduleDraw,
         debugLabel: 'survival',
+        onPrismStyle: applySurvivalPrismStyle,
         onProcessed: info => logDebug('import processed', info)
       });
     });

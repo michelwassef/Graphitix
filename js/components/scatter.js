@@ -9649,6 +9649,53 @@
             scheduleDrawScatter({ force: true, reason: 'import-load' });
           },
           debugLabel: 'scatter',
+          onPrismStyle: style => {
+            if(!style || typeof style !== 'object'){
+              return;
+            }
+            const title = style.title != null ? String(style.title).trim() : '';
+            const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
+            const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+            const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
+            const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
+            const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
+            const fontSizeValue = Number(style.fontSize);
+            if(title){
+              scatterTitleText = title;
+            }
+            if(xLabel){
+              scatterXLabelText = xLabel;
+              scatterState.xLabelText = xLabel;
+            }
+            if(yLabel){
+              scatterYLabelText = yLabel;
+              scatterState.yLabelText = yLabel;
+            }
+            if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && scatterFontSize){
+              scatterFontSize.value = String(fontSizeValue);
+              if(scatterFontSize.dataset){
+                scatterFontSize.dataset.fontBasePt = String(fontSizeValue);
+              }
+              chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: fontSizeValue, input: scatterFontSize, manual: true });
+            }
+            if(axisColor){
+              updateScatterAxisColor(axisColor);
+            }
+            if(fontFamily || fontColor){
+              const graphStyle = {};
+              if(fontFamily){
+                graphStyle.fontFamily = fontFamily;
+              }
+              if(fontColor){
+                graphStyle.fill = fontColor;
+              }
+              importFontStyles('scatter', { __graph__: graphStyle });
+            }
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: scatter prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
+            }
+            scheduleDrawScatter({ force: true, reason: 'import-prism-style' });
+          },
           onProcessed: info => scatterLog('scatter data imported',{rows: info?.rows, cols: info?.cols}),
           onCompleted: () => {
             const renderReason = 'import-load';

@@ -5,6 +5,7 @@
 
   let xlsxLoaderPromise = null;
   let zipLoaderPromise = null;
+  let pakoLoaderPromise = null;
   const DEFAULT_SNAPSHOT_CELL_THRESHOLD = 12000;
   tableImport.snapshotCellThreshold = DEFAULT_SNAPSHOT_CELL_THRESHOLD;
 
@@ -264,6 +265,53 @@
     return zipLoaderPromise;
   }
 
+  async function ensurePako(){
+    if(global.pako){
+      return global.pako;
+    }
+    if(typeof require === 'function'){
+      try{
+        const required = require('pako');
+        if(required){
+          global.pako = required;
+          return required;
+        }
+      }catch(err){
+        prismDebug('pako.requireError', { message: err?.message || String(err) });
+      }
+    }
+    if(pakoLoaderPromise){
+      return pakoLoaderPromise;
+    }
+    if(!global.document){
+      throw new Error('Document unavailable for pako loading');
+    }
+    pakoLoaderPromise = new Promise((resolve, reject) => {
+      const script = global.document.createElement('script');
+      const timer = global.setTimeout ? global.setTimeout(() => {
+        reject(new Error('Timed out loading pako script'));
+      }, 5000) : null;
+      script.src = 'https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js';
+      script.onload = () => {
+        if(timer){
+          global.clearTimeout(timer);
+        }
+        resolve(global.pako);
+      };
+      script.onerror = () => {
+        if(timer){
+          global.clearTimeout(timer);
+        }
+        reject(new Error('Failed to load pako script'));
+      };
+      global.document.head.appendChild(script);
+    }).catch(err => {
+      pakoLoaderPromise = null;
+      throw err;
+    });
+    return pakoLoaderPromise;
+  }
+
   function prismDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: tableImport.prism ' + message, payload || {});
@@ -429,21 +477,30 @@
     if(!buffer){
       return null;
     }
-    if(typeof global.DecompressionStream !== 'function'){
-      prismDebug('inflate.skip', { reason: 'noDecompressionStream' });
-      return null;
-    }
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     const zlibOffset = findZlibHeader(bytes);
     if(zlibOffset < 0){
       prismDebug('inflate.skip', { reason: 'zlibHeaderMissing' });
       return null;
     }
-    const payload = bytes.subarray(zlibOffset + 2, bytes.length > 4 ? bytes.length - 4 : bytes.length);
+    if(typeof global.DecompressionStream === 'function'){
+      const payload = bytes.subarray(zlibOffset + 2, bytes.length > 4 ? bytes.length - 4 : bytes.length);
+      try{
+        const stream = new Blob([payload]).stream().pipeThrough(new global.DecompressionStream('deflate'));
+        const arrayBuffer = await new Response(stream).arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+      }catch(err){
+        prismDebug('inflate.decompressionStreamError', { message: err?.message || String(err) });
+      }
+    }
     try{
-      const stream = new Blob([payload]).stream().pipeThrough(new global.DecompressionStream('deflate'));
-      const arrayBuffer = await new Response(stream).arrayBuffer();
-      return new Uint8Array(arrayBuffer);
+      const pako = await ensurePako();
+      if(pako && typeof pako.inflate === 'function'){
+        const inflated = pako.inflate(bytes.subarray(zlibOffset));
+        return inflated instanceof Uint8Array ? inflated : new Uint8Array(inflated);
+      }
+      prismDebug('inflate.skip', { reason: 'pakoUnavailable' });
+      return null;
     }catch(err){
       prismDebug('inflate.error', { message: err?.message || String(err) });
       return null;
@@ -547,6 +604,68 @@
       }
       return true;
     });
+  }
+
+  function prismStringsInclude(strings, matcher){
+    if(!Array.isArray(strings) || typeof matcher !== 'function'){
+      return false;
+    }
+    return strings.some(value => {
+      const normalized = normalizePrismString(value).toLowerCase();
+      return normalized ? matcher(normalized) : false;
+    });
+  }
+
+  function prismDataIncludes(data, token){
+    if(!data || !token){
+      return false;
+    }
+    const text = typeof token === 'string' ? token : String(token || '');
+    if(!text){
+      return false;
+    }
+    const encoder = global.TextEncoder ? new global.TextEncoder() : null;
+    if(!encoder){
+      return false;
+    }
+    const pattern = encoder.encode(text);
+    if(!pattern.length || pattern.length > data.length){
+      return false;
+    }
+    outer: for(let i = 0; i <= data.length - pattern.length; i += 1){
+      for(let j = 0; j < pattern.length; j += 1){
+        if(data[i + j] !== pattern[j]){
+          continue outer;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function inferPrismPreferredGraphType(strings, tableFormat, inflatedData){
+    const format = normalizePrismString(tableFormat).toLowerCase();
+    if(format === 'column'){
+      if(prismDataIncludes(inflatedData, 'PCFF_Plot::BarBoxBordercolor')){
+        return 'box';
+      }
+      if(prismStringsInclude(strings, value => value.includes('violin'))){
+        return 'violin';
+      }
+      if(prismStringsInclude(strings, value => value.includes('notched'))){
+        return 'notched';
+      }
+      if(prismStringsInclude(strings, value => value.includes('individual') || value.includes('column scatter'))){
+        return 'strip';
+      }
+      if(prismStringsInclude(strings, value => value.includes('box-and-whisker') || value.includes('box and whisker') || value === 'box')){
+        return 'box';
+      }
+      if(prismStringsInclude(strings, value => value.includes('bar'))){
+        return 'bar';
+      }
+    }
+    return '';
   }
 
   async function readZipJson(zip, path){
@@ -1112,6 +1231,7 @@
         const rowTitleLabel = await readDataSetTitle(rowTitlesId);
         let prismStyle = null;
         let prismGraphLabels = { title: '', xLabel: '', yLabel: '' };
+        let prismPreferredGraphType = '';
         const sheetTitle = normalizePrismString(sheet?.title || '');
         const graphSheetId = document?.uiSettings?.currentSheets?.graph
           || (Array.isArray(document?.sheets?.graphs) ? document.sheets.graphs[0] : null);
@@ -1156,6 +1276,7 @@
             }
             prismGraphLabels = { title, xLabel, yLabel };
             const inflated = await inflatePrismGraphData(graphBuffer);
+            prismPreferredGraphType = inferPrismPreferredGraphType(normalizedStrings, tableFormat, inflated);
             let fontColor = '';
             let axisColor = '';
             if(inflated){
@@ -1181,7 +1302,8 @@
                 fontSize,
                 fontColor,
                 axisColor,
-                candidateCount: parsed.strings?.length || 0
+                candidateCount: parsed.strings?.length || 0,
+                preferredGraphType: prismPreferredGraphType || ''
               });
             }
           }
@@ -1332,6 +1454,23 @@
             valueTitles: dataSetTitles.slice()
           };
           prismDebug('table.pie', { seriesCount: dataSetTitles.length || 1, rows: pieRows.length, hasRowTitles });
+        }else if(tableFormat === 'column' && dataFormat === 'y_single' && dataSetIds.length){
+          if(dataSetTitles.some(title => String(title).trim() !== '')){
+            importRows = [dataSetTitles.map(title => title), ...filtered];
+          }
+          prismMeta = {
+            kind: 'column',
+            dataFormat,
+            tableClass,
+            seriesCount: dataSetTitles.length || dataSetIds.length || 1,
+            groupLabels: dataSetTitles.slice(),
+            graphType: prismPreferredGraphType || ''
+          };
+          prismDebug('table.column', {
+            seriesCount: dataSetTitles.length || dataSetIds.length || 1,
+            rows: filtered.length,
+            graphType: prismPreferredGraphType || ''
+          });
         }else if(dataSetIds.length){
           if(dataSetTitles.some(title => String(title).trim() !== '')){
             importRows = [dataSetTitles.map(title => title), ...filtered];

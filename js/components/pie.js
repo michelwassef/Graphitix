@@ -2843,12 +2843,52 @@
       const fileName = pieFileInput.files?.[0]?.name || '';
       console.debug('Debug: pie import start',{fileName}); // Debug: import start trace
       try{
+        const applyPiePrismStyle = style => {
+          if(!style || typeof style !== 'object'){
+            return;
+          }
+          const title = style.title != null ? String(style.title).trim() : '';
+          const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
+          const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
+          const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
+          const fontSizeValue = Number(style.fontSize);
+          if(title){
+            state.titleText = title;
+          }
+          const pieFontInput = document.getElementById('pieFontSize');
+          const pieFontSizeVal = document.getElementById('pieFontSizeVal');
+          if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && pieFontInput){
+            pieFontInput.value = String(fontSizeValue);
+            if(pieFontInput.dataset){
+              pieFontInput.dataset.fontBasePt = String(fontSizeValue);
+            }
+            chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: fontSizeValue, input: pieFontInput, manual: true });
+          }
+          if(axisColor){
+            updateAxisColor(axisColor);
+          }
+          if(fontFamily || fontColor){
+            const graphStyle = {};
+            if(fontFamily){
+              graphStyle.fontFamily = fontFamily;
+            }
+            if(fontColor){
+              graphStyle.fill = fontColor;
+            }
+            importFontStyles('pie', { __graph__: graphStyle });
+          }
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: pie prism style applied', { title, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
+          }
+          state.scheduleDraw?.({ force: true, reason: 'import-prism-style' });
+        };
         const result = await tableImport.openFile(pieFileInput,{
           hot: state.hot,
           minCols: PIE_DEFAULT_COLS,
           minRows: PIE_DEFAULT_ROWS,
           scheduleDraw: state.scheduleDraw,
           debugLabel: 'pie',
+          onPrismStyle: applyPiePrismStyle,
           onProcessed: info => {
             console.debug('Debug: pie tableImport processed', info || {}); // Debug: processed callback
           }
