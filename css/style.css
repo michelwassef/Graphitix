@@ -1898,23 +1898,7 @@ select {
 }
 
 .app-header {
-    padding: 36px 48px;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(14, 165, 233, 0.08));
-    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
-}
-
-.app-header__title {
-    margin: 0;
-    font-size: 32px;
-    font-weight: 700;
-    color: #1f2937;
-}
-
-.app-header__subtitle {
-    margin: 8px 0 0;
-    max-width: 720px;
-    color: #4b5563;
-    font-size: 16px;
+    display: none;
 }
 
 #workspaceMain {
@@ -1937,7 +1921,10 @@ select {
     align-items: stretch;
     min-height: 100vh;
     background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    position: relative;
 }
+
+
 
 .welcome-container {
     width: 100%;
@@ -1956,7 +1943,7 @@ select {
 
 .welcome-hero__title {
     margin: 0;
-    font-size: 38px;
+    font-size: 32px;
     font-weight: 700;
     color: #0f172a;
     letter-spacing: -0.015em;
