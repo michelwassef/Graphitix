@@ -599,6 +599,7 @@
     }
 
     el.style.cursor = cursor;
+    el.style.touchAction = 'none';
 
     const collectVisibilityTargets = (targetNode) => {
       if (!targetNode) { return []; }
@@ -1599,7 +1600,30 @@
       }
     };
 
+    el.style.touchAction = 'manipulation';
     el.addEventListener('dblclick', handler);
+    let lastTouchTapTime = 0;
+    let lastTouchTapPoint = null;
+    el.addEventListener('pointerup', (evt) => {
+      if(evt?.pointerType !== 'touch'){
+        return;
+      }
+      const now = Date.now();
+      const pt = { x: Number(evt.clientX) || 0, y: Number(evt.clientY) || 0 };
+      const prev = lastTouchTapPoint;
+      const closeEnough = prev
+        ? ((pt.x - prev.x) * (pt.x - prev.x) + (pt.y - prev.y) * (pt.y - prev.y)) <= 400
+        : false;
+      if((now - lastTouchTapTime) <= 360 && closeEnough){
+        evt.preventDefault();
+        handler(evt);
+        lastTouchTapTime = 0;
+        lastTouchTapPoint = null;
+        return;
+      }
+      lastTouchTapTime = now;
+      lastTouchTapPoint = pt;
+    }, { passive: false });
     logDebug('makeEditable bound', { hasOnChange: typeof onChange === 'function' });
   }
 
@@ -1727,12 +1751,15 @@
       }
     };
 
-    const handleMouseDown = (e) => {
+    let activePointerId = null;
+
+    const handlePointerDown = (e) => {
       // Don't start drag if user is editing text
       if (el.dataset.editing === 'true') return;
       if (e.button !== undefined && e.button !== 0) {
         return;
       }
+      activePointerId = typeof e.pointerId === 'number' ? e.pointerId : null;
       pointerDown = true;
       dragging = false;
       const loc = getTransformedPoint(e.clientX, e.clientY);
@@ -1742,12 +1769,19 @@
         y: parseFloat(el.getAttribute('y') || '0')
       };
       currentPos = { x: origPos.x, y: origPos.y };
-      global.addEventListener('mousemove', handleMouseMove, true);
-      global.addEventListener('mouseup', handleMouseUp, true);
+      if(activePointerId != null && typeof el.setPointerCapture === 'function'){
+        try{ el.setPointerCapture(activePointerId); }catch(err){}
+      }
+      global.addEventListener('pointermove', handlePointerMove, true);
+      global.addEventListener('pointerup', handlePointerUp, true);
+      global.addEventListener('pointercancel', handlePointerUp, true);
     };
 
-    const handleMouseMove = (e) => {
+    const handlePointerMove = (e) => {
       if (!pointerDown) return;
+      if(activePointerId != null && typeof e.pointerId === 'number' && e.pointerId !== activePointerId){
+        return;
+      }
       const loc = getTransformedPoint(e.clientX, e.clientY);
       const dx = loc.x - startPoint.x;
       const dy = loc.y - startPoint.y;
@@ -1777,13 +1811,21 @@
       updateTransformForPosition(newX, newY);
     };
 
-    const handleMouseUp = (e) => {
+    const handlePointerUp = (e) => {
       if (!pointerDown) return;
-      global.removeEventListener('mousemove', handleMouseMove, true);
-      global.removeEventListener('mouseup', handleMouseUp, true);
+      if(activePointerId != null && typeof e.pointerId === 'number' && e.pointerId !== activePointerId){
+        return;
+      }
+      global.removeEventListener('pointermove', handlePointerMove, true);
+      global.removeEventListener('pointerup', handlePointerUp, true);
+      global.removeEventListener('pointercancel', handlePointerUp, true);
       const wasDragging = dragging;
       pointerDown = false;
       dragging = false;
+      if(activePointerId != null && typeof el.releasePointerCapture === 'function'){
+        try{ el.releasePointerCapture(activePointerId); }catch(err){}
+      }
+      activePointerId = null;
       if (!wasDragging) {
         return;
       }
@@ -1834,7 +1876,7 @@
       logDebug('enableLabelDrag end', { x: finalX, y: finalY });
     };
 
-    el.addEventListener('mousedown', handleMouseDown);
+    el.addEventListener('pointerdown', handlePointerDown);
 
     logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
   }
@@ -1849,6 +1891,7 @@
     const cursor = options.cursor || 'move';
     if (group.style) {
       group.style.cursor = cursor;
+      group.style.touchAction = 'none';
     }
 
     const normalizePoint = point => ({
@@ -1942,21 +1985,31 @@
       }
     };
 
-    const handleMouseDown = event => {
+    let activePointerId = null;
+
+    const handlePointerDown = event => {
       if (event.button !== undefined && event.button !== 0) {
         return;
       }
+      activePointerId = typeof event.pointerId === 'number' ? event.pointerId : null;
       pointerDown = true;
       dragging = false;
       startPoint = pointerToSvg(event.clientX, event.clientY);
       originPos = normalizePoint(getPosition());
       currentPos = originPos;
-      global.addEventListener('mousemove', handleMouseMove, true);
-      global.addEventListener('mouseup', handleMouseUp, true);
+      if(activePointerId != null && typeof group.setPointerCapture === 'function'){
+        try{ group.setPointerCapture(activePointerId); }catch(err){}
+      }
+      global.addEventListener('pointermove', handlePointerMove, true);
+      global.addEventListener('pointerup', handlePointerUp, true);
+      global.addEventListener('pointercancel', handlePointerUp, true);
     };
 
-    const handleMouseMove = event => {
+    const handlePointerMove = event => {
       if (!pointerDown) {
+        return;
+      }
+      if(activePointerId != null && typeof event.pointerId === 'number' && event.pointerId !== activePointerId){
         return;
       }
       const loc = pointerToSvg(event.clientX, event.clientY);
@@ -1985,15 +2038,23 @@
       }
     };
 
-    const handleMouseUp = event => {
+    const handlePointerUp = event => {
       if (!pointerDown) {
         return;
       }
-      global.removeEventListener('mousemove', handleMouseMove, true);
-      global.removeEventListener('mouseup', handleMouseUp, true);
+      if(activePointerId != null && typeof event.pointerId === 'number' && event.pointerId !== activePointerId){
+        return;
+      }
+      global.removeEventListener('pointermove', handlePointerMove, true);
+      global.removeEventListener('pointerup', handlePointerUp, true);
+      global.removeEventListener('pointercancel', handlePointerUp, true);
       const wasDragging = dragging;
       pointerDown = false;
       dragging = false;
+      if(activePointerId != null && typeof group.releasePointerCapture === 'function'){
+        try{ group.releasePointerCapture(activePointerId); }catch(err){}
+      }
+      activePointerId = null;
       if (!wasDragging) {
         return;
       }
@@ -2007,7 +2068,7 @@
       logDebug('enableLegendDrag end', { x: finalPos.x, y: finalPos.y });
     };
 
-    group.addEventListener('mousedown', handleMouseDown);
+    group.addEventListener('pointerdown', handlePointerDown);
     logDebug('enableLegendDrag bound', { element: group.tagName || 'g' });
   }
 
