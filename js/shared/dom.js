@@ -1658,6 +1658,7 @@
     const CAPTURE_ATTR = 'dragXOffset';
 
     el.style.cursor = cursor;
+    el.style.touchAction = 'none';
 
     const datasetKey = `data-${CAPTURE_ATTR.replace(/([A-Z])/g,'-$1').toLowerCase()}`;
     const getChildOffset = (child) => {
@@ -1759,6 +1760,9 @@
       if (e.button !== undefined && e.button !== 0) {
         return;
       }
+      if(e?.pointerType === 'touch'){
+        e.preventDefault();
+      }
       activePointerId = typeof e.pointerId === 'number' ? e.pointerId : null;
       pointerDown = true;
       dragging = false;
@@ -1775,6 +1779,8 @@
       global.addEventListener('pointermove', handlePointerMove, true);
       global.addEventListener('pointerup', handlePointerUp, true);
       global.addEventListener('pointercancel', handlePointerUp, true);
+      global.addEventListener('mousemove', handlePointerMove, true);
+      global.addEventListener('mouseup', handlePointerUp, true);
     };
 
     const handlePointerMove = (e) => {
@@ -1819,6 +1825,8 @@
       global.removeEventListener('pointermove', handlePointerMove, true);
       global.removeEventListener('pointerup', handlePointerUp, true);
       global.removeEventListener('pointercancel', handlePointerUp, true);
+      global.removeEventListener('mousemove', handlePointerMove, true);
+      global.removeEventListener('mouseup', handlePointerUp, true);
       const wasDragging = dragging;
       pointerDown = false;
       dragging = false;
@@ -1877,6 +1885,7 @@
     };
 
     el.addEventListener('pointerdown', handlePointerDown);
+    el.addEventListener('mousedown', handlePointerDown);
 
     logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
   }

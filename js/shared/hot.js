@@ -13709,6 +13709,92 @@
         }
       };
 
+      let touchPointerTapState = null;
+      const TOUCH_TAP_MAX_DELAY_MS = 420;
+      const TOUCH_TAP_MAX_DIST_SQ = 18 * 18;
+      const resolveEditableCellTap = (event)=>{
+        const target = resolveTargetElement(event?.target);
+        const cell = target?.closest?.('.ag-cell[col-id^="c"]');
+        if(!cell){
+          return null;
+        }
+        const coords = resolveCellCoordsFromNode(cell);
+        if(!coords){
+          return null;
+        }
+        const colId = `c${coords.col}`;
+        if(!colDefsById.has(colId)){
+          return null;
+        }
+        return coords;
+      };
+      const handleTouchPointerDown = (event)=>{
+        if(event?.pointerType !== 'touch'){
+          return;
+        }
+        const coords = resolveEditableCellTap(event);
+        if(!coords){
+          touchPointerTapState = null;
+          return;
+        }
+        touchPointerTapState = {
+          pointerId: typeof event.pointerId === 'number' ? event.pointerId : null,
+          row: coords.row,
+          col: coords.col,
+          startX: Number(event.clientX) || 0,
+          startY: Number(event.clientY) || 0,
+          startTs: Date.now()
+        };
+      };
+      const handleTouchPointerUp = (event)=>{
+        if(event?.pointerType !== 'touch' || !touchPointerTapState){
+          return;
+        }
+        const state = touchPointerTapState;
+        touchPointerTapState = null;
+        if(state.pointerId != null && typeof event.pointerId === 'number' && event.pointerId !== state.pointerId){
+          return;
+        }
+        const elapsed = Date.now() - state.startTs;
+        const dx = (Number(event.clientX) || 0) - state.startX;
+        const dy = (Number(event.clientY) || 0) - state.startY;
+        if(elapsed > TOUCH_TAP_MAX_DELAY_MS || ((dx * dx) + (dy * dy)) > TOUCH_TAP_MAX_DIST_SQ){
+          return;
+        }
+        if(isInlineEditorActive()){
+          return;
+        }
+        const coords = resolveEditableCellTap(event) || { row: state.row, col: state.col };
+        if(!Number.isInteger(coords.row) || coords.row < 0 || !Number.isInteger(coords.col) || coords.col < 0){
+          return;
+        }
+        const api = instance?.gridApi;
+        if(!api || typeof api.startEditingCell !== 'function'){
+          return;
+        }
+        const colKey = `c${coords.col}`;
+        try{
+          api.startEditingCell({
+            rowIndex: coords.row,
+            colKey,
+            rowPinned: null
+          });
+          event.preventDefault?.();
+        }catch(err){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot touch tap edit failed', {
+              debugLabel,
+              row: coords.row,
+              col: coords.col,
+              message: err?.message || String(err)
+            });
+          }
+        }
+      };
+      const handleTouchPointerCancel = ()=>{
+        touchPointerTapState = null;
+      };
+
       const handleHeaderContextMenuProxy = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
@@ -13734,6 +13820,9 @@
       container.addEventListener('mousedown', handleRowHeaderMouseDown, true);
       container.addEventListener('mousedown', handleColumnHeaderMouseDown, true);
       container.addEventListener('mousedown', handleMouseDown, true);
+      container.addEventListener('pointerdown', handleTouchPointerDown, true);
+      container.addEventListener('pointerup', handleTouchPointerUp, true);
+      container.addEventListener('pointercancel', handleTouchPointerCancel, true);
       container.addEventListener('input', handleFormulaReferenceOverlayInput, true);
       container.addEventListener('focusin', handleFormulaReferenceOverlayFocusIn, true);
       container.addEventListener('focusout', handleFormulaReferenceOverlayFocusOut, true);
@@ -13814,6 +13903,9 @@
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleMouseDown, true);
+        container.removeEventListener('pointerdown', handleTouchPointerDown, true);
+        container.removeEventListener('pointerup', handleTouchPointerUp, true);
+        container.removeEventListener('pointercancel', handleTouchPointerCancel, true);
         container.removeEventListener('input', handleFormulaReferenceOverlayInput, true);
         container.removeEventListener('focusin', handleFormulaReferenceOverlayFocusIn, true);
         container.removeEventListener('focusout', handleFormulaReferenceOverlayFocusOut, true);
