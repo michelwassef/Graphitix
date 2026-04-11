@@ -4,6 +4,14 @@
 // Example: small polyfill guard (add more if needed later)
 (function() {
     'use strict';
+    if (typeof require === 'function') {
+        try {
+            require('./shared/workspaceToolbarAccess.js');
+            require('./shared/workspaceToolbar.js');
+        } catch (err) {
+            // Ignore CommonJS-only bootstrap failures outside test/runtime module loading.
+        }
+    }
     if (!window.requestAnimationFrame) {
         window.requestAnimationFrame = function(cb) { return setTimeout(cb, 16); };
     }

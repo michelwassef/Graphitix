@@ -242,12 +242,6 @@
   const supportsWeakRef = typeof global.WeakRef === 'function';
   const nodeGroupStore = new Map();
   const toolbarHostMap = new Map();
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
   const undoManager = Shared.undoManager || null;
   let activeHost = null;
 
@@ -1654,7 +1648,7 @@
   }
 
   function resolveToolbarHost(scopeId){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
       const sharedHost = toolbarApi.resolveHost(scopeId);
       if(sharedHost){
@@ -1732,7 +1726,7 @@
 
   function showToolbarHost(host){
     if(!host){ return; }
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host);
       logDebug('toolbar host shown', { scopeId: host.dataset?.fontToolbarScope || null, via: 'workspaceToolbar' });
@@ -1761,7 +1755,7 @@
 
   function hideToolbarHost(host){
     if(!host){ return; }
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.hideHost === 'function'){
       toolbarApi.hideHost(host);
       logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null, via: 'workspaceToolbar' });
@@ -2923,7 +2917,7 @@
         logDebug('selectionchange tracking attach failed', { error: err?.message || String(err) });
       }
     }
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     const panelParts = toolbarApi.createSubPanel({
       panelClass: 'workspace-toolbar__panel--font font-controls-panel',
       role: 'toolbar',

@@ -30,13 +30,6 @@
     }
   }
 
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
-
   function getUndoManager(){
     const manager = global.Shared?.undoManager;
     if(manager && typeof manager.recordStateChange === 'function'){
@@ -285,7 +278,7 @@
   }
 
   function clearHostSizing(host){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.clearHostSizing === 'function'){
       toolbarApi.clearHostSizing(host);
       return;
@@ -325,7 +318,7 @@
   }
 
   function resolveToolbarHost(scopeId){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
       return toolbarApi.resolveHost(scopeId);
     }
@@ -440,7 +433,7 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     const panelParts = toolbarApi.createSubPanel({
       panelClass: 'significance-controls-panel additional-line-controls-panel',
       role: 'toolbar',
@@ -917,7 +910,7 @@
         && (!gridPanel || gridPanel.dataset.open !== '1')
         && !additionalLineOpen
         && !hasEmbeddedForm){
-        const toolbarApi = getWorkspaceToolbarApi();
+        const toolbarApi = Shared.getWorkspaceToolbarApi();
         if(typeof toolbarApi.hideHost === 'function'){
           toolbarApi.hideHost(activeHost);
         }else{
@@ -958,7 +951,7 @@
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      const toolbarApi = getWorkspaceToolbarApi();
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
         toolbarApi.showHost(host, { hostClass: 'font-toolbar-host--significance' });
       }else{

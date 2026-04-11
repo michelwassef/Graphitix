@@ -46,13 +46,6 @@
     }
   }
 
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
-
   function getUndoManager(){
     const manager = global.Shared?.undoManager;
     if(manager && typeof manager.recordStateChange === 'function'){
@@ -435,7 +428,7 @@
   }
 
   function clearHostSizing(host){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.clearHostSizing === 'function'){
       toolbarApi.clearHostSizing(host);
       return;
@@ -467,7 +460,7 @@
   }
 
   function resolveToolbarHost(scopeId){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
       return toolbarApi.resolveHost(scopeId);
     }
@@ -543,7 +536,7 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     const sharedPanel = toolbarApi.createSubPanel({
       panelClass: 'workspace-toolbar__panel--additional-line additional-line-controls-panel',
       role: 'toolbar',
@@ -607,7 +600,7 @@
     styleLabelEl = doc.createElement('span');
     styleLabelEl.className = 'additional-line-controls-panel__field-label';
     styleLabelEl.textContent = 'Line';
-    const toolbarUiApi = getWorkspaceToolbarApi();
+    const toolbarUiApi = Shared.getWorkspaceToolbarApi();
     const styleControlParts = toolbarUiApi.createBorderStyleControl({
       chipTitle: 'Click to edit line color. Wheel or Alt+drag to adjust line thickness.',
       colorInputClass: 'shared-border-style-input additional-line-controls-panel__color-input',
@@ -979,7 +972,7 @@
         && (!gridPanel || gridPanel.dataset.open !== '1')
         && !hasEmbeddedForm
         && !activeConfig?.keepHostVisible){
-        const toolbarApi = getWorkspaceToolbarApi();
+        const toolbarApi = Shared.getWorkspaceToolbarApi();
         if(typeof toolbarApi.hideHost === 'function'){
           toolbarApi.hideHost(activeHost);
         }else{
@@ -1066,7 +1059,7 @@
       if(typeof config.hostClass === 'string' && config.hostClass){
         host.classList.add(config.hostClass);
       }
-      const toolbarApi = getWorkspaceToolbarApi();
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
         toolbarApi.showHost(host, { hostClass: typeof config.hostClass === 'string' ? config.hostClass : '' });
         if(requestedHostDisplay !== 'flex'){

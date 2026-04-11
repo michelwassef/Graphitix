@@ -30,13 +30,6 @@
     return null;
   }
 
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
-
   function clampNumeric(value, min, fallback){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -281,7 +274,7 @@
 
   function hideHost(host){
     if(!host){ return; }
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.hideHost === 'function'){
       toolbarApi.hideHost(host);
       return;
@@ -322,7 +315,7 @@
     const normalizedClassName = /\badditional-line-controls-panel__row\b/.test(className)
       ? className
       : `${className} additional-line-controls-panel__row`;
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     const sharedPanel = toolbarApi.createSubPanel({
       panelClass: 'workspace-toolbar__panel--symbol',
       role: 'toolbar',

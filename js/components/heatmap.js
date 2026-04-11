@@ -32,12 +32,6 @@
     }
   }
   const notesState = { text: '', open: false, control: null };
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -802,7 +796,7 @@
   }
 
   function resolveHeatmapToolbarHost(doc){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(toolbarApi && typeof toolbarApi.resolveHost === 'function'){
       return toolbarApi.resolveHost('heatmap');
     }
@@ -850,7 +844,7 @@
     if(!host){
       return;
     }
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(toolbarApi && typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host);
       return;
@@ -886,7 +880,7 @@
       detachHeatmapPaletteDocClick(host);
       clearHeatmapPalettePanel(host);
       resetHeatmapPaletteHostLayout(host);
-      const toolbarApi = getWorkspaceToolbarApi();
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(toolbarApi && typeof toolbarApi.hideHost === 'function'){
         toolbarApi.hideHost(host);
       }else{
@@ -900,7 +894,7 @@
 
   function showHeatmapPaletteFormatControls(options = {}){
     const doc = options.document || global.document;
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(!doc){
       return null;
     }

@@ -109,12 +109,6 @@
     plot3d.isInteractivePointerTarget = target => plot3d.isLegendPointerTarget(target);
   }
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
   line.__installed = true;
   line.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -2432,7 +2426,7 @@
       if(!doc){
         return;
       }
-      const toolbarApi = getWorkspaceToolbarApi();
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
       const panelParts = toolbarApi.createSubPanel({
         panelClass: 'additional-line-controls-panel line-errorbar-inline-panel',
         title: 'Error bars',
@@ -3640,7 +3634,7 @@
             return null;
           }
           clearInlineOverlayPanel();
-          const toolbarApi = getWorkspaceToolbarApi();
+          const toolbarApi = Shared.getWorkspaceToolbarApi();
           const panelParts = toolbarApi.createSubPanel({
             panelClass: 'additional-line-controls-panel line-overlay-inline-panel',
             title: 'Overlay',

@@ -67,6 +67,7 @@
   const PIE_DEFAULT_COLS = 6;
   const PIE_DATA_VIEW_MAX = 15;
   const DEFAULT_PIE_FONT_SIZE_PT = 12;
+  const TAU = Math.PI * 2;
   let emptyPayloadTemplate = null;
   let pieDataViewsManager = null;
 
@@ -2447,6 +2448,174 @@
     }
   };
 
+  function normalizePositiveAngle(angle){
+    let normalized = Number(angle);
+    if(!Number.isFinite(normalized)){
+      normalized = 0;
+    }
+    while(normalized < 0){
+      normalized += TAU;
+    }
+    while(normalized >= TAU){
+      normalized -= TAU;
+    }
+    return normalized;
+  }
+
+  function isPointInsideRadialSlice(pointX, pointY, slice){
+    if(!slice){
+      return false;
+    }
+    const dx = pointX - (Number(slice.cx) || 0);
+    const dy = pointY - (Number(slice.cy) || 0);
+    const radius = Math.sqrt(dx * dx + dy * dy);
+    const innerRadius = Math.max(0, Number(slice.innerRadius) || 0);
+    const outerRadius = Math.max(innerRadius, Number(slice.outerRadius) || 0);
+    if(radius < innerRadius - 1e-6 || radius > outerRadius + 1e-6){
+      return false;
+    }
+    const startAngle = Number(slice.startAngle) || 0;
+    const endAngle = Number(slice.endAngle) || startAngle;
+    const span = Math.max(0, endAngle - startAngle);
+    if(span >= TAU - 1e-6){
+      return true;
+    }
+    const pointAngle = normalizePositiveAngle(Math.atan2(dy, dx));
+    const normalizedStart = normalizePositiveAngle(startAngle);
+    const delta = normalizePositiveAngle(pointAngle - normalizedStart);
+    return delta <= span + 1e-6;
+  }
+
+  function doesRadialPercentRectFit(slice, centerX, centerY, halfWidth, halfHeight){
+    if(!slice){
+      return false;
+    }
+    const points = [
+      [centerX - halfWidth, centerY - halfHeight],
+      [centerX + halfWidth, centerY - halfHeight],
+      [centerX - halfWidth, centerY + halfHeight],
+      [centerX + halfWidth, centerY + halfHeight],
+      [centerX, centerY - halfHeight],
+      [centerX, centerY + halfHeight],
+      [centerX - halfWidth, centerY],
+      [centerX + halfWidth, centerY],
+      [centerX, centerY]
+    ];
+    return points.every(([pointX, pointY]) => isPointInsideRadialSlice(pointX, pointY, slice));
+  }
+
+  function findRadialPercentPlacementForScale(slice, labelMetrics, scale, options = {}){
+    if(!slice || !labelMetrics || !(scale > 0)){
+      return null;
+    }
+    const candidateCount = Math.max(5, Math.round(Number(options.candidateCount) || 25));
+    const preferredRadius = Number.isFinite(slice.preferredRadius)
+      ? slice.preferredRadius
+      : ((Number(slice.innerRadius) || 0) + (Number(slice.outerRadius) || 0)) / 2;
+    const placementPadding = Math.max(0.5, Number(labelMetrics.padding) || 0.5);
+    const minRadius = Math.max((Number(slice.innerRadius) || 0) + placementPadding, 0);
+    const maxRadius = Math.max(minRadius, (Number(slice.outerRadius) || 0) - placementPadding);
+    const halfWidth = Math.max(0.5, ((Number(labelMetrics.baseWidth) || 0) * scale) / 2 + placementPadding);
+    const halfHeight = Math.max(0.5, ((Number(labelMetrics.baseHeight) || 0) * scale) / 2 + placementPadding);
+    const midAngle = (Number(slice.startAngle) + Number(slice.endAngle)) / 2;
+    const radii = [];
+    const pushRadius = value => {
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric)){
+        return;
+      }
+      const clamped = Math.max(minRadius, Math.min(maxRadius, numeric));
+      if(!radii.some(candidate => Math.abs(candidate - clamped) < 0.25)){
+        radii.push(clamped);
+      }
+    };
+    pushRadius(preferredRadius);
+    for(let index = 0; index < candidateCount; index += 1){
+      const ratio = candidateCount === 1 ? 0.5 : (index / (candidateCount - 1));
+      pushRadius(minRadius + (maxRadius - minRadius) * ratio);
+    }
+    radii.sort((a, b) => Math.abs(a - preferredRadius) - Math.abs(b - preferredRadius));
+    for(let index = 0; index < radii.length; index += 1){
+      const radius = radii[index];
+      const centerX = (Number(slice.cx) || 0) + radius * Math.cos(midAngle);
+      const centerY = (Number(slice.cy) || 0) + radius * Math.sin(midAngle);
+      if(doesRadialPercentRectFit(slice, centerX, centerY, halfWidth, halfHeight)){
+        return { x: centerX, y: centerY, radius };
+      }
+    }
+    return null;
+  }
+
+  function computeRadialPercentLabelLayout(options = {}){
+    const slices = Array.isArray(options.slices) ? options.slices : [];
+    const baseFontSize = Math.max(1, Number(options.baseFontSize) || DEFAULT_PIE_FONT_SIZE_PT);
+    const fontScale = Math.max(0.1, Number(options.fontScale) || 1);
+    const labelPadding = Math.max(0.75, fontScale);
+    const fontSpec = chartStyle.makeFont(baseFontSize);
+    const measuredSlices = slices.map(slice => {
+      const text = slice?.text != null ? String(slice.text) : '';
+      const labelMetrics = {
+        baseWidth: chartStyle.measureText(text, fontSpec),
+        baseHeight: baseFontSize * 0.9,
+        padding: labelPadding
+      };
+      let low = 0;
+      let high = 1;
+      let bestScale = 0;
+      let bestPlacement = null;
+      for(let iteration = 0; iteration < 16; iteration += 1){
+        const midScale = (low + high) / 2;
+        const placement = findRadialPercentPlacementForScale(slice, labelMetrics, midScale);
+        if(placement){
+          bestScale = midScale;
+          bestPlacement = placement;
+          low = midScale;
+        }else{
+          high = midScale;
+        }
+      }
+      return {
+        ...slice,
+        text,
+        labelMetrics,
+        maxScale: bestScale,
+        bestPlacement
+      };
+    });
+    const commonScale = measuredSlices.length
+      ? Math.max(0.01, Math.min(1, ...measuredSlices.map(slice => slice.maxScale)))
+      : 1;
+    const fontSize = Math.max(1, baseFontSize * commonScale);
+    const placements = measuredSlices.map(slice => {
+      const placement = findRadialPercentPlacementForScale(slice, slice.labelMetrics, commonScale, {
+        candidateCount: 31
+      }) || slice.bestPlacement;
+      if(!placement){
+        return null;
+      }
+      return {
+        ...slice,
+        x: placement.x,
+        y: placement.y,
+        radius: placement.radius
+      };
+    }).filter(Boolean);
+    if(pieDebugEnabled()){
+      console.debug('Debug: pie radial percentage font auto-fit', {
+        baseFontSize,
+        appliedFontSize: fontSize,
+        commonScale,
+        sliceCount: measuredSlices.length,
+        minSliceScale: measuredSlices.length ? Math.min(...measuredSlices.map(slice => slice.maxScale)) : 1
+      });
+    }
+    return {
+      fontSize,
+      scale: commonScale,
+      placements
+    };
+  }
+
   function initHot(){
     console.debug('Debug: pie initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
@@ -3709,6 +3878,17 @@
     svg.style.minWidth='0';
     svgWrapper.appendChild(svg);
     plotEl.appendChild(svgWrapper);
+    const doc = svg.ownerDocument || global.document;
+    const radialDataLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
+    const radialLabelLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
+    if(radialDataLayer){
+      radialDataLayer.dataset.layer = 'pie-data';
+      svg.appendChild(radialDataLayer);
+    }
+    if(radialLabelLayer){
+      radialLabelLayer.dataset.layer = 'pie-labels';
+      svg.appendChild(radialLabelLayer);
+    }
     if(!isResizePreview && fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'pie' });
       console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
@@ -3796,6 +3976,7 @@
     }
     const effectiveR=r;
     const effectiveInnerR=type==='donut' ? effectiveR*0.6 : 0;
+    const radialPercentSlices = [];
     seriesColumns.forEach((series,seriesIndex)=>{
       const center=centers[seriesIndex] || { cx: svgWidth/2, cy: contentTop+contentHeight/2 };
       const cx=center.cx;
@@ -3830,19 +4011,20 @@
           path.setAttribute('stroke-width', borderWidth);
           path.setAttribute('stroke-linejoin', 'round');
         }
-        svg.appendChild(path);
+        (radialDataLayer || svg).appendChild(path);
         if(showPerc && frac>0){
-          const mid=(startAngle+endAngle)/2;
-          const tx=cx + (effectiveInnerR>0?(effectiveR+effectiveInnerR)/2:effectiveR*0.65)*Math.cos(mid);
-          const ty=cy + (effectiveInnerR>0?(effectiveR+effectiveInnerR)/2:effectiveR*0.65)*Math.sin(mid);
-          const txt=document.createElementNS(NS,'text');
-          txt.setAttribute('x',tx);
-          txt.setAttribute('y',ty);
-          txt.setAttribute('text-anchor','middle');
-          txt.setAttribute('font-size',fs);
-          txt.textContent=(frac*100).toFixed(1)+'%';
-          markFontEditable(txt,'annotation',`pie-annotation-${seriesIndex}-${i}`);
-          svg.appendChild(txt);
+          radialPercentSlices.push({
+            seriesIndex,
+            sliceIndex: i,
+            text: (frac*100).toFixed(1)+'%',
+            cx,
+            cy,
+            startAngle,
+            endAngle,
+            innerRadius: effectiveInnerR,
+            outerRadius: effectiveR,
+            preferredRadius: effectiveInnerR>0 ? (effectiveR+effectiveInnerR)/2 : effectiveR*0.58
+          });
         }
         startAngle=endAngle;
       });
@@ -3854,8 +4036,28 @@
       seriesLabel.setAttribute('font-size',Math.max(8,fs*0.9));
       seriesLabel.textContent=series.label;
       markFontEditable(seriesLabel,'seriesLabel',`series-${seriesIndex}`);
-      svg.appendChild(seriesLabel);
+      (radialLabelLayer || svg).appendChild(seriesLabel);
     });
+    const percentLayout = showPerc
+      ? computeRadialPercentLabelLayout({
+          slices: radialPercentSlices,
+          baseFontSize: fs,
+          fontScale
+        })
+      : null;
+    if(showPerc && percentLayout){
+      percentLayout.placements.forEach(placement => {
+        const txt=document.createElementNS(NS,'text');
+        txt.setAttribute('x',placement.x);
+        txt.setAttribute('y',placement.y);
+        txt.setAttribute('text-anchor','middle');
+        txt.setAttribute('dominant-baseline','middle');
+        txt.setAttribute('font-size',percentLayout.fontSize);
+        txt.textContent=placement.text;
+        markFontEditable(txt,'annotation',`pie-annotation-${placement.seriesIndex}-${placement.sliceIndex}`);
+        (radialLabelLayer || svg).appendChild(txt);
+      });
+    }
     if(showFrame){
       chartStyle.drawPlotFrame({ svg, margin: { top: 0, right: 0, bottom: 0, left: 0 }, plotW: svgWidth, plotH: svgHeight, stroke: frameStroke, strokeWidth: axisStrokeWidth, sides: ['top','right','bottom','left'] });
     }
@@ -4144,7 +4346,8 @@
     computeChiSquare: (observed, expected) => computePieChiSquare(observed, expected),
     computeGofStats: (observed, expected, options) => computePieGofStats(observed, expected, options || {}),
     computeContingencyTest: (table, options) => computePieContingencyTest(table, options || {}),
-    updatePieStats: (labels, observed, expected) => updatePieStats(labels, observed, expected)
+    updatePieStats: (labels, observed, expected) => updatePieStats(labels, observed, expected),
+    computeRadialPercentLabelLayout: options => computeRadialPercentLabelLayout(options || {})
   });
 
 })(window);

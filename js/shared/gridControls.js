@@ -60,13 +60,6 @@
     console.debug('[gridControls] ' + message, payload);
   }
 
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
-
   function clamp(value, min, max){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){ return min; }
@@ -300,7 +293,7 @@
   }
 
   function resolveToolbarHost(scopeId){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
       return toolbarApi.resolveHost(scopeId);
     }
@@ -353,7 +346,7 @@
   }
 
   function clearHostSizing(host){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.clearHostSizing === 'function'){
       toolbarApi.clearHostSizing(host);
       return;
@@ -739,7 +732,7 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     const panelParts = toolbarApi.createSubPanel({
       panelClass: 'grid-controls-panel',
       role: 'toolbar',
@@ -1080,7 +1073,7 @@
         && !additionalLineOpen
         && !hasEmbeddedForm
         && !activeConfig?.keepHostVisible){
-        const toolbarApi = getWorkspaceToolbarApi();
+        const toolbarApi = Shared.getWorkspaceToolbarApi();
         if(typeof toolbarApi.hideHost === 'function'){
           toolbarApi.hideHost(activeHost);
         }else{
@@ -1130,7 +1123,7 @@
       const requestedHostDisplay = typeof config.hostDisplay === 'string' && config.hostDisplay.trim()
         ? config.hostDisplay.trim()
         : 'grid';
-      const toolbarApi = getWorkspaceToolbarApi();
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
         toolbarApi.showHost(host, { hostClasses: ['font-toolbar-host--grid-dual', typeof config.hostClass === 'string' ? config.hostClass : ''].filter(Boolean) });
         host.classList.add('font-toolbar-host--grid');

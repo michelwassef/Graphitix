@@ -12,15 +12,8 @@
   let hasDocListener = false;
   let applyingFromUndo = false;
 
-  function getWorkspaceToolbarApi(){
-    if(typeof Shared.getWorkspaceToolbarApi === 'function'){
-      return Shared.getWorkspaceToolbarApi();
-    }
-    return Shared.workspaceToolbar || {};
-  }
-
   function resolveToolbarHost(scopeId){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
       return toolbarApi.resolveHost(scopeId);
     }
@@ -28,7 +21,7 @@
   }
 
   function showToolbarHost(host, hostClass){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host, { hostClass });
       return;
@@ -40,7 +33,7 @@
   }
 
   function hideToolbarHost(host){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.hideHost === 'function'){
       toolbarApi.hideHost(host);
       return;
@@ -51,7 +44,7 @@
   }
 
   function clearHostSizing(host){
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.clearHostSizing === 'function'){
       toolbarApi.clearHostSizing(host);
       return;
@@ -198,7 +191,7 @@
   function ensurePanel(){
     if(panelEl || !global.document){ return panelEl; }
     const doc = global.document;
-    const toolbarApi = getWorkspaceToolbarApi();
+    const toolbarApi = Shared.getWorkspaceToolbarApi();
     const panelParts = toolbarApi.createSubPanel({
       title: 'Dendrogram',
       panelClass: 'dendrogram-controls-panel',
