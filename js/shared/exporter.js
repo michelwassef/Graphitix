@@ -3555,6 +3555,14 @@
     if (!svgEl) {
       return { width: fallbackWidth, height: fallbackHeight };
     }
+    const safeSvgLengthValue = length => {
+      try {
+        const value = Number(length?.baseVal?.value);
+        return Number.isFinite(value) && value > 0 ? value : null;
+      } catch (err) {
+        return null;
+      }
+    };
     const viewBox = svgEl.viewBox?.baseVal;
     const widthAttr = svgEl.getAttribute?.('width');
     const heightAttr = svgEl.getAttribute?.('height');
@@ -3567,7 +3575,7 @@
       rectWidth,
       widthFromAttr,
       svgEl.clientWidth,
-      svgEl.width?.baseVal?.value,
+      safeSvgLengthValue(svgEl.width),
       viewBox?.width,
       fallbackWidth
     ];
@@ -3575,7 +3583,7 @@
       rectHeight,
       heightFromAttr,
       svgEl.clientHeight,
-      svgEl.height?.baseVal?.value,
+      safeSvgLengthValue(svgEl.height),
       viewBox?.height,
       fallbackHeight
     ];

@@ -3308,6 +3308,50 @@
     node.setAttribute('data-shape', shape);
   }
 
+  function syncBoxCanvasGroupStyleAttrs(group, renderState, styleOverride){
+    if(!group || typeof group.setAttribute !== 'function'){
+      return;
+    }
+    const style = styleOverride && typeof styleOverride === 'object'
+      ? styleOverride
+      : (renderState?.style || {});
+    const pointRadius = Number(renderState?.pointRadius);
+    const shape = typeof renderState?.shape === 'string' && renderState.shape.trim()
+      ? renderState.shape.trim()
+      : 'circle';
+    if(typeof style.fill === 'string' && style.fill.trim()){
+      group.setAttribute('data-point-fill', style.fill.trim());
+    }else{
+      group.removeAttribute('data-point-fill');
+    }
+    if(typeof style.stroke === 'string' && style.stroke.trim()){
+      group.setAttribute('data-point-stroke', style.stroke.trim());
+    }else{
+      group.removeAttribute('data-point-stroke');
+    }
+    if(Number.isFinite(Number(style.fillOpacity))){
+      group.setAttribute('data-point-fill-opacity', String(Math.max(0, Math.min(1, Number(style.fillOpacity)))));
+    }else{
+      group.removeAttribute('data-point-fill-opacity');
+    }
+    if(Number.isFinite(Number(style.strokeOpacity))){
+      group.setAttribute('data-point-stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
+    }else{
+      group.removeAttribute('data-point-stroke-opacity');
+    }
+    if(Number.isFinite(Number(style.strokeWidth))){
+      group.setAttribute('data-point-stroke-width', String(Math.max(0, Number(style.strokeWidth))));
+    }else{
+      group.removeAttribute('data-point-stroke-width');
+    }
+    if(Number.isFinite(pointRadius) && pointRadius > 0){
+      group.setAttribute('data-point-size', String(pointRadius * 2));
+    }else{
+      group.removeAttribute('data-point-size');
+    }
+    group.setAttribute('data-shape', shape);
+  }
+
   function renderBoxPointInteractionMask(config){
     const doc = config?.doc || global.document;
     const group = config?.group || null;
@@ -3346,6 +3390,64 @@
     return path;
   }
 
+  function appendBoxApproximateGeometryPaths(targetGroup, renderState, docOverride, options = {}){
+    if(!targetGroup || !renderState){
+      return [];
+    }
+    const doc = docOverride || targetGroup.ownerDocument;
+    if(!doc || typeof doc.createElementNS !== 'function'){
+      return [];
+    }
+    const style = renderState.style || {};
+    const pathData = buildApproximateBoxPreviewPathData(renderState);
+    if(!pathData){
+      return [];
+    }
+    const hidden = options.hidden !== false;
+    const nodes = [];
+    const buildPath = (stroke, strokeWidth, opacity) => {
+      if(!stroke || stroke === 'none' || !Number.isFinite(Number(strokeWidth)) || Number(strokeWidth) <= 0){
+        return null;
+      }
+      const node = doc.createElementNS(NS, 'path');
+      node.setAttribute('d', pathData);
+      node.setAttribute('fill', 'none');
+      node.setAttribute('stroke', stroke);
+      node.setAttribute('stroke-width', String(strokeWidth));
+      node.setAttribute('stroke-linecap', 'round');
+      node.setAttribute('stroke-linejoin', 'round');
+      node.setAttribute('data-box-export-geometry', '1');
+      if(Number.isFinite(Number(opacity))){
+        node.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(opacity)))));
+      }
+      if(renderState.traceIndex != null){
+        node.setAttribute('data-trace', String(renderState.traceIndex));
+      }
+      if(hidden && node.style){
+        node.style.display = 'none';
+      }
+      return node;
+    };
+    const thickness = Math.max(1, Number(renderState.thickness) || 1);
+    const configuredStrokeWidth = Math.max(0, Number(style.strokeWidth) || 0);
+    const outlineWidth = configuredStrokeWidth > 0
+      ? Math.max(1, thickness + configuredStrokeWidth * 2)
+      : 0;
+    const outlineNode = configuredStrokeWidth > 0
+      ? buildPath(style.stroke, outlineWidth, style.strokeOpacity)
+      : null;
+    if(outlineNode){
+      targetGroup.appendChild(outlineNode);
+      nodes.push(outlineNode);
+    }
+    const fillNode = buildPath(style.fill, thickness, style.fillOpacity);
+    if(fillNode){
+      targetGroup.appendChild(fillNode);
+      nodes.push(fillNode);
+    }
+    return nodes;
+  }
+
   function clearBoxCanvasPointGroupArtifacts(group){
     if(!group || !group.children){
       return;
@@ -3359,7 +3461,7 @@
         child.remove();
         return;
       }
-      if(child.getAttribute('data-box-point-hit-mask') === '1'){
+      if(child.getAttribute('data-box-point-hit-mask') === '1' || child.getAttribute('data-box-export-geometry') === '1'){
         child.remove();
       }
     });
@@ -3373,6 +3475,7 @@
     clearBoxCanvasPointGroupArtifacts(group);
     const doc = renderState.doc || global.document;
     const style = renderState.style || {};
+    syncBoxCanvasGroupStyleAttrs(group, renderState, style);
     let rendered = false;
     if(renderState.renderer === 'canvas-approx'){
       rendered = renderBoxApproximatePointCanvas({
@@ -3388,6 +3491,9 @@
         stroke: style.stroke,
         strokeWidth: style.strokeWidth
       });
+      if(rendered){
+        appendBoxApproximateGeometryPaths(group, renderState, doc, { hidden: true });
+      }
     }else{
       rendered = renderBoxPointResizeCanvasPreview({
         doc,
@@ -3481,6 +3587,7 @@
       return false;
     }
     renderState.style = style;
+    syncBoxCanvasGroupStyleAttrs(group, renderState, style);
     return renderStoredBoxCanvasPointGroup(group);
   }
 
@@ -10950,14 +11057,28 @@
 
   function resolveBoxPlotSvgRoot(){
     const plot = global.document?.getElementById?.('boxPlot');
-    if(!plot || typeof plot.querySelector !== 'function'){
+    if(!plot || typeof plot.querySelectorAll !== 'function'){
       return null;
     }
-    const svg = plot.querySelector('svg');
-    if(!svg || typeof svg.querySelector !== 'function'){
+    const svgs = Array.from(plot.querySelectorAll('svg')).filter(svg => svg && typeof svg.querySelector === 'function');
+    if(!svgs.length){
       return null;
     }
-    return svg;
+    const committed = svgs.filter(svg => {
+      if(svg.getAttribute('data-box-pending-render') === '1'){
+        return false;
+      }
+      if(svg.getAttribute('aria-hidden') === 'true'){
+        return false;
+      }
+      const style = svg.style;
+      if(style && style.opacity === '0'){
+        return false;
+      }
+      return true;
+    });
+    const preferred = committed.length ? committed[committed.length - 1] : svgs[svgs.length - 1];
+    return preferred || null;
   }
 
   function resolveBoxGridLayer(){
@@ -32188,6 +32309,61 @@ Technical analysis record (advanced)
     });
   }
 
+  function resolveBoxPreviewPointGroupStyle(sourceGroup, renderState){
+    const fallbackStyle = Object.assign({}, renderState?.style || {});
+    const groupNode = sourceGroup && typeof sourceGroup.getAttribute === 'function'
+      ? sourceGroup
+      : null;
+    const isApproximateCanvas = renderState?.renderer === 'canvas-approx';
+    const sourceNode = sourceGroup && typeof sourceGroup.querySelector === 'function'
+      && !isApproximateCanvas
+      ? (
+          sourceGroup.querySelector('[data-point-proxy="1"]')
+          || sourceGroup.querySelector('circle:not([data-point-proxy="1"]), rect:not([data-point-proxy="1"]), path:not([data-point-proxy="1"])')
+        )
+      : null;
+    if(!groupNode && !sourceNode){
+      return {
+        style: fallbackStyle,
+        pointRadius: Number(renderState?.pointRadius),
+        shape: renderState?.shape
+      };
+    }
+    const fill = readBoxPointSourceAttr(groupNode || sourceNode, ['data-point-fill'])
+      || readBoxPointSourceAttr(sourceNode, ['data-point-fill', 'fill']);
+    const stroke = readBoxPointSourceAttr(groupNode || sourceNode, ['data-point-stroke'])
+      || readBoxPointSourceAttr(sourceNode, ['data-point-stroke', 'stroke']);
+    const fillOpacity = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-fill-opacity']);
+    const strokeOpacity = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-stroke-opacity']);
+    const strokeWidth = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-stroke-width']);
+    const pointSize = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-size']);
+    const fallbackFillOpacity = readBoxPointSourceNumber(sourceNode, ['data-point-fill-opacity', 'fill-opacity']);
+    const fallbackStrokeOpacity = readBoxPointSourceNumber(sourceNode, ['data-point-stroke-opacity', 'stroke-opacity']);
+    const fallbackStrokeWidth = readBoxPointSourceNumber(sourceNode, ['data-point-stroke-width', 'stroke-width']);
+    const pointRadius = Number.isFinite(pointSize) && pointSize > 0
+      ? pointSize / 2
+      : Number(renderState?.pointRadius);
+    const shape = readBoxPointSourceAttr(groupNode || sourceNode, ['data-point-shape', 'data-shape'])
+      || readBoxPointSourceAttr(sourceNode, ['data-point-shape', 'data-shape'])
+      || renderState?.shape;
+    const resolvedStrokeWidth = Number.isFinite(strokeWidth)
+      ? strokeWidth
+      : (Number.isFinite(fallbackStrokeWidth) ? fallbackStrokeWidth : fallbackStyle.strokeWidth);
+    return {
+      style: Object.assign({}, fallbackStyle, {
+        fill: fill || fallbackStyle.fill,
+        stroke: Number.isFinite(Number(resolvedStrokeWidth)) && Number(resolvedStrokeWidth) <= 0
+          ? 'none'
+          : (stroke || fallbackStyle.stroke),
+        fillOpacity: Number.isFinite(fillOpacity) ? fillOpacity : (Number.isFinite(fallbackFillOpacity) ? fallbackFillOpacity : fallbackStyle.fillOpacity),
+        strokeOpacity: Number.isFinite(strokeOpacity) ? strokeOpacity : (Number.isFinite(fallbackStrokeOpacity) ? fallbackStrokeOpacity : fallbackStyle.strokeOpacity),
+        strokeWidth: resolvedStrokeWidth
+      }),
+      pointRadius,
+      shape
+    };
+  }
+
   function populateBoxPreviewPointGroupFromCanvas(sourceGroup, cloneGroup){
     if(!sourceGroup || !cloneGroup){
       return false;
@@ -32196,25 +32372,26 @@ Technical analysis record (advanced)
     if(!renderState || typeof cloneGroup.ownerDocument?.createElementNS !== 'function'){
       return false;
     }
-    Array.from(cloneGroup.querySelectorAll('foreignObject, foreignobject, [data-point-proxy="1"], [data-box-point-hit-mask="1"], [data-export-ignore="1"]')).forEach(node => {
+    Array.from(cloneGroup.querySelectorAll('foreignObject, foreignobject, circle, rect, path, [data-point-proxy="1"], [data-box-point-hit-mask="1"], [data-box-export-geometry="1"], [data-export-ignore="1"]')).forEach(node => {
       if(node?.parentNode){
         node.parentNode.removeChild(node);
       }
     });
     const doc = cloneGroup.ownerDocument;
-    const style = renderState.style || {};
+    const resolvedPreviewStyle = resolveBoxPreviewPointGroupStyle(sourceGroup, renderState);
+    const style = resolvedPreviewStyle.style || {};
     if(renderState.renderer === 'canvas-preview'){
       const points = Array.isArray(renderState.points) ? renderState.points : [];
       if(!points.length){
         return false;
       }
-      const pointPath = createBatchedPointPath(doc, points, Math.max(0.2, (Number(renderState.pointRadius) || 0.2) * 2), {
+      const pointPath = createBatchedPointPath(doc, points, Math.max(0.2, (Number(resolvedPreviewStyle.pointRadius) || 0.2) * 2), {
         fill: style.fill,
         fillOpacity: style.fillOpacity,
         stroke: style.stroke,
         strokeWidth: style.strokeWidth,
         dataTrace: renderState.traceIndex,
-        shape: renderState.shape
+        shape: resolvedPreviewStyle.shape || renderState.shape
       });
       if(Number.isFinite(Number(style.strokeOpacity))){
         pointPath.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
@@ -32223,40 +32400,8 @@ Technical analysis record (advanced)
       return true;
     }
     if(renderState.renderer === 'canvas-approx'){
-      const pathData = buildApproximateBoxPreviewPathData(renderState);
-      if(!pathData){
-        return false;
-      }
-      const buildPath = (stroke, strokeWidth, opacity) => {
-        if(!stroke || stroke === 'none' || !Number.isFinite(Number(strokeWidth)) || Number(strokeWidth) <= 0){
-          return null;
-        }
-        const node = doc.createElementNS(NS, 'path');
-        node.setAttribute('d', pathData);
-        node.setAttribute('fill', 'none');
-        node.setAttribute('stroke', stroke);
-        node.setAttribute('stroke-width', String(strokeWidth));
-        node.setAttribute('stroke-linecap', 'round');
-        node.setAttribute('stroke-linejoin', 'round');
-        if(Number.isFinite(Number(opacity))){
-          node.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(opacity)))));
-        }
-        if(renderState.traceIndex != null){
-          node.setAttribute('data-trace', String(renderState.traceIndex));
-        }
-        return node;
-      };
-      const thickness = Math.max(1, Number(renderState.thickness) || 1);
-      const outlineWidth = Math.max(1, thickness + Math.max(0, Number(style.strokeWidth) || 0) * 2);
-      const outlineNode = buildPath(style.stroke, outlineWidth, style.strokeOpacity);
-      if(outlineNode){
-        cloneGroup.appendChild(outlineNode);
-      }
-      const fillNode = buildPath(style.fill, thickness, style.fillOpacity);
-      if(fillNode){
-        cloneGroup.appendChild(fillNode);
-      }
-      return !!(outlineNode || fillNode);
+      const fallbackNodes = appendBoxApproximateGeometryPaths(cloneGroup, Object.assign({}, renderState, { style }), doc, { hidden: false });
+      return fallbackNodes.length > 0;
     }
     return false;
   }
@@ -32266,6 +32411,18 @@ Technical analysis record (advanced)
       return null;
     }
     const clone = sourceSvg.cloneNode(true);
+    const baseViewport = resolveBoxBaseViewportSize(sourceSvg);
+    if(Number.isFinite(baseViewport.width) && baseViewport.width > 0){
+      clone.setAttribute('width', String(baseViewport.width));
+      clone.setAttribute('data-box-base-width', String(baseViewport.width));
+    }
+    if(Number.isFinite(baseViewport.height) && baseViewport.height > 0){
+      clone.setAttribute('height', String(baseViewport.height));
+      clone.setAttribute('data-box-base-height', String(baseViewport.height));
+    }
+    if(!clone.getAttribute('viewBox') && Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0){
+      clone.setAttribute('viewBox', `0 0 ${baseViewport.width} ${baseViewport.height}`);
+    }
     removeBoxPreviewIgnoredNodes(clone);
     const sourceGroups = Array.from(sourceSvg.querySelectorAll('g[data-export-layer="box-points"]'));
     const cloneGroups = Array.from(clone.querySelectorAll('g[data-export-layer="box-points"]'));

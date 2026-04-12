@@ -426,6 +426,10 @@ describe('Box swarm offset constraints', () => {
     document.body.innerHTML = '<div id="boxPlot"></div>';
     const plot = document.getElementById('boxPlot');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.setAttribute('data-box-base-width', '480');
+    svg.setAttribute('data-box-base-height', '360');
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.setAttribute('data-export-layer', 'box-points');
     group.setAttribute('data-trace', '1');
@@ -455,8 +459,326 @@ describe('Box swarm offset constraints', () => {
     const previewSvg = window.Components.box.getPreviewSvg();
     expect(previewSvg).toBeTruthy();
     expect(previewSvg.querySelector('foreignObject')).toBeNull();
+    expect(previewSvg.getAttribute('width')).toBe('480');
+    expect(previewSvg.getAttribute('height')).toBe('360');
     expect(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path').length).toBeGreaterThan(0);
     document.body.innerHTML = '';
+  });
+
+  test('box preview svg prefers the committed visible plot frame over hidden pending frames', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    document.body.innerHTML = '<div id="boxPlot"></div>';
+    const plot = document.getElementById('boxPlot');
+    const staleSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    staleSvg.setAttribute('aria-hidden', 'true');
+    staleSvg.setAttribute('data-box-pending-render', '1');
+    staleSvg.style.opacity = '0';
+    const staleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    staleGroup.setAttribute('data-export-layer', 'box-points');
+    staleGroup.setAttribute('data-trace', '0');
+    const staleForeignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    staleForeignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    staleGroup.appendChild(staleForeignObject);
+    staleGroup.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: { fill: '#111111', fillOpacity: 1, stroke: '#111111', strokeWidth: 1, strokeOpacity: 1 }
+    };
+    staleSvg.appendChild(staleGroup);
+    plot.appendChild(staleSvg);
+
+    const liveSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const liveGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    liveGroup.setAttribute('data-export-layer', 'box-points');
+    liveGroup.setAttribute('data-trace', '0');
+    const liveForeignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    liveForeignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    const liveProxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    liveProxy.setAttribute('data-point-proxy', '1');
+    liveProxy.setAttribute('data-point-fill', '#ff0000');
+    liveGroup.appendChild(liveForeignObject);
+    liveGroup.appendChild(liveProxy);
+    liveGroup.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: { fill: '#ff0000', fillOpacity: 1, stroke: '#ff0000', strokeWidth: 1, strokeOpacity: 1 }
+    };
+    liveSvg.appendChild(liveGroup);
+    plot.appendChild(liveSvg);
+
+    const previewSvg = window.Components.box.getPreviewSvg();
+    const rebuiltPath = previewSvg.querySelector('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])');
+    expect(rebuiltPath).toBeTruthy();
+    expect(rebuiltPath.getAttribute('fill')).toBe('#ff0000');
+    document.body.innerHTML = '';
+  });
+
+  test('box preview svg prefers current proxy style over stale canvas render state', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-proxy', '1');
+    proxy.setAttribute('data-point-fill', '#ff0000');
+    proxy.setAttribute('data-point-stroke', '#00ff00');
+    proxy.setAttribute('data-point-fill-opacity', '0.9');
+    proxy.setAttribute('data-point-stroke-opacity', '0.8');
+    proxy.setAttribute('data-point-stroke-width', '3');
+    proxy.setAttribute('data-point-size', '12');
+    proxy.setAttribute('data-shape', 'square');
+    group.appendChild(foreignObject);
+    group.appendChild(proxy);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }, { x: 18, y: 24 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 0.3,
+        stroke: '#222222',
+        strokeWidth: 1,
+        strokeOpacity: 0.4
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-style-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    const rebuiltPath = previewSvg.querySelector('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])');
+    expect(rebuiltPath).toBeTruthy();
+    expect(rebuiltPath.getAttribute('fill')).toBe('#ff0000');
+    expect(rebuiltPath.getAttribute('stroke')).toBe('#00ff00');
+    expect(rebuiltPath.getAttribute('fill-opacity')).toBe('0.9');
+    expect(rebuiltPath.getAttribute('stroke-opacity')).toBe('0.8');
+    expect(rebuiltPath.getAttribute('stroke-width')).toBe('3');
+    expect(rebuiltPath.getAttribute('data-shape')).toBe('square');
+  });
+
+  test('box preview svg rebuilds large canvas-approx traces from group style metadata', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#ff0000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    group.setAttribute('data-point-size', '8');
+    group.setAttribute('data-shape', 'circle');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-approx',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#111111',
+        strokeWidth: 2,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-approx-style-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
+    expect(rebuiltPaths.length).toBeGreaterThan(0);
+    expect(rebuiltPaths.some(node => node.getAttribute('stroke') === '#ff0000')).toBe(true);
+    expect(rebuiltPaths.some(node => node.getAttribute('stroke') === '#111111')).toBe(false);
+  });
+
+  test('box preview svg ignores stale hidden export geometry styles for large canvas-approx traces', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#ff0000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    const staleExportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    staleExportPath.setAttribute('data-box-export-geometry', '1');
+    staleExportPath.setAttribute('d', 'M 10 10 L 20 20');
+    staleExportPath.setAttribute('stroke', '#111111');
+    staleExportPath.style.display = 'none';
+    group.appendChild(foreignObject);
+    group.appendChild(staleExportPath);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-approx',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#111111',
+        strokeWidth: 2,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-approx-stale-export-style-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
+    expect(rebuiltPaths.length).toBeGreaterThan(0);
+    expect(rebuiltPaths.some(node => node.getAttribute('stroke') === '#ff0000')).toBe(true);
+    expect(rebuiltPaths.some(node => node.getAttribute('d') === 'M 10 10 L 20 20')).toBe(false);
+  });
+
+  test('box preview svg omits large-trace outline geometry when symbol border width is zero', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#000000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-approx',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#000000',
+        strokeWidth: 0,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-approx-zero-border-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
+    expect(rebuiltPaths.length).toBe(1);
+    expect(rebuiltPaths[0].getAttribute('stroke')).toBe('#ff0000');
+  });
+
+  test('box preview svg ignores child geometry styles for canvas-approx and uses group attrs when border is zero', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#000000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    const staleChild = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    staleChild.setAttribute('stroke', '#111111');
+    staleChild.setAttribute('stroke-width', '9');
+    staleChild.setAttribute('fill', 'none');
+    group.appendChild(foreignObject);
+    group.appendChild(staleChild);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-approx',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#000000',
+        strokeWidth: 4,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-approx-group-attrs-priority-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
+    expect(rebuiltPaths.length).toBe(1);
+    expect(rebuiltPaths[0].getAttribute('stroke')).toBe('#ff0000');
+    expect(rebuiltPaths[0].getAttribute('stroke-width')).toBe('5');
   });
 
   test('fast strip auto-size estimator activates for dense datasets', () => {
