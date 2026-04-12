@@ -8581,6 +8581,7 @@
         label: entry.label,
         fill: entry.color,
         key: entry.key,
+        shape: entry.shape,
         editable: true
       }));
       const legendLayout = chartStyle.computeLegendLayout({
