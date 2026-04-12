@@ -29,6 +29,7 @@
   let applying = false;
   const listeners = new Set();
   const handledKeyEvents = new WeakSet();
+  const pendingTransactionSources = new Set();
 
   const lastStates = new WeakMap();
 
@@ -168,8 +169,64 @@
     return true;
   }
 
+  function flushPendingTransactions(reason){
+    let flushed = false;
+    let pass = 0;
+    let passFlushed = false;
+    do{
+      pass += 1;
+      passFlushed = false;
+      const sources = Array.from(pendingTransactionSources);
+      for(let i = 0; i < sources.length; i += 1){
+        const source = sources[i];
+        const flush = typeof source === 'function'
+          ? source
+          : (typeof source?.flushPendingTransactions === 'function' ? source.flushPendingTransactions.bind(source) : null);
+        if(typeof flush !== 'function'){
+          pendingTransactionSources.delete(source);
+          continue;
+        }
+        try{
+          const sourceFlushed = flush(reason || 'flush') === true;
+          flushed = sourceFlushed || flushed;
+          passFlushed = sourceFlushed || passFlushed;
+        }catch(err){
+          console.error('Shared.undoManager pending transaction flush error', err);
+        }
+      }
+    }while(passFlushed && pass < 4);
+    if(flushed){
+      undoDebug('Debug: undo pending transactions flushed', {
+        reason: reason || 'flush',
+        sourceCount: pendingTransactionSources.size,
+        passes: pass
+      });
+    }
+    return flushed;
+  }
+
   undoNamespace.record = function record(entry){
     return recordAction(entry);
+  };
+
+  undoNamespace.registerPendingTransactionSource = function registerPendingTransactionSource(source){
+    if(!source){
+      return function noop(){};
+    }
+    const flush = typeof source === 'function'
+      ? source
+      : (typeof source.flushPendingTransactions === 'function' ? source.flushPendingTransactions : null);
+    if(typeof flush !== 'function'){
+      return function noop(){};
+    }
+    pendingTransactionSources.add(source);
+    return function unregisterPendingTransactionSource(){
+      pendingTransactionSources.delete(source);
+    };
+  };
+
+  undoNamespace.flushPendingTransactions = function(reason){
+    return flushPendingTransactions(reason);
   };
 
   undoNamespace.recordStateChange = function recordStateChange(opts){
@@ -199,6 +256,11 @@
   };
 
   undoNamespace.undo = function undo(){
+    try{
+      flushPendingTransactions('undo');
+    }catch(err){
+      console.error('Shared.undoManager pending-undo-state flush error', err);
+    }
     if(pointer < 0){
       undoDebug('Debug: undo stack empty on undo');
       return false;
@@ -224,6 +286,11 @@
   };
 
   undoNamespace.redo = function redo(){
+    try{
+      flushPendingTransactions('redo');
+    }catch(err){
+      console.error('Shared.undoManager pending-redo-state flush error', err);
+    }
     if(pointer + 1 >= stack.length){
       undoDebug('Debug: undo stack empty on redo');
       return false;

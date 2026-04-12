@@ -1643,6 +1643,254 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
+  test('undo flushes pending deferred column reorder commits before popping the stack', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleUndoRaceHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-undo-race',
+        data: [
+          ['Control', 'Treatment A', 'Treatment B'],
+          [12, 15, 14],
+          [14.3, 17, 15.3],
+          [11, 14.6, 13]
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    header1.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header1);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header1;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header1.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('Treatment A');
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('Control');
+    expect(hot.getDataAtCell(0, 1)).toBe('Treatment A');
+    expect(hot.getDataAtCell(0, 2)).toBe('Treatment B');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('grid undo interleaves with non-grid shared undo entries in strict reverse order', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agUndoInterleaveHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-interleave',
+        data: [
+          ['Header A', 'Header B'],
+          ['A1', 'B1'],
+          ['A2', 'B2']
+        ]
+      }
+    );
+
+    let graphMode = 'initial';
+
+    hot.setDataAtCell(1, 0, 'A1-edit', 'edit:first');
+    graphMode = 'changed';
+    undoManager.record({
+      label: 'graph:mode-change',
+      undo: () => {
+        graphMode = 'initial';
+        return true;
+      },
+      redo: () => {
+        graphMode = 'changed';
+        return true;
+      }
+    });
+    hot.setDataAtCell(1, 1, 'B1-edit', 'edit:second');
+
+    expect(hot.undo()).toBe(true);
+    expect(hot.getDataAtCell(1, 1)).toBe('B1');
+    expect(graphMode).toBe('changed');
+    expect(hot.getDataAtCell(1, 0)).toBe('A1-edit');
+
+    expect(hot.undo()).toBe(true);
+    expect(graphMode).toBe('initial');
+    expect(hot.getDataAtCell(1, 0)).toBe('A1-edit');
+
+    expect(hot.undo()).toBe(true);
+    expect(hot.getDataAtCell(1, 0)).toBe('A1');
+
+    expect(hot.redo()).toBe(true);
+    expect(hot.getDataAtCell(1, 0)).toBe('A1-edit');
+
+    expect(hot.redo()).toBe(true);
+    expect(graphMode).toBe('changed');
+
+    expect(hot.redo()).toBe(true);
+    expect(hot.getDataAtCell(1, 1)).toBe('B1-edit');
+  });
+
+  test('grid keyboard undo flushes pending column reorder transactions through the shared undo stack', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleKeyboardUndoHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-keyboard-undo',
+        data: [
+          ['Control', 'Treatment A', 'Treatment B'],
+          [12, 15, 14],
+          [14.3, 17, 15.3],
+          [11, 14.6, 13]
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    header1.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header1);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header1;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header1.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('Treatment A');
+    expect(container.__undoManagerHandleKeydown({
+      key: 'z',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: container
+    })).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('Control');
+    expect(hot.getDataAtCell(0, 1)).toBe('Treatment A');
+    expect(hot.getDataAtCell(0, 2)).toBe('Treatment B');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
   test('column handle drag commits reorder on window blur if mouseup is missed', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
@@ -3738,7 +3986,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(2, 3)).toBe('D');
   });
 
-  test('Ctrl+Z inside the grid prefers grid undo over later global undo entries', async () => {
+  test('Ctrl+Z inside the grid follows the shared global undo order', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
@@ -3805,7 +4053,11 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       ctrlKey: true
     }));
 
-    expect(marker).toBe('after');
+    expect(marker).toBe('before');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+
+    expect(undoManager.undo()).toBe(true);
     expect(hot.getDataAtCell(1, 0)).toBe('A');
     expect(hot.getDataAtCell(1, 1)).toBe('B');
     expect(hot.getDataAtCell(2, 0)).toBe('C');
@@ -3814,8 +4066,5 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 3)).toBe('');
     expect(hot.getDataAtCell(2, 2)).toBe('');
     expect(hot.getDataAtCell(2, 3)).toBe('');
-
-    expect(undoManager.undo()).toBe(true);
-    expect(marker).toBe('before');
   });
 });

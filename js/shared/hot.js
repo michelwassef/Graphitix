@@ -51,6 +51,14 @@
   });
   hotNS.__instanceSeq = Number.isInteger(hotNS.__instanceSeq) ? hotNS.__instanceSeq : 0;
   hotNS.__activeClipboardSelectionOwner = hotNS.__activeClipboardSelectionOwner || null;
+  hotNS.flushPendingUndoState = function flushPendingUndoState(){
+    try{
+      return Shared.undoManager?.flushPendingTransactions?.('Shared.hot.flushPendingUndoState') === true;
+    }catch(err){
+      console.error('Shared.hot flushPendingUndoState error', err);
+      return false;
+    }
+  };
 
   const clearActiveClipboardSelectionOwner = (reason)=>{
     const owner = hotNS.__activeClipboardSelectionOwner;
@@ -4639,6 +4647,7 @@
     let pendingColumnHandleMoveIndex = null;
     let columnHandleMoveRafPending = false;
     let pendingDeferredColumnMoveCommitId = null;
+    let pendingDeferredColumnMoveCommitRunner = null;
     const MAX_DEFERRED_COLUMN_MOVE_COMMIT_ATTEMPTS = 8;
     let suppressColumnMoveCommitDepth = 0;
     let clearSortSelectionGuard = ()=>{};
@@ -4674,6 +4683,7 @@
       return container?.id || debugLabel;
     })();
     const hasGlobalUndo = !!(undoManager && typeof undoManager.record === 'function');
+    const pendingStructuralTransactions = new Map();
     const UNDO_STACK_LIMIT = 60;
     const DEFAULT_LOAD_DATA_UNDO_MAX_CELLS = 12000;
     const loadDataUndoMaxCells = Number.isFinite(overrides?.loadDataUndoMaxCells)
@@ -4688,6 +4698,49 @@
     if(!Object.prototype.hasOwnProperty.call(hotNS, '__pendingClipboardMove')){
       hotNS.__pendingClipboardMove = null;
     }
+
+    const syncStructuralUndoTransaction = (key, active, transactionFactory)=>{
+      if(!key){
+        return;
+      }
+      if(!active){
+        pendingStructuralTransactions.delete(key);
+        return;
+      }
+      if(typeof transactionFactory !== 'function'){
+        return;
+      }
+      pendingStructuralTransactions.set(key, transactionFactory());
+    };
+
+    const flushPendingStructuralTransactions = (reason)=>{
+      let flushed = false;
+      const entries = Array.from(pendingStructuralTransactions.entries());
+      for(let i = 0; i < entries.length; i += 1){
+        const transaction = entries[i]?.[1];
+        if(typeof transaction?.flush !== 'function'){
+          continue;
+        }
+        try{
+          flushed = transaction.flush(reason || 'flush') === true || flushed;
+        }catch(err){
+          console.error('Shared.hot structural transaction flush error', {
+            debugLabel,
+            key: entries[i]?.[0] || null,
+            err
+          });
+        }
+      }
+      return flushed;
+    };
+
+    const unregisterPendingUndoTransactionSource = typeof undoManager?.registerPendingTransactionSource === 'function'
+      ? undoManager.registerPendingTransactionSource({
+        label: `table:${debugLabel}:pending-structural-transactions`,
+        scope: undoScope,
+        flushPendingTransactions: (reason)=>flushPendingStructuralTransactions(reason || 'undo-manager')
+      })
+      : noop;
 
     const withUndoLock = (phase, fn)=>{
       undoLockDepth += 1;
@@ -8370,6 +8423,9 @@
       refreshFormulaReferenceOverlay(reason){
         return refreshFormulaReferenceOverlay(reason);
       },
+      __hotFlushPendingUndoState(){
+        return flushPendingStructuralTransactions('hot-instance');
+      },
       getSettings(){
         return { minRows: rowCount, minCols: colCount };
       },
@@ -9068,12 +9124,22 @@
         addHook(name, fn);
       },
       isUndoAvailable(){
+        if(hasGlobalUndo && typeof undoManager.canUndo === 'function'){
+          return !!undoManager.canUndo();
+        }
         return undoPointer >= 0;
       },
       isRedoAvailable(){
+        if(hasGlobalUndo && typeof undoManager.canRedo === 'function'){
+          return !!undoManager.canRedo();
+        }
         return undoPointer + 1 < undoStack.length;
       },
       undo(){
+        flushPendingStructuralTransactions('instance.undo');
+        if(hasGlobalUndo && typeof undoManager.undo === 'function'){
+          return !!undoManager.undo();
+        }
         if(undoPointer < 0){
           return false;
         }
@@ -9081,6 +9147,10 @@
         return step ? applyUndoStepById('undo', step.id) : false;
       },
       redo(){
+        flushPendingStructuralTransactions('instance.redo');
+        if(hasGlobalUndo && typeof undoManager.redo === 'function'){
+          return !!undoManager.redo();
+        }
         if(undoPointer + 1 >= undoStack.length){
           return false;
         }
@@ -9091,6 +9161,11 @@
         invalidatePendingClipboardMove('destroy', pending => pending?.sourceInstance === instance);
         if(hotNS.__activeClipboardSelectionOwner === instance){
           hotNS.__activeClipboardSelectionOwner = null;
+        }
+        try{
+          unregisterPendingUndoTransactionSource();
+        }catch(err){
+          console.error('Shared.hot pending transaction unregister failed', { debugLabel, err });
         }
         runCleanup();
         if(autoGrowthState.viewportScrollAttached){
@@ -10263,6 +10338,7 @@
       columnHandleLastTargetIndex = null;
       pendingColumnHandleMoveIndex = null;
       columnHandleMoveRafPending = false;
+      syncPendingColumnReorderTransaction();
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: Shared.hot column handle drag start', { debugLabel, colIds: columnHandleDragColIds.slice() });
       }
@@ -10273,19 +10349,20 @@
         return;
       }
       const movedCols = Array.isArray(columnHandleDragColIds) ? columnHandleDragColIds.slice() : null;
-      const committed = commitDisplayedColumnOrderToData('columnHandleDrag', movedCols);
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot column handle drag end', {
-          debugLabel,
-          colIds: columnHandleDragColIds || null,
-          committed
-        });
-      }
       isColumnHandleDragging = false;
       columnHandleDragColIds = null;
       columnHandleLastTargetIndex = null;
       pendingColumnHandleMoveIndex = null;
       columnHandleMoveRafPending = false;
+      syncPendingColumnReorderTransaction();
+      const committed = commitDisplayedColumnOrderToData('columnHandleDrag', movedCols);
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot column handle drag end', {
+          debugLabel,
+          colIds: movedCols || null,
+          committed
+        });
+      }
     };
 
     const moveDisplayedColumnsTo = (colIds, targetIndex)=>{
@@ -10360,6 +10437,7 @@
 
     const clearDeferredColumnMoveCommit = ()=>{
       if(pendingDeferredColumnMoveCommitId == null){
+        pendingDeferredColumnMoveCommitRunner = null;
         return;
       }
       const docLocal = container?.ownerDocument || document;
@@ -10374,6 +10452,29 @@
         // ignore cleanup failures
       }
       pendingDeferredColumnMoveCommitId = null;
+      pendingDeferredColumnMoveCommitRunner = null;
+    };
+    const syncPendingColumnReorderTransaction = ()=>{
+      syncStructuralUndoTransaction('column-reorder', isColumnHandleDragging || pendingDeferredColumnMoveCommitId != null, ()=>({
+        label: `table:${debugLabel}:pending-column-reorder`,
+        flush: ()=>{
+          if(isColumnHandleDragging){
+            stopColumnHandleDrag();
+            return true;
+          }
+          return flushDeferredColumnMoveCommit();
+        }
+      }));
+    };
+    const flushDeferredColumnMoveCommit = ()=>{
+      if(pendingDeferredColumnMoveCommitId == null || typeof pendingDeferredColumnMoveCommitRunner !== 'function'){
+        return false;
+      }
+      const runner = pendingDeferredColumnMoveCommitRunner;
+      clearDeferredColumnMoveCommit();
+      syncPendingColumnReorderTransaction();
+      runner();
+      return true;
     };
 
     const scheduleDeferredColumnMoveCommit = (reason, movedColIds, attempt = 0)=>{
@@ -10392,6 +10493,8 @@
       const winLocal = docLocal?.defaultView || global;
       const run = ()=>{
         pendingDeferredColumnMoveCommitId = null;
+        pendingDeferredColumnMoveCommitRunner = null;
+        syncPendingColumnReorderTransaction();
         if(isColumnHandleDragging || suppressColumnMoveCommitDepth !== 0){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             console.debug('Debug: Shared.hot deferred column move commit skipped (guard)', {
@@ -10435,11 +10538,13 @@
           triggerSchedule('afterColumnMove', { source: reason || 'columnMove' });
         }
       };
+      pendingDeferredColumnMoveCommitRunner = run;
       if(typeof winLocal?.requestAnimationFrame === 'function'){
         pendingDeferredColumnMoveCommitId = winLocal.requestAnimationFrame(run);
       }else{
         pendingDeferredColumnMoveCommitId = winLocal?.setTimeout?.(run, 0) || null;
       }
+      syncPendingColumnReorderTransaction();
     };
 
     const applyColumnPermutationToData = (permutationOldByNew)=>{
