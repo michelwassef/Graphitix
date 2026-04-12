@@ -382,6 +382,83 @@ describe('Box swarm offset constraints', () => {
     expect(d).toContain('M 222 116 L 258 116');
   });
 
+  test('box preview svg rebuilds canvas-backed point groups from cached render state', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }, { x: 18, y: 24 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 0.8,
+        stroke: '#222222',
+        strokeWidth: 1,
+        strokeOpacity: 0.8
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBeTruthy();
+    expect(previewSvg.querySelector('foreignObject')).toBeNull();
+    expect(previewSvg.querySelector('path')).toBeTruthy();
+  });
+
+  test('box preview svg rebuilds canvas-backed point groups from the active plot svg', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    document.body.innerHTML = '<div id="boxPlot"></div>';
+    const plot = document.getElementById('boxPlot');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '1');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-approx',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 1,
+      style: {
+        fill: '#555555',
+        fillOpacity: 0.7,
+        stroke: '#222222',
+        strokeWidth: 1,
+        strokeOpacity: 0.8
+      }
+    };
+    svg.appendChild(group);
+    plot.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg();
+    expect(previewSvg).toBeTruthy();
+    expect(previewSvg.querySelector('foreignObject')).toBeNull();
+    expect(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path').length).toBeGreaterThan(0);
+    document.body.innerHTML = '';
+  });
+
   test('fast strip auto-size estimator activates for dense datasets', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveFastStripAutoSizeProfile).toBe('function');

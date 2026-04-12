@@ -13499,6 +13499,7 @@
       Shared.exporter.mountSvgControls({
         container: '#boxExportControls',
         svgSelector: '#boxSvg',
+        getSvg: () => box.getPreviewSvg?.() || resolveBoxPlotSvgRoot(),
         fileName: 'boxplot',
         contextLabel: 'box-export',
         hybridOptions: {
@@ -32148,6 +32149,140 @@ Technical analysis record (advanced)
     node.appendChild(payload.fragment);
     return true;
   }
+
+  function resolveBoxPreviewSourceSvg(tab){
+    const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
+    const targetTabId = tab?.id || null;
+    const useRenderCache = !!(
+      tab
+      && targetTabId
+      && targetTabId !== activeTabId
+      && tab.renderCache?.cache?.plot?.fragment
+      && typeof tab.renderCache.cache.plot.fragment.querySelector === 'function'
+    );
+    if(useRenderCache){
+      const cachedSvg = tab.renderCache.cache.plot.fragment.querySelector('svg');
+      if(cachedSvg){
+        return cachedSvg;
+      }
+    }
+    return resolveBoxPlotSvgRoot();
+  }
+
+  function removeBoxPreviewIgnoredNodes(root){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return;
+    }
+    Array.from(root.querySelectorAll('[data-export-ignore="1"]')).forEach(node => {
+      if(node?.parentNode){
+        node.parentNode.removeChild(node);
+      }
+    });
+  }
+
+  function buildApproximateBoxPreviewPathData(renderState){
+    return buildBoxPointInteractionMaskPath({
+      bins: Array.isArray(renderState?.bins) ? renderState.bins : [],
+      orientation: renderState?.orientation,
+      center: renderState?.center
+    });
+  }
+
+  function populateBoxPreviewPointGroupFromCanvas(sourceGroup, cloneGroup){
+    if(!sourceGroup || !cloneGroup){
+      return false;
+    }
+    const renderState = sourceGroup.__boxCanvasRenderState;
+    if(!renderState || typeof cloneGroup.ownerDocument?.createElementNS !== 'function'){
+      return false;
+    }
+    Array.from(cloneGroup.querySelectorAll('foreignObject, foreignobject, [data-point-proxy="1"], [data-box-point-hit-mask="1"], [data-export-ignore="1"]')).forEach(node => {
+      if(node?.parentNode){
+        node.parentNode.removeChild(node);
+      }
+    });
+    const doc = cloneGroup.ownerDocument;
+    const style = renderState.style || {};
+    if(renderState.renderer === 'canvas-preview'){
+      const points = Array.isArray(renderState.points) ? renderState.points : [];
+      if(!points.length){
+        return false;
+      }
+      const pointPath = createBatchedPointPath(doc, points, Math.max(0.2, (Number(renderState.pointRadius) || 0.2) * 2), {
+        fill: style.fill,
+        fillOpacity: style.fillOpacity,
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth,
+        dataTrace: renderState.traceIndex,
+        shape: renderState.shape
+      });
+      if(Number.isFinite(Number(style.strokeOpacity))){
+        pointPath.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
+      }
+      cloneGroup.appendChild(pointPath);
+      return true;
+    }
+    if(renderState.renderer === 'canvas-approx'){
+      const pathData = buildApproximateBoxPreviewPathData(renderState);
+      if(!pathData){
+        return false;
+      }
+      const buildPath = (stroke, strokeWidth, opacity) => {
+        if(!stroke || stroke === 'none' || !Number.isFinite(Number(strokeWidth)) || Number(strokeWidth) <= 0){
+          return null;
+        }
+        const node = doc.createElementNS(NS, 'path');
+        node.setAttribute('d', pathData);
+        node.setAttribute('fill', 'none');
+        node.setAttribute('stroke', stroke);
+        node.setAttribute('stroke-width', String(strokeWidth));
+        node.setAttribute('stroke-linecap', 'round');
+        node.setAttribute('stroke-linejoin', 'round');
+        if(Number.isFinite(Number(opacity))){
+          node.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(opacity)))));
+        }
+        if(renderState.traceIndex != null){
+          node.setAttribute('data-trace', String(renderState.traceIndex));
+        }
+        return node;
+      };
+      const thickness = Math.max(1, Number(renderState.thickness) || 1);
+      const outlineWidth = Math.max(1, thickness + Math.max(0, Number(style.strokeWidth) || 0) * 2);
+      const outlineNode = buildPath(style.stroke, outlineWidth, style.strokeOpacity);
+      if(outlineNode){
+        cloneGroup.appendChild(outlineNode);
+      }
+      const fillNode = buildPath(style.fill, thickness, style.fillOpacity);
+      if(fillNode){
+        cloneGroup.appendChild(fillNode);
+      }
+      return !!(outlineNode || fillNode);
+    }
+    return false;
+  }
+
+  function buildBoxPreviewSvgFromSource(sourceSvg){
+    if(!sourceSvg || typeof sourceSvg.cloneNode !== 'function'){
+      return null;
+    }
+    const clone = sourceSvg.cloneNode(true);
+    removeBoxPreviewIgnoredNodes(clone);
+    const sourceGroups = Array.from(sourceSvg.querySelectorAll('g[data-export-layer="box-points"]'));
+    const cloneGroups = Array.from(clone.querySelectorAll('g[data-export-layer="box-points"]'));
+    const pairCount = Math.min(sourceGroups.length, cloneGroups.length);
+    for(let idx = 0; idx < pairCount; idx += 1){
+      populateBoxPreviewPointGroupFromCanvas(sourceGroups[idx], cloneGroups[idx]);
+    }
+    return clone;
+  }
+
+  box.getPreviewSvg = function getPreviewSvg(tab){
+    const sourceSvg = resolveBoxPreviewSourceSvg(tab);
+    if(!sourceSvg){
+      return null;
+    }
+    return buildBoxPreviewSvgFromSource(sourceSvg);
+  };
 
   box.captureRenderCache = function captureRenderCache(){
     const plotCache = detachChildren(els.plotDiv);

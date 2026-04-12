@@ -225,6 +225,21 @@
     return null;
   }
 
+  function shouldForceHybridPreviewCapture(svg, type) {
+    if (!svg || typeof svg.querySelector !== 'function') {
+      return false;
+    }
+    if (!getHybridPreviewOptions(type)) {
+      return false;
+    }
+    return !!svg.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
+  }
+
+  function getRenderCacheSequence(tab) {
+    const seq = Number(tab?.renderCache?.captureSequence);
+    return Number.isFinite(seq) && seq > 0 ? seq : 0;
+  }
+
   function scheduleHybridPreviewCapture(tab, svg, sizing, meta = {}) {
     const Shared = window.Shared || {};
     const exporter = Shared.exporter;
@@ -299,6 +314,7 @@
         height: sizingResolved.targetHeight,
         size: markup.length,
         hybrid: true,
+        renderCacheSequence: getRenderCacheSequence(tab),
         updatedAt: Date.now(),
         reason: meta.reason || 'hybrid'
       };
@@ -336,7 +352,7 @@
     let svg = null;
     if (typeof config.getPreviewSvg === 'function') {
       try {
-        svg = config.getPreviewSvg() || null;
+        svg = config.getPreviewSvg(tab) || null;
       } catch (err) {
         console.debug('Debug: preview getPreviewSvg failed', {
           type: config.type,
@@ -367,6 +383,25 @@
       return null;
     }
     const sizing = resolvePreviewSizing(svg);
+    const forceHybrid = shouldForceHybridPreviewCapture(svg, config.type);
+    if (forceHybrid) {
+      const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
+        reason: 'canvas-layer',
+        payloadSignature: tab?.payloadSignature || null
+      });
+      const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
+        message: scheduled ? 'Preparing preview' : 'Preview simplified',
+        detail: scheduled ? 'Rendering composite' : 'Canvas layer'
+      });
+      if (placeholder) {
+        console.debug('Debug: preview hybrid forced', {
+          tabId: tab?.id || null,
+          type: config.type,
+          hybridScheduled: scheduled
+        });
+        return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: true };
+      }
+    }
     const clone = svg.cloneNode(true);
     applyPreviewSizing(clone, sizing);
     ensurePreviewBackground(clone, sizing);
@@ -452,10 +487,31 @@
       return false;
     }
     const payloadSignature = tab.payloadSignature || null;
+    const liveSvg = typeof config.getPreviewSvg === 'function'
+      ? (() => {
+          try {
+            return config.getPreviewSvg(tab) || null;
+          } catch (err) {
+            console.debug('Debug: preview live svg resolve failed', {
+              type: config.type,
+              tabId: tab.id,
+              message: err?.message || String(err)
+            });
+            return null;
+          }
+        })()
+      : null;
+    const renderCacheSequence = getRenderCacheSequence(tab);
+    const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || config.element?.querySelector?.('.svgbox svg') || null, config.type)
+      && !tab.previewMeta?.hybrid;
+    const needsRenderCacheRefresh = renderCacheSequence > 0
+      && Number(tab.previewMeta?.renderCacheSequence || 0) !== renderCacheSequence;
     const shouldCapture = meta.forceCapture
       || !tab.previewMarkup
       || !tab.previewSignature
-      || (payloadSignature && tab.previewSignature !== payloadSignature);
+      || (payloadSignature && tab.previewSignature !== payloadSignature)
+      || needsHybridRefresh
+      || needsRenderCacheRefresh;
     if (!shouldCapture) {
       console.debug('Debug: preview reuse', { tabId: tab.id, signature: tab.previewSignature, meta });
       return false;
@@ -469,6 +525,8 @@
         height: preview.height,
         size: preview.size,
         simplified: !!preview.simplified,
+        hybrid: !!preview.hybrid,
+        renderCacheSequence,
         updatedAt: Date.now(),
         reason: meta.reason || 'capture'
       };
@@ -652,6 +710,10 @@
       hideTabPreviewTooltip('active-tab');
       console.debug('Debug: preview hover suppressed for active tab', { tabId: tab.id });
       return;
+    }
+    const config = components?.registry?.[tab.type];
+    if (config) {
+      updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' });
     }
     if (!tab.previewMarkup) {
       hideTabPreviewTooltip('no-preview');

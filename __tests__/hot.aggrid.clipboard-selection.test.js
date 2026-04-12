@@ -36,9 +36,11 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     require('../js/shared/undo.js');
     require('../js/shared/agGridAdapter.js');
     require('../js/shared/hot.js');
+    global.window?.Shared?.undoManager?.clear?.();
   });
 
   afterEach(() => {
+    global.window?.Shared?.undoManager?.clear?.();
     global.window.agGrid = originalAgGrid;
     if (global.window?.navigator) {
       global.window.navigator.clipboard = originalClipboard;
@@ -1999,6 +2001,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
         ]
       }
     );
+    undoManager.clear();
 
     const totalCols = hot.countCols();
     let displayed = Array.from({ length: totalCols }, (_, idx) => `c${idx}`);
@@ -2330,6 +2333,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
         ]
       }
     );
+    undoManager.clear();
 
     capturedGridOptions.onCellContextMenu({
       event: new global.window.MouseEvent('contextmenu', {
@@ -3953,6 +3957,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
     pasteEvt.clipboardData = { getData: () => clipboardText };
     container.dispatchEvent(pasteEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(hot.getDataAtCell(1, 0)).toBe('');
     expect(hot.getDataAtCell(1, 1)).toBe('');
