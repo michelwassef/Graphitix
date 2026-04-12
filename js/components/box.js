@@ -1575,14 +1575,41 @@
     }catch(err){ console.warn('applyTraceShapeGlobalStyle error', err); }
   }
 
-  function persistTracePointStyle(traceIndexValue, patch){
+  function previewTracePointStyle(traceIndexValue, patch){
+    if(traceIndexValue == null){ return false; }
+    try{
+      return !!tryApplyBoxStripPointStyleLive(patch, {
+        traceIndex: traceIndexValue,
+        persistState: false
+      });
+    }catch(err){
+      console.warn('previewTracePointStyle error', err);
+      return false;
+    }
+  }
+
+  function previewGlobalPointStyle(patch){
+    try{
+      return !!tryApplyBoxStripPointStyleLive(patch, { persistState: false });
+    }catch(err){
+      console.warn('previewGlobalPointStyle error', err);
+      return false;
+    }
+  }
+
+  function persistTracePointStyle(traceIndexValue, patch, options){
     if(traceIndexValue == null){ return; }
+    const opts = options && typeof options === 'object' ? options : {};
+    const shouldRecordUndo = opts.recordUndo !== false;
     state.pointStyles = state.pointStyles || {};
     const previous = cloneSimple(state.pointStyles[traceIndexValue]) || {};
     const next = Object.assign({}, previous, patch);
     state.pointStyles[traceIndexValue] = next;
     if(!tryApplyBoxStripPointStyleLive(patch, { traceIndex: traceIndexValue, persistState: false }) && typeof state.scheduleDraw === 'function'){
       try{ scheduleBoxViewRefresh('point-style-trace-change'); }catch(err){ console.warn('persistTracePointStyle scheduleDraw error', err); }
+    }
+    if(!shouldRecordUndo){
+      return;
     }
     try{
       recordBoxChange(`box:point-style:${traceIndexValue}`, previous, next, value => {
@@ -1597,7 +1624,9 @@
     }catch(err){ console.warn('persistTracePointStyle error', err); }
   }
 
-  function applyPointGlobalStyle(patch){
+  function applyPointGlobalStyle(patch, options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const shouldRecordUndo = opts.recordUndo !== false;
     const previous = {
       pointStyles: cloneSimple(state.pointStyles || {}) || {},
       pointGlobalStyle: cloneSimple(state.pointGlobalStyle || {}) || {}
@@ -1609,6 +1638,9 @@
     state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
     if(!tryApplyBoxStripPointStyleLive(patch, { persistState: false }) && typeof state.scheduleDraw === 'function'){
       try{ scheduleBoxViewRefresh('point-style-global-change'); }catch(err){ console.warn('applyPointGlobalStyle scheduleDraw error', err); }
+    }
+    if(!shouldRecordUndo){
+      return;
     }
     try{
       recordBoxChange('box:point-style:global', previous, {
@@ -1803,12 +1835,25 @@
         ? Shared.getShapePickerValues()
         : new Set(['circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star']);
       const sanitizeShape = shape => shapeValues.has(shape) ? shape : 'circle';
+      const previewTracePatch = patch => {
+        if(traceIndex == null){ return; }
+        if(previewTracePointStyle(traceIndex, patch)){
+          return;
+        }
+        persistTracePointStyle(traceIndex, patch, { recordUndo: false });
+      };
+      const previewGlobalPatch = patch => {
+        if(previewGlobalPointStyle(patch)){
+          return;
+        }
+        applyPointGlobalStyle(patch, { recordUndo: false });
+      };
       const applyTracePatch = patch => {
         if(traceIndex == null){ return; }
-        persistTracePointStyle(traceIndex, patch);
+        persistTracePointStyle(traceIndex, patch, { recordUndo: false });
       };
       const applyGlobalPatch = patch => {
-        applyPointGlobalStyle(patch);
+        applyPointGlobalStyle(patch, { recordUndo: false });
       };
       const resolvePointStyle = ctx => {
         if(ctx.scope === 'trace' && traceIndex != null){
@@ -1890,9 +1935,9 @@
           },
           onColorInput(value, ctx){
             if(ctx.scope === 'trace'){
-              applyTracePatch({ fill: value });
+              previewTracePatch({ fill: value });
             }else{
-              applyGlobalPatch({ fill: value });
+              previewGlobalPatch({ fill: value });
             }
           },
           onColorChange(value, ctx){
@@ -1922,9 +1967,9 @@
           },
           onColorInput(value, ctx){
             if(ctx.scope === 'trace'){
-              applyTracePatch({ stroke: value, borderColor: value });
+              previewTracePatch({ stroke: value, borderColor: value });
             }else{
-              applyGlobalPatch({ stroke: value, borderColor: value });
+              previewGlobalPatch({ stroke: value, borderColor: value });
             }
           },
           onColorChange(value, ctx){
