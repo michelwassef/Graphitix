@@ -3308,48 +3308,150 @@
     node.setAttribute('data-shape', shape);
   }
 
-  function syncBoxCanvasGroupStyleAttrs(group, renderState, styleOverride){
+  function normalizeBoxPointStyleSnapshot(source, options = {}){
+    const fallbackStyle = options.fallbackStyle && typeof options.fallbackStyle === 'object'
+      ? options.fallbackStyle
+      : {};
+    const style = source && typeof source === 'object' ? source : {};
+    const fillRaw = typeof style.fill === 'string' ? style.fill.trim() : '';
+    const strokeWidthRaw = Number(style.strokeWidth);
+    const strokeWidth = Number.isFinite(strokeWidthRaw) ? Math.max(0, strokeWidthRaw) : NaN;
+    const strokeRaw = typeof style.stroke === 'string' ? style.stroke.trim() : '';
+    const fillOpacityRaw = Number(style.fillOpacity);
+    const strokeOpacityRaw = Number(style.strokeOpacity);
+    const pointRadiusRaw = Number(
+      style.pointRadius != null
+        ? style.pointRadius
+        : (options.pointRadius != null ? options.pointRadius : NaN)
+    );
+    const shapeRaw = typeof style.shape === 'string' && style.shape.trim()
+      ? style.shape.trim()
+      : (typeof options.shape === 'string' && options.shape.trim() ? options.shape.trim() : 'circle');
+    const fillOpacity = Number.isFinite(fillOpacityRaw)
+      ? Math.max(0, Math.min(1, fillOpacityRaw))
+      : (Number.isFinite(Number(fallbackStyle.fillOpacity)) ? Math.max(0, Math.min(1, Number(fallbackStyle.fillOpacity))) : NaN);
+    const strokeOpacity = Number.isFinite(strokeOpacityRaw)
+      ? Math.max(0, Math.min(1, strokeOpacityRaw))
+      : (Number.isFinite(Number(fallbackStyle.strokeOpacity)) ? Math.max(0, Math.min(1, Number(fallbackStyle.strokeOpacity))) : NaN);
+    const normalizedStrokeWidth = Number.isFinite(strokeWidth)
+      ? strokeWidth
+      : (Number.isFinite(Number(fallbackStyle.strokeWidth)) ? Math.max(0, Number(fallbackStyle.strokeWidth)) : NaN);
+    const normalizedStroke = Number.isFinite(normalizedStrokeWidth) && normalizedStrokeWidth <= 0
+      ? 'none'
+      : (strokeRaw || (typeof fallbackStyle.stroke === 'string' ? fallbackStyle.stroke.trim() : ''));
+    return {
+      fill: fillRaw || (typeof fallbackStyle.fill === 'string' ? fallbackStyle.fill.trim() : ''),
+      stroke: normalizedStroke || 'none',
+      fillOpacity,
+      strokeOpacity,
+      strokeWidth: normalizedStrokeWidth,
+      pointRadius: Number.isFinite(pointRadiusRaw) && pointRadiusRaw > 0 ? pointRadiusRaw : NaN,
+      shape: shapeRaw || 'circle'
+    };
+  }
+
+  function readBoxPointStyleSnapshotFromNode(node, options = {}){
+    const fallbackStyle = options.fallbackStyle && typeof options.fallbackStyle === 'object'
+      ? options.fallbackStyle
+      : {};
+    const fill = readBoxPointSourceAttr(node, ['data-point-fill', 'fill']);
+    const stroke = readBoxPointSourceAttr(node, ['data-point-stroke', 'stroke']);
+    const fillOpacity = readBoxPointSourceNumber(node, ['data-point-fill-opacity', 'fill-opacity']);
+    const strokeOpacity = readBoxPointSourceNumber(node, ['data-point-stroke-opacity', 'stroke-opacity']);
+    const strokeWidth = readBoxPointSourceNumber(node, ['data-point-stroke-width', 'stroke-width']);
+    const pointSize = readBoxPointSourceNumber(node, ['data-point-size']);
+    const shape = readBoxPointSourceAttr(node, ['data-point-shape', 'data-shape']);
+    return normalizeBoxPointStyleSnapshot({
+      fill,
+      stroke,
+      fillOpacity,
+      strokeOpacity,
+      strokeWidth,
+      pointRadius: Number.isFinite(pointSize) && pointSize > 0 ? pointSize / 2 : NaN,
+      shape
+    }, {
+      fallbackStyle,
+      pointRadius: options.pointRadius,
+      shape: options.shape
+    });
+  }
+
+  function syncBoxCanvasGroupStyleSnapshot(group, renderState, snapshotOverride){
     if(!group || typeof group.setAttribute !== 'function'){
-      return;
+      return null;
     }
-    const style = styleOverride && typeof styleOverride === 'object'
-      ? styleOverride
-      : (renderState?.style || {});
-    const pointRadius = Number(renderState?.pointRadius);
-    const shape = typeof renderState?.shape === 'string' && renderState.shape.trim()
-      ? renderState.shape.trim()
-      : 'circle';
-    if(typeof style.fill === 'string' && style.fill.trim()){
-      group.setAttribute('data-point-fill', style.fill.trim());
+    const snapshot = normalizeBoxPointStyleSnapshot(snapshotOverride || renderState?.style || {}, {
+      fallbackStyle: renderState?.style || {},
+      pointRadius: renderState?.pointRadius,
+      shape: renderState?.shape
+    });
+    renderState.style = {
+      fill: snapshot.fill,
+      stroke: snapshot.stroke,
+      fillOpacity: snapshot.fillOpacity,
+      strokeOpacity: snapshot.strokeOpacity,
+      strokeWidth: snapshot.strokeWidth
+    };
+    renderState.pointRadius = Number.isFinite(snapshot.pointRadius) ? snapshot.pointRadius : renderState.pointRadius;
+    renderState.shape = snapshot.shape;
+    if(snapshot.fill){
+      group.setAttribute('data-point-fill', snapshot.fill);
     }else{
       group.removeAttribute('data-point-fill');
     }
-    if(typeof style.stroke === 'string' && style.stroke.trim()){
-      group.setAttribute('data-point-stroke', style.stroke.trim());
+    if(snapshot.stroke && snapshot.stroke !== 'none'){
+      group.setAttribute('data-point-stroke', snapshot.stroke);
     }else{
       group.removeAttribute('data-point-stroke');
     }
-    if(Number.isFinite(Number(style.fillOpacity))){
-      group.setAttribute('data-point-fill-opacity', String(Math.max(0, Math.min(1, Number(style.fillOpacity)))));
+    if(Number.isFinite(snapshot.fillOpacity)){
+      group.setAttribute('data-point-fill-opacity', String(snapshot.fillOpacity));
     }else{
       group.removeAttribute('data-point-fill-opacity');
     }
-    if(Number.isFinite(Number(style.strokeOpacity))){
-      group.setAttribute('data-point-stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
+    if(Number.isFinite(snapshot.strokeOpacity)){
+      group.setAttribute('data-point-stroke-opacity', String(snapshot.strokeOpacity));
     }else{
       group.removeAttribute('data-point-stroke-opacity');
     }
-    if(Number.isFinite(Number(style.strokeWidth))){
-      group.setAttribute('data-point-stroke-width', String(Math.max(0, Number(style.strokeWidth))));
+    if(Number.isFinite(snapshot.strokeWidth)){
+      group.setAttribute('data-point-stroke-width', String(snapshot.strokeWidth));
     }else{
       group.removeAttribute('data-point-stroke-width');
     }
-    if(Number.isFinite(pointRadius) && pointRadius > 0){
-      group.setAttribute('data-point-size', String(pointRadius * 2));
+    if(Number.isFinite(snapshot.pointRadius) && snapshot.pointRadius > 0){
+      group.setAttribute('data-point-size', String(snapshot.pointRadius * 2));
     }else{
       group.removeAttribute('data-point-size');
     }
-    group.setAttribute('data-shape', shape);
+    group.setAttribute('data-shape', snapshot.shape);
+    return snapshot;
+  }
+
+  function resolveBoxCanvasGroupStyleSnapshot(group, renderState){
+    const fallbackStyle = renderState?.style || {};
+    const pointRadius = Number(renderState?.pointRadius);
+    const shape = renderState?.shape;
+    if(group && typeof group.getAttribute === 'function'){
+      const groupSnapshot = readBoxPointStyleSnapshotFromNode(group, { fallbackStyle, pointRadius, shape });
+      const hasGroupFill = typeof group.getAttribute === 'function' && !!String(group.getAttribute('data-point-fill') || '').trim();
+      const hasGroupStroke = typeof group.getAttribute === 'function' && (
+        String(group.getAttribute('data-point-stroke') || '').trim()
+        || String(group.getAttribute('data-point-stroke-width') || '').trim()
+      );
+      const shouldUseChildFallback = (!hasGroupFill && !hasGroupStroke)
+        && renderState?.renderer !== 'canvas-approx'
+        && typeof group.querySelector === 'function';
+      if(shouldUseChildFallback){
+        const sourceNode = group.querySelector('[data-point-proxy="1"]')
+          || group.querySelector('circle:not([data-point-proxy="1"]), rect:not([data-point-proxy="1"]), path:not([data-point-proxy="1"])');
+        if(sourceNode){
+          return readBoxPointStyleSnapshotFromNode(sourceNode, { fallbackStyle, pointRadius, shape });
+        }
+      }
+      return groupSnapshot;
+    }
+    return normalizeBoxPointStyleSnapshot(fallbackStyle, { fallbackStyle, pointRadius, shape });
   }
 
   function renderBoxPointInteractionMask(config){
@@ -3474,8 +3576,8 @@
     }
     clearBoxCanvasPointGroupArtifacts(group);
     const doc = renderState.doc || global.document;
+    const snapshot = syncBoxCanvasGroupStyleSnapshot(group, renderState);
     const style = renderState.style || {};
-    syncBoxCanvasGroupStyleAttrs(group, renderState, style);
     let rendered = false;
     if(renderState.renderer === 'canvas-approx'){
       rendered = renderBoxApproximatePointCanvas({
@@ -3528,7 +3630,7 @@
       pointRadius: renderState.pointRadius,
       shape: renderState.shape
     });
-    return true;
+    return !!snapshot;
   }
 
   function applyBoxCanvasPointGroupStyleLive(group, patch){
@@ -3586,8 +3688,7 @@
     if(!changed){
       return false;
     }
-    renderState.style = style;
-    syncBoxCanvasGroupStyleAttrs(group, renderState, style);
+    syncBoxCanvasGroupStyleSnapshot(group, renderState, style);
     return renderStoredBoxCanvasPointGroup(group);
   }
 
@@ -32310,57 +32411,17 @@ Technical analysis record (advanced)
   }
 
   function resolveBoxPreviewPointGroupStyle(sourceGroup, renderState){
-    const fallbackStyle = Object.assign({}, renderState?.style || {});
-    const groupNode = sourceGroup && typeof sourceGroup.getAttribute === 'function'
-      ? sourceGroup
-      : null;
-    const isApproximateCanvas = renderState?.renderer === 'canvas-approx';
-    const sourceNode = sourceGroup && typeof sourceGroup.querySelector === 'function'
-      && !isApproximateCanvas
-      ? (
-          sourceGroup.querySelector('[data-point-proxy="1"]')
-          || sourceGroup.querySelector('circle:not([data-point-proxy="1"]), rect:not([data-point-proxy="1"]), path:not([data-point-proxy="1"])')
-        )
-      : null;
-    if(!groupNode && !sourceNode){
-      return {
-        style: fallbackStyle,
-        pointRadius: Number(renderState?.pointRadius),
-        shape: renderState?.shape
-      };
-    }
-    const fill = readBoxPointSourceAttr(groupNode || sourceNode, ['data-point-fill'])
-      || readBoxPointSourceAttr(sourceNode, ['data-point-fill', 'fill']);
-    const stroke = readBoxPointSourceAttr(groupNode || sourceNode, ['data-point-stroke'])
-      || readBoxPointSourceAttr(sourceNode, ['data-point-stroke', 'stroke']);
-    const fillOpacity = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-fill-opacity']);
-    const strokeOpacity = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-stroke-opacity']);
-    const strokeWidth = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-stroke-width']);
-    const pointSize = readBoxPointSourceNumber(groupNode || sourceNode, ['data-point-size']);
-    const fallbackFillOpacity = readBoxPointSourceNumber(sourceNode, ['data-point-fill-opacity', 'fill-opacity']);
-    const fallbackStrokeOpacity = readBoxPointSourceNumber(sourceNode, ['data-point-stroke-opacity', 'stroke-opacity']);
-    const fallbackStrokeWidth = readBoxPointSourceNumber(sourceNode, ['data-point-stroke-width', 'stroke-width']);
-    const pointRadius = Number.isFinite(pointSize) && pointSize > 0
-      ? pointSize / 2
-      : Number(renderState?.pointRadius);
-    const shape = readBoxPointSourceAttr(groupNode || sourceNode, ['data-point-shape', 'data-shape'])
-      || readBoxPointSourceAttr(sourceNode, ['data-point-shape', 'data-shape'])
-      || renderState?.shape;
-    const resolvedStrokeWidth = Number.isFinite(strokeWidth)
-      ? strokeWidth
-      : (Number.isFinite(fallbackStrokeWidth) ? fallbackStrokeWidth : fallbackStyle.strokeWidth);
+    const snapshot = resolveBoxCanvasGroupStyleSnapshot(sourceGroup, renderState);
     return {
-      style: Object.assign({}, fallbackStyle, {
-        fill: fill || fallbackStyle.fill,
-        stroke: Number.isFinite(Number(resolvedStrokeWidth)) && Number(resolvedStrokeWidth) <= 0
-          ? 'none'
-          : (stroke || fallbackStyle.stroke),
-        fillOpacity: Number.isFinite(fillOpacity) ? fillOpacity : (Number.isFinite(fallbackFillOpacity) ? fallbackFillOpacity : fallbackStyle.fillOpacity),
-        strokeOpacity: Number.isFinite(strokeOpacity) ? strokeOpacity : (Number.isFinite(fallbackStrokeOpacity) ? fallbackStrokeOpacity : fallbackStyle.strokeOpacity),
-        strokeWidth: resolvedStrokeWidth
-      }),
-      pointRadius,
-      shape
+      style: {
+        fill: snapshot.fill,
+        stroke: snapshot.stroke,
+        fillOpacity: snapshot.fillOpacity,
+        strokeOpacity: snapshot.strokeOpacity,
+        strokeWidth: snapshot.strokeWidth
+      },
+      pointRadius: snapshot.pointRadius,
+      shape: snapshot.shape
     };
   }
 
