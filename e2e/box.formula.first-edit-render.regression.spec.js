@@ -51,7 +51,7 @@ test('box first UI edit commit renders value immediately', async ({ page }) => {
 
   const cell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.row}"] .ag-cell[col-id="c${target.col}"]`).first();
   await expect(cell).toBeVisible();
-  await cell.click();
+  await cell.dblclick();
   await page.keyboard.type('9');
   await page.keyboard.press('Enter');
 

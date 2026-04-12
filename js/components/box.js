@@ -12552,8 +12552,6 @@
         },
         hotOptions: {
           manualColumnMove: true,
-          singleClickEdit: true,
-          suppressClickEdit: false,
           afterChange(changes, source){
             if(!changes || source === 'loadData') return;
             instance?.render?.();

@@ -2,6 +2,23 @@ describe('Shared.hot AG Grid binding', () => {
   let originalAgGrid;
   let capturedGridOptions;
   let capturedApi;
+  const dispatchTouchPointerEvent = (target, type, overrides = {}) => {
+    const event = new global.window.Event(type, { bubbles: true, cancelable: true });
+    const payload = Object.assign({
+      pointerType: 'touch',
+      pointerId: 1,
+      clientX: 16,
+      clientY: 16
+    }, overrides);
+    Object.entries(payload).forEach(([key, value]) => {
+      Object.defineProperty(event, key, {
+        configurable: true,
+        value
+      });
+    });
+    target.dispatchEvent(event);
+    return event;
+  };
 
   beforeEach(() => {
     jest.resetModules();
@@ -21,8 +38,10 @@ describe('Shared.hot AG Grid binding', () => {
           capturedGridOptions.columnDefs = next;
         }
       }),
+      startEditingCell: jest.fn(),
       destroy: jest.fn(),
-      getFocusedCell: jest.fn(() => null)
+      getFocusedCell: jest.fn(() => null),
+      getEditingCells: jest.fn(() => [])
     };
     capturedApi = api;
 
@@ -167,6 +186,100 @@ describe('Shared.hot AG Grid binding', () => {
       'unit-test'
     );
     expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
+  });
+
+  test('defaults to double-click editing even when the browser reports touch capability', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotTouchHeuristic';
+    document.body.appendChild(container);
+
+    const originalMatchMedia = global.window.matchMedia;
+    const maxTouchPointsDescriptor = Object.getOwnPropertyDescriptor(global.window.navigator, 'maxTouchPoints');
+
+    global.window.matchMedia = jest.fn().mockImplementation(query => ({
+      matches: query === '(pointer: coarse)' || query === '(hover: none)',
+      media: query,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(() => false)
+    }));
+    Object.defineProperty(global.window.navigator, 'maxTouchPoints', {
+      configurable: true,
+      value: 5
+    });
+
+    try {
+      Shared.hot.createStandardTable(
+        container,
+        { rows: 2, cols: 2 },
+        () => {},
+        {
+          debugLabel: 'test-ag-grid-touch-heuristic',
+          data: [
+            ['A', 'B'],
+            ['C', 'D']
+          ]
+        }
+      );
+
+      expect(capturedGridOptions).toBeTruthy();
+      expect(capturedGridOptions.singleClickEdit).toBe(false);
+    } finally {
+      if (typeof originalMatchMedia === 'function') {
+        global.window.matchMedia = originalMatchMedia;
+      } else {
+        delete global.window.matchMedia;
+      }
+      if (maxTouchPointsDescriptor) {
+        Object.defineProperty(global.window.navigator, 'maxTouchPoints', maxTouchPointsDescriptor);
+      } else {
+        delete global.window.navigator.maxTouchPoints;
+      }
+    }
+  });
+
+  test('touch editing requires a second tap on the same cell', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotTouchDoubleTap';
+    document.body.appendChild(container);
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-touch-double-tap',
+        data: [
+          ['Label', 'Value'],
+          ['A', '1'],
+          ['B', '2']
+        ]
+      }
+    );
+
+    container.innerHTML = `
+      <div class="ag-row" row-index="1">
+        <div class="ag-cell" row-index="1" col-id="c0"></div>
+      </div>
+    `;
+    const cell = container.querySelector('.ag-cell');
+    expect(cell).toBeTruthy();
+
+    dispatchTouchPointerEvent(cell, 'pointerdown', { pointerId: 11 });
+    dispatchTouchPointerEvent(cell, 'pointerup', { pointerId: 11 });
+    expect(capturedApi.startEditingCell).not.toHaveBeenCalled();
+
+    dispatchTouchPointerEvent(cell, 'pointerdown', { pointerId: 12 });
+    dispatchTouchPointerEvent(cell, 'pointerup', { pointerId: 12 });
+    expect(capturedApi.startEditingCell).toHaveBeenCalledWith({
+      rowIndex: 1,
+      colKey: 'c0',
+      rowPinned: null
+    });
   });
 
   test('loadData with recordUndo can be undone and redone', () => {

@@ -828,22 +828,9 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
-    const isLikelyTouchDevice = (() => {
-      try{
-        if(typeof global.matchMedia === 'function'){
-          if(global.matchMedia('(pointer: coarse)').matches || global.matchMedia('(hover: none)').matches){
-            return true;
-          }
-        }
-      }catch(err){
-        // ignore media query failures
-      }
-      const nav = global.navigator;
-      return !!(nav && (nav.maxTouchPoints > 0 || 'ontouchstart' in global));
-    })();
     const singleClickEdit = typeof hotOptions.singleClickEdit === 'boolean'
       ? hotOptions.singleClickEdit
-      : isLikelyTouchDevice;
+      : false;
     const explicitDisableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === false
       || hotOptions?.enableFormulaReferenceSelection === false;
     const explicitEnableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === true
@@ -13842,8 +13829,10 @@
       };
 
       let touchPointerTapState = null;
+      let pendingTouchEditTap = null;
       const TOUCH_TAP_MAX_DELAY_MS = 420;
       const TOUCH_TAP_MAX_DIST_SQ = 18 * 18;
+      const TOUCH_EDIT_REPEAT_WINDOW_MS = 1200;
       const resolveEditableCellTap = (event)=>{
         const target = resolveTargetElement(event?.target);
         const cell = target?.closest?.('.ag-cell[col-id^="c"]');
@@ -13854,19 +13843,19 @@
         if(!coords){
           return null;
         }
-        const colId = `c${coords.col}`;
-        if(!colDefsById.has(colId)){
+        if(coords.col >= colCount){
           return null;
         }
         return coords;
       };
       const handleTouchPointerDown = (event)=>{
-        if(event?.pointerType !== 'touch'){
+        if(singleClickEdit || event?.pointerType !== 'touch'){
           return;
         }
         const coords = resolveEditableCellTap(event);
         if(!coords){
           touchPointerTapState = null;
+          pendingTouchEditTap = null;
           return;
         }
         touchPointerTapState = {
@@ -13879,7 +13868,7 @@
         };
       };
       const handleTouchPointerUp = (event)=>{
-        if(event?.pointerType !== 'touch' || !touchPointerTapState){
+        if(singleClickEdit || event?.pointerType !== 'touch' || !touchPointerTapState){
           return;
         }
         const state = touchPointerTapState;
@@ -13893,11 +13882,35 @@
         if(elapsed > TOUCH_TAP_MAX_DELAY_MS || ((dx * dx) + (dy * dy)) > TOUCH_TAP_MAX_DIST_SQ){
           return;
         }
-        if(isInlineEditorActive()){
-          return;
-        }
         const coords = resolveEditableCellTap(event) || { row: state.row, col: state.col };
         if(!Number.isInteger(coords.row) || coords.row < 0 || !Number.isInteger(coords.col) || coords.col < 0){
+          pendingTouchEditTap = null;
+          return;
+        }
+        const now = Date.now();
+        const isRepeatTouchEditTap = !!(
+          pendingTouchEditTap
+          && pendingTouchEditTap.row === coords.row
+          && pendingTouchEditTap.col === coords.col
+          && (now - pendingTouchEditTap.ts) <= TOUCH_EDIT_REPEAT_WINDOW_MS
+        );
+        pendingTouchEditTap = {
+          row: coords.row,
+          col: coords.col,
+          ts: now
+        };
+        if(!isRepeatTouchEditTap){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot touch edit tap armed', {
+              debugLabel,
+              row: coords.row,
+              col: coords.col
+            });
+          }
+          return;
+        }
+        pendingTouchEditTap = null;
+        if(isInlineEditorActive()){
           return;
         }
         const api = instance?.gridApi;
@@ -13911,6 +13924,13 @@
             colKey,
             rowPinned: null
           });
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot touch edit tap start', {
+              debugLabel,
+              row: coords.row,
+              col: coords.col
+            });
+          }
           event.preventDefault?.();
         }catch(err){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -13925,6 +13945,7 @@
       };
       const handleTouchPointerCancel = ()=>{
         touchPointerTapState = null;
+        pendingTouchEditTap = null;
       };
 
       const handleHeaderContextMenuProxy = (event)=>{
