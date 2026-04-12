@@ -1629,13 +1629,15 @@
     const manager = getUndoManager();
     if(!manager){ return; }
     const command = trigger.dataset.undoCommand;
-    let handler = null;
-    if(command === 'undo'){ handler = manager.undo; }
-    if(command === 'redo'){ handler = manager.redo; }
-    if(typeof handler !== 'function'){ return; }
     if(trigger.disabled){ return; }
     event.preventDefault();
-    const result = handler.call(manager);
+    const result = typeof manager.performCommand === 'function'
+      ? manager.performCommand(command)
+      : (
+          command === 'undo'
+            ? manager.undo?.call(manager)
+            : (command === 'redo' ? manager.redo?.call(manager) : false)
+        );
     if(result === false){ return; }
     syncUndoButtonsAvailability();
   }

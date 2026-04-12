@@ -13912,26 +13912,7 @@
       };
 
       container.__undoManagerHandleKeydown = (event)=>{
-        if(!event){
-          return false;
-        }
-        const normalizedKey = typeof event.key === 'string' ? event.key.toLowerCase() : '';
-        if((!event.ctrlKey && !event.metaKey) || event.altKey){
-          return false;
-        }
-        if(normalizedKey !== 'z' && normalizedKey !== 'y'){
-          return false;
-        }
-        if(isEditableTarget(event.target) || isInlineEditorActive()){
-          return false;
-        }
-        if(normalizedKey === 'z'){
-          if(event.shiftKey){
-            return !!(typeof instance.redo === 'function' && instance.redo());
-          }
-          return !!(typeof instance.undo === 'function' && instance.undo());
-        }
-        return !!(typeof instance.redo === 'function' && instance.redo());
+        return false;
       };
 
       const handleContextMenu = (event)=>{

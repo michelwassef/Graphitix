@@ -169,6 +169,40 @@
     return true;
   }
 
+  function normalizeUndoEntry(input, mode){
+    if(!input){
+      return null;
+    }
+    if(mode === 'state-change'){
+      const apply = typeof input.apply === 'function' ? input.apply : null;
+      if(!apply){
+        return null;
+      }
+      const equals = typeof input.equals === 'function' ? input.equals : ((a, b) => a === b);
+      const before = input.from;
+      const after = input.to;
+      if(equals(before, after)){
+        return null;
+      }
+      const element = input.element || null;
+      return {
+        label: input.label || (element ? `state:${describeElement(element)}` : 'state-change'),
+        scope: input.scope || (element ? inferScope(element) : null),
+        undo: () => apply(before, 'undo'),
+        redo: () => apply(after, 'redo')
+      };
+    }
+    if(typeof input.undo !== 'function'){
+      return null;
+    }
+    return {
+      label: input.label || 'action',
+      scope: input.scope || null,
+      undo: input.undo,
+      redo: typeof input.redo === 'function' ? input.redo : undefined
+    };
+  }
+
   function flushPendingTransactions(reason){
     let flushed = false;
     let pass = 0;
@@ -206,7 +240,7 @@
   }
 
   undoNamespace.record = function record(entry){
-    return recordAction(entry);
+    return recordAction(normalizeUndoEntry(entry, 'action'));
   };
 
   undoNamespace.registerPendingTransactionSource = function registerPendingTransactionSource(source){
@@ -230,29 +264,22 @@
   };
 
   undoNamespace.recordStateChange = function recordStateChange(opts){
-    if(!opts){
-      return false;
+    return recordAction(normalizeUndoEntry(opts, 'state-change'));
+  };
+
+  function performUndoCommand(command){
+    const normalized = String(command || '').trim().toLowerCase();
+    if(normalized === 'undo'){
+      return undoNamespace.undo();
     }
-    const apply = typeof opts.apply === 'function' ? opts.apply : null;
-    if(!apply){
-      return false;
+    if(normalized === 'redo'){
+      return undoNamespace.redo();
     }
-    const equals = typeof opts.equals === 'function' ? opts.equals : ((a, b) => a === b);
-    const before = opts.from;
-    const after = opts.to;
-    if(equals(before, after)){
-      return false;
-    }
-    const element = opts.element || null;
-    const label = opts.label || (element ? `state:${describeElement(element)}` : 'state-change');
-    const scope = opts.scope || (element ? inferScope(element) : null);
-    const entry = {
-      label,
-      scope,
-      undo: () => apply(before, 'undo'),
-      redo: () => apply(after, 'redo')
-    };
-    return recordAction(entry);
+    return false;
+  }
+
+  undoNamespace.performCommand = function performCommand(command){
+    return performUndoCommand(command);
   };
 
   undoNamespace.undo = function undo(){
@@ -454,13 +481,9 @@
     }
     let handled = false;
     if(key === 'z'){
-      if(event.shiftKey){
-        handled = undoNamespace.redo();
-      }else{
-        handled = undoNamespace.undo();
-      }
+      handled = performUndoCommand(event.shiftKey ? 'redo' : 'undo');
     }else if(key === 'y'){
-      handled = undoNamespace.redo();
+      handled = performUndoCommand('redo');
     }
     if(handled){
       undoDebug('Debug: undo keydown handled', {

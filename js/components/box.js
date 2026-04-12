@@ -1575,6 +1575,53 @@
     }catch(err){ console.warn('applyTraceShapeGlobalStyle error', err); }
   }
 
+  function persistTracePointStyle(traceIndexValue, patch){
+    if(traceIndexValue == null){ return; }
+    state.pointStyles = state.pointStyles || {};
+    const previous = cloneSimple(state.pointStyles[traceIndexValue]) || {};
+    const next = Object.assign({}, previous, patch);
+    state.pointStyles[traceIndexValue] = next;
+    if(!tryApplyBoxStripPointStyleLive(patch, { traceIndex: traceIndexValue, persistState: false }) && typeof state.scheduleDraw === 'function'){
+      try{ scheduleBoxViewRefresh('point-style-trace-change'); }catch(err){ console.warn('persistTracePointStyle scheduleDraw error', err); }
+    }
+    try{
+      recordBoxChange(`box:point-style:${traceIndexValue}`, previous, next, value => {
+        state.pointStyles = state.pointStyles || {};
+        if(value && typeof value === 'object' && Object.keys(value).length){
+          state.pointStyles[traceIndexValue] = value;
+        }else{
+          delete state.pointStyles[traceIndexValue];
+        }
+        if(typeof state.scheduleDraw === 'function') state.scheduleDraw({ reason: 'point-style-trace-undo' });
+      });
+    }catch(err){ console.warn('persistTracePointStyle error', err); }
+  }
+
+  function applyPointGlobalStyle(patch){
+    const previous = {
+      pointStyles: cloneSimple(state.pointStyles || {}) || {},
+      pointGlobalStyle: cloneSimple(state.pointGlobalStyle || {}) || {}
+    };
+    state.pointStyles = state.pointStyles || {};
+    Object.keys(state.pointStyles).forEach(key => {
+      state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, patch);
+    });
+    state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
+    if(!tryApplyBoxStripPointStyleLive(patch, { persistState: false }) && typeof state.scheduleDraw === 'function'){
+      try{ scheduleBoxViewRefresh('point-style-global-change'); }catch(err){ console.warn('applyPointGlobalStyle scheduleDraw error', err); }
+    }
+    try{
+      recordBoxChange('box:point-style:global', previous, {
+        pointStyles: cloneSimple(state.pointStyles || {}) || {},
+        pointGlobalStyle: cloneSimple(state.pointGlobalStyle || {}) || {}
+      }, value => {
+        state.pointStyles = cloneSimple(value?.pointStyles) || {};
+        state.pointGlobalStyle = cloneSimple(value?.pointGlobalStyle) || {};
+        if(typeof state.scheduleDraw === 'function') state.scheduleDraw({ reason: 'point-style-global-undo' });
+      });
+    }catch(err){ console.warn('applyPointGlobalStyle error', err); }
+  }
+
   // Apply opacity to every box element (points, shapes, summaries) in a single frame
   let pendingBoxGlobalOpacity = null;
   const runBoxGlobalOpacityApply = () => {
@@ -1758,24 +1805,10 @@
       const sanitizeShape = shape => shapeValues.has(shape) ? shape : 'circle';
       const applyTracePatch = patch => {
         if(traceIndex == null){ return; }
-        state.pointStyles = state.pointStyles || {};
-        const prev = state.pointStyles[traceIndex] && typeof state.pointStyles[traceIndex] === 'object'
-          ? state.pointStyles[traceIndex]
-          : {};
-        state.pointStyles[traceIndex] = Object.assign({}, prev, patch);
-        if(!tryApplyBoxStripPointStyleLive(patch, { traceIndex, persistState: false }) && typeof state.scheduleDraw === 'function'){
-          scheduleBoxViewRefresh('point-style-trace-change');
-        }
+        persistTracePointStyle(traceIndex, patch);
       };
       const applyGlobalPatch = patch => {
-        state.pointStyles = state.pointStyles || {};
-        Object.keys(state.pointStyles).forEach(key => {
-          state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, patch);
-        });
-        state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
-        if(!tryApplyBoxStripPointStyleLive(patch, { persistState: false }) && typeof state.scheduleDraw === 'function'){
-          scheduleBoxViewRefresh('point-style-global-change');
-        }
+        applyPointGlobalStyle(patch);
       };
       const resolvePointStyle = ctx => {
         if(ctx.scope === 'trace' && traceIndex != null){
