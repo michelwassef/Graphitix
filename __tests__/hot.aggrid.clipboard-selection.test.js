@@ -2058,6 +2058,62 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 0)).toBe('P1');
   });
 
+  test('cell context menu shows Copy, Cut, Paste at the top in order', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCellContextMenuClipboardHot';
+    document.body.appendChild(container);
+
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async () => {}),
+      readText: jest.fn(async () => 'X')
+    };
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cell-contextmenu-clipboard',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2']
+        ]
+      }
+    );
+
+    capturedGridOptions.onCellContextMenu({
+      event: new global.window.MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 30,
+        clientY: 40
+      }),
+      node: {
+        rowIndex: 1,
+        data: { __rowIndex: 1 }
+      },
+      column: {
+        getColId: () => 'c1'
+      }
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu.children)
+      .map(node => (node.textContent || '').trim())
+      .filter(Boolean);
+
+    expect(labels.slice(0, 4)).toEqual([
+      'Copy',
+      'Cut',
+      'Paste',
+      'Paste -> Transposed'
+    ]);
+    expect(labels).toContain('Exclude selection from analysis');
+  });
+
   test('row header context menu supports insert/delete for selected rows', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

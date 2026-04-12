@@ -10031,6 +10031,22 @@
       fireHook('afterSelectionEnd', 0, firstCol, lastRow, lastCol);
       return selectedCols;
     };
+    const primeCellSelectionForMenu = (range, fallbackCell)=>{
+      const normalized = normalizeRange(range)
+        || (fallbackCell && Number.isInteger(fallbackCell.row) && Number.isInteger(fallbackCell.col)
+          ? normalizeRange({ from: fallbackCell, to: fallbackCell })
+          : null);
+      if(!normalized){
+        return null;
+      }
+      clearGridCellFocus(instance.gridApi);
+      focusGridContainer();
+      clearSelectedHeaderColumns();
+      setLastRange(normalized);
+      renderAg(instance.gridApi);
+      fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
+      return normalized;
+    };
 
     const dispatchPasteWithText = (text)=>{
       if(typeof text !== 'string' || !text){
@@ -11380,10 +11396,12 @@
           return;
         }
         const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
-        const sel = getEffectiveSelectionRange() || {
+        const clickedRange = {
           from: { row: params?.node?.rowIndex ?? 0, col: colIdx },
           to: { row: params?.node?.rowIndex ?? 0, col: colIdx }
         };
+        const activeSelection = getEffectiveSelectionRange();
+        const sel = rangeContainsRange(activeSelection, clickedRange) ? activeSelection : clickedRange;
         const pairs = [];
         const physicalRows = new Set();
         const physicalCols = new Set();
@@ -11410,7 +11428,49 @@
         const canIncludeCols = colList.some(col => exclusionController.isColumnExcluded(col));
         const canExcludeCells = pairs.some(pair => !exclusionController.isCellExcluded(pair.row, pair.col));
         const canIncludeCells = pairs.some(pair => exclusionController.isCellExcluded(pair.row, pair.col));
+        const canPaste = !!(navigator?.clipboard && typeof navigator.clipboard.readText === 'function');
         const items = [
+          {
+            label: 'Copy',
+            disabled: !pairs.length,
+            action: ()=>{
+              if(!primeCellSelectionForMenu(sel, clickedRange.from)){
+                return;
+              }
+              copySelectionToClipboard();
+            }
+          },
+          {
+            label: 'Cut',
+            disabled: !pairs.length,
+            action: ()=>{
+              if(!primeCellSelectionForMenu(sel, clickedRange.from)){
+                return;
+              }
+              cutSelectionToClipboard();
+            }
+          },
+          {
+            label: 'Paste',
+            disabled: !canPaste,
+            action: async ()=>{
+              let text = '';
+              try{
+                text = await navigator.clipboard.readText();
+              }catch(err){
+                console.error('Shared.hot AG body menu paste read failed', err);
+                return;
+              }
+              if(!text){
+                return;
+              }
+              if(!primeCellSelectionForMenu(sel, clickedRange.from)){
+                return;
+              }
+              dispatchPasteWithText(text);
+            }
+          },
+          'separator',
           {
             label: 'Paste -> Transposed',
             disabled: false,
