@@ -1596,14 +1596,17 @@
   function syncUndoButtonsAvailability(state){
     if(!doc){ return; }
     const manager = getUndoManager();
+    const activeTabId = state?.tabId
+      || manager?.getActiveTabId?.()
+      || null;
     let canUndo = false;
     let canRedo = false;
     if(state && typeof state.canUndo === 'boolean' && typeof state.canRedo === 'boolean'){
       canUndo = state.canUndo;
       canRedo = state.canRedo;
     }else if(manager){
-      if(typeof manager.canUndo === 'function'){ canUndo = !!manager.canUndo(); }
-      if(typeof manager.canRedo === 'function'){ canRedo = !!manager.canRedo(); }
+      if(typeof manager.canUndo === 'function'){ canUndo = !!manager.canUndo({ tabId: activeTabId }); }
+      if(typeof manager.canRedo === 'function'){ canRedo = !!manager.canRedo({ tabId: activeTabId }); }
     }
     doc.querySelectorAll(UNDO_BUTTON_SELECTOR).forEach(btn => {
       btn.disabled = !canUndo;
@@ -1631,12 +1634,18 @@
     const command = trigger.dataset.undoCommand;
     if(trigger.disabled){ return; }
     event.preventDefault();
+    const activeTabId = manager.getActiveTabId?.() || null;
+    const lastFocusedElement = manager.getLastFocusedElement?.() || null;
     const result = typeof manager.performCommand === 'function'
-      ? manager.performCommand(command)
+      ? manager.performCommand(command, {
+          tabId: activeTabId,
+          target: lastFocusedElement,
+          preferBridge: true
+        })
       : (
           command === 'undo'
-            ? manager.undo?.call(manager)
-            : (command === 'redo' ? manager.redo?.call(manager) : false)
+            ? manager.undo?.call(manager, { tabId: activeTabId, target: lastFocusedElement })
+            : (command === 'redo' ? manager.redo?.call(manager, { tabId: activeTabId, target: lastFocusedElement }) : false)
         );
     if(result === false){ return; }
     syncUndoButtonsAvailability();

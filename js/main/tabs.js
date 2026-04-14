@@ -416,6 +416,9 @@
       if (workspaceState.pendingDuplicateSource === tabId) {
         workspaceState.pendingDuplicateSource = null;
       }
+      if (window.Shared?.undoManager?.clearTab) {
+        window.Shared.undoManager.clearTab(tabId, { reason });
+      }
       if (window.Shared?.workspaceTabs?.disposeTab) {
         window.Shared.workspaceTabs.disposeTab(tab, { reason });
       }
@@ -433,10 +436,16 @@
         } else {
           workspaceState.activeTabId = null;
           renderTabs();
+          if (window.Shared?.undoManager?.refreshState) {
+            window.Shared.undoManager.refreshState(null, 'tab-closed-none');
+          }
           showGraphSelection({ reason: 'tab-closed-none' });
         }
       } else {
         renderTabs();
+        if (window.Shared?.undoManager?.refreshState) {
+          window.Shared.undoManager.refreshState(workspaceState.activeTabId || null, 'tab-closed-inactive');
+        }
         console.debug('Debug: workspace tab closed (inactive)', { tabId, remaining: workspaceState.tabs.length, reason });
       }
       console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length, reason });
@@ -512,12 +521,19 @@
           candidateSource,
           reason: options.reason || 'unconfigured'
         });
+        if (window.Shared?.undoManager?.refreshState) {
+          window.Shared.undoManager.refreshState(target.id, options.reason || 'tab-activated-unconfigured');
+        }
         showGraphSelection({ reason: target.isWelcome ? 'welcome-tab' : options.reason || 'unconfigured' });
         return;
       }
       workspaceState.pendingDuplicateSource = null;
       workspaceState.lastActiveGraphId = target.id;
-      return showWorkspaceForTab(target, { skipApply: !!options.skipApplyPayload });
+      const result = showWorkspaceForTab(target, { skipApply: !!options.skipApplyPayload });
+      if (window.Shared?.undoManager?.refreshState) {
+        window.Shared.undoManager.refreshState(target.id, options.reason || 'tab-activated');
+      }
+      return result;
     }
 
     function getSessionActionsContext(getExtra = {}) {

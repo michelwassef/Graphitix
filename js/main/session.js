@@ -1061,6 +1061,9 @@
 
   function applySessionData(session, options = {}) {
     const tabs = Array.isArray(session?.tabs) ? session.tabs : [];
+    if (window.Shared?.undoManager?.clear) {
+      window.Shared.undoManager.clear({ reason: options.reason || 'session-load' });
+    }
     if (typeof options.hideDuplicatePrompt === 'function') {
       options.hideDuplicatePrompt();
       console.debug('Debug: session apply requested duplicate prompt hide', { reason: options.reason || 'session-load' });
@@ -1125,6 +1128,9 @@
     if (targetTab && typeof options.activateTab === 'function') {
       options.activateTab(targetTab.id, { skipPersist: true, reason: options.reason || 'session-load' });
     } else if (!targetTab && typeof options.showGraphSelection === 'function') {
+      if (window.Shared?.undoManager?.refreshState) {
+        window.Shared.undoManager.refreshState(welcomeTab.id, options.reason || 'session-empty');
+      }
       options.showGraphSelection({ reason: 'session-empty' });
     }
     clearSessionDirty(options.reason || 'session-load');

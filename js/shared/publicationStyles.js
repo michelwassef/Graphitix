@@ -702,6 +702,8 @@
 
     const restoreGraphVisibility = suspendPublicationGraphVisibility(type);
     const preservedDefaults = captureDefaultState(type, session, domControls, workspace);
+    const undoManager = Shared.undoManager || null;
+    let beforeState = null;
     try{
       try{
         if(typeof session.persistActiveTabState === 'function'){
@@ -709,6 +711,13 @@
         }
       }catch(err){
         console.error('publicationStyles pre-persist error', { type, err });
+      }
+      if(undoManager && typeof undoManager.captureTabState === 'function'){
+        beforeState = undoManager.captureTabState(tab, {
+          reason: `publication-style-pre-${type}`,
+          persistActive: true,
+          forcePreviewCapture: true
+        });
       }
 
       const sourcePayload = cloneValue(tab.payload)
@@ -779,6 +788,26 @@
       applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
         reason: `publication-style-${type}-zoom-final`
       });
+
+      let afterState = null;
+      if(undoManager && typeof undoManager.captureTabState === 'function'){
+        afterState = undoManager.captureTabState(tab, {
+          reason: `publication-style-post-${type}`,
+          persistActive: true,
+          forcePreviewCapture: true
+        });
+      }
+      if(beforeState && afterState && typeof undoManager?.recordTabStateChange === 'function'){
+        undoManager.recordTabStateChange({
+          tabId: tab.id,
+          label: `publication-style:${presetId}`,
+          scope: type,
+          from: beforeState,
+          to: afterState,
+          undoReason: `undo-publication-style-${type}`,
+          redoReason: `redo-publication-style-${type}`
+        });
+      }
       global.setTimeout(() => {
         applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
           reason: `publication-style-${type}-zoom-post-final`,

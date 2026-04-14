@@ -1176,6 +1176,8 @@
     }
     const applied = [];
     const skipped = [];
+    const undoManager = window.Shared?.undoManager || null;
+    const beforeStates = new Map();
     let copiedLayout = null;
     if (stylePatch.layout) {
       const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
@@ -1198,6 +1200,16 @@
         skipped.push({ id: targetId, reason: 'no-payload' });
         console.debug('Debug: styleSync target skipped - missing payload', { tabId: targetTab.id });
         return;
+      }
+      if (undoManager && typeof undoManager.captureTabState === 'function') {
+        const beforeState = undoManager.captureTabState(targetTab, {
+          reason: 'style-sync-pre',
+          persistActive: true,
+          forcePreviewCapture: true
+        });
+        if (beforeState) {
+          beforeStates.set(targetTab.id, beforeState);
+        }
       }
       const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
       const nextPayload = cloneFn?.call(state.session, targetTab.payload) || cloneValue(targetTab.payload);
@@ -1222,6 +1234,25 @@
       }
       if (state.previews && typeof state.previews.syncTabPreviewIndicator === 'function') {
         state.previews.syncTabPreviewIndicator(targetTab);
+      }
+      if ((changed || stylePatch.layout) && undoManager && typeof undoManager.captureTabState === 'function' && typeof undoManager.recordTabStateChange === 'function') {
+        const beforeState = beforeStates.get(targetTab.id) || null;
+        const afterState = undoManager.captureTabState(targetTab, {
+          reason: 'style-sync-post',
+          persistActive: true,
+          forcePreviewCapture: true
+        });
+        if (beforeState && afterState) {
+          undoManager.recordTabStateChange({
+            tabId: targetTab.id,
+            label: `style-sync:${selectedGroups.join(',')}`,
+            scope: targetTab.type,
+            from: beforeState,
+            to: afterState,
+            undoReason: 'undo-style-sync',
+            redoReason: 'redo-style-sync'
+          });
+        }
       }
     });
     if (applied.length) {

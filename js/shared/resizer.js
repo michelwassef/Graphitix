@@ -72,6 +72,14 @@
         return;
       }
       const startX = Number(event?.clientX) || 0;
+      const activeTabId = undoManager?.getActiveTabId?.() || null;
+      const beforeTabState = (undoManager && typeof undoManager.captureTabState === 'function' && activeTabId)
+        ? undoManager.captureTabState(activeTabId, {
+            reason: `${label}-panel-drag-pre`,
+            persistActive: true,
+            forcePreviewCapture: true
+          })
+        : null;
       let gap = 0;
       if(diagramSelector){
         const diagramArea = graphPanel.querySelector?.(diagramSelector);
@@ -197,7 +205,25 @@
             console.error('Shared.resizer.attachPanelDragResizer syncPanels end error', err);
           }
         }
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag end', { label });
+        if(undoManager && typeof undoManager.captureTabState === 'function' && typeof undoManager.recordTabStateChange === 'function' && activeTabId && beforeTabState){
+          const afterTabState = undoManager.captureTabState(activeTabId, {
+            reason: `${label}-panel-drag-post`,
+            persistActive: true,
+            forcePreviewCapture: true
+          });
+          if(afterTabState){
+            undoManager.recordTabStateChange({
+              tabId: activeTabId,
+              label: `panel-layout:${label}`,
+              scope: label,
+              from: beforeTabState,
+              to: afterTabState,
+              undoReason: `${label}-panel-drag-undo`,
+              redoReason: `${label}-panel-drag-redo`
+            });
+          }
+        }
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag end', { label, tabId: activeTabId || null });
       };
       doc.addEventListener('pointermove', onMove);
       doc.addEventListener('pointerup', onUp);
