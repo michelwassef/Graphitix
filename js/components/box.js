@@ -239,6 +239,323 @@
     return palette[0] || '#000000';
   }
 
+
+  const BOX_CLEANUP_DEBUG = false;
+
+  function boxCleanupDebug(message, payload){
+    if(!BOX_CLEANUP_DEBUG){
+      return;
+    }
+    if(arguments.length > 1){
+      console.debug(message, payload);
+      return;
+    }
+    console.debug(message);
+  }
+
+  function applyStrokePatternToNodes(nodes, width, patternValue){
+    const attrs = getSummaryStrokePatternAttrs(width, patternValue);
+    (Array.isArray(nodes) ? nodes : []).forEach(node => {
+      if(!node){
+        return;
+      }
+      if(attrs['stroke-dasharray']){
+        node.setAttribute('stroke-dasharray', attrs['stroke-dasharray']);
+      }else{
+        node.removeAttribute('stroke-dasharray');
+      }
+      if(attrs['stroke-linecap']){
+        node.setAttribute('stroke-linecap', attrs['stroke-linecap']);
+      }
+    });
+  }
+
+  function createBoxCanvasForeignObjectSurface(doc, bounds, rendererType){
+    if(!doc || !bounds){
+      return null;
+    }
+    const minX = Number(bounds.minX);
+    const minY = Number(bounds.minY);
+    const width = Math.max(1, Math.ceil(Number(bounds.width) || 0));
+    const height = Math.max(1, Math.ceil(Number(bounds.height) || 0));
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || width <= 0 || height <= 0){
+      boxCleanupDebug('Debug: box canvas surface skipped due to invalid bounds', { bounds, rendererType });
+      return null;
+    }
+    const foreignObject = doc.createElementNS(NS, 'foreignObject');
+    foreignObject.setAttribute('x', String(minX));
+    foreignObject.setAttribute('y', String(minY));
+    foreignObject.setAttribute('width', String(width));
+    foreignObject.setAttribute('height', String(height));
+    foreignObject.setAttribute('data-point-renderer', rendererType);
+    const canvas = doc.createElement('canvas');
+    canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    canvas.style.display = 'block';
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    canvas.style.background = 'transparent';
+    canvas.style.pointerEvents = 'none';
+    const dpr = Math.max(1, global.window?.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.ceil(width * dpr));
+    canvas.height = Math.max(1, Math.ceil(height * dpr));
+    const ctx = canvas.getContext('2d');
+    if(!ctx){
+      boxCleanupDebug('Debug: box canvas surface skipped because 2D context is unavailable', { rendererType, width, height });
+      return null;
+    }
+    return { foreignObject, canvas, ctx, dpr, width, height, minX, minY };
+  }
+
+  function computeGaussianDensityProfile(sorted, bandwidth, domain, count, options = {}){
+    const usePreallocatedArrays = options.usePreallocatedArrays === true;
+    const positions = usePreallocatedArrays ? new Array(count) : [];
+    const densities = usePreallocatedArrays ? new Array(count) : [];
+    const step = (domain.domainMax - domain.domainMin) / Math.max(count - 1, 1);
+    const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
+    let peak = 0;
+    for(let idx = 0; idx < count; idx++){
+      const x = domain.domainMin + step * idx;
+      let sum = 0;
+      for(let j = 0; j < sorted.length; j++){
+        const u = (x - sorted[j]) / bandwidth;
+        sum += Math.exp(-0.5 * u * u);
+      }
+      const density = denom ? sum / denom : 0;
+      if(usePreallocatedArrays){
+        positions[idx] = x;
+        densities[idx] = density;
+      }else{
+        positions.push(x);
+        densities.push(density);
+      }
+      if(density > peak){
+        peak = density;
+      }
+    }
+    return {
+      positions,
+      densities,
+      peak,
+      domainMin: domain.domainMin,
+      domainMax: domain.domainMax
+    };
+  }
+
+  async function finalizeFeasibleRadiusSearch(config){
+    const probeRadius = typeof config?.probeRadius === 'function' ? config.probeRadius : null;
+    const resolveHalfWidthCap = typeof config?.resolveHalfWidthCap === 'function'
+      ? config.resolveHalfWidthCap
+      : probe => probe?.availableHalfWidth;
+    const baseRadius = Number(config?.baseRadius);
+    const minRadius = Number(config?.minRadius);
+    const radiusStep = Number(config?.radiusStep);
+    const sampleSize = Number(config?.sampleSize) || 0;
+    if(!probeRadius || !Number.isFinite(baseRadius) || baseRadius <= 0 || !Number.isFinite(minRadius) || minRadius <= 0){
+      boxCleanupDebug('Debug: feasible radius search skipped due to invalid configuration', { baseRadius, minRadius, sampleSize });
+      return null;
+    }
+    let baseProbe = await probeRadius(baseRadius);
+    if(baseProbe?.cancelled){
+      return null;
+    }
+    if(baseProbe?.fit){
+      const roundedRadius = roundStripPointControlValue(baseProbe.radius, radiusStep, 'down');
+      return {
+        radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : baseProbe.radius,
+        halfWidthCap: resolveHalfWidthCap(baseProbe),
+        sampleSize,
+        fitted: true
+      };
+    }
+    let low = minRadius;
+    let lowProbe = await probeRadius(low);
+    if(lowProbe?.cancelled){
+      return null;
+    }
+    if(!lowProbe?.fit){
+      const fallbackRadius = roundStripPointControlValue(low, radiusStep, 'down');
+      return {
+        radius: Number.isFinite(fallbackRadius) && fallbackRadius > 0 ? fallbackRadius : low,
+        halfWidthCap: resolveHalfWidthCap(lowProbe),
+        sampleSize,
+        fitted: false
+      };
+    }
+    let high = baseRadius;
+    for(let iter = 0; iter < 12; iter++){
+      if((high - low) <= 0.05){
+        break;
+      }
+      const mid = (low + high) / 2;
+      const midProbe = await probeRadius(mid);
+      if(midProbe?.cancelled){
+        return null;
+      }
+      if(midProbe?.fit){
+        low = mid;
+        lowProbe = midProbe;
+      }else{
+        high = mid;
+      }
+    }
+    const roundedRadius = roundStripPointControlValue(low, radiusStep, 'down');
+    return {
+      radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : low,
+      halfWidthCap: resolveHalfWidthCap(lowProbe),
+      sampleSize,
+      fitted: true
+    };
+  }
+
+  function buildPostHocPairResult(pr, config = {}){
+    const indices = Array.isArray(config.indices) ? config.indices : [];
+    const traces = Array.isArray(config.traces) ? config.traces : [];
+    const labels = Array.isArray(config.labels) ? config.labels : [];
+    const groups = Array.isArray(config.groups) ? config.groups : [];
+    const ai = indices[pr.i];
+    const bi = indices[pr.j];
+    const effectMetrics = computeEffectSizeMetrics(traces[ai].rawY, traces[bi].rawY, { paired: config.paired === true });
+    const paramEffectMeta = config.paramEffectMeta;
+    const nonParamEffectMeta = config.nonParamEffectMeta;
+    const formattedParamEffect = formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value], paramEffectMeta);
+    const formattedNonParamEffect = formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value], nonParamEffectMeta);
+    const rangeMax = typeof config.getRenderedRangeMax === 'function' ? config.getRenderedRangeMax(ai, bi) : null;
+    const pairResult = {
+      a: pr.i,
+      b: pr.j,
+      ai,
+      bi,
+      p: config.pValueResolver ? config.pValueResolver(pr) : pr.p,
+      adjP: config.adjustedPValueResolver ? config.adjustedPValueResolver(pr) : pr.pAdj,
+      stat: config.statValueResolver ? config.statValueResolver(pr) : pr.stat,
+      statName: config.statName || 'stat',
+      df: config.dfResolver ? config.dfResolver(pr) : pr.df,
+      diff: pr.diff,
+      ciLow: pr.ciLow,
+      ciHigh: pr.ciHigh,
+      labelA: labels[pr.i],
+      labelB: labels[pr.j],
+      effects: effectMetrics,
+      effectParametric: formattedParamEffect,
+      effectNonParametric: formattedNonParamEffect,
+      rangeMax,
+      method: config.method || 'custom'
+    };
+    if(config.lognormalVariant){
+      return { ...pairResult, ...convertToLognormalRatioResult(pr, groups[pr.i], groups[pr.j]) };
+    }
+    return pairResult;
+  }
+
+  function prepareSwarmPointLayoutConfig(params = {}){
+    const rawValues = Array.isArray(params.valueList) ? params.valueList : [];
+    const pointCount = rawValues.length;
+    const pointCoords = new Float64Array(pointCount);
+    const coordProjector = typeof params.coordProjector === 'function' ? params.coordProjector : value => value;
+    for(let idx = 0; idx < pointCount; idx++){
+      pointCoords[idx] = coordProjector(rawValues[idx]);
+    }
+    const traceIndex = params.traceIndex;
+    const traceStyle = typeof params.getPointStyle === 'function' ? params.getPointStyle(traceIndex) : null;
+    const overrideRadius = Number(params.pointRadiusOverride);
+    const styleRadiusRaw = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
+    const allowAutoSize = !!params.autoSize && !(typeof params.hasExplicitPointSize === 'function' && params.hasExplicitPointSize(traceIndex));
+    const styleRadius = allowAutoSize ? null : styleRadiusRaw;
+    const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
+      ? overrideRadius
+      : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
+    const fallbackRadius = params.pointRadius;
+    const allowAdjustmentBase = params.allowRadiusAdjustment != null
+      ? !!params.allowRadiusAdjustment
+      : (params.autoSize ? allowAutoSize : true);
+    const allowAdjustment = allowAdjustmentBase;
+    const radiusCountExponent = allowAutoSize ? 0.85 : null;
+    const explicitMaxHalfWidth = Number(params.maxHalfWidth);
+    const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+    const useStrictStripSpacing = params.widthScaleMode === 'density' && params.debugLabel === 'individual';
+    const pitchHalfExtentLimit = useStrictStripSpacing
+      ? computeStripHalfExtentLimit({
+          minCenterPitch: params.minCenterPitch,
+          gapFactor: params.interDatasetGapFactor,
+          minGapPx: params.minInterDatasetGapPx
+        })
+      : null;
+    const availableStrictHalfWidth = useStrictStripSpacing
+      ? resolveStripAvailableHalfWidth({
+          axisSpacing: params.localBand,
+          pointRadius: spacingRadius,
+          minCenterPitch: params.minCenterPitch,
+          gapFactor: params.interDatasetGapFactor,
+          minGapPx: params.minInterDatasetGapPx
+        })
+      : null;
+    let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
+      ? explicitMaxHalfWidth
+      : availableStrictHalfWidth;
+    if(useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0){
+      let stripSpreadFactor = computeSampleSpreadFactor(params.sampleCount, params.debugEnabled);
+      const sampleCountValue = Math.max(0, Number(params.sampleCount) || 0);
+      if(sampleCountValue > 0){
+        const logCount = Math.log10(sampleCountValue + 1);
+        const normalizedDelta = (logCount - STRIP_MEDIUM_SPREAD_LOG_CENTER) / STRIP_MEDIUM_SPREAD_LOG_SIGMA;
+        const mediumCompression = Math.exp(-0.5 * normalizedDelta * normalizedDelta);
+        const countScale = 1 - (1 - STRIP_MEDIUM_SPREAD_MIN_SCALE) * mediumCompression;
+        stripSpreadFactor *= countScale;
+      }
+      stripSpreadFactor = Math.max(0.2, Math.min(1, stripSpreadFactor));
+      const stripScaledHalfWidth = resolvedMaxHalfWidth * stripSpreadFactor;
+      const stripMinHalfWidth = Math.max(spacingRadius * 1.05, 0.5);
+      resolvedMaxHalfWidth = Math.max(stripMinHalfWidth, stripScaledHalfWidth);
+    }
+    const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
+      ? resolvedMaxHalfWidth
+      : null;
+    const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+    const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+    const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(params.drawOpts, {
+        pointCount,
+        threshold: params.canvasThreshold
+      })
+      && BATCHABLE_POINT_SHAPES.has(effectiveShape)
+      && canUseBoxPointResizeCanvas();
+    const useApproximateCanvas = canvasPointLayerEnabled
+      && shouldUseBoxApproximatePointCanvas({
+        pointCount,
+        threshold: params.approximateThreshold,
+        collectsPointByRow: params.collectPointsByRow instanceof Map
+      });
+    const approximateLayout = useApproximateCanvas
+      ? buildBoxApproximatePointBins({
+          coords: pointCoords,
+          raws: rawValues,
+          orientation: params.orientation,
+          radius: swarmPointRadius,
+          maxHalfWidth: resolvedMaxHalfWidth,
+          widthScaleMode: params.widthScaleMode,
+          violinBounds: params.violinBounds
+        })
+      : null;
+    return {
+      rawValues,
+      pointCount,
+      pointCoords,
+      traceStyle,
+      resolvedRadius,
+      fallbackRadius,
+      allowAdjustment,
+      radiusCountExponent,
+      useStrictStripSpacing,
+      pitchHalfExtentLimit,
+      resolvedMaxHalfWidth,
+      hardStripHalfWidthCap,
+      swarmPointRadius,
+      effectiveShape,
+      canvasPointLayerEnabled,
+      useApproximateCanvas,
+      approximateLayout
+    };
+  }
+
   function getThemeAwareDefaultPalette(options = {}){
     const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
       ? options.schemeId.trim().toLowerCase()
@@ -2069,18 +2386,7 @@
       state.connectionLineStyle = Object.assign({}, state.connectionLineStyle || {}, patch || {});
     };
     const applyPatternToNodes = (nodes, width, patternValue) => {
-      const attrs = getSummaryStrokePatternAttrs(width, patternValue);
-      nodes.forEach(node => {
-        if(!node){ return; }
-        if(attrs['stroke-dasharray']){
-          node.setAttribute('stroke-dasharray', attrs['stroke-dasharray']);
-        }else{
-          node.removeAttribute('stroke-dasharray');
-        }
-        if(attrs['stroke-linecap']){
-          node.setAttribute('stroke-linecap', attrs['stroke-linecap']);
-        }
-      });
+      applyStrokePatternToNodes(nodes, width, patternValue);
     };
     additionalLineControls.show({
       scopeId: 'box',
@@ -2227,18 +2533,7 @@
       return Array.from(plot.querySelectorAll('line[data-summary-line="1"]'));
     };
     const applyPatternToNodes = (nodes, width, patternValue) => {
-      const attrs = getSummaryStrokePatternAttrs(width, patternValue);
-      nodes.forEach(node => {
-        if(!node){ return; }
-        if(attrs['stroke-dasharray']){
-          node.setAttribute('stroke-dasharray', attrs['stroke-dasharray']);
-        }else{
-          node.removeAttribute('stroke-dasharray');
-        }
-        if(attrs['stroke-linecap']){
-          node.setAttribute('stroke-linecap', attrs['stroke-linecap']);
-        }
-      });
+      applyStrokePatternToNodes(nodes, width, patternValue);
     };
     const resolveScope = ctx => {
       const requested = ctx?.scope === 'global' ? 'global' : 'trace';
@@ -3042,26 +3337,11 @@
     maxY += padding;
     const width = Math.max(1, Math.ceil(maxX - minX));
     const height = Math.max(1, Math.ceil(maxY - minY));
-    const foreignObject = doc.createElementNS(NS, 'foreignObject');
-    foreignObject.setAttribute('x', String(minX));
-    foreignObject.setAttribute('y', String(minY));
-    foreignObject.setAttribute('width', String(width));
-    foreignObject.setAttribute('height', String(height));
-    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
-    const canvas = doc.createElement('canvas');
-    canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-    canvas.style.display = 'block';
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    canvas.style.background = 'transparent';
-    canvas.style.pointerEvents = 'none';
-    const dpr = Math.max(1, global.window?.devicePixelRatio || 1);
-    canvas.width = Math.max(1, Math.ceil(width * dpr));
-    canvas.height = Math.max(1, Math.ceil(height * dpr));
-    const ctx = canvas.getContext('2d');
-    if(!ctx){
+    const previewSurface = createBoxCanvasForeignObjectSurface(doc, { minX, minY, width, height }, 'canvas-preview');
+    if(!previewSurface){
       return false;
     }
+    const { foreignObject, canvas, ctx, dpr } = previewSurface;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.beginPath();
     points.forEach(point => {
@@ -3244,26 +3524,11 @@
     maxY += padding;
     const width = Math.max(1, Math.ceil(maxX - minX));
     const height = Math.max(1, Math.ceil(maxY - minY));
-    const foreignObject = doc.createElementNS(NS, 'foreignObject');
-    foreignObject.setAttribute('x', String(minX));
-    foreignObject.setAttribute('y', String(minY));
-    foreignObject.setAttribute('width', String(width));
-    foreignObject.setAttribute('height', String(height));
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
-    const canvas = doc.createElement('canvas');
-    canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-    canvas.style.display = 'block';
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    canvas.style.background = 'transparent';
-    canvas.style.pointerEvents = 'none';
-    const dpr = Math.max(1, global.window?.devicePixelRatio || 1);
-    canvas.width = Math.max(1, Math.ceil(width * dpr));
-    canvas.height = Math.max(1, Math.ceil(height * dpr));
-    const ctx = canvas.getContext('2d');
-    if(!ctx){
+    const approximateSurface = createBoxCanvasForeignObjectSurface(doc, { minX, minY, width, height }, 'canvas-approx');
+    if(!approximateSurface){
       return false;
     }
+    const { foreignObject, canvas, ctx, dpr } = approximateSurface;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -4309,46 +4574,16 @@
         return { positions: [], densities: [], bandwidth, domainMin: NaN, domainMax: NaN, peak: 0 };
       }
       const bandwidth = resolveBandwidth(sorted);
-      const dataMin = sorted[0];
-      const dataMax = sorted[sorted.length - 1];
-      const dataSpan = dataMax - dataMin;
-      const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
-      let domainMin = dataMin - pad;
-      let domainMax = dataMax + pad;
-      if(Number.isFinite(minVal)){
-        domainMin = Math.max(domainMin, minVal);
-      }
-      if(Number.isFinite(maxVal)){
-        domainMax = Math.min(domainMax, maxVal);
-      }
-      if(!isFinite(domainMin) || !isFinite(domainMax)){
-        domainMin = dataMin;
-        domainMax = dataMax;
-      }
-      if(domainMax === domainMin){
-        domainMin -= 0.5;
-        domainMax += 0.5;
-      }
-      const positions = new Array(count);
-      const densities = new Array(count);
-      const step = (domainMax - domainMin) / Math.max(count - 1, 1);
-      const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
-      let peak = 0;
-      for(let idx = 0; idx < count; idx++){
-        const x = domainMin + step * idx;
-        let sum = 0;
-        for(let j = 0; j < sorted.length; j++){
-          const u = (x - sorted[j]) / bandwidth;
-          sum += Math.exp(-0.5 * u * u);
-        }
-        const density = denom ? sum / denom : 0;
-        positions[idx] = x;
-        densities[idx] = density;
-        if(density > peak){
-          peak = density;
-        }
-      }
-      return { positions, densities, bandwidth, domainMin, domainMax, peak };
+      const domain = resolveViolinDensityDomain(sorted, bandwidth, minVal, maxVal);
+      const densityProfile = computeGaussianDensityProfile(sorted, bandwidth, domain, count, { usePreallocatedArrays: true });
+      return {
+        positions: densityProfile.positions,
+        densities: densityProfile.densities,
+        bandwidth,
+        domainMin: densityProfile.domainMin,
+        domainMax: densityProfile.domainMax,
+        peak: densityProfile.peak
+      };
     };
     const individualStart = now();
     const individualSummary = computeTraceSummary(values, { requireSorted: false, assumeFiniteValues: true });
@@ -5222,57 +5457,14 @@
       });
       return { fit, radius, availableHalfWidth, swarm };
     };
-    let baseProbe = await probeRadius(baseRadius);
-    if(baseProbe?.cancelled){
-      return null;
-    }
-    if(baseProbe?.fit){
-      const roundedRadius = roundStripPointControlValue(baseProbe.radius, radiusStep, 'down');
-      return {
-        radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : baseProbe.radius,
-        halfWidthCap: baseProbe.availableHalfWidth,
-        sampleSize,
-        fitted: true
-      };
-    }
-    let low = minRadius;
-    let lowProbe = await probeRadius(low);
-    if(lowProbe?.cancelled){
-      return null;
-    }
-    if(!lowProbe?.fit){
-      const fallbackRadius = roundStripPointControlValue(low, radiusStep, 'down');
-      return {
-        radius: Number.isFinite(fallbackRadius) && fallbackRadius > 0 ? fallbackRadius : low,
-        halfWidthCap: lowProbe?.availableHalfWidth,
-        sampleSize,
-        fitted: false
-      };
-    }
-    let high = baseRadius;
-    for(let iter = 0; iter < 12; iter++){
-      if((high - low) <= 0.05){
-        break;
-      }
-      const mid = (low + high) / 2;
-      const midProbe = await probeRadius(mid);
-      if(midProbe?.cancelled){
-        return null;
-      }
-      if(midProbe?.fit){
-        low = mid;
-        lowProbe = midProbe;
-      }else{
-        high = mid;
-      }
-    }
-    const roundedRadius = roundStripPointControlValue(low, radiusStep, 'down');
-    return {
-      radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : low,
-      halfWidthCap: lowProbe?.availableHalfWidth,
+    return finalizeFeasibleRadiusSearch({
+      probeRadius,
+      baseRadius,
+      minRadius,
+      radiusStep,
       sampleSize,
-      fitted: true
-    };
+      resolveHalfWidthCap: probe => probe?.availableHalfWidth
+    });
   }
 
   async function computeBoundedPointTraceFeasibleRadius(config){
@@ -5328,57 +5520,14 @@
       });
       return { fit, radius, maxHalfWidth, swarm };
     };
-    let baseProbe = await probeRadius(baseRadius);
-    if(baseProbe?.cancelled){
-      return null;
-    }
-    if(baseProbe?.fit){
-      const roundedRadius = roundStripPointControlValue(baseProbe.radius, radiusStep, 'down');
-      return {
-        radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : baseProbe.radius,
-        halfWidthCap: maxHalfWidth,
-        sampleSize,
-        fitted: true
-      };
-    }
-    let low = minRadius;
-    let lowProbe = await probeRadius(low);
-    if(lowProbe?.cancelled){
-      return null;
-    }
-    if(!lowProbe?.fit){
-      const fallbackRadius = roundStripPointControlValue(low, radiusStep, 'down');
-      return {
-        radius: Number.isFinite(fallbackRadius) && fallbackRadius > 0 ? fallbackRadius : low,
-        halfWidthCap: maxHalfWidth,
-        sampleSize,
-        fitted: false
-      };
-    }
-    let high = baseRadius;
-    for(let iter = 0; iter < 12; iter++){
-      if((high - low) <= 0.05){
-        break;
-      }
-      const mid = (low + high) / 2;
-      const midProbe = await probeRadius(mid);
-      if(midProbe?.cancelled){
-        return null;
-      }
-      if(midProbe?.fit){
-        low = mid;
-        lowProbe = midProbe;
-      }else{
-        high = mid;
-      }
-    }
-    const roundedRadius = roundStripPointControlValue(low, radiusStep, 'down');
-    return {
-      radius: Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : low,
-      halfWidthCap: maxHalfWidth,
+    return finalizeFeasibleRadiusSearch({
+      probeRadius,
+      baseRadius,
+      minRadius,
+      radiusStep,
       sampleSize,
-      fitted: true
-    };
+      resolveHalfWidthCap: () => maxHalfWidth
+    });
   }
 
 
@@ -6860,8 +7009,16 @@
     return Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
   }
 
-  function resolveViolinDensityDomain(sorted, options = {}){
+  function resolveViolinDensityDomain(sorted, optionsOrBandwidth = {}, minValueArg, maxValueArg){
     const values = Array.isArray(sorted) ? sorted.filter(value => Number.isFinite(Number(value))).map(Number) : [];
+    const legacySignature = Number.isFinite(Number(optionsOrBandwidth)) || minValueArg !== undefined || maxValueArg !== undefined;
+    const options = legacySignature
+      ? {
+          manualBandwidth: optionsOrBandwidth,
+          minValue: minValueArg,
+          maxValue: maxValueArg
+        }
+      : (optionsOrBandwidth && typeof optionsOrBandwidth === 'object' ? optionsOrBandwidth : {});
     const manualBandwidth = Number(options.manualBandwidth);
     const bandwidth = Number.isFinite(manualBandwidth) && manualBandwidth > 0
       ? manualBandwidth
@@ -23634,34 +23791,21 @@ Technical analysis record (advanced)
         }
         methodFootnotes.push(tukey.footnote);
         pairs=tukey.pairs.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.pAdj,
-            adjP:pr.pAdj,
-            stat:pr.q,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.pAdj,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.q,
             statName:'q',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:'tukey'
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
@@ -23673,34 +23817,21 @@ Technical analysis record (advanced)
         }
         methodFootnotes.push(gh.footnote);
         pairs=gh.pairs.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.pAdj,
-            stat:pr.q,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.p,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.q,
             statName:'q',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:'gamesHowell'
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='tamhaneT2'){
@@ -23712,34 +23843,21 @@ Technical analysis record (advanced)
         }
         methodFootnotes.push(tamhane.footnote);
         pairs=tamhane.pairs.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax=getRenderedRangeMax(ai,bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.pAdj,
-            stat:pr.t,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.p,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.t,
             statName:'t',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:'tamhaneT2'
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
@@ -23881,34 +23999,21 @@ Technical analysis record (advanced)
         methodFootnotes.push(tukey.footnote);
         const filtered=tukey.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
         pairs=filtered.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.pAdj,
-            adjP:pr.pAdj,
-            stat:pr.q,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.pAdj,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.q,
             statName:'q',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:'tukey'
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
@@ -23921,34 +24026,21 @@ Technical analysis record (advanced)
         methodFootnotes.push(gh.footnote);
         const filtered=gh.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
         pairs=filtered.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.pAdj,
-            stat:pr.q,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.p,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.q,
             statName:'q',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:'gamesHowell'
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='tamhaneT2'){
@@ -23961,34 +24053,21 @@ Technical analysis record (advanced)
         methodFootnotes.push(tamhane.footnote);
         const filtered=tamhane.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
         pairs=filtered.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax=getRenderedRangeMax(ai,bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.pAdj,
-            stat:pr.t,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.p,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.t,
             statName:'t',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:'tamhaneT2'
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
@@ -24079,34 +24158,21 @@ Technical analysis record (advanced)
           methodFootnotes.push(dunnett.footnote);
         }
         pairs=dunnett.pairs.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          const pairResult={
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.pAdj,
-            stat:pr.t,
+          return buildPostHocPairResult(pr, {
+            indices,
+            traces,
+            labels,
+            groups,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            pValueResolver: pair => pair.p,
+            adjustedPValueResolver: pair => pair.pAdj,
+            statValueResolver: pair => pair.t,
             statName:'t',
-            df:pr.df,
-            diff:pr.diff,
-            ciLow:pr.ciLow,
-            ciHigh:pr.ciHigh,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
             method:postHocMode
-          };
-          return lognormalVariant ? { ...pairResult, ...convertToLognormalRatioResult(pr,groups[pr.i],groups[pr.j]) } : pairResult;
+          });
         });
         updateStatsCorrectionSummary(pairs.length);
       }else{
@@ -25876,42 +25942,13 @@ Technical analysis record (advanced)
         return { positions: [], densities: [], bandwidth: resolveViolinBandwidth(sorted) };
       }
       const bandwidth = resolveViolinBandwidth(sorted);
-      const dataMin = sorted[0];
-      const dataMax = sorted[sorted.length - 1];
-      const dataSpan = dataMax - dataMin;
-      const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
-      let domainMin = dataMin - pad;
-      let domainMax = dataMax + pad;
-      if(Number.isFinite(minVal)){
-        domainMin = Math.max(domainMin, minVal);
-      }
-      if(Number.isFinite(maxVal)){
-        domainMax = Math.min(domainMax, maxVal);
-      }
-      if(!isFinite(domainMin) || !isFinite(domainMax)){
-        domainMin = dataMin;
-        domainMax = dataMax;
-      }
-      if(domainMax === domainMin){
-        domainMin -= 0.5;
-        domainMax += 0.5;
-      }
-      const positions = [];
-      const densities = [];
-      const step = (domainMax - domainMin) / Math.max(count - 1, 1);
-      const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
-      for(let idx = 0; idx < count; idx++){
-        const x = domainMin + step * idx;
-        let sum = 0;
-        for(let j = 0; j < sorted.length; j++){
-          const u = (x - sorted[j]) / bandwidth;
-          sum += Math.exp(-0.5 * u * u);
-        }
-        const density = denom ? sum / denom : 0;
-        positions.push(x);
-        densities.push(density);
-      }
-      const peak = densities.length ? densities.reduce((max, d) => (d > max ? d : max), 0) : 0;
+      const domain = resolveViolinDensityDomain(sorted, bandwidth, minVal, maxVal);
+      const densityProfile = computeGaussianDensityProfile(sorted, bandwidth, domain, count);
+      const positions = densityProfile.positions;
+      const densities = densityProfile.densities;
+      const peak = densityProfile.peak;
+      const domainMin = densityProfile.domainMin;
+      const domainMax = densityProfile.domainMax;
       const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
       if(debugEnabled){
         const mode = violinState.autoBandwidth === false && Number.isFinite(violinState.bandwidth) && violinState.bandwidth > 0 ? 'manual' : 'auto';
@@ -27150,91 +27187,51 @@ Technical analysis record (advanced)
           rowIndices = null,
           collectPointsByRow = null
         } = params || {};
-        const rawValues = Array.isArray(valueList) ? valueList : [];
-        const pointCount = rawValues.length;
-        const pointCoords = new Float64Array(pointCount);
-        for(let idx = 0; idx < pointCount; idx++){
-          pointCoords[idx] = y2px(rawValues[idx]);
-        }
-        const traceStyle = getPointStyle(traceIndex);
-        const overrideRadius = Number(pointRadiusOverride);
-        const styleRadiusRaw = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
-        const allowAutoSize = !!autoSize && !hasExplicitPointSize(traceIndex);
-        const styleRadius = allowAutoSize ? null : styleRadiusRaw;
-        const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
-          ? overrideRadius
-          : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
-        const fallbackRadius = pointRadius;
-        const allowAdjustmentBase = allowRadiusAdjustment != null
-          ? !!allowRadiusAdjustment
-          : (autoSize ? allowAutoSize : true);
-        const allowAdjustment = allowAdjustmentBase;
-        const radiusCountExponent = allowAutoSize ? 0.85 : null;
-        const explicitMaxHalfWidth = Number(maxHalfWidth);
-        const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
-        const useStrictStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual';
-        const pitchHalfExtentLimit = useStrictStripSpacing
-          ? computeStripHalfExtentLimit({
-              minCenterPitch,
-              gapFactor: interDatasetGapFactor,
-              minGapPx: minInterDatasetGapPx
-            })
-          : null;
-        const availableStrictHalfWidth = useStrictStripSpacing
-          ? resolveStripAvailableHalfWidth({
-              axisSpacing: localBand,
-              pointRadius: spacingRadius,
-              minCenterPitch,
-              gapFactor: interDatasetGapFactor,
-              minGapPx: minInterDatasetGapPx
-            })
-          : null;
-        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
-          ? explicitMaxHalfWidth
-          : availableStrictHalfWidth;
-        if(useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0){
-          let stripSpreadFactor = computeSampleSpreadFactor(sampleCount, debugEnabled);
-          const sampleCountValue = Math.max(0, Number(sampleCount) || 0);
-          if(sampleCountValue > 0){
-            const logCount = Math.log10(sampleCountValue + 1);
-            const normalizedDelta = (logCount - STRIP_MEDIUM_SPREAD_LOG_CENTER) / STRIP_MEDIUM_SPREAD_LOG_SIGMA;
-            const mediumCompression = Math.exp(-0.5 * normalizedDelta * normalizedDelta);
-            const countScale = 1 - (1 - STRIP_MEDIUM_SPREAD_MIN_SCALE) * mediumCompression;
-            stripSpreadFactor *= countScale;
-          }
-          stripSpreadFactor = Math.max(0.2, Math.min(1, stripSpreadFactor));
-          const stripScaledHalfWidth = resolvedMaxHalfWidth * stripSpreadFactor;
-          const stripMinHalfWidth = Math.max(spacingRadius * 1.05, 0.5);
-          resolvedMaxHalfWidth = Math.max(stripMinHalfWidth, stripScaledHalfWidth);
-        }
-        const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
-          ? resolvedMaxHalfWidth
-          : null;
-        const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
-        const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
-        const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(drawOpts, {
-            pointCount,
-            threshold: BOX_POINT_CANVAS_THRESHOLD
-          })
-          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
-          && canUseBoxPointResizeCanvas();
-        const useApproximateCanvas = canvasPointLayerEnabled
-          && shouldUseBoxApproximatePointCanvas({
-            pointCount,
-            threshold: BOX_POINT_APPROX_THRESHOLD,
-            collectsPointByRow: collectPointsByRow instanceof Map
-          });
-        const approximateLayout = useApproximateCanvas
-          ? buildBoxApproximatePointBins({
-              coords: pointCoords,
-              raws: rawValues,
-              orientation: 'vertical',
-              radius: swarmPointRadius,
-              maxHalfWidth: resolvedMaxHalfWidth,
-              widthScaleMode,
-              violinBounds
-            })
-          : null;
+        const verticalPointLayout = prepareSwarmPointLayoutConfig({
+          valueList,
+          traceIndex,
+          getPointStyle,
+          hasExplicitPointSize,
+          pointRadius,
+          pointRadiusOverride,
+          autoSize,
+          allowRadiusAdjustment,
+          maxHalfWidth,
+          localBand,
+          sampleCount,
+          widthScaleMode,
+          debugLabel,
+          minCenterPitch,
+          interDatasetGapFactor,
+          minInterDatasetGapPx,
+          violinBounds,
+          collectPointsByRow,
+          drawOpts,
+          debugEnabled,
+          canvasThreshold: BOX_POINT_CANVAS_THRESHOLD,
+          approximateThreshold: BOX_POINT_APPROX_THRESHOLD,
+          orientation: 'vertical',
+          coordProjector: value => y2px(value)
+        });
+        const {
+          rawValues,
+          pointCount,
+          pointCoords,
+          traceStyle,
+          resolvedRadius,
+          fallbackRadius,
+          allowAdjustment,
+          radiusCountExponent,
+          useStrictStripSpacing,
+          pitchHalfExtentLimit,
+          resolvedMaxHalfWidth,
+          hardStripHalfWidthCap,
+          swarmPointRadius,
+          effectiveShape,
+          canvasPointLayerEnabled,
+          useApproximateCanvas,
+          approximateLayout
+        } = verticalPointLayout;
         const verticalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
           ? (pointLayoutCache.vertical = pointLayoutCache.vertical || {})
           : null;
@@ -28724,91 +28721,51 @@ Technical analysis record (advanced)
           rowIndices = null,
           collectPointsByRow = null
         } = params || {};
-        const rawValues = Array.isArray(valueList) ? valueList : [];
-        const pointCount = rawValues.length;
-        const pointCoords = new Float64Array(pointCount);
-        for(let idx = 0; idx < pointCount; idx++){
-          pointCoords[idx] = valueToX(rawValues[idx]);
-        }
-        const traceStyleH = getPointStyle(traceIndex);
-        const overrideRadius = Number(pointRadiusOverride);
-        const styleRadiusRaw = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
-        const allowAutoSize = !!autoSize && !hasExplicitPointSize(traceIndex);
-        const styleRadius = allowAutoSize ? null : styleRadiusRaw;
-        const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
-          ? overrideRadius
-          : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
-        const fallbackRadius = pointRadius;
-        const allowAdjustmentBase = allowRadiusAdjustment != null
-          ? !!allowRadiusAdjustment
-          : (autoSize ? allowAutoSize : true);
-        const allowAdjustment = allowAdjustmentBase;
-        const radiusCountExponent = allowAutoSize ? 0.85 : null;
-        const explicitMaxHalfWidth = Number(maxHalfWidth);
-        const spacingRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
-        const useStrictStripSpacing = widthScaleMode === 'density' && debugLabel === 'individual';
-        const pitchHalfExtentLimit = useStrictStripSpacing
-          ? computeStripHalfExtentLimit({
-              minCenterPitch,
-              gapFactor: interDatasetGapFactor,
-              minGapPx: minInterDatasetGapPx
-            })
-          : null;
-        const availableStrictHalfWidth = useStrictStripSpacing
-          ? resolveStripAvailableHalfWidth({
-              axisSpacing: localBand,
-              pointRadius: spacingRadius,
-              minCenterPitch,
-              gapFactor: interDatasetGapFactor,
-              minGapPx: minInterDatasetGapPx
-            })
-          : null;
-        let resolvedMaxHalfWidth = Number.isFinite(explicitMaxHalfWidth) && explicitMaxHalfWidth > 0
-          ? explicitMaxHalfWidth
-          : availableStrictHalfWidth;
-        if(useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0){
-          let stripSpreadFactor = computeSampleSpreadFactor(sampleCount, debugEnabled);
-          const sampleCountValue = Math.max(0, Number(sampleCount) || 0);
-          if(sampleCountValue > 0){
-            const logCount = Math.log10(sampleCountValue + 1);
-            const normalizedDelta = (logCount - STRIP_MEDIUM_SPREAD_LOG_CENTER) / STRIP_MEDIUM_SPREAD_LOG_SIGMA;
-            const mediumCompression = Math.exp(-0.5 * normalizedDelta * normalizedDelta);
-            const countScale = 1 - (1 - STRIP_MEDIUM_SPREAD_MIN_SCALE) * mediumCompression;
-            stripSpreadFactor *= countScale;
-          }
-          stripSpreadFactor = Math.max(0.2, Math.min(1, stripSpreadFactor));
-          const stripScaledHalfWidth = resolvedMaxHalfWidth * stripSpreadFactor;
-          const stripMinHalfWidth = Math.max(spacingRadius * 1.05, 0.5);
-          resolvedMaxHalfWidth = Math.max(stripMinHalfWidth, stripScaledHalfWidth);
-        }
-        const hardStripHalfWidthCap = useStrictStripSpacing && Number.isFinite(resolvedMaxHalfWidth) && resolvedMaxHalfWidth > 0
-          ? resolvedMaxHalfWidth
-          : null;
-        const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
-        const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
-        const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(drawOpts, {
-            pointCount,
-            threshold: BOX_POINT_CANVAS_THRESHOLD
-          })
-          && BATCHABLE_POINT_SHAPES.has(effectiveShape)
-          && canUseBoxPointResizeCanvas();
-        const useApproximateCanvas = canvasPointLayerEnabled
-          && shouldUseBoxApproximatePointCanvas({
-            pointCount,
-            threshold: BOX_POINT_APPROX_THRESHOLD,
-            collectsPointByRow: collectPointsByRow instanceof Map
-          });
-        const approximateLayout = useApproximateCanvas
-          ? buildBoxApproximatePointBins({
-              coords: pointCoords,
-              raws: rawValues,
-              orientation: 'horizontal',
-              radius: swarmPointRadius,
-              maxHalfWidth: resolvedMaxHalfWidth,
-              widthScaleMode,
-              violinBounds
-            })
-          : null;
+        const horizontalPointLayout = prepareSwarmPointLayoutConfig({
+          valueList,
+          traceIndex,
+          getPointStyle,
+          hasExplicitPointSize,
+          pointRadius,
+          pointRadiusOverride,
+          autoSize,
+          allowRadiusAdjustment,
+          maxHalfWidth,
+          localBand,
+          sampleCount,
+          widthScaleMode,
+          debugLabel,
+          minCenterPitch,
+          interDatasetGapFactor,
+          minInterDatasetGapPx,
+          violinBounds,
+          collectPointsByRow,
+          drawOpts,
+          debugEnabled,
+          canvasThreshold: BOX_POINT_CANVAS_THRESHOLD,
+          approximateThreshold: BOX_POINT_APPROX_THRESHOLD,
+          orientation: 'horizontal',
+          coordProjector: value => valueToX(value)
+        });
+        const {
+          rawValues,
+          pointCount,
+          pointCoords,
+          traceStyle: traceStyleH,
+          resolvedRadius,
+          fallbackRadius,
+          allowAdjustment,
+          radiusCountExponent,
+          useStrictStripSpacing,
+          pitchHalfExtentLimit,
+          resolvedMaxHalfWidth,
+          hardStripHalfWidthCap,
+          swarmPointRadius,
+          effectiveShape,
+          canvasPointLayerEnabled,
+          useApproximateCanvas,
+          approximateLayout
+        } = horizontalPointLayout;
         const horizontalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
           ? (pointLayoutCache.horizontal = pointLayoutCache.horizontal || {})
           : null;
