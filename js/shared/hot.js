@@ -936,7 +936,11 @@
     let rowHeadersSetting = hotOptions.rowHeaders;
     let nestedHeadersSetting = hotOptions.nestedHeaders;
     const headerWidthManager = { invalidateColumns: noop, reset: noop }; // placeholder for compat
-    const hasEnterprise = !!(global.agGrid?.ModuleRegistry?.registeredModules && global.agGrid.ModuleRegistry.registeredModules.some(mod => /Enterprise/i.test(mod?.moduleName || '')));
+    const detectedEnterpriseModules = global.agGrid?.ModuleRegistry?.registeredModules || [];
+    if (detectedEnterpriseModules.some(mod => /Enterprise/i.test(mod?.moduleName || ''))) {
+      console.error('AG Grid enterprise modules detected. This application is community-only and enterprise support is disabled. Remove ag-grid-enterprise from the dependency tree.');
+    }
+    const hasEnterprise = false;
 
     const ensureDims = (matrix, targetRows, targetCols)=>{
       const totalRows = Math.max(targetRows, matrix.length);

@@ -4,6 +4,7 @@
   "description": "Graphitix is a browser-based data visualization and statistical analysis studio with Venn diagrams, box plots, scatter/volcano/MA plots, 3D surfaces, heatmaps, PCA/MDS/t-SNE/UMAP, line charts, ROC/PR curves, survival analysis, histograms, and proportion charts. It includes multi-tab workspaces, publication-ready exports, and .graph session archives.",
   "main": "./index.js",
   "scripts": {
+    "preinstall": "node -e \"const pkg=require('./package.json'); const deps=['dependencies','devDependencies','peerDependencies','optionalDependencies']; const illegal = deps.flatMap(k=>Object.keys(pkg[k]||{})).find(name=>name==='ag-grid-enterprise'); if(illegal){ console.error('AG Grid enterprise is not allowed. Remove ag-grid-enterprise from package.json.'); process.exit(1); }\"",
     "test": "jest",
     "test:stats": "jest --runInBand __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js __tests__/stats.matrix.components.test.js __tests__/stats.extended.coverage.test.js __tests__/stats.ui.presentation.branches.test.js __tests__/stats.ui.persistence.restore.test.js",
     "docs:arch-map": "node scripts/generate-architecture-map.js",
