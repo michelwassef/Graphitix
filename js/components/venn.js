@@ -1131,6 +1131,21 @@
     return state.ui.inputs;
   }
 
+  function getVennInputValue(inputs, key, fallback) {
+    const el = inputs?.[key];
+    if (el && typeof el.value !== 'undefined') {
+      return String(el.value);
+    }
+    return fallback;
+  }
+
+  function setVennOutputText(inputs, key, value) {
+    const el = inputs?.[key];
+    if (el && typeof el.textContent !== 'undefined') {
+      el.textContent = String(value);
+    }
+  }
+
   function splitItems(text, mode) {
     switch (mode) {
       case 'newline': return text.split(/\r?\n/);
@@ -5278,15 +5293,23 @@
       debugLog('significance preserved after list draw', { countsSignature });
     }
     refreshCounts(counts);
-    const fontInfo = resolveFontInfo(inputs.fontsize.value);
-    const borderWidthRaw = Number(inputs.borderWidth.value);
+    const defaultStyle = createDefaultVennStyleState();
+    const fontInputValue = getVennInputValue(inputs, 'fontsize', defaultStyle.fontsize);
+    const fontInfo = resolveFontInfo(fontInputValue);
+    const borderWidthRaw = Number(getVennInputValue(inputs, 'borderWidth', defaultStyle.borderWidth));
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontInfo.scaleInfo, { context: 'venn-border', min: 0 });
     const resolvedFontPx = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : Number(fontInfo?.px);
     const fontSizePx = Number.isFinite(resolvedFontPx) ? resolvedFontPx : 12;
     const style = {
-      colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value, fontSizePx, fontPt: Number.isFinite(fontInfo?.pt) ? fontInfo.pt : Number(inputs.fontsize.value) || 12,
-      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw,
+      colorA: getVennInputValue(inputs, 'colorA', defaultStyle.colorA),
+      colorB: getVennInputValue(inputs, 'colorB', defaultStyle.colorB),
+      colorC: getVennInputValue(inputs, 'colorC', defaultStyle.colorC),
+      opacity: getVennInputValue(inputs, 'opacity', defaultStyle.opacity),
+      fontSizePx,
+      fontPt: Number.isFinite(fontInfo?.pt) ? fontInfo.pt : Number(fontInputValue) || 12,
+      borderColor: getVennInputValue(inputs, 'borderColor', defaultStyle.borderColor),
+      borderWidth: borderWidthPx,
+      borderWidthRaw,
       scaleInfo: fontInfo.scaleInfo,
       fontInfo
     };
@@ -5350,15 +5373,23 @@
       debugLog('significance preserved after numeric draw', { countsSignature });
     }
     refreshCounts(counts);
-    const fontInfo = resolveFontInfo(inputs.fontsize.value);
-    const borderWidthRaw = Number(inputs.borderWidth.value);
+    const defaultStyle = createDefaultVennStyleState();
+    const fontInputValue = getVennInputValue(inputs, 'fontsize', defaultStyle.fontsize);
+    const fontInfo = resolveFontInfo(fontInputValue);
+    const borderWidthRaw = Number(getVennInputValue(inputs, 'borderWidth', defaultStyle.borderWidth));
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontInfo.scaleInfo, { context: 'venn-border', min: 0 });
     const resolvedFontPx = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : Number(fontInfo?.px);
     const fontSizePx = Number.isFinite(resolvedFontPx) ? resolvedFontPx : 12;
     const style = {
-      colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value, fontSizePx, fontPt: Number.isFinite(fontInfo?.pt) ? fontInfo.pt : Number(inputs.fontsize.value) || 12,
-      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw,
+      colorA: getVennInputValue(inputs, 'colorA', defaultStyle.colorA),
+      colorB: getVennInputValue(inputs, 'colorB', defaultStyle.colorB),
+      colorC: getVennInputValue(inputs, 'colorC', defaultStyle.colorC),
+      opacity: getVennInputValue(inputs, 'opacity', defaultStyle.opacity),
+      fontSizePx,
+      fontPt: Number.isFinite(fontInfo?.pt) ? fontInfo.pt : Number(fontInputValue) || 12,
+      borderColor: getVennInputValue(inputs, 'borderColor', defaultStyle.borderColor),
+      borderWidth: borderWidthPx,
+      borderWidthRaw,
       scaleInfo: fontInfo.scaleInfo,
       fontInfo
     };
@@ -5588,6 +5619,7 @@
     const goLimit = goToggle?.dataset?.state === 'all'
       ? (state.analysis.lastGOResult?.length || 5)
       : 5;
+    const defaultStyle = createDefaultVennStyleState();
     const payload = {
       type: 'venn',
       data: {
@@ -5607,13 +5639,13 @@
       },
       style: {
         plotType: getActivePlotType(),
-        colorA: inputs.colorA.value,
-        colorB: inputs.colorB.value,
-        colorC: inputs.colorC.value,
-        opacity: inputs.opacity.value,
-        borderColor: inputs.borderColor.value,
-        borderWidth: inputs.borderWidth.value,
-        fontsize: inputs.fontsize.value,
+        colorA: getVennInputValue(inputs, 'colorA', defaultStyle.colorA),
+        colorB: getVennInputValue(inputs, 'colorB', defaultStyle.colorB),
+        colorC: getVennInputValue(inputs, 'colorC', defaultStyle.colorC),
+        opacity: getVennInputValue(inputs, 'opacity', defaultStyle.opacity),
+        borderColor: getVennInputValue(inputs, 'borderColor', defaultStyle.borderColor),
+        borderWidth: getVennInputValue(inputs, 'borderWidth', defaultStyle.borderWidth),
+        fontsize: getVennInputValue(inputs, 'fontsize', defaultStyle.fontsize),
         fontStyles: exportFontStyles('venn') || undefined,
         vennTraceStyles: cloneVennTraceStyles(state.analysis?.vennTraceStyles),
         title: state.titleText,
@@ -5830,24 +5862,42 @@
     }else{
       state.titleText = plotType === 'upset' ? DEFAULT_UPSET_TITLE : DEFAULT_VENN_TITLE;
     }
-    inputs.colorA.value = sanitizeColor(s.colorA, defaultStyle.colorA);
-    inputs.colorB.value = sanitizeColor(s.colorB, defaultStyle.colorB);
-    inputs.colorC.value = sanitizeColor(s.colorC, defaultStyle.colorC);
-    inputs.opacity.value = String(clampNumber(s.opacity, Number(defaultStyle.opacity), 0, 1));
-    inputs.opacityVal.textContent = inputs.opacity.value;
-    inputs.borderColor.value = sanitizeColor(s.borderColor, defaultStyle.borderColor);
-    inputs.borderWidth.value = String(clampNumber(s.borderWidth, Number(defaultStyle.borderWidth), 0));
-    inputs.borderWidthVal.textContent = inputs.borderWidth.value;
-    if (s.fontsize !== undefined && s.fontsize !== null) {
-      const fontInfo = resolveFontInfo(s.fontsize);
-      inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-      debug('Debug: venn payload font applied', { saved: s.fontsize, fontInfo });
-    } else {
-      const fontInfo = resolveFontInfo(defaultStyle.fontsize);
-      inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-      debug('Debug: venn payload font fallback', { fontInfo });
+    if (inputs.colorA) {
+      inputs.colorA.value = sanitizeColor(s.colorA, defaultStyle.colorA);
+    }
+    if (inputs.colorB) {
+      inputs.colorB.value = sanitizeColor(s.colorB, defaultStyle.colorB);
+    }
+    if (inputs.colorC) {
+      inputs.colorC.value = sanitizeColor(s.colorC, defaultStyle.colorC);
+    }
+    if (inputs.opacity) {
+      inputs.opacity.value = String(clampNumber(s.opacity, Number(defaultStyle.opacity), 0, 1));
+      if (inputs.opacityVal) {
+        inputs.opacityVal.textContent = inputs.opacity.value;
+      }
+    }
+    if (inputs.borderColor) {
+      inputs.borderColor.value = sanitizeColor(s.borderColor, defaultStyle.borderColor);
+    }
+    if (inputs.borderWidth) {
+      inputs.borderWidth.value = String(clampNumber(s.borderWidth, Number(defaultStyle.borderWidth), 0));
+      if (inputs.borderWidthVal) {
+        inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+      }
+    }
+    if (inputs.fontsize) {
+      if (s.fontsize !== undefined && s.fontsize !== null) {
+        const fontInfo = resolveFontInfo(s.fontsize);
+        inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+        debug('Debug: venn payload font applied', { saved: s.fontsize, fontInfo });
+      } else {
+        const fontInfo = resolveFontInfo(defaultStyle.fontsize);
+        inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+        debug('Debug: venn payload font fallback', { fontInfo });
+      }
     }
     if (state.ui.upset) {
       const upset = s.upset || {};
