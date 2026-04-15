@@ -1854,26 +1854,28 @@
       }
       const anchorColId = `c${normalized.from.col}`;
       let synced = false;
-      try{
-        if(typeof api.clearRangeSelection === 'function'){
-          api.clearRangeSelection();
-          synced = true;
+      if(hasEnterprise){
+        try{
+          if(typeof api.clearRangeSelection === 'function'){
+            api.clearRangeSelection();
+            synced = true;
+          }
+        }catch(err){
+          // best-effort only
         }
-      }catch(err){
-        // best-effort only
-      }
-      try{
-        if(typeof api.addCellRange === 'function'){
-          api.addCellRange({
-            rowStartIndex: normalized.from.row,
-            rowEndIndex: normalized.to.row,
-            columnStart: `c${normalized.from.col}`,
-            columnEnd: `c${normalized.to.col}`
-          });
-          synced = true;
+        try{
+          if(typeof api.addCellRange === 'function'){
+            api.addCellRange({
+              rowStartIndex: normalized.from.row,
+              rowEndIndex: normalized.to.row,
+              columnStart: `c${normalized.from.col}`,
+              columnEnd: `c${normalized.to.col}`
+            });
+            synced = true;
+          }
+        }catch(err){
+          // best-effort only
         }
-      }catch(err){
-        // best-effort only
       }
       try{
         if(typeof api.setFocusedCell === 'function'){
