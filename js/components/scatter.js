@@ -9115,15 +9115,7 @@
         data[0][2] = 'Y title';
         data[0][3] = 'Z title';
       }
-      let scatterScheduleProxyCount = 0;
       const scheduleDrawScatterProxy = (payload) => {
-        scatterScheduleProxyCount += 1;
-        if(scatterScheduleProxyCount <= 5){
-          console.debug('Debug: scatter scheduleDraw proxy invoked', { count: scatterScheduleProxyCount }); // Debug: table change trigger
-          if(scatterScheduleProxyCount === 5){
-            console.debug('Debug: scatter scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
-          }
-        }
         const meta = payload && typeof payload === 'object'
           ? payload
           : (typeof payload === 'string' ? { reason: payload } : {});
@@ -9152,7 +9144,6 @@
         hotInstance = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
           debugLabel: 'scatter',
           data,
-          disablePaste: true,
           pinFirstRow: true,
           colDefEnhancer(def, meta){
             const colIndex = Number(meta?.colIndex);
@@ -9457,30 +9448,7 @@
           });
           syncScatterActiveDataViewFromHot(scatterHot, 'ensure-active-tab');
         }
-        const tableImport = Shared.tableImport;
-        if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
-          entry.container.addEventListener('paste',async e=>{
-            let forcedOverlay = false;
-            try{
-              forcedOverlay = !!forceScatterOverlay('table-paste-start', { message: 'Processing pasted data...' });
-              await tableImport.handlePaste(e, scatterHot, {
-                minCols: DEFAULT_COLS,
-                minRows: DEFAULT_ROWS,
-                scheduleDraw: () => {
-                  markScatterOverlayPending('table-paste');
-                  scheduleDrawScatter();
-                },
-                debugLabel: 'scatter'
-              });
-            }catch(err){
-              if(forcedOverlay){
-                resolveScatterOverlay('table-paste-error');
-              }
-              console.error('scatter paste failed', err);
-            }
-          }, true);
-          entry.container.__scatterPasteBound = true;
-        }
+
         return scatterHot;
       };
       scatterHot = ensureScatterHotForActiveTab();
@@ -9489,7 +9457,7 @@
       }
       scatter.__ensureHotForActiveTab = ensureScatterHotForActiveTab;
       bindScatterDataToolbar();
-      if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = true;
+      if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = false;
       const scatterExamples={
         scatter:[
           ['','X title','Y title','Z title',''],

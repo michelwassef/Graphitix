@@ -2,6 +2,19 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
+
+  function pcaDebug(message, ...rest){
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(rest.length){
+        console.debug(message, ...rest);
+      }else{
+        console.debug(message);
+      }
+    }
+  }
   const pca = Components.pca = Components.pca || {};
   const Main = global.Main = global.Main || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
@@ -1118,18 +1131,10 @@
     debugLog('Debug: pca default header suppressed - awaiting user paste', {
       rows: pcaData.length, cols: pcaData[0]?.length || 0
     });
-    let pcaScheduleProxyCount = 0;
     let lastKeyDownAt = 0;
     let suppressLabelSelectionToggleUntil = 0;
     let pcaHot = null;
     const scheduleDrawPcaProxy = (payload) => {
-      pcaScheduleProxyCount += 1;
-      if(pcaScheduleProxyCount <= 5){
-        debugLog('Debug: pca scheduleDraw proxy invoked', { count: pcaScheduleProxyCount });
-        if(pcaScheduleProxyCount === 5){
-          debugLog('Debug: pca scheduleDraw proxy suppressing further logs');
-        }
-      }
       const meta = payload && typeof payload === 'object'
         ? payload
         : (typeof payload === 'string' ? { reason: payload } : {});
@@ -1155,7 +1160,6 @@
     pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
       debugLabel: 'pca',
       data: pcaData,
-      disablePaste: true,
       pinFirstColumn: true,
       rowSelection: null,
       firstRowClassName: 'hot-header-row htCenter',
@@ -1403,6 +1407,14 @@
             debugLog('Debug: pca label row toggled', { row: labelRowIndex, fromCol, toCol });
           }
         },
+        afterPaste(data){
+          const activeHot = ensurePcaHotForActiveTab();
+          ensurePcaLabelRow(activeHot, { source: 'pca-paste' });
+          const nextRows = activeHot?.getData?.().length || pcaData.length;
+          const nextCols = activeHot?.countCols?.() || (Array.isArray(data?.[0]) ? data[0].length : DEFAULT_COLS);
+          updatePcaDataShape({ rows: nextRows, cols: nextCols });
+          evaluateAutoDrawThresholds();
+        },
         afterChange(changes,source){
           if(Array.isArray(changes) && changes.length && pcaState.tableFormat === 'grouped'){
             const headerTouched = changes.some(change => Number(change?.[0]) === PCA_GROUP_ROW_INDEX);
@@ -1575,7 +1587,6 @@
       if(pcaHotInstance){
         pcaHotInstance.__pcaHostContainer = baseContainer || pcaHotInstance.__pcaHostContainer || null;
         pcaHotInstance.__pcaTabId = tabId;
-        bindPcaPasteHandler(pcaHotInstance.__pcaHostContainer || baseContainer || null);
         ensurePcaDataViewsForHot(pcaHotInstance, {
           wrapper,
           container: pcaHotInstance.__pcaHostContainer || baseContainer || null
@@ -1599,7 +1610,6 @@
     if(pcaHotInstance){
       pcaHotInstance.__pcaHostContainer = entry?.container || baseContainer || pcaHotInstance.__pcaHostContainer || null;
       pcaHotInstance.__pcaTabId = tabId;
-      bindPcaPasteHandler(pcaHotInstance.__pcaHostContainer || baseContainer || null);
       ensurePcaDataViewsForHot(pcaHotInstance, {
         wrapper,
         container: pcaHotInstance.__pcaHostContainer || baseContainer || null
@@ -1607,50 +1617,6 @@
       syncPcaActiveDataViewFromHot(pcaHotInstance, 'ensure-active-tab');
     }
     return pcaHotInstance;
-  }
-
-  function bindPcaPasteHandler(container){
-    const tableImport = Shared.tableImport;
-    if(!container || !tableImport || typeof tableImport.handlePaste !== 'function' || container.__pcaPasteBound){
-      return false;
-    }
-    container.addEventListener('paste',async e=>{
-      let forcedOverlay = false;
-      try{
-        forcedOverlay = !!forcePcaOverlay('table-paste-start', { message: 'Processing pasted data...' });
-        const hot = ensurePcaHotForActiveTab();
-        const result = await tableImport.handlePaste(e, hot, {
-          minCols: DEFAULT_COLS,
-          minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markPcaOverlayPending('table-paste');
-            evaluateAutoDrawThresholds();
-            scheduleDrawPca({ force: true, reason: 'paste-load' });
-          },
-          debugLabel: 'pca',
-          onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
-          onProcessed: info => {
-            console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
-            const activeHot = ensurePcaHotForActiveTab();
-            ensurePcaLabelRow(activeHot, { source: 'pca-paste' });
-            const nextRows = activeHot?.getData?.().length || info?.rows;
-            const nextCols = activeHot?.countCols?.() || info?.cols;
-            updatePcaDataShape({ rows: nextRows, cols: nextCols });
-            evaluateAutoDrawThresholds();
-          }
-        });
-        if(!result && forcedOverlay){
-          resolvePcaOverlay('table-paste-empty');
-        }
-      }catch(err){
-        if(forcedOverlay){
-          resolvePcaOverlay('table-paste-error');
-        }
-        console.error('pca paste failed', err);
-      }
-    });
-    container.__pcaPasteBound = true;
-    return true;
   }
 
   function resolveActiveTabId(){
@@ -4976,7 +4942,7 @@
           recordUndo: true,
           undoLabel: 'table:pca:example-load'
         });
-        console.log('pca example loaded');
+        pcaDebug('pca example loaded');
         debugLog('Debug: pca example dataset applied (transposed labels)', { rows: pcaExample.length, cols: pcaExample[0]?.length });
         pcaState.grouped = {
           replicatesPerGroup: 2,
@@ -5015,7 +4981,7 @@
             },
             debugLabel: 'pca',
             onProcessed: info => {
-              console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
+              pcaDebug('pca data imported',{rows: info?.rows, cols: info?.cols});
               const hot = ensurePcaHotForActiveTab();
               ensurePcaLabelRow(hot, { source: 'pca-import' });
               const nextRows = hot?.getData?.().length || info?.rows;
@@ -5039,7 +5005,6 @@
           console.error('pca import failed', err);
         }
       });
-      bindPcaPasteHandler((ensurePcaHotForActiveTab()?.__pcaHostContainer) || document.getElementById('pcaHot') || pcaHotContainer);
       const pcaLoadingsContainer=document.getElementById('pcaLoadingsContainer');
       const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
       const pcaLoadingsLimitInput=document.getElementById('pcaLoadingsLimit');

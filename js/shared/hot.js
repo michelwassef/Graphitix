@@ -23,6 +23,23 @@
   });
 
   const noop = ()=>{};
+  const isSharedDebugEnabled = ()=>{
+    try{
+      return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    }catch(err){
+      return false;
+    }
+  };
+  const hotDebug = (message, payload)=>{
+    if(!isSharedDebugEnabled()){
+      return;
+    }
+    if(typeof payload === 'undefined'){
+      console.debug(message);
+    }else{
+      console.debug(message, payload);
+    }
+  };
   const FILTER_VERSION = 1;
   const FILTER_KIND_SET = 'set';
   const FILTER_KIND_CONDITION = 'condition';
@@ -489,7 +506,7 @@
       markRows(indices, exclude){
         const changed = updateSetBulk(rows, indices, exclude);
         if(changed){
-          console.debug('Debug: hot exclusion rows updated', { debugLabel, exclude, rows: Array.from(rows) });
+          hotDebug('Debug: hot exclusion rows updated', { debugLabel, exclude, rows: Array.from(rows) });
           render();
           schedule(EXCLUSION_SCOPES.ROW, { exclude, indices: Array.from(indices || []) });
         }
@@ -497,7 +514,7 @@
       markColumns(indices, exclude){
         const changed = updateSetBulk(cols, indices, exclude);
         if(changed){
-          console.debug('Debug: hot exclusion columns updated', { debugLabel, exclude, cols: Array.from(cols) });
+          hotDebug('Debug: hot exclusion columns updated', { debugLabel, exclude, cols: Array.from(cols) });
           render();
           schedule(EXCLUSION_SCOPES.COLUMN, { exclude, indices: Array.from(indices || []) });
         }
@@ -505,7 +522,7 @@
       markCells(pairs, exclude){
         const changed = updateCellsBulk(pairs, exclude);
         if(changed){
-          console.debug('Debug: hot exclusion cells updated', { debugLabel, exclude, cells: exportCells() });
+          hotDebug('Debug: hot exclusion cells updated', { debugLabel, exclude, cells: exportCells() });
           render();
           schedule(EXCLUSION_SCOPES.CELL, { exclude, pairs: exportCells() });
         }
@@ -543,7 +560,7 @@
           rows.clear();
           cols.clear();
           cells.clear();
-          console.debug('Debug: hot exclusion cleared', { debugLabel });
+          hotDebug('Debug: hot exclusion cleared', { debugLabel });
           render();
           if(!silent){
             schedule('clear', {});
@@ -567,7 +584,7 @@
         updateSetBulk(rows, nextRows, true);
         updateSetBulk(cols, nextCols, true);
         updateCellsBulk(nextCells.map(pair=>({ row: pair?.row ?? pair?.[0], col: pair?.col ?? pair?.[1] })), true);
-        console.debug('Debug: hot exclusion imported', { debugLabel, rows: Array.from(rows), cols: Array.from(cols), cells: exportCells() });
+        hotDebug('Debug: hot exclusion imported', { debugLabel, rows: Array.from(rows), cols: Array.from(cols), cells: exportCells() });
         render();
         schedule('import', {});
       },
@@ -575,7 +592,7 @@
         const changedRows = shiftSetForInsert(rows, index, amount);
         const changedCells = shiftCellsForInsert(index, amount, 'row');
         if(changedRows || changedCells){
-          console.debug('Debug: hot exclusion rows shifted for insert', { debugLabel, index, amount, rows: Array.from(rows) });
+          hotDebug('Debug: hot exclusion rows shifted for insert', { debugLabel, index, amount, rows: Array.from(rows) });
           render();
         }
       },
@@ -583,7 +600,7 @@
         const changedRows = shiftSetForRemoval(rows, physicalRows);
         const changedCells = shiftCellsForRemoval(physicalRows, 'row');
         if(changedRows || changedCells){
-          console.debug('Debug: hot exclusion rows shifted for removal', { debugLabel, physicalRows, rows: Array.from(rows) });
+          hotDebug('Debug: hot exclusion rows shifted for removal', { debugLabel, physicalRows, rows: Array.from(rows) });
           render();
         }
       },
@@ -591,7 +608,7 @@
         const changedCols = shiftSetForInsert(cols, index, amount);
         const changedCells = shiftCellsForInsert(index, amount, 'col');
         if(changedCols || changedCells){
-          console.debug('Debug: hot exclusion cols shifted for insert', { debugLabel, index, amount, cols: Array.from(cols) });
+          hotDebug('Debug: hot exclusion cols shifted for insert', { debugLabel, index, amount, cols: Array.from(cols) });
           render();
         }
       },
@@ -599,7 +616,7 @@
         const changedCols = shiftSetForRemoval(cols, physicalCols);
         const changedCells = shiftCellsForRemoval(physicalCols, 'col');
         if(changedCols || changedCells){
-          console.debug('Debug: hot exclusion cols shifted for removal', { debugLabel, physicalCols, cols: Array.from(cols) });
+          hotDebug('Debug: hot exclusion cols shifted for removal', { debugLabel, physicalCols, cols: Array.from(cols) });
           render();
         }
       }
@@ -610,7 +627,7 @@
 
   function ensureHotWrapperStyles(wrapper){
     if(!wrapper){
-      console.debug('Debug: ensureHotWrapperStyles skipped - no wrapper');
+      hotDebug('Debug: ensureHotWrapperStyles skipped - no wrapper');
       return;
     }
     wrapper.style.overflow = 'hidden';
@@ -624,13 +641,13 @@
     wrapper.style.flexShrink = '1';
     wrapper.style.minHeight = '0';
     wrapper.style.boxSizing = 'border-box';
-    console.debug('Debug: hotWrapper style updated', wrapper.id || '', wrapper.style.cssText); // Debug: wrapper style
+    hotDebug('Debug: hotWrapper style updated', wrapper.id || '', wrapper.style.cssText); // Debug: wrapper style
   }
 
   function createEmptyData(rows, cols){
     const targetRows = Math.max(0, rows | 0);
     const enforcedCols = Math.max(MIN_INPUT_COLS, cols | 0);
-    console.debug('Debug: createEmptyData enforcing minimum columns', { requestedRows: rows, requestedCols: cols, targetRows, enforcedCols }); // Debug: verify min column enforcement
+    hotDebug('Debug: createEmptyData enforcing minimum columns', { requestedRows: rows, requestedCols: cols, targetRows, enforcedCols }); // Debug: verify min column enforcement
     return Array.from({length: targetRows}, () => Array.from({length: enforcedCols}, () => ''));
   }
 
@@ -643,7 +660,7 @@
       createInstance
     } = options || {};
     if(!type || !tabId || !wrapper){
-      console.debug('Debug: hot mountTableForTab skipped', {
+      hotDebug('Debug: hot mountTableForTab skipped', {
         type,
         tabId,
         hasWrapper: !!wrapper
@@ -902,7 +919,8 @@
         : 2048);
     const colDefEnhancer = typeof overrides?.colDefEnhancer === 'function' ? overrides.colDefEnhancer : null;
     let instance;
-    const disableBuiltInPaste = overrides?.disablePaste === true || hotOptions.disablePaste === true;
+    const allowCustomPasteBypass = overrides?.allowCustomPasteBypass === true || hotOptions.allowCustomPasteBypass === true;
+    const disableBuiltInPaste = allowCustomPasteBypass === true && (overrides?.disablePaste === true || hotOptions.disablePaste === true);
     const userAfterChange = hotOptions.afterChange;
     const userAfterLoadData = hotOptions.afterLoadData;
     const userAfterSelectionEnd = hotOptions.afterSelectionEnd;
@@ -1069,7 +1087,7 @@
         return;
       }
       try{
-        console.debug(message, payload || {});
+        hotDebug(message, payload || {});
       }catch(err){
         // ignore debug logging failures
       }
@@ -1115,7 +1133,7 @@
           if(!isFormulaEvaluationDebugEnabled()){
             return;
           }
-          console.debug('Debug: Shared.hot formula model', {
+          hotDebug('Debug: Shared.hot formula model', {
             debugLabel,
             reason: reason || 'ensure',
             message: msg,
@@ -1939,7 +1957,7 @@
           preservePasteSelectionLock: true
         });
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot selection reasserted', {
+          hotDebug('Debug: Shared.hot selection reasserted', {
             debugLabel,
             reason: nextReason,
             range: nextRange,
@@ -1970,7 +1988,7 @@
           gridApi.clearFocusedCell();
         }
       }catch(err){
-        console.debug('Debug: Shared.hot clearFocusedCell unavailable', { debugLabel, err });
+        hotDebug('Debug: Shared.hot clearFocusedCell unavailable', { debugLabel, err });
       }
       const doc = container?.ownerDocument || document;
       const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
@@ -2341,7 +2359,7 @@
         scheduleFormulaReferenceOverlayRender(`retry:${reason || 'unknown'}`);
       }, 100);
       if(isFormulaReferenceOverlayDebugEnabled()){
-        console.debug('Debug: Shared.hot formula overlay retry scheduled', {
+        hotDebug('Debug: Shared.hot formula overlay retry scheduled', {
           debugLabel,
           reason: reason || 'unknown',
           retryCount: formulaReferenceOverlayState.retryCount
@@ -2769,7 +2787,7 @@
         overlayRoot.appendChild(fragment);
       }
       if(isFormulaReferenceOverlayDebugEnabled()){
-        console.debug('Debug: Shared.hot formula overlay rendered', {
+        hotDebug('Debug: Shared.hot formula overlay rendered', {
           debugLabel,
           formula: formulaReferenceOverlayState.formulaText,
           ranges: ranges.length,
@@ -2788,7 +2806,7 @@
       // Ignore immediate mutation callbacks caused by our own overlay DOM writes.
       formulaReferenceOverlayState.suppressMutationUntil = Date.now() + 34;
       if(isFormulaReferenceOverlayDebugEnabled()){
-        console.debug('Debug: Shared.hot formula overlay immediate render', {
+        hotDebug('Debug: Shared.hot formula overlay immediate render', {
           debugLabel,
           reason: reason || 'unknown'
         });
@@ -2817,7 +2835,7 @@
         formulaReferenceOverlayState.frameId = global.setTimeout(run, 0);
       }
       if(isFormulaReferenceOverlayDebugEnabled()){
-        console.debug('Debug: Shared.hot formula overlay scheduled', {
+        hotDebug('Debug: Shared.hot formula overlay scheduled', {
           debugLabel,
           reason: reason || 'unknown'
         });
@@ -3070,7 +3088,7 @@
         event?.stopPropagation?.();
         event?.stopImmediatePropagation?.();
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot fill handle pointerdown', { debugLabel });
+          hotDebug('Debug: Shared.hot fill handle pointerdown', { debugLabel });
         }
       };
       const handleDoubleClick = (event)=>{
@@ -3079,7 +3097,7 @@
         event?.stopPropagation?.();
         event?.stopImmediatePropagation?.();
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot fill handle double-click', { debugLabel, applied });
+          hotDebug('Debug: Shared.hot fill handle double-click', { debugLabel, applied });
         }
       };
       handle.addEventListener('pointerdown', stopEvent);
@@ -3105,7 +3123,7 @@
         }
       });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot fill handle created', { debugLabel });
+        hotDebug('Debug: Shared.hot fill handle created', { debugLabel });
       }
       return handle;
     };
@@ -3280,7 +3298,7 @@
           const candidate = chooseBestCell(rowMatched.length ? rowMatched : scopedCandidates);
           if(candidate){
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot fill handle pinned row fallback', {
+              hotDebug('Debug: Shared.hot fill handle pinned row fallback', {
                 debugLabel,
                 row,
                 col,
@@ -3302,7 +3320,7 @@
         const cell = targetRow.querySelector(`.ag-cell[col-id="${colId}"]`);
         if(cell){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot fill handle pinned row fallback by order', {
+            hotDebug('Debug: Shared.hot fill handle pinned row fallback by order', {
               debugLabel,
               row,
               col,
@@ -3855,7 +3873,7 @@
         }
         if(!allowHandle){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot fill handle hidden (marker overlaps viewport boundary)', {
+            hotDebug('Debug: Shared.hot fill handle hidden (marker overlaps viewport boundary)', {
               debugLabel,
               markerRect,
               handleWidth,
@@ -3892,7 +3910,7 @@
         }
       }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot fill handle layer', {
+        hotDebug('Debug: Shared.hot fill handle layer', {
           debugLabel,
           pinnedSelection: isPinnedSelectionRow,
           pinnedLeftSelection: isPinnedLeftSelectionCell,
@@ -4055,7 +4073,7 @@
           }
         }catch(err){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot formula fill shift failed', {
+            hotDebug('Debug: Shared.hot formula fill shift failed', {
               debugLabel,
               rowDelta,
               colDelta,
@@ -4338,7 +4356,7 @@
       }
       if(changes.length){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot fill applied', {
+          hotDebug('Debug: Shared.hot fill applied', {
             debugLabel,
             direction,
             cells: changes.length
@@ -4560,7 +4578,7 @@
       renderAg(instance.gridApi);
       fireHook('afterSelectionEnd', nextSelection.from.row, nextSelection.from.col, nextSelection.to.row, nextSelection.to.col);
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot fill handle auto-fill applied', {
+        hotDebug('Debug: Shared.hot fill handle auto-fill applied', {
           debugLabel,
           rowsFilled: targetRows.length,
           fromRow: selection.to.row + 1,
@@ -4618,7 +4636,7 @@
         setFillPreviewRange(null);
       }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot fill handle drag start', { debugLabel, selection: fillDragStartSelection });
+        hotDebug('Debug: Shared.hot fill handle drag start', { debugLabel, selection: fillDragStartSelection });
       }
     }
 
@@ -5084,7 +5102,7 @@
         pending.step.pendingClipboardMove = false;
       }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot pending clipboard move invalidated', {
+        hotDebug('Debug: Shared.hot pending clipboard move invalidated', {
           debugLabel,
           reason: reason || null
         });
@@ -5254,7 +5272,7 @@
         : sourceChanges.slice();
       hotNS.__pendingClipboardMove = null;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot clipboard move step upgraded for paste', {
+        hotDebug('Debug: Shared.hot clipboard move step upgraded for paste', {
           debugLabel,
           sourceDebugLabel: pending.sourceDebugLabel,
           targetDebugLabel: targetLabel || debugLabel,
@@ -5328,7 +5346,7 @@
         if(trimmedShape.rows < shape.rows || trimmedShape.cols < shape.cols){
           incoming = trimMatrixToShape(incoming, trimmedShape);
           if(debugEnabled){
-            console.debug('Debug: Shared.hot loadData trimmed', {
+            hotDebug('Debug: Shared.hot loadData trimmed', {
               debugLabel,
               previousRows: shape.rows,
               previousCols: shape.cols,
@@ -5341,7 +5359,7 @@
         const nextCols = Math.max(baseColCount, trimmedShape.cols, MIN_INPUT_COLS);
         if(nextRows !== rowCount || nextCols !== colCount){
           if(debugEnabled){
-            console.debug('Debug: Shared.hot loadData resized', {
+            hotDebug('Debug: Shared.hot loadData resized', {
               debugLabel,
               previousRows: rowCount,
               previousCols: colCount,
@@ -5730,7 +5748,7 @@
       && (virtualizationConfig.preferStickyHeaderRow || virtualizationConfig.enabled === false);
     const usePinnedRows = shouldPinRows && !useStickyHeaderRow;
     if(shouldPinRows && isFirefox && usePinnedRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: Shared.hot pinFirstRow virtualization using pinned rows on Firefox', { debugLabel });
+      hotDebug('Debug: Shared.hot pinFirstRow virtualization using pinned rows on Firefox', { debugLabel });
     }
     const isPinnedPhysicalRow = (physicalRow)=>(
       shouldPinRows
@@ -5797,7 +5815,7 @@
 
     let virtualizationState = resolveVirtualizationState(getDataShape());
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: Shared.hot virtualization initialized', Object.assign({ debugLabel }, virtualizationState));
+      hotDebug('Debug: Shared.hot virtualization initialized', Object.assign({ debugLabel }, virtualizationState));
     }
 
     const buildRowData = ()=>Shared.agGrid?.buildRowData
@@ -5805,7 +5823,7 @@
       : Array.from({ length: dataHandle.current.length }, (_, idx)=>({ __rowIndex: idx }));
     let rowData = buildRowData();
     if(shouldPinRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: Shared.hot pinFirstRow enabled', {
+      hotDebug('Debug: Shared.hot pinFirstRow enabled', {
         debugLabel,
         count: pinRowCount,
         mode: usePinnedRows ? 'pinned' : 'sticky'
@@ -6067,7 +6085,7 @@
       pinnedTopScrollLeft = nextOffset;
       const applied = applyPinnedTopTranslateX(pinnedTopContainer, nextOffset);
       if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot pinFirstRow rect sync', { debugLabel, reason, delta, nextOffset });
+        hotDebug('Debug: Shared.hot pinFirstRow rect sync', { debugLabel, reason, delta, nextOffset });
       }
       return applied;
     };
@@ -6109,7 +6127,7 @@
       pinnedTopScrollLeft = nextOffset;
       const applied = applyPinnedTopTranslateX(pinnedTopContainer, nextOffset);
       if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot pinFirstRow cell sync', { debugLabel, reason, delta, nextOffset });
+        hotDebug('Debug: Shared.hot pinFirstRow cell sync', { debugLabel, reason, delta, nextOffset });
       }
       return applied;
     };
@@ -6184,7 +6202,7 @@
       if(!applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         pinnedTopSyncAttempts += 1;
         if(pinnedTopSyncAttempts <= 3){
-          console.debug('Debug: Shared.hot pinFirstRow scroll sync skipped', { debugLabel, reason, scrollLeft });
+          hotDebug('Debug: Shared.hot pinFirstRow scroll sync skipped', { debugLabel, reason, scrollLeft });
         }
       }
       if(applied && isFirefox){
@@ -6219,7 +6237,7 @@
           // Do not show a number on pinned rows (these are "header like" rows)
           if(isPinnedTop){
             if(typeof Shared !== 'undefined' && Shared && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot rowHeader pinned row number suppressed', { debugLabel, rawRowIndex, offset });
+              hotDebug('Debug: Shared.hot rowHeader pinned row number suppressed', { debugLabel, rawRowIndex, offset });
             }
             return '';
           }
@@ -6227,7 +6245,7 @@
           // Guard: if a ghost row ever becomes visible, do not label it
           if(offset > 0 && logicalRowIndex < 0){
             if(typeof Shared !== 'undefined' && Shared && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot rowHeader ghost row number suppressed', { debugLabel, rawRowIndex, logicalRowIndex, offset });
+              hotDebug('Debug: Shared.hot rowHeader ghost row number suppressed', { debugLabel, rawRowIndex, logicalRowIndex, offset });
             }
             return '';
           }
@@ -7634,7 +7652,7 @@
             return;
           }
         }catch(err){
-          console.debug('Debug: ag selection range not available', err);
+          hotDebug('Debug: ag selection range not available', err);
         }
       }
       if(typeof api.getFocusedCell === 'function'){
@@ -7653,7 +7671,7 @@
             fireHook('afterSelectionEnd', row, col, row, col);
           }
         }catch(err){
-          console.debug('Debug: ag focused cell not available', err);
+          hotDebug('Debug: ag focused cell not available', err);
         }
       }
     };
@@ -8057,7 +8075,7 @@
         }
       });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot persisted column width overrides', {
+        hotDebug('Debug: Shared.hot persisted column width overrides', {
           debugLabel,
           reason,
           count: columnWidthOverrides.size
@@ -8130,7 +8148,7 @@
           Object.assign(api, updates);
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot virtualization updated', Object.assign({ debugLabel, reason }, updates));
+          hotDebug('Debug: Shared.hot virtualization updated', Object.assign({ debugLabel, reason }, updates));
         }
       }catch(err){
         console.error('Shared.hot AG virtualization update error', err);
@@ -8314,7 +8332,7 @@
           api.applyTransaction({ add: newRowData });
           usedTransaction = true;
         }catch(err){
-          console.debug('Debug: ag appendRows transaction failed, falling back', { debugLabel, err });
+          hotDebug('Debug: ag appendRows transaction failed, falling back', { debugLabel, err });
         }
       }
       if(!usedTransaction){
@@ -8469,7 +8487,7 @@
             if(trimmedShape.rows < shape.rows || trimmedShape.cols < shape.cols){
               incomingData = trimMatrixToShape(incomingData, trimmedShape);
               if(debugEnabled){
-                console.debug('Debug: Shared.hot updateSettings trimmed', {
+                hotDebug('Debug: Shared.hot updateSettings trimmed', {
                   debugLabel,
                   previousRows: shape.rows,
                   previousCols: shape.cols,
@@ -8556,7 +8574,7 @@
               }
 
               if (debugEnabled) {
-                console.debug("Debug: Shared.hot pinFirstRow height recompute (immediate)", {
+                hotDebug("Debug: Shared.hot pinFirstRow height recompute (immediate)", {
                   debugLabel,
                   pinRowCount,
                   usePinnedRows,
@@ -8581,7 +8599,7 @@
                   }
 
                   if (debugEnabled) {
-                    console.debug("Debug: Shared.hot pinFirstRow height recompute (raf)", {
+                    hotDebug("Debug: Shared.hot pinFirstRow height recompute (raf)", {
                       debugLabel,
                       pinRowCount,
                       usePinnedRows,
@@ -8875,7 +8893,7 @@
         if(shouldRecordUndo){
           beforeSnapshot = captureLoadDataUndoSnapshot(options.maxUndoCells);
           if(beforeSnapshot.kind !== 'full' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot loadData undo snapshot skipped (before)', {
+            hotDebug('Debug: Shared.hot loadData undo snapshot skipped (before)', {
               debugLabel,
               source: options.source,
               kind: beforeSnapshot.kind || 'unknown',
@@ -8894,7 +8912,7 @@
         const afterSnapshot = captureLoadDataUndoSnapshot(options.maxUndoCells);
         if(afterSnapshot.kind !== 'full'){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot loadData undo snapshot skipped (after)', {
+            hotDebug('Debug: Shared.hot loadData undo snapshot skipped (after)', {
               debugLabel,
               source: options.source,
               kind: afterSnapshot.kind || 'unknown',
@@ -8906,7 +8924,7 @@
         }
         if(areLoadDataSnapshotsEqual(beforeSnapshot, afterSnapshot)){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot loadData undo skipped (no changes)', {
+            hotDebug('Debug: Shared.hot loadData undo skipped (no changes)', {
               debugLabel,
               source: options.source
             });
@@ -8922,7 +8940,7 @@
         });
 
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot loadData undo recorded', {
+          hotDebug('Debug: Shared.hot loadData undo recorded', {
             debugLabel,
             source: options.source,
             rowCount: afterSnapshot.rowCount,
@@ -9339,7 +9357,7 @@
         return true;
       }catch(sortErr){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot applyColumnSortState failed', {
+          hotDebug('Debug: Shared.hot applyColumnSortState failed', {
             debugLabel,
             colId,
             sort: nextSort || null,
@@ -9946,7 +9964,7 @@
           return false;
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot moved displayed column', { debugLabel, colId, toIndex });
+          hotDebug('Debug: Shared.hot moved displayed column', { debugLabel, colId, toIndex });
         }
         return true;
       }catch(err){
@@ -10278,7 +10296,7 @@
       columnHandleMoveRafPending = false;
       syncPendingColumnReorderTransaction();
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot column handle drag start', { debugLabel, colIds: columnHandleDragColIds.slice() });
+        hotDebug('Debug: Shared.hot column handle drag start', { debugLabel, colIds: columnHandleDragColIds.slice() });
       }
     };
 
@@ -10295,7 +10313,7 @@
       syncPendingColumnReorderTransaction();
       const committed = commitDisplayedColumnOrderToData('columnHandleDrag', movedCols);
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot column handle drag end', {
+        hotDebug('Debug: Shared.hot column handle drag end', {
           debugLabel,
           colIds: movedCols || null,
           committed
@@ -10344,7 +10362,7 @@
           return false;
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot moved displayed columns', { debugLabel, colIds: ids.slice(), toIndex });
+          hotDebug('Debug: Shared.hot moved displayed columns', { debugLabel, colIds: ids.slice(), toIndex });
         }
         return true;
       }catch(err){
@@ -10446,7 +10464,7 @@
     const scheduleDeferredColumnMoveCommit = (reason, movedColIds, attempt = 0)=>{
       if(pendingDeferredColumnMoveCommitId != null){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot deferred column move commit already scheduled', {
+          hotDebug('Debug: Shared.hot deferred column move commit already scheduled', {
             debugLabel,
             reason: reason || null,
             movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null,
@@ -10463,7 +10481,7 @@
         syncPendingColumnReorderTransaction();
         if(isColumnHandleDragging || suppressColumnMoveCommitDepth !== 0){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot deferred column move commit skipped (guard)', {
+            hotDebug('Debug: Shared.hot deferred column move commit skipped (guard)', {
               debugLabel,
               reason: reason || null,
               isColumnHandleDragging,
@@ -10477,7 +10495,7 @@
         const orderReady = !!(displayedOrder && displayedOrder.length === colCount);
         if(!orderReady && attempt < (MAX_DEFERRED_COLUMN_MOVE_COMMIT_ATTEMPTS - 1)){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot deferred column move commit postponed (displayed order not ready)', {
+            hotDebug('Debug: Shared.hot deferred column move commit postponed (displayed order not ready)', {
               debugLabel,
               reason: reason || null,
               attempt,
@@ -10490,7 +10508,7 @@
         }
         const committed = commitDisplayedColumnOrderToData(reason || 'ag-column-moved:deferred', movedColIds);
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot deferred column move commit result', {
+          hotDebug('Debug: Shared.hot deferred column move commit result', {
             debugLabel,
             reason: reason || null,
             committed,
@@ -10627,7 +10645,7 @@
       fireHook('afterColumnMove');
       triggerSchedule('afterColumnMove', { source: reason || 'columnPermutation' });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot applied column permutation', { debugLabel, reason: reason || null });
+        hotDebug('Debug: Shared.hot applied column permutation', { debugLabel, reason: reason || null });
       }
       return true;
     };
@@ -10636,7 +10654,7 @@
       const currentOrder = getDisplayedDataColumnOrder();
       if(!currentOrder || currentOrder.length !== colCount){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot column order commit skipped (invalid displayed order)', {
+          hotDebug('Debug: Shared.hot column order commit skipped (invalid displayed order)', {
             debugLabel,
             reason: reason || null,
             hasOrder: !!currentOrder,
@@ -10649,7 +10667,7 @@
       const permutationOldByNew = currentOrder.map(id => Number(id.slice(1)));
       if(!permutationOldByNew.every(idx => Number.isInteger(idx) && idx >= 0)){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot column order commit skipped (invalid permutation)', {
+          hotDebug('Debug: Shared.hot column order commit skipped (invalid permutation)', {
             debugLabel,
             reason: reason || null,
             currentOrder: currentOrder.slice(),
@@ -10661,7 +10679,7 @@
       const isIdentity = permutationOldByNew.every((oldIdx, newIdx)=>oldIdx === newIdx);
       if(isIdentity){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot column order commit skipped (identity)', {
+          hotDebug('Debug: Shared.hot column order commit skipped (identity)', {
             debugLabel,
             reason: reason || null,
             currentOrder: currentOrder.slice()
@@ -10678,7 +10696,7 @@
       const applied = applyColumnPermutation(permutationOldByNew, { reason: reason || 'columnOrderCommit', movedColIds });
       if(!applied){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot column order commit failed (apply permutation failed)', {
+          hotDebug('Debug: Shared.hot column order commit failed (apply permutation failed)', {
             debugLabel,
             reason: reason || null,
             permutationOldByNew: permutationOldByNew.slice()
@@ -10694,7 +10712,7 @@
         undo: ()=>{
           const ok = applyColumnPermutation(inverse, { reason: 'undo:reorder-columns', skipSelection: true });
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot reorder undo closure executed', {
+            hotDebug('Debug: Shared.hot reorder undo closure executed', {
               debugLabel,
               label: undoLabel,
               ok,
@@ -10707,7 +10725,7 @@
         redo: ()=>{
           const ok = applyColumnPermutation(permutationOldByNew, { reason: 'redo:reorder-columns', skipSelection: true });
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot reorder redo closure executed', {
+            hotDebug('Debug: Shared.hot reorder redo closure executed', {
               debugLabel,
               label: undoLabel,
               ok,
@@ -10719,7 +10737,7 @@
         }
       });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot reorder undo record created', {
+        hotDebug('Debug: Shared.hot reorder undo record created', {
           debugLabel,
           reason: reason || null,
           label: undoLabel,
@@ -10729,7 +10747,7 @@
       }
 
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot committed column order to data', {
+        hotDebug('Debug: Shared.hot committed column order to data', {
           debugLabel,
           reason: reason || null,
           movedColIds: Array.isArray(movedColIds) ? movedColIds.slice() : null,
@@ -11003,7 +11021,7 @@
           nonEmptyNodes.forEach(node => nodes.push(node));
           emptyNodes.forEach(node => nodes.push(node));
         }catch(err){
-          console.debug('Debug: Shared.hot AG postSortRows error', { debugLabel, err });
+          hotDebug('Debug: Shared.hot AG postSortRows error', { debugLabel, err });
         }
       },
         onGridReady(params){
@@ -11098,7 +11116,7 @@
             formulaEditRawSnapshots.delete(snapshotKey);
           }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot AG change ignored (no-op)', {
+            hotDebug('Debug: Shared.hot AG change ignored (no-op)', {
               debugLabel,
               row: event?.node?.rowIndex ?? event?.rowIndex,
               colId: event?.column?.getColId?.() ?? event?.colId,
@@ -11264,7 +11282,7 @@
           && !isColumnHandleDragging
           && suppressColumnMoveCommitDepth === 0;
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot onColumnMoved event', {
+          hotDebug('Debug: Shared.hot onColumnMoved event', {
             debugLabel,
             source,
             finished,
@@ -11278,7 +11296,7 @@
         if(canCommitFromEvent){
           const committed = commitDisplayedColumnOrderToData('ag-column-moved', movedColIds);
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot onColumnMoved commit attempt result', {
+            hotDebug('Debug: Shared.hot onColumnMoved commit attempt result', {
               debugLabel,
               source,
               finished,
@@ -11740,7 +11758,7 @@
             }
           }catch(err){
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot resolveFormulaReferenceInput failed', {
+              hotDebug('Debug: Shared.hot resolveFormulaReferenceInput failed', {
                 debugLabel,
                 message: err?.message || String(err)
               });
@@ -11974,7 +11992,7 @@
         suppressNextCellClick = true;
         win?.setTimeout?.(()=>{ suppressNextCellClick = false; }, 80);
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot formula reference drag end', { debugLabel, reason: reason || 'unknown' });
+          hotDebug('Debug: Shared.hot formula reference drag end', { debugLabel, reason: reason || 'unknown' });
         }
         return true;
       };
@@ -12084,7 +12102,7 @@
           ensureFormulaOverlayLoop('pointer-range-start');
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot formula reference drag start', {
+          hotDebug('Debug: Shared.hot formula reference drag start', {
             debugLabel,
             anchor: anchorCoords
           });
@@ -12130,7 +12148,7 @@
             }
           }catch(err){
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot resolveActiveFormulaOverlayInput resolver failed', {
+              hotDebug('Debug: Shared.hot resolveActiveFormulaOverlayInput resolver failed', {
                 debugLabel,
                 message: err?.message || String(err)
               });
@@ -12458,7 +12476,7 @@
         pendingHeaderDragIndex = row;
         headerDragRafPending = false;
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'row', row });
+          hotDebug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'row', row });
         }
         selectRowByHeader(row, !!event.shiftKey);
       };
@@ -12542,7 +12560,7 @@
           y: typeof event?.clientY === 'number' ? event.clientY : null
         };
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot header drag selection armed', { debugLabel, scope: 'column', col });
+          hotDebug('Debug: Shared.hot header drag selection armed', { debugLabel, scope: 'column', col });
         }
         // Keep plain header clicks non-destructive: do not replace the active
         // cell selection unless the user is explicitly extending/toggling a
@@ -13353,7 +13371,7 @@
               armHeaderSortSuppression(headerDragColId, { any: true });
             }
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'column' });
+              hotDebug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'column' });
             }
           }
         }
@@ -13474,7 +13492,7 @@
           if(normalized){
             fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: Shared.hot header drag selection end', { debugLabel, selection: normalized });
+              hotDebug('Debug: Shared.hot header drag selection end', { debugLabel, selection: normalized });
             }
           }
           return;
@@ -13682,7 +13700,7 @@
           }
         }
         if(changed && typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: hot.normalizeDecimalSeparators', { delimiter, changed, debugLabel });
+          hotDebug('Debug: hot.normalizeDecimalSeparators', { delimiter, changed, debugLabel });
         }
         return rows;
       };
@@ -13724,7 +13742,7 @@
         }
         if(isEditableTarget(event.target) || isInlineEditorActive()){
           if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: hot.handlePaste ignored (inline editing active)', {
+            hotDebug('Debug: hot.handlePaste ignored (inline editing active)', {
               debugLabel,
               targetTag: resolveTargetElement(event.target)?.tagName || null
             });
@@ -13736,7 +13754,7 @@
           const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
           if(!activeEl || !container.contains(activeEl)){
             if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: hot.handlePaste ignored (outside container)', {
+              hotDebug('Debug: hot.handlePaste ignored (outside container)', {
                 debugLabel,
                 target: targetNode?.tagName || null,
                 activeTag: activeEl?.tagName || null
@@ -13776,12 +13794,12 @@
         // Try shared tableImport helper first (centralized, robust logic)
         try{
           if(typeof Shared?.tableImport?.getClipboardTextFromEvent === 'function'){
-            console.debug('Debug: hot.handlePaste calling Shared.tableImport.getClipboardTextFromEvent');
+            hotDebug('Debug: hot.handlePaste calling Shared.tableImport.getClipboardTextFromEvent');
             plain = await Shared.tableImport.getClipboardTextFromEvent(event);
-            console.debug('Debug: hot.handlePaste helper returned', { length: (plain || '').length });
+            hotDebug('Debug: hot.handlePaste helper returned', { length: (plain || '').length });
           }
         }catch(e){
-          console.debug('Debug: hot.handlePaste helper threw', { message: e?.message || String(e) });
+          hotDebug('Debug: hot.handlePaste helper threw', { message: e?.message || String(e) });
         }
 
         // Fallback: if helper didn't return anything, keep the previous local fallbacks
@@ -14004,7 +14022,7 @@
         };
         if(!isRepeatTouchEditTap){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot touch edit tap armed', {
+            hotDebug('Debug: Shared.hot touch edit tap armed', {
               debugLabel,
               row: coords.row,
               col: coords.col
@@ -14028,7 +14046,7 @@
             rowPinned: null
           });
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot touch edit tap start', {
+            hotDebug('Debug: Shared.hot touch edit tap start', {
               debugLabel,
               row: coords.row,
               col: coords.col
@@ -14037,7 +14055,7 @@
           event.preventDefault?.();
         }catch(err){
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot touch tap edit failed', {
+            hotDebug('Debug: Shared.hot touch tap edit failed', {
               debugLabel,
               row: coords.row,
               col: coords.col,
@@ -14097,9 +14115,9 @@
         container.addEventListener('paste', handlePaste, true);
         try{
           document.addEventListener('paste', handlePaste, true);
-          console.debug('Debug: hot.js registered document paste listener for hot container', { containerId: container?.id || null });
+          hotDebug('Debug: hot.js registered document paste listener for hot container', { containerId: container?.id || null });
         }catch(e){
-          console.debug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
+          hotDebug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
         }
       }else{
         const handleDocumentPasteRelay = (event)=>{
@@ -14142,11 +14160,11 @@
           doc.addEventListener('paste', handleDocumentPasteRelay, true);
           cleanupFns.push(()=>{ try{ doc.removeEventListener('paste', handleDocumentPasteRelay, true); }catch(e){}; });
           if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: hot.js registered document paste relay (disablePaste)', { containerId: container?.id || null, debugLabel });
+            hotDebug('Debug: hot.js registered document paste relay (disablePaste)', { containerId: container?.id || null, debugLabel });
           }
         }catch(e){
           if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: hot.js failed to register document paste relay (disablePaste)', { message: e?.message || String(e), debugLabel });
+            hotDebug('Debug: hot.js failed to register document paste relay (disablePaste)', { message: e?.message || String(e), debugLabel });
           }
         }
       }
@@ -14287,7 +14305,7 @@
     }
     const controller = inst.__hotExclusionController || null;
     if(!controller){
-      console.debug('Debug: Shared.hot controller missing', { debugLabel: getInstanceDebugLabel(inst) });
+      hotDebug('Debug: Shared.hot controller missing', { debugLabel: getInstanceDebugLabel(inst) });
     }
     return controller;
   };
@@ -14334,7 +14352,7 @@
       return EMPTY_EXCLUSION_STATE;
     }
     const state = controller.exportState();
-    console.debug('Debug: Shared.hot exportExclusions', { debugLabel: getInstanceDebugLabel(inst), state });
+    hotDebug('Debug: Shared.hot exportExclusions', { debugLabel: getInstanceDebugLabel(inst), state });
     return state;
   }
 
@@ -14504,7 +14522,7 @@
           }
           values.push(value);
         }
-        console.debug('Debug: Shared.hot getColumnValues', { debugLabel: getInstanceDebugLabel(inst), visualCol, count: values.length });
+        hotDebug('Debug: Shared.hot getColumnValues', { debugLabel: getInstanceDebugLabel(inst), visualCol, count: values.length });
         return values;
       },
       getRowValues(visualRow, opts){
@@ -14525,7 +14543,7 @@
           }
           values.push(value);
         }
-        console.debug('Debug: Shared.hot getRowValues', { debugLabel: getInstanceDebugLabel(inst), visualRow, count: values.length });
+        hotDebug('Debug: Shared.hot getRowValues', { debugLabel: getInstanceDebugLabel(inst), visualRow, count: values.length });
         return values;
       },
       toPhysicalRow(visualRow){
@@ -14535,7 +14553,7 @@
         return visualToPhysicalCol[visualCol] ?? null;
       }
     };
-    console.debug('Debug: Shared.hot getAnalysisData complete', { debugLabel: getInstanceDebugLabel(inst), rowCount, colCount });
+    hotDebug('Debug: Shared.hot getAnalysisData complete', { debugLabel: getInstanceDebugLabel(inst), rowCount, colCount });
     return analysis;
   }
 
@@ -14592,7 +14610,7 @@
       }
       matrix.push(rowValues);
     }
-    console.debug('Debug: Shared.hot getIncludedDataMatrix complete', {
+    hotDebug('Debug: Shared.hot getIncludedDataMatrix complete', {
       debugLabel: getInstanceDebugLabel(resolveInstance(instance)),
       rowCount,
       colCount
@@ -14643,13 +14661,13 @@
     if(typeof inst.__hotRefreshHeaderWidths === 'function'){
       try{
         inst.__hotRefreshHeaderWidths(options?.reason, options?.headerRow);
-        console.debug('Debug: Shared.hot.refreshHeaderWidths invoked', { debugLabel: getInstanceDebugLabel(inst), reason: options?.reason || 'external' });
+        hotDebug('Debug: Shared.hot.refreshHeaderWidths invoked', { debugLabel: getInstanceDebugLabel(inst), reason: options?.reason || 'external' });
         return true;
       }catch(err){
         console.error('Shared.hot.refreshHeaderWidths error', err);
       }
     }else{
-      console.debug('Debug: Shared.hot.refreshHeaderWidths skipped - handler missing', { debugLabel: getInstanceDebugLabel(inst) });
+      hotDebug('Debug: Shared.hot.refreshHeaderWidths skipped - handler missing', { debugLabel: getInstanceDebugLabel(inst) });
     }
     return false;
   }
@@ -14664,14 +14682,14 @@
     const debugLabel = getInstanceDebugLabel(target);
     if(target && typeof target.__hotClearClipboardOutline === 'function'){
       target.__hotClearClipboardOutline(label);
-      console.debug('Debug: Shared.hot.clearClipboardOutline invoked', { debugLabel, reason: label });
+      hotDebug('Debug: Shared.hot.clearClipboardOutline invoked', { debugLabel, reason: label });
       return true;
     }
     if(clearActiveClipboardSelectionOwner(label)){
-      console.debug('Debug: Shared.hot.clearClipboardOutline invoked via active-owner fallback', { reason: label });
+      hotDebug('Debug: Shared.hot.clearClipboardOutline invoked via active-owner fallback', { reason: label });
       return true;
     }
-    console.debug('Debug: Shared.hot.clearClipboardOutline skipped', {
+    hotDebug('Debug: Shared.hot.clearClipboardOutline skipped', {
       debugLabel,
       reason: label,
       hasHandler: !!(inst && inst.__hotClearClipboardOutline)
@@ -14752,7 +14770,7 @@
         cols: Math.max(0, lastCol + 1)
       };
     }catch(err){
-      console.debug('Debug: Shared.hot estimateFilledShape error', { message: err?.message || String(err) });
+      hotDebug('Debug: Shared.hot estimateFilledShape error', { message: err?.message || String(err) });
       return { rows: 0, cols: 0 };
     }
   };
@@ -14825,7 +14843,7 @@
           // ignore toggle failures
         }
         if(typeof console?.debug === 'function'){
-          console.debug(label, payload);
+          hotDebug(label, payload);
         }
       };
     const state = ensureAutoDrawStateDefaults(config.state);

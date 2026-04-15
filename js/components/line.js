@@ -10765,43 +10765,43 @@
         scheduleLineDraw();
       };
       makeEditableHelper(xText,txt=>{
-        console.log('LINE X-AXIS EDIT HANDLER CALLED!');
+        lineDebug('LINE X-AXIS EDIT HANDLER CALLED!');
         
         const previous=lineXLabelText!=null?String(lineXLabelText):'';
         const nextValue=txt!=null?String(txt):'';
         
-        console.log('LINE X-AXIS EDIT - Previous:', previous, 'Next:', nextValue);
+        lineDebug('LINE X-AXIS EDIT - Previous:', previous, 'Next:', nextValue);
         
         if(previous===nextValue){
-          console.log('LINE X-AXIS EDIT - No change, returning');
+          lineDebug('LINE X-AXIS EDIT - No change, returning');
           return;
         }
         
         // Create a combined apply function that updates both visual and table header
         const applyBoth = (value) => {
-          console.log('LINE applyBoth called with value:', value);
+          lineDebug('LINE applyBoth called with value:', value);
           // Update visual title
           applyLineXLabel(value);
           
           // Also update the table header to maintain consistency
           const hot = lineHot;
-          console.log('LINE applyBoth - HOT instance:', hot);
+          lineDebug('LINE applyBoth - HOT instance:', hot);
           
           if(hot && typeof hot.setDataAtCell === 'function'){
             try {
               const data = hot.getData() || [];
-              console.log('LINE applyBoth - Table data:', data);
+              lineDebug('LINE applyBoth - Table data:', data);
               
               if(Array.isArray(data) && data.length > 0) {
                 const headerRow = Array.isArray(data[0]) ? data[0] : [];
-                console.log('LINE applyBoth - Header row:', headerRow);
+                lineDebug('LINE applyBoth - Header row:', headerRow);
                 
                 if(headerRow.length > 0) {
                   // Find the X column index
                   let xIndex = headerRow.findIndex(h=>String(h).trim().toLowerCase()==='x');
                   if(xIndex < 0) xIndex = 0;
                   
-                  console.log('LINE applyBoth - X column index:', xIndex, 'Current header:', headerRow[xIndex], 'New value:', value);
+                  lineDebug('LINE applyBoth - X column index:', xIndex, 'Current header:', headerRow[xIndex], 'New value:', value);
                   
                   if(headerRow[xIndex] !== value) {
                     // Try multiple approaches to ensure the update works
@@ -10809,44 +10809,44 @@
                     
                     // Approach 1: setDataAtCell (primary method)
                     try {
-                      console.log('LINE applyBoth - Trying setDataAtCell with:', [0, xIndex, value]);
+                      lineDebug('LINE applyBoth - Trying setDataAtCell with:', [0, xIndex, value]);
                       const result = hot.setDataAtCell([0, xIndex, value], 'line-x-axis-edit');
-                      console.log('LINE applyBoth - setDataAtCell result:', result);
+                      lineDebug('LINE applyBoth - setDataAtCell result:', result);
                       
                       // Verify the update
                       const verifyData1 = hot.getData() || [];
                       const verifyHeader1 = Array.isArray(verifyData1[0]) ? verifyData1[0] : [];
-                      console.log('LINE applyBoth - Verification header:', verifyHeader1);
+                      lineDebug('LINE applyBoth - Verification header:', verifyHeader1);
                       if(verifyHeader1[xIndex] === value) {
                         updateSuccessful = true;
-                        console.log('LINE applyBoth - SUCCESS with setDataAtCell');
+                        lineDebug('LINE applyBoth - SUCCESS with setDataAtCell');
                       } else {
-                        console.log('LINE applyBoth - setDataAtCell verification failed. Expected:', value, 'Got:', verifyHeader1[xIndex]);
+                        lineDebug('LINE applyBoth - setDataAtCell verification failed. Expected:', value, 'Got:', verifyHeader1[xIndex]);
                       }
                     } catch(err) {
-                      console.log('LINE applyBoth - setDataAtCell failed:', err.message);
+                      lineDebug('LINE applyBoth - setDataAtCell failed:', err.message);
                     }
                     
                     // Approach 2: Direct data manipulation (fallback)
                     if(!updateSuccessful) {
                       try {
-                        console.log('LINE applyBoth - Trying direct data manipulation');
+                        lineDebug('LINE applyBoth - Trying direct data manipulation');
                         const currentData = hot.getData() || [];
                         const newData = JSON.parse(JSON.stringify(currentData));
                         
                         if(Array.isArray(newData[0]) && newData[0].length > xIndex) {
                           newData[0][xIndex] = value;
-                          console.log('LINE applyBoth - Updated newData header:', newData[0]);
+                          lineDebug('LINE applyBoth - Updated newData header:', newData[0]);
                           
                           // Try different update methods
                           if(typeof hot.setData === 'function') {
-                            console.log('LINE applyBoth - Using setData method');
+                            lineDebug('LINE applyBoth - Using setData method');
                             hot.setData(newData);
                           } else if(typeof hot.updateSettings === 'function') {
-                            console.log('LINE applyBoth - Using updateSettings method');
+                            lineDebug('LINE applyBoth - Using updateSettings method');
                             hot.updateSettings({ data: newData });
                           } else if(typeof hot.gridApi?.setRowData === 'function') {
-                            console.log('LINE applyBoth - Using gridApi.setRowData method');
+                            lineDebug('LINE applyBoth - Using gridApi.setRowData method');
                             hot.gridApi.setRowData(newData);
                           } else {
                             console.warn('LINE applyBoth - No suitable update method found');
@@ -10855,12 +10855,12 @@
                           // Verify the update
                           const verifyData2 = hot.getData() || [];
                           const verifyHeader2 = Array.isArray(verifyData2[0]) ? verifyData2[0] : [];
-                          console.log('LINE applyBoth - Fallback verification header:', verifyHeader2);
+                          lineDebug('LINE applyBoth - Fallback verification header:', verifyHeader2);
                           if(verifyHeader2[xIndex] === value) {
                             updateSuccessful = true;
-                            console.log('LINE applyBoth - SUCCESS with direct manipulation');
+                            lineDebug('LINE applyBoth - SUCCESS with direct manipulation');
                           } else {
-                            console.log('LINE applyBoth - Fallback verification failed. Expected:', value, 'Got:', verifyHeader2[xIndex]);
+                            lineDebug('LINE applyBoth - Fallback verification failed. Expected:', value, 'Got:', verifyHeader2[xIndex]);
                           }
                         }
                       } catch(err) {
@@ -10871,7 +10871,7 @@
                     if(!updateSuccessful) {
                       console.error('LINE applyBoth - FAILED: All update methods failed');
                     } else {
-                      console.log('LINE applyBoth - Header update successful');
+                      lineDebug('LINE applyBoth - Header update successful');
                     }
                   }
                 }
@@ -10882,16 +10882,16 @@
           }
           
           // Force a redraw to ensure consistency
-          console.log('LINE applyBoth - Scheduling redraw');
+          lineDebug('LINE applyBoth - Scheduling redraw');
           scheduleLineDraw();
           return true;
         };
         
-        console.log('LINE X-AXIS EDIT - Calling applyBoth with:', nextValue);
+        lineDebug('LINE X-AXIS EDIT - Calling applyBoth with:', nextValue);
         applyBoth(nextValue);
-        console.log('LINE X-AXIS EDIT - Recording change for undo');
+        lineDebug('LINE X-AXIS EDIT - Recording change for undo');
         recordLineChange('line:x-label',previous,nextValue,applyBoth);
-        console.log('LINE X-AXIS EDIT - Completed');
+        lineDebug('LINE X-AXIS EDIT - Completed');
       });
       // Enable drag for x-axis label
       if(typeof Shared.enableLabelDrag === 'function'){
@@ -11620,15 +11620,7 @@
       return;
     }
     const data = seedLineDefaultHeaderRow(Shared.createEmptyData(DEFAULT_ROWS, LINE_DEFAULT_COLS));
-    let lineScheduleProxyCount = 0;
     const scheduleLineDrawProxy = () => {
-      lineScheduleProxyCount += 1;
-      if(lineScheduleProxyCount <= 5){
-        console.debug('Debug: line scheduleLineDraw proxy invoked', { count: lineScheduleProxyCount }); // Debug: table change trigger
-        if(lineScheduleProxyCount === 5){
-          console.debug('Debug: line scheduleLineDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
-        }
-      }
       if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
         scheduleLine3dDatasetSync('table-change');
       }
@@ -11640,7 +11632,6 @@
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
         debugLabel: 'line',
         data,
-        disablePaste: true,
         pinFirstColumn: true,
         pinFirstRow: true,
         rowSelection: null,
@@ -11778,7 +11769,6 @@
           stretchH: 'all',
           afterChange(changes, source){
             if(changes && source !== 'loadData'){
-              console.debug('Debug: line afterChange', { count: changes.length, source });
               const headerTouched = changes.some(change => Number(change?.[0]) === 0);
               if(isLineGroupedModeActive()){
                 if(headerTouched && source !== 'line-grouped-header-normalize'){
@@ -11817,11 +11807,9 @@
             activateLineDataToolbar('table-selection');
           },
           afterCreateRow(){
-            console.debug('Debug: line row created');
             syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterCreateCol(){
-            console.debug('Debug: line col created');
             if(isLineGroupedModeActive()){
               normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
               updateLineNestedHeaders();
@@ -11829,11 +11817,9 @@
             syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveRow(){
-            console.debug('Debug: line row removed');
             syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
-            console.debug('Debug: line col removed');
             if(isLineGroupedModeActive()){
               normalizeLineGroupedHeaderRow(instance, { source: 'line-grouped-header-normalize' });
               updateLineNestedHeaders();
@@ -11841,10 +11827,8 @@
             syncLineActiveDataViewFromHot(instance, 'afterChange');
           },
           afterUndo(){
-            console.debug('Debug: line undo');
           },
           afterRedo(){
-            console.debug('Debug: line redo');
           }
         }
       });
@@ -11858,7 +11842,6 @@
             applyLineNestedHeaderEditors();
           }
         });
-        console.debug('Debug: lineHot afterRender hook registered for nested headers');
       }
       return instance;
     };
@@ -11903,40 +11886,7 @@
         });
         syncLineActiveDataViewFromHot(lineHot, 'ensure-active-tab');
       }
-      const tableImport = Shared.tableImport;
-      if(tableImport?.handlePaste && refs.hotContainer && !refs.hotContainer.__linePasteBound){
-        refs.hotContainer.addEventListener('paste',async e=>{
-          let forcedOverlay = false;
-          try{
-            forcedOverlay = !!forceLineOverlay('table-paste-start', { message: 'Processing pasted data...' });
-            const result = await tableImport.handlePaste(e,lineHot,{
-              minCols: LINE_DEFAULT_COLS,
-              minRows: DEFAULT_ROWS,
-              scheduleDraw: () => {
-                markLineOverlayPending('table-paste');
-                if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
-                  scheduleLine3dDatasetSync('paste');
-                }
-                scheduleLineDraw();
-              },
-              debugLabel: 'line',
-              onProcessed: info => {
-                console.debug('Debug: line paste processed', info || {}); // Debug: paste processed callback
-              }
-            });
-            if(!result && forcedOverlay){
-              resolveLineOverlay('table-paste-empty');
-            }
-            console.debug('Debug: line paste finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
-          }catch(err){
-            if(forcedOverlay){
-              resolveLineOverlay('table-paste-error');
-            }
-            console.error('line paste failed',err);
-          }
-        });
-        refs.hotContainer.__linePasteBound = true;
-      }
+
       return lineHot;
     };
     lineHot = ensureLineHotForActiveTab();
@@ -11945,7 +11895,7 @@
     }
     line.__ensureHotForActiveTab = ensureLineHotForActiveTab;
     bindLineDataToolbar();
-    if(typeof global.DEBUG_LINE === 'undefined') global.DEBUG_LINE = true;
+    if(typeof global.DEBUG_LINE === 'undefined') global.DEBUG_LINE = false;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
 
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
@@ -12301,7 +12251,7 @@
         return;
       }
       el.addEventListener('input',()=>{
-        console.log(logLabel, el.value);
+        lineDebug(logLabel, el.value);
         const logActive = axis === 'x' ? refs.logX?.checked : refs.logY?.checked;
         if(logActive && isLineLogAxisInputInProgress(el)){
           if(lineDebugEnabled()){

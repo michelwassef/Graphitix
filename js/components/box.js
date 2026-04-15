@@ -12829,21 +12829,12 @@
 
   // PART: INIT_HOT
   function initHot(){
-    console.debug('Debug: box initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('box initHot missing Shared.hot.createStandardTable');
       return;
     }
     const data = seedBoxDefaultHeaderRow(Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS));
-    let boxScheduleProxyCount = 0;
     const scheduleBoxDrawProxy = (payload) => {
-      boxScheduleProxyCount += 1;
-      if(boxScheduleProxyCount <= 5){
-        console.debug('Debug: box scheduleDraw proxy invoked', { count: boxScheduleProxyCount }); // Debug: table change trigger
-        if(boxScheduleProxyCount === 5){
-          console.debug('Debug: box scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
-        }
-      }
       const meta = payload && typeof payload === 'object'
         ? payload
         : (typeof payload === 'string' ? { reason: payload } : {});
@@ -12862,7 +12853,6 @@
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
         debugLabel: 'box',
         data,
-        disablePaste: true,
         pinFirstRow: true,
         colDefEnhancer(def, meta){
           const colIndex = Number(meta?.colIndex);
@@ -13180,86 +13170,7 @@
         });
         syncBoxActiveDataViewFromHot(state.hot, 'ensure-active-tab');
       }
-      const tableImport = Shared.tableImport;
-      if(tableImport?.handlePaste && els.hotContainer && !els.hotContainer.__boxPasteBound){
-        const isEditablePasteTarget = (target)=>{
-          const node = target && target.nodeType === 1
-            ? target
-            : (target && target.nodeType === 3 ? (target.parentElement || target.parentNode) : null);
-          if(!node || node.nodeType !== 1){
-            return false;
-          }
-          if(node.isContentEditable){
-            return true;
-          }
-          const tag = node.tagName;
-          if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'){
-            return true;
-          }
-          if(typeof node.closest === 'function'){
-            return !!node.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor,.ag-input-field-input');
-          }
-          return false;
-        };
-        const isInlineEditorActiveForPaste = ()=>{
-          const api = state.hot?.gridApi;
-          if(api && typeof api.getEditingCells === 'function'){
-            try{
-              const editing = api.getEditingCells();
-              if(Array.isArray(editing) && editing.length){
-                return true;
-              }
-            }catch(err){
-              // best effort probe only
-            }
-          }
-          const doc = els.hotContainer?.ownerDocument || global.document;
-          const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
-          if(activeEl){
-            if(isEditablePasteTarget(activeEl)){
-              return true;
-            }
-            if(typeof activeEl.closest === 'function' && activeEl.closest('.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor')){
-              return true;
-            }
-          }
-          return false;
-        };
-        els.hotContainer.addEventListener('paste',async e=>{
-          if(isEditablePasteTarget(e?.target) || isInlineEditorActiveForPaste()){
-            if(Shared?.isDebugEnabled?.()){
-              console.debug('Debug: box paste ignored (inline editor active)', {
-                targetTag: e?.target?.nodeType === 1 ? e.target.tagName : null
-              });
-            }
-            return;
-          }
-          console.time('boxplotPaste');
-          let forcedOverlay = false;
-          try{
-            forcedOverlay = !!forceBoxOverlay('table-paste-start', { message: 'Processing pasted data...' });
-            await tableImport.handlePaste(e, state.hot, {
-              minCols: DEFAULT_COLS,
-              minRows: DEFAULT_ROWS,
-              scheduleDraw: () => {
-                markBoxOverlayPending('table-paste');
-                state.scheduleDraw();
-              },
-              debugLabel: 'box',
-              onBeforeProcess: meta => boxLog('boxplot fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
-              onProcessed: info => boxLog('boxplot data imported', {rows: info?.rows, cols: info?.cols})
-            });
-          }catch(err){
-            if(forcedOverlay){
-              resolveBoxLoading('table-paste-error');
-            }
-            console.error('boxplot paste failed', err);
-          }finally{
-            console.timeEnd('boxplotPaste');
-          }
-        }, true);
-        els.hotContainer.__boxPasteBound = true;
-      }
+
       return state.hot;
     };
     state.hot = ensureBoxHotForActiveTab();

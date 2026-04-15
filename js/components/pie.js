@@ -5,6 +5,19 @@
   const NS='http://www.w3.org/2000/svg';
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
+
+  function pieDebug(message, ...rest){
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(rest.length){
+        console.debug(message, ...rest);
+      }else{
+        console.debug(message);
+      }
+    }
+  }
   const pie = Components.pie = Components.pie || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
@@ -13,7 +26,7 @@
     try{
       require('../shared/notes.js');
     }catch(err){
-      console.debug('Debug: pie component notes helper require failed', { message: err?.message || String(err) });
+      pieDebug('Debug: pie component notes helper require failed', { message: err?.message || String(err) });
     }
   }
   const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
@@ -21,7 +34,7 @@
     try{
       require('../shared/dataViews.js');
     }catch(err){
-      console.debug('Debug: pie component dataViews helper require failed', { message: err?.message || String(err) });
+      pieDebug('Debug: pie component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
   const notesState = { text: '', open: false, control: null };
@@ -39,10 +52,10 @@
   pie.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if(!fileIO.saveGraphFile){
-    console.debug('Debug: pie component awaiting Shared.fileIO helpers');
+    pieDebug('Debug: pie component awaiting Shared.fileIO helpers');
   }
   if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
-    console.debug('Debug: pie component awaiting Shared.tableImport helpers'); // Debug: table import helper check
+    pieDebug('Debug: pie component awaiting Shared.tableImport helpers'); // Debug: table import helper check
   }
 
   const ensureGraphViewport = Shared.graphViewport?.createEnsurer
@@ -53,12 +66,12 @@
         fn(svg, { component: 'pie', debugLabel: 'pie-viewport-fallback', ...options });
         return;
       }
-      console.debug('Debug: pie ensureGraphViewport helper missing', {
+      pieDebug('Debug: pie ensureGraphViewport helper missing', {
         hasShared: !!Shared,
         hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
       });
     };
-  console.debug('Debug: pie graph viewport helper configured', {
+  pieDebug('Debug: pie graph viewport helper configured', {
     hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
@@ -200,7 +213,7 @@
       if(watcher){
         watcher(select);
         if(debugEnabled){
-          console.debug('Debug: pie select auto-size watcher attached', {
+          pieDebug('Debug: pie select auto-size watcher attached', {
             id: select.id || null,
             label: contextLabel
           });
@@ -208,20 +221,20 @@
       }else if(autoSizer){
         autoSizer(select);
         if(debugEnabled){
-          console.debug('Debug: pie select auto-size applied without watcher', {
+          pieDebug('Debug: pie select auto-size applied without watcher', {
             id: select.id || null,
             label: contextLabel
           });
         }
       }else if(debugEnabled){
-        console.debug('Debug: pie select auto-size helper unavailable', {
+        pieDebug('Debug: pie select auto-size helper unavailable', {
           id: select.id || null,
           label: contextLabel
         });
       }
     }catch(err){
       if(debugEnabled){
-        console.debug('Debug: pie select auto-size attach error', {
+        pieDebug('Debug: pie select auto-size attach error', {
           id: select.id || null,
           label: contextLabel,
           error: err?.message || String(err)
@@ -285,7 +298,7 @@
       const numeric = Number(value);
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
-    console.debug('Debug: pie axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    pieDebug('Debug: pie axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     state.scheduleDraw?.();
   }
 
@@ -303,7 +316,7 @@
       return;
     }
     settings[axis].minorTicks = nextValue;
-    console.debug('Debug: pie minor ticks updated',{ axis, enabled: nextValue });
+    pieDebug('Debug: pie minor ticks updated',{ axis, enabled: nextValue });
     state.scheduleDraw?.();
   }
 
@@ -321,7 +334,7 @@
       return;
     }
     settings[axis].minorTickSubdivisions = nextValue;
-    console.debug('Debug: pie minor tick subdivisions updated',{ axis, subdivisions: nextValue });
+    pieDebug('Debug: pie minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     state.scheduleDraw?.();
   }
 
@@ -337,7 +350,7 @@
       const numeric = Number(value);
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
-    console.debug('Debug: pie axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    pieDebug('Debug: pie axis stroke width updated',{ strokeWidth: settings.strokeWidth });
     state.scheduleDraw?.();
   }
 
@@ -348,7 +361,7 @@
   function updateAxisColor(value){
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
-    console.debug('Debug: pie axis color updated',{ color: settings.color });
+    pieDebug('Debug: pie axis color updated',{ color: settings.color });
     state.scheduleDraw?.();
   }
 
@@ -375,7 +388,7 @@
     }
     state.axisSettings = base;
     ensureAxisSettings();
-    console.debug('Debug: pie axis settings applied',{ settings: state.axisSettings });
+    pieDebug('Debug: pie axis settings applied',{ settings: state.axisSettings });
   }
 
   let state = {
@@ -518,7 +531,7 @@
       color: currentColor,
       onInput(value){
         applyPieColorValue(labelKey, value);
-        console.debug('Debug: pie legend color input', { label: labelKey, color: value });
+        pieDebug('Debug: pie legend color input', { label: labelKey, color: value });
       },
       onChange(value){
         const nextValue = value != null ? String(value) : '';
@@ -582,7 +595,7 @@
             relY: relY 
           };
           if(Shared.isDebugEnabled?.()){
-            console.debug('Debug: pie legend position saved', { absolute: pos, relative: { relX, relY } });
+            pieDebug('Debug: pie legend position saved', { absolute: pos, relative: { relX, relY } });
           }
         }
       });
@@ -791,7 +804,7 @@
     });
     stats.resultsTab = nextTab;
     if(pieDebugEnabled()){
-      console.debug('Debug: pie stats summary tab selected', { tab: nextTab });
+      pieDebug('Debug: pie stats summary tab selected', { tab: nextTab });
     }
   }
 
@@ -858,7 +871,7 @@
     const stats = getPieStatsConfig();
     setPieStatsSummaryTabSelection(wrapper, sanitizePieStatsResultsTab(stats.resultsTab));
     if(pieDebugEnabled()){
-      console.debug('Debug: pie stats summary tabs mounted', {
+      pieDebug('Debug: pie stats summary tabs mounted', {
         overallCaption: readPieStatsCardCaption(overallCard),
         comparisonsCaption: readPieStatsCardCaption(comparisonsCard),
         activeTab: stats.resultsTab
@@ -1138,7 +1151,7 @@
     updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
     updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
     if(pieDebugEnabled()){
-      console.debug('Debug: pie stats context refresh requested', { reason: reason || 'unspecified' });
+      pieDebug('Debug: pie stats context refresh requested', { reason: reason || 'unspecified' });
     }
   }
 
@@ -1408,7 +1421,7 @@
         advisorState.activated = true;
       }
       if(pieDebugEnabled()){
-        console.debug('Debug: pie statsAdvisor toggled', { open: advisorState.open });
+        pieDebug('Debug: pie statsAdvisor toggled', { open: advisorState.open });
       }
       renderPieStatsControls(dataModel, { force: true, reason: 'advisor-toggle' });
     });
@@ -1484,7 +1497,7 @@
           input.addEventListener('change', () => {
             answers[question.id] = opt.value;
             if(pieDebugEnabled()){
-              console.debug('Debug: pie statsAdvisor answer change', { question: question.id, value: opt.value });
+              pieDebug('Debug: pie statsAdvisor answer change', { question: question.id, value: opt.value });
             }
             renderPieStatsControls(dataModel, { force: true, reason: 'advisor-answer-change' });
           });
@@ -1535,7 +1548,7 @@
           }
         }
         if(pieDebugEnabled()){
-          console.debug('Debug: pie statsAdvisor applied', {
+          pieDebug('Debug: pie statsAdvisor applied', {
             scope: stats.scope,
             test: stats.test,
             correction: stats.correction,
@@ -1555,7 +1568,7 @@
       resetBtn.addEventListener('click', () => {
         advisorState.answers = {};
         if(pieDebugEnabled()){
-          console.debug('Debug: pie statsAdvisor reset');
+          pieDebug('Debug: pie statsAdvisor reset');
         }
         renderPieStatsControls(dataModel, { force: true, reason: 'advisor-reset' });
       });
@@ -2444,7 +2457,7 @@
       if (key || role) node.dataset.fontKey = key || role;
     }
     if (!role || role.indexOf('Tick') === -1) {
-      console.debug('Debug: pie markFontEditable', payload); // Debug: font target tagging summary
+      pieDebug('Debug: pie markFontEditable', payload); // Debug: font target tagging summary
     }
   };
 
@@ -2601,7 +2614,7 @@
       };
     }).filter(Boolean);
     if(pieDebugEnabled()){
-      console.debug('Debug: pie radial percentage font auto-fit', {
+      pieDebug('Debug: pie radial percentage font auto-fit', {
         baseFontSize,
         appliedFontSize: fontSize,
         commonScale,
@@ -2617,7 +2630,7 @@
   }
 
   function initHot(){
-    console.debug('Debug: pie initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    pieDebug('Debug: pie initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('pie initHot missing Shared.hot.createStandardTable');
       return;
@@ -2627,9 +2640,9 @@
     const schedulePieDrawProxy = () => {
       pieScheduleProxyCount += 1;
       if(pieScheduleProxyCount <= 5){
-        console.debug('Debug: pie scheduleDraw proxy invoked', { count: pieScheduleProxyCount }); // Debug: table change trigger
+        pieDebug('Debug: pie scheduleDraw proxy invoked', { count: pieScheduleProxyCount }); // Debug: table change trigger
         if(pieScheduleProxyCount === 5){
-          console.debug('Debug: pie scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+          pieDebug('Debug: pie scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
       requestPieStatsContextRefresh('table-edit');
@@ -2649,14 +2662,14 @@
         minSpareRows: 10,
         afterChange(changes, source){
           if(changes){
-            console.log('pie afterChange', { count: changes.length, source });
+            pieDebug('pie afterChange', { count: changes.length, source });
           }
         },
         afterUndo(){
-          console.log('pie undo');
+          pieDebug('pie undo');
         },
         afterRedo(){
-          console.log('pie redo');
+          pieDebug('pie redo');
         }
       }
     });
@@ -2735,7 +2748,7 @@
           Shared.workspaceToolbar?.activateSection?.('pie', 'Data');
         }
       });
-      console.debug('Debug: pie data views manager created');
+      pieDebug('Debug: pie data views manager created');
     }
     const manager = hotInstance.__pieDataViewsManager;
     const hostWrapper = options.wrapper || document.getElementById('pieHotWrapper');
@@ -2783,13 +2796,13 @@
     }
     if(pieFontSize?.dataset){
       pieFontSize.dataset.fontBasePt = String(pieFontSize.value);
-      console.debug('Debug: pie font size base initialized',{ value: pieFontSize.value }); // Debug: initial base size
+      pieDebug('Debug: pie font size base initialized',{ value: pieFontSize.value }); // Debug: initial base size
     }
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
-    ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ console.log('pie config changed',el.id,el.value); if(el===pieFontSize){
+    ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ pieDebug('pie config changed',el.id,el.value); if(el===pieFontSize){
         if(pieFontSize.dataset){
           pieFontSize.dataset.fontBasePt = String(pieFontSize.value);
-          console.debug('Debug: pie font size input manual set',{ value: pieFontSize.value }); // Debug: manual slider update
+          pieDebug('Debug: pie font size input manual set',{ value: pieFontSize.value }); // Debug: manual slider update
         }
         chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
       }
@@ -2801,17 +2814,17 @@
         ensurePieLegendControlPlacement();
       }
       pieShowLegendInput.addEventListener('change',()=>{
-        console.debug('Debug: pie showLegend change',{checked:pieShowLegendInput.checked});
+        pieDebug('Debug: pie showLegend change',{checked:pieShowLegendInput.checked});
         ensurePieLegendControlPlacement();
         state.scheduleDraw();
       });
     }
-    pieShowFrame.addEventListener('change',()=>{console.debug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); state.scheduleDraw();});
+    pieShowFrame.addEventListener('change',()=>{pieDebug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); state.scheduleDraw();});
     if(pieBorderColor){
-      pieBorderColor.addEventListener('input',()=>{ console.debug('Debug: pie border color change',{value: pieBorderColor.value}); state.scheduleDraw(); });
+      pieBorderColor.addEventListener('input',()=>{ pieDebug('Debug: pie border color change',{value: pieBorderColor.value}); state.scheduleDraw(); });
     }
     if(pieBorderWidth){
-      pieBorderWidth.addEventListener('input',()=>{ console.debug('Debug: pie border width change',{value: pieBorderWidth.value}); state.scheduleDraw(); });
+      pieBorderWidth.addEventListener('input',()=>{ pieDebug('Debug: pie border width change',{value: pieBorderWidth.value}); state.scheduleDraw(); });
     }
     const pieComputeStatsButton = document.getElementById('pieComputeStats');
     if(pieComputeStatsButton){
@@ -2828,7 +2841,7 @@
         recordUndo: true,
         undoLabel: 'table:pie:example-load'
       });
-      console.log('pie example loaded with expected values');
+      pieDebug('pie example loaded with expected values');
       state.scheduleDraw();
     });
     const pieImportBtn=document.getElementById('pieImport');
@@ -2841,7 +2854,7 @@
         return;
       }
       const fileName = pieFileInput.files?.[0]?.name || '';
-      console.debug('Debug: pie import start',{fileName}); // Debug: import start trace
+      pieDebug('Debug: pie import start',{fileName}); // Debug: import start trace
       try{
         const applyPiePrismStyle = style => {
           if(!style || typeof style !== 'object'){
@@ -2878,7 +2891,7 @@
             importFontStyles('pie', { __graph__: graphStyle });
           }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: pie prism style applied', { title, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
+            pieDebug('Debug: pie prism style applied', { title, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
           }
           state.scheduleDraw?.({ force: true, reason: 'import-prism-style' });
         };
@@ -2890,10 +2903,10 @@
           debugLabel: 'pie',
           onPrismStyle: applyPiePrismStyle,
           onProcessed: info => {
-            console.debug('Debug: pie tableImport processed', info || {}); // Debug: processed callback
+            pieDebug('Debug: pie tableImport processed', info || {}); // Debug: processed callback
           }
         });
-        console.debug('Debug: pie import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
+        pieDebug('Debug: pie import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
       }catch(err){
         console.error('pie import failed',err);
       }
@@ -2907,9 +2920,9 @@
         fileName: 'pie',
         contextLabel: 'pie-export'
       });
-      console.debug('Debug: pie export controls mounted', { hasExporter: true }); // Debug: pie export mount
+      pieDebug('Debug: pie export controls mounted', { hasExporter: true }); // Debug: pie export mount
     } else {
-      console.debug('Debug: pie export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: pie export fallback
+      pieDebug('Debug: pie export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: pie export fallback
     }
 
     // Save/Open
@@ -2948,7 +2961,7 @@
         text: notesText,
         open: notesOpen
       };
-      console.debug('Debug: pie.getPayload captured state', {
+      pieDebug('Debug: pie.getPayload captured state', {
         rows: payload.data?.length || 0,
         cols: payload.data?.[0]?.length || 0,
         chartType: payload.config?.chartType
@@ -2959,16 +2972,16 @@
     pie.captureEmptyPayloadTemplate = function capturePieEmptyPayloadTemplate(){
     ensureEmptyPayloadTemplate();
     const snapshot = cloneSimple(emptyPayloadTemplate);
-    console.debug('Debug: pie empty payload template captured', { hasTemplate: !!snapshot });
+    pieDebug('Debug: pie empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
   pie.restoreEmptyPayloadTemplate = function restorePieEmptyPayloadTemplate(template, options = {}){
     if(!template || typeof template !== 'object'){
-      console.debug('Debug: pie empty payload template restore skipped', { reason: 'invalid-template', options });
+      pieDebug('Debug: pie empty payload template restore skipped', { reason: 'invalid-template', options });
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
-    console.debug('Debug: pie empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    pieDebug('Debug: pie empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
   pie.createEmptyPayload = function createEmptyPiePayload(){
@@ -3082,7 +3095,7 @@
         pieFontInput.value = config.fontSize || pieFontInput.value || String(DEFAULT_PIE_FONT_SIZE_PT);
         if(pieFontInput.dataset){
           pieFontInput.dataset.fontBasePt = String(pieFontInput.value);
-          console.debug('Debug: pie font size base restored',{ value: pieFontInput.value });
+          pieDebug('Debug: pie font size base restored',{ value: pieFontInput.value });
         }
         chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontInput.value), input: pieFontInput, manual: true });
       }
@@ -3110,7 +3123,7 @@
       if(scheduleBackup){
         state.scheduleDraw = scheduleBackup;
       }
-      console.debug('Debug: pie payload applied', { source, rows: dataToLoad.length });
+      pieDebug('Debug: pie payload applied', { source, rows: dataToLoad.length });
       return true;
     }
     function collectConfig(){
@@ -3150,7 +3163,7 @@
       };
     }
     pie.save = async function(){
-      console.debug('Debug: pie.save invoked', { hasHandle: !!state.fileHandle });
+      pieDebug('Debug: pie.save invoked', { hasHandle: !!state.fileHandle });
       if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
         console.error('pie.save missing fileIO.saveGraphFile');
         return;
@@ -3164,10 +3177,10 @@
         setFileHandle: handle => { state.fileHandle = handle; },
         setFileName: name => { state.fileName = name; }
       });
-      console.debug('Debug: pie.save result', result);
+      pieDebug('Debug: pie.save result', result);
     };
     pie.saveAs = async function(){
-      console.debug('Debug: pie.saveAs invoked', { currentName: state.fileName });
+      pieDebug('Debug: pie.saveAs invoked', { currentName: state.fileName });
       if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
         console.error('pie.saveAs missing fileIO.saveGraphFileAs');
         return;
@@ -3180,10 +3193,10 @@
         setFileHandle: handle => { state.fileHandle = handle; },
         setFileName: name => { state.fileName = name; }
       });
-      console.debug('Debug: pie.saveAs result', result);
+      pieDebug('Debug: pie.saveAs result', result);
     };
     pie.open = async function(){
-      console.debug('Debug: pie.open invoked');
+      pieDebug('Debug: pie.open invoked');
       if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
         console.error('pie.open missing fileIO.openGraphFile');
         return;
@@ -3201,7 +3214,7 @@
           }
         }
       });
-      console.debug('Debug: pie.open result', result);
+      pieDebug('Debug: pie.open result', result);
     };
     pie.loadFromFile = function(file){
       const apply = payload => applyPiePayload(payload, { source: 'file' });
@@ -3249,20 +3262,20 @@
   function ensurePieColors(labels){
     const palette = getDefaultPalette();
     const labelSet = new Set(labels);
-    console.debug('Debug: pie color palette in use', { palette }); // Debug: palette source and values
+    pieDebug('Debug: pie color palette in use', { palette }); // Debug: palette source and values
     labels.forEach((lab,i)=>{
       if(!state.colors[lab]){
         state.colors[lab]= palette[i % palette.length];
-        console.debug('Debug: pie default color applied',{label:lab,color:state.colors[lab]});
+        pieDebug('Debug: pie default color applied',{label:lab,color:state.colors[lab]});
       }
     });
     Object.keys(state.colors).forEach(existing=>{
       if(!labelSet.has(existing)){
-        console.debug('Debug: pie color pruned',{label:existing});
+        pieDebug('Debug: pie color pruned',{label:existing});
         delete state.colors[existing];
       }
     });
-    console.log('ensurePieColors sync',state.colors); // Debug: resulting color map
+    pieDebug('ensurePieColors sync',state.colors); // Debug: resulting color map
   }
 
   function ensurePieColorsIfNeeded(labels){
@@ -3301,7 +3314,7 @@
       if(!out){ console.warn('Debug: pieStatsResults element not found'); return; }
       ensurePieStatsReportHost(out);
       clearPieStatsReportHost(out);
-      console.debug('Debug: updatePieStats start',{labelCount:labels.length,observedCount:observed.length,expectedCount:expected.length});
+      pieDebug('Debug: updatePieStats start',{labelCount:labels.length,observedCount:observed.length,expectedCount:expected.length});
       if(!observed || !observed.length){ out.textContent='No data'; return; }
       if(!expected || expected.length!==observed.length || expected.some(e=>isNaN(e))){ out.textContent='Expected values required'; return; }
       const result = computePieChiSquare(observed, expected);
@@ -3354,7 +3367,7 @@
           }
         }, { title: 'Reporting and reproducibility' });
       }
-      console.debug('Debug: updatePieStats result',{chi2,df,p});
+      pieDebug('Debug: updatePieStats result',{chi2,df,p});
     }catch(err){ console.error('updatePieStats error',err); }
   }
 
@@ -3378,7 +3391,7 @@
     renderPieStatsControls(dataModel, { force: true, reason: 'columns-update' });
     requestPieStatsContextRefresh('columns-update');
     if(pieDebugEnabled()){
-      console.debug('Debug: pie stats columns refreshed', {
+      pieDebug('Debug: pie stats columns refreshed', {
         count: dataModel.columns?.length || 0,
         rows: dataModel.rows?.length || 0
       });
@@ -3414,7 +3427,7 @@
     });
     const fs=fontInfo.scaledPx || DEFAULT_PIE_FONT_SIZE_PT;
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo, input: pieFontInput });
-    console.debug('Debug: pie font scaling applied',{
+    pieDebug('Debug: pie font scaling applied',{
       input:$('#pieFontSize').value,
       fontSizePt:fontInfo.pt,
       baseFontPx:fontInfo.px,
@@ -3425,19 +3438,19 @@
     });
     const styleScaleInfo=fontInfo.scaleInfo;
     const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
-    console.debug('Debug: pie axis metrics',axisMetrics);
+    pieDebug('Debug: pie axis metrics',axisMetrics);
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
     const borderColor = $('#pieBorderColor')?.value || '#ffffff';
     const borderWidthBase = Number.parseFloat($('#pieBorderWidth')?.value) || 0;
     const borderWidth = chartStyle.scaleStrokeWidth(borderWidthBase, styleScaleInfo, { context: 'pie-border', min: 0 });
-    console.debug('Debug: pie border settings',{ borderColor, borderWidthBase, borderWidth });
+    pieDebug('Debug: pie border settings',{ borderColor, borderWidthBase, borderWidth });
     const showPerc=$('#pieShowPercents').checked;
     const showFrame=$('#pieShowFrame').checked;
-    console.debug('Debug: pie showFrame state',{showFrame, chartType:type});
+    pieDebug('Debug: pie showFrame state',{showFrame, chartType:type});
     ensurePieLegendControlPlacement();
     const showLegendInput=document.getElementById('pieShowLegend');
     const showLegend=showLegendInput ? !!showLegendInput.checked : true;
-    console.debug('Debug: pie showLegend state',{showLegend, chartType:type});
+    pieDebug('Debug: pie showLegend state',{showLegend, chartType:type});
     const startDeg=parseFloat($('#pieStartAngle').value)||0;
     const data = typeof state.hot?.getIncludedDataMatrix === 'function'
       ? state.hot.getIncludedDataMatrix()
@@ -3494,7 +3507,7 @@
       const stackedLegendMargin = stackedLegendVisible ? Math.max(stackedLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
       const stackedLegendGap = stackedLegendVisible ? stackedLegendLayout.legendGapPx : 0;
       const stackedLegendMarkerSize = stackedLegendVisible ? stackedLegendLayout.renderer.swatchSize : 0;
-      console.debug('Debug: pie stacked legend metrics',{
+      pieDebug('Debug: pie stacked legend metrics',{
         legendWidth: state.legendWidth,
         legendGap: stackedLegendGap,
         legendMarkerSize: stackedLegendMarkerSize,
@@ -3532,9 +3545,9 @@
       }
       if(!isResizePreview && fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg,{ scopeId: 'pie' });
-        console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
+        pieDebug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
       } else if(!isResizePreview) {
-        console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
+        pieDebug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
       }
       const axisSettings = ensureAxisSettings();
       const axisStrokeWidthBase = axisSettings.strokeWidth;
@@ -3560,7 +3573,7 @@
         fixedStep: Number.isFinite(manualIntervalY) && manualIntervalY > 0 ? manualIntervalY : undefined
       });
       const percentTicks = percentScale.ticks.map(t => Math.max(0, Math.min(100, t)));
-      console.debug('Debug: pie stacked axis stroke',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke, manualIntervalY });
+      pieDebug('Debug: pie stacked axis stroke',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke, manualIntervalY });
       const yTickLabels=percentTicks.map(v=>`${Number.isInteger(v) ? v : Number(v).toFixed(1)}%`);
       const pieFontStyles = exportFontStyles('pie');
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
@@ -3671,7 +3684,7 @@
       markFontEditable(yTitle,'yTitle','yTitle');
       axis.appendChild(yTitle);
       if(showFrame){
-        console.debug('Debug: pie frame request',{stroke:axisStroke, showFrame, axisStrokeWidth});
+        pieDebug('Debug: pie frame request',{stroke:axisStroke, showFrame, axisStrokeWidth});
         chartStyle.drawPlotFrame({ svg, margin, plotW: chartWidth, plotH: chartHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'], group: axis });
       }
       const barGapBase=10;
@@ -3705,7 +3718,7 @@
           stackedPercentFontSize=Math.max(1,fs*widthScale);
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: pie stacked percentage font auto-fit',{
+          pieDebug('Debug: pie stacked percentage font auto-fit',{
             baseFontSize: fs,
             appliedFontSize: stackedPercentFontSize,
             barWidth,
@@ -3716,7 +3729,7 @@
         }
       }
       const xLabels=[];
-      console.debug('Debug: pie stacked layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth,barGap,fontScale});
+      pieDebug('Debug: pie stacked layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth,barGap,fontScale});
       let stackedXTickCount = 0;
       barHeaders.forEach((bh,j)=>{
         let y=margin.top+chartHeight;
@@ -3766,7 +3779,7 @@
         (axisLayer||svg).appendChild(lbl);
         xLabels.push(lbl);
       });
-      console.debug('Debug: pie stacked font tick binding',{ stackedXTickCount, stackedYTickCount });
+      pieDebug('Debug: pie stacked font tick binding',{ stackedXTickCount, stackedYTickCount });
       chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
       // Legend now rendered inside the SVG so it can be repositioned.
       if(stackedLegendVisible){
@@ -3775,10 +3788,10 @@
         const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
         const legendGroup = drawPieLegend(svg, stackedLegendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: svgWidth, height: svgHeight });
         if(!legendGroup){
-          console.debug('Debug: pie legend skipped',{ legendVisible: stackedLegendVisible, segmentCount: segmentLabels.length, reason: 'draw-failed' });
+          pieDebug('Debug: pie legend skipped',{ legendVisible: stackedLegendVisible, segmentCount: segmentLabels.length, reason: 'draw-failed' });
         }
       }else{
-        console.debug('Debug: pie legend skipped',{ legendVisible: stackedLegendVisible, segmentCount: segmentLabels.length });
+        pieDebug('Debug: pie legend skipped',{ legendVisible: stackedLegendVisible, segmentCount: segmentLabels.length });
       }
       if(axis.parentNode !== (axisLayer || svg)){
         (axisLayer || svg).appendChild(axis);
@@ -3809,7 +3822,7 @@
         Shared.enableLabelDrag(title, svg, {
           onDragEnd: pos => {
             state.labelPositions.title = { x: pos.x, y: pos.y };
-            console.debug('Debug: pie title position saved', pos);
+            pieDebug('Debug: pie title position saved', pos);
           }
         });
       }
@@ -3875,7 +3888,7 @@
     const radialLegendMargin = radialLegendVisible ? Math.max(radialLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
     const radialLegendGap = radialLegendVisible ? radialLegendLayout.legendGapPx : 0;
     const radialLegendMarkerSize = radialLegendVisible ? radialLegendLayout.renderer.swatchSize : 0;
-    console.debug('Debug: pie radial legend metrics',{
+    pieDebug('Debug: pie radial legend metrics',{
       legendWidth: state.legendWidth,
       legendGap: radialLegendGap,
       legendMarkerSize: radialLegendMarkerSize,
@@ -3888,7 +3901,7 @@
     const plotHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
     const svgWidth=Math.max(50, plotWidth);
     const svgHeight=Math.max(50,plotHeight);
-    console.debug('Debug: pie radial layout metrics', {
+    pieDebug('Debug: pie radial layout metrics', {
       plotWidth,
       plotHeight,
       svgWidth,
@@ -3931,9 +3944,9 @@
     }
     if(!isResizePreview && fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'pie' });
-      console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
+      pieDebug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
     } else if(!isResizePreview) {
-      console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
+      pieDebug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
     }
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0, exact: true });
@@ -4001,7 +4014,7 @@
         r=Math.max(minSafeRadius,Math.min(r,maxAllowedR));
       }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: pie radial radius constraints',{
+        pieDebug('Debug: pie radial radius constraints',{
           requestedRadius: Math.max(minReadableRadius,Math.min(rHoriz,rVert)),
           maxAllowedR,
           appliedRadius: r,
@@ -4150,7 +4163,7 @@
             relX: relX, 
             relY: relY 
           };
-          console.debug('Debug: pie title position saved', { absolute: pos, relative: { relX, relY } });
+          pieDebug('Debug: pie title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -4167,10 +4180,10 @@
       const defaultLegendY = contentTop;
       const legendGroup = drawPieLegend(svg, radialLegendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: svgWidth, height: svgHeight });
       if(!legendGroup){
-        console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length, reason: 'draw-failed' });
+        pieDebug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length, reason: 'draw-failed' });
       }
     }else{
-      console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
+      pieDebug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
     }
     if(!isResizePreview){
       primePieStatsComputation({ matrix: data, reason: 'draw-radial' });
@@ -4200,7 +4213,7 @@
     }
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: pie notes mount skipped (missing stack)');
+        pieDebug('Debug: pie notes mount skipped (missing stack)');
       }
       return;
     }
@@ -4237,8 +4250,8 @@
     });
   }
   pie.init = function init(){
-    if (pie.ready) { console.debug('Debug: Components.pie.init skipped (already ready)'); return; }
-    console.debug('Debug: Components.pie.init');
+    if (pie.ready) { pieDebug('Debug: Components.pie.init skipped (already ready)'); return; }
+    pieDebug('Debug: Components.pie.init');
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     const schedulePieLayoutDraw = () => {
@@ -4282,13 +4295,13 @@
         },
         resizableBoxOptions: {
           onResize: phase => {
-            console.debug('Debug: pie layout onResize schedule trigger', { phase });
+            pieDebug('Debug: pie layout onResize schedule trigger', { phase });
             schedulePieResizeDraw(phase);
           }
         },
         onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
-        console.debug('Debug: pie layout min width update', { value: state.minSvgWidth });
+        pieDebug('Debug: pie layout min width update', { value: state.minSvgWidth });
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
@@ -4309,7 +4322,7 @@
     primePieStatsComputation({ matrix: getPieStatsDataMatrix(), reason: 'init' });
     state.scheduleDraw = Shared.debounceFrame(draw);
     ensurePieFontEventListener();
-    console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    pieDebug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
@@ -4357,7 +4370,7 @@
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: pie render cache captured', {
+      pieDebug('Debug: pie render cache captured', {
         plotNodes: plotCache?.count || 0,
         statsNodes: statsCache?.count || 0
       });
@@ -4373,7 +4386,7 @@
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: pie render cache restored', {
+      pieDebug('Debug: pie render cache restored', {
         restored,
         plot: restoredPlot,
         stats: restoredStats

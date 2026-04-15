@@ -4,6 +4,19 @@
   const NS = 'http://www.w3.org/2000/svg';
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
+
+  function survivalDebug(message, ...rest){
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(rest.length){
+        console.debug(message, ...rest);
+      }else{
+        console.debug(message);
+      }
+    }
+  }
   const survival = Components.survival = Components.survival || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
@@ -12,7 +25,7 @@
     try{
       require('../shared/notes.js');
     }catch(err){
-      console.debug('Debug: survival component notes helper require failed', { message: err?.message || String(err) });
+      survivalDebug('Debug: survival component notes helper require failed', { message: err?.message || String(err) });
     }
   }
   const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
@@ -20,7 +33,7 @@
     try{
       require('../shared/dataViews.js');
     }catch(err){
-      console.debug('Debug: survival component dataViews helper require failed', { message: err?.message || String(err) });
+      survivalDebug('Debug: survival component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
   const notesState = { text: '', open: false, control: null };
@@ -37,7 +50,7 @@
     try{
       require('../shared/additionalLineControls.js');
     }catch(err){
-      console.debug('Debug: survival component additionalLineControls helper require failed', { message: err?.message || String(err) });
+      survivalDebug('Debug: survival component additionalLineControls helper require failed', { message: err?.message || String(err) });
     }
   }
 
@@ -280,7 +293,7 @@
       });
       return;
     }
-    console.debug('Debug: survival additional line controls unavailable; legacy fallback removed');
+    survivalDebug('Debug: survival additional line controls unavailable; legacy fallback removed');
   }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const gridControls = Shared.gridControls = Shared.gridControls || {};
@@ -288,7 +301,7 @@
     try{
       require('../shared/gridControls.js');
     }catch(err){
-      console.debug('Debug: survival component gridControls helper require failed', { message: err?.message || String(err) });
+      survivalDebug('Debug: survival component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
   const formControls = Shared.formControls = Shared.formControls || {};
@@ -419,7 +432,7 @@
 
     if(debugEnabled){
       try{
-        console.debug('Debug: survival covariate column scan', {
+        survivalDebug('Debug: survival covariate column scan', {
           baseColumnCount: BASE_COLUMN_COUNT,
           columnCount,
           covariateCount: covariateColumns.length,
@@ -445,7 +458,7 @@
       if(watcher){
         watcher(select);
         if(debugEnabled){
-          console.debug('Debug: survival select auto-size watcher attached', {
+          survivalDebug('Debug: survival select auto-size watcher attached', {
             id: select.id || null,
             label: contextLabel
           });
@@ -453,20 +466,20 @@
       }else if(autoSizer){
         autoSizer(select);
         if(debugEnabled){
-          console.debug('Debug: survival select auto-size applied without watcher', {
+          survivalDebug('Debug: survival select auto-size applied without watcher', {
             id: select.id || null,
             label: contextLabel
           });
         }
       }else if(debugEnabled){
-        console.debug('Debug: survival select auto-size helper unavailable', {
+        survivalDebug('Debug: survival select auto-size helper unavailable', {
           id: select.id || null,
           label: contextLabel
         });
       }
     }catch(err){
       if(debugEnabled){
-        console.debug('Debug: survival select auto-size attach error', {
+        survivalDebug('Debug: survival select auto-size attach error', {
           id: select.id || null,
           label: contextLabel,
           error: err?.message || String(err)
@@ -897,7 +910,7 @@
 
   function logDebug(message, payload){
     try {
-      console.debug(`Debug: survival ${message}`, payload || {});
+      survivalDebug(`Debug: survival ${message}`, payload || {});
     } catch (err) {
       // Avoid throwing inside logging helpers.
     }
@@ -3587,7 +3600,7 @@
     let xMax = Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : autoXMax;
     xMax = Math.max(xMax, autoXMax || 1);
     if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: survival x-axis max resolved', { autoXMax, manualXMax, xMax });
+      survivalDebug('Debug: survival x-axis max resolved', { autoXMax, manualXMax, xMax });
     }
     const xMin = 0;
     const yMin = 0;
@@ -4017,7 +4030,7 @@
     groupsForDraw.forEach(group => {
       const groupMaxTime = Number.isFinite(group.km?.maxTime) ? group.km.maxTime : xScale.max;
       if(Shared.isDebugEnabled?.() && Number.isFinite(groupMaxTime) && Number.isFinite(xScale.max) && groupMaxTime < xScale.max){
-        console.debug('Debug: survival step extent clamped', { group: group.name, groupMaxTime, axisMax: xScale.max });
+        survivalDebug('Debug: survival step extent clamped', { group: group.name, groupMaxTime, axisMax: xScale.max });
       }
       if(showCI){
         const ciPath = buildConfidencePath(group.km.upper, group.km.lower, groupMaxTime, x2px, y2px);
@@ -4500,7 +4513,7 @@
   function getGraphPayload(){
     const activeHot = state.hot || state.ensureHotForActiveTab?.();
     if(!activeHot){
-      console.debug('Debug: survival.getPayload skipped - no table instance');
+      survivalDebug('Debug: survival.getPayload skipped - no table instance');
       return null;
     }
     const activeManager = ensureSurvivalDataViewsForHot(activeHot, {
@@ -4567,7 +4580,7 @@
       },
       stats: state.lastStats || null
     };
-    console.debug('Debug: survival.getPayload captured state', {
+    survivalDebug('Debug: survival.getPayload captured state', {
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
       showCI: payload.config.showCI,
@@ -4582,16 +4595,16 @@
   survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
     ensureEmptyPayloadTemplate();
     const snapshot = cloneSimple(emptyPayloadTemplate);
-    console.debug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });
+    survivalDebug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
   survival.restoreEmptyPayloadTemplate = function restoreSurvivalEmptyPayloadTemplate(template, options = {}){
     if(!template || typeof template !== 'object'){
-      console.debug('Debug: survival empty payload template restore skipped', { reason: 'invalid-template', options });
+      survivalDebug('Debug: survival empty payload template restore skipped', { reason: 'invalid-template', options });
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
-    console.debug('Debug: survival empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    survivalDebug('Debug: survival empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
   survival.createEmptyPayload = function createEmptySurvivalPayload(){
@@ -4885,7 +4898,7 @@
     };
     [refs.showCI, refs.showCensor, refs.showGrid, refs.showHazardRatios, refs.fitCoxModel].forEach(control => {
       control?.addEventListener('change', () => {
-        console.debug('Debug: survival control toggle', { id: control.id, checked: control.checked });
+        survivalDebug('Debug: survival control toggle', { id: control.id, checked: control.checked });
         logDebug('control toggled', { id: control.id, checked: control.checked });
         if(control === refs.showHazardRatios || control === refs.fitCoxModel){
           refreshCovariateControls();
@@ -4902,7 +4915,7 @@
       });
     });
     refs.showFrame?.addEventListener('change', () => {
-      console.debug('Debug: survival control toggle', { id: refs.showFrame.id, checked: refs.showFrame.checked });
+      survivalDebug('Debug: survival control toggle', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       logDebug('control toggled', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       renderSurvivalStatsAdvisor(state.lastSummary || {
         series: [],
@@ -4915,7 +4928,7 @@
       schedule();
     });
     refs.showLegend?.addEventListener('change', () => {
-      console.debug('Debug: survival control toggle', { id: refs.showLegend.id, checked: refs.showLegend.checked });
+      survivalDebug('Debug: survival control toggle', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       logDebug('control toggled', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       ensureSurvivalLegendControlPlacement();
       schedule();
@@ -5247,7 +5260,7 @@
     const hazardCache = detachChildren(hazard);
     const coxCache = detachChildren(cox);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: survival render cache captured', {
+      survivalDebug('Debug: survival render cache captured', {
         plotNodes: plotCache?.count || 0,
         summaryNodes: summaryCache?.count || 0,
         logRankNodes: logRankCache?.count || 0,
@@ -5278,7 +5291,7 @@
     const restoredCox = restoreChildren(cox, cache.cox);
     const restored = restoredPlot || restoredSummary || restoredLogRank || restoredHazard || restoredCox;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: survival render cache restored', {
+      survivalDebug('Debug: survival render cache restored', {
         restored,
         plot: restoredPlot,
         summary: restoredSummary,
@@ -5291,7 +5304,7 @@
   };
   survival.draw = drawSurvival;
   survival.__getState = function(){
-    console.debug('Debug: survival.__getState invoked');
+    survivalDebug('Debug: survival.__getState invoked');
     return state;
   };
   survival.__testHooks = Object.assign({}, survival.__testHooks, {

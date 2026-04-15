@@ -9,9 +9,28 @@
   const DEFAULT_SNAPSHOT_CELL_THRESHOLD = 12000;
   tableImport.snapshotCellThreshold = DEFAULT_SNAPSHOT_CELL_THRESHOLD;
 
+  function isDebugEnabled(){
+    try{
+      return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    }catch(err){
+      return false;
+    }
+  }
+
+  function tableImportDebug(message, payload){
+    if(!isDebugEnabled()){
+      return;
+    }
+    if(typeof payload === 'undefined'){
+      console.debug(message);
+    }else{
+      console.debug(message, payload);
+    }
+  }
+
   function debugLog(step, detail, debugLabel){
     const payload = Object.assign({ debugLabel: debugLabel || 'tableImport' }, detail || {});
-    console.debug(`Debug: tableImport.${step}`, payload); // Debug: table import trace
+    tableImportDebug(`Debug: tableImport.${step}`, payload); // Debug: table import trace
   }
 
   function filterRows(rows){
@@ -75,7 +94,7 @@
       }
     }
     if(changed && typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: tableImport.normalizeDecimalSeparators', {
+      tableImportDebug('Debug: tableImport.normalizeDecimalSeparators', {
         delimiter,
         changed,
         debugLabel: options.debugLabel || null
@@ -92,23 +111,23 @@
     }
     try{
       const cd = event.clipboardData || event.originalEvent?.clipboardData || null;
-      console.debug('Debug: tableImport.getClipboardTextFromEvent entry', { hasEvent: !!event, hasClipboardData: !!cd });
+      tableImportDebug('Debug: tableImport.getClipboardTextFromEvent entry', { hasEvent: !!event, hasClipboardData: !!cd });
       if(cd){
         // Prefer DataTransferItemList handling (works well in Firefox/Chrome)
         if(cd.items && cd.items.length){
-          console.debug('Debug: tableImport.getClipboardTextFromEvent using DataTransferItemList', { items: cd.items.length });
+          tableImportDebug('Debug: tableImport.getClipboardTextFromEvent using DataTransferItemList', { items: cd.items.length });
           for(let i = 0; i < cd.items.length; i++){
             const item = cd.items[i];
             try{
               if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
                 const text = await new Promise(resolve => item.getAsString(s => resolve(s)));
-                console.debug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, length: (text || '').length, snippet: (text||'').slice(0,200) });
+                tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, length: (text || '').length, snippet: (text||'').slice(0,200) });
                 if(text) return text;
               }
               if(item && item.kind === 'file' && typeof item.getAsFile === 'function'){
                 const file = item.getAsFile();
                 if(file){
-                  console.debug('Debug: tableImport.getClipboardTextFromEvent item.file', { index: i, name: file.name, size: file.size });
+                  tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.file', { index: i, name: file.name, size: file.size });
                   const txt = await readFileAsText(file);
                   if(txt) return txt;
                 }
@@ -122,7 +141,7 @@
           try{
             const v = cd.getData(t);
             if(v){
-              console.debug('Debug: tableImport.getClipboardTextFromEvent getData', { type: t, length: (v || '').length, snippet: (v||'').slice(0,200) });
+              tableImportDebug('Debug: tableImport.getClipboardTextFromEvent getData', { type: t, length: (v || '').length, snippet: (v||'').slice(0,200) });
               if(t === 'text/html' && typeof global.document !== 'undefined'){
                 const div = global.document.createElement('div');
                 div.innerHTML = v;
@@ -140,7 +159,7 @@
     try{
       if(global.window && typeof global.window.clipboardData === 'object' && typeof global.window.clipboardData.getData === 'function'){
         const v = global.window.clipboardData.getData('Text');
-        console.debug('Debug: tableImport.getClipboardTextFromEvent window.clipboardData', { length: (v || '').length });
+        tableImportDebug('Debug: tableImport.getClipboardTextFromEvent window.clipboardData', { length: (v || '').length });
         if(v) return v;
       }
     }catch(e){/* ignore */}
@@ -150,14 +169,14 @@
       if(nav){
         if(typeof nav.read === 'function'){
           const items = await nav.read();
-          console.debug('Debug: tableImport.getClipboardTextFromEvent navigator.read', { items: (items || []).length });
+          tableImportDebug('Debug: tableImport.getClipboardTextFromEvent navigator.read', { items: (items || []).length });
           for(const clipboardItem of items){
             for(const type of clipboardItem.types || []){
               try{
                 if(type && type.startsWith('text')){
                   const blob = await clipboardItem.getType(type);
                   const s = await blob.text();
-                  console.debug('Debug: tableImport.getClipboardTextFromEvent navigator.read.type', { type, length: (s || '').length, snippet: (s||'').slice(0,200) });
+                  tableImportDebug('Debug: tableImport.getClipboardTextFromEvent navigator.read.type', { type, length: (s || '').length, snippet: (s||'').slice(0,200) });
                   if(s) return s;
                 }
               }catch(e){/* ignore per-type errors */}
@@ -166,7 +185,7 @@
         }
         if(typeof nav.readText === 'function'){
           const v = await nav.readText();
-          console.debug('Debug: tableImport.getClipboardTextFromEvent navigator.readText', { length: (v || '').length, snippet: (v||'').slice(0,200) });
+          tableImportDebug('Debug: tableImport.getClipboardTextFromEvent navigator.readText', { length: (v || '').length, snippet: (v||'').slice(0,200) });
           if(v) return v;
         }
       }
@@ -314,7 +333,7 @@
 
   function prismDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: tableImport.prism ' + message, payload || {});
+      tableImportDebug('Debug: tableImport.prism ' + message, payload || {});
     }
   }
 
@@ -890,7 +909,7 @@
           area.endRow,
           area.endCol,
           'overwrite',
-          'tableImport.restoreHotSnapshot'
+          'UndoRedo.tableImport.restoreHotSnapshot'
         );
         return true;
       }
@@ -907,7 +926,7 @@
           }
         }
         if(changeList.length){
-          hot.setDataAtCell(changeList, 'tableImport.restoreHotSnapshot');
+          hot.setDataAtCell(changeList, 'UndoRedo.tableImport.restoreHotSnapshot');
         }
         return true;
       }
@@ -1629,9 +1648,9 @@
         cleared = true;
       }
       if(cleared){
-        console.debug('Debug: tableImport.handlePaste copy highlight cleared', { debugLabel, reason });
+        tableImportDebug('Debug: tableImport.handlePaste copy highlight cleared', { debugLabel, reason });
       }else{
-        console.debug('Debug: tableImport.handlePaste copy highlight clear skipped', { debugLabel, reason, hasHot: !!hot });
+        tableImportDebug('Debug: tableImport.handlePaste copy highlight clear skipped', { debugLabel, reason, hasHot: !!hot });
       }
       clearedHighlight = true;
     };
@@ -1663,7 +1682,7 @@
       const processOptions = cloneOptions(options, { startRow, startCol, delimiter });
       if(shouldPreserveExisting){
         processOptions.preserveExisting = true;
-        console.debug('Debug: tableImport.handlePaste preserveExisting enforced', {
+        tableImportDebug('Debug: tableImport.handlePaste preserveExisting enforced', {
           debugLabel,
           startRow,
           startCol,
@@ -1700,14 +1719,14 @@
           if(captured && captured.kind === 'area'){
             snapshotBefore = captured;
           }else if(captured && captured.kind === 'degraded'){
-            console.debug('Debug: tableImport.handlePaste snapshot before degraded', {
+            tableImportDebug('Debug: tableImport.handlePaste snapshot before degraded', {
               debugLabel,
               area,
               cells: captured.areaCells,
               limit: snapshotThreshold
             });
           }else{
-            console.debug('Debug: tableImport.handlePaste snapshot before unavailable', {
+            tableImportDebug('Debug: tableImport.handlePaste snapshot before unavailable', {
               debugLabel,
               reason: captured ? captured.kind : 'null'
             });
@@ -1721,7 +1740,7 @@
       if(!isFullReplace && (changeSet.length || hasStructureChange) && undoManager && typeof undoManager.record === 'function'){
         const scope = options.scope || inferHotScope(hot, debugLabel);
         const label = `tableImport:${debugLabel}:paste`;
-        console.debug('Debug: tableImport.handlePaste undo prepared (diff)', {
+        tableImportDebug('Debug: tableImport.handlePaste undo prepared (diff)', {
           debugLabel,
           scope,
           label,
@@ -1745,14 +1764,14 @@
             if(typeof hot.batch === 'function'){
               hot.batch(()=>{
                 if(revertChanges.length && typeof hot.setDataAtCell === 'function'){
-                  hot.setDataAtCell(revertChanges, 'tableImport.handlePaste.undo');
+                  hot.setDataAtCell(revertChanges, 'UndoRedo.tableImport.handlePaste.undo');
                 }
                 if(rowsInserted?.amount && canAlter){
                   const removeIndex = typeof rowsInserted.removeIndex === 'number'
                     ? rowsInserted.removeIndex
                     : rowsInserted.index;
                   if(typeof removeIndex === 'number'){
-                    hot.alter('remove_row', removeIndex, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                    hot.alter('remove_row', removeIndex, rowsInserted.amount, 'UndoRedo.tableImport.handlePaste.undo');
                   }
                 }
                 if(colsInserted?.amount && canAlter){
@@ -1760,20 +1779,20 @@
                     ? colsInserted.removeIndex
                     : colsInserted.index;
                   if(typeof removeIndex === 'number'){
-                    hot.alter('remove_col', removeIndex, colsInserted.amount, 'tableImport.handlePaste.undo');
+                    hot.alter('remove_col', removeIndex, colsInserted.amount, 'UndoRedo.tableImport.handlePaste.undo');
                   }
                 }
               });
             }else{
               if(revertChanges.length && typeof hot.setDataAtCell === 'function'){
-                hot.setDataAtCell(revertChanges, 'tableImport.handlePaste.undo');
+                hot.setDataAtCell(revertChanges, 'UndoRedo.tableImport.handlePaste.undo');
               }
               if(rowsInserted?.amount && canAlter){
                 const removeIndex = typeof rowsInserted.removeIndex === 'number'
                   ? rowsInserted.removeIndex
                   : rowsInserted.index;
                 if(typeof removeIndex === 'number'){
-                  hot.alter('remove_row', removeIndex, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                  hot.alter('remove_row', removeIndex, rowsInserted.amount, 'UndoRedo.tableImport.handlePaste.undo');
                 }
               }
               if(colsInserted?.amount && canAlter){
@@ -1781,7 +1800,7 @@
                   ? colsInserted.removeIndex
                   : colsInserted.index;
                 if(typeof removeIndex === 'number'){
-                  hot.alter('remove_col', removeIndex, colsInserted.amount, 'tableImport.handlePaste.undo');
+                  hot.alter('remove_col', removeIndex, colsInserted.amount, 'UndoRedo.tableImport.handlePaste.undo');
                 }
               }
             }
@@ -1814,34 +1833,34 @@
                 if(rowsInserted?.amount && canAlter){
                   const action = resolveRowInsertFromMeta(rowsInserted);
                   if(action){
-                    hot.alter(action.action, action.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                    hot.alter(action.action, action.index, rowsInserted.amount, 'UndoRedo.tableImport.handlePaste.redo');
                   }
                 }
                 if(colsInserted?.amount && canAlter){
                   const action = resolveColInsertFromMeta(colsInserted);
                   if(action){
-                    hot.alter(action.action, action.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                    hot.alter(action.action, action.index, colsInserted.amount, 'UndoRedo.tableImport.handlePaste.redo');
                   }
                 }
                 if(applyChanges.length && typeof hot.setDataAtCell === 'function'){
-                  hot.setDataAtCell(applyChanges, 'tableImport.handlePaste.redo');
+                  hot.setDataAtCell(applyChanges, 'UndoRedo.tableImport.handlePaste.redo');
                 }
               });
             }else{
               if(rowsInserted?.amount && canAlter){
                 const action = resolveRowInsertFromMeta(rowsInserted);
                 if(action){
-                  hot.alter(action.action, action.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                  hot.alter(action.action, action.index, rowsInserted.amount, 'UndoRedo.tableImport.handlePaste.redo');
                 }
               }
               if(colsInserted?.amount && canAlter){
                 const action = resolveColInsertFromMeta(colsInserted);
                 if(action){
-                  hot.alter(action.action, action.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                  hot.alter(action.action, action.index, colsInserted.amount, 'UndoRedo.tableImport.handlePaste.redo');
                 }
               }
               if(applyChanges.length && typeof hot.setDataAtCell === 'function'){
-                hot.setDataAtCell(applyChanges, 'tableImport.handlePaste.redo');
+                hot.setDataAtCell(applyChanges, 'UndoRedo.tableImport.handlePaste.redo');
               }
             }
             if((typeof nextMinRows === 'number' || typeof nextMinCols === 'number') && typeof hot.updateSettings === 'function'){
@@ -1877,14 +1896,14 @@
           if(capturedAfter && capturedAfter.kind === 'area'){
             snapshotAfter = capturedAfter;
           }else if(capturedAfter && capturedAfter.kind === 'degraded'){
-            console.debug('Debug: tableImport.handlePaste snapshot after degraded', {
+            tableImportDebug('Debug: tableImport.handlePaste snapshot after degraded', {
               debugLabel,
               area: afterArea,
               cells: capturedAfter.areaCells,
               limit: snapshotThreshold
             });
           }else{
-            console.debug('Debug: tableImport.handlePaste snapshot after unavailable', {
+            tableImportDebug('Debug: tableImport.handlePaste snapshot after unavailable', {
               debugLabel,
               reason: capturedAfter ? capturedAfter.kind : 'null'
             });
@@ -1893,7 +1912,7 @@
         if(snapshotBefore && snapshotAfter){
           const scope = options.scope || inferHotScope(hot, debugLabel);
           const label = `tableImport:${debugLabel}:pasteSnapshot`;
-          console.debug('Debug: tableImport.handlePaste undo prepared (snapshot)', {
+          tableImportDebug('Debug: tableImport.handlePaste undo prepared (snapshot)', {
             debugLabel,
             scope,
             label,
@@ -1920,7 +1939,7 @@
             }
           });
         }else{
-          console.debug('Debug: tableImport.handlePaste snapshot undo skipped', {
+          tableImportDebug('Debug: tableImport.handlePaste snapshot undo skipped', {
             debugLabel,
             before: snapshotBefore ? snapshotBefore.kind : 'missing',
             after: snapshotAfter ? snapshotAfter.kind : 'missing',
@@ -1928,7 +1947,7 @@
           });
         }
       }else{
-        console.debug('Debug: tableImport.handlePaste undo skipped (no diff)', {
+        tableImportDebug('Debug: tableImport.handlePaste undo skipped (no diff)', {
           debugLabel,
           hasResult: !!result,
           fullReplace: isFullReplace,

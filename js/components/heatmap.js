@@ -12,7 +12,7 @@
     try{
       require('../shared/notes.js');
     }catch(err){
-      console.debug('Debug: heatmap component notes helper require failed', { message: err?.message || String(err) });
+      debugLog('Debug: heatmap component notes helper require failed', { message: err?.message || String(err) });
     }
   }
   const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
@@ -20,7 +20,7 @@
     try{
       require('../shared/dataTransforms.js');
     }catch(err){
-      console.debug('Debug: heatmap component dataTransforms helper require failed', { message: err?.message || String(err) });
+      debugLog('Debug: heatmap component dataTransforms helper require failed', { message: err?.message || String(err) });
     }
   }
   const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
@@ -28,7 +28,7 @@
     try{
       require('../shared/dataViews.js');
     }catch(err){
-      console.debug('Debug: heatmap component dataViews helper require failed', { message: err?.message || String(err) });
+      debugLog('Debug: heatmap component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
   const notesState = { text: '', open: false, control: null };
@@ -44,7 +44,7 @@
   heatmap.__installed = true;
   heatmap.ready = false;
 
-  function debugLog(label, payload){
+  function debugLog(label, ...rest){
     try{
       if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
         return;
@@ -53,7 +53,11 @@
       // Ignore toggle errors and log by default
     }
     if(typeof console !== 'undefined' && typeof console.debug === 'function'){
-      console.debug(label, payload);
+      if(rest.length){
+        console.debug(label, ...rest);
+      }else{
+        console.debug(label);
+      }
     }
   }
 
@@ -66,10 +70,10 @@
 
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if(!fileIO.saveGraphFile){
-    console.debug('Debug: heatmap component awaiting Shared.fileIO helpers');
+    debugLog('Debug: heatmap component awaiting Shared.fileIO helpers');
   }
   if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
-    console.debug('Debug: heatmap component awaiting Shared.tableImport helpers');
+    debugLog('Debug: heatmap component awaiting Shared.tableImport helpers');
   }
 
   const ensureGraphViewport = Shared.graphViewport?.createEnsurer
@@ -80,12 +84,12 @@
         fn(svg, { component: 'heatmap', debugLabel: 'heatmap-viewport-fallback', ...options });
         return;
       }
-      console.debug('Debug: heatmap ensureGraphViewport helper missing', {
+      debugLog('Debug: heatmap ensureGraphViewport helper missing', {
         hasShared: !!Shared,
         hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
       });
     };
-  console.debug('Debug: heatmap graph viewport helper configured', {
+  debugLog('Debug: heatmap graph viewport helper configured', {
     hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
@@ -2100,7 +2104,7 @@
     }finally{
       state.suppressClusterTouchTracking = false;
     }
-    console.debug('Debug: heatmap clustering defaults auto-enabled on data entry', { reason: reason || 'data-entry' });
+    debugLog('Debug: heatmap clustering defaults auto-enabled on data entry', { reason: reason || 'data-entry' });
     return true;
   }
 
@@ -2153,7 +2157,7 @@
       if(watcher){
         watcher(select);
         if(debugEnabled){
-          console.debug('Debug: heatmap select auto-size watcher attached', {
+          debugLog('Debug: heatmap select auto-size watcher attached', {
             id: select.id || null,
             label: contextLabel
           });
@@ -2161,20 +2165,20 @@
       }else if(autoSizer){
         autoSizer(select);
         if(debugEnabled){
-          console.debug('Debug: heatmap select auto-size applied without watcher', {
+          debugLog('Debug: heatmap select auto-size applied without watcher', {
             id: select.id || null,
             label: contextLabel
           });
         }
       }else if(debugEnabled){
-        console.debug('Debug: heatmap select auto-size helper unavailable', {
+        debugLog('Debug: heatmap select auto-size helper unavailable', {
           id: select.id || null,
           label: contextLabel
         });
       }
     }catch(err){
       if(debugEnabled){
-        console.debug('Debug: heatmap select auto-size attach error', {
+        debugLog('Debug: heatmap select auto-size attach error', {
           id: select.id || null,
           label: contextLabel,
           error: err?.message || String(err)
@@ -2195,57 +2199,11 @@
       if(key || role){ node.dataset.fontKey = key || role; }
     }
     if(role && (role === 'cellValue' || role.includes('Tick'))){ return; }
-    console.debug('Debug: heatmap font mark applied', payload); // Debug: font tagging summary
+    debugLog('Debug: heatmap font mark applied', payload); // Debug: font tagging summary
   };
 
   function $(id){
     return global.document.getElementById(id);
-  }
-
-  function bindHeatmapPasteHandler(container, hotInstance){
-    if(!container || container.__heatmapPasteHandlerBound){
-      return false;
-    }
-    if(!Shared.tableImport || typeof Shared.tableImport.handlePaste !== 'function'){
-      return false;
-    }
-    const handlePaste = async evt => {
-      debugLog('Debug: heatmap paste detected', {
-        tabId: hotInstance?.__heatmapTabId || null,
-        containerId: container?.id || null
-      });
-      let forcedOverlay = false;
-      try{
-        forcedOverlay = !!forceHeatmapOverlay('table-paste-start', { message: 'Processing pasted data...' });
-        const activeHot = hotInstance || state.ensureHotForActiveTab?.() || state.hot;
-        const result = await Shared.tableImport.handlePaste(evt, activeHot, {
-          minCols: 2,
-          minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markHeatmapOverlayPending('table-paste');
-            state.scheduleDraw();
-          },
-          debugLabel: 'heatmap',
-          onProcessed: info => console.log('heatmap paste processed', info)
-        });
-        if(!result && forcedOverlay){
-          resolveHeatmapOverlay('table-paste-empty');
-        }
-      }catch(err){
-        if(forcedOverlay){
-          resolveHeatmapOverlay('table-paste-error');
-        }
-        console.error('heatmap paste error', err);
-      }
-    };
-    container.addEventListener('paste', handlePaste, true);
-    container.__heatmapPasteHandlerBound = true;
-    container.__heatmapPasteHandler = handlePaste;
-    debugLog('Debug: heatmap paste handler bound', {
-      tabId: hotInstance?.__heatmapTabId || null,
-      containerId: container?.id || null
-    });
-    return true;
   }
 
   function initHot(){
@@ -2254,7 +2212,6 @@
       return;
     }
     const data = seedHeatmapDefaultHeaderRow(Shared.createEmptyData ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS) : []);
-    console.debug('Debug: heatmap initHot using shared factory', { hasDataHelper: !!Shared.createEmptyData });
     const createHeatmapTable = (container) => {
       let instance = null;
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleMeta => {
@@ -2267,7 +2224,6 @@
       }, {
         debugLabel: 'heatmap',
         data,
-        disablePaste: true,
         pinFirstColumn: true,
         rowSelection: null,
         pinFirstRow: true,
@@ -2277,7 +2233,6 @@
           minSpareRows: 5,
           afterChange(changes, source){
             if(changes && source !== 'loadData'){
-              console.log('heatmap afterChange', { count: changes.length, source });
             }
             if(changes){
               syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
@@ -2306,16 +2261,13 @@
             syncHeatmapActiveDataViewFromHot(instance, 'afterChange');
           },
           afterUndo(){
-            console.log('heatmap undo');
           },
           afterRedo(){
-            console.log('heatmap redo');
           }
         }
       });
       if(instance){
         instance.__heatmapHostContainer = container || null;
-        bindHeatmapPasteHandler(container, instance);
       }
       return instance;
     };
@@ -2473,10 +2425,10 @@
   function getCheckedRadioValue(name){
     const checked = global.document.querySelector(`input[name="${name}"]:checked`);
     if(checked){
-      console.debug('Debug: heatmap radio value read', { name, value: checked.value });
+      debugLog('Debug: heatmap radio value read', { name, value: checked.value });
       return checked.value;
     }
-    console.debug('Debug: heatmap radio value missing', { name });
+    debugLog('Debug: heatmap radio value missing', { name });
     return null;
   }
 
@@ -2536,7 +2488,7 @@
     }
     if(refs.fontSize?.dataset){
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
-      console.debug('Debug: heatmap font size base initialized', { value: refs.fontSize.value });
+      debugLog('Debug: heatmap font size base initialized', { value: refs.fontSize.value });
     }
     chartStyle.renderFontSizeLabel({
       element: refs.fontSizeVal,
@@ -2690,9 +2642,9 @@
         refs.showValues.checked = false;
       }
       }catch(err){
-        console.debug('Debug: heatmap updateViewControlState aspect toggle error', err?.message || err);
+        debugLog('Debug: heatmap updateViewControlState aspect toggle error', err?.message || err);
       }
-      console.debug('Debug: heatmap view state updated', {
+      debugLog('Debug: heatmap view state updated', {
         view,
         isCorrelation,
         hideRowClustering,
@@ -2715,7 +2667,7 @@
       };
       enableEl.addEventListener('change', () => {
         toggle();
-        console.debug('Debug: heatmap filter toggled', { id: enableEl.id, enabled: enableEl.checked });
+        debugLog('Debug: heatmap filter toggled', { id: enableEl.id, enabled: enableEl.checked });
         if(materialize(`filter-toggle-${enableEl.id}`)){
           return;
         }
@@ -2723,7 +2675,7 @@
       });
       valueEls.forEach(el => {
         el?.addEventListener('input', () => {
-          console.debug('Debug: heatmap filter value changed', { id: el.id, value: el.value });
+          debugLog('Debug: heatmap filter value changed', { id: el.id, value: el.value });
           schedule();
         });
         el?.addEventListener('change', () => {
@@ -2746,7 +2698,7 @@
       };
       checkbox.addEventListener('change', () => {
         toggle();
-        console.debug('Debug: heatmap center toggle', { id: checkbox.id, enabled: checkbox.checked });
+        debugLog('Debug: heatmap center toggle', { id: checkbox.id, enabled: checkbox.checked });
         if(materialize(`center-toggle-${checkbox.id}`)){
           return;
         }
@@ -2754,7 +2706,7 @@
       });
       radios.forEach(radio => {
         radio.addEventListener('change', () => {
-          console.debug('Debug: heatmap center mode changed', { name: radioName, value: radio.value });
+          debugLog('Debug: heatmap center mode changed', { name: radioName, value: radio.value });
           if(materialize(`center-mode-${radioName}`)){
             return;
           }
@@ -2777,7 +2729,7 @@
         }
         update();
         updateViewControlState();
-        console.debug('Debug: heatmap cluster toggle', { id: checkbox.id, enabled: checkbox.checked });
+        debugLog('Debug: heatmap cluster toggle', { id: checkbox.id, enabled: checkbox.checked });
         schedule();
       });
       select?.addEventListener('change', () => {
@@ -2785,7 +2737,7 @@
           state.clusterControlsTouched = true;
         }
         updateViewControlState();
-        console.debug('Debug: heatmap cluster metric change', { id: select.id, value: select.value });
+        debugLog('Debug: heatmap cluster metric change', { id: select.id, value: select.value });
         schedule();
       });
       dendrogramToggle?.addEventListener('change', () => {
@@ -2793,7 +2745,7 @@
           state.clusterControlsTouched = true;
         }
         updateViewControlState();
-        console.debug('Debug: heatmap dendrogram toggle', { id: dendrogramToggle.id, checked: dendrogramToggle.checked });
+        debugLog('Debug: heatmap dendrogram toggle', { id: dendrogramToggle.id, checked: dendrogramToggle.checked });
         schedule();
       });
       update();
@@ -2801,11 +2753,11 @@
 
     refs.view?.addEventListener('change', () => {
       updateViewControlState();
-      console.debug('Debug: heatmap view changed', { value: refs.view.value });
+      debugLog('Debug: heatmap view changed', { value: refs.view.value });
       schedule();
     });
     refs.method?.addEventListener('change', () => {
-      console.debug('Debug: heatmap method changed', { value: refs.method.value });
+      debugLog('Debug: heatmap method changed', { value: refs.method.value });
       schedule();
     });
     refs.logTransform?.addEventListener('change', () => {
@@ -2831,11 +2783,11 @@
             const useLogPlusOne = global.confirm('Your data contains zero values. Would you like to add +1 to all values before log transform?\n\nThis will compute log2(x+1) instead of log2(x).');
             if(useLogPlusOne){
               state.logPlusOne = true;
-              console.debug('Debug: heatmap log+1 enabled by user confirmation');
+              debugLog('Debug: heatmap log+1 enabled by user confirmation');
             }else{
               refs.logTransform.checked = false;
               state.logPlusOne = false;
-              console.debug('Debug: heatmap log transform cancelled by user');
+              debugLog('Debug: heatmap log transform cancelled by user');
               return;
             }
           }else{
@@ -2845,7 +2797,7 @@
       }else{
         state.logPlusOne = false;
       }
-      console.debug('Debug: heatmap logTransform changed', { id: refs.logTransform.id, checked: refs.logTransform.checked, logPlusOne: state.logPlusOne });
+      debugLog('Debug: heatmap logTransform changed', { id: refs.logTransform.id, checked: refs.logTransform.checked, logPlusOne: state.logPlusOne });
       if(materialize('log-transform')){
         return;
       }
@@ -2853,7 +2805,7 @@
     });
     [refs.normalizeGenes, refs.normalizeArrays].forEach(el => {
       el?.addEventListener('change', () => {
-        console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
+        debugLog('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         if(materialize(`normalize-toggle-${el.id}`)){
           return;
         }
@@ -2865,26 +2817,26 @@
         if(!state.suspendControlSchedule && !state.suppressClusterTouchTracking){
           state.clusterControlsTouched = true;
         }
-        console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
+        debugLog('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
       });
     });
     [refs.absValues, refs.maskLower, refs.showValues, refs.showSignificance].forEach(el => {
       el?.addEventListener('change', () => {
         updateViewControlState();
-        console.debug('Debug: heatmap view toggle changed', { id: el.id, checked: el.checked });
+        debugLog('Debug: heatmap view toggle changed', { id: el.id, checked: el.checked });
         scheduleViewOnly(`toggle-${el?.id || 'unknown'}`);
       });
     });
     refs.significanceDisplay?.addEventListener('change', () => {
       updateViewControlState();
-      console.debug('Debug: heatmap significance display changed', { value: refs.significanceDisplay?.value || null });
+      debugLog('Debug: heatmap significance display changed', { value: refs.significanceDisplay?.value || null });
       scheduleViewOnly('significance-display');
     });
     refs.decimals?.addEventListener('input', () => {
       if(refs.decimals){
         refs.decimals.value = String(clampDecimals(refs.decimals.value));
-        console.debug('Debug: heatmap decimals changed', { value: refs.decimals.value });
+        debugLog('Debug: heatmap decimals changed', { value: refs.decimals.value });
       }
       scheduleViewOnly('decimals');
     });
@@ -2894,7 +2846,7 @@
         global.attachColorPickerNear(el);
       }
       el.addEventListener('input', () => {
-        console.debug('Debug: heatmap color changed', { id: el.id, value: el.value });
+        debugLog('Debug: heatmap color changed', { id: el.id, value: el.value });
         updateHeatmapPalette({
           negative: refs.colorNegative?.value,
           zero: refs.colorZero?.value,
@@ -2909,7 +2861,7 @@
       if(refs.cellSizeVal && refs.cellSize){
         refs.cellSizeVal.textContent = refs.cellSize.value;
       }
-      console.debug('Debug: heatmap cell size changed', { value: refs.cellSize?.value });
+      debugLog('Debug: heatmap cell size changed', { value: refs.cellSize?.value });
       scheduleViewOnly('cell-size');
     });
     refs.fontSize?.addEventListener('input', () => {
@@ -2918,7 +2870,7 @@
           refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
         }
         chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
-        console.debug('Debug: heatmap font size changed', { value: refs.fontSize.value });
+        debugLog('Debug: heatmap font size changed', { value: refs.fontSize.value });
       }
       scheduleViewOnly('font-size');
     });
@@ -2932,7 +2884,7 @@
     registerCluster(refs.clusterGenes, refs.genesMetric, refs.showRowDendrogram);
     registerCluster(refs.clusterArrays, refs.arraysMetric, refs.showColumnDendrogram);
     refs.linkage?.addEventListener('change', () => {
-      console.debug('Debug: heatmap linkage method changed', { value: refs.linkage.value });
+      debugLog('Debug: heatmap linkage method changed', { value: refs.linkage.value });
       schedule();
     });
 
@@ -2956,7 +2908,7 @@
       })){
         return;
       }
-      console.log('heatmap example loaded');
+      debugLog('heatmap example loaded');
     });
 
     const importBtn = $('heatmapImport');
@@ -2989,7 +2941,7 @@
             state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'heatmap',
-          onProcessed: info => console.log('heatmap data imported', info),
+          onProcessed: info => debugLog('heatmap data imported', info),
           onCompleted: () => {
             const renderReason = 'import-load';
             markHeatmapOverlayPending(renderReason);
@@ -3018,7 +2970,7 @@
       if(!target.closest?.('.stats-significance-controls__input')){
         return;
       }
-      console.debug('Debug: heatmap significance threshold changed', { value: target.value || null });
+      debugLog('Debug: heatmap significance threshold changed', { value: target.value || null });
       scheduleViewOnly('stats-threshold');
     };
     statsPanel?.addEventListener('input', handleStatsThresholdInteraction, true);
@@ -3063,12 +3015,12 @@
   function parseHeatmapInputData(data, contextLabel){
     const debugContext = contextLabel || 'collectTableData';
     if(!Array.isArray(data) || data.length < 2){
-      console.debug(`Debug: heatmap ${debugContext} insufficient rows`, { length: data?.length || 0 });
+      debugLog(`Debug: heatmap ${debugContext} insufficient rows`, { length: data?.length || 0 });
       return null;
     }
     const header = Array.isArray(data[0]) ? data[0] : [];
     if(header.length < 1){
-      console.debug(`Debug: heatmap ${debugContext} insufficient columns`, { columnCount: header.length });
+      debugLog(`Debug: heatmap ${debugContext} insufficient columns`, { columnCount: header.length });
       return null;
     }
     const bodyRows = data.slice(1).filter(row => Array.isArray(row));
@@ -3081,13 +3033,13 @@
       return !Number.isFinite(numeric);
     });
     const startColumnIndex = firstColumnHasNonNumericText ? 1 : 0;
-    console.debug(`Debug: heatmap ${debugContext} header interpretation`, {
+    debugLog(`Debug: heatmap ${debugContext} header interpretation`, {
       firstColumnHasNonNumericText,
       startColumnIndex,
       headerLength: header.length
     }); // Debug: record header parsing heuristics
     if(header.length - startColumnIndex < 1){
-      console.debug(`Debug: heatmap ${debugContext} insufficient data columns`, {
+      debugLog(`Debug: heatmap ${debugContext} insufficient data columns`, {
         headerLength: header.length,
         startColumnIndex
       });
@@ -3159,7 +3111,7 @@
         removedColumns += 1;
       }
     });
-    console.debug(`Debug: heatmap ${debugContext} summary`, {
+    debugLog(`Debug: heatmap ${debugContext} summary`, {
       rowsInSheet: data.length - 1,
       usableRows: filteredMatrix.length,
       rawColumns: columnLabels.length,
@@ -3186,7 +3138,7 @@
   function collectTableData(){
     const context = resolveHeatmapViewContext();
     if(!context.hot || typeof context.hot.getData !== 'function'){
-      console.debug('Debug: heatmap collectTableData missing hot reference');
+      debugLog('Debug: heatmap collectTableData missing hot reference');
       return null;
     }
     return parseHeatmapInputData(context.sourceData, 'collectTableData');
@@ -3307,7 +3259,7 @@
         });
       }
     }
-    console.debug('Debug: heatmap filterRowsBySettings result', {
+    debugLog('Debug: heatmap filterRowsBySettings result', {
       originalRows: matrix.length,
       keptRows: keptMatrix.length,
       removedRows: removed.length,
@@ -3337,7 +3289,7 @@
         removed += 1;
       }
     });
-    console.debug('Debug: heatmap pruneEmptyColumns summary', {
+    debugLog('Debug: heatmap pruneEmptyColumns summary', {
       originalColumns: columnCount,
       keptColumns: newLabels.length,
       removed
@@ -3374,7 +3326,7 @@
         }
       }
     }
-    console.debug('Debug: heatmap applyLogTransform complete', { converted, invalid, usePlusOne });
+    debugLog('Debug: heatmap applyLogTransform complete', { converted, invalid, usePlusOne });
     return { converted, invalid };
   }
 
@@ -3393,7 +3345,7 @@
         }
       }
     }
-    console.debug('Debug: heatmap centerRows applied', { mode, adjusted });
+    debugLog('Debug: heatmap centerRows applied', { mode, adjusted });
     return adjusted;
   }
 
@@ -3415,7 +3367,7 @@
         }
       }
     }
-    console.debug('Debug: heatmap normalizeRows applied', { normalized, skipped });
+    debugLog('Debug: heatmap normalizeRows applied', { normalized, skipped });
     return { normalized, skipped };
   }
 
@@ -3470,7 +3422,7 @@
         }
       }
     }
-    console.debug('Debug: heatmap centerColumns applied', { mode, adjusted });
+    debugLog('Debug: heatmap centerColumns applied', { mode, adjusted });
     return adjusted;
   }
 
@@ -3514,7 +3466,7 @@
         }
       }
     }
-    console.debug('Debug: heatmap normalizeColumns applied', { normalized, skipped });
+    debugLog('Debug: heatmap normalizeColumns applied', { normalized, skipped });
     return { normalized, skipped };
   }
 
@@ -3535,7 +3487,7 @@
     if(adjust.normalizeColumns){
       summary.normalizeColumns = normalizeColumns(matrix);
     }
-    console.debug('Debug: heatmap applyAdjustments summary', summary);
+    debugLog('Debug: heatmap applyAdjustments summary', summary);
     return summary;
   }
 
@@ -3744,13 +3696,13 @@
     const startTime = now();
     if(countItems === 0){
       const emptyStore = { size: 0, values: new Float32Array(0), released: true };
-      console.debug('Debug: heatmap hierarchicalCluster skipped - no items', { metric, linkage });
+      debugLog('Debug: heatmap hierarchicalCluster skipped - no items', { metric, linkage });
       return { order: [], tree: null, maxDistance: 0, steps: [], baseDistances: emptyStore };
     }
     if(countItems === 1){
       const singletonStore = { size: 1, values: new Float32Array(0), released: true };
       const durationSingleton = now() - startTime;
-      console.debug('Debug: heatmap hierarchicalCluster trivial', {
+      debugLog('Debug: heatmap hierarchicalCluster trivial', {
         itemCount: 1,
         metric,
         linkage,
@@ -3949,7 +3901,7 @@
         const clusterA = remaining[0];
         const clusterB = remaining[1];
         const fallbackDistance = linkageDistance(clusterA, clusterB);
-        console.debug('Debug: heatmap hierarchicalCluster fallback merge', {
+        debugLog('Debug: heatmap hierarchicalCluster fallback merge', {
           clusterA: clusterA.id,
           clusterB: clusterB.id,
           linkage,
@@ -4026,7 +3978,7 @@
     baseDistanceStore.values = new Float32Array(0);
 
     const durationMs = now() - startTime;
-    console.debug('Debug: heatmap hierarchicalCluster summary', {
+    debugLog('Debug: heatmap hierarchicalCluster summary', {
       itemCount: countItems,
       metric,
       linkage,
@@ -4157,7 +4109,7 @@
         linkage: refs.linkage?.value || 'average'
       }
     };
-    console.debug('Debug: heatmap collectSettings summary', settings);
+    debugLog('Debug: heatmap collectSettings summary', settings);
     return settings;
   }
 
@@ -4201,7 +4153,7 @@
     columnLabels = pruneResult.columnLabels;
     columnMeta = pruneResult.columnMeta;
     if(matrix.length === 0 || columnLabels.length === 0){
-      console.debug('Debug: heatmap prepareProcessedData filtered all data', {
+      debugLog('Debug: heatmap prepareProcessedData filtered all data', {
         rowsRemaining: matrix.length,
         columnsRemaining: columnLabels.length
       });
@@ -4224,7 +4176,7 @@
     columnLabels = pruneResult.columnLabels;
     columnMeta = pruneResult.columnMeta;
     if(matrix.length === 0 || columnLabels.length === 0){
-      console.debug('Debug: heatmap prepareProcessedData removed all columns after adjustment');
+      debugLog('Debug: heatmap prepareProcessedData removed all columns after adjustment');
       return {
         ok: false,
         reason: 'adjustment-empty',
@@ -4284,7 +4236,7 @@
   function prepareProcessedData(settings){
     const raw = collectTableData();
     if(!raw){
-      console.debug('Debug: heatmap prepareProcessedData missing raw data');
+      debugLog('Debug: heatmap prepareProcessedData missing raw data');
       return { ok: false, reason: 'no-data' };
     }
     return prepareProcessedDataFromRaw(raw, settings);
@@ -5276,7 +5228,7 @@
         writePackedDistance(store, i, j, distance);
       }
     }
-    console.debug('Debug: heatmap distance matrix prepared', {
+    debugLog('Debug: heatmap distance matrix prepared', {
       method,
       columnCount: n,
       preview: Array.from(values.slice(0, Math.min(10, values.length)))
@@ -5341,7 +5293,7 @@
   function performHierarchicalClustering(baseDistances){
     const n = Number(baseDistances?.size) || 0;
     if(n <= 0){
-      console.debug('Debug: heatmap hierarchical clustering skipped - empty distance matrix');
+      debugLog('Debug: heatmap hierarchical clustering skipped - empty distance matrix');
       return { order: [], tree: null, steps: [], maxDistance: 0 };
     }
     const clusters = Array.from({ length: n }, (_, index) => ({
@@ -5353,7 +5305,7 @@
       distance: 0
     }));
     if(n === 1){
-      console.debug('Debug: heatmap hierarchical clustering trivial - single column');
+      debugLog('Debug: heatmap hierarchical clustering trivial - single column');
       return { order: [0], tree: clusters[0], steps: [], maxDistance: 0 };
     }
 
@@ -5414,7 +5366,7 @@
         const key = getPairKey(clusterA.id, clusterB.id);
         const sum = pairSums.get(key) || 0;
         const fallbackDistance = sum / (clusterA.size * clusterB.size) || 0;
-        console.debug('Debug: heatmap hierarchical clustering fallback merge', {
+        debugLog('Debug: heatmap hierarchical clustering fallback merge', {
           clusterA: clusterA.id,
           clusterB: clusterB.id,
           distance: fallbackDistance
@@ -5467,7 +5419,7 @@
 
     const [root] = active.values();
     if(!root){
-      console.debug('Debug: heatmap hierarchical clustering missing root', {
+      debugLog('Debug: heatmap hierarchical clustering missing root', {
         columnCount: n,
         stepCount: mergeSteps.length
       });
@@ -5489,7 +5441,7 @@
       return leftMin <= rightMin ? leftOrder.concat(rightOrder) : rightOrder.concat(leftOrder);
     };
     const order = flatten(root);
-    console.debug('Debug: heatmap hierarchical clustering merges', {
+    debugLog('Debug: heatmap hierarchical clustering merges', {
       columnCount: n,
       stepCount: mergeSteps.length,
       maxDistance
@@ -5504,7 +5456,7 @@
     const baseDistances = buildDistanceMatrix(columns, method);
     const clustering = performHierarchicalClustering(baseDistances);
     if(!Array.isArray(clustering.order) || clustering.order.length !== columns.length){
-      console.debug('Debug: heatmap clustering order fallback', {
+      debugLog('Debug: heatmap clustering order fallback', {
         requestedColumns: columns.length,
         receivedLength: clustering?.order?.length,
         method
@@ -5517,7 +5469,7 @@
         baseDistances
       };
     }
-    console.debug('Debug: heatmap clustering order computed', {
+    debugLog('Debug: heatmap clustering order computed', {
       method,
       order: clustering.order,
       maxDistance: clustering.maxDistance
@@ -5540,7 +5492,7 @@
   }){
     const hasBasics = doc && parent && tree && Array.isArray(order) && order.length > 0;
     if(!hasBasics || !Number.isFinite(length) || length <= 0){
-      console.debug('Debug: heatmap renderDendrogram skipped', {
+      debugLog('Debug: heatmap renderDendrogram skipped', {
         hasBasics,
         startX,
         startY,
@@ -5639,7 +5591,7 @@
     };
 
     const rootPos = orientation === 'horizontal' ? visitHorizontal(tree) : visitVertical(tree);
-    console.debug('Debug: heatmap renderDendrogram complete', {
+    debugLog('Debug: heatmap renderDendrogram complete', {
       orientation,
       startX,
       startY,
@@ -5671,12 +5623,12 @@
 
   function rgbToCss(rgb){
     if(!rgb || !Number.isFinite(rgb.r) || !Number.isFinite(rgb.g) || !Number.isFinite(rgb.b)){
-      console.debug('Debug: heatmap rgbToCss received invalid rgb', { rgb });
+      debugLog('Debug: heatmap rgbToCss received invalid rgb', { rgb });
       return '#000000';
     }
     const clamp = value => Math.min(255, Math.max(0, Math.round(value)));
     const css = `rgb(${clamp(rgb.r)},${clamp(rgb.g)},${clamp(rgb.b)})`;
-    console.debug('Debug: heatmap rgbToCss computed css string', { rgb, css });
+    debugLog('Debug: heatmap rgbToCss computed css string', { rgb, css });
     return css;
   }
 
@@ -5700,7 +5652,7 @@
     }
 
     // Debug log to check mapping
-    console.debug('Debug: colorForValue', {
+    debugLog('Debug: colorForValue', {
       raw: entry.raw,
       useAbs,
       color
@@ -5742,7 +5694,7 @@
       // mutates the svg box geometry on tab restore.
       svgBox.style.aspectRatio = '';
     }catch(err){
-      console.debug('Debug: heatmap aspect ratio reset error', { error: err?.message || String(err) });
+      debugLog('Debug: heatmap aspect ratio reset error', { error: err?.message || String(err) });
     }
     if(locked){
       const width = Number(opts.width);
@@ -6036,7 +5988,7 @@
       width: emptyViewport.width,
       height: emptyViewport.height
     });
-    console.debug('Debug: heatmap empty viewBox set', {
+    debugLog('Debug: heatmap empty viewBox set', {
       width: emptyViewport.width,
       height: emptyViewport.height,
       source: emptyViewport.source,
@@ -6100,14 +6052,14 @@
       }
     });
     state.statsEl.append(row);
-    console.debug('Debug: heatmap appendStatRow executed', { labelText, hasStrongValue: strongValueText !== undefined, trailingCount: trailing.length }); // Debug: track stat row creation
+    debugLog('Debug: heatmap appendStatRow executed', { labelText, hasStrongValue: strongValueText !== undefined, trailingCount: trailing.length }); // Debug: track stat row creation
     return row;
   }
 
   function updateStats(stats){
     state.lastStats = stats ? { ...stats } : null;
     if(!state.statsEl){
-      console.debug('Debug: heatmap stats element missing');
+      debugLog('Debug: heatmap stats element missing');
       return;
     }
     clearHeatmapStatsReportHost();
@@ -6473,7 +6425,7 @@
     const preserveAspect = aspectLocked ? 'xMidYMid meet' : 'none';
     state.svg.setAttribute('preserveAspectRatio', preserveAspect);
     applySvgBoxAspect(svgBox, { locked: aspectLocked, width: totalWidth, height: totalHeight });
-    console.debug('Debug: heatmap graph viewBox set', {
+    debugLog('Debug: heatmap graph viewBox set', {
       aspectLocked,
       preserveAspect,
       totalWidth,
@@ -6538,7 +6490,7 @@
             relX: relX, 
             relY: relY 
           };
-          console.debug('Debug: heatmap title position saved', { absolute: pos, relative: { relX, relY } });
+          debugLog('Debug: heatmap title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
@@ -7253,7 +7205,7 @@
     };
     ensureTitleColumnLabelClearance();
     state.layout?.syncPanels?.({ skipSchedule: true });
-    console.debug('Debug: heatmap drawHeatmap complete', {
+    debugLog('Debug: heatmap drawHeatmap complete', {
       rows: rowCount,
       columns: columnCount,
       showRowDendrogram,
@@ -7732,7 +7684,7 @@
     };
     try{
       if(!state.hot || !state.svg){
-        console.debug('Debug: heatmap draw skipped - missing hot or svg');
+        debugLog('Debug: heatmap draw skipped - missing hot or svg');
         finalizeDrawPerformance({ status: 'skipped', error: 'missing-hot-or-svg' });
         return;
       }
@@ -8070,7 +8022,7 @@
       text: notesText,
       open: notesOpen
     };
-    console.debug('Debug: heatmap.getPayload captured state', {
+    debugLog('Debug: heatmap.getPayload captured state', {
       hasHot: !!activeHot,
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
@@ -8083,16 +8035,16 @@
   heatmap.captureEmptyPayloadTemplate = function captureHeatmapEmptyPayloadTemplate(){
     ensureEmptyPayloadTemplate();
     const snapshot = cloneSimple(emptyPayloadTemplate);
-    console.debug('Debug: heatmap empty payload template captured', { hasTemplate: !!snapshot });
+    debugLog('Debug: heatmap empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
   heatmap.restoreEmptyPayloadTemplate = function restoreHeatmapEmptyPayloadTemplate(template, options = {}){
     if(!template || typeof template !== 'object'){
-      console.debug('Debug: heatmap empty payload template restore skipped', { reason: 'invalid-template', options });
+      debugLog('Debug: heatmap empty payload template restore skipped', { reason: 'invalid-template', options });
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
-    console.debug('Debug: heatmap empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    debugLog('Debug: heatmap empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
   heatmap.createEmptyPayload = function createEmptyHeatmapPayload(){
@@ -8116,7 +8068,7 @@
   };
 
   heatmap.save = async function saveHeatmap(){
-    console.debug('Debug: heatmap.save invoked', { hasHandle: !!state.fileHandle });
+    debugLog('Debug: heatmap.save invoked', { hasHandle: !!state.fileHandle });
     if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
       console.error('heatmap.save missing fileIO.saveGraphFile');
       return;
@@ -8130,11 +8082,11 @@
       setFileHandle: handle => { state.fileHandle = handle; },
       setFileName: name => setHeatmapFileName(name)
     });
-    console.debug('Debug: heatmap.save result', result);
+    debugLog('Debug: heatmap.save result', result);
   };
 
   heatmap.saveAs = async function saveAsHeatmap(){
-    console.debug('Debug: heatmap.saveAs invoked', { currentName: state.fileName });
+    debugLog('Debug: heatmap.saveAs invoked', { currentName: state.fileName });
     if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
       console.error('heatmap.saveAs missing fileIO.saveGraphFileAs');
       return;
@@ -8147,11 +8099,11 @@
       setFileHandle: handle => { state.fileHandle = handle; },
       setFileName: name => setHeatmapFileName(name)
     });
-    console.debug('Debug: heatmap.saveAs result', result);
+    debugLog('Debug: heatmap.saveAs result', result);
   };
 
   heatmap.open = async function openHeatmap(){
-    console.debug('Debug: heatmap.open invoked');
+    debugLog('Debug: heatmap.open invoked');
     if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
       console.error('heatmap.open missing fileIO.openGraphFile');
       return;
@@ -8169,7 +8121,7 @@
         }
       }
     });
-    console.debug('Debug: heatmap.open result', result);
+    debugLog('Debug: heatmap.open result', result);
   };
 
   function applyHeatmapPayload(obj, meta = {}){
@@ -8314,7 +8266,7 @@
       || global.document.querySelector('#heatmapGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: heatmap notes mount skipped (missing stack)');
+        debugLog('Debug: heatmap notes mount skipped (missing stack)');
       }
       return;
     }
@@ -8349,10 +8301,10 @@
 
   heatmap.init = function init(){
     if(heatmap.ready){
-      console.debug('Debug: heatmap.init skipped - already ready');
+      debugLog('Debug: heatmap.init skipped - already ready');
       return;
     }
-    console.debug('Debug: heatmap.init start');
+    debugLog('Debug: heatmap.init start');
     state.svg = $('heatmapSvg');
     if(state.svg){
       if(typeof chartStyle.applySvgDefaults === 'function'){
@@ -8363,9 +8315,9 @@
       }
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(state.svg, { scopeId: 'heatmap' });
-        console.debug('Debug: heatmap fontControls enableForSvg invoked', { hasFontControls: !!fontControls }); // Debug: font toolbar binding
+        debugLog('Debug: heatmap fontControls enableForSvg invoked', { hasFontControls: !!fontControls }); // Debug: font toolbar binding
       } else {
-        console.debug('Debug: heatmap fontControls enableForSvg missing', { hasFontControls: !!fontControls });
+        debugLog('Debug: heatmap fontControls enableForSvg missing', { hasFontControls: !!fontControls });
       }
       if(!state.svg.__heatmapPaletteFormatBound){
         state.svg.addEventListener('click', handleHeatmapSvgFormatClick, false);
@@ -8393,7 +8345,7 @@
       },
       onMinSvgWidth: value => {
         state.minSvgWidth = value;
-        console.debug('Debug: heatmap layout minSvgWidth updated', { value });
+        debugLog('Debug: heatmap layout minSvgWidth updated', { value });
       },
       resizableBoxOptions: {
         onResize: () => {

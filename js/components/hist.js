@@ -66,6 +66,19 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
 
+  function histDebug(message, ...rest){
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      if(rest.length){
+        console.debug(message, ...rest);
+      }else{
+        console.debug(message);
+      }
+    }
+  }
+
   const hist = Components.hist = Components.hist || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
@@ -74,7 +87,7 @@
     try{
       require('../shared/additionalLineControls.js');
     }catch(err){
-      console.debug('Debug: hist component additionalLineControls helper require failed', { message: err?.message || String(err) });
+      histDebug('Debug: hist component additionalLineControls helper require failed', { message: err?.message || String(err) });
     }
   }
   let histRenderRowEl = null;
@@ -96,7 +109,7 @@
     try{
       require('../shared/gridControls.js');
     }catch(err){
-      console.debug('Debug: hist component gridControls helper require failed', { message: err?.message || String(err) });
+      histDebug('Debug: hist component gridControls helper require failed', { message: err?.message || String(err) });
     }
   }
   const notesHelper = Shared.notes = Shared.notes || {};
@@ -104,7 +117,7 @@
     try{
       require('../shared/notes.js');
     }catch(err){
-      console.debug('Debug: hist component notes helper require failed', { message: err?.message || String(err) });
+      histDebug('Debug: hist component notes helper require failed', { message: err?.message || String(err) });
     }
   }
   const dataTransformsApi = Shared.dataTransforms = Shared.dataTransforms || {};
@@ -112,7 +125,7 @@
     try{
       require('../shared/dataTransforms.js');
     }catch(err){
-      console.debug('Debug: hist component dataTransforms helper require failed', { message: err?.message || String(err) });
+      histDebug('Debug: hist component dataTransforms helper require failed', { message: err?.message || String(err) });
     }
   }
   const dataViewsApi = Shared.dataViews = Shared.dataViews || {};
@@ -120,17 +133,17 @@
     try{
       require('../shared/dataViews.js');
     }catch(err){
-      console.debug('Debug: hist component dataViews helper require failed', { message: err?.message || String(err) });
+      histDebug('Debug: hist component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if(!fileIO.saveGraphFile){
-    console.debug('Debug: hist component awaiting Shared.fileIO helpers');
+    histDebug('Debug: hist component awaiting Shared.fileIO helpers');
   }
   if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
-    console.debug('Debug: hist component awaiting Shared.tableImport helpers');
+    histDebug('Debug: hist component awaiting Shared.tableImport helpers');
   }
 
   const ensureGraphViewport = Shared.graphViewport?.createEnsurer
@@ -141,12 +154,12 @@
         fn(svg, { component: 'hist', debugLabel: 'hist-viewport-fallback', ...options });
         return;
       }
-      console.debug('Debug: hist ensureGraphViewport helper missing', {
+      histDebug('Debug: hist ensureGraphViewport helper missing', {
         hasShared: !!Shared,
         hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
       });
     };
-  console.debug('Debug: hist graph viewport helper configured', {
+  histDebug('Debug: hist graph viewport helper configured', {
     hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
@@ -593,7 +606,7 @@
 
   function markHistOverlayPending(reason){
     histOverlayController?.markPending(reason);
-    console.debug('Debug: hist overlay pending flagged', { reason: reason || 'data-change' });
+    histDebug('Debug: hist overlay pending flagged', { reason: reason || 'data-change' });
   }
 
   function queueHistOverlay(reason, options = {}){
@@ -739,7 +752,7 @@
     }
     syncHistPlotModeControls();
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist plot mode applied', {
+      histDebug('Debug: hist plot mode applied', {
         previousMode,
         mode: nextMode,
         titleAuto: state.titleAuto,
@@ -813,7 +826,7 @@
     }
     if(histNoticeBoundWidth !== width){
       histNoticeBoundWidth = width;
-      console.debug('Debug: hist auto draw notice width synced', { width, reason: reason || null });
+      histDebug('Debug: hist auto draw notice width synced', { width, reason: reason || null });
     }
   };
   const scheduleHistNoticeWidth = (() => {
@@ -832,7 +845,7 @@
     const source = String(scheduleMeta?.source || '').trim();
     if(source === HIST_LOAD_SOURCE_FREQUENCY_SYNC || source === HIST_LOAD_SOURCE_FREQUENCY_TAB_ACTIVATE){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: hist skipped rescheduled draw for derived grid sync', { source });
+        histDebug('Debug: hist skipped rescheduled draw for derived grid sync', { source });
       }
       return true;
     }
@@ -841,7 +854,7 @@
     const activeView = manager?.getActiveView?.() || null;
     if(isHistFrequencyTableDataView(activeView)){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: hist skipped schedule while derived frequency tab is active', {
+        histDebug('Debug: hist skipped schedule while derived frequency tab is active', {
           source: source || null,
           reason: scheduleMeta?.reason || null,
           viewId: activeView?.id || null
@@ -860,7 +873,7 @@
     histDataToolbarLastActivation = now;
     const activated = !!Shared.workspaceToolbar?.activateSection?.('hist', 'Data');
     if(activated){
-      console.debug('Debug: hist data toolbar activated', { reason: reason || 'unknown' });
+      histDebug('Debug: hist data toolbar activated', { reason: reason || 'unknown' });
     }
     return activated;
   }
@@ -903,7 +916,7 @@
           activateHistDataToolbar('data-tab-interaction');
         }
       });
-      console.debug('Debug: hist data views manager created', {
+      histDebug('Debug: hist data views manager created', {
         tabId: hotInstance.__histTabId || null
       });
     }
@@ -1246,14 +1259,14 @@
       if(typeof global.alert === 'function'){
         global.alert(`Unable to transform data: ${message}`);
       }
-      console.debug('Debug: hist transform failed', {
+      histDebug('Debug: hist transform failed', {
         message,
         transform: transformSpec?.type || null
       });
       return false;
     }
     activateHistDataToolbar('transform-applied');
-    console.debug('Debug: hist transform created view', {
+    histDebug('Debug: hist transform created view', {
       title: result?.view?.title || null,
       summary: result?.result?.summary || null
     });
@@ -1337,14 +1350,14 @@
       if(typeof global.alert === 'function'){
         global.alert(`Unable to transform data: ${message}`);
       }
-      console.debug('Debug: hist transform pipeline failed', {
+      histDebug('Debug: hist transform pipeline failed', {
         message,
         stepCount: specs.length
       });
       return false;
     }
     activateHistDataToolbar('transform-pipeline-applied');
-    console.debug('Debug: hist transform pipeline created view', {
+    histDebug('Debug: hist transform pipeline created view', {
       title: result?.view?.title || null,
       stepCount: Array.isArray(result?.result?.steps) ? result.result.steps.length : specs.length
     });
@@ -1568,7 +1581,7 @@
     const nextValue = sanitizeHistAxisNotation(value);
     if(settings[axis].notation === nextValue){ return; }
     settings[axis].notation = nextValue;
-    console.debug('Debug: hist axis notation updated',{ axis, notation: nextValue });
+    histDebug('Debug: hist axis notation updated',{ axis, notation: nextValue });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -1594,7 +1607,7 @@
       const numeric = Number(value);
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
-    console.debug('Debug: hist axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    histDebug('Debug: hist axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -1614,7 +1627,7 @@
       return;
     }
     settings[axis].minorTicks = nextValue;
-    console.debug('Debug: hist minor ticks updated',{ axis, enabled: nextValue });
+    histDebug('Debug: hist minor ticks updated',{ axis, enabled: nextValue });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -1634,7 +1647,7 @@
       return;
     }
     settings[axis].minorTickSubdivisions = nextValue;
-    console.debug('Debug: hist minor tick subdivisions updated',{ axis, subdivisions: nextValue });
+    histDebug('Debug: hist minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -1652,7 +1665,7 @@
       const numeric = Number(value);
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
-    console.debug('Debug: hist axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    histDebug('Debug: hist axis stroke width updated',{ strokeWidth: settings.strokeWidth });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -1665,7 +1678,7 @@
   function updateAxisColor(value){
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
-    console.debug('Debug: hist axis color updated',{ color: settings.color });
+    histDebug('Debug: hist axis color updated',{ color: settings.color });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -1723,7 +1736,7 @@
     }
     state.axisSettings = base;
     ensureAxisSettings();
-    console.debug('Debug: hist axis settings applied',{ settings: state.axisSettings });
+    histDebug('Debug: hist axis settings applied',{ settings: state.axisSettings });
   }
 
   function buildManualTicks(min, max, interval){
@@ -1745,7 +1758,7 @@
     if(!ticks.length){
       ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
     }
-    console.debug('Debug: hist manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
+    histDebug('Debug: hist manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
     return { min: graphMin, max: graphMax, ticks };
   }
 
@@ -1761,7 +1774,7 @@
       if (key || role) node.dataset.fontKey = key || role;
     }
     if (!role || role.indexOf('Tick') === -1) {
-      console.debug('Debug: hist markFontEditable', payload); // Debug: font target tagging summary
+      histDebug('Debug: hist markFontEditable', payload); // Debug: font target tagging summary
     }
   };
 
@@ -1786,7 +1799,7 @@
     }catch(err){
       console.error('hist legend guard sync error', err);
     }
-    console.debug('Debug: hist legend guard width applied', { width: effectiveWidth });
+    histDebug('Debug: hist legend guard width applied', { width: effectiveWidth });
   }
 
   function getHistCategoricalPalette(){
@@ -2053,11 +2066,11 @@
         }
       });
       if(targetSeriesLabel){
-        console.debug('Debug: hist bar format controls opened', { series: targetSeriesLabel, seriesKey: targetSeriesKey });
+        histDebug('Debug: hist bar format controls opened', { series: targetSeriesLabel, seriesKey: targetSeriesKey });
       }
       return;
     }
-    console.debug('Debug: hist symbol toolbar unavailable; legacy fallback removed');
+    histDebug('Debug: hist symbol toolbar unavailable; legacy fallback removed');
   }
 
   // Format toolbar for overlay (pdf/cdf) paths
@@ -2262,7 +2275,7 @@
       });
       return;
     }
-    console.debug('Debug: hist additional line controls unavailable; legacy fallback removed');
+    histDebug('Debug: hist additional line controls unavailable; legacy fallback removed');
   }
 
   function clampUnit(value){
@@ -2347,7 +2360,7 @@
       }
       results.push(fitResult);
       if(debugEnabled){
-        console.debug('Debug: hist distribution fit',{ key: fitResult.key, valid: fitResult.valid !== false, message: fitResult.message || null });
+        histDebug('Debug: hist distribution fit',{ key: fitResult.key, valid: fitResult.valid !== false, message: fitResult.message || null });
       }
     });
     return results;
@@ -2419,7 +2432,7 @@
     const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
     const resolved = Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist density bandwidth resolved', { n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
+      histDebug('Debug: hist density bandwidth resolved', { n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
     }
     return resolved;
   }
@@ -2466,7 +2479,7 @@
     const peak = densities.length ? densities.reduce((max, density) => (density > max ? density : max), 0) : 0;
     const minPositive = densities.reduce((min, density) => (density > 0 && density < min ? density : min), Infinity);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist density series computed', {
+      histDebug('Debug: hist density series computed', {
         bandwidth,
         sampleCount,
         domainMin,
@@ -2487,7 +2500,7 @@
   }
 
   function initHot(){
-    console.debug('Debug: hist initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    histDebug('Debug: hist initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('hist initHot missing Shared.hot.createStandardTable');
       return;
@@ -2500,12 +2513,12 @@
       }
       histScheduleProxyCount += 1;
       if(histScheduleProxyCount <= 5){
-        console.debug('Debug: hist scheduleDraw proxy invoked', {
+        histDebug('Debug: hist scheduleDraw proxy invoked', {
           count: histScheduleProxyCount,
           source: scheduleMeta?.source || null
         }); // Debug: table change trigger
         if(histScheduleProxyCount === 5){
-          console.debug('Debug: hist scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+          histDebug('Debug: hist scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
       if(document.getElementById('histStatsResults')){
@@ -2529,7 +2542,7 @@
           minSpareRows: 10,
           afterChange(changes, source){
             if(changes){
-              console.log('hist afterChange', { count: changes.length, source });
+              histDebug('hist afterChange', { count: changes.length, source });
               syncHistActiveDataViewFromHot(instance, 'afterChange');
             }
           },
@@ -2540,10 +2553,10 @@
             activateHistDataToolbar('table-selection');
           },
           afterUndo(){
-            console.log('hist undo');
+            histDebug('hist undo');
           },
           afterRedo(){
-            console.log('hist redo');
+            histDebug('hist redo');
           }
         }
       });
@@ -2611,7 +2624,7 @@
     const histLastBinCenter=$('#histLastBinCenter');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
-      console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
+      histDebug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
     }
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
     state.distributionOptions = getDistributionOptions();
@@ -2677,7 +2690,7 @@
         input.addEventListener('change',()=>{
           state.distributionSettings.selections[opt.key]=input.checked;
           if(debugEnabled){
-            console.debug('Debug: hist distribution selection change',{ key: opt.key, checked: input.checked });
+            histDebug('Debug: hist distribution selection change',{ key: opt.key, checked: input.checked });
           }
           state.scheduleDraw();
         });
@@ -2694,7 +2707,7 @@
         state.distributionInputs.checkboxes[opt.key]=input;
       });
       if(debugEnabled){
-        console.debug('Debug: hist distribution controls initialized',{ options: state.distributionOptions.map(opt=>opt.key) });
+        histDebug('Debug: hist distribution controls initialized',{ options: state.distributionOptions.map(opt=>opt.key) });
       }
     }
     const histShowPdfInput=document.getElementById('histShowPdf');
@@ -2704,7 +2717,7 @@
       histShowPdfInput.addEventListener('change',()=>{
         state.distributionSettings.showPdf=!!histShowPdfInput.checked;
         if(debugEnabled){
-          console.debug('Debug: hist showPdf toggle',{ checked: state.distributionSettings.showPdf });
+          histDebug('Debug: hist showPdf toggle',{ checked: state.distributionSettings.showPdf });
         }
         state.scheduleDraw();
       });
@@ -2715,7 +2728,7 @@
       histShowCdfInput.addEventListener('change',()=>{
         state.distributionSettings.showCdf=!!histShowCdfInput.checked;
         if(debugEnabled){
-          console.debug('Debug: hist showCdf toggle',{ checked: state.distributionSettings.showCdf });
+          histDebug('Debug: hist showCdf toggle',{ checked: state.distributionSettings.showCdf });
         }
         state.scheduleDraw();
       });
@@ -2758,11 +2771,11 @@
       });
     });
     [histBins,histShowGrid,histLogY,histXMin,histXMax,histYMax].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
-    histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
+    histShowFrame?.addEventListener('change',()=>{ histDebug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{
       if(histFontSize.dataset){
         histFontSize.dataset.fontBasePt = String(histFontSize.value);
-        console.debug('Debug: hist font size input manual set',{ value: histFontSize.value }); // Debug: manual slider update
+        histDebug('Debug: hist font size input manual set',{ value: histFontSize.value }); // Debug: manual slider update
       }
       chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
       state.scheduleDraw();
@@ -2787,7 +2800,7 @@
           recordUndo: true,
           undoLabel: 'table:hist:example-load'
         });
-        console.log('hist example loaded');
+        histDebug('hist example loaded');
         state.scheduleDraw();
       });
     } else {
@@ -2818,7 +2831,7 @@
             state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'hist',
-          onProcessed: info => console.log('hist data imported',{rows: info?.rows, cols: info?.cols}),
+          onProcessed: info => histDebug('hist data imported',{rows: info?.rows, cols: info?.cols}),
           onCompleted: () => {
             const renderReason = 'import-load';
             markHistOverlayPending(renderReason);
@@ -2850,9 +2863,9 @@
         fileName: 'histogram',
         contextLabel: 'hist-export'
       });
-      console.debug('Debug: hist export controls mounted', { hasExporter: true }); // Debug: hist export mount
+      histDebug('Debug: hist export controls mounted', { hasExporter: true }); // Debug: hist export mount
     } else {
-      console.debug('Debug: hist export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: hist export fallback
+      histDebug('Debug: hist export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: hist export fallback
     }
 
     // File Save/Open
@@ -2941,7 +2954,7 @@
         activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config: c
       };
-      console.debug('Debug: hist.getPayload captured state', {
+      histDebug('Debug: hist.getPayload captured state', {
         rows: payload.data?.length || 0,
         bins: c.bins,
         hasLogY: c.logY,
@@ -3053,7 +3066,7 @@
         histFontInput.value = config.fontSize || histFontInput.value;
         if(histFontInput.dataset){
           histFontInput.dataset.fontBasePt = String(histFontInput.value);
-          console.debug('Debug: hist font size base restored',{ value: histFontInput.value });
+          histDebug('Debug: hist font size base restored',{ value: histFontInput.value });
         }
         chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontInput.value), input: histFontInput, manual: true });
       }
@@ -3071,7 +3084,7 @@
         notationX: axisConfig.notationX ?? axisConfig.axisNotationX ?? axisConfig?.x?.notation ?? 'decimal',
         notationY: axisConfig.notationY ?? axisConfig.axisNotationY ?? axisConfig?.y?.notation ?? 'decimal'
         });
-        console.debug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
+        histDebug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
       }
       if(!Array.isArray(state.distributionOptions) || !state.distributionOptions.length){
         state.distributionOptions = getDistributionOptions();
@@ -3161,23 +3174,23 @@
         state.scheduleDraw = scheduleBackup;
       }
       const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
-      console.debug('Debug: hist payload applied', { source, rows: rowCount });
+      histDebug('Debug: hist payload applied', { source, rows: rowCount });
       return true;
     }
     hist.getPayload = getPayload;
     hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
     ensureEmptyPayloadTemplate();
     const snapshot = cloneSimple(emptyPayloadTemplate);
-    console.debug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });
+    histDebug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
   hist.restoreEmptyPayloadTemplate = function restoreHistEmptyPayloadTemplate(template, options = {}){
     if(!template || typeof template !== 'object'){
-      console.debug('Debug: hist empty payload template restore skipped', { reason: 'invalid-template', options });
+      histDebug('Debug: hist empty payload template restore skipped', { reason: 'invalid-template', options });
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
-    console.debug('Debug: hist empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
+    histDebug('Debug: hist empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
   hist.createEmptyPayload = function createEmptyHistPayload(){
@@ -3200,7 +3213,7 @@
       return payload;
     };
     hist.save = async function(){
-      console.debug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
+      histDebug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
       if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
         console.error('hist.save missing fileIO.saveGraphFile');
         return;
@@ -3214,10 +3227,10 @@
         setFileHandle: handle => { state.fileHandle = handle; },
         setFileName: name => { state.fileName = name; }
       });
-      console.debug('Debug: hist.save result', result);
+      histDebug('Debug: hist.save result', result);
     };
     hist.saveAs = async function(){
-      console.debug('Debug: hist.saveAs invoked', { currentName: state.fileName });
+      histDebug('Debug: hist.saveAs invoked', { currentName: state.fileName });
       if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
         console.error('hist.saveAs missing fileIO.saveGraphFileAs');
         return;
@@ -3230,10 +3243,10 @@
         setFileHandle: handle => { state.fileHandle = handle; },
         setFileName: name => { state.fileName = name; }
       });
-      console.debug('Debug: hist.saveAs result', result);
+      histDebug('Debug: hist.saveAs result', result);
     };
     hist.open = async function(){
-      console.debug('Debug: hist.open invoked');
+      histDebug('Debug: hist.open invoked');
       if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
         console.error('hist.open missing fileIO.openGraphFile');
         return;
@@ -3251,7 +3264,7 @@
           }
         }
       });
-      console.debug('Debug: hist.open result', result);
+      histDebug('Debug: hist.open result', result);
     };
     hist.loadFromFile = function(file){
       const apply = payload => applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' });
@@ -3301,7 +3314,7 @@
     const stack = document.querySelector('#histGraphPanel .hist-plot-stack');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: hist notes mount skipped (missing stack)');
+        histDebug('Debug: hist notes mount skipped (missing stack)');
       }
       return;
     }
@@ -3331,12 +3344,12 @@
       onToggle: open => {
         state.notes.open = !!open;
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: hist notes toggled', { open: state.notes.open });
+          histDebug('Debug: hist notes toggled', { open: state.notes.open });
         }
       }
     });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist notes initialized', {
+      histDebug('Debug: hist notes initialized', {
         mounted: !!state.notes.control,
         open: !!state.notes.open
       });
@@ -3619,7 +3632,7 @@
     const graphLabel = getHistGraphLabel(state.plotMode);
     if(!target){
       if(debugEnabled){
-        console.debug('Debug: hist stats target missing');
+        histDebug('Debug: hist stats target missing');
       }
       return;
     }
@@ -3631,7 +3644,7 @@
     if(!entries.length){
       target.textContent = 'No data';
       if(debugEnabled){
-        console.debug('Debug: hist stats skipped (no values)');
+        histDebug('Debug: hist stats skipped (no values)');
       }
       return;
     }
@@ -3838,7 +3851,7 @@
       }, { title: 'Reporting and reproducibility' });
     }
     if(debugEnabled){
-      console.debug('Debug: hist stats rendered', {
+      histDebug('Debug: hist stats rendered', {
         summaryRows: descriptiveRows.length,
         diagnosticsMode,
         comparisonMode,
@@ -4005,7 +4018,7 @@
       }
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist auto bin width (Prism-compatible)', {
+      histDebug('Debug: hist auto bin width (Prism-compatible)', {
         datasetCount: safeEntries.length,
         pooledCount: pooledValues.length,
         averageWidth,
@@ -4069,7 +4082,7 @@
     const edges = [startEdge];
     centers.forEach(center => edges.push(normalizeHistBinNumber(center + half)));
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist bin centers resolved', {
+      histDebug('Debug: hist bin centers resolved', {
         width: safeWidth,
         coverageMin,
         coverageMax,
@@ -4291,7 +4304,7 @@
     let xMax = hasManualXMax ? manualAxisLimits.xMax : rawXMax;
     if(!(xMax > xMin)){
       if(drawDebugEnabled){
-        console.debug('Debug: hist X bounds reset to data range because max <= min', {
+        histDebug('Debug: hist X bounds reset to data range because max <= min', {
           requestedXMin: hasManualXMin ? manualAxisLimits.xMin : 0,
           requestedXMax: hasManualXMax ? manualAxisLimits.xMax : rawXMax,
           rawXMin,
@@ -4304,7 +4317,7 @@
     let manualYMax = Number.isFinite(manualAxisLimits.yMax) ? manualAxisLimits.yMax : null;
     if(histLogY.checked && manualYMax != null && manualYMax <= 0){
       if(drawDebugEnabled){
-        console.debug('Debug: hist manual Y max ignored in log scale because value is not positive', {
+        histDebug('Debug: hist manual Y max ignored in log scale because value is not positive', {
           yMax: manualAxisLimits.yMax
         });
       }
@@ -4324,7 +4337,7 @@
         xMin -= 0.5;
         xMax += 0.5;
       }
-      console.debug('Debug: hist domain padded for identical values', {
+      histDebug('Debug: hist domain padded for identical values', {
         rawXMin,
         rawXMax,
         pad,
@@ -4416,7 +4429,7 @@
         xMax = paddedXMax;
       }
       if(drawDebugEnabled){
-        console.debug('Debug: hist auto X max padded from density domain', { xMax });
+        histDebug('Debug: hist auto X max padded from density domain', { xMax });
       }
     }
     const axisTickTools = chartStyle.axisTicks || null;
@@ -4435,15 +4448,15 @@
     const manualIntervalX = storedManualIntervalX;
     const manualIntervalY = logY ? null : storedManualIntervalY;
     if(logY && storedManualIntervalY){
-      console.debug('Debug: hist manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
+      histDebug('Debug: hist manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
     }
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
     if(fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'hist' });
-      console.debug('Debug: hist fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+      histDebug('Debug: hist fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
     } else {
-      console.debug('Debug: hist fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
+      histDebug('Debug: hist fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
     }
     const histNotationX = getAxisNotation('x');
     const histNotationY = getAxisNotation('y');
@@ -4459,7 +4472,7 @@
     const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
       ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
       : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
-    console.debug('Debug: hist style scaling applied',{
+    histDebug('Debug: hist style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
       axisStrokeWidth,
@@ -4468,7 +4481,7 @@
       styleScale: styleScaleInfo?.styleScale
     }); // Debug: histogram style scaling summary
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, fontInfo, input: histFontSize });
-    console.debug('Debug: hist font scaling applied',{
+    histDebug('Debug: hist font scaling applied',{
       input:histFontSize.value,
       fontSizePt:fontInfo.pt,
       baseFontPx:fontInfo.px,
@@ -4478,10 +4491,10 @@
       containerHeight:containerRect?.height
     });
     const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
-    console.debug('Debug: hist axis metrics',axisMetrics);
+    histDebug('Debug: hist axis metrics',axisMetrics);
     let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
     let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
-    console.debug('Debug: hist initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
+    histDebug('Debug: hist initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
     const histFontStyles = exportFontStyles('hist');
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: histFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
@@ -4624,7 +4637,7 @@
         if(manualYMax > yMin){
           yMax = manualYMax;
         }else if(drawDebugEnabled){
-          console.debug('Debug: hist manual Y max ignored because value is not above axis minimum', {
+          histDebug('Debug: hist manual Y max ignored because value is not above axis minimum', {
             yMax: manualYMax,
             yMin,
             logY
@@ -4642,7 +4655,7 @@
           fallbackMax: yMaxT
         });
       }
-      console.debug('Debug: hist axis auto range',{ yMin, yMax, logY });
+      histDebug('Debug: hist axis auto range',{ yMin, yMax, logY });
       if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
         const manualX = buildManualTicks(
           Number.isFinite(xScale.min) ? xScale.min : xMin,
@@ -4654,7 +4667,7 @@
           xScale.max = manualX.max;
           xScale.ticks = manualX.ticks;
           xScale.step = manualIntervalX;
-          console.debug('Debug: hist manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manualX.ticks.length });
+          histDebug('Debug: hist manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manualX.ticks.length });
         }
       }
       if(!logY && Number.isFinite(manualIntervalY) && manualIntervalY > 0){
@@ -4668,7 +4681,7 @@
           yScale.max = manualY.max;
           yScale.ticks = manualY.ticks;
           yScale.step = manualIntervalY;
-          console.debug('Debug: hist manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
+          histDebug('Debug: hist manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
         }
       }
       xTickLabels=xScale.ticks.map(t=>formatTickX(t));
@@ -4684,17 +4697,17 @@
       plotH=Math.max(20,H-margin.top-margin.bottom);
       const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
       const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
-      console.debug('Debug: hist tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxYLabelWidth,bins,binWidth});
+      histDebug('Debug: hist tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxYLabelWidth,bins,binWidth});
       if(refinedX===xTickTarget && refinedY===yTickTarget){
         break;
       }
       xTickTarget=refinedX;
       yTickTarget=refinedY;
     }
-    console.debug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth});
+    histDebug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth});
     const showGrid=$('#histShowGrid').checked;
     const showFrame=$('#histShowFrame').checked;
-    console.debug('Debug: hist showFrame state',{showFrame});
+    histDebug('Debug: hist showFrame state',{showFrame});
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
     function add(tag,attrs,parent){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)){ if(v !== null && v !== undefined){ el.setAttribute(k,String(v)); } } (parent || svg).appendChild(el); return el;}
@@ -4704,7 +4717,7 @@
           const gridLine = add('line',Object.assign({x1:margin.left,y1:y,x2:margin.left+plotW,y2:y},gridStrokeAttrs));
           gridLine.setAttribute('data-grid-control','1');
         });
-        console.debug('Debug: hist grid stroke scaled',{horizontal:yScale.ticks.length,gridStrokeStyle});
+        histDebug('Debug: hist grid stroke scaled',{horizontal:yScale.ticks.length,gridStrokeStyle});
       }
     const xTickPositions=xScale.ticks.map(t=>x2px(t));
     const yTickPositions=yScale.ticks.map(t=>y2px(t));
@@ -4714,7 +4727,7 @@
     let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
     if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
-    console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+    histDebug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
     const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
     const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
     const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
@@ -4770,9 +4783,9 @@
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
       }
-      console.debug('Debug: hist axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
+      histDebug('Debug: hist axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
     if(showFrame){
-      console.debug('Debug: hist frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
+      histDebug('Debug: hist frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
       chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
     }
     // Frame closes histogram plot area using axis styling continuity
@@ -4829,8 +4842,8 @@
         markFontEditable(txt,'yTick');
         yTickFontCount+=1;
       });
-    console.debug('Debug: hist font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
-    console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
+    histDebug('Debug: hist font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
+    histDebug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const borderColor=state.barBorder || HIST_DEFAULT_BORDER;
     if(densityMode){
       const baselineValue = logY ? Math.max(yMin, 1e-9) : 0;
@@ -5197,14 +5210,14 @@
         });
       }
     }
-    console.debug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
+    histDebug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
   }
 
   // Public API
   hist.draw = draw;
   hist.init = function init(){
-    if (hist.ready) { console.debug('Debug: Components.hist.init skipped (already ready)'); return; }
-    console.debug('Debug: Components.hist.init');
+    if (hist.ready) { histDebug('Debug: Components.hist.init skipped (already ready)'); return; }
+    histDebug('Debug: Components.hist.init');
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
@@ -5227,11 +5240,11 @@
         onAfterSync: () => syncHistAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
-        console.debug('Debug: hist layout min width update', { value: state.minSvgWidth });
+        histDebug('Debug: hist layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
         onResize: () => {
-          console.debug('Debug: hist layout onResize schedule trigger');
+          histDebug('Debug: hist layout onResize schedule trigger');
           scheduleHistNoticeWidth('resize');
           state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
         }
@@ -5245,7 +5258,7 @@
     histAutoDrawNoticeEl = document.getElementById('histAutoDrawNotice');
     if(histRenderButtonEl){
       histRenderButtonEl.addEventListener('click', () => {
-        console.debug('Debug: hist manual render button');
+        histDebug('Debug: hist manual render button');
         const overlayReason = 'manual-render';
         markHistOverlayPending(overlayReason);
         forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
@@ -5299,7 +5312,7 @@
       const shouldDelayForOverlay = histOverlayController?.isActive?.() && !nextOpts.viewOnly;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
-          console.debug('Debug: hist autoDraw deferred for overlay',{ reason: overlayReason });
+          histDebug('Debug: hist autoDraw deferred for overlay',{ reason: overlayReason });
           runSchedule();
         };
         if(typeof global.requestAnimationFrame === 'function'){
@@ -5326,7 +5339,7 @@
     }else{
       state.scheduleDraw = scheduleDrawHistRaw;
     }
-    console.debug('Debug: hist scheduleDraw configured via Shared.debounceFrame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
+    histDebug('Debug: hist scheduleDraw configured via Shared.debounceFrame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     ensureHistFontEventListener();
     ensureEmptyPayloadTemplate();
@@ -5379,7 +5392,7 @@
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist render cache captured', {
+      histDebug('Debug: hist render cache captured', {
         plotNodes: plotCache?.count || 0,
         statsNodes: statsCache?.count || 0
       });
@@ -5395,7 +5408,7 @@
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: hist render cache restored', {
+      histDebug('Debug: hist render cache restored', {
         restored,
         plot: restoredPlot,
         stats: restoredStats
