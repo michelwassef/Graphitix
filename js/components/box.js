@@ -26101,6 +26101,619 @@ Technical analysis record (advanced)
       }
     });
 
+
+    async function computeStripAutoSizeRadiusShared(config = {}){
+      const {
+        orientation = 'vertical',
+        axisSpacing = 0,
+        coordProjector = value => value,
+        minCenterPitch = null
+      } = config || {};
+      if(graphTypeRaw !== 'strip'){
+        return null;
+      }
+      if(hasExplicitPointSize(null)){
+        if(debugEnabled){
+          console.debug('Debug: box strip auto size skipped explicit global size',{
+            orientation,
+            globalSize: state.pointGlobalStyle?.size ?? null
+          });
+        }
+        return null;
+      }
+      const fastStripProfile = resolveFastStripAutoSizeProfile({
+        pointCounts: traces
+          .map((trace, traceIndex) => hasExplicitPointSize(traceIndex) ? 0 : (Array.isArray(trace?.y) ? trace.y.length : 0))
+          .filter(count => count > 0),
+        baseRadius: pointRadius,
+        radiusStep: 0.1,
+        threshold: BOX_POINT_CANVAS_THRESHOLD
+      });
+      if(fastStripProfile){
+        if(debugEnabled){
+          console.debug('Debug: box strip auto size fast path', {
+            orientation,
+            maxPointCount: fastStripProfile.maxPointCount,
+            totalPointCount: fastStripProfile.totalPointCount,
+            radius: fastStripProfile.radius,
+            strategy: fastStripProfile.strategy
+          });
+        }
+        return fastStripProfile;
+      }
+      const traceProfiles = [];
+      let limitingRadius = Infinity;
+      let limitingTraceIndex = null;
+      for(let i = 0; i < traces.length; i++){
+        if(hasExplicitPointSize(i)){
+          if(debugEnabled){
+            const explicitSize = state.pointStyles && state.pointStyles[i] ? state.pointStyles[i]?.size : null;
+            console.debug('Debug: box strip auto size trace skipped explicit size',{
+              orientation,
+              traceIndex: i,
+              size: explicitSize
+            });
+          }
+          continue;
+        }
+        const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
+        if(!values.length){
+          continue;
+        }
+        const pointCoords = new Float64Array(values.length);
+        for(let idx = 0; idx < values.length; idx++){
+          pointCoords[idx] = coordProjector(values[idx]);
+        }
+        const profile = await computeStripTraceFeasibleRadius({
+          values,
+          coords: pointCoords,
+          axisSpacing,
+          baseRadius: pointRadius,
+          sampleSize: values.length,
+          orientation,
+          minCenterPitch,
+          gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
+          minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
+          radiusStep: 0.1,
+          onProbe: () => token === state.drawToken
+        });
+        if(token !== state.drawToken){
+          return null;
+        }
+        if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
+          continue;
+        }
+        traceProfiles.push({
+          traceIndex: i,
+          pointCount: values.length,
+          radius: Number(profile.radius),
+          halfWidthCap: Number(profile.halfWidthCap),
+          fitted: profile.fitted !== false
+        });
+        if(Number(profile.radius) < limitingRadius){
+          limitingRadius = Number(profile.radius);
+          limitingTraceIndex = i;
+        }
+      }
+      if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
+        return null;
+      }
+      const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
+      const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
+      if(debugEnabled){
+        console.debug('Debug: box strip auto size feasibility',{
+          orientation,
+          axisSpacing,
+          limitingTraceIndex,
+          limitingRadius: resolvedRadius,
+          traceProfiles
+        });
+      }
+      return {
+        radius: resolvedRadius,
+        halfWidthCap: null
+      };
+    }
+    function buildSwarmPointPosition(pointCoord, centerCoord, offset, orientation){
+      if(orientation === 'horizontal'){
+        return { x: pointCoord, y: centerCoord + offset };
+      }
+      return { x: centerCoord + offset, y: pointCoord };
+    }
+    function buildSwarmRenderedPoints(config = {}){
+      const {
+        pointCount = 0,
+        pointCoords,
+        rawValues,
+        swarm,
+        spreadScale = 1,
+        clampOffset,
+        centerCoord = 0,
+        orientation = 'vertical',
+        traceIndex = null,
+        rowIndices = null,
+        collectPointsByRow = null
+      } = config || {};
+      const pts = new Array(pointCount);
+      let maxOffsetUsed = 0;
+      for(let idx = 0; idx < pointCount; idx++){
+        const rawOffset = (swarm?.offsets?.[idx] || 0) * spreadScale;
+        const offset = clampOffset(rawOffset, rawValues[idx]);
+        const abs = Math.abs(offset);
+        if(abs > maxOffsetUsed){
+          maxOffsetUsed = abs;
+        }
+        const point = buildSwarmPointPosition(pointCoords[idx], centerCoord, offset, orientation);
+        pts[idx] = point;
+        if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
+          const rowKey = rowIndices[idx];
+          if(rowKey != null){
+            collectPointsByRow.set(String(rowKey), { x: point.x, y: point.y, value: rawValues[idx], traceIndex, index: idx });
+          }
+        }
+      }
+      return { pts, maxOffsetUsed };
+    }
+    function buildSwarmPointNode(doc, shape, pointX, pointY, effectiveRadius){
+      let node = null;
+      if(shape === 'circle'){
+        node = doc.createElementNS(NS, 'circle');
+        node.setAttribute('cx', pointX);
+        node.setAttribute('cy', pointY);
+        node.setAttribute('r', effectiveRadius);
+      }else if(shape === 'square'){
+        node = doc.createElementNS(NS, 'rect');
+        const size = effectiveRadius * 2;
+        node.setAttribute('x', String(pointX - effectiveRadius));
+        node.setAttribute('y', String(pointY - effectiveRadius));
+        node.setAttribute('width', String(size));
+        node.setAttribute('height', String(size));
+      }else if(shape === 'triangle'){
+        node = doc.createElementNS(NS, 'path');
+        const d = `M ${pointX} ${pointY - effectiveRadius} L ${pointX + effectiveRadius} ${pointY + effectiveRadius} L ${pointX - effectiveRadius} ${pointY + effectiveRadius} Z`;
+        node.setAttribute('d', d);
+      }else if(shape === 'diamond'){
+        node = doc.createElementNS(NS, 'path');
+        const d = `M ${pointX} ${pointY - effectiveRadius} L ${pointX + effectiveRadius} ${pointY} L ${pointX} ${pointY + effectiveRadius} L ${pointX - effectiveRadius} ${pointY} Z`;
+        node.setAttribute('d', d);
+      }else if(shape === 'cross'){
+        node = doc.createElementNS(NS, 'path');
+        const size = Math.max(effectiveRadius * 2, 2);
+        const half = size / 2;
+        const bar = Math.max(size / 3, 2);
+        const hb = bar / 2;
+        const top = pointY - half;
+        const bottom = pointY + half;
+        const left = pointX - half;
+        const right = pointX + half;
+        const d = [
+          `M ${left} ${top + hb}`,
+          `L ${left + hb} ${top}`,
+          `L ${pointX} ${pointY - hb}`,
+          `L ${right - hb} ${top}`,
+          `L ${right} ${top + hb}`,
+          `L ${pointX + hb} ${pointY}`,
+          `L ${right} ${bottom - hb}`,
+          `L ${right - hb} ${bottom}`,
+          `L ${pointX} ${pointY + hb}`,
+          `L ${left + hb} ${bottom}`,
+          `L ${left} ${bottom - hb}`,
+          `L ${pointX - hb} ${pointY}`,
+          'Z'
+        ].join(' ');
+        node.setAttribute('d', d);
+      }else if(shape === 'plus'){
+        node = doc.createElementNS(NS, 'path');
+        const size = Math.max(effectiveRadius * 2, 2);
+        const half = size / 2;
+        const bar = Math.max(size / 3, 2);
+        const hb = bar / 2;
+        const d = `M ${pointX - hb} ${pointY - half} H ${pointX + hb} V ${pointY - hb} H ${pointX + half} V ${pointY + hb} H ${pointX + hb} V ${pointY + half} H ${pointX - hb} V ${pointY + hb} H ${pointX - half} V ${pointY - hb} H ${pointX - hb} Z`;
+        node.setAttribute('d', d);
+      }else if(shape === 'star'){
+        node = doc.createElementNS(NS, 'path');
+        const innerRadius = Math.max(effectiveRadius * 0.45, 1);
+        const starPoints = [];
+        for(let k = 0; k < 5; k += 1){
+          const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
+          starPoints.push({ x: pointX + Math.cos(a) * effectiveRadius, y: pointY + Math.sin(a) * effectiveRadius });
+          const b = a + Math.PI / 5;
+          starPoints.push({ x: pointX + Math.cos(b) * innerRadius, y: pointY + Math.sin(b) * innerRadius });
+        }
+        const d = starPoints.map((ptVal, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${ptVal.x} ${ptVal.y}`).join(' ') + ' Z';
+        node.setAttribute('d', d);
+      }else{
+        node = doc.createElementNS(NS, 'circle');
+        node.setAttribute('cx', pointX);
+        node.setAttribute('cy', pointY);
+        node.setAttribute('r', effectiveRadius);
+      }
+      return node;
+    }
+    async function renderSwarmPointsShared(config = {}){
+      const {
+        valueList,
+        centerCoord = 0,
+        localBand,
+        sampleCount,
+        traceIndex,
+        tooltipSeriesName,
+        tooltipCategoryName,
+        tooltipGroupName,
+        fillColor,
+        borderColor,
+        violinBounds = null,
+        groupAttrs = {},
+        opacityMultiplier = 1,
+        debugLabel = 'individual',
+        mean: meanValue = null,
+        widthScaleMode = 'none',
+        maxHalfWidth = null,
+        pointRadiusOverride = null,
+        autoSize = false,
+        allowRadiusAdjustment = null,
+        minCenterPitch = null,
+        interDatasetGapFactor = 0,
+        minInterDatasetGapPx = 0,
+        disableBatchPath = false,
+        drawToken = null,
+        rowIndices = null,
+        collectPointsByRow = null,
+        orientation = 'vertical',
+        cacheAxisKey = orientation,
+        coordProjector = value => value,
+        scaleSignature = ''
+      } = config || {};
+      const pointLayout = prepareSwarmPointLayoutConfig({
+        valueList,
+        traceIndex,
+        getPointStyle,
+        hasExplicitPointSize,
+        pointRadius,
+        pointRadiusOverride,
+        autoSize,
+        allowRadiusAdjustment,
+        maxHalfWidth,
+        localBand,
+        sampleCount,
+        widthScaleMode,
+        debugLabel,
+        minCenterPitch,
+        interDatasetGapFactor,
+        minInterDatasetGapPx,
+        violinBounds,
+        collectPointsByRow,
+        drawOpts,
+        debugEnabled,
+        canvasThreshold: BOX_POINT_CANVAS_THRESHOLD,
+        approximateThreshold: BOX_POINT_APPROX_THRESHOLD,
+        orientation,
+        coordProjector
+      });
+      const {
+        rawValues,
+        pointCount,
+        pointCoords,
+        traceStyle,
+        resolvedRadius,
+        fallbackRadius,
+        allowAdjustment,
+        radiusCountExponent,
+        useStrictStripSpacing,
+        pitchHalfExtentLimit,
+        resolvedMaxHalfWidth,
+        hardStripHalfWidthCap,
+        swarmPointRadius,
+        effectiveShape,
+        canvasPointLayerEnabled,
+        useApproximateCanvas,
+        approximateLayout
+      } = pointLayout;
+      const cacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
+        ? (pointLayoutCache[cacheAxisKey] = pointLayoutCache[cacheAxisKey] || {})
+        : null;
+      const layoutSig = [
+        pointCount,
+        Number(localBand).toFixed(4),
+        Number(sampleCount).toFixed(0),
+        Number(swarmPointRadius).toFixed(4),
+        widthScaleMode || 'none',
+        Number(resolvedMaxHalfWidth).toFixed(4),
+        Number(hardStripHalfWidthCap).toFixed(4),
+        allowAdjustment ? 1 : 0,
+        useStrictStripSpacing ? 1 : 0,
+        Number(radiusCountExponent).toFixed(4),
+        scaleSignature || ''
+      ].join('|');
+      let swarm = null;
+      if(!approximateLayout && cacheBucket && traceIndex != null){
+        const cachedLayout = cacheBucket[traceIndex];
+        if(
+          cachedLayout
+          && cachedLayout.key === layoutSig
+          && cachedLayout.swarm
+          && Array.isArray(cachedLayout.swarm.offsets)
+          && cachedLayout.swarm.offsets.length === pointCount
+        ){
+          swarm = cachedLayout.swarm;
+        }
+      }
+      if(!approximateLayout && !swarm){
+        swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
+          axisSpacing: localBand,
+          pointRadius: swarmPointRadius,
+          sampleSize: sampleCount,
+          orientation,
+          widthScaleMode,
+          maxHalfWidth: resolvedMaxHalfWidth,
+          hardMaxHalfWidth: hardStripHalfWidthCap,
+          allowRadiusAdjustment: allowAdjustment,
+          skipBucketCentering: false,
+          enforceNonOverlap: useStrictStripSpacing,
+          radiusCountExponent,
+          debug: debugEnabled
+        });
+        if(cacheBucket && traceIndex != null && (drawToken == null || drawToken === state.drawToken)){
+          cacheBucket[traceIndex] = {
+            key: layoutSig,
+            swarm
+          };
+        }
+      }
+      if(drawToken != null && drawToken !== state.drawToken){
+        return null;
+      }
+      const effectiveRadius = approximateLayout
+        ? swarmPointRadius
+        : (resolvedRadius != null
+        ? resolvedRadius
+        : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius));
+      const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
+      const themedPointDefaults = useClassicStripDefaults
+        ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
+        : null;
+      const effectiveFill = (traceStyle && traceStyle.fill)
+        ? traceStyle.fill
+        : (themedPointDefaults ? themedPointDefaults.fill : fillColor);
+      const traceStrokeColor = traceStyle && (traceStyle.stroke || traceStyle.borderColor)
+        ? (traceStyle.stroke || traceStyle.borderColor)
+        : (themedPointDefaults ? themedPointDefaults.stroke : borderColor);
+      if(useClassicStripDefaults && debugEnabled){
+        console.debug('Debug: box strip theme point defaults applied',{
+          traceIndex,
+          orientation,
+          fill: effectiveFill,
+          stroke: traceStrokeColor,
+          mode: themedPointDefaults?.mode || 'none',
+          graphFontColor: themedPointDefaults?.graphFontColor || ''
+        });
+      }
+      const isOverlayPointMode = debugLabel === 'overlay' || debugLabel === 'violin-overlay' || debugLabel === 'outliers';
+      const traceStrokeWidthRaw = isOverlayPointMode
+        ? resolveOverlayPointBorderWidthRaw(traceStyle, effectiveRadius, { minimumWidth: 0.8 })
+        : resolveStripPointStrokeWidthRaw(traceStyle, borderWidthRaw);
+      const rawStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
+      const strokeWidthCap = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
+      const effectiveStrokeWidth = Math.max(0, Math.min(rawStrokeWidth, strokeWidthCap));
+      const effectiveStroke = traceStrokeColor && traceStrokeColor !== 'none'
+        ? traceStrokeColor
+        : 'none';
+      const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
+      const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
+      const spreadScale = !approximateLayout && useStrictStripSpacing
+        ? computeStripSpreadScale({
+            minCenterPitch,
+            effectiveRadius,
+            maxOffsetUsed: Number(swarm?.maxOffsetUsed),
+            gapFactor: interDatasetGapFactor,
+            minGapPx: minInterDatasetGapPx
+          })
+        : 1;
+      const useBatchPath = !approximateLayout
+        && !disableBatchPath
+        && pointCount > BOX_POINT_BATCH_THRESHOLD
+        && BATCHABLE_POINT_SHAPES.has(effectiveShape);
+      const useResizeCanvasPreview = !approximateLayout && canvasPointLayerEnabled;
+      if(debugEnabled && debugLabel === 'individual'){
+        console.debug('Debug: box strip point render resolved',{
+          orientation,
+          traceIndex,
+          pointCount,
+          useApproximateCanvas,
+          useBatchPath,
+          baseRadius: fallbackRadius,
+          overrideRadius: resolvedRadius,
+          effectiveRadius,
+          maxHalfWidth: resolvedMaxHalfWidth,
+          hardMaxHalfWidth: hardStripHalfWidthCap,
+          pitchHalfExtentLimit,
+          allowRadiusAdjustment: allowAdjustment,
+          swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
+          strokeWidth: effectiveStrokeWidth,
+          minCenterPitch: Number.isFinite(Number(minCenterPitch)) ? Number(minCenterPitch) : null,
+          interDatasetGapFactor: Number.isFinite(Number(interDatasetGapFactor)) ? Number(interDatasetGapFactor) : null,
+          minInterDatasetGapPx: Number.isFinite(Number(minInterDatasetGapPx)) ? Number(minInterDatasetGapPx) : null,
+          spreadScale
+        });
+      }
+      const clampOffset = (offset, rawValue) => {
+        if(!violinBounds){
+          return offset;
+        }
+        const maxHalf = violinBounds(rawValue);
+        if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+          return 0;
+        }
+        const limit = Math.max(0, maxHalf - effectiveRadius);
+        if(limit <= 0){
+          return 0;
+        }
+        return Math.max(-limit, Math.min(limit, offset));
+      };
+      const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
+      const group = add('g', groupAttributes);
+      const pointSelectionData = {
+        seriesName: tooltipSeriesName,
+        categoryName: tooltipCategoryName,
+        groupName: tooltipGroupName,
+        value: meanValue,
+        rawValue: meanValue,
+        index: null
+      };
+      let maxOffsetUsed = 0;
+      if(approximateLayout){
+        maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
+        group.__boxCanvasRenderState = {
+          doc: document,
+          renderer: 'canvas-approx',
+          bins: approximateLayout.bins,
+          orientation,
+          center: centerCoord,
+          thickness: approximateLayout.thickness,
+          hitBins: approximateLayout.bins,
+          hitOrientation: orientation,
+          hitCenter: centerCoord,
+          hitStrokeWidth: Math.max(12, approximateLayout.thickness + effectiveRadius * 2 + 8),
+          traceIndex,
+          pointData: pointSelectionData,
+          pointRadius: effectiveRadius,
+          shape: effectiveShape,
+          style: {
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            strokeOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+          }
+        };
+        renderStoredBoxCanvasPointGroup(group);
+        if(debugEnabled){
+          console.debug('Debug: box approximate point canvas rendered', {
+            orientation,
+            traceIndex,
+            pointCount,
+            binCount: approximateLayout.bins.length,
+            thickness: approximateLayout.thickness,
+            maxOffsetUsed
+          });
+        }
+      }else{
+        const { pts, maxOffsetUsed: renderedMaxOffsetUsed } = buildSwarmRenderedPoints({
+          pointCount,
+          pointCoords,
+          rawValues,
+          swarm,
+          spreadScale,
+          clampOffset,
+          centerCoord,
+          orientation,
+          traceIndex,
+          rowIndices,
+          collectPointsByRow
+        });
+        maxOffsetUsed = renderedMaxOffsetUsed;
+        if(useResizeCanvasPreview){
+          const interactionLayout = buildBoxApproximatePointBins({
+            coords: pointCoords,
+            raws: rawValues,
+            orientation,
+            radius: effectiveRadius,
+            maxHalfWidth: Math.max(
+              effectiveRadius * 1.5,
+              Number(resolvedMaxHalfWidth) || 0,
+              maxOffsetUsed || 0
+            ),
+            widthScaleMode,
+            violinBounds
+          });
+          group.__boxCanvasRenderState = {
+            doc: document,
+            renderer: 'canvas-preview',
+            points: pts,
+            pointRadius: effectiveRadius,
+            shape: effectiveShape,
+            hitBins: interactionLayout?.bins || null,
+            hitOrientation: orientation,
+            hitCenter: centerCoord,
+            hitStrokeWidth: Math.max(10, effectiveRadius * 2 + 8),
+            traceIndex,
+            pointData: pointSelectionData,
+            style: {
+              fill: effectiveFill,
+              fillOpacity: effectiveOpacity,
+              strokeOpacity: effectiveOpacity,
+              stroke: effectiveStroke,
+              strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+            }
+          };
+          renderStoredBoxCanvasPointGroup(group);
+          if(debugEnabled){
+            console.debug('Debug: box resize canvas preview rendered', {
+              orientation,
+              traceIndex,
+              pointCount,
+              mode: debugLabel
+            });
+          }
+        }else if(useBatchPath){
+          const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
+            fill: effectiveFill,
+            fillOpacity: effectiveOpacity,
+            stroke: effectiveStroke,
+            strokeWidth: Math.max(0, effectiveStrokeWidth || 0),
+            dataTrace: traceIndex,
+            shape: effectiveShape
+          });
+          pathNode.__batchedPoints = pts;
+          group.appendChild(pathNode);
+          attachBoxPointTooltip(pathNode, {
+            seriesName: tooltipSeriesName,
+            categoryName: tooltipCategoryName,
+            groupName: tooltipGroupName,
+            value: null,
+            rawValue: null,
+            index: null
+          });
+        }else{
+          const frag = document.createDocumentFragment();
+          for(let idx = 0; idx < pointCount; idx++){
+            const pointX = pts[idx].x;
+            const pointY = pts[idx].y;
+            const node = buildSwarmPointNode(document, effectiveShape, pointX, pointY, effectiveRadius);
+            if(node){
+              node.setAttribute('fill', effectiveFill);
+              if(effectiveStroke){
+                node.setAttribute('stroke', effectiveStroke);
+                node.setAttribute('stroke-width', String(Math.max(0, effectiveStrokeWidth || 0)));
+              }
+              node.setAttribute('fill-opacity', String(effectiveOpacity));
+              node.setAttribute('data-shape', effectiveShape);
+              node.setAttribute('data-point-size', String(effectiveRadius * 2));
+              node.setAttribute('data-point-cx', String(pointX));
+              node.setAttribute('data-point-cy', String(pointY));
+              attachBoxPointTooltip(node, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: rawValues[idx],
+                rawValue: rawValues[idx],
+                index: idx
+              });
+              frag.appendChild(node);
+            }
+          }
+          group.appendChild(frag);
+        }
+      }
+      if(debugEnabled && allowAutoSize){
+        console.debug('Debug: box auto point sizing',{ orientation, index: traceIndex, pointCount: sampleCount, baseRadius: fallbackRadius, adjustedRadius: swarm?.adjustedRadius ?? null, effectiveRadius });
+      }
+      if(debugEnabled){
+        console.debug(`Debug: box individual ${orientation} render`,{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
+      }
+      return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius, collectPointsByRow };
+    }
+
     async function renderVertical(){
       const tickFont = yTickMeasureProfile.fontSpec;
       const axisLabelFont = chartStyle.makeFont(fs);
@@ -26471,114 +27084,12 @@ Technical analysis record (advanced)
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
-      const computeStripAutoSizeRadius = async () => {
-        if(graphTypeRaw !== 'strip'){
-          return null;
-        }
-        if(hasExplicitPointSize(null)){
-          if(debugEnabled){
-            console.debug('Debug: box strip auto size skipped explicit global size',{
-              orientation: 'vertical',
-              globalSize: state.pointGlobalStyle?.size ?? null
-            });
-          }
-          return null;
-        }
-        const fastStripProfile = resolveFastStripAutoSizeProfile({
-          pointCounts: traces
-            .map((trace, traceIndex) => hasExplicitPointSize(traceIndex) ? 0 : (Array.isArray(trace?.y) ? trace.y.length : 0))
-            .filter(count => count > 0),
-          baseRadius: pointRadius,
-          radiusStep: 0.1,
-          threshold: BOX_POINT_CANVAS_THRESHOLD
-        });
-        if(fastStripProfile){
-          if(debugEnabled){
-            console.debug('Debug: box strip auto size fast path', {
-              orientation: 'vertical',
-              maxPointCount: fastStripProfile.maxPointCount,
-              totalPointCount: fastStripProfile.totalPointCount,
-              radius: fastStripProfile.radius,
-              strategy: fastStripProfile.strategy
-            });
-          }
-          return fastStripProfile;
-        }
-        const axisSpacing = localBandWidthForTrace();
-        const traceProfiles = [];
-        let limitingRadius = Infinity;
-        let limitingTraceIndex = null;
-        for(let i = 0; i < traces.length; i++){
-          if(hasExplicitPointSize(i)){
-            if(debugEnabled){
-              const explicitSize = state.pointStyles && state.pointStyles[i] ? state.pointStyles[i]?.size : null;
-              console.debug('Debug: box strip auto size trace skipped explicit size',{
-                orientation: 'vertical',
-                traceIndex: i,
-                size: explicitSize
-              });
-            }
-            continue;
-          }
-          const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
-          if(!values.length){
-            continue;
-          }
-          const pointCoords = new Float64Array(values.length);
-          for(let idx = 0; idx < values.length; idx++){
-            pointCoords[idx] = y2px(values[idx]);
-          }
-          const profile = await computeStripTraceFeasibleRadius({
-            values,
-            coords: pointCoords,
-            axisSpacing,
-            baseRadius: pointRadius,
-            sampleSize: values.length,
-            orientation: 'vertical',
-            minCenterPitch: stripMinCenterPitch,
-            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
-            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
-            radiusStep: 0.1,
-            onProbe: () => token === state.drawToken
-          });
-          if(token !== state.drawToken){
-            return null;
-          }
-          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
-            continue;
-          }
-          traceProfiles.push({
-            traceIndex: i,
-            pointCount: values.length,
-            radius: Number(profile.radius),
-            halfWidthCap: Number(profile.halfWidthCap),
-            fitted: profile.fitted !== false
-          });
-          if(Number(profile.radius) < limitingRadius){
-            limitingRadius = Number(profile.radius);
-            limitingTraceIndex = i;
-          }
-        }
-        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
-          return null;
-        }
-        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
-        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
-        if(debugEnabled){
-          console.debug('Debug: box strip auto size feasibility',{
-            orientation: 'vertical',
-            axisSpacing,
-            limitingTraceIndex,
-            limitingRadius: resolvedRadius,
-            traceProfiles
-          });
-        }
-        return {
-          radius: resolvedRadius,
-          halfWidthCap: null
-        };
-      };
-      const stripAutoSizeProfile = await computeStripAutoSizeRadius();
+      const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
+        orientation: 'vertical',
+        axisSpacing: localBandWidthForTrace(),
+        coordProjector: value => y2px(value),
+        minCenterPitch: stripMinCenterPitch
+      });
       const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
         ? Number(stripAutoSizeProfile.radius)
         : null;
@@ -27068,505 +27579,21 @@ Technical analysis record (advanced)
           }
         });
       }
-      const renderSwarmPointsVertical = async params => {
-        const {
-          valueList,
-          cx,
-          localBand,
-          sampleCount,
-          traceIndex,
-          tooltipSeriesName,
-          tooltipCategoryName,
-          tooltipGroupName,
-          fillColor,
-          borderColor,
-          violinBounds = null,
-          groupAttrs = {},
-          opacityMultiplier = 1,
-          debugLabel = 'individual',
-          mean: meanValue = null,
-          widthScaleMode = 'none',
-          maxHalfWidth = null,
-          pointRadiusOverride = null,
-          autoSize = false,
-          allowRadiusAdjustment = null,
-          minCenterPitch = null,
-          interDatasetGapFactor = 0,
-          minInterDatasetGapPx = 0,
-          disableBatchPath = false,
-          drawToken = null,
-          rowIndices = null,
-          collectPointsByRow = null
-        } = params || {};
-        const verticalPointLayout = prepareSwarmPointLayoutConfig({
-          valueList,
-          traceIndex,
-          getPointStyle,
-          hasExplicitPointSize,
-          pointRadius,
-          pointRadiusOverride,
-          autoSize,
-          allowRadiusAdjustment,
-          maxHalfWidth,
-          localBand,
-          sampleCount,
-          widthScaleMode,
-          debugLabel,
-          minCenterPitch,
-          interDatasetGapFactor,
-          minInterDatasetGapPx,
-          violinBounds,
-          collectPointsByRow,
-          drawOpts,
-          debugEnabled,
-          canvasThreshold: BOX_POINT_CANVAS_THRESHOLD,
-          approximateThreshold: BOX_POINT_APPROX_THRESHOLD,
-          orientation: 'vertical',
-          coordProjector: value => y2px(value)
-        });
-        const {
-          rawValues,
-          pointCount,
-          pointCoords,
-          traceStyle,
-          resolvedRadius,
-          fallbackRadius,
-          allowAdjustment,
-          radiusCountExponent,
-          useStrictStripSpacing,
-          pitchHalfExtentLimit,
-          resolvedMaxHalfWidth,
-          hardStripHalfWidthCap,
-          swarmPointRadius,
-          effectiveShape,
-          canvasPointLayerEnabled,
-          useApproximateCanvas,
-          approximateLayout
-        } = verticalPointLayout;
-        const verticalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
-          ? (pointLayoutCache.vertical = pointLayoutCache.vertical || {})
-          : null;
-        const verticalScaleSig = [
+      const renderSwarmPointsVertical = async params => renderSwarmPointsShared({
+        ...params,
+        centerCoord: params?.cx,
+        orientation: 'vertical',
+        cacheAxisKey: 'vertical',
+        coordProjector: value => y2px(value),
+        scaleSignature: [
           Number(yScale?.min).toFixed(6),
           Number(yScale?.max).toFixed(6),
           Number(marginLocal?.top).toFixed(3),
           Number(plotHLocal).toFixed(3),
           brokenAxisEnabled ? 1 : 0,
           brokenAxisEnabled ? JSON.stringify(brokenAxisSegments || []) : ''
-        ].join('|');
-        const verticalLayoutSig = [
-          pointCount,
-          Number(localBand).toFixed(4),
-          Number(sampleCount).toFixed(0),
-          Number(swarmPointRadius).toFixed(4),
-          widthScaleMode || 'none',
-          Number(resolvedMaxHalfWidth).toFixed(4),
-          Number(hardStripHalfWidthCap).toFixed(4),
-          allowAdjustment ? 1 : 0,
-          useStrictStripSpacing ? 1 : 0,
-          Number(radiusCountExponent).toFixed(4),
-          verticalScaleSig
-        ].join('|');
-        let swarm = null;
-        if(!approximateLayout && verticalCacheBucket && traceIndex != null){
-          const cachedLayout = verticalCacheBucket[traceIndex];
-          if(
-            cachedLayout
-            && cachedLayout.key === verticalLayoutSig
-            && cachedLayout.swarm
-            && Array.isArray(cachedLayout.swarm.offsets)
-            && cachedLayout.swarm.offsets.length === pointCount
-          ){
-            swarm = cachedLayout.swarm;
-          }
-        }
-        if(!approximateLayout && !swarm){
-          swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
-            axisSpacing: localBand,
-            pointRadius: swarmPointRadius,
-            sampleSize: sampleCount,
-            orientation: 'vertical',
-            widthScaleMode,
-            maxHalfWidth: resolvedMaxHalfWidth,
-            hardMaxHalfWidth: hardStripHalfWidthCap,
-            allowRadiusAdjustment: allowAdjustment,
-            skipBucketCentering: false,
-            enforceNonOverlap: useStrictStripSpacing,
-            radiusCountExponent,
-            debug: debugEnabled
-          });
-          if(verticalCacheBucket && traceIndex != null && (drawToken == null || drawToken === state.drawToken)){
-            verticalCacheBucket[traceIndex] = {
-              key: verticalLayoutSig,
-              swarm
-            };
-          }
-        }
-        if(drawToken != null && drawToken !== state.drawToken){
-          return null;
-        }
-        const effectiveRadius = approximateLayout
-          ? swarmPointRadius
-          : (resolvedRadius != null
-          ? resolvedRadius
-          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius));
-        const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
-        const themedPointDefaults = useClassicStripDefaults
-          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
-          : null;
-        const effectiveFill = (traceStyle && traceStyle.fill)
-          ? traceStyle.fill
-          : (themedPointDefaults ? themedPointDefaults.fill : fillColor);
-        const traceStrokeColor = traceStyle && (traceStyle.stroke || traceStyle.borderColor)
-          ? (traceStyle.stroke || traceStyle.borderColor)
-          : (themedPointDefaults ? themedPointDefaults.stroke : borderColor);
-        if(useClassicStripDefaults && debugEnabled){
-          console.debug('Debug: box strip theme point defaults applied',{
-            traceIndex,
-            orientation: 'vertical',
-            fill: effectiveFill,
-            stroke: traceStrokeColor,
-            mode: themedPointDefaults?.mode || 'none',
-            graphFontColor: themedPointDefaults?.graphFontColor || ''
-          });
-        }
-        const isOverlayPointMode = debugLabel === 'overlay' || debugLabel === 'violin-overlay' || debugLabel === 'outliers';
-        const traceStrokeWidthRaw = isOverlayPointMode
-          ? resolveOverlayPointBorderWidthRaw(traceStyle, effectiveRadius, { minimumWidth: 0.8 })
-          : resolveStripPointStrokeWidthRaw(traceStyle, borderWidthRaw);
-        const rawStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
-        const strokeWidthCap = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
-        const effectiveStrokeWidth = Math.max(0, Math.min(rawStrokeWidth, strokeWidthCap));
-        const effectiveStroke = traceStrokeColor && traceStrokeColor !== 'none'
-          ? traceStrokeColor
-          : 'none';
-        const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
-        const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
-        const spreadScale = !approximateLayout && useStrictStripSpacing
-          ? computeStripSpreadScale({
-              minCenterPitch,
-              effectiveRadius,
-              maxOffsetUsed: Number(swarm?.maxOffsetUsed),
-              gapFactor: interDatasetGapFactor,
-              minGapPx: minInterDatasetGapPx
-            })
-          : 1;
-        const useBatchPath = !approximateLayout
-          && !disableBatchPath
-          && pointCount > BOX_POINT_BATCH_THRESHOLD
-          && BATCHABLE_POINT_SHAPES.has(effectiveShape);
-        const useResizeCanvasPreview = !approximateLayout && canvasPointLayerEnabled;
-        if(debugEnabled && debugLabel === 'individual'){
-          console.debug('Debug: box strip point render resolved',{
-            orientation: 'vertical',
-            traceIndex,
-            pointCount,
-            useApproximateCanvas,
-            useBatchPath,
-            baseRadius: fallbackRadius,
-            overrideRadius: resolvedRadius,
-            effectiveRadius,
-            maxHalfWidth: resolvedMaxHalfWidth,
-            hardMaxHalfWidth: hardStripHalfWidthCap,
-            pitchHalfExtentLimit,
-            allowRadiusAdjustment: allowAdjustment,
-            swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
-            strokeWidth: effectiveStrokeWidth,
-            minCenterPitch: Number.isFinite(Number(minCenterPitch)) ? Number(minCenterPitch) : null,
-            interDatasetGapFactor: Number.isFinite(Number(interDatasetGapFactor)) ? Number(interDatasetGapFactor) : null,
-            minInterDatasetGapPx: Number.isFinite(Number(minInterDatasetGapPx)) ? Number(minInterDatasetGapPx) : null,
-            spreadScale
-          });
-        }
-        const clampOffset = (offset, rawValue) => {
-          if(!violinBounds){
-            return offset;
-          }
-          const maxHalf = violinBounds(rawValue);
-          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
-            return 0;
-          }
-          const limit = Math.max(0, maxHalf - effectiveRadius);
-          if(limit <= 0){
-            return 0;
-          }
-          return Math.max(-limit, Math.min(limit, offset));
-        };
-        const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
-        const group = add('g', groupAttributes);
-        const pointSelectionData = {
-          seriesName: tooltipSeriesName,
-          categoryName: tooltipCategoryName,
-          groupName: tooltipGroupName,
-          value: meanValue,
-          rawValue: meanValue,
-          index: null
-        };
-        let maxOffsetUsed = 0;
-        if(approximateLayout){
-          maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
-          group.__boxCanvasRenderState = {
-            doc: document,
-            renderer: 'canvas-approx',
-            bins: approximateLayout.bins,
-            orientation: 'vertical',
-            center: cx,
-            thickness: approximateLayout.thickness,
-            hitBins: approximateLayout.bins,
-            hitOrientation: 'vertical',
-            hitCenter: cx,
-            hitStrokeWidth: Math.max(12, approximateLayout.thickness + effectiveRadius * 2 + 8),
-            traceIndex,
-            pointData: pointSelectionData,
-            pointRadius: effectiveRadius,
-            shape: effectiveShape,
-            style: {
-              fill: effectiveFill,
-              fillOpacity: effectiveOpacity,
-              strokeOpacity: effectiveOpacity,
-              stroke: effectiveStroke,
-              strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
-            }
-          };
-          renderStoredBoxCanvasPointGroup(group);
-          if(debugEnabled){
-            console.debug('Debug: box approximate point canvas rendered', {
-              orientation: 'vertical',
-              traceIndex,
-              pointCount,
-              binCount: approximateLayout.bins.length,
-              thickness: approximateLayout.thickness,
-              maxOffsetUsed
-            });
-          }
-        }else if(useResizeCanvasPreview){
-          const pts = new Array(pointCount);
-          for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
-            const offset = clampOffset(rawOffset, rawValues[idx]);
-            const abs = Math.abs(offset);
-            if(abs > maxOffsetUsed){
-              maxOffsetUsed = abs;
-            }
-            const pointX = cx + offset;
-            const pointY = pointCoords[idx];
-            pts[idx] = { x: pointX, y: pointY };
-            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
-              const rowKey = rowIndices[idx];
-              if(rowKey != null){
-                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
-              }
-            }
-          }
-          const interactionLayout = buildBoxApproximatePointBins({
-            coords: pointCoords,
-            raws: rawValues,
-            orientation: 'vertical',
-            radius: effectiveRadius,
-            maxHalfWidth: Math.max(
-              effectiveRadius * 1.5,
-              Number(resolvedMaxHalfWidth) || 0,
-              maxOffsetUsed || 0
-            ),
-            widthScaleMode,
-            violinBounds
-          });
-          group.__boxCanvasRenderState = {
-            doc: document,
-            renderer: 'canvas-preview',
-            points: pts,
-            pointRadius: effectiveRadius,
-            shape: effectiveShape,
-            hitBins: interactionLayout?.bins || null,
-            hitOrientation: 'vertical',
-            hitCenter: cx,
-            hitStrokeWidth: Math.max(10, effectiveRadius * 2 + 8),
-            traceIndex,
-            pointData: pointSelectionData,
-            style: {
-              fill: effectiveFill,
-              fillOpacity: effectiveOpacity,
-              strokeOpacity: effectiveOpacity,
-              stroke: effectiveStroke,
-              strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
-            }
-          };
-          renderStoredBoxCanvasPointGroup(group);
-          if(debugEnabled){
-            console.debug('Debug: box resize canvas preview rendered', {
-              orientation: 'vertical',
-              traceIndex,
-              pointCount,
-              mode: debugLabel
-            });
-          }
-        }else if(useBatchPath){
-          const pts = new Array(pointCount);
-          for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
-            const offset = clampOffset(rawOffset, rawValues[idx]);
-            const abs = Math.abs(offset);
-            if(abs > maxOffsetUsed){
-              maxOffsetUsed = abs;
-            }
-            const pointX = cx + offset;
-            const pointY = pointCoords[idx];
-            pts[idx] = { x: pointX, y: pointY };
-            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
-              const rowKey = rowIndices[idx];
-              if(rowKey != null){
-                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
-              }
-            }
-          }
-          const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
-            fill: effectiveFill,
-            fillOpacity: effectiveOpacity,
-            stroke: effectiveStroke,
-            strokeWidth: Math.max(0, effectiveStrokeWidth || 0),
-            dataTrace: traceIndex,
-            shape: effectiveShape
-          });
-          pathNode.__batchedPoints = pts;
-          group.appendChild(pathNode);
-          attachBoxPointTooltip(pathNode, {
-            seriesName: tooltipSeriesName,
-            categoryName: tooltipCategoryName,
-            groupName: tooltipGroupName,
-            value: null,
-            rawValue: null,
-            index: null
-          });
-        }else{
-          const frag = document.createDocumentFragment();
-          for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
-            const offset = clampOffset(rawOffset, rawValues[idx]);
-            const abs = Math.abs(offset);
-            if(abs > maxOffsetUsed){
-              maxOffsetUsed = abs;
-            }
-            let node = null;
-            if(effectiveShape === 'circle'){
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', cx + offset);
-              node.setAttribute('cy', pointCoords[idx]);
-              node.setAttribute('r', effectiveRadius);
-            }else if(effectiveShape === 'square'){
-              node = document.createElementNS(NS, 'rect');
-              const size = effectiveRadius * 2;
-              node.setAttribute('x', String(cx + offset - effectiveRadius));
-              node.setAttribute('y', String(pointCoords[idx] - effectiveRadius));
-              node.setAttribute('width', String(size));
-              node.setAttribute('height', String(size));
-            }else if(effectiveShape === 'triangle'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const d = `M ${cx + offset} ${coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${coord + effectiveRadius} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'diamond'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const d = `M ${cx + offset} ${coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${coord} L ${cx + offset} ${coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${coord} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'cross'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const centerX = cx + offset;
-              const size = Math.max(effectiveRadius * 2, 2);
-              const half = size / 2;
-              const bar = Math.max(size / 3, 2);
-              const hb = bar / 2;
-              const top = coord - half;
-              const bottom = coord + half;
-              const left = centerX - half;
-              const right = centerX + half;
-              const d = [
-                `M ${left} ${top + hb}`,
-                `L ${left + hb} ${top}`,
-                `L ${centerX} ${coord - hb}`,
-                `L ${right - hb} ${top}`,
-                `L ${right} ${top + hb}`,
-                `L ${centerX + hb} ${coord}`,
-                `L ${right} ${bottom - hb}`,
-                `L ${right - hb} ${bottom}`,
-                `L ${centerX} ${coord + hb}`,
-                `L ${left + hb} ${bottom}`,
-                `L ${left} ${bottom - hb}`,
-                `L ${centerX - hb} ${coord}`,
-                'Z'
-              ].join(' ');
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'plus'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const centerX = cx + offset;
-              const size = Math.max(effectiveRadius * 2, 2);
-              const half = size / 2;
-              const bar = Math.max(size / 3, 2);
-              const hb = bar / 2;
-              const d = `M ${centerX - hb} ${coord - half} H ${centerX + hb} V ${coord - hb} H ${centerX + half} V ${coord + hb} H ${centerX + hb} V ${coord + half} H ${centerX - hb} V ${coord + hb} H ${centerX - half} V ${coord - hb} H ${centerX - hb} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'star'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const centerX = cx + offset;
-              const innerRadius = Math.max(effectiveRadius * 0.45, 1);
-              const starPoints = [];
-              for(let k = 0; k < 5; k += 1){
-                const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
-                starPoints.push({ x: centerX + Math.cos(a) * effectiveRadius, y: coord + Math.sin(a) * effectiveRadius });
-                const b = a + Math.PI / 5;
-                starPoints.push({ x: centerX + Math.cos(b) * innerRadius, y: coord + Math.sin(b) * innerRadius });
-              }
-              const d = starPoints.map((ptVal, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${ptVal.x} ${ptVal.y}`).join(' ') + ' Z';
-              node.setAttribute('d', d);
-            }else{
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', cx + offset);
-              node.setAttribute('cy', pointCoords[idx]);
-              node.setAttribute('r', effectiveRadius);
-            }
-            if(node){
-              const pointX = cx + offset;
-              const pointY = pointCoords[idx];
-              node.setAttribute('fill', effectiveFill);
-              if(effectiveStroke){
-                node.setAttribute('stroke', effectiveStroke);
-                node.setAttribute('stroke-width', String(Math.max(0, effectiveStrokeWidth || 0)));
-              }
-              node.setAttribute('fill-opacity', String(effectiveOpacity));
-              node.setAttribute('data-shape', effectiveShape);
-              node.setAttribute('data-point-size', String(effectiveRadius * 2));
-              node.setAttribute('data-point-cx', String(pointX));
-              node.setAttribute('data-point-cy', String(pointY));
-              if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
-                const rowKey = rowIndices[idx];
-                if(rowKey != null){
-                  collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
-                }
-              }
-              attachBoxPointTooltip(node, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: rawValues[idx],
-                rawValue: rawValues[idx],
-                index: idx
-              });
-              frag.appendChild(node);
-            }
-          }
-          group.appendChild(frag);
-        }
-        if(debugEnabled && allowAutoSize){
-          console.debug('Debug: box auto point sizing',{ orientation: 'vertical', index: traceIndex, pointCount: sampleCount, baseRadius: fallbackRadius, adjustedRadius: swarm?.adjustedRadius ?? null, effectiveRadius });
-        }
-        if(debugEnabled){
-          console.debug('Debug: box individual vertical render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
-        }
-        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius, collectPointsByRow };
-      };
+        ].join('|')
+      });
       const stackedErrorQueue = [];
       const connectionMapsByTrace = connectPointsActive ? new Array(traces.length).fill(null) : null;
       const annotationMaxByTrace = new Array(traces.length).fill(null);
@@ -28602,503 +28629,19 @@ Technical analysis record (advanced)
             subdivisions: minorSubdivisionsX
           }).filter(value => isXValueVisible(value))
         : [];
-      const renderSwarmPointsHorizontal = async params => {
-        const {
-          valueList,
-          cy,
-          localBand,
-          sampleCount,
-          traceIndex,
-          tooltipSeriesName,
-          tooltipCategoryName,
-          tooltipGroupName,
-          fillColor,
-          borderColor,
-          violinBounds = null,
-          groupAttrs = {},
-          opacityMultiplier = 1,
-          debugLabel = 'individual',
-          mean: meanValue = null,
-          widthScaleMode = 'none',
-          maxHalfWidth = null,
-          pointRadiusOverride = null,
-          autoSize = false,
-          allowRadiusAdjustment = null,
-          minCenterPitch = null,
-          interDatasetGapFactor = 0,
-          minInterDatasetGapPx = 0,
-          disableBatchPath = false,
-          drawToken = null,
-          rowIndices = null,
-          collectPointsByRow = null
-        } = params || {};
-        const horizontalPointLayout = prepareSwarmPointLayoutConfig({
-          valueList,
-          traceIndex,
-          getPointStyle,
-          hasExplicitPointSize,
-          pointRadius,
-          pointRadiusOverride,
-          autoSize,
-          allowRadiusAdjustment,
-          maxHalfWidth,
-          localBand,
-          sampleCount,
-          widthScaleMode,
-          debugLabel,
-          minCenterPitch,
-          interDatasetGapFactor,
-          minInterDatasetGapPx,
-          violinBounds,
-          collectPointsByRow,
-          drawOpts,
-          debugEnabled,
-          canvasThreshold: BOX_POINT_CANVAS_THRESHOLD,
-          approximateThreshold: BOX_POINT_APPROX_THRESHOLD,
-          orientation: 'horizontal',
-          coordProjector: value => valueToX(value)
-        });
-        const {
-          rawValues,
-          pointCount,
-          pointCoords,
-          traceStyle: traceStyleH,
-          resolvedRadius,
-          fallbackRadius,
-          allowAdjustment,
-          radiusCountExponent,
-          useStrictStripSpacing,
-          pitchHalfExtentLimit,
-          resolvedMaxHalfWidth,
-          hardStripHalfWidthCap,
-          swarmPointRadius,
-          effectiveShape,
-          canvasPointLayerEnabled,
-          useApproximateCanvas,
-          approximateLayout
-        } = horizontalPointLayout;
-        const horizontalCacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
-          ? (pointLayoutCache.horizontal = pointLayoutCache.horizontal || {})
-          : null;
-        const horizontalScaleSig = [
+      const renderSwarmPointsHorizontal = async params => renderSwarmPointsShared({
+        ...params,
+        centerCoord: params?.cy,
+        orientation: 'horizontal',
+        cacheAxisKey: 'horizontal',
+        coordProjector: value => valueToX(value),
+        scaleSignature: [
           Number(yScale?.min).toFixed(6),
           Number(yScale?.max).toFixed(6),
           Number(marginLocal?.left).toFixed(3),
           Number(plotWLocal).toFixed(3)
-        ].join('|');
-        const horizontalLayoutSig = [
-          pointCount,
-          Number(localBand).toFixed(4),
-          Number(sampleCount).toFixed(0),
-          Number(swarmPointRadius).toFixed(4),
-          widthScaleMode || 'none',
-          Number(resolvedMaxHalfWidth).toFixed(4),
-          Number(hardStripHalfWidthCap).toFixed(4),
-          allowAdjustment ? 1 : 0,
-          useStrictStripSpacing ? 1 : 0,
-          Number(radiusCountExponent).toFixed(4),
-          horizontalScaleSig
-        ].join('|');
-        let swarm = null;
-        if(!approximateLayout && horizontalCacheBucket && traceIndex != null){
-          const cachedLayout = horizontalCacheBucket[traceIndex];
-          if(
-            cachedLayout
-            && cachedLayout.key === horizontalLayoutSig
-            && cachedLayout.swarm
-            && Array.isArray(cachedLayout.swarm.offsets)
-            && cachedLayout.swarm.offsets.length === pointCount
-          ){
-            swarm = cachedLayout.swarm;
-          }
-        }
-        if(!approximateLayout && !swarm){
-          swarm = await resolveSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
-            axisSpacing: localBand,
-            pointRadius: swarmPointRadius,
-            sampleSize: sampleCount,
-            orientation: 'horizontal',
-            widthScaleMode,
-            maxHalfWidth: resolvedMaxHalfWidth,
-            hardMaxHalfWidth: hardStripHalfWidthCap,
-            allowRadiusAdjustment: allowAdjustment,
-            skipBucketCentering: false,
-            enforceNonOverlap: useStrictStripSpacing,
-            radiusCountExponent,
-            debug: debugEnabled
-          });
-          if(horizontalCacheBucket && traceIndex != null && (drawToken == null || drawToken === state.drawToken)){
-            horizontalCacheBucket[traceIndex] = {
-              key: horizontalLayoutSig,
-              swarm
-            };
-          }
-        }
-        if(drawToken != null && drawToken !== state.drawToken){
-          return null;
-        }
-        const effectiveRadius = approximateLayout
-          ? swarmPointRadius
-          : (resolvedRadius != null
-          ? resolvedRadius
-          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius));
-        const useClassicStripDefaults = debugLabel === 'individual' && widthScaleMode === 'density';
-        const themedPointDefaultsH = useClassicStripDefaults
-          ? resolveIndividualPointThemeDefaults({ fillColor, borderColor, colorIndex: traceIndex, schemeId: activeColorSchemeId, tableFormat: state.tableFormat })
-          : null;
-        const effectiveFill = (traceStyleH && traceStyleH.fill)
-          ? traceStyleH.fill
-          : (themedPointDefaultsH ? themedPointDefaultsH.fill : fillColor);
-        const traceStrokeColorH = traceStyleH && (traceStyleH.stroke || traceStyleH.borderColor)
-          ? (traceStyleH.stroke || traceStyleH.borderColor)
-          : (themedPointDefaultsH ? themedPointDefaultsH.stroke : borderColor);
-        if(useClassicStripDefaults && debugEnabled){
-          console.debug('Debug: box strip theme point defaults applied',{
-            traceIndex,
-            orientation: 'horizontal',
-            fill: effectiveFill,
-            stroke: traceStrokeColorH,
-            mode: themedPointDefaultsH?.mode || 'none',
-            graphFontColor: themedPointDefaultsH?.graphFontColor || ''
-          });
-        }
-        const isOverlayPointModeH = debugLabel === 'overlay' || debugLabel === 'violin-overlay' || debugLabel === 'outliers';
-        const traceStrokeWidthRawH = isOverlayPointModeH
-          ? resolveOverlayPointBorderWidthRaw(traceStyleH, effectiveRadius, { minimumWidth: 0.8 })
-          : resolveStripPointStrokeWidthRaw(traceStyleH, borderWidthRaw);
-        const rawStrokeWidthH = chartStyle.scaleStrokeWidth(traceStrokeWidthRawH, styleScaleInfo, { context: 'box-point-border', min: 0 });
-        const strokeWidthCapH = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
-        const effectiveStrokeWidthH = Math.max(0, Math.min(rawStrokeWidthH, strokeWidthCapH));
-        const effectiveStroke = traceStrokeColorH && traceStrokeColorH !== 'none'
-          ? traceStrokeColorH
-          : 'none';
-        const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
-        const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
-        const spreadScale = !approximateLayout && useStrictStripSpacing
-          ? computeStripSpreadScale({
-              minCenterPitch,
-              effectiveRadius,
-              maxOffsetUsed: Number(swarm?.maxOffsetUsed),
-              gapFactor: interDatasetGapFactor,
-              minGapPx: minInterDatasetGapPx
-            })
-          : 1;
-        const useBatchPath = !approximateLayout
-          && !disableBatchPath
-          && pointCount > BOX_POINT_BATCH_THRESHOLD
-          && BATCHABLE_POINT_SHAPES.has(effectiveShape);
-        const useResizeCanvasPreview = !approximateLayout && canvasPointLayerEnabled;
-        if(debugEnabled && debugLabel === 'individual'){
-          console.debug('Debug: box strip point render resolved',{
-            orientation: 'horizontal',
-            traceIndex,
-            pointCount,
-            useApproximateCanvas,
-            useBatchPath,
-            baseRadius: fallbackRadius,
-            overrideRadius: resolvedRadius,
-            effectiveRadius,
-            maxHalfWidth: resolvedMaxHalfWidth,
-            hardMaxHalfWidth: hardStripHalfWidthCap,
-            pitchHalfExtentLimit,
-            allowRadiusAdjustment: allowAdjustment,
-            swarmAdjustedRadius: Number.isFinite(Number(swarm?.adjustedRadius)) ? Number(swarm.adjustedRadius) : null,
-            strokeWidth: effectiveStrokeWidthH,
-            minCenterPitch: Number.isFinite(Number(minCenterPitch)) ? Number(minCenterPitch) : null,
-            interDatasetGapFactor: Number.isFinite(Number(interDatasetGapFactor)) ? Number(interDatasetGapFactor) : null,
-            minInterDatasetGapPx: Number.isFinite(Number(minInterDatasetGapPx)) ? Number(minInterDatasetGapPx) : null,
-            spreadScale
-          });
-        }
-        const clampOffset = (offset, rawValue) => {
-          if(!violinBounds){
-            return offset;
-          }
-          const maxHalf = violinBounds(rawValue);
-          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
-            return 0;
-          }
-          const limit = Math.max(0, maxHalf - effectiveRadius);
-          if(limit <= 0){
-            return 0;
-          }
-          return Math.max(-limit, Math.min(limit, offset));
-        };
-        const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
-        const group = add('g', groupAttributes);
-        const pointSelectionData = {
-          seriesName: tooltipSeriesName,
-          categoryName: tooltipCategoryName,
-          groupName: tooltipGroupName,
-          value: meanValue,
-          rawValue: meanValue,
-          index: null
-        };
-        let maxOffsetUsed = 0;
-        if(approximateLayout){
-          maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
-          group.__boxCanvasRenderState = {
-            doc: document,
-            renderer: 'canvas-approx',
-            bins: approximateLayout.bins,
-            orientation: 'horizontal',
-            center: cy,
-            thickness: approximateLayout.thickness,
-            hitBins: approximateLayout.bins,
-            hitOrientation: 'horizontal',
-            hitCenter: cy,
-            hitStrokeWidth: Math.max(12, approximateLayout.thickness + effectiveRadius * 2 + 8),
-            traceIndex,
-            pointData: pointSelectionData,
-            pointRadius: effectiveRadius,
-            shape: effectiveShape,
-            style: {
-              fill: effectiveFill,
-              fillOpacity: effectiveOpacity,
-              strokeOpacity: effectiveOpacity,
-              stroke: effectiveStroke,
-              strokeWidth: Math.max(0, effectiveStrokeWidthH || 0)
-            }
-          };
-          renderStoredBoxCanvasPointGroup(group);
-          if(debugEnabled){
-            console.debug('Debug: box approximate point canvas rendered', {
-              orientation: 'horizontal',
-              traceIndex,
-              pointCount,
-              binCount: approximateLayout.bins.length,
-              thickness: approximateLayout.thickness,
-              maxOffsetUsed
-            });
-          }
-        }else if(useResizeCanvasPreview){
-          const pts = new Array(pointCount);
-          for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
-            const offset = clampOffset(rawOffset, rawValues[idx]);
-            const abs = Math.abs(offset);
-            if(abs > maxOffsetUsed){
-              maxOffsetUsed = abs;
-            }
-            const pointX = pointCoords[idx];
-            const pointY = cy + offset;
-            pts[idx] = { x: pointX, y: pointY };
-            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
-              const rowKey = rowIndices[idx];
-              if(rowKey != null){
-                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
-              }
-            }
-          }
-          const interactionLayout = buildBoxApproximatePointBins({
-            coords: pointCoords,
-            raws: rawValues,
-            orientation: 'horizontal',
-            radius: effectiveRadius,
-            maxHalfWidth: Math.max(
-              effectiveRadius * 1.5,
-              Number(resolvedMaxHalfWidth) || 0,
-              maxOffsetUsed || 0
-            ),
-            widthScaleMode,
-            violinBounds
-          });
-          group.__boxCanvasRenderState = {
-            doc: document,
-            renderer: 'canvas-preview',
-            points: pts,
-            pointRadius: effectiveRadius,
-            shape: effectiveShape,
-            hitBins: interactionLayout?.bins || null,
-            hitOrientation: 'horizontal',
-            hitCenter: cy,
-            hitStrokeWidth: Math.max(10, effectiveRadius * 2 + 8),
-            traceIndex,
-            pointData: pointSelectionData,
-            style: {
-              fill: effectiveFill,
-              fillOpacity: effectiveOpacity,
-              strokeOpacity: effectiveOpacity,
-              stroke: effectiveStroke,
-              strokeWidth: Math.max(0, effectiveStrokeWidthH || 0)
-            }
-          };
-          renderStoredBoxCanvasPointGroup(group);
-          if(debugEnabled){
-            console.debug('Debug: box resize canvas preview rendered', {
-              orientation: 'horizontal',
-              traceIndex,
-              pointCount,
-              mode: debugLabel
-            });
-          }
-        }else if(useBatchPath){
-          const pts = new Array(pointCount);
-          for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
-            const offset = clampOffset(rawOffset, rawValues[idx]);
-            const abs = Math.abs(offset);
-            if(abs > maxOffsetUsed){
-              maxOffsetUsed = abs;
-            }
-            const pointX = pointCoords[idx];
-            const pointY = cy + offset;
-            pts[idx] = { x: pointX, y: pointY };
-            if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
-              const rowKey = rowIndices[idx];
-              if(rowKey != null){
-                collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
-              }
-            }
-          }
-          const pathNode = createBatchedPointPath(document, pts, Math.max(0.2, effectiveRadius * 2), {
-            fill: effectiveFill,
-            fillOpacity: effectiveOpacity,
-            stroke: effectiveStroke,
-            strokeWidth: Math.max(0, effectiveStrokeWidthH || 0),
-            dataTrace: traceIndex,
-            shape: effectiveShape
-          });
-          pathNode.__batchedPoints = pts;
-          group.appendChild(pathNode);
-          attachBoxPointTooltip(pathNode, {
-            seriesName: tooltipSeriesName,
-            categoryName: tooltipCategoryName,
-            groupName: tooltipGroupName,
-            value: null,
-            rawValue: null,
-            index: null
-          });
-        }else{
-          const frag = document.createDocumentFragment();
-          for(let idx = 0; idx < pointCount; idx++){
-            const rawOffset = (swarm.offsets[idx] || 0) * spreadScale;
-            const offset = clampOffset(rawOffset, rawValues[idx]);
-            const abs = Math.abs(offset);
-            if(abs > maxOffsetUsed){
-              maxOffsetUsed = abs;
-            }
-            let node = null;
-            if(effectiveShape === 'circle'){
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', pointCoords[idx]);
-              node.setAttribute('cy', cy + offset);
-              node.setAttribute('r', effectiveRadius);
-            }else if(effectiveShape === 'square'){
-              node = document.createElementNS(NS, 'rect');
-              const size = effectiveRadius * 2;
-              node.setAttribute('x', String(pointCoords[idx] - effectiveRadius));
-              node.setAttribute('y', String(cy + offset - effectiveRadius));
-              node.setAttribute('width', String(size));
-              node.setAttribute('height', String(size));
-            }else if(effectiveShape === 'triangle'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const d = `M ${coord} ${cy + offset - effectiveRadius} L ${coord + effectiveRadius} ${cy + offset + effectiveRadius} L ${coord - effectiveRadius} ${cy + offset + effectiveRadius} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'diamond'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const d = `M ${coord} ${cy + offset - effectiveRadius} L ${coord + effectiveRadius} ${cy + offset} L ${coord} ${cy + offset + effectiveRadius} L ${coord - effectiveRadius} ${cy + offset} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'cross'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const centerY = cy + offset;
-              const size = Math.max(effectiveRadius * 2, 2);
-              const half = size / 2;
-              const bar = Math.max(size / 3, 2);
-              const hb = bar / 2;
-              const top = centerY - half;
-              const bottom = centerY + half;
-              const left = coord - half;
-              const right = coord + half;
-              const d = [
-                `M ${left} ${top + hb}`,
-                `L ${left + hb} ${top}`,
-                `L ${coord} ${centerY - hb}`,
-                `L ${right - hb} ${top}`,
-                `L ${right} ${top + hb}`,
-                `L ${coord + hb} ${centerY}`,
-                `L ${right} ${bottom - hb}`,
-                `L ${right - hb} ${bottom}`,
-                `L ${coord} ${centerY + hb}`,
-                `L ${left + hb} ${bottom}`,
-                `L ${left} ${bottom - hb}`,
-                `L ${coord - hb} ${centerY}`,
-                'Z'
-              ].join(' ');
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'plus'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const centerY = cy + offset;
-              const size = Math.max(effectiveRadius * 2, 2);
-              const half = size / 2;
-              const bar = Math.max(size / 3, 2);
-              const hb = bar / 2;
-              const d = `M ${coord - hb} ${centerY - half} H ${coord + hb} V ${centerY - hb} H ${coord + half} V ${centerY + hb} H ${coord + hb} V ${centerY + half} H ${coord - hb} V ${centerY + hb} H ${coord - half} V ${centerY - hb} H ${coord - hb} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'star'){
-              node = document.createElementNS(NS, 'path');
-              const coord = pointCoords[idx];
-              const centerY = cy + offset;
-              const innerRadius = Math.max(effectiveRadius * 0.45, 1);
-              const starPoints = [];
-              for(let k = 0; k < 5; k += 1){
-                const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
-                starPoints.push({ x: coord + Math.cos(a) * effectiveRadius, y: centerY + Math.sin(a) * effectiveRadius });
-                const b = a + Math.PI / 5;
-                starPoints.push({ x: coord + Math.cos(b) * innerRadius, y: centerY + Math.sin(b) * innerRadius });
-              }
-              const d = starPoints.map((ptVal, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${ptVal.x} ${ptVal.y}`).join(' ') + ' Z';
-              node.setAttribute('d', d);
-            }else{
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', pointCoords[idx]);
-              node.setAttribute('cy', cy + offset);
-              node.setAttribute('r', effectiveRadius);
-            }
-            if(node){
-              const pointX = pointCoords[idx];
-              const pointY = cy + offset;
-              node.setAttribute('fill', effectiveFill);
-              if(effectiveStroke){
-                node.setAttribute('stroke', effectiveStroke);
-                node.setAttribute('stroke-width', String(Math.max(0, effectiveStrokeWidthH || 0)));
-              }
-              node.setAttribute('fill-opacity', String(effectiveOpacity));
-              node.setAttribute('data-shape', effectiveShape);
-              node.setAttribute('data-point-size', String(effectiveRadius * 2));
-              node.setAttribute('data-point-cx', String(pointX));
-              node.setAttribute('data-point-cy', String(pointY));
-              if(collectPointsByRow instanceof Map && Array.isArray(rowIndices) && idx < rowIndices.length){
-                const rowKey = rowIndices[idx];
-                if(rowKey != null){
-                  collectPointsByRow.set(String(rowKey), { x: pointX, y: pointY, value: rawValues[idx], traceIndex, index: idx });
-                }
-              }
-              attachBoxPointTooltip(node, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: rawValues[idx],
-                rawValue: rawValues[idx],
-                index: idx
-              });
-              frag.appendChild(node);
-            }
-          }
-          group.appendChild(frag);
-        }
-        if(debugEnabled && allowAutoSize){
-          console.debug('Debug: box auto point sizing',{ orientation: 'horizontal', index: traceIndex, pointCount: sampleCount, baseRadius: fallbackRadius, adjustedRadius: swarm?.adjustedRadius ?? null, effectiveRadius });
-        }
-        if(debugEnabled){
-          console.debug('Debug: box individual horizontal render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
-        }
-        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius, collectPointsByRow };
-      };
+        ].join('|')
+      });
       const axisCount = Math.max(axisLabels.length, 1);
       // Add a small gap between adjacent category bands so datasets don't touch
       const rawBandH = plotHLocal / axisCount;
@@ -29223,114 +28766,11 @@ Technical analysis record (advanced)
         return Number.isFinite(minPitch) ? minPitch : null;
       };
       const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
-      const computeStripAutoSizeRadius = async () => {
-        if(graphTypeRaw !== 'strip'){
-          return null;
-        }
-        if(hasExplicitPointSize(null)){
-          if(debugEnabled){
-            console.debug('Debug: box strip auto size skipped explicit global size',{
-              orientation: 'horizontal',
-              globalSize: state.pointGlobalStyle?.size ?? null
-            });
-          }
-          return null;
-        }
-        const fastStripProfile = resolveFastStripAutoSizeProfile({
-          pointCounts: traces
-            .map((trace, traceIndex) => hasExplicitPointSize(traceIndex) ? 0 : (Array.isArray(trace?.y) ? trace.y.length : 0))
-            .filter(count => count > 0),
-          baseRadius: pointRadius,
-          radiusStep: 0.1,
-          threshold: BOX_POINT_CANVAS_THRESHOLD
-        });
-        if(fastStripProfile){
-          if(debugEnabled){
-            console.debug('Debug: box strip auto size fast path', {
-              orientation: 'horizontal',
-              maxPointCount: fastStripProfile.maxPointCount,
-              totalPointCount: fastStripProfile.totalPointCount,
-              radius: fastStripProfile.radius,
-              strategy: fastStripProfile.strategy
-            });
-          }
-          return fastStripProfile;
-        }
-        const axisSpacing = localBandHeightForTrace();
-        const traceProfiles = [];
-        let limitingRadius = Infinity;
-        let limitingTraceIndex = null;
-        for(let i = 0; i < traces.length; i++){
-          if(hasExplicitPointSize(i)){
-            if(debugEnabled){
-              const explicitSize = state.pointStyles && state.pointStyles[i] ? state.pointStyles[i]?.size : null;
-              console.debug('Debug: box strip auto size trace skipped explicit size',{
-                orientation: 'horizontal',
-                traceIndex: i,
-                size: explicitSize
-              });
-            }
-            continue;
-          }
-          const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
-          if(!values.length){
-            continue;
-          }
-          const pointCoords = new Float64Array(values.length);
-          for(let idx = 0; idx < values.length; idx++){
-            pointCoords[idx] = valueToX(values[idx]);
-          }
-          const profile = await computeStripTraceFeasibleRadius({
-            values,
-            coords: pointCoords,
-            axisSpacing,
-            baseRadius: pointRadius,
-            sampleSize: values.length,
-            orientation: 'horizontal',
-            minCenterPitch: stripMinCenterPitch,
-            gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
-            minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
-            radiusStep: 0.1,
-            onProbe: () => token === state.drawToken
-          });
-          if(token !== state.drawToken){
-            return null;
-          }
-          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
-            continue;
-          }
-          traceProfiles.push({
-            traceIndex: i,
-            pointCount: values.length,
-            radius: Number(profile.radius),
-            halfWidthCap: Number(profile.halfWidthCap),
-            fitted: profile.fitted !== false
-          });
-          if(Number(profile.radius) < limitingRadius){
-            limitingRadius = Number(profile.radius);
-            limitingTraceIndex = i;
-          }
-        }
-        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
-          return null;
-        }
-        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
-        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
-        if(debugEnabled){
-          console.debug('Debug: box strip auto size feasibility',{
-            orientation: 'horizontal',
-            axisSpacing,
-            limitingTraceIndex,
-            limitingRadius: resolvedRadius,
-            traceProfiles
-          });
-        }
-        return {
-          radius: resolvedRadius,
-          halfWidthCap: null
-        };
-      };
-      const stripAutoSizeProfile = await computeStripAutoSizeRadius();
+      const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
+        orientation: 'horizontal',
+        axisSpacing: localBandHeightForTrace(),
+        coordProjector: value => valueToX(value)
+      });
       const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
         ? Number(stripAutoSizeProfile.radius)
         : null;
