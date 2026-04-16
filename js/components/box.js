@@ -3342,63 +3342,149 @@
     ctx.arc(x, y, safeRadius, 0, Math.PI * 2);
   }
 
+  function computeBoxCanvasBoundsFromPoints(points){
+    const entries = Array.isArray(points) ? points : [];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    entries.forEach(point => {
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      if(!Number.isFinite(x) || !Number.isFinite(y)){
+        return;
+      }
+      if(x < minX) minX = x;
+      if(x > maxX) maxX = x;
+      if(y < minY) minY = y;
+      if(y > maxY) maxY = y;
+    });
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+      return null;
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  function computeBoxCanvasBoundsFromBins(config = {}){
+    const bins = Array.isArray(config?.bins) ? config.bins : [];
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const center = Number(config?.center);
+    const thickness = Math.max(1, Number(config?.thickness) || 1);
+    if(!bins.length || !Number.isFinite(center)){
+      return null;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    bins.forEach(bin => {
+      const coord = Number(bin?.coord);
+      const halfWidth = Number(bin?.halfWidth);
+      if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
+        return;
+      }
+      if(orientation === 'vertical'){
+        minX = Math.min(minX, center - halfWidth);
+        maxX = Math.max(maxX, center + halfWidth);
+        minY = Math.min(minY, coord - thickness / 2);
+        maxY = Math.max(maxY, coord + thickness / 2);
+      }else{
+        minX = Math.min(minX, coord - thickness / 2);
+        maxX = Math.max(maxX, coord + thickness / 2);
+        minY = Math.min(minY, center - halfWidth);
+        maxY = Math.max(maxY, center + halfWidth);
+      }
+    });
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+      return null;
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  function expandBoxCanvasBounds(bounds, padding){
+    if(!bounds){
+      return null;
+    }
+    const safePadding = Math.max(0, Number(padding) || 0);
+    const minX = Number(bounds.minX) - safePadding;
+    const minY = Number(bounds.minY) - safePadding;
+    const maxX = Number(bounds.maxX) + safePadding;
+    const maxY = Number(bounds.maxY) + safePadding;
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+      return null;
+    }
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(1, Math.ceil(maxX - minX)),
+      height: Math.max(1, Math.ceil(maxY - minY))
+    };
+  }
+
+  function renderBoxCanvasForeignObject(config){
+    const doc = config?.doc || global.document;
+    const group = config?.group || null;
+    const rendererType = typeof config?.rendererType === 'string' && config.rendererType ? config.rendererType : 'canvas-preview';
+    const bounds = config?.bounds || null;
+    const draw = typeof config?.draw === 'function' ? config.draw : null;
+    if(!doc || !group || !bounds || !draw || !canUseBoxPointResizeCanvas()){
+      return false;
+    }
+    const surface = createBoxCanvasForeignObjectSurface(doc, bounds, rendererType);
+    if(!surface){
+      return false;
+    }
+    const { foreignObject, canvas, ctx, dpr } = surface;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw(ctx, bounds, surface);
+    ctx.globalAlpha = 1;
+    foreignObject.appendChild(canvas);
+    group.appendChild(foreignObject);
+    return true;
+  }
+
   function renderBoxPointResizeCanvasPreview(config){
     const doc = config?.doc || global.document;
     const group = config?.group || null;
     const points = Array.isArray(config?.points) ? config.points : [];
-    if(!doc || !group || !points.length || !canUseBoxPointResizeCanvas()){
+    if(!doc || !group || !points.length){
       return false;
     }
     const radius = Math.max(0.5, Number(config?.radius) || 0.5);
     const strokeWidth = Math.max(0, Number(config?.strokeWidth) || 0);
     const padding = Math.max(2, radius + strokeWidth + 2);
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    points.forEach(point => {
-      if(point.x < minX) minX = point.x;
-      if(point.x > maxX) maxX = point.x;
-      if(point.y < minY) minY = point.y;
-      if(point.y > maxY) maxY = point.y;
-    });
-    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+    const bounds = expandBoxCanvasBounds(computeBoxCanvasBoundsFromPoints(points), padding);
+    if(!bounds){
       return false;
     }
-    minX -= padding;
-    minY -= padding;
-    maxX += padding;
-    maxY += padding;
-    const width = Math.max(1, Math.ceil(maxX - minX));
-    const height = Math.max(1, Math.ceil(maxY - minY));
-    const previewSurface = createBoxCanvasForeignObjectSurface(doc, { minX, minY, width, height }, 'canvas-preview');
-    if(!previewSurface){
-      return false;
-    }
-    const { foreignObject, canvas, ctx, dpr } = previewSurface;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.beginPath();
-    points.forEach(point => {
-      appendBoxPointCanvasShapePath(ctx, config.shape, point.x - minX, point.y - minY, radius);
+    return renderBoxCanvasForeignObject({
+      doc,
+      group,
+      bounds,
+      rendererType: 'canvas-preview',
+      draw(ctx){
+        ctx.beginPath();
+        points.forEach(point => {
+          appendBoxPointCanvasShapePath(ctx, config.shape, point.x - bounds.minX, point.y - bounds.minY, radius);
+        });
+        if(config.fill && config.fill !== 'none'){
+          ctx.fillStyle = config.fill;
+          ctx.globalAlpha = Math.max(0, Math.min(1, Number(config.fillOpacity)));
+          ctx.fill();
+        }
+        if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
+          ctx.strokeStyle = config.stroke;
+          ctx.lineWidth = strokeWidth;
+          const strokeOpacity = Number.isFinite(Number(config.strokeOpacity))
+            ? Number(config.strokeOpacity)
+            : Number(config.fillOpacity);
+          ctx.globalAlpha = Math.max(0, Math.min(1, Number.isFinite(strokeOpacity) ? strokeOpacity : 1));
+          ctx.stroke();
+        }
+      }
     });
-    if(config.fill && config.fill !== 'none'){
-      ctx.fillStyle = config.fill;
-      ctx.globalAlpha = Math.max(0, Math.min(1, Number(config.fillOpacity)));
-      ctx.fill();
-    }
-    if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
-      ctx.strokeStyle = config.stroke;
-      ctx.lineWidth = strokeWidth;
-      const strokeOpacity = Number.isFinite(Number(config.strokeOpacity))
-        ? Number(config.strokeOpacity)
-        : Number(config.fillOpacity);
-      ctx.globalAlpha = Math.max(0, Math.min(1, Number.isFinite(strokeOpacity) ? strokeOpacity : 1));
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    foreignObject.appendChild(canvas);
-    group.appendChild(foreignObject);
-    return true;
   }
 
   function shouldUseBoxApproximatePointCanvas(renderOptions = {}){
@@ -3516,93 +3602,61 @@
     const doc = config?.doc || global.document;
     const group = config?.group || null;
     const bins = Array.isArray(config?.bins) ? config.bins : [];
-    if(!doc || !group || !bins.length || !canUseBoxPointResizeCanvas()){
-      return false;
-    }
     const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
     const center = Number(config?.center);
     const thickness = Math.max(1, Number(config?.thickness) || 1);
-    if(!Number.isFinite(center)){
-      return false;
-    }
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    bins.forEach(bin => {
-      const coord = Number(bin?.coord);
-      const halfWidth = Number(bin?.halfWidth);
-      if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
-        return;
-      }
-      if(orientation === 'vertical'){
-        minX = Math.min(minX, center - halfWidth);
-        maxX = Math.max(maxX, center + halfWidth);
-        minY = Math.min(minY, coord - thickness / 2);
-        maxY = Math.max(maxY, coord + thickness / 2);
-      }else{
-        minX = Math.min(minX, coord - thickness / 2);
-        maxX = Math.max(maxX, coord + thickness / 2);
-        minY = Math.min(minY, center - halfWidth);
-        maxY = Math.max(maxY, center + halfWidth);
-      }
-    });
-    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+    if(!doc || !group || !bins.length || !Number.isFinite(center)){
       return false;
     }
     const strokeWidth = Math.max(0, Number(config?.strokeWidth) || 0);
     const padding = Math.max(2, thickness + strokeWidth + 2);
-    minX -= padding;
-    minY -= padding;
-    maxX += padding;
-    maxY += padding;
-    const width = Math.max(1, Math.ceil(maxX - minX));
-    const height = Math.max(1, Math.ceil(maxY - minY));
-    const approximateSurface = createBoxCanvasForeignObjectSurface(doc, { minX, minY, width, height }, 'canvas-approx');
-    if(!approximateSurface){
+    const bounds = expandBoxCanvasBounds(computeBoxCanvasBoundsFromBins({ bins, orientation, center, thickness }), padding);
+    if(!bounds){
       return false;
     }
-    const { foreignObject, canvas, ctx, dpr } = approximateSurface;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    const drawSegments = (lineWidth, color, alpha) => {
-      if(!color || color === 'none' || lineWidth <= 0){
-        return;
+    return renderBoxCanvasForeignObject({
+      doc,
+      group,
+      bounds,
+      rendererType: 'canvas-approx',
+      draw(ctx){
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const drawSegments = (lineWidth, color, alpha) => {
+          if(!color || color === 'none' || lineWidth <= 0){
+            return;
+          }
+          ctx.beginPath();
+          bins.forEach(bin => {
+            const coord = Number(bin?.coord);
+            const halfWidth = Number(bin?.halfWidth);
+            if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
+              return;
+            }
+            if(orientation === 'vertical'){
+              const y = coord - bounds.minY;
+              ctx.moveTo(center - halfWidth - bounds.minX, y);
+              ctx.lineTo(center + halfWidth - bounds.minX, y);
+            }else{
+              const x = coord - bounds.minX;
+              ctx.moveTo(x, center - halfWidth - bounds.minY);
+              ctx.lineTo(x, center + halfWidth - bounds.minY);
+            }
+          });
+          const effectiveAlpha = Number.isFinite(Number(alpha)) ? Number(alpha) : 1;
+          ctx.globalAlpha = Math.max(0, Math.min(1, effectiveAlpha));
+          ctx.strokeStyle = color;
+          ctx.lineWidth = lineWidth;
+          ctx.stroke();
+        };
+        if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
+          drawSegments(Math.max(1, thickness + strokeWidth * 2), config.stroke, Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity));
+        }
+        if(config.fill && config.fill !== 'none'){
+          drawSegments(thickness, config.fill, Number(config.fillOpacity));
+        }
       }
-      ctx.beginPath();
-      bins.forEach(bin => {
-        const coord = Number(bin?.coord);
-        const halfWidth = Number(bin?.halfWidth);
-        if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
-          return;
-        }
-        if(orientation === 'vertical'){
-          const y = coord - minY;
-          ctx.moveTo(center - halfWidth - minX, y);
-          ctx.lineTo(center + halfWidth - minX, y);
-        }else{
-          const x = coord - minX;
-          ctx.moveTo(x, center - halfWidth - minY);
-          ctx.lineTo(x, center + halfWidth - minY);
-        }
-      });
-      const effectiveAlpha = Number.isFinite(Number(alpha)) ? Number(alpha) : 1;
-      ctx.globalAlpha = Math.max(0, Math.min(1, effectiveAlpha));
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
-      ctx.stroke();
-    };
-    if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
-      drawSegments(Math.max(1, thickness + strokeWidth * 2), config.stroke, Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity));
-    }
-    if(config.fill && config.fill !== 'none'){
-      drawSegments(thickness, config.fill, Number(config.fillOpacity));
-    }
-    ctx.globalAlpha = 1;
-    foreignObject.appendChild(canvas);
-    group.appendChild(foreignObject);
-    return true;
+    });
   }
 
   function buildBoxPointInteractionMaskPath(config){
@@ -3927,6 +3981,116 @@
     return nodes;
   }
 
+  function createBoxCanvasPointRenderStyle(config = {}){
+    return {
+      fill: config.fill,
+      fillOpacity: config.fillOpacity,
+      strokeOpacity: config.strokeOpacity,
+      stroke: config.stroke,
+      strokeWidth: Math.max(0, Number(config.strokeWidth) || 0)
+    };
+  }
+
+  function createBoxCanvasPointRenderState(config = {}){
+    const renderer = config.renderer === 'canvas-approx' ? 'canvas-approx' : 'canvas-preview';
+    const state = {
+      doc: config.doc || global.document,
+      renderer,
+      traceIndex: config.traceIndex,
+      pointData: config.pointData || null,
+      pointRadius: Number.isFinite(Number(config.pointRadius)) ? Number(config.pointRadius) : null,
+      shape: config.shape || 'circle',
+      hitBins: Array.isArray(config.hitBins) ? config.hitBins : null,
+      hitOrientation: config.hitOrientation || config.orientation,
+      hitCenter: Number.isFinite(Number(config.hitCenter)) ? Number(config.hitCenter) : config.center,
+      hitStrokeWidth: Number.isFinite(Number(config.hitStrokeWidth)) ? Number(config.hitStrokeWidth) : null,
+      style: createBoxCanvasPointRenderStyle(config.style || {})
+    };
+    if(renderer === 'canvas-approx'){
+      state.bins = Array.isArray(config.bins) ? config.bins : [];
+      state.orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      state.center = Number.isFinite(Number(config.center)) ? Number(config.center) : null;
+      state.thickness = Math.max(1, Number(config.thickness) || 1);
+    }else{
+      state.points = Array.isArray(config.points) ? config.points : [];
+    }
+    return state;
+  }
+
+  function renderBoxCanvasPointLayerFromState(renderState, group, docOverride){
+    if(!renderState || !group){
+      return false;
+    }
+    const doc = docOverride || renderState.doc || global.document;
+    const style = renderState.style || {};
+    if(renderState.renderer === 'canvas-approx'){
+      const rendered = renderBoxApproximatePointCanvas({
+        doc,
+        group,
+        bins: renderState.bins,
+        orientation: renderState.orientation,
+        center: renderState.center,
+        thickness: renderState.thickness,
+        fill: style.fill,
+        fillOpacity: style.fillOpacity,
+        strokeOpacity: style.strokeOpacity,
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth
+      });
+      if(rendered){
+        appendBoxApproximateGeometryPaths(group, renderState, doc, { hidden: true });
+      }
+      return rendered;
+    }
+    if(renderState.renderer === 'canvas-preview'){
+      return renderBoxPointResizeCanvasPreview({
+        doc,
+        group,
+        points: renderState.points,
+        radius: renderState.pointRadius,
+        fill: style.fill,
+        fillOpacity: style.fillOpacity,
+        strokeOpacity: style.strokeOpacity,
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth,
+        shape: renderState.shape
+      });
+    }
+    return false;
+  }
+
+  function appendBoxCanvasPreviewVectorFallback(cloneGroup, renderState, resolvedPreviewStyle, docOverride){
+    if(!cloneGroup || !renderState){
+      return false;
+    }
+    const doc = docOverride || cloneGroup.ownerDocument;
+    const style = resolvedPreviewStyle?.style || {};
+    if(renderState.renderer === 'canvas-preview'){
+      const points = Array.isArray(renderState.points) ? renderState.points : [];
+      if(!points.length){
+        return false;
+      }
+      const pointPath = createBatchedPointPath(doc, points, Math.max(0.2, (Number(resolvedPreviewStyle?.pointRadius) || 0.2) * 2), {
+        fill: style.fill,
+        fillOpacity: style.fillOpacity,
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth,
+        dataTrace: renderState.traceIndex,
+        shape: resolvedPreviewStyle?.shape || renderState.shape
+      });
+      if(Number.isFinite(Number(style.strokeOpacity))){
+        pointPath.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
+      }
+      cloneGroup.appendChild(pointPath);
+      return true;
+    }
+    if(renderState.renderer === 'canvas-approx'){
+      const fallbackNodes = appendBoxApproximateGeometryPaths(cloneGroup, Object.assign({}, renderState, { style }), doc, { hidden: false });
+      return fallbackNodes.length > 0;
+    }
+    return false;
+  }
+
   function clearBoxCanvasPointGroupArtifacts(group){
     if(!group || !group.children){
       return;
@@ -3955,38 +4119,7 @@
     const doc = renderState.doc || global.document;
     const snapshot = syncBoxCanvasGroupStyleSnapshot(group, renderState);
     const style = renderState.style || {};
-    let rendered = false;
-    if(renderState.renderer === 'canvas-approx'){
-      rendered = renderBoxApproximatePointCanvas({
-        doc,
-        group,
-        bins: renderState.bins,
-        orientation: renderState.orientation,
-        center: renderState.center,
-        thickness: renderState.thickness,
-        fill: style.fill,
-        fillOpacity: style.fillOpacity,
-        strokeOpacity: style.strokeOpacity,
-        stroke: style.stroke,
-        strokeWidth: style.strokeWidth
-      });
-      if(rendered){
-        appendBoxApproximateGeometryPaths(group, renderState, doc, { hidden: true });
-      }
-    }else{
-      rendered = renderBoxPointResizeCanvasPreview({
-        doc,
-        group,
-        points: renderState.points,
-        radius: renderState.pointRadius,
-        fill: style.fill,
-        fillOpacity: style.fillOpacity,
-        strokeOpacity: style.strokeOpacity,
-        stroke: style.stroke,
-        strokeWidth: style.strokeWidth,
-        shape: renderState.shape
-      });
-    }
+    const rendered = renderBoxCanvasPointLayerFromState(renderState, group, doc);
     if(!rendered){
       return false;
     }
@@ -4192,6 +4325,25 @@
     return lowerValue + (upperValue - lowerValue) * (pos - lowerIndex);
   }
 
+  function createEmptyTraceSummary(requireSorted){
+    return {
+      count: 0,
+      mean: 0,
+      variance: 0,
+      sd: 0,
+      min: NaN,
+      max: NaN,
+      q1: NaN,
+      median: NaN,
+      q3: NaN,
+      iqr: 0,
+      sortedValues: requireSorted ? [] : null,
+      sum: 0,
+      sumSquares: 0,
+      sumCubes: 0,
+      sumFourth: 0
+    };
+  }
   function computeTraceSummary(values, options){
     const requireSorted = !!options?.requireSorted;
     const assumeFiniteValues = options?.assumeFiniteValues === true;
@@ -4199,23 +4351,7 @@
       ? options.precomputedMoments
       : null;
     if(!Array.isArray(values) || !values.length){
-      return {
-        count: 0,
-        mean: 0,
-        variance: 0,
-        sd: 0,
-        min: NaN,
-        max: NaN,
-        q1: NaN,
-        median: NaN,
-        q3: NaN,
-        iqr: 0,
-        sortedValues: requireSorted ? [] : null,
-        sum: 0,
-        sumSquares: 0,
-        sumCubes: 0,
-        sumFourth: 0
-      };
+      return createEmptyTraceSummary(requireSorted);
     }
     const sourceValues = Array.isArray(values) ? values : [];
     let numericValues;
@@ -4232,23 +4368,7 @@
     }
     const count = precomputed?.count ?? numericValues.length;
     if(!count){
-      return {
-        count: 0,
-        mean: 0,
-        variance: 0,
-        sd: 0,
-        min: NaN,
-        max: NaN,
-        q1: NaN,
-        median: NaN,
-        q3: NaN,
-        iqr: 0,
-        sortedValues: requireSorted ? [] : null,
-        sum: 0,
-        sumSquares: 0,
-        sumCubes: 0,
-        sumFourth: 0
-      };
+      return createEmptyTraceSummary(requireSorted);
     }
     let min = Number.isFinite(precomputed?.min) ? precomputed.min : numericValues[0];
     let max = Number.isFinite(precomputed?.max) ? precomputed.max : numericValues[0];
@@ -7409,6 +7529,516 @@
       summaryAdd
     };
   }
+
+  function createStripIndividualSummaryOps(params = {}){
+    const orientation = params.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const centerCoord = Number(params.centerCoord);
+    const valueToPixel = typeof params.valueToPixel === 'function' ? params.valueToPixel : null;
+    const summaryAdd = typeof params.summaryAdd === 'function' ? params.summaryAdd : null;
+    const summaryStrokeAttrs = typeof params.summaryStrokeAttrs === 'function'
+      ? params.summaryStrokeAttrs
+      : (() => ({}));
+    const summaryCap = Number(params.summaryCap);
+    const summaryRadius = Number(params.summaryRadius);
+    const pointRadius = Number(params.pointRadius);
+    const summaryPointHalfSpan = Number(params.summaryPointHalfSpan);
+    const summaryStrokeWidth = Number(params.summaryStrokeWidth);
+    const summaryIntervalWidth = Number(params.summaryIntervalWidth);
+    const pendingBars = Array.isArray(params.pendingBars) ? params.pendingBars : null;
+    const pendingCaps = Array.isArray(params.pendingCaps) ? params.pendingCaps : null;
+    const getGlobalHalfSpan = typeof params.getGlobalHalfSpan === 'function'
+      ? params.getGlobalHalfSpan
+      : (() => NaN);
+    const setGlobalHalfSpan = typeof params.setGlobalHalfSpan === 'function'
+      ? params.setGlobalHalfSpan
+      : null;
+    const traceIndex = params.traceIndex;
+    const mode = params.mode;
+
+    const updateGlobalHalfSpan = halfSpan => {
+      if(!Number.isFinite(halfSpan) || halfSpan <= 0 || !setGlobalHalfSpan){
+        return;
+      }
+      const current = Number(getGlobalHalfSpan());
+      if(!(Number.isFinite(current) && current >= halfSpan)){
+        setGlobalHalfSpan(halfSpan);
+      }
+    };
+
+    const pushPendingBar = (node, valuePixel, kind) => {
+      if(!pendingBars || !node){
+        return;
+      }
+      pendingBars.push({
+        node,
+        orientation,
+        centerCoord,
+        valuePixel,
+        traceIndex,
+        mode,
+        kind
+      });
+    };
+
+    const pushPendingCap = (node, valuePixel) => {
+      if(!pendingCaps || !node){
+        return;
+      }
+      pendingCaps.push({
+        node,
+        orientation,
+        centerCoord,
+        valuePixel,
+        traceIndex,
+        mode,
+        kind: 'interval-cap'
+      });
+    };
+
+    const createLine = attrs => {
+      if(!summaryAdd){
+        return null;
+      }
+      return summaryAdd('line', attrs);
+    };
+
+    return {
+      drawInterval: (low, high, opts = {}) => {
+        if(!Number.isFinite(low) || !Number.isFinite(high) || !valueToPixel){
+          return false;
+        }
+        let start = low;
+        let end = high;
+        if(end < start){
+          [start, end] = [end, start];
+        }
+        const startPixel = valueToPixel(orientation === 'vertical' ? end : start);
+        const endPixel = valueToPixel(orientation === 'vertical' ? start : end);
+        if(orientation === 'vertical'){
+          createLine({
+            x1: centerCoord,
+            y1: startPixel,
+            x2: centerCoord,
+            y2: endPixel,
+            ...summaryStrokeAttrs(summaryIntervalWidth)
+          });
+        }else{
+          createLine({
+            x1: startPixel,
+            y1: centerCoord,
+            x2: endPixel,
+            y2: centerCoord,
+            ...summaryStrokeAttrs(summaryIntervalWidth)
+          });
+        }
+        const capsEnabled = opts.caps !== false;
+        const capSize = opts.capSize ?? summaryCap;
+        if(capsEnabled && capSize > 0){
+          const capStartNode = orientation === 'vertical'
+            ? createLine({
+                x1: centerCoord - capSize / 2,
+                y1: startPixel,
+                x2: centerCoord + capSize / 2,
+                y2: startPixel,
+                ...summaryStrokeAttrs(summaryIntervalWidth)
+              })
+            : createLine({
+                x1: startPixel,
+                y1: centerCoord - capSize / 2,
+                x2: startPixel,
+                y2: centerCoord + capSize / 2,
+                ...summaryStrokeAttrs(summaryIntervalWidth)
+              });
+          const capEndNode = orientation === 'vertical'
+            ? createLine({
+                x1: centerCoord - capSize / 2,
+                y1: endPixel,
+                x2: centerCoord + capSize / 2,
+                y2: endPixel,
+                ...summaryStrokeAttrs(summaryIntervalWidth)
+              })
+            : createLine({
+                x1: endPixel,
+                y1: centerCoord - capSize / 2,
+                x2: endPixel,
+                y2: centerCoord + capSize / 2,
+                ...summaryStrokeAttrs(summaryIntervalWidth)
+              });
+          pushPendingCap(capStartNode, startPixel);
+          pushPendingCap(capEndNode, endPixel);
+        }
+        return true;
+      },
+      drawPoint: (value, radiusMultiplier = 1.4) => {
+        if(!Number.isFinite(value) || !valueToPixel){
+          return false;
+        }
+        const valuePixel = valueToPixel(value);
+        const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
+        const halfSpan = Math.max(summaryPointHalfSpan, fallbackHalfSpan);
+        updateGlobalHalfSpan(halfSpan);
+        const node = orientation === 'vertical'
+          ? createLine({
+              x1: centerCoord - halfSpan,
+              y1: valuePixel,
+              x2: centerCoord + halfSpan,
+              y2: valuePixel,
+              ...summaryStrokeAttrs(summaryStrokeWidth)
+            })
+          : createLine({
+              x1: valuePixel,
+              y1: centerCoord - halfSpan,
+              x2: valuePixel,
+              y2: centerCoord + halfSpan,
+              ...summaryStrokeAttrs(summaryStrokeWidth)
+            });
+        pushPendingBar(node, valuePixel, 'point');
+        return true;
+      },
+      drawMedianLine: value => {
+        if(!Number.isFinite(value) || !valueToPixel){
+          return false;
+        }
+        const valuePixel = valueToPixel(value);
+        const halfSpan = Math.max(summaryPointHalfSpan, Math.max(summaryCap, 4));
+        updateGlobalHalfSpan(halfSpan);
+        const node = orientation === 'vertical'
+          ? createLine({
+              x1: centerCoord - halfSpan,
+              y1: valuePixel,
+              x2: centerCoord + halfSpan,
+              y2: valuePixel,
+              ...summaryStrokeAttrs(summaryStrokeWidth)
+            })
+          : createLine({
+              x1: valuePixel,
+              y1: centerCoord - halfSpan,
+              x2: valuePixel,
+              y2: centerCoord + halfSpan,
+              ...summaryStrokeAttrs(summaryStrokeWidth)
+            });
+        pushPendingBar(node, valuePixel, 'median-line');
+        return true;
+      },
+      debug: !!params.debugEnabled
+    };
+  }
+
+  function normalizePendingIndividualSummarySpans(params = {}){
+    const orientation = params.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const bars = Array.isArray(params.pendingBars) ? params.pendingBars : [];
+    const caps = Array.isArray(params.pendingCaps) ? params.pendingCaps : [];
+    const globalHalfSpan = Number(params.globalHalfSpan);
+    if(!(bars.length && Number.isFinite(globalHalfSpan) && globalHalfSpan > 0)){
+      return;
+    }
+    for(const pendingBar of bars){
+      const node = pendingBar?.node;
+      if(!node || typeof node.setAttribute !== 'function'){
+        continue;
+      }
+      if(orientation === 'vertical'){
+        node.setAttribute('x1', String(pendingBar.centerCoord - globalHalfSpan));
+        node.setAttribute('x2', String(pendingBar.centerCoord + globalHalfSpan));
+        node.setAttribute('y1', String(pendingBar.valuePixel));
+        node.setAttribute('y2', String(pendingBar.valuePixel));
+      }else{
+        node.setAttribute('x1', String(pendingBar.valuePixel));
+        node.setAttribute('x2', String(pendingBar.valuePixel));
+        node.setAttribute('y1', String(pendingBar.centerCoord - globalHalfSpan));
+        node.setAttribute('y2', String(pendingBar.centerCoord + globalHalfSpan));
+      }
+    }
+    const globalIntervalCapHalfSpan = globalHalfSpan / 2;
+    if(caps.length && Number.isFinite(globalIntervalCapHalfSpan) && globalIntervalCapHalfSpan > 0){
+      for(const pendingCap of caps){
+        const node = pendingCap?.node;
+        if(!node || typeof node.setAttribute !== 'function'){
+          continue;
+        }
+        if(orientation === 'vertical'){
+          node.setAttribute('x1', String(pendingCap.centerCoord - globalIntervalCapHalfSpan));
+          node.setAttribute('x2', String(pendingCap.centerCoord + globalIntervalCapHalfSpan));
+          node.setAttribute('y1', String(pendingCap.valuePixel));
+          node.setAttribute('y2', String(pendingCap.valuePixel));
+        }else{
+          node.setAttribute('x1', String(pendingCap.valuePixel));
+          node.setAttribute('x2', String(pendingCap.valuePixel));
+          node.setAttribute('y1', String(pendingCap.centerCoord - globalIntervalCapHalfSpan));
+          node.setAttribute('y2', String(pendingCap.centerCoord + globalIntervalCapHalfSpan));
+        }
+      }
+    }
+    if(params.debugEnabled){
+      console.debug('Debug: box strip summary span normalized globally',{
+        count: bars.length,
+        capCount: caps.length,
+        orientation,
+        globalSummaryBarWidth: globalHalfSpan * 2,
+        globalIntervalCapWidth: globalHalfSpan
+      });
+    }
+  }
+
+  function estimateBoxViolinBandwidthShared(sorted){
+    if(!sorted.length) return 1;
+    const n = sorted.length;
+    const meanVal = sorted.reduce((acc, v) => acc + v, 0) / n;
+    const variance = sorted.reduce((acc, v) => acc + Math.pow(v - meanVal, 2), 0) / (n - 1 || 1);
+    const sigma = Math.sqrt(variance) || 0;
+    const iqrVal = percentileFromSorted(sorted, 0.75) - percentileFromSorted(sorted, 0.25);
+    const scale = Math.min(sigma, iqrVal / 1.349 || Infinity) || sigma || Math.abs(sorted[0]) || 1;
+    const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
+    const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
+    const resolved = Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
+    console.debug('Debug: box violin auto bandwidth',{ n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
+    return resolved;
+  }
+
+  function resolveBoxViolinBandwidthShared(sorted){
+    const violinState = ensureViolinState();
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    if(violinState.autoBandwidth === false){
+      const manual = Number(violinState.bandwidth);
+      if(Number.isFinite(manual) && manual > 0){
+        violinState.lastUsedBandwidth = manual;
+        if(debugEnabled){
+          console.debug('Debug: box violin bandwidth resolved manual',{ bandwidth: manual });
+        }
+        return manual;
+      }
+      if(debugEnabled){
+        console.debug('Debug: box violin bandwidth manual fallback',{ bandwidth: violinState.bandwidth });
+      }
+    }
+    const auto = estimateBoxViolinBandwidthShared(sorted);
+    violinState.lastUsedBandwidth = auto;
+    if(debugEnabled){
+      console.debug('Debug: box violin bandwidth resolved auto',{ bandwidth: auto });
+    }
+    return auto;
+  }
+
+  function computeBoxViolinDensityShared(sorted, minVal, maxVal, sampleCount){
+    const violinState = ensureViolinState();
+    const requestedCount = Number(sampleCount);
+    const count = clampViolinSampleCount(Number.isFinite(requestedCount) && requestedCount > 0 ? requestedCount : violinState.sampleCount);
+    violinState.sampleCount = clampViolinSampleCount(violinState.sampleCount);
+    violinState.lastSampleCount = count;
+    if(!sorted.length){
+      return { positions: [], densities: [], bandwidth: resolveBoxViolinBandwidthShared(sorted) };
+    }
+    const bandwidth = resolveBoxViolinBandwidthShared(sorted);
+    const domain = resolveViolinDensityDomain(sorted, bandwidth, minVal, maxVal);
+    const densityProfile = computeGaussianDensityProfile(sorted, bandwidth, domain, count);
+    const positions = densityProfile.positions;
+    const densities = densityProfile.densities;
+    const peak = densityProfile.peak;
+    const domainMin = densityProfile.domainMin;
+    const domainMax = densityProfile.domainMax;
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    if(debugEnabled){
+      const mode = violinState.autoBandwidth === false && Number.isFinite(violinState.bandwidth) && violinState.bandwidth > 0 ? 'manual' : 'auto';
+      console.debug('Debug: box violin density',{ bandwidth, domainMin, domainMax, sampleCount: count, peak, mode });
+    }
+    return { positions, densities, bandwidth };
+  }
+
+  function computeViolinTraceRenderStateShared(params = {}){
+    const densitySource = resolveBoxViolinDensitySource({
+      summary: params.summary,
+      valueList: params.valueList,
+      pointMode: params.pointMode,
+      whiskerInfo: params.whiskerInfo,
+      whiskerRule: params.whiskerRule,
+      whiskerCustomMultiplier: params.whiskerCustomMultiplier,
+      whiskerNeedsSd: params.whiskerNeedsSd,
+      whiskerMeta: params.whiskerMeta,
+      debugEnabled: params.debugEnabled
+    });
+    const densityInfo = computeBoxViolinDensityShared(
+      densitySource,
+      params.scaleMin,
+      params.scaleMax,
+      params.sampleCount
+    );
+    const violinMaxValue = densityInfo.positions.length
+      ? densityInfo.positions[densityInfo.positions.length - 1]
+      : params.summary?.max;
+    const peak = densityInfo.densities.length
+      ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0)
+      : 1;
+    const halfSpan = Math.max(3, Math.min(40, Number(params.localBand) * 0.225));
+    const pointBounds = createViolinBoundLookup(densityInfo, halfSpan, peak) || (() => halfSpan);
+    return {
+      densitySource,
+      densityInfo,
+      violinMaxValue,
+      peak,
+      halfSpan,
+      pointBounds,
+      pointMaxHalfSpan: halfSpan
+    };
+  }
+
+  function buildViolinPathPartsShared(params = {}){
+    const orientation = params.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const densityInfo = params.densityInfo || {};
+    const positions = Array.isArray(densityInfo.positions) ? densityInfo.positions : [];
+    const densities = Array.isArray(densityInfo.densities) ? densityInfo.densities : [];
+    const peak = Number(params.peak);
+    const halfSpan = Number(params.halfSpan);
+    const centerCoord = Number(params.centerCoord);
+    const valueToPixel = typeof params.valueToPixel === 'function' ? params.valueToPixel : null;
+    if(!positions.length || !valueToPixel){
+      return ['M 0 0', 'Z'];
+    }
+    const pathParts = [];
+    for(let idx = 0; idx < positions.length; idx++){
+      const pos = positions[idx];
+      const density = peak ? (Number(densities[idx]) || 0) / peak : 0;
+      const axisPixel = valueToPixel(pos);
+      const offset = density * halfSpan;
+      if(orientation === 'vertical'){
+        pathParts.push(`${idx === 0 ? 'M' : 'L'} ${centerCoord - offset} ${axisPixel}`);
+      }else{
+        pathParts.push(`${idx === 0 ? 'M' : 'L'} ${axisPixel} ${centerCoord - offset}`);
+      }
+    }
+    for(let idx = positions.length - 1; idx >= 0; idx--){
+      const pos = positions[idx];
+      const density = peak ? (Number(densities[idx]) || 0) / peak : 0;
+      const axisPixel = valueToPixel(pos);
+      const offset = density * halfSpan;
+      if(orientation === 'vertical'){
+        pathParts.push(`L ${centerCoord + offset} ${axisPixel}`);
+      }else{
+        pathParts.push(`L ${axisPixel} ${centerCoord + offset}`);
+      }
+    }
+    pathParts.push('Z');
+    return pathParts;
+  }
+
+  async function renderBoxTracePointsShared(params = {}){
+    const pointMode = params.pointMode;
+    const graphTypeRaw = params.graphTypeRaw;
+    if(pointMode === 'none' || graphTypeRaw === 'strip'){
+      return true;
+    }
+    const orientation = params.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const traceIndex = params.traceIndex;
+    const timerLabel = `boxplotPoints_${params.drawToken}_${traceIndex}`;
+    console.time(timerLabel);
+    try{
+      const hasExplicitPointSize = !!params.hasExplicitPointSize;
+      const callSwarm = typeof params.callSwarm === 'function' ? params.callSwarm : null;
+      if(!callSwarm){
+        return false;
+      }
+      if(pointMode === 'outliers'){
+        const outlierOverlayColors = graphTypeRaw === 'violin'
+          ? { fill: params.fillColor, stroke: params.borderColor }
+          : resolveScientificOverlayPointColors(params.fillColor, params.borderColor);
+        const outlierPointRadius = hasExplicitPointSize ? null : params.overlayPointRadius;
+        if(params.debugEnabled){
+          console.debug('Debug: box outlier point defaults aligned to overlay', {
+            orientation,
+            traceIndex,
+            graphType: graphTypeRaw,
+            fill: outlierOverlayColors.fill,
+            stroke: outlierOverlayColors.stroke,
+            pointRadius: outlierPointRadius
+          });
+        }
+        const outlierResult = await callSwarm({
+          valueList: params.outliers,
+          sampleCount: Array.isArray(params.outliers) ? params.outliers.length : 0,
+          fillColor: outlierOverlayColors.fill,
+          borderColor: outlierOverlayColors.stroke,
+          groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
+          opacityMultiplier: 1,
+          debugLabel: 'outliers',
+          pointRadiusOverride: outlierPointRadius,
+          maxHalfSpan: 0,
+          allowRadiusAdjustment: false
+        });
+        if(!outlierResult){
+          return false;
+        }
+        return true;
+      }
+      if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+        const overlayRadius = hasExplicitPointSize ? null : params.overlayPointRadius;
+        const overlayResult = await callSwarm({
+          valueList: params.pointValueList,
+          sampleCount: params.pointSampleCount,
+          fillColor: params.fillColor,
+          borderColor: params.borderColor,
+          violinBounds: params.violinPointBounds,
+          groupAttrs: { 'data-individual': 'true' },
+          opacityMultiplier: 0.85,
+          debugLabel: 'violin-overlay',
+          widthScaleMode: 'density',
+          maxHalfSpan: params.violinPointMaxHalfSpan,
+          pointRadiusOverride: overlayRadius,
+          rowIndices: params.pointRowIndices,
+          collectPointsByRow: params.connectPointsActive ? new Map() : null
+        });
+        if(!overlayResult){
+          return false;
+        }
+        if(params.connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
+          params.registerConnectionMap && params.registerConnectionMap(overlayResult.collectPointsByRow);
+        }
+        return true;
+      }
+      const overlayMode = pointMode === 'overlay';
+      const requestedHalfSpan = overlayMode
+        ? Math.max(params.pointRadius * 1.1, params.boxSpan * 0.3)
+        : Math.max(params.pointRadius * 1.1, params.boxSpan * 0.1);
+      const resolvedPointRadius = !hasExplicitPointSize && Number.isFinite(params.displayedPointSharedRadius)
+        ? params.displayedPointSharedRadius
+        : (overlayMode && !hasExplicitPointSize ? params.overlayPointRadius : null);
+      const overlayPointColors = overlayMode
+        ? resolveScientificOverlayPointColors(params.fillColor, params.borderColor)
+        : null;
+      const slotRadius = Number.isFinite(Number(resolvedPointRadius)) && Number(resolvedPointRadius) > 0
+        ? Number(resolvedPointRadius)
+        : params.pointRadius;
+      const sideSlot = overlayMode || typeof params.resolveSideSlot !== 'function'
+        ? null
+        : params.resolveSideSlot({
+            requestedHalfSpan,
+            pointRadius: slotRadius
+          });
+      const overlayResult = await callSwarm({
+        valueList: params.pointValueList,
+        centerCoord: overlayMode ? params.centerCoord : (sideSlot?.centerCoord ?? params.centerCoord),
+        sampleCount: params.pointSampleCount,
+        fillColor: overlayMode ? overlayPointColors.fill : params.fillColor,
+        borderColor: overlayMode ? overlayPointColors.stroke : params.borderColor,
+        groupAttrs: { 'data-individual': 'true' },
+        opacityMultiplier: 1,
+        debugLabel: overlayMode ? 'overlay' : 'side',
+        pointRadiusOverride: resolvedPointRadius,
+        maxHalfSpan: overlayMode ? requestedHalfSpan : (sideSlot?.halfSpan ?? 0),
+        allowRadiusAdjustment: false,
+        rowIndices: params.pointRowIndices,
+        collectPointsByRow: (params.connectPointsActive && (overlayMode || pointMode === 'side')) ? new Map() : null
+      });
+      if(!overlayResult){
+        return false;
+      }
+      if(params.connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
+        params.registerConnectionMap && params.registerConnectionMap(overlayResult.collectPointsByRow);
+      }
+      return true;
+    }finally{
+      console.timeEnd(timerLabel);
+    }
+  }
+
 
   const makeEditable = (el,onChange,options) => {
     const fn = Shared.makeEditable || global.makeEditable;
@@ -15627,6 +16257,21 @@
       return NaN;
     }
   }
+  function resolveDegenerateTStatistic(diff, options){
+    const alternative = resolveStatsAlternative(options);
+    if(diff === 0){
+      return { t: 0, p: 1, alternative };
+    }
+    return {
+      t: diff > 0 ? Infinity : -Infinity,
+      p: alternative === 'two-sided'
+        ? 0
+        : alternative === 'greater'
+          ? (diff > 0 ? 0 : 1)
+          : (diff < 0 ? 0 : 1),
+      alternative
+    };
+  }
   function tTest(a,b,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
@@ -15646,17 +16291,9 @@
     let df;
     let p;
     if(se===0){
-      if(diff===0){
-        t=0;
-        p=1;
-      }else{
-        t=diff>0?Infinity:-Infinity;
-        p=resolveStatsAlternative(options)==='two-sided'
-          ? 0
-          : resolveStatsAlternative(options)==='greater'
-            ? (diff>0?0:1)
-            : (diff<0?0:1);
-      }
+      const degenerate = resolveDegenerateTStatistic(diff, options);
+      t = degenerate.t;
+      p = degenerate.p;
       df=na+nb-2;
     }else{
       t=diff/se;
@@ -15701,17 +16338,9 @@
     let t;
     let p;
     if(se===0){
-      if(diff===0){
-        t=0;
-        p=1;
-      }else{
-        t=diff>0?Infinity:-Infinity;
-        p=resolveStatsAlternative(options)==='two-sided'
-          ? 0
-          : resolveStatsAlternative(options)==='greater'
-            ? (diff>0?0:1)
-            : (diff<0?0:1);
-      }
+      const degenerate = resolveDegenerateTStatistic(diff, options);
+      t = degenerate.t;
+      p = degenerate.p;
     }else{
       t=diff/se;
       p=resolveTestPValueFromT(cdf,t,df,resolveStatsAlternative(options));
@@ -15744,17 +16373,9 @@
     let t;
     let p;
     if(se===0){
-      if(md===0){
-        t=0;
-        p=1;
-      }else{
-        t=md>0?Infinity:-Infinity;
-        p=resolveStatsAlternative(options)==='two-sided'
-          ? 0
-          : resolveStatsAlternative(options)==='greater'
-            ? (md>0?0:1)
-            : (md<0?0:1);
-      }
+      const degenerate = resolveDegenerateTStatistic(md, options);
+      t = degenerate.t;
+      p = degenerate.p;
     }else{
       t=md/se;
       p=resolveTestPValueFromT(cdf,t,n-1,resolveStatsAlternative(options));
@@ -15843,17 +16464,9 @@
     let p;
     let se=sd/Math.sqrt(n);
     if(sd===0){
-      if(diff===0){
-        t=0;
-        p=1;
-      }else{
-        t=diff>0?Infinity:-Infinity;
-        p=resolveStatsAlternative(options)==='two-sided'
-          ? 0
-          : resolveStatsAlternative(options)==='greater'
-            ? (diff>0?0:1)
-            : (diff<0?0:1);
-      }
+      const degenerate = resolveDegenerateTStatistic(diff, options);
+      t = degenerate.t;
+      p = degenerate.p;
     }else{
       t=diff/se;
       p=resolveTestPValueFromT(cdf,t,n-1,resolveStatsAlternative(options));
@@ -15861,6 +16474,40 @@
     const interval=resolveMeanDifferenceInterval(diff,se,n-1,options);
     return { t, df:n-1, p, n, mean:meanVal, sd, diff, se, ciLow:interval.ciLow, ciHigh:interval.ciHigh, ciLevel:interval.ciLevel, alternative:interval.alternative };
   }
+
+  function computeRankStatisticNormalApproximation(params = {}){
+    const cdf = typeof params.cdf === 'function' ? params.cdf : null;
+    if(!cdf){
+      return { z: NaN, p: NaN };
+    }
+    const observed = Number(params.observed);
+    const meanValue = Number(params.mean);
+    const sigma = Math.sqrt(Math.max(Number(params.sigma) || 0, 0));
+    const alternative = params.alternative === 'greater' || params.alternative === 'less'
+      ? params.alternative
+      : 'two-sided';
+    if(!(Number.isFinite(observed) && Number.isFinite(meanValue) && sigma > 0)){
+      return { z: 0, p: 1 };
+    }
+    let z = 0;
+    let p = 1;
+    if(alternative === 'greater'){
+      const correction = observed > meanValue ? 0.5 : -0.5;
+      z = (observed - meanValue - correction) / sigma;
+      p = Math.max(0, Math.min(1, 1 - cdf(z, 0, 1)));
+    }else if(alternative === 'less'){
+      const correction = observed < meanValue ? -0.5 : 0.5;
+      z = (observed - meanValue - correction) / sigma;
+      p = Math.max(0, Math.min(1, cdf(z, 0, 1)));
+    }else{
+      const signed = observed - meanValue;
+      const correction = signed === 0 ? 0 : 0.5 * Math.sign(signed);
+      z = (signed - correction) / sigma;
+      p = Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(z), 0, 1))));
+    }
+    return { z, p };
+  }
+
   function wilcoxonOneSample(values,nullValue,options){
     const jStatLib=global.jStat;
     const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
@@ -15928,25 +16575,15 @@
     const mu=effectiveN*(effectiveN+1)/4;
     const sigmaSq=((effectiveN*(effectiveN+1)*(2*effectiveN+1))-(rankInfo.tieTerm/2))/24;
     const sigma=Math.sqrt(Math.max(sigmaSq,0));
-    let z=0;
-    let p=1;
-    let correction=0;
-    if(sigma>0){
-      if(alternative==='greater'){
-        correction=Wpos>mu?0.5:-0.5;
-        z=(Wpos-mu-correction)/sigma;
-        p=Math.max(0,Math.min(1,1-cdf(z,0,1)));
-      }else if(alternative==='less'){
-        correction=Wpos<mu?-0.5:0.5;
-        z=(Wpos-mu-correction)/sigma;
-        p=Math.max(0,Math.min(1,cdf(z,0,1)));
-      }else{
-        const signed=Wpos-mu;
-        correction=signed===0?0:0.5*Math.sign(signed);
-        z=(signed-correction)/sigma;
-        p=Math.max(0,Math.min(1,2*(1-cdf(Math.abs(z),0,1))));
-      }
-    }
+    const normalApprox = computeRankStatisticNormalApproximation({
+      cdf,
+      observed: Wpos,
+      mean: mu,
+      sigma,
+      alternative
+    });
+    const z=normalApprox.z;
+    const p=normalApprox.p;
     return { W, Wpos, Wneg, z, p, n, effectiveN, median:medianDiff, method:'normal-approximation', exact:false, continuityCorrected:true, tieCorrected:rankInfo.tieTerm>0, tieTerm:rankInfo.tieTerm };
   }
   function mannWhitney(a,b,options){
@@ -16005,25 +16642,15 @@
     const mu=(na*nb)/2;
     const sigmaSq=(na*nb/12)*(nTotal+1-(rankInfo.tieTerm/(nTotal*(nTotal-1||1))));
     const sigma=Math.sqrt(Math.max(sigmaSq,0));
-    let z=0;
-    let p=1;
-    let correction=0;
-    if(sigma>0){
-      if(alternative==='greater'){
-        correction=U1>mu?0.5:-0.5;
-        z=(U1-mu-correction)/sigma;
-        p=Math.max(0,Math.min(1,1-cdf(z,0,1)));
-      }else if(alternative==='less'){
-        correction=U1<mu?-0.5:0.5;
-        z=(U1-mu-correction)/sigma;
-        p=Math.max(0,Math.min(1,cdf(z,0,1)));
-      }else{
-        const signed=U1-mu;
-        correction=signed===0?0:0.5*Math.sign(signed);
-        z=(signed-correction)/sigma;
-        p=Math.max(0,Math.min(1,2*(1-cdf(Math.abs(z),0,1))));
-      }
-    }
+    const normalApprox = computeRankStatisticNormalApproximation({
+      cdf,
+      observed: U1,
+      mean: mu,
+      sigma,
+      alternative
+    });
+    const z=normalApprox.z;
+    const p=normalApprox.p;
     return { U,U1,U2,z,p,nA:na,nB:nb,method:'normal-approximation',exact:false,continuityCorrected:true,tieCorrected:rankInfo.tieTerm>0,tieTerm:rankInfo.tieTerm };
   }
   function kolmogorovSmirnovTwoSample(a,b){
@@ -16121,25 +16748,15 @@
     const mu=nEff*(nEff+1)/4;
     const sigmaSq=((nEff*(nEff+1)*(2*nEff+1))-(rankInfo.tieTerm/2))/24;
     const sigma=Math.sqrt(Math.max(sigmaSq,0));
-    let z=0;
-    let p=1;
-    let correction=0;
-    if(sigma>0){
-      if(alternative==='greater'){
-        correction=Wpos>mu?0.5:-0.5;
-        z=(Wpos-mu-correction)/sigma;
-        p=Math.max(0,Math.min(1,1-cdf(z,0,1)));
-      }else if(alternative==='less'){
-        correction=Wpos<mu?-0.5:0.5;
-        z=(Wpos-mu-correction)/sigma;
-        p=Math.max(0,Math.min(1,cdf(z,0,1)));
-      }else{
-        const signed=Wpos-mu;
-        correction=signed===0?0:0.5*Math.sign(signed);
-        z=(signed-correction)/sigma;
-        p=Math.max(0,Math.min(1,2*(1-cdf(Math.abs(z),0,1))));
-      }
-    }
+    const normalApprox = computeRankStatisticNormalApproximation({
+      cdf,
+      observed: Wpos,
+      mean: mu,
+      sigma,
+      alternative
+    });
+    const z=normalApprox.z;
+    const p=normalApprox.p;
     return { W,Wpos,Wneg,z,p,n:nRaw,effectiveN:nEff,method:'normal-approximation',exact:false,continuityCorrected:true,tieCorrected:rankInfo.tieTerm>0,tieTerm:rankInfo.tieTerm };
   }
   function anova(groups){
@@ -18388,7 +19005,16 @@
       sstotal
     };
   }
-  function analyzeTwoWayAnova(data){
+  const GROUPED_ANOVA_COLUMNS = [
+    { key: 'source', label: 'Source', align: 'left' },
+    { key: 'df', label: 'df', align: 'right' },
+    { key: 'ss', label: 'SS', align: 'right' },
+    { key: 'ms', label: 'MS', align: 'right' },
+    { key: 'f', label: 'F', align: 'right' },
+    { key: 'p', label: 'P value', align: 'right' },
+    { key: 'etaP2', label: 'ηp²', align: 'right' }
+  ];
+  function resolveGroupedMomentInfoForAnova(data){
     const base = collectGroupedMomentInfo(data);
     if(!base.ok){
       return { ok: false, message: base.message };
@@ -18397,6 +19023,14 @@
     if(!jStatLib){
       return { ok: false, message: 'Statistics unavailable (jStat missing).' };
     }
+    return { ok: true, base, jStatLib };
+  }
+  function analyzeTwoWayAnova(data){
+    const prepared = resolveGroupedMomentInfoForAnova(data);
+    if(!prepared.ok){
+      return { ok: false, message: prepared.message };
+    }
+    const { base, jStatLib } = prepared;
     const { I, J, K, ssa, ssb, ssab, sse } = base;
     if(I < 2 || J < 2){
       return { ok: false, message: 'Two-way ANOVA requires at least two groups and two conditions.' };
@@ -18425,15 +19059,7 @@
     return {
       ok: true,
       caption: 'Two-way ANOVA',
-      columns: [
-        { key: 'source', label: 'Source', align: 'left' },
-        { key: 'df', label: 'df', align: 'right' },
-        { key: 'ss', label: 'SS', align: 'right' },
-        { key: 'ms', label: 'MS', align: 'right' },
-        { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' },
-        { key: 'etaP2', label: 'ηp²', align: 'right' }
-      ],
+      columns: GROUPED_ANOVA_COLUMNS,
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, sse)) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, sse)) },
@@ -18454,14 +19080,11 @@
         analysisKey:'twoWayMixed'
       });
     }
-    const base = collectGroupedMomentInfo(data);
-    if(!base.ok){
-      return { ok: false, message: base.message };
+    const prepared = resolveGroupedMomentInfoForAnova(data);
+    if(!prepared.ok){
+      return { ok: false, message: prepared.message };
     }
-    const jStatLib = global.jStat;
-    if(!jStatLib){
-      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
-    }
+    const { base, jStatLib } = prepared;
     const { I, J, K, ssa, ssb, ssab, sse, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
     if(I < 2 || J < 2 || K < 2){
       return { ok: false, message: 'Two-way mixed model requires at least two groups, two conditions, and two complete rows.' };
@@ -18529,15 +19152,7 @@
     return {
       ok: true,
       caption: 'Two-way Mixed Model',
-      columns: [
-        { key: 'source', label: 'Source', align: 'left' },
-        { key: 'df', label: 'df', align: 'right' },
-        { key: 'ss', label: 'SS', align: 'right' },
-        { key: 'ms', label: 'MS', align: 'right' },
-        { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' },
-        { key: 'etaP2', label: 'ηp²', align: 'right' }
-      ],
+      columns: GROUPED_ANOVA_COLUMNS,
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssbs)) },
@@ -18552,14 +19167,11 @@
     };
   }
   function analyzeThreeWayAnova(data){
-    const base = collectGroupedMomentInfo(data);
-    if(!base.ok){
-      return { ok: false, message: base.message };
+    const prepared = resolveGroupedMomentInfoForAnova(data);
+    if(!prepared.ok){
+      return { ok: false, message: prepared.message };
     }
-    const jStatLib = global.jStat;
-    if(!jStatLib){
-      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
-    }
+    const { base, jStatLib } = prepared;
     const { I, J, K, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean, cellMeans, ssa, ssb, ssab, sstotal } = base;
     if(I < 2 || J < 2 || K < 2){
       return { ok: false, message: 'Three-way ANOVA requires at least two groups, two conditions, and two rows.' };
@@ -18632,15 +19244,7 @@
     return {
       ok: true,
       caption: 'Three-way ANOVA',
-      columns: [
-        { key: 'source', label: 'Source', align: 'left' },
-        { key: 'df', label: 'df', align: 'right' },
-        { key: 'ss', label: 'SS', align: 'right' },
-        { key: 'ms', label: 'MS', align: 'right' },
-        { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' },
-        { key: 'etaP2', label: 'ηp²', align: 'right' }
-      ],
+      columns: GROUPED_ANOVA_COLUMNS,
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssabc)) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssabc)) },
@@ -18665,14 +19269,11 @@
         analysisKey:'threeWayMixed'
       });
     }
-    const base = collectGroupedMomentInfo(data);
-    if(!base.ok){
-      return { ok: false, message: base.message };
+    const prepared = resolveGroupedMomentInfoForAnova(data);
+    if(!prepared.ok){
+      return { ok: false, message: prepared.message };
     }
-    const jStatLib = global.jStat;
-    if(!jStatLib){
-      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
-    }
+    const { base, jStatLib } = prepared;
     const { I, J, K, ssa, ssb, ssab, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
     if(I < 2 || J < 2 || K < 2){
       return { ok: false, message: 'Three-way mixed model requires at least two groups, two conditions, and two rows.' };
@@ -18740,15 +19341,7 @@
     return {
       ok: true,
       caption: 'Three-way Mixed Model',
-      columns: [
-        { key: 'source', label: 'Source', align: 'left' },
-        { key: 'df', label: 'df', align: 'right' },
-        { key: 'ss', label: 'SS', align: 'right' },
-        { key: 'ms', label: 'MS', align: 'right' },
-        { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' },
-        { key: 'etaP2', label: 'ηp²', align: 'right' }
-      ],
+      columns: GROUPED_ANOVA_COLUMNS,
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssbs)) },
@@ -22175,6 +22768,7 @@ Technical analysis record (advanced)
       console.debug('Debug: box stats svg reapply suppressed',{ significance: state.showSignificanceBars, version });
     }else if(needsSvgReapply){
       console.debug('Debug: box stats recompute for new svg',{ svgChanged, significance: state.showSignificanceBars, version });
+      state.statsAutoSvgReapplyPending = true;
       handleStatsComputeClick();
     }
   }
@@ -22395,64 +22989,21 @@ Technical analysis record (advanced)
     return true;
   }
 
-  function applyBoxStatsAnnotationsFromModel(model, context){
-    if(!model || model.mode !== 'single'){
-      return;
-    }
-    if(model.message){
-      return;
-    }
-    const svg = context?.svg;
-    const helpers = context?.helpers || {};
-    if(!svg){
-      return;
-    }
-    const significanceEnabled = !!state.showSignificanceBars || !!helpers?.significance?.enabled;
-    state.statsLastSignificanceEnabled = !!significanceEnabled;
-    state.significanceMaxLevel = null;
-    const annotationOpts = helpers?.annotationStyle || {};
-    const orientation = annotationOpts.orientation === 'horizontal' ? 'horizontal' : 'vertical';
-    const categoryCenter = typeof helpers?.categoryCenter === 'function'
-      ? helpers.categoryCenter
-      : (typeof helpers?.xCenter === 'function' ? helpers.xCenter : (idx => idx));
-    const valueToCoord = typeof helpers?.valueToCoord === 'function'
-      ? helpers.valueToCoord
-      : (typeof helpers?.y2px === 'function' ? helpers.y2px : (val => val));
-    const baseOffset = Number.isFinite(annotationOpts.baseOffset) ? annotationOpts.baseOffset : ANN_BASE_OFFSET;
-    const levelGap = Number.isFinite(annotationOpts.levelGap) ? annotationOpts.levelGap : ANN_LEVEL_GAP;
-    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
-    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth, {
-      labelMode: state.significanceLabelMode,
-      scientific: annotationOpts.pScientific,
-      decimals: annotationOpts.pDecimals,
-      bracketSize: annotationOpts.bracketSize
-    });
-    const labelGapForPairs = resolveSignificanceLabelGapPx(annotationOpts.fontSize);
-    const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
-    const traces = Array.isArray(context?.traces) ? context.traces : [];
-    const fallbackTraceMax = idx => {
-      const trace = traces?.[idx];
-      const values = Array.isArray(trace?.rawY) ? trace.rawY : (Array.isArray(trace?.y) ? trace.y : []);
-      if(!values.length){
-        return -Infinity;
-      }
-      let max = -Infinity;
-      for(let i = 0; i < values.length; i++){
-        const v = values[i];
-        if(Number.isFinite(v) && v > max){
-          max = v;
-        }
-      }
-      return max;
-    };
-    const getRenderedMaxValue = idx => {
-      if(annotationMaxByTrace && Number.isFinite(annotationMaxByTrace[idx])){
-        return annotationMaxByTrace[idx];
-      }
-      return fallbackTraceMax(idx);
-    };
+
+  function buildBoxPairAnnotationRuntime(params = {}){
+    const svg = params?.svg;
+    const helpers = params?.helpers || {};
+    const traces = Array.isArray(params?.traces) ? params.traces : [];
+    const significanceEnabled = !!params?.significanceEnabled;
+    const annotationOpts = params?.annotationOpts || {};
+    const orientation = params?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const categoryCenter = typeof params?.categoryCenter === 'function' ? params.categoryCenter : (idx => idx);
+    const valueToCoord = typeof params?.valueToCoord === 'function' ? params.valueToCoord : (value => value);
+    const baseOffset = Number.isFinite(params?.baseOffset) ? Number(params.baseOffset) : ANN_BASE_OFFSET;
+    const levelGap = Number.isFinite(params?.levelGap) ? Number(params.levelGap) : ANN_LEVEL_GAP;
+    const levelStep = Number.isFinite(params?.levelStep) ? Number(params.levelStep) : ANN_LEVEL_GAP;
+    const annotationBracketSize = Number.isFinite(params?.annotationBracketSize) ? Number(params.annotationBracketSize) : 10;
     const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
-    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
     const adaptiveWhiskerGapPx = Math.max(
       5,
       Math.min(10, (Number.isFinite(annotationOpts.fontSize) ? annotationOpts.fontSize : 12) * 0.45)
@@ -22467,16 +23018,44 @@ Technical analysis record (advanced)
     const adaptiveDataObstaclePadding = Number.isFinite(Number(annotationOpts.dataObstaclePadding))
       ? Math.max(0, Number(annotationOpts.dataObstaclePadding))
       : 0;
+    const annotationMaxByTrace = Array.isArray(params?.annotationMaxByTrace) ? params.annotationMaxByTrace : null;
+    const fallbackTraceMax = idx => {
+      const trace = traces?.[idx];
+      const values = Array.isArray(trace?.rawY) ? trace.rawY : (Array.isArray(trace?.y) ? trace.y : []);
+      if(!values.length){
+        return -Infinity;
+      }
+      let max = -Infinity;
+      for(let i = 0; i < values.length; i++){
+        const value = values[i];
+        if(Number.isFinite(value) && value > max){
+          max = value;
+        }
+      }
+      return max;
+    };
+    const getRenderedMaxValue = idx => {
+      if(annotationMaxByTrace && Number.isFinite(annotationMaxByTrace[idx])){
+        return annotationMaxByTrace[idx];
+      }
+      return fallbackTraceMax(idx);
+    };
     const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
-      if(!adaptiveWhiskersEnabled){ return null; }
+      if(!adaptiveWhiskersEnabled){
+        return null;
+      }
       const renderedMaxValue = getRenderedMaxValue(traceIdx);
-      if(!Number.isFinite(renderedMaxValue)){ return null; }
+      if(!Number.isFinite(renderedMaxValue)){
+        return null;
+      }
       const baseCoord = valueToCoord(renderedMaxValue);
-      if(!Number.isFinite(baseCoord)){ return null; }
-      const lvl = Number.isFinite(level) ? level : 0;
+      if(!Number.isFinite(baseCoord)){
+        return null;
+      }
+      const resolvedLevel = Number.isFinite(level) ? Number(level) : 0;
       return orientation === 'horizontal'
-        ? baseCoord + baseOffset + lvl * levelStep
-        : baseCoord - baseOffset - lvl * levelStep;
+        ? baseCoord + baseOffset + resolvedLevel * levelStep
+        : baseCoord - baseOffset - resolvedLevel * levelStep;
     };
     const resolveAdaptiveDataObstacleCoord = traceIdx => {
       if(!adaptiveWhiskersEnabled){
@@ -22490,10 +23069,9 @@ Technical analysis record (advanced)
       if(!Number.isFinite(coord)){
         return null;
       }
-      if(orientation === 'horizontal'){
-        return coord + adaptiveDataObstaclePadding;
-      }
-      return coord - adaptiveDataObstaclePadding;
+      return orientation === 'horizontal'
+        ? coord + adaptiveDataObstaclePadding
+        : coord - adaptiveDataObstaclePadding;
     };
     const resolveLowerInnerCoord = (traceIdx, level, source) => {
       if(!adaptiveWhiskersEnabled || level <= 0){
@@ -22508,21 +23086,21 @@ Technical analysis record (advanced)
       let bestLevel = -Infinity;
       let candidate = null;
       for(let i = 0; i < pairList.length; i++){
-        const pr = pairList[i];
-        if(!pr || pr.level == null){
+        const pair = pairList[i];
+        if(!pair || pair.level == null){
           continue;
         }
-        const pairLevel = Number(pr.level);
+        const pairLevel = Number(pair.level);
         if(!Number.isFinite(pairLevel) || pairLevel >= level){
           continue;
         }
-        if(traceIdx < pr.ai || traceIdx > pr.bi){
+        if(traceIdx < pair.ai || traceIdx > pair.bi){
           continue;
         }
-        let coord = Number(pr.innerCoord);
+        let coord = Number(pair.innerCoord);
         if(!Number.isFinite(coord) && source?.geometryByPair instanceof Map){
-          const geom = source.geometryByPair.get(pr);
-          coord = Number(geom?.innerCoord);
+          const geometry = source.geometryByPair.get(pair);
+          coord = Number(geometry?.innerCoord);
         }
         if(!Number.isFinite(coord)){
           continue;
@@ -22577,78 +23155,146 @@ Technical analysis record (advanced)
         obstacleReachB
       };
     };
+    const layoutOptions = {
+      orientation,
+      valueToCoord,
+      categoryCenter,
+      baseOffset,
+      levelGap,
+      bracketSize: annotationBracketSize,
+      fontSize: annotationOpts.fontSize,
+      strokeWidth: annotationOpts.strokeWidth
+    };
+    const renderPairs = (pairsInput, options = {}) => {
+      const pairList = Array.isArray(pairsInput)
+        ? pairsInput.filter(pair => pair && Number.isFinite(pair.ai) && Number.isFinite(pair.bi) && Number.isFinite(pair.rangeMax))
+        : [];
+      if(!pairList.length){
+        return false;
+      }
+      const reason = options.reason || 'pairs';
+      if(!significanceEnabled){
+        console.debug('Debug: box significance annotation skipped for pairs',{
+          reason,
+          pairCount: pairList.length,
+          significanceEnabled
+        });
+        return false;
+      }
+      const layout = buildPairAnnotationLayout(pairList, layoutOptions);
+      const renderPairsSorted = layout.sorted.slice().sort((a, b) =>
+        (Number(a?.level) || 0) - (Number(b?.level) || 0)
+        || (Number(a?.ai) || 0) - (Number(b?.ai) || 0)
+        || (Number(a?.bi) || 0) - (Number(b?.bi) || 0)
+      );
+      const lowerSource = {
+        pairs: renderPairsSorted,
+        geometryByPair: layout.geometryByPair,
+        endpointReachByTrace: new Map()
+      };
+      renderPairsSorted.forEach(pair => {
+        const geometry = layout.geometryByPair.get(pair);
+        if(!geometry){
+          return;
+        }
+        const centerA = categoryCenter(pair.ai);
+        const centerB = categoryCenter(pair.bi);
+        if(Number.isFinite(centerA) && Number.isFinite(geometry.x1)){
+          const reachA = Math.abs(geometry.x1 - centerA);
+          const previousA = Number(lowerSource.endpointReachByTrace.get(pair.ai));
+          if(!Number.isFinite(previousA) || reachA > previousA){
+            lowerSource.endpointReachByTrace.set(pair.ai, reachA);
+          }
+        }
+        if(Number.isFinite(centerB) && Number.isFinite(geometry.x2)){
+          const reachB = Math.abs(geometry.x2 - centerB);
+          const previousB = Number(lowerSource.endpointReachByTrace.get(pair.bi));
+          if(!Number.isFinite(previousB) || reachB > previousB){
+            lowerSource.endpointReachByTrace.set(pair.bi, reachB);
+          }
+        }
+      });
+      renderPairsSorted.forEach(pair => {
+        const geometry = layout.geometryByPair.get(pair) || null;
+        const annotationCoord = Number.isFinite(geometry?.annotationCoord)
+          ? geometry.annotationCoord
+          : (orientation === 'horizontal'
+            ? Number(valueToCoord(pair.rangeMax)) + baseOffset + (Number(pair.level) || 0) * levelStep
+            : Number(valueToCoord(pair.rangeMax)) - baseOffset - (Number(pair.level) || 0) * levelStep);
+        const annotationStyle = buildPairAnnotationStyle(pair.ai, pair.bi, Number(pair.level) || 0, lowerSource);
+        annotatePair(
+          svg,
+          Number.isFinite(geometry?.x1) ? geometry.x1 : categoryCenter(pair.ai),
+          Number.isFinite(geometry?.x2) ? geometry.x2 : categoryCenter(pair.bi),
+          annotationCoord,
+          resolvePairwiseSignificanceP(pair),
+          annotationStyle
+        );
+        pair.annotationCoord = annotationCoord;
+        pair.innerCoord = Number.isFinite(geometry?.innerCoord)
+          ? geometry.innerCoord
+          : (orientation === 'horizontal'
+            ? annotationCoord + annotationBracketSize
+            : annotationCoord - annotationBracketSize);
+      });
+      return { rendered: true, maxLevel: layout.maxLevel };
+    };
+    return { renderPairs };
+  }
+
+  function applyBoxStatsAnnotationsFromModel(model, context){
+    if(!model || model.mode !== 'single'){
+      return;
+    }
+    if(model.message){
+      return;
+    }
+    const svg = context?.svg;
+    const helpers = context?.helpers || {};
+    if(!svg){
+      return;
+    }
+    const significanceEnabled = !!state.showSignificanceBars || !!helpers?.significance?.enabled;
+    state.statsLastSignificanceEnabled = !!significanceEnabled;
+    state.significanceMaxLevel = null;
+    const annotationOpts = helpers?.annotationStyle || {};
+    const orientation = annotationOpts.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const categoryCenter = typeof helpers?.categoryCenter === 'function'
+      ? helpers.categoryCenter
+      : (typeof helpers?.xCenter === 'function' ? helpers.xCenter : (idx => idx));
+    const valueToCoord = typeof helpers?.valueToCoord === 'function'
+      ? helpers.valueToCoord
+      : (typeof helpers?.y2px === 'function' ? helpers.y2px : (val => val));
+    const baseOffset = Number.isFinite(annotationOpts.baseOffset) ? annotationOpts.baseOffset : ANN_BASE_OFFSET;
+    const levelGap = Number.isFinite(annotationOpts.levelGap) ? annotationOpts.levelGap : ANN_LEVEL_GAP;
+    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
+    const levelStep = resolveSignificanceLevelStepPx(levelGap, annotationOpts.fontSize, orientation, annotationStrokeWidth, {
+      labelMode: state.significanceLabelMode,
+      scientific: annotationOpts.pScientific,
+      decimals: annotationOpts.pDecimals,
+      bracketSize: annotationOpts.bracketSize
+    });
+    const annotationRuntime = buildBoxPairAnnotationRuntime({
+      svg,
+      helpers,
+      traces: context?.traces,
+      significanceEnabled,
+      annotationOpts,
+      orientation,
+      categoryCenter,
+      valueToCoord,
+      baseOffset,
+      levelGap,
+      levelStep,
+      annotationBracketSize,
+      annotationMaxByTrace: helpers?.annotationMaxByTrace
+    });
 
     const pairs = Array.isArray(model.pairs) ? model.pairs.slice() : [];
     if(pairs.length){
-      if(significanceEnabled){
-        const layout = buildPairAnnotationLayout(pairs, {
-          orientation,
-          valueToCoord,
-          categoryCenter,
-          baseOffset,
-          levelGap,
-          bracketSize: annotationBracketSize,
-          fontSize: annotationOpts.fontSize,
-          strokeWidth: annotationOpts.strokeWidth
-        });
-        const renderPairs = layout.sorted.slice().sort((a,b) =>
-          (Number(a?.level) || 0) - (Number(b?.level) || 0)
-          || (Number(a?.ai) || 0) - (Number(b?.ai) || 0)
-          || (Number(a?.bi) || 0) - (Number(b?.bi) || 0)
-        );
-        const lowerSource = {
-          pairs: renderPairs,
-          geometryByPair: layout.geometryByPair,
-          endpointReachByTrace: new Map()
-        };
-        renderPairs.forEach(pr => {
-          const geom = layout.geometryByPair.get(pr);
-          if(!geom){
-            return;
-          }
-          const centerA = categoryCenter(pr.ai);
-          const centerB = categoryCenter(pr.bi);
-          if(Number.isFinite(centerA) && Number.isFinite(geom.x1)){
-            const reachA = Math.abs(geom.x1 - centerA);
-            const prevA = Number(lowerSource.endpointReachByTrace.get(pr.ai));
-            if(!Number.isFinite(prevA) || reachA > prevA){
-              lowerSource.endpointReachByTrace.set(pr.ai, reachA);
-            }
-          }
-          if(Number.isFinite(centerB) && Number.isFinite(geom.x2)){
-            const reachB = Math.abs(geom.x2 - centerB);
-            const prevB = Number(lowerSource.endpointReachByTrace.get(pr.bi));
-            if(!Number.isFinite(prevB) || reachB > prevB){
-              lowerSource.endpointReachByTrace.set(pr.bi, reachB);
-            }
-          }
-        });
-        renderPairs.forEach(pr => {
-          const geom = layout.geometryByPair.get(pr) || null;
-          const annotationCoord = Number.isFinite(geom?.annotationCoord)
-            ? geom.annotationCoord
-            : (orientation === 'horizontal'
-              ? Number(valueToCoord(pr.rangeMax)) + baseOffset + (Number(pr.level) || 0) * levelStep
-              : Number(valueToCoord(pr.rangeMax)) - baseOffset - (Number(pr.level) || 0) * levelStep);
-          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, lowerSource);
-          annotatePair(
-            svg,
-            Number.isFinite(geom?.x1) ? geom.x1 : categoryCenter(pr.ai),
-            Number.isFinite(geom?.x2) ? geom.x2 : categoryCenter(pr.bi),
-            annotationCoord,
-            resolvePairwiseSignificanceP(pr),
-            annotationStyle
-          );
-          pr.annotationCoord = annotationCoord;
-          pr.innerCoord = Number.isFinite(geom?.innerCoord)
-            ? geom.innerCoord
-            : (orientation === 'horizontal'
-              ? annotationCoord + annotationBracketSize
-              : annotationCoord - annotationBracketSize);
-        });
-        state.significanceMaxLevel = layout.maxLevel;
-      }else{
-        console.debug('Debug: box significance annotation skipped for pairs',{ pairCount: pairs.length, significanceEnabled });
+      const renderResult = annotationRuntime.renderPairs(pairs, { reason: 'model-pairs' });
+      if(renderResult?.rendered){
+        state.significanceMaxLevel = renderResult.maxLevel;
       }
       return;
     }
@@ -22688,6 +23334,8 @@ Technical analysis record (advanced)
       return;
     }
     const userInitiated = !!(evt && evt.isTrusted);
+    const autoSvgReapply = !!state.statsAutoSvgReapplyPending;
+    state.statsAutoSvgReapplyPending = false;
     const canShowSignificance = isPairwiseSignificanceSupported();
     if(userInitiated && canShowSignificance && !state.showSignificanceBars){
       state.pendingAutoShowSignificance = true;
@@ -22747,7 +23395,7 @@ Technical analysis record (advanced)
       }
       // Persist the tab payload immediately if the computed results belong to the current context
       try{
-        if(stillCurrent && state.statsLastRunVersion === context.version){
+        if(stillCurrent && state.statsLastRunVersion === context.version && !autoSvgReapply){
           const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
           if(sess && typeof sess.persistActiveTabState === 'function'){
             sess.persistActiveTabState(undefined, { reason: 'stats-computed' });
@@ -22778,13 +23426,16 @@ Technical analysis record (advanced)
         ? Number(state.significanceMaxLevel)
         : null;
       const shouldReflowForSignificance = canShowSignificance && !!state.showSignificanceBars
-        && nextSignificanceMaxLevel !== previousSignificanceMaxLevel;
+        && nextSignificanceMaxLevel !== previousSignificanceMaxLevel && !autoSvgReapply;
       if(shouldReflowForSignificance){
         state.scheduleDraw();
       }
     };
 
     const runLocalCompute = () => {
+      if(autoSvgReapply){
+        console.debug('Debug: box stats auto SVG reapply compute',{ version: context.version, significance: state.showSignificanceBars });
+      }
       computeStats(context.traces, context.svg, context.helpers);
       renderStatsTable(context.traces);
       if(els.statsResults && state.statsLastReport){
@@ -23154,90 +23805,29 @@ Technical analysis record (advanced)
 	        obstacleReachB
 	      };
 	    };
-	    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
-	      const pairList = Array.isArray(pairsInput)
-	        ? pairsInput.filter(pr => pr && Number.isFinite(pr.ai) && Number.isFinite(pr.bi) && Number.isFinite(pr.rangeMax))
-	        : [];
-	      if(!pairList.length){
-	        return false;
-	      }
-	      const reason = options.reason || 'pairs';
-	      if(!significanceEnabled){
-	        console.debug('Debug: box significance annotation skipped for pairs',{
-	          reason,
-	          pairCount: pairList.length,
-	          significanceEnabled
-	        });
-	        return false;
-	      }
-	      const layout = buildPairAnnotationLayout(pairList, {
-	        orientation,
-	        valueToCoord,
-	        categoryCenter,
-	        baseOffset,
-	        levelGap,
-	        bracketSize: annotationBracketSize,
-	        fontSize: annotationOpts.fontSize,
-	        strokeWidth: annotationOpts.strokeWidth
-	      });
-	      const renderPairs = layout.sorted.slice().sort((a,b) =>
-	        (Number(a?.level) || 0) - (Number(b?.level) || 0)
-	        || (Number(a?.ai) || 0) - (Number(b?.ai) || 0)
-	        || (Number(a?.bi) || 0) - (Number(b?.bi) || 0)
-	      );
-	      const lowerSource = {
-	        pairs: renderPairs,
-	        geometryByPair: layout.geometryByPair,
-	        endpointReachByTrace: new Map()
-	      };
-	      renderPairs.forEach(pr => {
-	        const geom = layout.geometryByPair.get(pr);
-	        if(!geom){
-	          return;
-	        }
-	        const centerA = categoryCenter(pr.ai);
-	        const centerB = categoryCenter(pr.bi);
-	        if(Number.isFinite(centerA) && Number.isFinite(geom.x1)){
-	          const reachA = Math.abs(geom.x1 - centerA);
-	          const prevA = Number(lowerSource.endpointReachByTrace.get(pr.ai));
-	          if(!Number.isFinite(prevA) || reachA > prevA){
-	            lowerSource.endpointReachByTrace.set(pr.ai, reachA);
-	          }
-	        }
-	        if(Number.isFinite(centerB) && Number.isFinite(geom.x2)){
-	          const reachB = Math.abs(geom.x2 - centerB);
-	          const prevB = Number(lowerSource.endpointReachByTrace.get(pr.bi));
-	          if(!Number.isFinite(prevB) || reachB > prevB){
-	            lowerSource.endpointReachByTrace.set(pr.bi, reachB);
-	          }
-	        }
-	      });
-	      renderPairs.forEach(pr=>{
-	        const geom = layout.geometryByPair.get(pr) || null;
-	        const annotationCoord = Number.isFinite(geom?.annotationCoord)
-	          ? geom.annotationCoord
-	          : (orientation==='horizontal'
-	            ? Number(valueToCoord(pr.rangeMax))+baseOffset+(Number(pr.level)||0)*levelStep
-	            : Number(valueToCoord(pr.rangeMax))-baseOffset-(Number(pr.level)||0)*levelStep);
-	        const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, Number(pr.level) || 0, lowerSource);
-	        annotatePair(
-	          svg,
-	          Number.isFinite(geom?.x1) ? geom.x1 : categoryCenter(pr.ai),
-	          Number.isFinite(geom?.x2) ? geom.x2 : categoryCenter(pr.bi),
-	          annotationCoord,
-	          resolvePairwiseSignificanceP(pr),
-	          annotationStyle
-	        );
-	        pr.annotationCoord=annotationCoord;
-	        pr.innerCoord=Number.isFinite(geom?.innerCoord)
-	          ? geom.innerCoord
-	          : (orientation==='horizontal'
-	            ? annotationCoord+annotationBracketSize
-	            : annotationCoord-annotationBracketSize);
-	      });
-	      state.significanceMaxLevel = layout.maxLevel;
-	      return true;
-	    };
+	    const annotationRuntime = buildBoxPairAnnotationRuntime({
+      svg,
+      helpers,
+      traces,
+      significanceEnabled,
+      annotationOpts,
+      orientation,
+      categoryCenter,
+      valueToCoord,
+      baseOffset,
+      levelGap,
+      levelStep,
+      annotationBracketSize,
+      annotationMaxByTrace: helpers?.annotationMaxByTrace
+    });
+    const renderPairSignificanceAnnotations = (pairsInput, options = {}) => {
+      const renderResult = annotationRuntime.renderPairs(pairsInput, options);
+      if(renderResult?.rendered){
+        state.significanceMaxLevel = renderResult.maxLevel;
+        return true;
+      }
+      return false;
+    };
 	    if(state.tableFormat==='grouped'){
 	      const prepared=prepareGroupedStatsData(traces, helpers || { axisLabels: state.lastAxisLabels });
 	      statsDiv.innerHTML='';
@@ -26046,6 +26636,83 @@ Technical analysis record (advanced)
     });
 
 
+    async function resolveDisplayedPointSharedRadiusShared(config = {}){
+      const {
+        traces: traceList = [],
+        orientation = 'vertical',
+        pointRadius: requestedPointRadius = 0,
+        baseRadius = requestedPointRadius,
+        overlayMode = false,
+        pointMode = 'individual',
+        hasExplicitSize = () => false,
+        projectPointCoord = value => value,
+        resolveLocalBand = () => 0,
+        resolveMaxHalfWidth = ({ requestedHalfWidth }) => requestedHalfWidth,
+        tokenGuard = null
+      } = config || {};
+      const traceProfiles = [];
+      let limitingRadius = Infinity;
+      let limitingTraceIndex = null;
+      for(let i = 0; i < traceList.length; i++){
+        if(hasExplicitSize(i)){
+          continue;
+        }
+        const trace = traceList[i];
+        const values = Array.isArray(trace?.y) ? trace.y : [];
+        if(!values.length){
+          continue;
+        }
+        const pointCoords = new Float64Array(values.length);
+        for(let idx = 0; idx < values.length; idx++){
+          pointCoords[idx] = projectPointCoord(values[idx], trace, i);
+        }
+        const localBand = resolveLocalBand(trace, i);
+        const boxThickness = Math.max(6, Math.min(60, localBand * 0.6));
+        const requestedHalfWidth = overlayMode
+          ? Math.max(requestedPointRadius * 1.1, boxThickness * 0.3)
+          : Math.max(requestedPointRadius * 1.1, boxThickness * 0.1);
+        const maxHalfWidth = resolveMaxHalfWidth({
+          trace,
+          traceIndex: i,
+          localBand,
+          boxThickness,
+          requestedHalfWidth,
+          pointRadius: baseRadius
+        });
+        const profile = await computeBoundedPointTraceFeasibleRadius({
+          values,
+          coords: pointCoords,
+          axisSpacing: localBand,
+          baseRadius,
+          maxHalfWidth,
+          sampleSize: values.length,
+          orientation,
+          radiusStep: 0.1,
+          onProbe: () => tokenGuard ? tokenGuard() : true
+        });
+        if(tokenGuard && !tokenGuard()){
+          return null;
+        }
+        if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
+          continue;
+        }
+        traceProfiles.push({ traceIndex: i, pointCount: values.length, radius: Number(profile.radius), halfWidthCap: Number(profile.halfWidthCap), fitted: profile.fitted !== false });
+        if(Number(profile.radius) < limitingRadius){
+          limitingRadius = Number(profile.radius);
+          limitingTraceIndex = i;
+        }
+      }
+      if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
+        return null;
+      }
+      const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
+      const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
+      if(debugEnabled){
+        console.debug('Debug: box displayed point shared radius',{ orientation, pointMode, limitingTraceIndex, limitingRadius: resolvedRadius, traceProfiles });
+      }
+      return { radius: resolvedRadius };
+    }
+
     async function computeStripAutoSizeRadiusShared(config = {}){
       const {
         orientation = 'vertical',
@@ -26507,7 +27174,7 @@ Technical analysis record (advanced)
       let maxOffsetUsed = 0;
       if(approximateLayout){
         maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
-        group.__boxCanvasRenderState = {
+        group.__boxCanvasRenderState = createBoxCanvasPointRenderState({
           doc: document,
           renderer: 'canvas-approx',
           bins: approximateLayout.bins,
@@ -26529,7 +27196,7 @@ Technical analysis record (advanced)
             stroke: effectiveStroke,
             strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
           }
-        };
+        });
         renderStoredBoxCanvasPointGroup(group);
         if(debugEnabled){
           console.debug('Debug: box approximate point canvas rendered', {
@@ -26570,7 +27237,7 @@ Technical analysis record (advanced)
             widthScaleMode,
             violinBounds
           });
-          group.__boxCanvasRenderState = {
+          group.__boxCanvasRenderState = createBoxCanvasPointRenderState({
             doc: document,
             renderer: 'canvas-preview',
             points: pts,
@@ -26589,7 +27256,7 @@ Technical analysis record (advanced)
               stroke: effectiveStroke,
               strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
             }
-          };
+          });
           renderStoredBoxCanvasPointGroup(group);
           if(debugEnabled){
             console.debug('Debug: box resize canvas preview rendered', {
@@ -26657,6 +27324,263 @@ Technical analysis record (advanced)
       }
       return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius, collectPointsByRow };
     }
+
+    const buildAxisElementAppender = axisStrokeWidthLocal => (tag, attrs) => {
+      const attrMap = attrs && typeof attrs === 'object' ? attrs : {};
+      const node = appendToLayer(axisLayer || svg, tag, attrMap);
+      const strokeValue = typeof attrMap.stroke === 'string' ? attrMap.stroke : '';
+      if(strokeValue && strokeValue !== 'transparent'){
+        if(strokeValue === axisStroke){
+          node.setAttribute('data-box-axis-color-target', '1');
+        }
+        const strokeWidthRaw = Number(attrMap['stroke-width']);
+        if(Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0){
+          node.setAttribute('data-box-axis-stroke-target', '1');
+          if(Number.isFinite(axisStrokeWidthLocal) && axisStrokeWidthLocal > 0){
+            node.setAttribute('data-box-axis-width-factor', String(strokeWidthRaw / axisStrokeWidthLocal));
+          }
+        }
+      }
+      return node;
+    };
+    const renderSharedPlotFrame = (config = {}) => {
+      const margin = config?.margin || {};
+      const plotW = Number(config?.plotW);
+      const plotH = Number(config?.plotH);
+      const sides = Array.isArray(config?.sides) ? config.sides : ['top', 'right'];
+      const frameVisible = config?.showFrame !== false;
+      console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame: frameVisible, axisStrokeWidth });
+      const doc = svg.ownerDocument || global.document;
+      const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+      if(frameGroup){
+        frameGroup.setAttribute('stroke-width', axisStrokeWidth);
+        frameGroup.setAttribute('fill', 'none');
+        frameGroup.setAttribute('stroke', axisStroke);
+        frameGroup.setAttribute('data-box-frame', '1');
+        frameGroup.setAttribute('data-box-axis-color-target', '1');
+        frameGroup.setAttribute('data-box-axis-stroke-target', '1');
+        frameGroup.setAttribute('data-box-axis-width-factor', '1');
+        frameGroup.style.display = frameVisible ? '' : 'none';
+        (axisLayer || svg).appendChild(frameGroup);
+        chartStyle.drawPlotFrame({ svg, group: frameGroup, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides });
+        console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth, visible: frameVisible });
+      }else if(frameVisible){
+        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides, group: axisLayer || svg });
+        console.debug('Debug: box frame group fallback used');
+      }
+    };
+    const computeMinTraceCenterPitchShared = (traceList, centerResolver) => {
+      if(!Array.isArray(traceList) || traceList.length < 2 || typeof centerResolver !== 'function'){
+        return null;
+      }
+      const centers = new Array(traceList.length);
+      for(let i = 0; i < traceList.length; i++){
+        centers[i] = Number(centerResolver(traceList[i], i));
+      }
+      centers.sort((a, b) => a - b);
+      let minPitch = Infinity;
+      for(let i = 1; i < centers.length; i++){
+        const delta = centers[i] - centers[i - 1];
+        if(Number.isFinite(delta) && delta > 0 && delta < minPitch){
+          minPitch = delta;
+        }
+      }
+      return Number.isFinite(minPitch) ? minPitch : null;
+    };
+    const computeCategoricalBandLayoutShared = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const plotSpan = Math.max(0, Number(config?.plotSpan) || 0);
+      const marginStart = Number.isFinite(Number(config?.marginStart)) ? Number(config.marginStart) : 0;
+      const axisCountLocal = Math.max(Number(config?.axisCount) || 0, 1);
+      const categoricalAxis = config?.categoricalAxis === 'y' ? 'y' : 'x';
+      const grouped = config?.usesGroupedSpacing === true;
+      const groupedList = Array.isArray(config?.groupedGroups) ? config.groupedGroups : [];
+      const separatedUnits = config?.separatedCategoryUnits || null;
+      const plotDimensionLabel = typeof config?.plotDimensionLabel === 'string'
+        ? config.plotDimensionLabel
+        : (orientation === 'horizontal' ? 'plotHeight' : 'plotWidth');
+      const rawBand = plotSpan / axisCountLocal;
+      const datasetGapFraction = 0.06;
+      let gapPx = Math.max(2, Math.min(40, rawBand * datasetGapFraction));
+      let bandSize = (plotSpan - gapPx * Math.max(0, axisCountLocal - 1)) / axisCountLocal;
+      const requestedDatasetSpacing = getAxisDatasetSpacing(categoricalAxis);
+      let datasetSpacingScale = sanitizeXAxisDatasetSpacing(requestedDatasetSpacing);
+      if(datasetSpacingScale !== 1){
+        gapPx *= datasetSpacingScale;
+        bandSize *= datasetSpacingScale;
+        const requestedSpan = bandSize * axisCountLocal + gapPx * Math.max(0, axisCountLocal - 1);
+        if(requestedSpan > plotSpan && requestedSpan > 0){
+          const fitScale = plotSpan / requestedSpan;
+          gapPx *= fitScale;
+          bandSize *= fitScale;
+          datasetSpacingScale *= fitScale;
+          boxDebug('Debug: box categorical axis dataset spacing clamped to fit',{
+            axis: categoricalAxis,
+            requested: requestedDatasetSpacing,
+            applied: datasetSpacingScale,
+            fitScale,
+            requestedSpan,
+            [plotDimensionLabel]: plotSpan
+          });
+        }else{
+          boxDebug('Debug: box categorical axis dataset spacing applied',{
+            axis: categoricalAxis,
+            requested: requestedDatasetSpacing,
+            applied: datasetSpacingScale,
+            requestedSpan,
+            [plotDimensionLabel]: plotSpan
+          });
+        }
+      }
+      const totalGapSpace = gapPx * Math.max(0, axisCountLocal - 1);
+      const separatedSpanScale = Math.min(1, datasetSpacingScale);
+      const plotSpanForSpacing = Math.max(0, (plotSpan - totalGapSpace) * separatedSpanScale);
+      const separatedSpacing = separatedUnits
+        ? scaleSeparatedCategoryUnits(separatedUnits, plotSpanForSpacing, marginStart)
+        : null;
+      if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
+        bandSize = separatedSpacing.bandWidth;
+      }
+      const computedPlotSpan = separatedSpacing
+        ? Number(separatedSpacing.end) - Number(separatedSpacing.start)
+        : (bandSize * axisCountLocal + gapPx * Math.max(0, axisCountLocal - 1));
+      const plotUsed = Number.isFinite(computedPlotSpan) && computedPlotSpan > 0
+        ? Math.min(plotSpan, computedPlotSpan)
+        : plotSpan;
+      const plotEnd = marginStart + plotUsed;
+      const groupCountLocal = grouped ? Math.max(1, groupedList.length) : 1;
+      const clusterGap = grouped ? Math.min(bandSize * 0.25, 16) : 0;
+      let perGroupBand = grouped ? (bandSize - clusterGap) / groupCountLocal : bandSize;
+      if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
+        perGroupBand = bandSize / Math.max(groupCountLocal, 1);
+      }
+      const groupOffset = grouped ? (bandSize - perGroupBand * groupCountLocal) / 2 : 0;
+      const resolveCenter = (trace, traceIndex) => {
+        const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+        if(grouped){
+          const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
+          const bandStart = marginStart + categoryIdx * (bandSize + gapPx) + groupOffset;
+          return bandStart + (groupIdx + 0.5) * perGroupBand;
+        }
+        if(separatedSpacing && categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
+          return separatedSpacing.centers[categoryIdx];
+        }
+        return marginStart + categoryIdx * (bandSize + gapPx) + bandSize / 2;
+      };
+      const resolveLocalBandSize = () => {
+        if(separatedSpacing){
+          return separatedSpacing.bandWidth;
+        }
+        return grouped ? perGroupBand : bandSize;
+      };
+      const tickCenters = separatedSpacing
+        ? separatedSpacing.centers.slice()
+        : Array.from({ length: axisCountLocal }, (_, i) => marginStart + i * (bandSize + gapPx) + bandSize / 2);
+      const axisHalfBand = separatedSpacing && Number.isFinite(separatedSpacing.halfBand)
+        ? separatedSpacing.halfBand
+        : Math.max(0, bandSize / 2);
+      return {
+        axisCount: axisCountLocal,
+        gapPx,
+        bandSize,
+        datasetSpacingScale,
+        totalGapSpace,
+        separatedSpacing,
+        plotUsed,
+        plotEnd,
+        groupCountLocal,
+        clusterGap,
+        perGroupBand,
+        groupOffset,
+        resolveCenter,
+        resolveLocalBandSize,
+        tickCenters,
+        axisHalfBand
+      };
+    };
+    const buildValueAxisProjectionShared = (config = {}) => {
+      const axis = config?.axis === 'x' ? 'x' : 'y';
+      const scale = config?.scale || {};
+      const plotLength = Math.max(0, Number(config?.plotLength) || 0);
+      const marginStart = Number.isFinite(Number(config?.marginStart)) ? Number(config.marginStart) : 0;
+      const dataMin = Number.isFinite(Number(config?.dataMin)) ? Number(config.dataMin) : Number(scale?.min);
+      const dataMax = Number.isFinite(Number(config?.dataMax)) ? Number(config.dataMax) : Number(scale?.max);
+      const brokenAxisEnabledLocal = getBrokenAxisEnabled(axis);
+      const brokenAxisSegmentsLocal = brokenAxisEnabledLocal ? getBrokenAxisSegments(axis) : [];
+      const brokenScaleLocal = brokenAxisEnabledLocal && brokenAxisSegmentsLocal.length > 0
+        ? computeBrokenAxisScale({
+            dataMin: scale.min,
+            dataMax: scale.max,
+            segments: brokenAxisSegmentsLocal,
+            plotHeight: plotLength
+          })
+        : null;
+      console.debug('Debug: box broken axis',{ axis, enabled: brokenAxisEnabledLocal, segments: brokenAxisSegmentsLocal, isBroken: brokenScaleLocal?.isBroken });
+      const isValueVisible = value => {
+        if(!brokenScaleLocal || !brokenScaleLocal.isBroken){ return true; }
+        return brokenScaleLocal.segments.some(seg => value >= seg.start && value <= seg.end);
+      };
+      const valueRange = scale.max - scale.min || 1;
+      const clampToScaleLocal = v => {
+        if(!Number.isFinite(v)){ return scale.min; }
+        if(v < scale.min){
+          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box value clamped below axis',{ value: v, min: scale.min });
+          }
+          return scale.min;
+        }
+        if(v > scale.max){
+          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box value clamped above axis',{ value: v, max: scale.max });
+          }
+          return scale.max;
+        }
+        return v;
+      };
+      const projectValue = value => {
+        const safeV = clampToScaleLocal(value);
+        if(brokenScaleLocal && brokenScaleLocal.isBroken && typeof config?.brokenProjector === 'function'){
+          return config.brokenProjector({
+            value: safeV,
+            brokenScale: brokenScaleLocal,
+            marginStart,
+            plotLength,
+            scale,
+            valueRange
+          });
+        }
+        return config.linearProjector({
+          value: safeV,
+          marginStart,
+          plotLength,
+          scale,
+          valueRange
+        });
+      };
+      const minorSubdivisions = getAxisMinorTickSubdivisions(axis);
+      const minorTicks = getAxisMinorTicksEnabled(axis)
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: scale.ticks,
+            min: Number.isFinite(scale.min) ? scale.min : dataMin,
+            max: Number.isFinite(scale.max) ? scale.max : dataMax,
+            scale: logScale ? 'log' : 'linear',
+            domainMin: logScale ? dataMin : null,
+            domainMax: logScale ? dataMax : null,
+            logBase: 10,
+            subdivisions: minorSubdivisions
+          }).filter(value => isValueVisible(value))
+        : [];
+      return {
+        brokenAxisEnabled: brokenAxisEnabledLocal,
+        brokenAxisSegments: brokenAxisSegmentsLocal,
+        brokenScale: brokenScaleLocal,
+        isValueVisible,
+        clampToScale: clampToScaleLocal,
+        projectValue,
+        minorTicks,
+        valueRange
+      };
+    };
 
     async function renderVertical(){
       const tickFont = yTickMeasureProfile.fontSpec;
@@ -26829,171 +27753,52 @@ Technical analysis record (advanced)
         existingViewportExtension,
         canvasHeight: canvasHeightLocal
       });
-      const axisCount = Math.max(axisLabels.length, 1);
-      // Add a small gap between adjacent category bands so datasets don't touch
-      // each other. Compute a gap as a fraction of the raw band width and
-      // subtract total gap space from the plot width before deriving bandW.
-      const rawBandW = plotWLocal / axisCount;
-      const datasetGapFraction = 0.06; // fraction of band used as gap
-      const datasetGapPxCandidate = rawBandW * datasetGapFraction;
-      let datasetGapPx = Math.max(2, Math.min(40, datasetGapPxCandidate));
-      let bandW = (plotWLocal - datasetGapPx * Math.max(0, axisCount - 1)) / axisCount;
       const categoricalAxis = state.flipAxes ? 'y' : 'x';
-      const requestedDatasetSpacing = getAxisDatasetSpacing(categoricalAxis);
-      let datasetSpacingScale = sanitizeXAxisDatasetSpacing(requestedDatasetSpacing);
-      if(datasetSpacingScale !== 1){
-        datasetGapPx *= datasetSpacingScale;
-        bandW *= datasetSpacingScale;
-        const requestedSpan = bandW * axisCount + datasetGapPx * Math.max(0, axisCount - 1);
-        if(requestedSpan > plotWLocal && requestedSpan > 0){
-          const fitScale = plotWLocal / requestedSpan;
-          datasetGapPx *= fitScale;
-          bandW *= fitScale;
-          datasetSpacingScale *= fitScale;
-          boxDebug('Debug: box categorical axis dataset spacing clamped to fit',{
-            axis: categoricalAxis,
-            requested: requestedDatasetSpacing,
-            applied: datasetSpacingScale,
-            fitScale,
-            requestedSpan,
-            plotWidth: plotWLocal
-          });
-        }else{
-          boxDebug('Debug: box categorical axis dataset spacing applied',{
-            axis: categoricalAxis,
-            requested: requestedDatasetSpacing,
-            applied: datasetSpacingScale,
-            requestedSpan,
-            plotWidth: plotWLocal
-          });
-        }
-      }
-      const totalGapSpace = datasetGapPx * Math.max(0, axisCount - 1);
-      const separatedSpanScale = Math.min(1, datasetSpacingScale);
-      const plotWForSpacing = Math.max(0, (plotWLocal - totalGapSpace) * separatedSpanScale);
-      const separatedSpacing = separatedCategoryUnits
-        ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotWForSpacing, marginLocal.left)
-        : null;
-      if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
-        bandW = separatedSpacing.bandWidth;
-      }
-      const computedPlotSpan = separatedSpacing
-        ? Number(separatedSpacing.end) - Number(separatedSpacing.start)
-        : (bandW * axisCount + datasetGapPx * Math.max(0, axisCount - 1));
-      const plotWUsed = Number.isFinite(computedPlotSpan) && computedPlotSpan > 0
-        ? Math.min(plotWLocal, computedPlotSpan)
-        : plotWLocal;
-      const plotRightX = marginLocal.left + plotWUsed;
-      const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
-      const clusterGap = usesGroupedSpacing ? Math.min(bandW * 0.25, 16) : 0;
-      let perGroupBand = usesGroupedSpacing ? (bandW - clusterGap) / groupCountLocal : bandW;
-      if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
-        perGroupBand = bandW / Math.max(groupCountLocal, 1);
-      }
-      const groupOffset = usesGroupedSpacing ? (bandW - perGroupBand * groupCountLocal) / 2 : 0;
-      
+      const categoricalLayout = computeCategoricalBandLayoutShared({
+        orientation: 'vertical',
+        plotSpan: plotWLocal,
+        marginStart: marginLocal.left,
+        axisCount: axisLabels.length,
+        categoricalAxis,
+        separatedCategoryUnits,
+        usesGroupedSpacing,
+        groupedGroups,
+        plotDimensionLabel: 'plotWidth'
+      });
+      const axisCount = categoricalLayout.axisCount;
+      const datasetGapPx = categoricalLayout.gapPx;
+      const bandW = categoricalLayout.bandSize;
+      const separatedSpacing = categoricalLayout.separatedSpacing;
+      const plotWUsed = categoricalLayout.plotUsed;
+      const plotRightX = categoricalLayout.plotEnd;
+      const groupCountLocal = categoricalLayout.groupCountLocal;
+      const clusterGap = categoricalLayout.clusterGap;
+      const perGroupBand = categoricalLayout.perGroupBand;
+      const groupOffset = categoricalLayout.groupOffset;
+
       // Broken axis support
-      const brokenAxisEnabled = getBrokenAxisEnabled('y');
-      const brokenAxisSegments = brokenAxisEnabled ? getBrokenAxisSegments('y') : [];
-      const brokenScale = brokenAxisEnabled && brokenAxisSegments.length > 0
-        ? computeBrokenAxisScale({
-            dataMin: yScale.min,
-            dataMax: yScale.max,
-            segments: brokenAxisSegments,
-            plotHeight: plotHLocal
-          })
-        : null;
-      
-      console.debug('Debug: box broken axis',{ enabled: brokenAxisEnabled, segments: brokenAxisSegments, isBroken: brokenScale?.isBroken });
-      const isYValueVisible = value => {
-        if(!brokenScale || !brokenScale.isBroken){ return true; }
-        return brokenScale.segments.some(seg => value >= seg.start && value <= seg.end);
-      };
-      
-      const valueRange = yScale.max - yScale.min || 1;
-      const clampToScale = v => {
-        if(!Number.isFinite(v)){ return yScale.min; }
-        if(v < yScale.min){
-          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: box value clamped below axis',{ value: v, min: yScale.min });
-          }
-          return yScale.min;
-        }
-        if(v > yScale.max){
-          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: box value clamped above axis',{ value: v, max: yScale.max });
-          }
-          return yScale.max;
-        }
-        return v;
-      };
-      const y2px = v => {
-        const safeV = clampToScale(v);
-        if(brokenScale && brokenScale.isBroken){
-          return brokenScale.valueToPixel(safeV, marginLocal.top, plotHLocal);
-        }
-        return marginLocal.top + plotHLocal * (1 - (safeV - yScale.min) / valueRange);
-      };
+      const valueAxis = buildValueAxisProjectionShared({
+        axis: 'y',
+        scale: yScale,
+        plotLength: plotHLocal,
+        marginStart: marginLocal.top,
+        dataMin: ymin,
+        dataMax: ymax,
+        linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + plotLength * (1 - (value - scale.min) / valueRange),
+        brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => brokenScale.valueToPixel(value, marginStart, plotLength)
+      });
+      const brokenAxisEnabled = valueAxis.brokenAxisEnabled;
+      const brokenAxisSegments = valueAxis.brokenAxisSegments;
+      const brokenScale = valueAxis.brokenScale;
+      const isYValueVisible = valueAxis.isValueVisible;
+      const y2px = valueAxis.projectValue;
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
-      const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
-      const minorTicksY = getAxisMinorTicksEnabled('y')
-        ? chartStyle.computeMinorTickPositions({
-            majorTicks: yScale.ticks,
-            min: Number.isFinite(yScale.min) ? yScale.min : ymin,
-            max: Number.isFinite(yScale.max) ? yScale.max : ymax,
-            scale: logScale ? 'log' : 'linear',
-            domainMin: logScale ? ymin : null,
-            domainMax: logScale ? ymax : null,
-            logBase: 10,
-            subdivisions: minorSubdivisionsY
-          }).filter(value => {
-            if(!brokenScale || !brokenScale.isBroken){ return true; }
-            return brokenScale.segments.some(seg => value >= seg.start && value <= seg.end);
-          })
-        : [];
-      const localBandWidthForTrace = () => {
-        if(separatedSpacing){
-          return separatedSpacing.bandWidth;
-        }
-        return usesGroupedSpacing ? perGroupBand : bandW;
-      };
-      const xCenter = (trace, traceIndex) => {
-        if(usesGroupedSpacing){
-          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-          const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
-          const left = marginLocal.left + categoryIdx * (bandW + datasetGapPx) + groupOffset;
-          return left + (groupIdx + 0.5) * perGroupBand;
-        }
-        if(separatedSpacing){
-          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-          if(categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
-            return separatedSpacing.centers[categoryIdx];
-          }
-        }
-        const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-        // account for gap between bands when computing center
-        const x = marginLocal.left + categoryIdx * (bandW + datasetGapPx) + bandW / 2;
-        return x;
-      };
-      const computeMinTraceCenterPitch = () => {
-        if(!Array.isArray(traces) || traces.length < 2){
-          return null;
-        }
-        const centers = new Array(traces.length);
-        for(let i = 0; i < traces.length; i++){
-          centers[i] = Number(xCenter(traces[i], i));
-        }
-        centers.sort((a, b) => a - b);
-        let minPitch = Infinity;
-        for(let i = 1; i < centers.length; i++){
-          const delta = centers[i] - centers[i - 1];
-          if(Number.isFinite(delta) && delta > 0 && delta < minPitch){
-            minPitch = delta;
-          }
-        }
-        return Number.isFinite(minPitch) ? minPitch : null;
-      };
-      const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
+      const minorTicksY = valueAxis.minorTicks;
+      const localBandWidthForTrace = categoricalLayout.resolveLocalBandSize;
+      const xCenter = categoricalLayout.resolveCenter;
+      const stripMinCenterPitch = graphTypeRaw === 'strip'
+        ? computeMinTraceCenterPitchShared(traces, xCenter)
+        : null;
       if(debugEnabled && graphTypeRaw === 'strip'){
         console.debug('Debug: box strip center pitch',{
           orientation: 'vertical',
@@ -27003,24 +27808,7 @@ Technical analysis record (advanced)
           traceCount: traces.length
         });
       }
-      const addAxisElement = (tag, attrs) => {
-        const attrMap = attrs && typeof attrs === 'object' ? attrs : {};
-        const node = appendToLayer(axisLayer || svg, tag, attrMap);
-        const strokeValue = typeof attrMap.stroke === 'string' ? attrMap.stroke : '';
-        if(strokeValue && strokeValue !== 'transparent'){
-          if(strokeValue === axisStroke){
-            node.setAttribute('data-box-axis-color-target', '1');
-          }
-          const strokeWidthRaw = Number(attrMap['stroke-width']);
-          if(Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0){
-            node.setAttribute('data-box-axis-stroke-target', '1');
-            if(Number.isFinite(axisStrokeWidth) && axisStrokeWidth > 0){
-              node.setAttribute('data-box-axis-width-factor', String(strokeWidthRaw / axisStrokeWidth));
-            }
-          }
-        }
-        return node;
-      };
+      const addAxisElement = buildAxisElementAppender(axisStrokeWidth);
       const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isYValueVisible(0);
       const additionalYTicks = syncAutoZeroAxisAdditionalTick('y', shouldAutoRenderZeroReferenceLine);
       syncAutoZeroAxisAdditionalTick('x', false);
@@ -27046,7 +27834,7 @@ Technical analysis record (advanced)
           strategy: 'feasibility'
         });
       }
-      const computeDisplayedPointSharedRadius = async () => {
+      const displayedPointSharedRadiusProfile = await (async () => {
         if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
           return null;
         }
@@ -27058,75 +27846,34 @@ Technical analysis record (advanced)
         }
         const overlayMode = pointMode === 'overlay';
         const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
-        const traceProfiles = [];
-        let limitingRadius = Infinity;
-        let limitingTraceIndex = null;
-        for(let i = 0; i < traces.length; i++){
-          if(hasExplicitPointSize(i)){
-            continue;
-          }
-          const trace = traces[i];
-          const values = Array.isArray(trace?.y) ? trace.y : [];
-          if(!values.length){
-            continue;
-          }
-          const pointCoords = new Float64Array(values.length);
-          for(let idx = 0; idx < values.length; idx++){
-            pointCoords[idx] = y2px(values[idx]);
-          }
-          const localBand = localBandWidthForTrace();
-          const cx = xCenter(trace, i);
-          const boxW = Math.max(6, Math.min(60, localBand * 0.6));
-          const requestedHalfWidth = overlayMode
-            ? Math.max(pointRadius * 1.1, boxW * 0.3)
-            : Math.max(pointRadius * 1.1, boxW * 0.1);
-          let maxHalfWidth = requestedHalfWidth;
-          if(!overlayMode){
+        return resolveDisplayedPointSharedRadiusShared({
+          traces,
+          orientation: 'vertical',
+          pointRadius,
+          baseRadius,
+          overlayMode,
+          pointMode,
+          hasExplicitSize: traceIndex => hasExplicitPointSize(traceIndex),
+          projectPointCoord: value => y2px(value),
+          resolveLocalBand: () => localBandWidthForTrace(),
+          resolveMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius }) => {
+            if(overlayMode){
+              return requestedHalfWidth;
+            }
             const sideSlot = resolveVerticalSideDisplaySlot({
-              cx,
+              cx: xCenter(trace, traceIndex),
               localBand,
-              boxW,
-              pointRadius: baseRadius,
+              boxW: boxThickness,
+              pointRadius: localBaseRadius,
               requestedHalfWidth,
               plotLeft: yAxisX,
               plotRight: plotRightX
             });
-            maxHalfWidth = sideSlot.halfWidth;
-          }
-          const profile = await computeBoundedPointTraceFeasibleRadius({
-            values,
-            coords: pointCoords,
-            axisSpacing: localBand,
-            baseRadius,
-            maxHalfWidth,
-            sampleSize: values.length,
-            orientation: 'vertical',
-            radiusStep: 0.1,
-            onProbe: () => token === state.drawToken
-          });
-          if(token !== state.drawToken){
-            return null;
-          }
-          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
-            continue;
-          }
-          traceProfiles.push({ traceIndex: i, pointCount: values.length, radius: Number(profile.radius), halfWidthCap: Number(profile.halfWidthCap), fitted: profile.fitted !== false });
-          if(Number(profile.radius) < limitingRadius){
-            limitingRadius = Number(profile.radius);
-            limitingTraceIndex = i;
-          }
-        }
-        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
-          return null;
-        }
-        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
-        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
-        if(debugEnabled){
-          console.debug('Debug: box displayed point shared radius',{ orientation: 'vertical', pointMode, limitingTraceIndex, limitingRadius: resolvedRadius, traceProfiles });
-        }
-        return { radius: resolvedRadius };
-      };
-      const displayedPointSharedRadiusProfile = await computeDisplayedPointSharedRadius();
+            return sideSlot.halfWidth;
+          },
+          tokenGuard: () => token === state.drawToken
+        });
+      })();
       const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
         ? Number(displayedPointSharedRadiusProfile.radius)
         : null;
@@ -27353,9 +28100,7 @@ Technical analysis record (advanced)
           });
         }
       }
-      const xTickPositions = separatedSpacing
-        ? separatedSpacing.centers.slice()
-        : axisLabels.map((_, i) => marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2);
+      const xTickPositions = categoricalLayout.tickCenters.slice();
       const xIntervalSetting = getAxisTickInterval('x');
       const xInterval = Number.isFinite(xIntervalSetting) && xIntervalSetting > 1 ? Math.max(1, Math.round(xIntervalSetting)) : null;
       let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
@@ -27381,25 +28126,7 @@ Technical analysis record (advanced)
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
       console.debug('Debug: box axes stroke scaled',{ axisStrokeWidth });
-      console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
-      const doc = svg.ownerDocument || global.document;
-      const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
-      if(frameGroup){
-        frameGroup.setAttribute('stroke-width', axisStrokeWidth);
-        frameGroup.setAttribute('fill', 'none');
-        frameGroup.setAttribute('stroke', axisStroke);
-        frameGroup.setAttribute('data-box-frame', '1');
-        frameGroup.setAttribute('data-box-axis-color-target', '1');
-        frameGroup.setAttribute('data-box-axis-stroke-target', '1');
-        frameGroup.setAttribute('data-box-axis-width-factor', '1');
-        frameGroup.style.display = showFrame ? '' : 'none';
-        (axisLayer || svg).appendChild(frameGroup);
-        chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
-        console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth, visible: showFrame });
-      }else if(showFrame){
-        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
-        console.debug('Debug: box frame group fallback used');
-      }
+      renderSharedPlotFrame({ margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
       const xLabelOffset = tickLen + tickGap;
       const xLabels = [];
       let xTickFontCount = 0;
@@ -27930,7 +28657,7 @@ Technical analysis record (advanced)
             console.debug('Debug: box bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densitySource = resolveBoxViolinDensitySource({
+          const violinRenderState = computeViolinTraceRenderStateShared({
             summary,
             valueList,
             pointMode,
@@ -27939,12 +28666,20 @@ Technical analysis record (advanced)
             whiskerCustomMultiplier: whiskerCustomValue,
             whiskerNeedsSd,
             whiskerMeta: whiskerMetaGlobal,
-            debugEnabled
+            debugEnabled,
+            scaleMin: yScale.min,
+            scaleMax: yScale.max,
+            sampleCount: violinState.sampleCount,
+            localBand
           });
-          const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
-          const violinMaxValue = densityInfo.positions.length
-            ? densityInfo.positions[densityInfo.positions.length - 1]
-            : summary.max;
+          const {
+            densityInfo,
+            violinMaxValue,
+            peak,
+            halfSpan: halfWidth,
+            pointBounds: violinPointBoundsLocal,
+            pointMaxHalfSpan: violinPointMaxHalfWidthLocal
+          } = violinRenderState;
           annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({
             baseValue: Math.max(wMax, violinMaxValue),
             summary,
@@ -27957,28 +28692,16 @@ Technical analysis record (advanced)
               : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
             annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
           }
-          const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
-          const halfWidth = Math.max(3, Math.min(40, localBand * 0.225));
-          violinPointBounds = createViolinBoundLookup(densityInfo, halfWidth, peak) || (() => halfWidth);
-          violinPointMaxHalfWidth = halfWidth;
-          const pathParts = [];
-          for(let idx = 0; idx < densityInfo.positions.length; idx++){
-            const pos = densityInfo.positions[idx];
-            const density = peak ? densityInfo.densities[idx] / peak : 0;
-            const y = y2px(pos);
-            const offset = density * halfWidth;
-            const xLeft = cx - offset;
-            pathParts.push(`${idx === 0 ? 'M' : 'L'} ${xLeft} ${y}`);
-          }
-          for(let idx = densityInfo.positions.length - 1; idx >= 0; idx--){
-            const pos = densityInfo.positions[idx];
-            const density = peak ? densityInfo.densities[idx] / peak : 0;
-            const y = y2px(pos);
-            const offset = density * halfWidth;
-            const xRight = cx + offset;
-            pathParts.push(`L ${xRight} ${y}`);
-          }
-          pathParts.push('Z');
+          violinPointBounds = violinPointBoundsLocal;
+          violinPointMaxHalfWidth = violinPointMaxHalfWidthLocal;
+          const pathParts = buildViolinPathPartsShared({
+            orientation: 'vertical',
+            densityInfo,
+            peak,
+            halfSpan: halfWidth,
+            centerCoord: cx,
+            valueToPixel: y2px
+          });
           const violinAttrs = { d: pathParts.join(' '), fill: fillColor, 'fill-opacity': opacityOverride != null ? opacityOverride : 0.7, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
           if(opacityOverride != null){ violinAttrs['stroke-opacity'] = opacityOverride; }
           const violinPath = add('path', violinAttrs);
@@ -28059,251 +28782,106 @@ Technical analysis record (advanced)
               mergeStrokeAttrsOnShape: true
             });
             const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
-            const summaryOps = {
-              drawInterval: (low, high, opts = {}) => {
-                if(!Number.isFinite(low) || !Number.isFinite(high)){
-                  return false;
-                }
-                let start = low;
-                let end = high;
-                if(end < start){
-                  [start, end] = [end, start];
-                }
-                const yStart = y2px(end);
-                const yEnd = y2px(start);
-                summaryAdd('line',{ x1: cx, y1: yStart, x2: cx, y2: yEnd, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                const capsEnabled = opts.caps !== false;
-                const capSize = opts.capSize ?? summaryCap;
-                if(capsEnabled && capSize > 0){
-                  const capStartNode = summaryAdd('line',{ x1: cx - capSize / 2, y1: yStart, x2: cx + capSize / 2, y2: yStart, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                  const capEndNode = summaryAdd('line',{ x1: cx - capSize / 2, y1: yEnd, x2: cx + capSize / 2, y2: yEnd, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                  pendingIndividualSummaryIntervalCaps.push({
-                    node: capStartNode,
-                    orientation: 'vertical',
-                    cx,
-                    cy: yStart,
-                    traceIndex: i,
-                    mode: individualSummaryMode,
-                    kind: 'interval-cap'
-                  });
-                  pendingIndividualSummaryIntervalCaps.push({
-                    node: capEndNode,
-                    orientation: 'vertical',
-                    cx,
-                    cy: yEnd,
-                    traceIndex: i,
-                    mode: individualSummaryMode,
-                    kind: 'interval-cap'
-                  });
-                }
-                return true;
-              },
-              drawPoint: (value, radiusMultiplier = 1.4) => {
-                if(!Number.isFinite(value)){
-                  return false;
-                }
-                const cySummary = y2px(value);
-                const fallbackHalfWidth = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
-                const halfWidth = Math.max(summaryPointHalfSpan, fallbackHalfWidth);
-                if(halfWidth > globalIndividualSummaryHalfSpan){
-                  globalIndividualSummaryHalfSpan = halfWidth;
-                }
-                const node = summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, ...summaryStrokeAttrs(summaryStrokeWidth) });
-                pendingIndividualSummaryBars.push({
-                  node,
-                  orientation: 'vertical',
-                  cx,
-                  cy: cySummary,
-                  traceIndex: i,
-                  mode: individualSummaryMode,
-                  kind: 'point'
-                });
-                return true;
-              },
-              drawMedianLine: value => {
-                if(!Number.isFinite(value)){
-                  return false;
-                }
-                const yMid = y2px(value);
-                const halfWidth = Math.max(summaryPointHalfSpan, Math.max(summaryCap, 4));
-                if(halfWidth > globalIndividualSummaryHalfSpan){
-                  globalIndividualSummaryHalfSpan = halfWidth;
-                }
-                const node = summaryAdd('line',{ x1: cx - halfWidth, y1: yMid, x2: cx + halfWidth, y2: yMid, ...summaryStrokeAttrs(summaryStrokeWidth) });
-                pendingIndividualSummaryBars.push({
-                  node,
-                  orientation: 'vertical',
-                  cx,
-                  cy: yMid,
-                  traceIndex: i,
-                  mode: individualSummaryMode,
-                  kind: 'median-line'
-                });
-                return true;
-              },
-              debug: debugEnabled
-            };
+            const summaryOps = createStripIndividualSummaryOps({
+              orientation: 'vertical',
+              centerCoord: cx,
+              valueToPixel: y2px,
+              summaryCap,
+              summaryRadius,
+              pointRadius,
+              summaryPointHalfSpan,
+              summaryStrokeWidth,
+              summaryIntervalWidth,
+              summaryStrokeAttrs,
+              summaryAdd,
+              pendingBars: pendingIndividualSummaryBars,
+              pendingCaps: pendingIndividualSummaryIntervalCaps,
+              getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
+              setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
+              traceIndex: i,
+              mode: individualSummaryMode,
+              debugEnabled
+            });
             applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
           }
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
-          console.time(`boxplotPoints_${token}_${i}`);
-          if(pointMode === 'outliers'){
-            const outlierOverlayColors = graphTypeRaw === 'violin'
-              ? { fill: fillColor, stroke: borderColor }
-              : resolveScientificOverlayPointColors(fillColor, borderColor);
-            const outlierPointRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
-            if(debugEnabled){
-              console.debug('Debug: box outlier point defaults aligned to overlay', {
-                orientation: 'vertical',
-                traceIndex: i,
-                graphType: graphTypeRaw,
-                fill: outlierOverlayColors.fill,
-                stroke: outlierOverlayColors.stroke,
-                pointRadius: outlierPointRadius
-              });
-            }
-            const outlierResult = await renderSwarmPointsVertical({
-              valueList: outliers,
-              cx,
-              localBand,
-              sampleCount: outliers.length,
-              traceIndex: i,
-              tooltipSeriesName,
-              tooltipCategoryName,
-              tooltipGroupName,
-              fillColor: outlierOverlayColors.fill,
-              borderColor: outlierOverlayColors.stroke,
-              groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
-              opacityMultiplier: 1,
-              debugLabel: 'outliers',
-              mean,
-              pointRadiusOverride: outlierPointRadius,
-              maxHalfWidth: 0,
-              allowRadiusAdjustment: false,
-              drawToken: token
-            });
-            if(!outlierResult){
-              return null;
-            }
-          }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
-            const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
-            const overlayResult = await renderSwarmPointsVertical({
-              valueList: pointValueList,
-              cx,
-              localBand,
-              sampleCount: pointSampleCount,
-              traceIndex: i,
-              tooltipSeriesName,
-              tooltipCategoryName,
-              tooltipGroupName,
-              fillColor,
-              borderColor,
-              violinBounds: violinPointBounds,
-              groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: 0.85,
-              debugLabel: 'violin-overlay',
-              mean,
-              widthScaleMode: 'density',
-              maxHalfWidth: violinPointMaxHalfWidth,
-              pointRadiusOverride: overlayRadius,
-              drawToken: token,
-              rowIndices: pointRowIndices,
-              collectPointsByRow: connectPointsActive ? new Map() : null
-            });
-            if(!overlayResult){
-              return null;
-            }
-            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
-              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
-            }
-          }else{
-            const overlayMode = pointMode === 'overlay';
-            const requestedHalfWidth = overlayMode
-              ? Math.max(pointRadius * 1.1, boxW * 0.3)
-              : Math.max(pointRadius * 1.1, boxW * 0.1);
-            const resolvedPointRadius = !hasExplicitPointSize(i) && Number.isFinite(displayedPointSharedRadius)
-              ? displayedPointSharedRadius
-              : (overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null);
-            const overlayPointColors = overlayMode ? resolveScientificOverlayPointColors(fillColor, borderColor) : null;
-            const slotRadius = Number.isFinite(Number(resolvedPointRadius)) && Number(resolvedPointRadius) > 0
-              ? Number(resolvedPointRadius)
-              : pointRadius;
-            const sideSlot = overlayMode ? null : resolveVerticalSideDisplaySlot({
-              cx,
-              localBand,
-              boxW,
-              pointRadius: slotRadius,
-              requestedHalfWidth,
-              plotLeft: yAxisX,
-              plotRight: plotRightX
-            });
-            const overlayResult = await renderSwarmPointsVertical({
-              valueList: pointValueList,
-              cx: overlayMode ? cx : (sideSlot?.centerX ?? cx),
-              localBand,
-              sampleCount: pointSampleCount,
-              traceIndex: i,
-              tooltipSeriesName,
-              tooltipCategoryName,
-              tooltipGroupName,
-              fillColor: overlayMode ? overlayPointColors.fill : fillColor,
-              borderColor: overlayMode ? overlayPointColors.stroke : borderColor,
-              groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: 1,
-              debugLabel: overlayMode ? 'overlay' : 'side',
-              mean,
-              pointRadiusOverride: resolvedPointRadius,
-              maxHalfWidth: overlayMode ? requestedHalfWidth : (sideSlot?.halfWidth ?? 0),
-              allowRadiusAdjustment: false,
-              drawToken: token,
-              rowIndices: pointRowIndices,
-              collectPointsByRow: (connectPointsActive && (overlayMode || pointMode === 'side')) ? new Map() : null
-            });
-            if(!overlayResult){
-              return null;
-            }
-            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
-              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
-            }
-          }
-          console.timeEnd(`boxplotPoints_${token}_${i}`);
-        }
-      }
-      if(pendingIndividualSummaryBars.length && Number.isFinite(globalIndividualSummaryHalfSpan) && globalIndividualSummaryHalfSpan > 0){
-        for(const pendingBar of pendingIndividualSummaryBars){
-          const node = pendingBar?.node;
-          if(!node || typeof node.setAttribute !== 'function'){
-            continue;
-          }
-          node.setAttribute('x1', String(pendingBar.cx - globalIndividualSummaryHalfSpan));
-          node.setAttribute('x2', String(pendingBar.cx + globalIndividualSummaryHalfSpan));
-          node.setAttribute('y1', String(pendingBar.cy));
-          node.setAttribute('y2', String(pendingBar.cy));
-        }
-        const globalIntervalCapHalfSpan = globalIndividualSummaryHalfSpan / 2;
-        if(pendingIndividualSummaryIntervalCaps.length && Number.isFinite(globalIntervalCapHalfSpan) && globalIntervalCapHalfSpan > 0){
-          for(const pendingCap of pendingIndividualSummaryIntervalCaps){
-            const node = pendingCap?.node;
-            if(!node || typeof node.setAttribute !== 'function'){
-              continue;
-            }
-            node.setAttribute('x1', String(pendingCap.cx - globalIntervalCapHalfSpan));
-            node.setAttribute('x2', String(pendingCap.cx + globalIntervalCapHalfSpan));
-            node.setAttribute('y1', String(pendingCap.cy));
-            node.setAttribute('y2', String(pendingCap.cy));
-          }
-        }
-        if(debugEnabled){
-          console.debug('Debug: box strip summary span normalized globally',{
-            count: pendingIndividualSummaryBars.length,
-            capCount: pendingIndividualSummaryIntervalCaps.length,
+          const renderedPoints = await renderBoxTracePointsShared({
             orientation: 'vertical',
-            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2,
-            globalIntervalCapWidth: globalIndividualSummaryHalfSpan
+            graphTypeRaw,
+            pointMode,
+            traceIndex: i,
+            drawToken: token,
+            fillColor,
+            borderColor,
+            overlayPointRadius,
+            displayedPointSharedRadius,
+            pointRadius,
+            pointValueList,
+            pointSampleCount,
+            outliers,
+            violinPointBounds,
+            violinPointMaxHalfSpan: violinPointMaxHalfWidth,
+            pointRowIndices,
+            connectPointsActive,
+            centerCoord: cx,
+            boxSpan: boxW,
+            localBand,
+            mean,
+            debugEnabled,
+            hasExplicitPointSize: hasExplicitPointSize(i),
+            registerConnectionMap: map => { connectionMapsByTrace[i] = map; },
+            resolveSideSlot: ({ requestedHalfSpan, pointRadius: resolvedSlotRadius }) => {
+              const sideSlot = resolveVerticalSideDisplaySlot({
+                cx,
+                localBand,
+                boxW,
+                pointRadius: resolvedSlotRadius,
+                requestedHalfWidth: requestedHalfSpan,
+                plotLeft: yAxisX,
+                plotRight: plotRightX
+              });
+              return sideSlot
+                ? { centerCoord: sideSlot.centerX, halfSpan: sideSlot.halfWidth }
+                : null;
+            },
+            callSwarm: args => renderSwarmPointsVertical({
+              valueList: args.valueList,
+              cx: args.centerCoord != null ? args.centerCoord : cx,
+              localBand,
+              sampleCount: args.sampleCount,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor: args.fillColor,
+              borderColor: args.borderColor,
+              violinBounds: args.violinBounds,
+              groupAttrs: args.groupAttrs,
+              opacityMultiplier: args.opacityMultiplier,
+              debugLabel: args.debugLabel,
+              mean,
+              widthScaleMode: args.widthScaleMode,
+              pointRadiusOverride: args.pointRadiusOverride,
+              maxHalfWidth: args.maxHalfSpan,
+              allowRadiusAdjustment: args.allowRadiusAdjustment,
+              drawToken: token,
+              rowIndices: args.rowIndices,
+              collectPointsByRow: args.collectPointsByRow
+            })
           });
+          if(!renderedPoints){
+            return null;
+          }
         }
       }
+      normalizePendingIndividualSummarySpans({
+        orientation: 'vertical',
+        pendingBars: pendingIndividualSummaryBars,
+        pendingCaps: pendingIndividualSummaryIntervalCaps,
+        globalHalfSpan: globalIndividualSummaryHalfSpan,
+        debugEnabled
+      });
       if(isStackedLayout && stackedErrorQueue.length){
         stackedErrorQueue.forEach(item => {
           const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
@@ -28447,79 +29025,45 @@ Technical analysis record (advanced)
           }
         }
       }
-      const brokenAxisEnabled = getBrokenAxisEnabled('x');
-      const brokenAxisSegments = brokenAxisEnabled ? getBrokenAxisSegments('x') : [];
-      const brokenScaleX = brokenAxisEnabled && brokenAxisSegments.length > 0
-        ? computeBrokenAxisScale({
-            dataMin: yScale.min,
-            dataMax: yScale.max,
-            segments: brokenAxisSegments,
-            plotHeight: plotWLocal
-          })
-        : null;
-      const isXValueVisible = value => {
-        if(!brokenScaleX || !brokenScaleX.isBroken){ return true; }
-        return brokenScaleX.segments.some(seg => value >= seg.start && value <= seg.end);
-      };
-      console.debug('Debug: box broken axis',{ axis: 'x', enabled: brokenAxisEnabled, segments: brokenAxisSegments, isBroken: brokenScaleX?.isBroken });
-      const valueRange = yScale.max - yScale.min || 1;
-      const clampToScale = v => {
-        if(!Number.isFinite(v)){ return yScale.min; }
-        if(v < yScale.min){
-          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: box value clamped below axis',{ value: v, min: yScale.min });
-          }
-          return yScale.min;
-        }
-        if(v > yScale.max){
-          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: box value clamped above axis',{ value: v, max: yScale.max });
-          }
-          return yScale.max;
-        }
-        return v;
-      };
-      const valueToX = v => {
-        const safeV = clampToScale(v);
-        if(brokenScaleX && brokenScaleX.isBroken){
-          for(let i = 0; i < brokenScaleX.segments.length; i++){
-            const seg = brokenScaleX.segments[i];
-            if(safeV >= seg.start && safeV <= seg.end){
-              const fraction = (safeV - seg.start) / (seg.dataRange || 1);
-              return marginLocal.left + seg.pixelStart + fraction * seg.heightPx;
+      const valueAxis = buildValueAxisProjectionShared({
+        axis: 'x',
+        scale: yScale,
+        plotLength: plotWLocal,
+        marginStart: marginLocal.left,
+        dataMin: ymin,
+        dataMax: ymax,
+        linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + ((value - scale.min) / valueRange) * plotLength,
+        brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => {
+          for(let i = 0; i < brokenScale.segments.length; i++){
+            const seg = brokenScale.segments[i];
+            if(value >= seg.start && value <= seg.end){
+              const fraction = (value - seg.start) / (seg.dataRange || 1);
+              return marginStart + seg.pixelStart + fraction * seg.heightPx;
             }
           }
-          if(safeV < brokenScaleX.segments[0].start){
-            return marginLocal.left;
+          if(value < brokenScale.segments[0].start){
+            return marginStart;
           }
-          if(safeV > brokenScaleX.segments[brokenScaleX.segments.length - 1].end){
-            return marginLocal.left + plotWLocal;
+          if(value > brokenScale.segments[brokenScale.segments.length - 1].end){
+            return marginStart + plotLength;
           }
-          for(let i = 0; i < brokenScaleX.segments.length - 1; i++){
-            const currentSeg = brokenScaleX.segments[i];
-            const nextSeg = brokenScaleX.segments[i + 1];
-            if(safeV > currentSeg.end && safeV < nextSeg.start){
-              return marginLocal.left + currentSeg.pixelEnd;
+          for(let i = 0; i < brokenScale.segments.length - 1; i++){
+            const currentSeg = brokenScale.segments[i];
+            const nextSeg = brokenScale.segments[i + 1];
+            if(value > currentSeg.end && value < nextSeg.start){
+              return marginStart + currentSeg.pixelEnd;
             }
           }
-          return marginLocal.left + plotWLocal / 2;
+          return marginStart + plotLength / 2;
         }
-        return marginLocal.left + ((safeV - yScale.min) / valueRange) * plotWLocal;
-      };
+      });
+      const brokenAxisEnabled = valueAxis.brokenAxisEnabled;
+      const brokenAxisSegments = valueAxis.brokenAxisSegments;
+      const brokenScaleX = valueAxis.brokenScale;
+      const isXValueVisible = valueAxis.isValueVisible;
+      const valueToX = valueAxis.projectValue;
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
-      const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
-      const minorTicksX = getAxisMinorTicksEnabled('x')
-        ? chartStyle.computeMinorTickPositions({
-            majorTicks: yScale.ticks,
-            min: Number.isFinite(yScale.min) ? yScale.min : ymin,
-            max: Number.isFinite(yScale.max) ? yScale.max : ymax,
-            scale: logScale ? 'log' : 'linear',
-            domainMin: logScale ? ymin : null,
-            domainMax: logScale ? ymax : null,
-            logBase: 10,
-            subdivisions: minorSubdivisionsX
-          }).filter(value => isXValueVisible(value))
-        : [];
+      const minorTicksX = valueAxis.minorTicks;
       const renderSwarmPointsHorizontal = async params => renderSwarmPointsShared({
         ...params,
         centerCoord: params?.cy,
@@ -28533,134 +29077,39 @@ Technical analysis record (advanced)
           Number(plotWLocal).toFixed(3)
         ].join('|')
       });
-      const axisCount = Math.max(axisLabels.length, 1);
-      // Add a small gap between adjacent category bands so datasets don't touch
-      const rawBandH = plotHLocal / axisCount;
-      const datasetGapFractionH = 0.06;
-      let datasetGapPxH = Math.max(2, Math.min(40, rawBandH * datasetGapFractionH));
-      let bandH = (plotHLocal - datasetGapPxH * Math.max(0, axisCount - 1)) / axisCount;
       const categoricalAxis = state.flipAxes ? 'y' : 'x';
-      const requestedDatasetSpacing = getAxisDatasetSpacing(categoricalAxis);
-      let datasetSpacingScale = sanitizeXAxisDatasetSpacing(requestedDatasetSpacing);
-      if(datasetSpacingScale !== 1){
-        datasetGapPxH *= datasetSpacingScale;
-        bandH *= datasetSpacingScale;
-        const requestedSpan = bandH * axisCount + datasetGapPxH * Math.max(0, axisCount - 1);
-        if(requestedSpan > plotHLocal && requestedSpan > 0){
-          const fitScale = plotHLocal / requestedSpan;
-          datasetGapPxH *= fitScale;
-          bandH *= fitScale;
-          datasetSpacingScale *= fitScale;
-          boxDebug('Debug: box categorical axis dataset spacing clamped to fit',{
-            axis: categoricalAxis,
-            requested: requestedDatasetSpacing,
-            applied: datasetSpacingScale,
-            fitScale,
-            requestedSpan,
-            plotHeight: plotHLocal
-          });
-        }else{
-          boxDebug('Debug: box categorical axis dataset spacing applied',{
-            axis: categoricalAxis,
-            requested: requestedDatasetSpacing,
-            applied: datasetSpacingScale,
-            requestedSpan,
-            plotHeight: plotHLocal
-          });
-        }
-      }
-      const totalGapSpaceH = datasetGapPxH * Math.max(0, axisCount - 1);
-      const separatedSpanScaleH = Math.min(1, datasetSpacingScale);
-      const plotHForSpacing = Math.max(0, (plotHLocal - totalGapSpaceH) * separatedSpanScaleH);
-      const plotSpacingTop = marginLocal.top;
-      const separatedSpacing = separatedCategoryUnits
-        ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotHForSpacing, plotSpacingTop)
-        : null;
-      if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
-        bandH = separatedSpacing.bandWidth;
-      }
-      const computedPlotSpanH = separatedSpacing
-        ? Number(separatedSpacing.end) - Number(separatedSpacing.start)
-        : (bandH * axisCount + datasetGapPxH * Math.max(0, axisCount - 1));
-      const plotHUsed = Number.isFinite(computedPlotSpanH) && computedPlotSpanH > 0
-        ? Math.min(plotHLocal, computedPlotSpanH)
-        : plotHLocal;
+      const categoricalLayout = computeCategoricalBandLayoutShared({
+        orientation: 'horizontal',
+        plotSpan: plotHLocal,
+        marginStart: marginLocal.top,
+        axisCount: axisLabels.length,
+        categoricalAxis,
+        separatedCategoryUnits,
+        usesGroupedSpacing,
+        groupedGroups,
+        plotDimensionLabel: 'plotHeight'
+      });
+      const axisCount = categoricalLayout.axisCount;
+      const datasetGapPxH = categoricalLayout.gapPx;
+      const bandH = categoricalLayout.bandSize;
+      const separatedSpacing = categoricalLayout.separatedSpacing;
+      const plotHUsed = categoricalLayout.plotUsed;
       const plotTopY = marginLocal.top;
-      const plotBottomY = plotTopY + plotHUsed;
-      const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
-      const clusterGap = usesGroupedSpacing ? Math.min(bandH * 0.25, 16) : 0;
-      let perGroupBand = usesGroupedSpacing ? (bandH - clusterGap) / groupCountLocal : bandH;
-      if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
-        perGroupBand = bandH / Math.max(groupCountLocal, 1);
-      }
-      const groupOffset = usesGroupedSpacing ? (bandH - perGroupBand * groupCountLocal) / 2 : 0;
-      const localBandHeightForTrace = () => {
-        if(separatedSpacing){
-          return separatedSpacing.bandWidth;
-        }
-        return usesGroupedSpacing ? perGroupBand : bandH;
-      };
-      const categoryCenter = (trace, traceIndex) => {
-        if(usesGroupedSpacing){
-          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-          const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
-          const top = plotTopY + categoryIdx * (bandH + datasetGapPxH) + groupOffset;
-          return top + (groupIdx + 0.5) * perGroupBand;
-        }
-        if(separatedSpacing){
-          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-          if(categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
-            return separatedSpacing.centers[categoryIdx];
-          }
-        }
-        const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-        return plotTopY + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
-      };
-      const computeMinTraceCenterPitch = () => {
-        if(!Array.isArray(traces) || traces.length < 2){
-          return null;
-        }
-        const centers = [];
-        for(let i = 0; i < traces.length; i++){
-          const trace = traces[i];
-          let center = null;
-          if(typeof categoryCenter === 'function'){
-            center = Number(categoryCenter(trace, i));
-          }else if(usesGroupedSpacing){
-            const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : i;
-            const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
-            center = plotTopY + categoryIdx * (bandH + datasetGapPxH) + groupOffset + (groupIdx + 0.5) * perGroupBand;
-          }else if(separatedSpacing && Array.isArray(separatedSpacing.centers)){
-            const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : i;
-            if(categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
-              center = Number(separatedSpacing.centers[categoryIdx]);
-            }
-          }else{
-            const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : i;
-            center = plotTopY + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
-          }
-          if(Number.isFinite(center)){
-            centers.push(center);
-          }
-        }
-        if(centers.length < 2){
-          return null;
-        }
-        centers.sort((a, b) => a - b);
-        let minPitch = Infinity;
-        for(let i = 1; i < centers.length; i++){
-          const delta = centers[i] - centers[i - 1];
-          if(Number.isFinite(delta) && delta > 0 && delta < minPitch){
-            minPitch = delta;
-          }
-        }
-        return Number.isFinite(minPitch) ? minPitch : null;
-      };
-      const stripMinCenterPitch = graphTypeRaw === 'strip' ? computeMinTraceCenterPitch() : null;
+      const plotBottomY = categoricalLayout.plotEnd;
+      const groupCountLocal = categoricalLayout.groupCountLocal;
+      const clusterGap = categoricalLayout.clusterGap;
+      const perGroupBand = categoricalLayout.perGroupBand;
+      const groupOffset = categoricalLayout.groupOffset;
+      const localBandHeightForTrace = categoricalLayout.resolveLocalBandSize;
+      const categoryCenter = categoricalLayout.resolveCenter;
+      const stripMinCenterPitch = graphTypeRaw === 'strip'
+        ? computeMinTraceCenterPitchShared(traces, categoryCenter)
+        : null;
       const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
         orientation: 'horizontal',
         axisSpacing: localBandHeightForTrace(),
-        coordProjector: value => valueToX(value)
+        coordProjector: value => valueToX(value),
+        minCenterPitch: stripMinCenterPitch
       });
       const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
         ? Number(stripAutoSizeProfile.radius)
@@ -28679,7 +29128,7 @@ Technical analysis record (advanced)
           strategy: 'feasibility'
         });
       }
-      const computeDisplayedPointSharedRadius = async () => {
+      const displayedPointSharedRadiusProfile = await (async () => {
         if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
           return null;
         }
@@ -28691,96 +29140,38 @@ Technical analysis record (advanced)
         }
         const overlayMode = pointMode === 'overlay';
         const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
-        const traceProfiles = [];
-        let limitingRadius = Infinity;
-        let limitingTraceIndex = null;
-        for(let i = 0; i < traces.length; i++){
-          if(hasExplicitPointSize(i)){
-            continue;
-          }
-          const trace = traces[i];
-          const values = Array.isArray(trace?.y) ? trace.y : [];
-          if(!values.length){
-            continue;
-          }
-          const pointCoords = new Float64Array(values.length);
-          for(let idx = 0; idx < values.length; idx++){
-            pointCoords[idx] = valueToX(values[idx]);
-          }
-          const localBand = localBandHeightForTrace();
-          const cy = categoryCenter(trace, i);
-          const boxH = Math.max(6, Math.min(60, localBand * 0.6));
-          const requestedHalfHeight = overlayMode
-            ? Math.max(pointRadius * 1.1, boxH * 0.3)
-            : Math.max(pointRadius * 1.1, boxH * 0.1);
-          let maxHalfWidth = requestedHalfHeight;
-          if(!overlayMode){
+        return resolveDisplayedPointSharedRadiusShared({
+          traces,
+          orientation: 'horizontal',
+          pointRadius,
+          baseRadius,
+          overlayMode,
+          pointMode,
+          hasExplicitSize: traceIndex => hasExplicitPointSize(traceIndex),
+          projectPointCoord: value => valueToX(value),
+          resolveLocalBand: () => localBandHeightForTrace(),
+          resolveMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius }) => {
+            if(overlayMode){
+              return requestedHalfWidth;
+            }
             const sideSlot = resolveHorizontalSideDisplaySlot({
-              cy,
+              cy: categoryCenter(trace, traceIndex),
               localBand,
-              boxH,
-              pointRadius: baseRadius,
-              requestedHalfHeight,
+              boxH: boxThickness,
+              pointRadius: localBaseRadius,
+              requestedHalfHeight: requestedHalfWidth,
               plotTop: marginLocal.top,
               plotBottom: marginLocal.top + plotHLocal
             });
-            maxHalfWidth = sideSlot.halfHeight;
-          }
-          const profile = await computeBoundedPointTraceFeasibleRadius({
-            values,
-            coords: pointCoords,
-            axisSpacing: localBand,
-            baseRadius,
-            maxHalfWidth,
-            sampleSize: values.length,
-            orientation: 'horizontal',
-            radiusStep: 0.1,
-            onProbe: () => token === state.drawToken
-          });
-          if(token !== state.drawToken){
-            return null;
-          }
-          if(!profile || !Number.isFinite(Number(profile.radius)) || Number(profile.radius) <= 0){
-            continue;
-          }
-          traceProfiles.push({ traceIndex: i, pointCount: values.length, radius: Number(profile.radius), halfWidthCap: Number(profile.halfWidthCap), fitted: profile.fitted !== false });
-          if(Number(profile.radius) < limitingRadius){
-            limitingRadius = Number(profile.radius);
-            limitingTraceIndex = i;
-          }
-        }
-        if(!traceProfiles.length || !Number.isFinite(limitingRadius) || limitingRadius <= 0){
-          return null;
-        }
-        const roundedRadius = roundStripPointControlValue(limitingRadius, 0.1, 'down');
-        const resolvedRadius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : limitingRadius;
-        if(debugEnabled){
-          console.debug('Debug: box displayed point shared radius',{ orientation: 'horizontal', pointMode, limitingTraceIndex, limitingRadius: resolvedRadius, traceProfiles });
-        }
-        return { radius: resolvedRadius };
-      };
-      const displayedPointSharedRadiusProfile = await computeDisplayedPointSharedRadius();
+            return sideSlot.halfHeight;
+          },
+          tokenGuard: () => token === state.drawToken
+        });
+      })();
       const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
         ? Number(displayedPointSharedRadiusProfile.radius)
         : null;
-      const addAxisElement = (tag, attrs) => {
-        const attrMap = attrs && typeof attrs === 'object' ? attrs : {};
-        const node = appendToLayer(axisLayer || svg, tag, attrMap);
-        const strokeValue = typeof attrMap.stroke === 'string' ? attrMap.stroke : '';
-        if(strokeValue && strokeValue !== 'transparent'){
-          if(strokeValue === axisStroke){
-            node.setAttribute('data-box-axis-color-target', '1');
-          }
-          const strokeWidthRaw = Number(attrMap['stroke-width']);
-          if(Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0){
-            node.setAttribute('data-box-axis-stroke-target', '1');
-            if(Number.isFinite(axisStrokeWidth) && axisStrokeWidth > 0){
-              node.setAttribute('data-box-axis-width-factor', String(strokeWidthRaw / axisStrokeWidth));
-            }
-          }
-        }
-        return node;
-      };
+      const addAxisElement = buildAxisElementAppender(axisStrokeWidth);
       const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isXValueVisible(0);
       const additionalXTicks = syncAutoZeroAxisAdditionalTick('x', shouldAutoRenderZeroReferenceLine);
       syncAutoZeroAxisAdditionalTick('y', false);
@@ -29016,23 +29407,7 @@ Technical analysis record (advanced)
           axisControls.registerAxisElement(xAxisLine, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
         }
       }
-      console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
-      const doc = svg.ownerDocument || global.document;
-      const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
-      if(frameGroup){
-        frameGroup.setAttribute('stroke-width', axisStrokeWidth);
-        frameGroup.setAttribute('fill', 'none');
-        frameGroup.setAttribute('stroke', axisStroke);
-        frameGroup.setAttribute('data-box-frame', '1');
-        frameGroup.setAttribute('data-box-axis-color-target', '1');
-        frameGroup.setAttribute('data-box-axis-stroke-target', '1');
-        frameGroup.setAttribute('data-box-axis-width-factor', '1');
-        frameGroup.style.display = showFrame ? '' : 'none';
-        (axisLayer || svg).appendChild(frameGroup);
-        chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
-      }else if(showFrame){
-        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
-      }
+      renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
       const defaultXLabelX = marginLocal.left + plotWLocal / 2;
       const defaultXLabelY = xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + xTickFontSize * 0.8;
       const xLabelPos = state.labelPositions?.xLabel;
@@ -29499,7 +29874,7 @@ Technical analysis record (advanced)
             console.debug('Debug: box horizontal bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densitySource = resolveBoxViolinDensitySource({
+          const violinRenderState = computeViolinTraceRenderStateShared({
             summary,
             valueList,
             pointMode,
@@ -29508,12 +29883,20 @@ Technical analysis record (advanced)
             whiskerCustomMultiplier: whiskerCustomValue,
             whiskerNeedsSd,
             whiskerMeta: whiskerMetaGlobal,
-            debugEnabled
+            debugEnabled,
+            scaleMin: yScale.min,
+            scaleMax: yScale.max,
+            sampleCount: violinState.sampleCount,
+            localBand
           });
-          const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
-          const violinMaxValue = densityInfo.positions.length
-            ? densityInfo.positions[densityInfo.positions.length - 1]
-            : summary.max;
+          const {
+            densityInfo,
+            violinMaxValue,
+            peak,
+            halfSpan: halfHeight,
+            pointBounds: violinPointBoundsLocal,
+            pointMaxHalfSpan: violinPointMaxHalfHeightLocal
+          } = violinRenderState;
           annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({
             baseValue: Math.max(wMax, violinMaxValue),
             summary,
@@ -29526,28 +29909,16 @@ Technical analysis record (advanced)
               : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
             annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
           }
-          const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
-          const halfHeight = Math.max(3, Math.min(40, localBand * 0.225));
-          violinPointBounds = createViolinBoundLookup(densityInfo, halfHeight, peak) || (() => halfHeight);
-          violinPointMaxHalfHeight = halfHeight;
-          const pathParts = [];
-          for(let idx = 0; idx < densityInfo.positions.length; idx++){
-            const pos = densityInfo.positions[idx];
-            const density = peak ? densityInfo.densities[idx] / peak : 0;
-            const x = valueToX(pos);
-            const offset = density * halfHeight;
-            const yTop = cy - offset;
-            pathParts.push(`${idx === 0 ? 'M' : 'L'} ${x} ${yTop}`);
-          }
-          for(let idx = densityInfo.positions.length - 1; idx >= 0; idx--){
-            const pos = densityInfo.positions[idx];
-            const density = peak ? densityInfo.densities[idx] / peak : 0;
-            const x = valueToX(pos);
-            const offset = density * halfHeight;
-            const yBottom = cy + offset;
-            pathParts.push(`L ${x} ${yBottom}`);
-          }
-          pathParts.push('Z');
+          violinPointBounds = violinPointBoundsLocal;
+          violinPointMaxHalfHeight = violinPointMaxHalfHeightLocal;
+          const pathParts = buildViolinPathPartsShared({
+            orientation: 'horizontal',
+            densityInfo,
+            peak,
+            halfSpan: halfHeight,
+            centerCoord: cy,
+            valueToPixel: valueToX
+          });
           const violinAttrsH = { d: pathParts.join(' '), fill: fillColor, 'fill-opacity': opacityOverride != null ? opacityOverride : 0.7, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
           if(opacityOverride != null){ violinAttrsH['stroke-opacity'] = opacityOverride; }
           const violinPathH = add('path', violinAttrsH);
@@ -29640,252 +30011,107 @@ Technical analysis record (advanced)
               mergeStrokeAttrsOnShape: false
             });
             const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
-            const summaryOps = {
-              drawInterval: (low, high, opts = {}) => {
-                if(!Number.isFinite(low) || !Number.isFinite(high)){
-                  return false;
-                }
-                let start = low;
-                let end = high;
-                if(end < start){
-                  [start, end] = [end, start];
-                }
-                const xStart = valueToX(start);
-                const xEnd = valueToX(end);
-                summaryAdd('line',{ x1: xStart, y1: cy, x2: xEnd, y2: cy, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                const capsEnabled = opts.caps !== false;
-                const capSize = opts.capSize ?? summaryCap;
-                if(capsEnabled && capSize > 0){
-                  const capStartNode = summaryAdd('line',{ x1: xStart, y1: cy - capSize / 2, x2: xStart, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                  const capEndNode = summaryAdd('line',{ x1: xEnd, y1: cy - capSize / 2, x2: xEnd, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
-                  pendingIndividualSummaryIntervalCaps.push({
-                    node: capStartNode,
-                    orientation: 'horizontal',
-                    x: xStart,
-                    cy,
-                    traceIndex: i,
-                    mode: individualSummaryMode,
-                    kind: 'interval-cap'
-                  });
-                  pendingIndividualSummaryIntervalCaps.push({
-                    node: capEndNode,
-                    orientation: 'horizontal',
-                    x: xEnd,
-                    cy,
-                    traceIndex: i,
-                    mode: individualSummaryMode,
-                    kind: 'interval-cap'
-                  });
-                }
-                return true;
-              },
-              drawPoint: (value, radiusMultiplier = 1.4) => {
-                if(!Number.isFinite(value)){
-                  return false;
-                }
-                const xVal = valueToX(value);
-                const fallbackHalfHeight = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
-                const halfHeight = Math.max(summaryPointHalfSpan, fallbackHalfHeight);
-                if(halfHeight > globalIndividualSummaryHalfSpan){
-                  globalIndividualSummaryHalfSpan = halfHeight;
-                }
-                const node = summaryAdd('line',{ x1: xVal, y1: cy - halfHeight, x2: xVal, y2: cy + halfHeight, ...summaryStrokeAttrs(summaryStrokeWidth) });
-                pendingIndividualSummaryBars.push({
-                  node,
-                  orientation: 'horizontal',
-                  x: xVal,
-                  cy,
-                  traceIndex: i,
-                  mode: individualSummaryMode,
-                  kind: 'point'
-                });
-                return true;
-              },
-              drawMedianLine: value => {
-                if(!Number.isFinite(value)){
-                  return false;
-                }
-                const xMid = valueToX(value);
-                const halfHeight = Math.max(summaryPointHalfSpan, Math.max(summaryCap, 4));
-                if(halfHeight > globalIndividualSummaryHalfSpan){
-                  globalIndividualSummaryHalfSpan = halfHeight;
-                }
-                const node = summaryAdd('line',{ x1: xMid, y1: cy - halfHeight, x2: xMid, y2: cy + halfHeight, ...summaryStrokeAttrs(summaryStrokeWidth) });
-                pendingIndividualSummaryBars.push({
-                  node,
-                  orientation: 'horizontal',
-                  x: xMid,
-                  cy,
-                  traceIndex: i,
-                  mode: individualSummaryMode,
-                  kind: 'median-line'
-                });
-                return true;
-              },
-              debug: debugEnabled
-            };
+            const summaryOps = createStripIndividualSummaryOps({
+              orientation: 'horizontal',
+              centerCoord: cy,
+              valueToPixel: valueToX,
+              summaryCap,
+              summaryRadius,
+              pointRadius,
+              summaryPointHalfSpan,
+              summaryStrokeWidth,
+              summaryIntervalWidth,
+              summaryStrokeAttrs,
+              summaryAdd,
+              pendingBars: pendingIndividualSummaryBars,
+              pendingCaps: pendingIndividualSummaryIntervalCaps,
+              getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
+              setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
+              traceIndex: i,
+              mode: individualSummaryMode,
+              debugEnabled
+            });
             applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
           }
         }
 
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
-          console.time(`boxplotPoints_${token}_${i}`);
-          if(pointMode === 'outliers'){
-            const outlierOverlayColors = graphTypeRaw === 'violin'
-              ? { fill: fillColor, stroke: borderColor }
-              : resolveScientificOverlayPointColors(fillColor, borderColor);
-            const outlierPointRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
-            if(debugEnabled){
-              console.debug('Debug: box outlier point defaults aligned to overlay', {
-                orientation: 'horizontal',
-                traceIndex: i,
-                graphType: graphTypeRaw,
-                fill: outlierOverlayColors.fill,
-                stroke: outlierOverlayColors.stroke,
-                pointRadius: outlierPointRadius
-              });
-            }
-            const outlierResult = await renderSwarmPointsHorizontal({
-              valueList: outliers,
-              cy,
-              localBand,
-              sampleCount: outliers.length,
-              traceIndex: i,
-              tooltipSeriesName,
-              tooltipCategoryName,
-              tooltipGroupName,
-              fillColor: outlierOverlayColors.fill,
-              borderColor: outlierOverlayColors.stroke,
-              groupAttrs: { 'data-individual': 'true', 'data-outlier': 'true' },
-              opacityMultiplier: 1,
-              debugLabel: 'outliers',
-              mean,
-              pointRadiusOverride: outlierPointRadius,
-              maxHalfWidth: 0,
-              allowRadiusAdjustment: false,
-              drawToken: token
-            });
-            if(!outlierResult){
-              return null;
-            }
-          }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
-            const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
-            const overlayResult = await renderSwarmPointsHorizontal({
-              valueList: pointValueList,
-              cy,
-              localBand,
-              sampleCount: pointSampleCount,
-              traceIndex: i,
-              tooltipSeriesName,
-              tooltipCategoryName,
-              tooltipGroupName,
-              fillColor,
-              borderColor,
-              violinBounds: violinPointBounds,
-              groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: 0.85,
-              debugLabel: 'violin-overlay',
-              mean,
-              widthScaleMode: 'density',
-              maxHalfWidth: violinPointMaxHalfHeight,
-              pointRadiusOverride: overlayRadius,
-              drawToken: token,
-              rowIndices: pointRowIndices,
-              collectPointsByRow: connectPointsActive ? new Map() : null
-            });
-            if(!overlayResult){
-              return null;
-            }
-            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
-              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
-            }
-          }else{
-            const overlayMode = pointMode === 'overlay';
-            const requestedHalfHeight = overlayMode
-              ? Math.max(pointRadius * 1.1, boxH * 0.3)
-              : Math.max(pointRadius * 1.1, boxH * 0.1);
-            const resolvedPointRadius = !hasExplicitPointSize(i) && Number.isFinite(displayedPointSharedRadius)
-              ? displayedPointSharedRadius
-              : (overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null);
-            const overlayPointColors = overlayMode ? resolveScientificOverlayPointColors(fillColor, borderColor) : null;
-            const slotRadius = Number.isFinite(Number(resolvedPointRadius)) && Number(resolvedPointRadius) > 0
-              ? Number(resolvedPointRadius)
-              : pointRadius;
-            const sideSlot = overlayMode ? null : resolveHorizontalSideDisplaySlot({
-              cy,
-              localBand,
-              boxH,
-              pointRadius: slotRadius,
-              requestedHalfHeight,
-              plotTop: marginLocal.top,
-              plotBottom: marginLocal.top + plotHLocal
-            });
-            const overlayResult = await renderSwarmPointsHorizontal({
-              valueList: pointValueList,
-              cy: overlayMode ? cy : (sideSlot?.centerY ?? cy),
-              localBand,
-              sampleCount: pointSampleCount,
-              traceIndex: i,
-              tooltipSeriesName,
-              tooltipCategoryName,
-              tooltipGroupName,
-              fillColor: overlayMode ? overlayPointColors.fill : fillColor,
-              borderColor: overlayMode ? overlayPointColors.stroke : borderColor,
-              groupAttrs: { 'data-individual': 'true' },
-              opacityMultiplier: 1,
-              debugLabel: overlayMode ? 'overlay' : 'side',
-              mean,
-              pointRadiusOverride: resolvedPointRadius,
-              maxHalfWidth: overlayMode ? requestedHalfHeight : (sideSlot?.halfHeight ?? 0),
-              allowRadiusAdjustment: false,
-              drawToken: token,
-              rowIndices: pointRowIndices,
-              collectPointsByRow: (connectPointsActive && (overlayMode || pointMode === 'side')) ? new Map() : null
-            });
-            if(!overlayResult){
-              return null;
-            }
-            if(connectPointsActive && overlayResult?.collectPointsByRow instanceof Map && overlayResult.collectPointsByRow.size){
-              connectionMapsByTrace[i] = overlayResult.collectPointsByRow;
-            }
-          }
-          console.timeEnd(`boxplotPoints_${token}_${i}`);
-        }
-      }
-      if(pendingIndividualSummaryBars.length && Number.isFinite(globalIndividualSummaryHalfSpan) && globalIndividualSummaryHalfSpan > 0){
-        for(const pendingBar of pendingIndividualSummaryBars){
-          const node = pendingBar?.node;
-          if(!node || typeof node.setAttribute !== 'function'){
-            continue;
-          }
-          node.setAttribute('x1', String(pendingBar.x));
-          node.setAttribute('x2', String(pendingBar.x));
-          node.setAttribute('y1', String(pendingBar.cy - globalIndividualSummaryHalfSpan));
-          node.setAttribute('y2', String(pendingBar.cy + globalIndividualSummaryHalfSpan));
-        }
-        const globalIntervalCapHalfSpan = globalIndividualSummaryHalfSpan / 2;
-        if(pendingIndividualSummaryIntervalCaps.length && Number.isFinite(globalIntervalCapHalfSpan) && globalIntervalCapHalfSpan > 0){
-          for(const pendingCap of pendingIndividualSummaryIntervalCaps){
-            const node = pendingCap?.node;
-            if(!node || typeof node.setAttribute !== 'function'){
-              continue;
-            }
-            node.setAttribute('x1', String(pendingCap.x));
-            node.setAttribute('x2', String(pendingCap.x));
-            node.setAttribute('y1', String(pendingCap.cy - globalIntervalCapHalfSpan));
-            node.setAttribute('y2', String(pendingCap.cy + globalIntervalCapHalfSpan));
-          }
-        }
-        if(debugEnabled){
-          console.debug('Debug: box strip summary span normalized globally',{
-            count: pendingIndividualSummaryBars.length,
-            capCount: pendingIndividualSummaryIntervalCaps.length,
+          const renderedPoints = await renderBoxTracePointsShared({
             orientation: 'horizontal',
-            globalSummaryBarWidth: globalIndividualSummaryHalfSpan * 2,
-            globalIntervalCapWidth: globalIndividualSummaryHalfSpan
+            graphTypeRaw,
+            pointMode,
+            traceIndex: i,
+            drawToken: token,
+            fillColor,
+            borderColor,
+            overlayPointRadius,
+            displayedPointSharedRadius,
+            pointRadius,
+            pointValueList,
+            pointSampleCount,
+            outliers,
+            violinPointBounds,
+            violinPointMaxHalfSpan: violinPointMaxHalfHeight,
+            pointRowIndices,
+            connectPointsActive,
+            centerCoord: cy,
+            boxSpan: boxH,
+            localBand,
+            mean,
+            debugEnabled,
+            hasExplicitPointSize: hasExplicitPointSize(i),
+            registerConnectionMap: map => { connectionMapsByTrace[i] = map; },
+            resolveSideSlot: ({ requestedHalfSpan, pointRadius: resolvedSlotRadius }) => {
+              const sideSlot = resolveHorizontalSideDisplaySlot({
+                cy,
+                localBand,
+                boxH,
+                pointRadius: resolvedSlotRadius,
+                requestedHalfHeight: requestedHalfSpan,
+                plotTop: marginLocal.top,
+                plotBottom: marginLocal.top + plotHLocal
+              });
+              return sideSlot
+                ? { centerCoord: sideSlot.centerY, halfSpan: sideSlot.halfHeight }
+                : null;
+            },
+            callSwarm: args => renderSwarmPointsHorizontal({
+              valueList: args.valueList,
+              cy: args.centerCoord != null ? args.centerCoord : cy,
+              localBand,
+              sampleCount: args.sampleCount,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor: args.fillColor,
+              borderColor: args.borderColor,
+              violinBounds: args.violinBounds,
+              groupAttrs: args.groupAttrs,
+              opacityMultiplier: args.opacityMultiplier,
+              debugLabel: args.debugLabel,
+              mean,
+              widthScaleMode: args.widthScaleMode,
+              pointRadiusOverride: args.pointRadiusOverride,
+              maxHalfWidth: args.maxHalfSpan,
+              allowRadiusAdjustment: args.allowRadiusAdjustment,
+              drawToken: token,
+              rowIndices: args.rowIndices,
+              collectPointsByRow: args.collectPointsByRow
+            })
           });
+          if(!renderedPoints){
+            return null;
+          }
         }
       }
+      normalizePendingIndividualSummarySpans({
+        orientation: 'horizontal',
+        pendingBars: pendingIndividualSummaryBars,
+        pendingCaps: pendingIndividualSummaryIntervalCaps,
+        globalHalfSpan: globalIndividualSummaryHalfSpan,
+        debugEnabled
+      });
       if(isStackedLayout && stackedErrorQueue.length){
         stackedErrorQueue.forEach(item => {
           const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
@@ -31669,31 +31895,7 @@ Technical analysis record (advanced)
     });
     const doc = cloneGroup.ownerDocument;
     const resolvedPreviewStyle = resolveBoxPreviewPointGroupStyle(sourceGroup, renderState);
-    const style = resolvedPreviewStyle.style || {};
-    if(renderState.renderer === 'canvas-preview'){
-      const points = Array.isArray(renderState.points) ? renderState.points : [];
-      if(!points.length){
-        return false;
-      }
-      const pointPath = createBatchedPointPath(doc, points, Math.max(0.2, (Number(resolvedPreviewStyle.pointRadius) || 0.2) * 2), {
-        fill: style.fill,
-        fillOpacity: style.fillOpacity,
-        stroke: style.stroke,
-        strokeWidth: style.strokeWidth,
-        dataTrace: renderState.traceIndex,
-        shape: resolvedPreviewStyle.shape || renderState.shape
-      });
-      if(Number.isFinite(Number(style.strokeOpacity))){
-        pointPath.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
-      }
-      cloneGroup.appendChild(pointPath);
-      return true;
-    }
-    if(renderState.renderer === 'canvas-approx'){
-      const fallbackNodes = appendBoxApproximateGeometryPaths(cloneGroup, Object.assign({}, renderState, { style }), doc, { hidden: false });
-      return fallbackNodes.length > 0;
-    }
-    return false;
+    return appendBoxCanvasPreviewVectorFallback(cloneGroup, renderState, resolvedPreviewStyle, doc);
   }
 
   function buildBoxPreviewSvgFromSource(sourceSvg){

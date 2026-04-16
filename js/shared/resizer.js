@@ -1735,23 +1735,53 @@
       });
       return null;
     }
+    const docBody = global.document && global.document.body;
+    const STYLE_EPSILON = 0.5;
+    let layoutMutated = false;
+    const isFiniteNumber = value => Number.isFinite(value);
+    const nearlyEqual = (a, b, epsilon = STYLE_EPSILON) => isFiniteNumber(a) && isFiniteNumber(b) && Math.abs(a - b) <= epsilon;
+    const parseInlinePx = value => {
+      if(value == null || value === '') return NaN;
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : NaN;
+    };
+    const setStyleValueIfChanged = (style, prop, value) => {
+      if(!style) return false;
+      const next = value == null ? '' : String(value);
+      const current = style[prop] == null ? '' : String(style[prop]);
+      if(current === next) return false;
+      style[prop] = next;
+      layoutMutated = true;
+      return true;
+    };
+    const setStylePxIfChanged = (style, prop, value, epsilon = STYLE_EPSILON) => {
+      if(!style || !Number.isFinite(value)) return false;
+      const rounded = Math.round(value);
+      const currentInline = parseInlinePx(style[prop]);
+      if(nearlyEqual(currentInline, rounded, epsilon) && style[prop]){
+        return false;
+      }
+      style[prop] = rounded + 'px';
+      layoutMutated = true;
+      return true;
+    };
     const tableManualPanel = tablePanel?.dataset?.panelManualWidth === 'true';
     const graphManualPanel = graphPanel?.dataset?.panelManualWidth === 'true';
     const hasManualPanelSizing = tableManualPanel || graphManualPanel;
     if(!lockGraphPanelWidth && !hasManualPanelSizing && graphPanel?.style){
       const needsReset = graphPanel.style.width || graphPanel.style.minWidth || graphPanel.style.flexBasis || graphPanel.style.flex;
       if(needsReset){
-        graphPanel.style.width = '';
-        graphPanel.style.minWidth = '';
-        graphPanel.style.flexBasis = '';
-        graphPanel.style.flex = '';
+        setStyleValueIfChanged(graphPanel.style, 'width', '');
+        setStyleValueIfChanged(graphPanel.style, 'minWidth', '');
+        setStyleValueIfChanged(graphPanel.style, 'flexBasis', '');
+        setStyleValueIfChanged(graphPanel.style, 'flex', '');
       }
     }
     if(!lockGraphPanelWidth && !hasManualPanelSizing){
       const wrapEl = graphPanel?.parentElement || null;
       if(wrapEl?.style && wrapEl?.dataset?.panelMinWidthLocked === 'true'){
         if(wrapEl.style.minWidth){
-          wrapEl.style.minWidth = '';
+          setStyleValueIfChanged(wrapEl.style, 'minWidth', '');
         }
         delete wrapEl.dataset.panelMinWidthLocked;
       }
@@ -1759,7 +1789,6 @@
     const svgBox = opts.svgBox || graphPanel.querySelector(opts.svgSelector || '.svgbox');
     const diagramSelector = opts.diagramSelector || '.diagram-area';
     const diagramArea = graphPanel.querySelector(diagramSelector);
-    const docBody = global.document && global.document.body;
     const isElementHidden = (el) => {
       if (!el) return true;
       if (typeof el.offsetParent === 'undefined') {
@@ -1854,16 +1883,17 @@
       }
     }
     const minTableHint = parsePositive(opts.minTableWidth);
+    const sanitizedMinTableHint = Number.isFinite(minTableHint) && minTableHint >= 0 ? minTableHint : NaN;
     let computedTableMin = NaN;
-    if((!Number.isFinite(minTableHint) || minTableHint < 0) && tablePanel && typeof global.getComputedStyle === 'function'){
+    if((!Number.isFinite(sanitizedMinTableHint) || sanitizedMinTableHint < 0) && tablePanel && typeof global.getComputedStyle === 'function'){
       try{
         computedTableMin = parsePositive(global.getComputedStyle(tablePanel).minWidth);
       }catch(err){
         console.error('Shared.syncPanelWidths table min compute error', err);
       }
     }
-    const baseMinTable = Number.isFinite(minTableHint) && minTableHint >= 0
-      ? minTableHint
+    const baseMinTable = Number.isFinite(sanitizedMinTableHint) && sanitizedMinTableHint >= 0
+      ? sanitizedMinTableHint
       : (Number.isFinite(computedTableMin) && computedTableMin >= 0 ? computedTableMin : 0);
     let storedMinTableWidth = parsePositive(tableDataset.panelMinWidth);
     if(!Number.isFinite(storedMinTableWidth)){
@@ -1872,7 +1902,7 @@
       console.debug('Debug: Shared.syncPanelWidths table min stored', {
         label: debugLabel,
         storedMinTableWidth,
-        minTableHint
+        minTableHint: sanitizedMinTableHint
       }); // Debug: persist computed min width baseline
     }else if(Number.isFinite(baseMinTable) && storedMinTableWidth < baseMinTable){
       storedMinTableWidth = baseMinTable;
@@ -1880,22 +1910,21 @@
       console.debug('Debug: Shared.syncPanelWidths table min normalized', {
         label: debugLabel,
         storedMinTableWidth,
-        minTableHint
+        minTableHint: sanitizedMinTableHint
       }); // Debug: normalize stored min width to hint
     }
     const effectiveMinTable = Number.isFinite(storedMinTableWidth) ? storedMinTableWidth : baseMinTable;
     const minPx = Math.max(0, Math.round(effectiveMinTable));
-    if(tablePanel.style.minWidth !== minPx + 'px'){
-      tablePanel.style.minWidth = minPx + 'px';
+    if(setStylePxIfChanged(tablePanel.style, 'minWidth', minPx)){
       console.debug('Debug: Shared.syncPanelWidths table min enforced', {
         label: debugLabel,
         minPx
       }); // Debug: enforce locked min width style
     }
     if(minPx > 0 && Number.isFinite(tableWidth) && tableWidth > 0 && tableWidth < minPx - 0.5){
-      tablePanel.style.flex = '0 0 ' + minPx + 'px';
-      tablePanel.style.flexBasis = minPx + 'px';
-      tablePanel.style.width = minPx + 'px';
+      setStyleValueIfChanged(tablePanel.style, 'flex', '0 0 ' + minPx + 'px');
+      setStylePxIfChanged(tablePanel.style, 'flexBasis', minPx);
+      setStylePxIfChanged(tablePanel.style, 'width', minPx);
       console.debug('Debug: Shared.syncPanelWidths table width corrected', {
         label: debugLabel,
         minPx,
@@ -2109,11 +2138,11 @@
       if(!unlimitedWidth && Number.isFinite(maxWidthConstraint)){
         widthToApply = Math.min(widthToApply, Math.round(maxWidthConstraint));
       }
-      svgBox.style.width = widthToApply + 'px';
+      setStylePxIfChanged(svgBox.style, 'width', widthToApply);
       if(allowOverflow){
-        svgBox.style.maxWidth = 'none';
+        setStyleValueIfChanged(svgBox.style, 'maxWidth', 'none');
       }else{
-        svgBox.style.maxWidth = Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply) + 'px';
+        setStylePxIfChanged(svgBox.style, 'maxWidth', Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply));
       }
       if(svgDataset){
         svgDataset.resizerWidth = svgBox.style.width;
@@ -2133,8 +2162,8 @@
           if(Number.isFinite(datasetMaxHeight)){
             heightToApply = Math.min(heightToApply, Math.round(datasetMaxHeight));
           }
-          svgBox.style.height = heightToApply + 'px';
-          svgBox.style.maxHeight = Math.max(heightToApply, Number.isFinite(datasetDefaultHeight) ? datasetDefaultHeight : heightToApply) + 'px';
+          setStylePxIfChanged(svgBox.style, 'height', heightToApply);
+          setStylePxIfChanged(svgBox.style, 'maxHeight', Math.max(heightToApply, Number.isFinite(datasetDefaultHeight) ? datasetDefaultHeight : heightToApply));
           if(svgDataset){
             svgDataset.resizerHeight = svgBox.style.height;
           }
@@ -2163,26 +2192,30 @@
         svgDataset.resizerTableWidth = String(finalTableWidth);
       }
       if(tablePanel && finalTableWidth > 0){
-        tablePanel.style.flex = '0 0 ' + finalTableWidth + 'px';
-        tablePanel.style.width = finalTableWidth + 'px';
-        tablePanel.style.minWidth = minTablePx + 'px';
-        tablePanel.style.maxWidth = 'none';
+        setStyleValueIfChanged(tablePanel.style, 'flex', '0 0 ' + finalTableWidth + 'px');
+        setStylePxIfChanged(tablePanel.style, 'width', finalTableWidth);
+        setStylePxIfChanged(tablePanel.style, 'minWidth', minTablePx);
+        setStyleValueIfChanged(tablePanel.style, 'maxWidth', 'none');
       }
       const targetGraphWidth = Number.isFinite(configWidth) ? safeAppliedWidth + configWidth + gap : safeAppliedWidth;
       const finalGraphWidth = Math.max(0, Math.round(targetGraphWidth));
       if(lockGraphPanelWidth && graphPanel && finalGraphWidth > 0){
-        graphPanel.style.flex = '0 0 auto';
-        graphPanel.style.maxWidth = 'none';
-        graphPanel.style.minWidth = finalGraphWidth + 'px';
-        graphPanel.style.width = finalGraphWidth + 'px';
+        setStyleValueIfChanged(graphPanel.style, 'flex', '0 0 auto');
+        setStyleValueIfChanged(graphPanel.style, 'maxWidth', 'none');
+        setStylePxIfChanged(graphPanel.style, 'minWidth', finalGraphWidth);
+        setStylePxIfChanged(graphPanel.style, 'width', finalGraphWidth);
       }
       if(configPanel){
-        configPanel.style.flex = '0 0 auto';
+        setStyleValueIfChanged(configPanel.style, 'flex', '0 0 auto');
       }
       const wrap = graphPanel?.parentElement || null;
       if(lockGraphPanelWidth && wrap && wrap.style){
         const wrapMin = Math.max(0, finalTableWidth + finalGraphWidth + graphInset + resizerSpace);
-        wrap.style.minWidth = wrapMin ? wrapMin + 'px' : '';
+        if(wrapMin > 0){
+          setStylePxIfChanged(wrap.style, 'minWidth', wrapMin);
+        }else{
+          setStyleValueIfChanged(wrap.style, 'minWidth', '');
+        }
         if(wrap.dataset){
           wrap.dataset.panelMinWidthLocked = 'true';
         }
@@ -2199,10 +2232,12 @@
       if(typeof opts.onWidthApplied === 'function'){
         try{ opts.onWidthApplied(safeAppliedWidth); }catch(err){ console.error('Shared.syncPanelWidths onWidthApplied error', err); }
       }
-      if(!opts.skipSchedule && typeof scheduleDraw === 'function'){
+      const shouldSchedule = opts.forceSchedule === true || layoutMutated;
+      if(!opts.skipSchedule && shouldSchedule && typeof scheduleDraw === 'function'){
         try{ scheduleDraw(); }catch(err){ console.error(debugLabel + ' sync schedule error', err); }
       }
       return {
+        layoutChanged: layoutMutated,
         tableWidth: finalTableWidth,
         graphWidth: latestGraphWidth,
         configWidth,
@@ -2220,9 +2255,9 @@
       ? appliedWidth + configWidth + gap
       : null;
     if(lockGraphPanelWidth && graphPanel && Number.isFinite(targetGraphWidth) && targetGraphWidth > 0){
-      graphPanel.style.flex = '0 0 auto';
-      graphPanel.style.maxWidth = 'none';
-      graphPanel.style.minWidth = targetGraphWidth + 'px';
+      setStyleValueIfChanged(graphPanel.style, 'flex', '0 0 auto');
+      setStyleValueIfChanged(graphPanel.style, 'maxWidth', 'none');
+      setStylePxIfChanged(graphPanel.style, 'minWidth', targetGraphWidth);
       let contentDiff = Number.isFinite(graphContentWidth)
         ? Math.abs(graphContentWidth - targetGraphWidth)
         : Infinity;
@@ -2230,7 +2265,7 @@
         contentDiff = Infinity;
       }
       if(!Number.isFinite(graphContentWidth) || contentDiff > 1){
-        graphPanel.style.width = targetGraphWidth + 'px';
+        setStylePxIfChanged(graphPanel.style, 'width', targetGraphWidth);
         console.debug('Debug: Shared.syncPanelWidths graph width applied', {
           label: debugLabel,
           targetGraphWidth,
@@ -2244,7 +2279,7 @@
       if(lockGraphPanelWidth && wrap && Number.isFinite(tableWidth) && Number.isFinite(targetGraphWidth)){
         const wrapMin = tableWidth + targetGraphWidth + graphInset + resizerSpace;
         if(Number.isFinite(wrapMin) && wrapMin > 0){
-          wrap.style.minWidth = wrapMin + 'px';
+          setStylePxIfChanged(wrap.style, 'minWidth', wrapMin);
           if(wrap.dataset){
             wrap.dataset.panelMinWidthLocked = 'true';
           }
@@ -2282,7 +2317,8 @@
         console.error('Shared.syncPanelWidths onWidthApplied error', err);
       }
     }
-    if(!opts.skipSchedule && typeof scheduleDraw === 'function'){
+    const shouldSchedule = opts.forceSchedule === true || layoutMutated;
+    if(!opts.skipSchedule && shouldSchedule && typeof scheduleDraw === 'function'){
       try{
         scheduleDraw();
       }catch(err){
@@ -2304,6 +2340,7 @@
       manualWidth
     });
     return {
+      layoutChanged: layoutMutated,
       tableWidth,
       graphWidth,
       configWidth,

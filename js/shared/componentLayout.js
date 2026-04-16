@@ -92,7 +92,9 @@
       deferScheduleUntil: 0,
       forceDeferUntil: 0,
       forceDeferReason: null,
-      forceSkipSchedules: 0
+      forceSkipSchedules: 0,
+      programmaticSyncDepth: 0,
+      lastObservedTableSize: null
     };
     const restoreDelayMs = Number.isFinite(config?.restoreScheduleDelayMs)
       ? Number(config.restoreScheduleDelayMs)
@@ -262,6 +264,16 @@
       return { skipSchedule, visibility, suppressResizeCallback };
     };
 
+    const OBSERVER_SIZE_EPSILON = 0.5;
+    const readObservedSize = element => {
+      const rect = element?.getBoundingClientRect?.();
+      return rect ? { width: rect.width, height: rect.height } : null;
+    };
+    const sizeChangedEnough = (previous, next, epsilon = OBSERVER_SIZE_EPSILON) => {
+      if(!previous || !next) return true;
+      return Math.abs(previous.width - next.width) > epsilon || Math.abs(previous.height - next.height) > epsilon;
+    };
+
     const syncPanels = (options = {}) => {
       const flags = evaluateScheduleFlags(options);
       const skipSchedule = flags.skipSchedule;
@@ -270,7 +282,7 @@
         return;
       }
       const scheduleWrapper = (!skipSchedule && scheduleDrawFn) ? () => {
-        console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName });
+        console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName, source: options.source || 'sync' });
         scheduleDrawFn();
       } : null;
       const syncOptions = Object.assign({ forceDefaultWidth: true }, config?.panelSyncOptions || {});
@@ -280,10 +292,27 @@
         debugLabel: componentName,
         panelResizer: elements.panelResizer,
         skipSchedule,
-        preserveGraphContent
+        preserveGraphContent,
+        forceSchedule: options.forceSchedule === true || options.source === 'observer'
       });
-      Shared.syncPanelWidths(elements.tablePanel, elements.graphPanel, elements.configPanel, scheduleWrapper, syncOptions);
-      console.debug('Debug: componentLayout syncPanels complete', { component: componentName, minSvgWidth: panelState.minSvgWidth });
+      let syncResult = null;
+      panelState.programmaticSyncDepth += 1;
+      try{
+        syncResult = Shared.syncPanelWidths(elements.tablePanel, elements.graphPanel, elements.configPanel, scheduleWrapper, syncOptions);
+      } finally {
+        global.requestAnimationFrame(() => {
+          panelState.programmaticSyncDepth = Math.max(0, panelState.programmaticSyncDepth - 1);
+          console.debug('Debug: componentLayout programmatic sync released', {
+            component: componentName,
+            depth: panelState.programmaticSyncDepth
+          });
+        });
+      }
+      console.debug('Debug: componentLayout syncPanels complete', {
+        component: componentName,
+        minSvgWidth: panelState.minSvgWidth,
+        layoutChanged: !!syncResult?.layoutChanged
+      });
       if(typeof config?.onAfterSync === 'function'){
         try{
           config.onAfterSync({ elements, component: componentName, options });
@@ -295,9 +324,28 @@
 
     if(global.ResizeObserver && elements.tablePanel){
       panelState.resizeObserver = new global.ResizeObserver(() => {
-        console.debug('Debug: componentLayout ResizeObserver triggered', { component: componentName });
-        syncPanels({ source: 'observer' });
+        const nextSize = readObservedSize(elements.tablePanel);
+        if(panelState.programmaticSyncDepth > 0){
+          console.debug('Debug: componentLayout ResizeObserver ignored during programmatic sync', {
+            component: componentName,
+            nextSize,
+            depth: panelState.programmaticSyncDepth
+          });
+          return;
+        }
+        if(!sizeChangedEnough(panelState.lastObservedTableSize, nextSize)){
+          console.debug('Debug: componentLayout ResizeObserver ignored unchanged size', {
+            component: componentName,
+            lastSize: panelState.lastObservedTableSize,
+            nextSize
+          });
+          return;
+        }
+        panelState.lastObservedTableSize = nextSize;
+        console.debug('Debug: componentLayout ResizeObserver triggered', { component: componentName, nextSize });
+        syncPanels({ source: 'observer', forceSchedule: true });
       });
+      panelState.lastObservedTableSize = readObservedSize(elements.tablePanel);
       panelState.resizeObserver.observe(elements.tablePanel);
     }else{
       console.debug('Debug: componentLayout ResizeObserver unavailable', {
