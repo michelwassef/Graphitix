@@ -8518,23 +8518,25 @@
     let summary='Use a two-way ANOVA to assess group and condition main effects plus their interaction.';
     if(includeRowFactor){
       if(repeated==='yes'){
-        analysis='threeWayMixed';
-        summary='Use a three-way mixed model to evaluate group, condition, and row effects with repeated measurements.';
+        analysis='rowRandomMixed';
+        summary='Use a mixed model with rows as a random repeated-measures effect to assess group, condition, and their interaction.';
       }else{
         analysis='threeWayAnova';
         summary='Use a three-way ANOVA to evaluate group, condition, and row factors together.';
       }
     }else if(repeated==='yes'){
-      analysis='twoWayMixed';
-      summary='Use a two-way mixed model to assess group and condition effects with repeated measurements across conditions.';
+      analysis='rowRandomMixed';
+      summary='Use a mixed model with rows as a random repeated-measures effect to assess group and condition effects.';
     }
     if(repeated==='yes'){
       rationale.push('Rows track repeated observations for each subject, so a mixed-model approach accounts for within-subject correlation.');
     }else{
       rationale.push('Groups and conditions are independent, so a standard ANOVA is appropriate.');
     }
-    if(includeRowFactor){
+    if(includeRowFactor && repeated!=='yes'){
       rationale.push('Including the row/subject factor lets you test for row-level trends and higher-order interactions.');
+    }else if(includeRowFactor){
+      rationale.push('For repeated-measures data, rows are modeled as a random subject effect rather than as another fixed ANOVA factor.');
     }
     if(!context.ok && context.message){
       warnings.push(context.message);
@@ -15096,6 +15098,16 @@
   function sanitizeGroupedMultiplicityFamily(value){
     return value === 'global' ? 'global' : 'within-scope';
   }
+  const GROUPED_ANALYSIS_IDS = new Set(['twoWayAnova','rowRandomMixed','threeWayAnova','rowTTests','multipleComparisons']);
+  const GROUPED_ANALYSIS_ALIASES = {
+    twoWayMixed: 'rowRandomMixed',
+    threeWayMixed: 'rowRandomMixed'
+  };
+  function normalizeGroupedAnalysisId(value){
+    const raw = typeof value === 'string' ? value : '';
+    const mapped = GROUPED_ANALYSIS_ALIASES[raw] || raw;
+    return GROUPED_ANALYSIS_IDS.has(mapped) ? mapped : null;
+  }
   function sanitizeStatsSeed(value,fallback=1337){
     const numeric=Math.round(Number(value));
     if(Number.isFinite(numeric)){
@@ -18751,8 +18763,8 @@
     if(!state.groupedStats || typeof state.groupedStats !== 'object'){
       state.groupedStats = { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' };
     }
-    const allowed = new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests','multipleComparisons']);
-    if(!allowed.has(state.groupedStats.analysis)){
+    state.groupedStats.analysis = normalizeGroupedAnalysisId(state.groupedStats.analysis);
+    if(!state.groupedStats.analysis){
       state.groupedStats.analysis = 'twoWayAnova';
       console.debug('Debug: grouped stats analysis reset to default');
     }
@@ -19071,13 +19083,13 @@
       diagnostics: { dfA, dfB, dfAB, dfError }
     };
   }
-  function analyzeTwoWayMixed(data){
+  function analyzeRowRandomMixedModel(data){
     if(Number(data?.partialRowsSkipped || 0) > 0 && Array.isArray(data?.allRows) && data.allRows.length){
       return analyzeIncompleteMixedByGLS(data,{
-        caption:'Two-way Mixed Effects Model',
-        fileName:'box-two-way-mixed-incomplete',
-        contextLabel:'box-grouped-mixed2-incomplete',
-        analysisKey:'twoWayMixed'
+        caption:'Mixed Effects Model',
+        fileName:'box-row-random-mixed-incomplete',
+        contextLabel:'box-grouped-row-random-mixed-incomplete',
+        analysisKey:'rowRandomMixed'
       });
     }
     const prepared = resolveGroupedMomentInfoForAnova(data);
@@ -19087,7 +19099,7 @@
     const { base, jStatLib } = prepared;
     const { I, J, K, ssa, ssb, ssab, sse, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
     if(I < 2 || J < 2 || K < 2){
-      return { ok: false, message: 'Two-way mixed model requires at least two groups, two conditions, and two complete rows.' };
+      return { ok: false, message: 'Mixed model requires at least two groups, two conditions, and two complete rows.' };
     }
     const dfA = I - 1;
     const dfB = J - 1;
@@ -19097,7 +19109,7 @@
     const dfAB = (I - 1) * (J - 1);
     const dfABS = (I - 1) * (J - 1) * (K - 1);
     if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
-      return { ok: false, message: 'Two-way mixed model requires at least two rows to estimate error terms.' };
+      return { ok: false, message: 'Mixed model requires at least two rows to estimate random-row error terms.' };
     }
     let sss = 0;
     for(let k = 0; k < K; k++){
@@ -19148,10 +19160,10 @@
     const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfAS) : NaN;
     const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfBS) : NaN;
     const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABS) : NaN;
-    console.debug('Debug: two-way mixed stats',{ dfA, dfAS, dfB, dfBS, dfAB, dfABS, fA, fB, fAB });
+    console.debug('Debug: row-random mixed stats',{ dfA, dfAS, dfB, dfBS, dfAB, dfABS, fA, fB, fAB });
     return {
       ok: true,
-      caption: 'Two-way Mixed Model',
+      caption: 'Mixed Model (Rows Random)',
       columns: GROUPED_ANOVA_COLUMNS,
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
@@ -19162,8 +19174,9 @@
         { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—', etaP2: '—' },
         { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—', etaP2: '—' }
       ],
-      options:{ fileName:'box-two-way-mixed', contextLabel:'box-grouped-mixed2' },
-      footnotes: ['Mixed model treats rows as a random effect; F-tests for fixed effects use row interactions as denominators. Partial eta squared (ηp²) is reported for fixed effects.']
+      options:{ fileName:'box-row-random-mixed', contextLabel:'box-grouped-row-random-mixed' },
+      footnotes: ['Rows are modeled as a random repeated-measures effect; F-tests for fixed group, condition, and group × condition effects use row interactions as denominators. Partial eta squared (ηp²) is reported for fixed effects.'],
+      diagnostics: { dfA, dfAS, dfB, dfBS, dfS, dfAB, dfABS }
     };
   }
   function analyzeThreeWayAnova(data){
@@ -19258,101 +19271,6 @@
       options:{ fileName:'box-three-way-anova', contextLabel:'box-grouped-anova3' },
       footnotes: ['Highest-order interaction is used as the error term for F-tests. Partial eta squared (ηp²) is reported for fixed effects.'],
       diagnostics: { dfA, dfB, dfC, dfAB, dfAC, dfBC, dfABC }
-    };
-  }
-  function analyzeThreeWayMixed(data){
-    if(Number(data?.partialRowsSkipped || 0) > 0 && Array.isArray(data?.allRows) && data.allRows.length){
-      return analyzeIncompleteMixedByGLS(data,{
-        caption:'Three-way Mixed Effects Model',
-        fileName:'box-three-way-mixed-incomplete',
-        contextLabel:'box-grouped-mixed3-incomplete',
-        analysisKey:'threeWayMixed'
-      });
-    }
-    const prepared = resolveGroupedMomentInfoForAnova(data);
-    if(!prepared.ok){
-      return { ok: false, message: prepared.message };
-    }
-    const { base, jStatLib } = prepared;
-    const { I, J, K, ssa, ssb, ssab, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
-    if(I < 2 || J < 2 || K < 2){
-      return { ok: false, message: 'Three-way mixed model requires at least two groups, two conditions, and two rows.' };
-    }
-    const dfA = I - 1;
-    const dfB = J - 1;
-    const dfC = K - 1;
-    const dfAS = (I - 1) * (K - 1);
-    const dfBS = (J - 1) * (K - 1);
-    const dfAB = (I - 1) * (J - 1);
-    const dfABS = (I - 1) * (J - 1) * (K - 1);
-    if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
-      return { ok: false, message: 'Three-way mixed model requires at least two rows to estimate random effects.' };
-    }
-    let sss = 0;
-    for(let k = 0; k < K; k++){
-      sss += Math.pow(subjectMeans[k] - grandMean, 2);
-    }
-    sss *= I * J;
-    let ssas = 0;
-    for(let i = 0; i < I; i++){
-      for(let k = 0; k < K; k++){
-        const term = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
-        ssas += Math.pow(term, 2);
-      }
-    }
-    ssas *= J;
-    let ssbs = 0;
-    for(let j = 0; j < J; j++){
-      for(let k = 0; k < K; k++){
-        const term = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
-        ssbs += Math.pow(term, 2);
-      }
-    }
-    ssbs *= I;
-    let ssabs = 0;
-    for(let k = 0; k < K; k++){
-      for(let i = 0; i < I; i++){
-        for(let j = 0; j < J; j++){
-          const term = data.rows[k][i][j]
-            - base.cellMeans[i][j]
-            - asMeans[i][k]
-            - bsMeans[j][k]
-            + meanByGroup[i]
-            + meanByCondition[j]
-            + subjectMeans[k]
-            - grandMean;
-          ssabs += Math.pow(term, 2);
-        }
-      }
-    }
-    const msa = ssa / dfA;
-    const msas = ssas / dfAS;
-    const msb = ssb / dfB;
-    const msbs = ssbs / dfBS;
-    const msab = ssab / dfAB;
-    const msabs = ssabs / dfABS;
-    const fA = msas > 0 ? msa / msas : NaN;
-    const fB = msbs > 0 ? msb / msbs : NaN;
-    const fAB = msabs > 0 ? msab / msabs : NaN;
-    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfAS) : NaN;
-    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfBS) : NaN;
-    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABS) : NaN;
-    console.debug('Debug: three-way mixed stats',{ dfA, dfAS, dfB, dfBS, dfAB, dfABS, fA, fB, fAB });
-    return {
-      ok: true,
-      caption: 'Three-way Mixed Model',
-      columns: GROUPED_ANOVA_COLUMNS,
-      rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssbs)) },
-        { source: 'Row (random)', df: String(dfC), ss: formatStatNumber(sss), ms: formatStatNumber(dfC ? sss / dfC : NaN), f: '—', p: '—', etaP2: '—' },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB), etaP2: formatStatNumber(computePartialEtaSquared(ssab, ssabs)) },
-        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—', etaP2: '—' },
-        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—', etaP2: '—' },
-        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—', etaP2: '—' }
-      ],
-      options:{ fileName:'box-three-way-mixed', contextLabel:'box-grouped-mixed3' },
-      footnotes: ['Rows treated as a random effect; F-tests reported for fixed factors only. Partial eta squared (ηp²) is reported for fixed effects.']
     };
   }
   function analyzeRowWiseTTests(data){
@@ -19995,12 +19913,12 @@
     const advisor=getAdvisorState();
     const answers=advisor.answers;
     if(context?.format==='grouped'){
-      const analysis=context?.analysis || state.groupedStats?.analysis;
+      const analysis=normalizeGroupedAnalysisId(context?.analysis || state.groupedStats?.analysis) || 'twoWayAnova';
       if(answers.groupedGoal===undefined){
         answers.groupedGoal=analysis==='rowTTests'?'perCondition':'interaction';
       }
       if(answers.groupedRepeated===undefined){
-        if(analysis==='twoWayMixed' || analysis==='threeWayMixed'){
+        if(analysis==='rowRandomMixed'){
           answers.groupedRepeated='yes';
         }else if(analysis==='twoWayAnova' || analysis==='threeWayAnova'){
           answers.groupedRepeated='no';
@@ -20009,7 +19927,7 @@
       const rowCount=Number.isFinite(context?.rowCount)?context.rowCount:0;
       if(rowCount>=2){
         if(answers.groupedRowFactor===undefined){
-          answers.groupedRowFactor=(analysis==='threeWayAnova' || analysis==='threeWayMixed')?'yes':'no';
+          answers.groupedRowFactor=analysis==='threeWayAnova'?'yes':'no';
         }
       }else if(answers.groupedRowFactor!==undefined){
         delete answers.groupedRowFactor;
@@ -21277,9 +21195,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   const select=document.createElement('select');
   const options=[
     { value:'twoWayAnova', text:'Two-way ANOVA' },
-    { value:'twoWayMixed', text:'Two-way Mixed Model' },
+    { value:'rowRandomMixed', text:'Mixed model (rows random)' },
     { value:'threeWayAnova', text:'Three-way ANOVA' },
-    { value:'threeWayMixed', text:'Three-way Mixed Model' },
     { value:'rowTTests', text:'Per-condition pairwise t-tests' },
     { value:'multipleComparisons', text:'Grouped multiple comparisons' }
   ];
@@ -21400,7 +21317,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     analysisHelp.textContent='Per-condition pairwise tests use Welch t-statistics, then apply the selected multiplicity correction.';
   }else if(state.groupedStats.analysis==='multipleComparisons'){
     analysisHelp.textContent='Grouped multiple comparisons expose Prism-style scopes: groups within conditions, conditions within groups, marginal means, or all cell means. Multiplicity can be controlled within each displayed scope or across all comparisons globally.';
-  }else if(state.groupedStats.analysis==='twoWayMixed' || state.groupedStats.analysis==='threeWayMixed'){
+  }else if(state.groupedStats.analysis==='rowRandomMixed'){
     analysisHelp.textContent='Mixed-effects models treat rows as repeated/random effects. When rows contain missing or non-numeric repeated-measures values, the mixed-effects path retains observed values instead of listwise deletion.';
   }else{
     analysisHelp.textContent='ANOVA models assume approximately normal residuals and balanced, complete rows.';
@@ -23848,12 +23765,11 @@ Technical analysis record (advanced)
         statsDiv.appendChild(warn);
         return;
       }
-      const analysis=state.groupedStats?.analysis || 'twoWayAnova';
+      const analysis=normalizeGroupedAnalysisId(state.groupedStats?.analysis) || 'twoWayAnova';
       let resultModel;
       if(analysis==='twoWayAnova') resultModel=analyzeTwoWayAnova(prepared);
-      else if(analysis==='twoWayMixed') resultModel=analyzeTwoWayMixed(prepared);
+      else if(analysis==='rowRandomMixed') resultModel=analyzeRowRandomMixedModel(prepared);
       else if(analysis==='threeWayAnova') resultModel=analyzeThreeWayAnova(prepared);
-      else if(analysis==='threeWayMixed') resultModel=analyzeThreeWayMixed(prepared);
       else if(analysis==='rowTTests') resultModel=analyzeRowWiseTTests(prepared);
       else if(analysis==='multipleComparisons') resultModel=analyzeGroupedMultipleComparisons(prepared);
       if(!resultModel || !resultModel.ok){
@@ -31342,10 +31258,10 @@ Technical analysis record (advanced)
         state.statsPairsText='';
       }
       ensureGroupedStatsDefaults();
-      const allowedGroupedAnalyses=new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests','multipleComparisons']);
-      if(typeof statsConfig.groupedAnalysis==='string' && allowedGroupedAnalyses.has(statsConfig.groupedAnalysis)){
-        state.groupedStats.analysis=statsConfig.groupedAnalysis;
-      }else if(!allowedGroupedAnalyses.has(state.groupedStats.analysis)){
+      const normalizedGroupedAnalysis=normalizeGroupedAnalysisId(statsConfig.groupedAnalysis);
+      if(normalizedGroupedAnalysis){
+        state.groupedStats.analysis=normalizedGroupedAnalysis;
+      }else if(!normalizeGroupedAnalysisId(state.groupedStats.analysis)){
         state.groupedStats.analysis='twoWayAnova';
       }
       state.groupedStats.comparisonScope=sanitizeGroupedComparisonScope(statsConfig.groupedComparisonScope ?? state.groupedStats.comparisonScope);
@@ -32031,6 +31947,8 @@ Technical analysis record (advanced)
       estimateGroupedMultipleComparisonCount:(data,options={})=>estimateGroupedMultipleComparisonCount(data,options || {}),
       analyzeRowWiseTTests:data=>analyzeRowWiseTTests(data),
       analyzeGroupedMultipleComparisons:data=>analyzeGroupedMultipleComparisons(data),
+      analyzeRowRandomMixedModel:data=>analyzeRowRandomMixedModel(data),
+      normalizeGroupedAnalysisId:value=>normalizeGroupedAnalysisId(value),
       applyPValueCorrection:(values,method)=>applyPValueCorrection(values,method),
       resolveCorrectionMeta:(method,count)=>resolveCorrectionMeta(method,count),
       lognormalAnova:groups=>anova((Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).map(Number).filter(Number.isFinite).map(Math.log))),

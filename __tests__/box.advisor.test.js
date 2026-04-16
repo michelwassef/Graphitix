@@ -1,5 +1,11 @@
 const ensureBoxModule = () => {
   jest.resetModules();
+  const jStatModule = require('jstat');
+  const jStat = jStatModule?.jStat || jStatModule;
+  global.jStat = jStat;
+  if (typeof window !== 'undefined') {
+    window.jStat = jStat;
+  }
   require('../js/vendor.js');
   require('../js/components/box.js');
   return window.Components?.box;
@@ -114,7 +120,7 @@ describe('Box plot statistics advisor', () => {
     expect(recommendation.summary).toMatch(/row-wise t-tests/i);
   });
 
-  test('grouped advisor selects three-way mixed model when rows are repeated and included', () => {
+  test('grouped advisor selects the row-random mixed model when rows are repeated and included', () => {
     const box = ensureBoxModule();
     const recommendation = box.getAdvisorRecommendation({
       groupedGoal: 'interaction',
@@ -128,7 +134,45 @@ describe('Box plot statistics advisor', () => {
       ok: true
     });
     expect(recommendation.ready).toBe(true);
-    expect(recommendation.analysis).toBe('threeWayMixed');
+    expect(recommendation.analysis).toBe('rowRandomMixed');
+    expect(recommendation.summary).toMatch(/rows as a random/i);
     expect(Array.isArray(recommendation.rationale)).toBe(true);
+  });
+
+  test('legacy grouped mixed analysis ids normalize to one row-random model', () => {
+    const box = ensureBoxModule();
+    const hooks = box.__testHooks;
+    expect(hooks.normalizeGroupedAnalysisId('twoWayMixed')).toBe('rowRandomMixed');
+    expect(hooks.normalizeGroupedAnalysisId('threeWayMixed')).toBe('rowRandomMixed');
+
+    const groupedData = {
+      ok: true,
+      groupsCount: 2,
+      conditionsCount: 2,
+      rowsWithData: 4,
+      partialRowsSkipped: 0,
+      rows: [
+        [[10, 12], [13, 15]],
+        [[11, 13], [14, 16]],
+        [[12, 14], [15, 17]],
+        [[13, 15], [16, 18]]
+      ],
+      cellData: [
+        [[10, 11, 12, 13], [12, 13, 14, 15]],
+        [[13, 14, 15, 16], [15, 16, 17, 18]]
+      ]
+    };
+    const result = hooks.analyzeRowRandomMixedModel(groupedData);
+    expect(result.ok).toBe(true);
+    expect(result.caption).toBe('Mixed Model (Rows Random)');
+    expect(result.rows.map(row => row.source)).toEqual([
+      'Group',
+      'Condition',
+      'Group × Condition',
+      'Row (random)',
+      'Group × Row',
+      'Condition × Row',
+      'Group × Condition × Row'
+    ]);
   });
 });
