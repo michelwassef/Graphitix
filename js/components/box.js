@@ -27497,6 +27497,942 @@ Technical analysis record (advanced)
         valueRange
       };
     };
+    const resolveOrientationRenderRuntime = async (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const valueAxisId = config?.valueAxis === 'x' ? 'x' : 'y';
+      const categoricalAxis = state.flipAxes ? 'y' : 'x';
+      const categoricalLayout = computeCategoricalBandLayoutShared({
+        orientation,
+        plotSpan: config?.categoricalPlotSpan,
+        marginStart: config?.categoricalMarginStart,
+        axisCount: axisLabels.length,
+        categoricalAxis,
+        separatedCategoryUnits,
+        usesGroupedSpacing,
+        groupedGroups,
+        plotDimensionLabel: config?.plotDimensionLabel
+      });
+      const valueAxis = buildValueAxisProjectionShared({
+        axis: valueAxisId,
+        scale: config?.valueScale,
+        plotLength: config?.valuePlotLength,
+        marginStart: config?.valueMarginStart,
+        dataMin: ymin,
+        dataMax: ymax,
+        linearProjector: config?.linearProjector,
+        brokenProjector: config?.brokenProjector
+      });
+      const localBandForTrace = categoricalLayout.resolveLocalBandSize;
+      const categoryCenter = categoricalLayout.resolveCenter;
+      const stripMinCenterPitch = graphTypeRaw === 'strip'
+        ? computeMinTraceCenterPitchShared(traces, categoryCenter)
+        : null;
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip center pitch',{
+          orientation,
+          minCenterPitch: stripMinCenterPitch,
+          gapFactor: orientation === 'vertical' ? STRIP_INTER_DATASET_GAP_FACTOR : undefined,
+          minGapPx: orientation === 'vertical' ? STRIP_INTER_DATASET_MIN_GAP_PX : undefined,
+          traceCount: traces.length
+        });
+      }
+      const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
+        orientation,
+        axisSpacing: localBandForTrace(),
+        coordProjector: value => valueAxis.projectValue(value),
+        minCenterPitch: stripMinCenterPitch
+      });
+      const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
+        ? Number(stripAutoSizeProfile.radius)
+        : null;
+      const stripAutoSizeHalfWidthConstrained = null;
+      if(debugEnabled && graphTypeRaw === 'strip'){
+        console.debug('Debug: box strip auto size resolved',{
+          orientation,
+          radius: stripAutoSizeRadiusConstrained,
+          halfWidthCap: stripAutoSizeHalfWidthConstrained,
+          strategy: 'feasibility'
+        });
+      }
+      const displayedPointSharedRadiusProfile = await (async () => {
+        if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
+          return null;
+        }
+        if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+          return null;
+        }
+        if(hasExplicitPointSize(null)){
+          return null;
+        }
+        const overlayMode = pointMode === 'overlay';
+        const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
+        return resolveDisplayedPointSharedRadiusShared({
+          traces,
+          orientation,
+          pointRadius,
+          baseRadius,
+          overlayMode,
+          pointMode,
+          hasExplicitSize: traceIndex => hasExplicitPointSize(traceIndex),
+          projectPointCoord: value => valueAxis.projectValue(value),
+          resolveLocalBand: () => localBandForTrace(),
+          resolveMaxHalfWidth: args => {
+            if(overlayMode){
+              return args.requestedHalfWidth;
+            }
+            return typeof config?.resolveDisplayedPointMaxHalfWidth === 'function'
+              ? config.resolveDisplayedPointMaxHalfWidth({
+                  ...args,
+                  categoricalLayout,
+                  valueAxis
+                })
+              : args.requestedHalfWidth;
+          },
+          tokenGuard: () => token === state.drawToken
+        });
+      })();
+      const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
+        ? Number(displayedPointSharedRadiusProfile.radius)
+        : null;
+      return {
+        orientation,
+        valueAxis,
+        categoricalLayout,
+        stripMinCenterPitch,
+        stripAutoSizeRadiusConstrained,
+        stripAutoSizeHalfWidthConstrained,
+        displayedPointSharedRadiusProfile,
+        displayedPointSharedRadius
+      };
+    };
+    const renderStackedErrorQueueForOrientation = (orientation, stackedErrorQueue) => {
+      const queue = Array.isArray(stackedErrorQueue) ? stackedErrorQueue : [];
+      if(!isStackedLayout || !queue.length){
+        return;
+      }
+      const horizontal = orientation === 'horizontal';
+      queue.forEach(item => {
+        const spineAttrs = horizontal
+          ? {
+              x1: item.xLow,
+              y1: item.cy,
+              x2: item.xHigh,
+              y2: item.cy,
+              'data-box-overlay-kind': 'bar-error-spine'
+            }
+          : {
+              x1: item.cx,
+              y1: item.yHigh,
+              x2: item.cx,
+              y2: item.yLow,
+              'data-box-overlay-kind': 'bar-error-spine'
+            };
+        const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, spineAttrs));
+        attachBoxOverlayHandler(errorSpine);
+        annotateWithTitle(errorSpine, item.whiskerAnnotation);
+        const upperCapAttrs = horizontal
+          ? {
+              x1: item.xHigh,
+              y1: item.cy - item.cap / 2,
+              x2: item.xHigh,
+              y2: item.cy + item.cap / 2,
+              'data-box-overlay-kind': 'bar-error-cap-right'
+            }
+          : {
+              x1: item.cx - item.cap / 2,
+              y1: item.yHigh,
+              x2: item.cx + item.cap / 2,
+              y2: item.yHigh,
+              'data-box-overlay-kind': 'bar-error-cap-top'
+            };
+        const upperCap = add('line', item.overlayStroke.attrs(errorBarWidthPx, upperCapAttrs));
+        attachBoxOverlayHandler(upperCap);
+        annotateWithTitle(upperCap, item.whiskerAnnotation);
+        if(item.showLowerCap){
+          const lowerCapAttrs = horizontal
+            ? {
+                x1: item.xLow,
+                y1: item.cy - item.cap / 2,
+                x2: item.xLow,
+                y2: item.cy + item.cap / 2,
+                'data-box-overlay-kind': 'bar-error-cap-left'
+              }
+            : {
+                x1: item.cx - item.cap / 2,
+                y1: item.yLow,
+                x2: item.cx + item.cap / 2,
+                y2: item.yLow,
+                'data-box-overlay-kind': 'bar-error-cap-bottom'
+              };
+          const lowerCap = add('line', item.overlayStroke.attrs(errorBarWidthPx, lowerCapAttrs));
+          attachBoxOverlayHandler(lowerCap);
+          annotateWithTitle(lowerCap, item.whiskerAnnotation);
+        }
+      });
+      console.debug('Debug: box stacked error overlay',{ count: queue.length, orientation });
+    };
+    const createOrientationSwarmRenderer = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const centerCoordKey = orientation === 'horizontal' ? 'cy' : 'cx';
+      const cacheAxisKey = orientation;
+      const coordProjector = typeof config?.coordProjector === 'function'
+        ? config.coordProjector
+        : value => value;
+      const scaleSignatureParts = Array.isArray(config?.scaleSignatureParts)
+        ? config.scaleSignatureParts
+        : [];
+      const scaleSignature = scaleSignatureParts.map(value => String(value ?? '')).join('|');
+      return async params => renderSwarmPointsShared({
+        ...params,
+        centerCoord: params?.[centerCoordKey],
+        orientation,
+        cacheAxisKey,
+        coordProjector,
+        scaleSignature
+      });
+    };
+    const resolveDisplayedPointRadiusFallback = (profile, mode) => {
+      if(mode === 'overlay'){
+        return Number(profile?.radius) > 0
+          ? Number(profile.radius)
+          : overlayPointRadius;
+      }
+      return Number(profile?.radius) > 0
+        ? Number(profile.radius)
+        : pointRadius;
+    };
+    const finalizeOrientationTraceLayers = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      normalizePendingIndividualSummarySpans({
+        orientation,
+        pendingBars: config?.pendingBars,
+        pendingCaps: config?.pendingCaps,
+        globalHalfSpan: config?.globalHalfSpan,
+        debugEnabled
+      });
+      renderStackedErrorQueueForOrientation(orientation, config?.stackedErrorQueue);
+      if(connectPointsActive && config?.connectionMapsByTrace){
+        drawBoxPointConnectionsFromTraceMaps(config.connectionMapsByTrace, { orientation });
+      }
+    };
+    const buildOrientationTraceRenderContext = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const trace = config?.trace;
+      const traceIndex = Number.isFinite(Number(config?.traceIndex)) ? Number(config.traceIndex) : 0;
+      const resolveCenter = typeof config?.resolveCenter === 'function' ? config.resolveCenter : () => 0;
+      const resolveLocalBand = typeof config?.resolveLocalBand === 'function' ? config.resolveLocalBand : () => 0;
+      const valueToPixel = typeof config?.valueToPixel === 'function' ? config.valueToPixel : value => value;
+      const summary = trace?.__distribution || computeTraceSummary(trace?.y, { requireSorted: graphTypeRaw === 'violin' });
+      if(!summary || !summary.count){
+        return null;
+      }
+      const valueList = summary.sortedValues || trace.y;
+      const pointValueList = Array.isArray(trace?.y) ? trace.y : valueList;
+      const pointRowIndices = Array.isArray(trace?.rowIndices) ? trace.rowIndices : null;
+      const tooltipSeriesName = trace?.name || `Trace ${traceIndex + 1}`;
+      const tooltipCategoryName = trace?.categoryName || axisLabels?.[traceIndex] || tooltipSeriesName;
+      const tooltipGroupName = trace?.groupName || null;
+      const centerCoord = resolveCenter(trace, traceIndex);
+      const localBand = resolveLocalBand(trace, traceIndex);
+      const boxSpan = Math.max(6, Math.min(60, localBand * 0.6));
+      const spanStart = centerCoord - boxSpan / 2;
+      const spanEnd = centerCoord + boxSpan / 2;
+      const q1 = summary.q1;
+      const med = summary.median;
+      const q3 = summary.q3;
+      const iqr = summary.iqr;
+      const sampleCount = summary.count;
+      const pointSampleCount = Array.isArray(pointValueList) ? pointValueList.length : sampleCount;
+      const mean = summary.mean;
+      const sdForRule = whiskerNeedsSd ? summary.sd : 0;
+      const whiskerInfo = computeWhiskerFences({
+        q1,
+        q3,
+        iqr,
+        mean,
+        sd: sdForRule,
+        rule: whiskerRuleCurrent,
+        customMultiplier: whiskerCustomValue,
+        debugEnabled,
+        meta: whiskerMetaGlobal
+      });
+      const lowerFence = whiskerInfo.lowerFence;
+      const upperFence = whiskerInfo.upperFence;
+      const whiskerAnnotation = whiskerInfo.annotation;
+      const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
+      const whiskerExtents = resolveWhiskerExtents(valueList,
+        { lowerFence, upperFence, q1, q3 },
+        {
+          debugEnabled,
+          label: trace?.name || `Trace ${traceIndex + 1}`,
+          orientation,
+          token,
+          minValue: summary.min,
+          maxValue: summary.max
+        }
+      );
+      const { wMin, wMax, outliers } = whiskerExtents;
+      const colorInfo = resolveTraceColor(trace, traceIndex);
+      const fillColor = trace.fillColor || colorInfo.fillColor;
+      const borderColor = trace.borderColor || colorInfo.borderColor || defaultBorder || '#000';
+      const strokeOverrideRaw = Number.isFinite(Number(colorInfo.strokeWidth))
+        ? Number(colorInfo.strokeWidth)
+        : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
+      const bodyStrokeStyle = resolveBoxBodyStrokeStyle(strokeOverrideRaw, borderWidthPx, borderColor);
+      const strokeWidthEffective = bodyStrokeStyle.width;
+      const bodyStrokeColor = bodyStrokeStyle.stroke;
+      const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
+      if(debugEnabled){
+        console.debug('Debug: box body stroke resolved', {
+          index: traceIndex,
+          graphType: graphTypeRaw,
+          orientation,
+          requested: strokeOverrideRaw,
+          borderWidthPx,
+          strokeWidthEffective,
+          bodyStrokeColor
+        });
+      }
+      const selectedSchemeId = getBoxSelectedColorSchemeId();
+      const defaultOverlayColor = resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: selectedSchemeId });
+      const overlayStroke = buildBoxOverlayStrokeHelper({
+        traceIndex,
+        colorIndex: colorInfo.colorIndex,
+        fillColor,
+        borderColor,
+        fallbackOpacity: opacityOverride,
+        baseStroke: Math.max(errorBarWidthPx || 0, strokeWidthEffective || borderWidthPx || 0.8, 0.8),
+        schemeId: selectedSchemeId,
+        defaultColor: defaultOverlayColor
+      });
+      if(debugEnabled && overlayStroke.style){
+        console.debug('Debug: box overlay style resolved', {
+          index: traceIndex,
+          graphType: graphTypeRaw,
+          orientation,
+          color: overlayStroke.color,
+          thickness: overlayStroke.thickness,
+          pattern: overlayStroke.pattern,
+          opacity: overlayStroke.opacity,
+          defaultColor: defaultOverlayColor
+        });
+      }
+      return {
+        trace,
+        summary,
+        valueList,
+        pointValueList,
+        pointRowIndices,
+        tooltipSeriesName,
+        tooltipCategoryName,
+        tooltipGroupName,
+        centerCoord,
+        localBand,
+        boxSpan,
+        spanStart,
+        spanEnd,
+        q1,
+        med,
+        q3,
+        iqr,
+        sampleCount,
+        pointSampleCount,
+        mean,
+        whiskerInfo,
+        whiskerAnnotation,
+        outlierAnnotation,
+        wMin,
+        wMax,
+        outliers,
+        valuePixels: {
+          q1: valueToPixel(q1),
+          med: valueToPixel(med),
+          q3: valueToPixel(q3),
+          wMin: valueToPixel(wMin),
+          wMax: valueToPixel(wMax)
+        },
+        colorInfo,
+        fillColor,
+        borderColor,
+        strokeOverrideRaw,
+        strokeWidthEffective,
+        bodyStrokeColor,
+        opacityOverride,
+        overlayStroke
+      };
+    };
+    const applyShapeOpacityAttrs = (attrs, opacityOverride, strokeWidthEffective) => {
+      if(opacityOverride == null){
+        return attrs;
+      }
+      attrs['fill-opacity'] = opacityOverride;
+      if(strokeWidthEffective > 0){
+        attrs['stroke-opacity'] = opacityOverride;
+      }
+      return attrs;
+    };
+    const addBoxBodyShape = (tag, attrs, whiskerAnnotation) => {
+      const shape = add(tag, attrs);
+      attachBoxShapeHandler(shape);
+      annotateWithTitle(shape, whiskerAnnotation);
+      return shape;
+    };
+    const addBoxOverlayLine = (attrs, whiskerAnnotation) => {
+      const line = add('line', attrs);
+      attachBoxOverlayHandler(line);
+      annotateWithTitle(line, whiskerAnnotation);
+      return line;
+    };
+    const resolveNotchInterval = ({ q1, q3, med, iqr, sampleCount }) => {
+      const notchSpan = 1.57 * iqr / Math.sqrt(sampleCount);
+      let lower = Math.max(q1, med - notchSpan);
+      let upper = Math.min(q3, med + notchSpan);
+      if(lower > upper){
+        const mid = (lower + upper) / 2;
+        lower = mid;
+        upper = mid;
+      }
+      return { lower, upper };
+    };
+    const renderOrientationBoxBody = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const traceIndex = config.traceIndex;
+      const isHorizontal = orientation === 'horizontal';
+      const colorIndex = config.colorInfo?.colorIndex;
+      const commonAttrs = {
+        fill: config.fillColor,
+        stroke: config.bodyStrokeColor,
+        'stroke-width': config.strokeWidthEffective,
+        'data-trace': traceIndex,
+        'data-color-index': colorIndex,
+        'data-box-shape': 'body'
+      };
+      const rectAttrs = isHorizontal
+        ? {
+            ...commonAttrs,
+            x: Math.min(config.valuePixels.q1, config.valuePixels.q3),
+            y: config.spanStart,
+            width: Math.max(1, Math.abs(config.valuePixels.q3 - config.valuePixels.q1)),
+            height: Math.max(1, config.boxSpan)
+          }
+        : {
+            ...commonAttrs,
+            x: config.spanStart,
+            y: config.valuePixels.q3,
+            width: config.boxSpan,
+            height: Math.max(1, config.valuePixels.q1 - config.valuePixels.q3)
+          };
+      applyShapeOpacityAttrs(rectAttrs, config.opacityOverride, config.strokeWidthEffective);
+      addBoxBodyShape('rect', rectAttrs, config.whiskerAnnotation);
+      const medianStrokeAttrs = config.overlayStroke.attrs(config.overlayStroke.baseStroke, { 'data-box-overlay-kind': 'box-median' });
+      const medianStrokeWidth = Number(medianStrokeAttrs['stroke-width']);
+      const medianBounds = insetBoxOverlaySegment(
+        { start: config.spanStart, end: config.spanEnd },
+        medianStrokeWidth,
+        config.strokeWidthEffective
+      );
+      if(debugEnabled){
+        const debugCoords = isHorizontal
+          ? { y0: config.spanStart, y1: config.spanEnd }
+          : { x0: config.spanStart, x1: config.spanEnd };
+        console.debug('Debug: box median bounds adjusted',{
+          orientation,
+          graphType: 'box',
+          index: traceIndex,
+          ...debugCoords,
+          inset: medianBounds.inset,
+          strokeWidthEffective: config.strokeWidthEffective,
+          medianStrokeWidth,
+          adjustedStart: medianBounds.start,
+          adjustedEnd: medianBounds.end
+        });
+      }
+      addBoxOverlayLine(Object.assign({}, medianStrokeAttrs, isHorizontal
+        ? { x1: config.valuePixels.med, y1: medianBounds.start, x2: config.valuePixels.med, y2: medianBounds.end }
+        : { x1: medianBounds.start, y1: config.valuePixels.med, x2: medianBounds.end, y2: config.valuePixels.med }
+      ), config.whiskerAnnotation);
+    };
+    const renderOrientationNotchedBody = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const traceIndex = config.traceIndex;
+      const isHorizontal = orientation === 'horizontal';
+      const notch = resolveNotchInterval(config);
+      const colorIndex = config.colorInfo?.colorIndex;
+      let pathParts;
+      let medianSpanStart;
+      let medianSpanEnd;
+      let notchDebug = null;
+      if(isHorizontal){
+        const xNotchLow = config.valueToPixel(notch.lower);
+        const xNotchHigh = config.valueToPixel(notch.upper);
+        const left = Math.min(config.valuePixels.q1, config.valuePixels.q3);
+        const right = Math.max(config.valuePixels.q1, config.valuePixels.q3);
+        const notchHalf = config.boxSpan * 0.4 / 2;
+        let yNotchTop = config.centerCoord - notchHalf;
+        let yNotchBottom = config.centerCoord + notchHalf;
+        if(yNotchTop < config.spanStart) yNotchTop = config.spanStart;
+        if(yNotchBottom > config.spanEnd) yNotchBottom = config.spanEnd;
+        if(yNotchTop > yNotchBottom){
+          const mid = (yNotchTop + yNotchBottom) / 2;
+          yNotchTop = mid;
+          yNotchBottom = mid;
+        }
+        pathParts = [
+          `M ${left} ${config.spanStart}`,
+          `L ${xNotchLow} ${config.spanStart}`,
+          `L ${config.valuePixels.med} ${yNotchTop}`,
+          `L ${xNotchHigh} ${config.spanStart}`,
+          `L ${right} ${config.spanStart}`,
+          `L ${right} ${config.spanEnd}`,
+          `L ${xNotchHigh} ${config.spanEnd}`,
+          `L ${config.valuePixels.med} ${yNotchBottom}`,
+          `L ${xNotchLow} ${config.spanEnd}`,
+          `L ${left} ${config.spanEnd}`,
+          'Z'
+        ];
+        medianSpanStart = yNotchTop;
+        medianSpanEnd = yNotchBottom;
+        notchDebug = { notchLower: notch.lower, notchUpper: notch.upper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: config.boxSpan, token };
+      }else{
+        const yNL = config.valueToPixel(notch.lower);
+        const yNU = config.valueToPixel(notch.upper);
+        const notchWidth = config.boxSpan * 0.4;
+        const xNL = config.centerCoord - notchWidth / 2;
+        const xNR = config.centerCoord + notchWidth / 2;
+        pathParts = [
+          `M ${config.spanStart} ${config.valuePixels.q3}`,
+          `L ${config.spanEnd} ${config.valuePixels.q3}`,
+          `L ${config.spanEnd} ${yNU}`,
+          `L ${xNR} ${config.valuePixels.med}`,
+          `L ${config.spanEnd} ${yNL}`,
+          `L ${config.spanEnd} ${config.valuePixels.q1}`,
+          `L ${config.spanStart} ${config.valuePixels.q1}`,
+          `L ${config.spanStart} ${yNL}`,
+          `L ${xNL} ${config.valuePixels.med}`,
+          `L ${config.spanStart} ${yNU}`,
+          'Z'
+        ];
+        medianSpanStart = xNL;
+        medianSpanEnd = xNR;
+      }
+      const notchAttrs = applyShapeOpacityAttrs({
+        d: pathParts.join(' '),
+        fill: config.fillColor,
+        stroke: config.bodyStrokeColor,
+        'stroke-width': config.strokeWidthEffective,
+        'data-trace': traceIndex,
+        'data-color-index': colorIndex,
+        'data-box-shape': 'body'
+      }, config.opacityOverride, config.strokeWidthEffective);
+      addBoxBodyShape('path', notchAttrs, config.whiskerAnnotation);
+      const medianStrokeAttrs = config.overlayStroke.attrs(config.overlayStroke.baseStroke, { 'data-box-overlay-kind': 'notched-median' });
+      const medianStrokeWidth = Number(medianStrokeAttrs['stroke-width']);
+      const medianBounds = insetBoxOverlaySegment({ start: medianSpanStart, end: medianSpanEnd }, medianStrokeWidth, config.strokeWidthEffective);
+      if(debugEnabled){
+        console.debug('Debug: box median bounds adjusted',{
+          orientation,
+          graphType: 'notched',
+          index: traceIndex,
+          start: medianSpanStart,
+          end: medianSpanEnd,
+          inset: medianBounds.inset,
+          strokeWidthEffective: config.strokeWidthEffective,
+          medianStrokeWidth,
+          adjustedStart: medianBounds.start,
+          adjustedEnd: medianBounds.end
+        });
+      }
+      addBoxOverlayLine(Object.assign({}, medianStrokeAttrs, isHorizontal
+        ? { x1: config.valuePixels.med, y1: medianBounds.start, x2: config.valuePixels.med, y2: medianBounds.end }
+        : { x1: medianBounds.start, y1: config.valuePixels.med, x2: medianBounds.end, y2: config.valuePixels.med }
+      ), config.whiskerAnnotation);
+      if(notchDebug){
+        console.debug('Debug: box horizontal notch path', notchDebug);
+      }
+    };
+    const renderOrientationBoxWhiskers = (config = {}) => {
+      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const isHorizontal = orientation === 'horizontal';
+      const strokeWidth = config.overlayStroke.baseStroke;
+      const upperBodyEdge = isHorizontal
+        ? Math.max(config.valuePixels.q1, config.valuePixels.q3)
+        : config.valuePixels.q3;
+      const lowerBodyEdge = isHorizontal
+        ? Math.min(config.valuePixels.q1, config.valuePixels.q3)
+        : config.valuePixels.q1;
+      const firstWhiskerAttrs = isHorizontal
+        ? { x1: config.valuePixels.wMin, y1: config.centerCoord, x2: lowerBodyEdge, y2: config.centerCoord, 'data-box-overlay-kind': 'box-whisker-left' }
+        : { x1: config.centerCoord, y1: upperBodyEdge, x2: config.centerCoord, y2: config.valuePixels.wMax, 'data-box-overlay-kind': 'box-whisker-upper' };
+      const secondWhiskerAttrs = isHorizontal
+        ? { x1: upperBodyEdge, y1: config.centerCoord, x2: config.valuePixels.wMax, y2: config.centerCoord, 'data-box-overlay-kind': 'box-whisker-right' }
+        : { x1: config.centerCoord, y1: lowerBodyEdge, x2: config.centerCoord, y2: config.valuePixels.wMin, 'data-box-overlay-kind': 'box-whisker-lower' };
+      addBoxOverlayLine(config.overlayStroke.attrs(strokeWidth, firstWhiskerAttrs), config.whiskerAnnotation);
+      addBoxOverlayLine(config.overlayStroke.attrs(strokeWidth, secondWhiskerAttrs), config.whiskerAnnotation);
+      if(!showCaps){
+        return;
+      }
+      const cap = Math.max(6, config.boxSpan * 0.4);
+      const firstCapAttrs = isHorizontal
+        ? { x1: config.valuePixels.wMin, y1: config.centerCoord - cap / 2, x2: config.valuePixels.wMin, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'box-whisker-cap-left' }
+        : { x1: config.centerCoord - cap / 2, y1: config.valuePixels.wMax, x2: config.centerCoord + cap / 2, y2: config.valuePixels.wMax, 'data-box-overlay-kind': 'box-whisker-cap-top' };
+      const secondCapAttrs = isHorizontal
+        ? { x1: config.valuePixels.wMax, y1: config.centerCoord - cap / 2, x2: config.valuePixels.wMax, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'box-whisker-cap-right' }
+        : { x1: config.centerCoord - cap / 2, y1: config.valuePixels.wMin, x2: config.centerCoord + cap / 2, y2: config.valuePixels.wMin, 'data-box-overlay-kind': 'box-whisker-cap-bottom' };
+      addBoxOverlayLine(config.overlayStroke.attrs(strokeWidth, firstCapAttrs), config.whiskerAnnotation);
+      addBoxOverlayLine(config.overlayStroke.attrs(strokeWidth, secondCapAttrs), config.whiskerAnnotation);
+    };
+    const renderOrientationBoxOrNotchedTrace = (config = {}) => {
+      if(config.graphTypeRaw === 'box'){
+        renderOrientationBoxBody(config);
+      }else{
+        renderOrientationNotchedBody(config);
+      }
+      renderOrientationBoxWhiskers(config);
+    };
+    const resolveBarStackSegment = ({ trace, traceIndex, centerValue, stackOffsets }) => {
+      let nextStackOffsets = stackOffsets;
+      let barStartValue = 0;
+      let barEndValue = centerValue;
+      if(isStackedLayout){
+        if(!nextStackOffsets){
+          nextStackOffsets = new Map();
+        }
+        const stackKey = Number.isFinite(trace.categoryIndex) ? trace.categoryIndex : traceIndex;
+        if(!nextStackOffsets.has(stackKey)){
+          nextStackOffsets.set(stackKey, { pos: 0, neg: 0 });
+        }
+        const entry = nextStackOffsets.get(stackKey);
+        if(centerValue >= 0){
+          barStartValue = entry.pos;
+          barEndValue = entry.pos + centerValue;
+          entry.pos = barEndValue;
+        }else{
+          barStartValue = entry.neg;
+          barEndValue = entry.neg + centerValue;
+          entry.neg = barEndValue;
+        }
+      }
+      return { stackOffsets: nextStackOffsets, barStartValue, barEndValue };
+    };
+    const pushStackedBarError = (config = {}) => {
+      const errorExtents = computeStackedErrorExtents(
+        config.barStartValue,
+        config.centerValue,
+        config.lowerError,
+        config.upperError,
+        errorMode
+      );
+      if(!errorExtents){
+        return;
+      }
+      const cap = Math.max(6, config.boxSpan * 0.4);
+      const lowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
+      if(config.orientation === 'horizontal'){
+        config.stackedErrorQueue.push({
+          cy: config.centerCoord,
+          xHigh: config.valueToPixel(errorExtents.highValue),
+          xLow: config.valueToPixel(lowValue),
+          cap,
+          overlayStroke: config.overlayStroke,
+          whiskerAnnotation: config.whiskerAnnotation,
+          showLowerCap: errorMode === 'both'
+        });
+      }else{
+        config.stackedErrorQueue.push({
+          cx: config.centerCoord,
+          yHigh: config.valueToPixel(errorExtents.highValue),
+          yLow: config.valueToPixel(lowValue),
+          cap,
+          overlayStroke: config.overlayStroke,
+          whiskerAnnotation: config.whiskerAnnotation,
+          showLowerCap: errorMode === 'both'
+        });
+      }
+    };
+    const renderUnstackedBarError = (config = {}) => {
+      const isHorizontal = config.orientation === 'horizontal';
+      const cap = Math.max(6, config.boxSpan * 0.4);
+      const highValue = config.summarySpec?.highValue ?? config.centerValue;
+      const lowValue = errorMode === 'both' ? (config.summarySpec?.lowValue ?? config.centerValue) : config.centerValue;
+      const highPx = config.valueToPixel(highValue);
+      const lowPx = config.valueToPixel(lowValue);
+      const centerPx = config.valueToPixel(config.centerValue);
+      const errorLineWidth = config.overlayStroke.baseStroke;
+      if(errorMode === 'both'){
+        addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
+          ? { x1: lowPx, y1: config.centerCoord, x2: highPx, y2: config.centerCoord, 'data-box-overlay-kind': 'bar-error-spine' }
+          : { x1: config.centerCoord, y1: highPx, x2: config.centerCoord, y2: lowPx, 'data-box-overlay-kind': 'bar-error-spine' }
+        ), config.whiskerAnnotation);
+        addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
+          ? { x1: lowPx, y1: config.centerCoord - cap / 2, x2: lowPx, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'bar-error-cap-left' }
+          : { x1: config.centerCoord - cap / 2, y1: lowPx, x2: config.centerCoord + cap / 2, y2: lowPx, 'data-box-overlay-kind': 'bar-error-cap-bottom' }
+        ), config.whiskerAnnotation);
+      }else{
+        addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
+          ? { x1: centerPx, y1: config.centerCoord, x2: highPx, y2: config.centerCoord, 'data-box-overlay-kind': 'bar-error-spine' }
+          : { x1: config.centerCoord, y1: highPx, x2: config.centerCoord, y2: centerPx, 'data-box-overlay-kind': 'bar-error-spine' }
+        ), config.whiskerAnnotation);
+      }
+      addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
+        ? { x1: highPx, y1: config.centerCoord - cap / 2, x2: highPx, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'bar-error-cap-right' }
+        : { x1: config.centerCoord - cap / 2, y1: highPx, x2: config.centerCoord + cap / 2, y2: highPx, 'data-box-overlay-kind': 'bar-error-cap-top' }
+      ), config.whiskerAnnotation);
+    };
+    const renderOrientationBarTrace = (config = {}) => {
+      const orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const isHorizontal = orientation === 'horizontal';
+      const trace = config.trace;
+      const traceIndex = config.traceIndex;
+      const stats = trace.__barStats;
+      const summarySpec = trace.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, trace.__distribution, trace.y);
+      trace.__barSummarySpec = summarySpec;
+      const sampleCountBar = summarySpec?.sampleCount ?? stats?.sampleCount ?? config.sampleCount;
+      const hasSpread = !!summarySpec?.hasInterval;
+      const centerValue = summarySpec?.centerValue ?? stats?.mean ?? config.mean;
+      const lowerError = summarySpec?.lowerError ?? 0;
+      const upperError = summarySpec?.upperError ?? 0;
+      const stackSegment = resolveBarStackSegment({
+        trace,
+        traceIndex,
+        centerValue,
+        stackOffsets: config.stackOffsets
+      });
+      const { barStartValue, barEndValue } = stackSegment;
+      const startPx = config.valueToPixel(barStartValue);
+      const endPx = config.valueToPixel(barEndValue);
+      const rawStart = Math.min(startPx, endPx);
+      const rawEnd = Math.max(startPx, endPx);
+      const strokeInset = config.strokeWidthEffective > 0 ? config.strokeWidthEffective / 2 : 0;
+      let valueRectStart = rawStart + strokeInset;
+      let valueRectEnd = rawEnd - strokeInset;
+      if(valueRectEnd < valueRectStart){
+        const mid = (rawStart + rawEnd) / 2;
+        valueRectStart = mid;
+        valueRectEnd = mid;
+      }
+      let categoryRectStart = config.spanStart;
+      let categoryRectEnd = config.spanEnd;
+      if(isHorizontal){
+        categoryRectStart += strokeInset;
+        categoryRectEnd -= strokeInset;
+        if(categoryRectEnd < categoryRectStart){
+          const mid = (config.spanStart + config.spanEnd) / 2;
+          categoryRectStart = mid;
+          categoryRectEnd = mid;
+        }
+      }
+      const barAttrs = isHorizontal
+        ? {
+            x: valueRectStart,
+            y: categoryRectStart,
+            width: Math.max(0, valueRectEnd - valueRectStart),
+            height: Math.max(0, categoryRectEnd - categoryRectStart)
+          }
+        : {
+            x: config.spanStart,
+            y: valueRectStart,
+            width: config.boxSpan,
+            height: Math.max(0, valueRectEnd - valueRectStart)
+          };
+      Object.assign(barAttrs, {
+        fill: config.fillColor,
+        stroke: config.bodyStrokeColor,
+        'stroke-width': config.strokeWidthEffective,
+        'data-trace': traceIndex,
+        'data-color-index': config.colorInfo?.colorIndex,
+        'data-box-shape': 'body'
+      });
+      applyShapeOpacityAttrs(barAttrs, config.opacityOverride, config.strokeWidthEffective);
+      const barRect = add('rect', barAttrs);
+      attachBoxShapeHandler(barRect);
+      if(isHorizontal){
+        console.debug('Debug: box bar horizontal bounds adjusted',{
+          index: traceIndex,
+          rawLeft: rawStart,
+          rawRight: rawEnd,
+          rectX: valueRectStart,
+          rectRight: valueRectEnd,
+          strokeInset,
+          rectY: categoryRectStart,
+          rectBottom: categoryRectEnd,
+          summaryMode: summarySpec?.mode,
+          centerValue,
+          hasSpread
+        });
+      }else{
+        console.debug('Debug: box bar vertical bounds adjusted',{
+          index: traceIndex,
+          rawTop: rawStart,
+          rawBottom: rawEnd,
+          rectY: valueRectStart,
+          rectBottom: valueRectEnd,
+          strokeInset,
+          summaryMode: summarySpec?.mode,
+          centerValue,
+          hasSpread
+        });
+      }
+      let maxVisualValue = Math.max(barStartValue, barEndValue);
+      if(hasSpread){
+        if(isStackedLayout){
+          const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
+          if(errorExtents && Number.isFinite(errorExtents.highValue)){
+            maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
+          }
+        }else{
+          maxVisualValue = Math.max(maxVisualValue, summarySpec?.highValue ?? barEndValue);
+        }
+      }
+      config.annotationMaxByTrace[traceIndex] = resolveAnnotationDisplayedMaxValue({
+        baseValue: maxVisualValue,
+        summary: config.summary,
+        pointMode
+      });
+      let annotationObstaclePaddingPx = config.annotationObstaclePaddingPx;
+      if(pointMode === 'overlay' || pointMode === 'side'){
+        const defaultDisplayedRadius = pointMode === 'overlay'
+          ? resolveDisplayedPointRadiusFallback(config.displayedPointSharedRadiusProfile, 'overlay')
+          : resolveDisplayedPointRadiusFallback(config.displayedPointSharedRadiusProfile, pointMode);
+        annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(traceIndex, defaultDisplayedRadius));
+      }
+      if(hasSpread){
+        if(isStackedLayout){
+          pushStackedBarError({
+            orientation,
+            stackedErrorQueue: config.stackedErrorQueue,
+            barStartValue,
+            centerValue,
+            lowerError,
+            upperError,
+            valueToPixel: config.valueToPixel,
+            centerCoord: config.centerCoord,
+            boxSpan: config.boxSpan,
+            overlayStroke: config.overlayStroke,
+            whiskerAnnotation: config.whiskerAnnotation
+          });
+        }else{
+          renderUnstackedBarError({
+            orientation,
+            summarySpec,
+            centerValue,
+            valueToPixel: config.valueToPixel,
+            centerCoord: config.centerCoord,
+            boxSpan: config.boxSpan,
+            overlayStroke: config.overlayStroke,
+            whiskerAnnotation: config.whiskerAnnotation
+          });
+        }
+      }else{
+        const message = isHorizontal
+          ? 'Debug: box horizontal bar error bar skipped for center-only summary'
+          : 'Debug: box bar error bar skipped for center-only summary';
+        console.debug(message,{ index: traceIndex, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
+      }
+      return {
+        stackOffsets: stackSegment.stackOffsets,
+        annotationObstaclePaddingPx
+      };
+    };
+    const renderOrientationViolinTrace = (config = {}) => {
+      const orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+      const isHorizontal = orientation === 'horizontal';
+      const traceIndex = config.traceIndex;
+      const violinRenderState = computeViolinTraceRenderStateShared({
+        summary: config.summary,
+        valueList: config.valueList,
+        pointMode,
+        whiskerInfo: config.whiskerInfo,
+        whiskerRule: whiskerRuleCurrent,
+        whiskerCustomMultiplier: whiskerCustomValue,
+        whiskerNeedsSd,
+        whiskerMeta: whiskerMetaGlobal,
+        debugEnabled,
+        scaleMin: config.valueScale?.min,
+        scaleMax: config.valueScale?.max,
+        sampleCount: violinState.sampleCount,
+        localBand: config.localBand
+      });
+      const {
+        densityInfo,
+        violinMaxValue,
+        peak,
+        halfSpan,
+        pointBounds,
+        pointMaxHalfSpan
+      } = violinRenderState;
+      config.annotationMaxByTrace[traceIndex] = resolveAnnotationDisplayedMaxValue({
+        baseValue: Math.max(config.wMax, violinMaxValue),
+        summary: config.summary,
+        pointMode,
+        violinMaxValue
+      });
+      let annotationObstaclePaddingPx = config.annotationObstaclePaddingPx;
+      if(pointMode === 'overlay' || pointMode === 'side' || (pointMode === 'outliers' && config.outliers.length)){
+        const defaultDisplayedRadius = pointMode === 'overlay'
+          ? overlayPointRadius
+          : resolveDisplayedPointRadiusFallback(config.displayedPointSharedRadiusProfile, pointMode);
+        annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(traceIndex, defaultDisplayedRadius));
+      }
+      const pathParts = buildViolinPathPartsShared({
+        orientation,
+        densityInfo,
+        peak,
+        halfSpan,
+        centerCoord: config.centerCoord,
+        valueToPixel: config.valueToPixel
+      });
+      const commonAttrs = {
+        stroke: config.borderColor,
+        'data-trace': traceIndex,
+        'data-color-index': config.colorInfo?.colorIndex,
+        'data-box-shape': 'body',
+        ...(config.opacityOverride != null ? { 'stroke-opacity': config.opacityOverride } : {})
+      };
+      const violinAttrs = {
+        d: pathParts.join(' '),
+        fill: config.fillColor,
+        'fill-opacity': config.opacityOverride != null ? config.opacityOverride : 0.7,
+        'stroke-width': config.strokeWidthEffective,
+        ...commonAttrs
+      };
+      const violinPath = add('path', violinAttrs);
+      attachBoxShapeHandler(violinPath);
+      const insetBoxSpan = Math.max(3, Math.min(halfSpan * 0.175, config.boxSpan * 0.1));
+      const insetStrokeWidth = Math.max(0.6, (config.strokeWidthEffective || borderWidthPx || 1) * 0.6);
+      const whiskerStrokeWidth = Math.max(0.6, (config.strokeWidthEffective != null ? config.strokeWidthEffective : (errorBarWidthPx || insetStrokeWidth)));
+      if(isHorizontal){
+        const insetY0 = config.centerCoord - insetBoxSpan / 2;
+        const insetY1 = insetY0 + insetBoxSpan;
+        const insetLeft = Math.min(config.valuePixels.q1, config.valuePixels.q3);
+        const insetWidth = Math.max(1, Math.abs(config.valuePixels.q3 - config.valuePixels.q1));
+        const violinWhisker = add('line',{ x1: config.valuePixels.wMin, y1: config.centerCoord, x2: config.valuePixels.wMax, y2: config.centerCoord, stroke: config.borderColor, 'stroke-width': whiskerStrokeWidth, ...commonAttrs });
+        attachBoxShapeHandler(violinWhisker);
+        const violinRect = add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxSpan, fill: '#fff', 'stroke-width': insetStrokeWidth, ...commonAttrs });
+        attachBoxShapeHandler(violinRect);
+        const violinMedian = add('line',{ x1: config.valuePixels.med, y1: insetY0, x2: config.valuePixels.med, y2: insetY1, stroke: config.borderColor, 'stroke-width': insetStrokeWidth, ...commonAttrs });
+        attachBoxShapeHandler(violinMedian);
+        if(debugEnabled){
+          console.debug('Debug: box violin horizontal render',{ index: traceIndex, points: config.sampleCount, peak, halfHeight: halfSpan, insetBoxHeight: insetBoxSpan });
+        }
+      }else{
+        const insetX0 = config.centerCoord - insetBoxSpan / 2;
+        const insetX1 = insetX0 + insetBoxSpan;
+        const violinWhisker = add('line',{ x1: config.centerCoord, y1: config.valuePixels.wMax, x2: config.centerCoord, y2: config.valuePixels.wMin, stroke: config.borderColor, 'stroke-width': whiskerStrokeWidth, ...commonAttrs });
+        attachBoxShapeHandler(violinWhisker);
+        const violinRect = add('rect',{ x: insetX0, y: config.valuePixels.q3, width: insetBoxSpan, height: Math.max(1, config.valuePixels.q1 - config.valuePixels.q3), fill: '#fff', 'stroke-width': insetStrokeWidth, ...commonAttrs });
+        attachBoxShapeHandler(violinRect);
+        const violinMedian = add('line',{ x1: insetX0, y1: config.valuePixels.med, x2: insetX1, y2: config.valuePixels.med, stroke: config.borderColor, 'stroke-width': insetStrokeWidth, ...commonAttrs });
+        attachBoxShapeHandler(violinMedian);
+        if(debugEnabled){
+          console.debug('Debug: box violin vertical render',{ index: traceIndex, points: config.sampleCount, peak, halfWidth: halfSpan, insetBoxWidth: insetBoxSpan });
+        }
+      }
+      return {
+        annotationObstaclePaddingPx,
+        pointBounds,
+        pointMaxHalfSpan
+      };
+    };
 
     async function renderVertical(){
       const tickFont = yTickMeasureProfile.fontSpec;
@@ -27669,18 +28605,32 @@ Technical analysis record (advanced)
         existingViewportExtension,
         canvasHeight: canvasHeightLocal
       });
-      const categoricalAxis = state.flipAxes ? 'y' : 'x';
-      const categoricalLayout = computeCategoricalBandLayoutShared({
+      const yAxisX = marginLocal.left;
+      const runtime = await resolveOrientationRenderRuntime({
         orientation: 'vertical',
-        plotSpan: plotWLocal,
-        marginStart: marginLocal.left,
-        axisCount: axisLabels.length,
-        categoricalAxis,
-        separatedCategoryUnits,
-        usesGroupedSpacing,
-        groupedGroups,
-        plotDimensionLabel: 'plotWidth'
+        valueAxis: 'y',
+        valueScale: yScale,
+        valuePlotLength: plotHLocal,
+        valueMarginStart: marginLocal.top,
+        categoricalPlotSpan: plotWLocal,
+        categoricalMarginStart: marginLocal.left,
+        plotDimensionLabel: 'plotWidth',
+        linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + plotLength * (1 - (value - scale.min) / valueRange),
+        brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => brokenScale.valueToPixel(value, marginStart, plotLength),
+        resolveDisplayedPointMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius, categoricalLayout }) => {
+          const sideSlot = resolveVerticalSideDisplaySlot({
+            cx: categoricalLayout.resolveCenter(trace, traceIndex),
+            localBand,
+            boxW: boxThickness,
+            pointRadius: localBaseRadius,
+            requestedHalfWidth,
+            plotLeft: yAxisX,
+            plotRight: categoricalLayout.plotEnd
+          });
+          return sideSlot.halfWidth;
+        }
       });
+      const categoricalLayout = runtime.categoricalLayout;
       const axisCount = categoricalLayout.axisCount;
       const datasetGapPx = categoricalLayout.gapPx;
       const bandW = categoricalLayout.bandSize;
@@ -27691,18 +28641,7 @@ Technical analysis record (advanced)
       const clusterGap = categoricalLayout.clusterGap;
       const perGroupBand = categoricalLayout.perGroupBand;
       const groupOffset = categoricalLayout.groupOffset;
-
-      // Broken axis support
-      const valueAxis = buildValueAxisProjectionShared({
-        axis: 'y',
-        scale: yScale,
-        plotLength: plotHLocal,
-        marginStart: marginLocal.top,
-        dataMin: ymin,
-        dataMax: ymax,
-        linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + plotLength * (1 - (value - scale.min) / valueRange),
-        brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => brokenScale.valueToPixel(value, marginStart, plotLength)
-      });
+      const valueAxis = runtime.valueAxis;
       const brokenAxisEnabled = valueAxis.brokenAxisEnabled;
       const brokenAxisSegments = valueAxis.brokenAxisSegments;
       const brokenScale = valueAxis.brokenScale;
@@ -27712,87 +28651,18 @@ Technical analysis record (advanced)
       const minorTicksY = valueAxis.minorTicks;
       const localBandWidthForTrace = categoricalLayout.resolveLocalBandSize;
       const xCenter = categoricalLayout.resolveCenter;
-      const stripMinCenterPitch = graphTypeRaw === 'strip'
-        ? computeMinTraceCenterPitchShared(traces, xCenter)
-        : null;
-      if(debugEnabled && graphTypeRaw === 'strip'){
-        console.debug('Debug: box strip center pitch',{
-          orientation: 'vertical',
-          minCenterPitch: stripMinCenterPitch,
-          gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
-          minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
-          traceCount: traces.length
-        });
-      }
+      const stripMinCenterPitch = runtime.stripMinCenterPitch;
       const addAxisElement = buildAxisElementAppender(axisStrokeWidth);
       const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isYValueVisible(0);
       const additionalYTicks = syncAutoZeroAxisAdditionalTick('y', shouldAutoRenderZeroReferenceLine);
       syncAutoZeroAxisAdditionalTick('x', false);
       const showZeroReferenceLine = additionalYTicks.some(entry => isAxisValueNearZero(entry?.value) && entry?.showLine !== false);
       let stackOffsets = null;
-      const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
-      const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
-        orientation: 'vertical',
-        axisSpacing: localBandWidthForTrace(),
-        coordProjector: value => y2px(value),
-        minCenterPitch: stripMinCenterPitch
-      });
-      const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
-        ? Number(stripAutoSizeProfile.radius)
-        : null;
-      const stripAutoSizeHalfWidthConstrained = null;
-      if(debugEnabled && graphTypeRaw === 'strip'){
-        console.debug('Debug: box strip auto size resolved',{
-          orientation: 'vertical',
-          radius: stripAutoSizeRadiusConstrained,
-          halfWidthCap: stripAutoSizeHalfWidthConstrained,
-          strategy: 'feasibility'
-        });
-      }
-      const displayedPointSharedRadiusProfile = await (async () => {
-        if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
-          return null;
-        }
-        if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
-          return null;
-        }
-        if(hasExplicitPointSize(null)){
-          return null;
-        }
-        const overlayMode = pointMode === 'overlay';
-        const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
-        return resolveDisplayedPointSharedRadiusShared({
-          traces,
-          orientation: 'vertical',
-          pointRadius,
-          baseRadius,
-          overlayMode,
-          pointMode,
-          hasExplicitSize: traceIndex => hasExplicitPointSize(traceIndex),
-          projectPointCoord: value => y2px(value),
-          resolveLocalBand: () => localBandWidthForTrace(),
-          resolveMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius }) => {
-            if(overlayMode){
-              return requestedHalfWidth;
-            }
-            const sideSlot = resolveVerticalSideDisplaySlot({
-              cx: xCenter(trace, traceIndex),
-              localBand,
-              boxW: boxThickness,
-              pointRadius: localBaseRadius,
-              requestedHalfWidth,
-              plotLeft: yAxisX,
-              plotRight: plotRightX
-            });
-            return sideSlot.halfWidth;
-          },
-          tokenGuard: () => token === state.drawToken
-        });
-      })();
-      const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
-        ? Number(displayedPointSharedRadiusProfile.radius)
-        : null;
+      const stripAutoSizeRadiusConstrained = runtime.stripAutoSizeRadiusConstrained;
+      const stripAutoSizeHalfWidthConstrained = runtime.stripAutoSizeHalfWidthConstrained;
+      const displayedPointSharedRadiusProfile = runtime.displayedPointSharedRadiusProfile;
+      const displayedPointSharedRadius = runtime.displayedPointSharedRadius;
       if(token !== state.drawToken){
         return null;
       }
@@ -28166,20 +29036,17 @@ Technical analysis record (advanced)
           }
         });
       }
-      const renderSwarmPointsVertical = async params => renderSwarmPointsShared({
-        ...params,
-        centerCoord: params?.cx,
+      const renderSwarmPointsVertical = createOrientationSwarmRenderer({
         orientation: 'vertical',
-        cacheAxisKey: 'vertical',
         coordProjector: value => y2px(value),
-        scaleSignature: [
+        scaleSignatureParts: [
           Number(yScale?.min).toFixed(6),
           Number(yScale?.max).toFixed(6),
           Number(marginLocal?.top).toFixed(3),
           Number(plotHLocal).toFixed(3),
           brokenAxisEnabled ? 1 : 0,
           brokenAxisEnabled ? JSON.stringify(brokenAxisSegments || []) : ''
-        ].join('|')
+        ]
       });
       const stackedErrorQueue = [];
       const connectionMapsByTrace = connectPointsActive ? new Array(traces.length).fill(null) : null;
@@ -28193,96 +29060,53 @@ Technical analysis record (advanced)
           boxLog('boxplot draw cancelled during render loop',{ token });
           return null;
         }
-        const t = traces[i];
-        const summary = t.__distribution || computeTraceSummary(t.y, { requireSorted: graphTypeRaw === 'violin' });
-        if(!summary || !summary.count){
+        const traceContext = buildOrientationTraceRenderContext({
+          orientation: 'vertical',
+          trace: traces[i],
+          traceIndex: i,
+          resolveCenter: xCenter,
+          resolveLocalBand: localBandWidthForTrace,
+          valueToPixel: y2px
+        });
+        if(!traceContext){
           continue;
         }
-        const valueList = summary.sortedValues || t.y;
-        const pointValueList = Array.isArray(t?.y) ? t.y : valueList;
-        const pointRowIndices = Array.isArray(t?.rowIndices) ? t.rowIndices : null;
-        const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
-        const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
-        const tooltipGroupName = t?.groupName || null;
-        const cx = xCenter(t, i);
-        const localBand = localBandWidthForTrace();
-        const boxW = Math.max(6, Math.min(60, localBand * 0.6));
-        const x0 = cx - boxW / 2;
-        const x1 = cx + boxW / 2;
-        const q1 = summary.q1;
-        const med = summary.median;
-        const q3 = summary.q3;
-        const iqr = summary.iqr;
-        const sampleCount = summary.count;
-        const pointSampleCount = Array.isArray(pointValueList) ? pointValueList.length : sampleCount;
-        const mean = summary.mean;
-        const sdForRule = whiskerNeedsSd ? summary.sd : 0;
-        const whiskerInfo = computeWhiskerFences({
+        const {
+          trace: t,
+          summary,
+          valueList,
+          pointValueList,
+          pointRowIndices,
+          tooltipSeriesName,
+          tooltipCategoryName,
+          tooltipGroupName,
+          centerCoord: cx,
+          localBand,
+          boxSpan: boxW,
+          spanStart: x0,
+          spanEnd: x1,
           q1,
+          med,
           q3,
           iqr,
+          sampleCount,
+          pointSampleCount,
           mean,
-          sd: sdForRule,
-          rule: whiskerRuleCurrent,
-          customMultiplier: whiskerCustomValue,
-          debugEnabled,
-          meta: whiskerMetaGlobal
-        });
-        const lowerFence = whiskerInfo.lowerFence;
-        const upperFence = whiskerInfo.upperFence;
-        const whiskerAnnotation = whiskerInfo.annotation;
-        const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
-        const whiskerExtents = resolveWhiskerExtents(valueList,
-          { lowerFence, upperFence, q1, q3 },
-          {
-            debugEnabled,
-            label: t?.name || `Trace ${i + 1}`,
-            orientation: 'vertical',
-            token,
-            minValue: summary.min,
-            maxValue: summary.max
-          }
-        );
-        const { wMin, wMax, outliers } = whiskerExtents;
-        const yQ1 = y2px(q1);
-        const yMed = y2px(med);
-        const yQ3 = y2px(q3);
-        const yWMin = y2px(wMin);
-        const yWMax = y2px(wMax);
-        const colorInfo = resolveTraceColor(t, i);
-        const fillColor = t.fillColor || colorInfo.fillColor;
-        const borderColor = t.borderColor || colorInfo.borderColor || defaultBorder || '#000';
-        const strokeOverrideRaw = Number.isFinite(Number(colorInfo.strokeWidth))
-          ? Number(colorInfo.strokeWidth)
-          : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
-        const bodyStrokeStyle = resolveBoxBodyStrokeStyle(strokeOverrideRaw, borderWidthPx, borderColor);
-        const strokeWidthEffective = bodyStrokeStyle.width;
-        const bodyStrokeColor = bodyStrokeStyle.stroke;
-        const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
-        if(debugEnabled){
-          console.debug('Debug: box body stroke resolved', { index: i, graphType: graphTypeRaw, orientation: 'vertical', requested: strokeOverrideRaw, borderWidthPx, strokeWidthEffective, bodyStrokeColor });
-        }
-        const overlayStroke = buildBoxOverlayStrokeHelper({
-          traceIndex: i,
-          colorIndex: colorInfo.colorIndex,
+          whiskerInfo,
+          whiskerAnnotation,
+          outlierAnnotation,
+          wMin,
+          wMax,
+          outliers,
+          valuePixels,
+          colorInfo,
           fillColor,
           borderColor,
-          fallbackOpacity: opacityOverride,
-          baseStroke: Math.max(errorBarWidthPx || 0, strokeWidthEffective || borderWidthPx || 0.8, 0.8),
-          schemeId: getBoxSelectedColorSchemeId(),
-          defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
-        });
-        if(debugEnabled && overlayStroke.style){
-          console.debug('Debug: box overlay style resolved', {
-            index: i,
-            graphType: graphTypeRaw,
-            color: overlayStroke.color,
-            thickness: overlayStroke.thickness,
-            pattern: overlayStroke.pattern,
-            opacity: overlayStroke.opacity,
-            defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
-          });
-        }
+          strokeWidthEffective,
+          bodyStrokeColor,
+          opacityOverride,
+          overlayStroke
+        } = traceContext;
         let violinPointBounds = null;
         let violinPointMaxHalfHeight = null;
         let violinPointMaxHalfWidth = null;
@@ -28295,347 +29119,89 @@ Technical analysis record (advanced)
           });
           if(pointMode === 'overlay' || pointMode === 'side' || (pointMode === 'outliers' && outliers.length)){
             const defaultDisplayedRadius = pointMode === 'overlay'
-              ? (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : overlayPointRadius)
-              : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
+              ? resolveDisplayedPointRadiusFallback(displayedPointSharedRadiusProfile, 'overlay')
+              : resolveDisplayedPointRadiusFallback(displayedPointSharedRadiusProfile, pointMode);
             annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
           }
-          if(graphTypeRaw === 'box'){
-            const boxAttrs = { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: bodyStrokeColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){
-              boxAttrs['fill-opacity'] = opacityOverride;
-              if(strokeWidthEffective > 0){
-                boxAttrs['stroke-opacity'] = opacityOverride;
-              }
-            }
-            const boxRect = add('rect', boxAttrs);
-            attachBoxShapeHandler(boxRect);
-            annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianStrokeAttrs = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'box-median' });
-            const medianStrokeWidth = Number(medianStrokeAttrs['stroke-width']);
-            const medianBounds = insetBoxOverlaySegment({ start: x0, end: x1 }, medianStrokeWidth, strokeWidthEffective);
-            if(debugEnabled){
-              console.debug('Debug: box median bounds adjusted',{ orientation: 'vertical', graphType: 'box', index: i, x0, x1, inset: medianBounds.inset, strokeWidthEffective, medianStrokeWidth, adjustedStart: medianBounds.start, adjustedEnd: medianBounds.end });
-            }
-            const medianLine = add('line', Object.assign({}, medianStrokeAttrs, {
-              x1: medianBounds.start,
-              y1: yMed,
-              x2: medianBounds.end,
-              y2: yMed
-            }));
-            attachBoxOverlayHandler(medianLine);
-            annotateWithTitle(medianLine, whiskerAnnotation);
-          }else{
-            const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
-            let notchLower = Math.max(q1, med - notchSpan);
-            let notchUpper = Math.min(q3, med + notchSpan);
-            if(notchLower > notchUpper){
-              const mid = (notchLower + notchUpper) / 2;
-              notchLower = notchUpper = mid;
-            }
-            const yNL = y2px(notchLower);
-            const yNU = y2px(notchUpper);
-            const notchWidth = boxW * 0.4;
-            const xNL = cx - notchWidth / 2;
-            const xNR = cx + notchWidth / 2;
-            const d = [
-              `M ${x0} ${yQ3}`,
-              `L ${x1} ${yQ3}`,
-              `L ${x1} ${yNU}`,
-              `L ${xNR} ${yMed}`,
-              `L ${x1} ${yNL}`,
-              `L ${x1} ${yQ1}`,
-              `L ${x0} ${yQ1}`,
-              `L ${x0} ${yNL}`,
-              `L ${xNL} ${yMed}`,
-              `L ${x0} ${yNU}`,
-              'Z'
-            ].join(' ');
-            const notchAttrs = { d, fill: fillColor, stroke: bodyStrokeColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){
-              notchAttrs['fill-opacity'] = opacityOverride;
-              if(strokeWidthEffective > 0){
-                notchAttrs['stroke-opacity'] = opacityOverride;
-              }
-            }
-            const notchPath = add('path', notchAttrs);
-            attachBoxShapeHandler(notchPath);
-            annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedianStrokeAttrs = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'notched-median' });
-            const notchMedianStrokeWidth = Number(notchMedianStrokeAttrs['stroke-width']);
-            const notchMedianBounds = insetBoxOverlaySegment({ start: xNL, end: xNR }, notchMedianStrokeWidth, strokeWidthEffective);
-            if(debugEnabled){
-              console.debug('Debug: box median bounds adjusted',{ orientation: 'vertical', graphType: 'notched', index: i, start: xNL, end: xNR, inset: notchMedianBounds.inset, strokeWidthEffective, medianStrokeWidth: notchMedianStrokeWidth, adjustedStart: notchMedianBounds.start, adjustedEnd: notchMedianBounds.end });
-            }
-            const notchMedian = add('line', Object.assign({}, notchMedianStrokeAttrs, {
-              x1: notchMedianBounds.start,
-              y1: yMed,
-              x2: notchMedianBounds.end,
-              y2: yMed
-            }));
-            attachBoxOverlayHandler(notchMedian);
-            annotateWithTitle(notchMedian, whiskerAnnotation);
-          }
-          const whiskerLineWidth = overlayStroke.baseStroke;
-          const whiskerUpperLine = add('line', overlayStroke.attrs(whiskerLineWidth, {
-            x1: cx,
-            y1: yQ3,
-            x2: cx,
-            y2: yWMax,
-            'data-box-overlay-kind': 'box-whisker-upper'
-          }));
-          attachBoxOverlayHandler(whiskerUpperLine);
-          annotateWithTitle(whiskerUpperLine, whiskerAnnotation);
-          const whiskerLowerLine = add('line', overlayStroke.attrs(whiskerLineWidth, {
-            x1: cx,
-            y1: yQ1,
-            x2: cx,
-            y2: yWMin,
-            'data-box-overlay-kind': 'box-whisker-lower'
-          }));
-          attachBoxOverlayHandler(whiskerLowerLine);
-          annotateWithTitle(whiskerLowerLine, whiskerAnnotation);
-          if(showCaps){
-            const cap = Math.max(6, boxW * 0.4);
-            const capLineWidth = overlayStroke.baseStroke;
-            const capTop = add('line', overlayStroke.attrs(capLineWidth, {
-              x1: cx - cap / 2,
-              y1: yWMax,
-              x2: cx + cap / 2,
-              y2: yWMax,
-              'data-box-overlay-kind': 'box-whisker-cap-top'
-            }));
-            attachBoxOverlayHandler(capTop);
-            annotateWithTitle(capTop, whiskerAnnotation);
-            const capBottom = add('line', overlayStroke.attrs(capLineWidth, {
-              x1: cx - cap / 2,
-              y1: yWMin,
-              x2: cx + cap / 2,
-              y2: yWMin,
-              'data-box-overlay-kind': 'box-whisker-cap-bottom'
-            }));
-            attachBoxOverlayHandler(capBottom);
-            annotateWithTitle(capBottom, whiskerAnnotation);
-          }
+          renderOrientationBoxOrNotchedTrace({
+            orientation: 'vertical',
+            graphTypeRaw,
+            traceIndex: i,
+            q1,
+            q3,
+            med,
+            iqr,
+            sampleCount,
+            valuePixels,
+            valueToPixel: y2px,
+            valueScale: yScale,
+            centerCoord: cx,
+            boxSpan: boxW,
+            spanStart: x0,
+            spanEnd: x1,
+            fillColor,
+            bodyStrokeColor,
+            strokeWidthEffective,
+            opacityOverride,
+            colorInfo,
+            overlayStroke,
+            whiskerAnnotation
+          });
         }else if(graphTypeRaw === 'bar'){
-          const stats = t.__barStats;
-          const summarySpec = t.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, t.__distribution, t.y);
-          t.__barSummarySpec = summarySpec;
-          const sampleCountBar = summarySpec?.sampleCount ?? stats?.sampleCount ?? sampleCount;
-          const hasSpread = !!summarySpec?.hasInterval;
-          const centerValue = summarySpec?.centerValue ?? stats?.mean ?? mean;
-          const lowerError = summarySpec?.lowerError ?? 0;
-          const upperError = summarySpec?.upperError ?? 0;
-          let barStartValue = 0;
-          let barEndValue = centerValue;
-          if(isStackedLayout){
-            if(!stackOffsets){
-              stackOffsets = new Map();
-            }
-            const stackKey = Number.isFinite(t.categoryIndex) ? t.categoryIndex : i;
-            if(!stackOffsets.has(stackKey)){
-              stackOffsets.set(stackKey, { pos: 0, neg: 0 });
-            }
-            const entry = stackOffsets.get(stackKey);
-            if(centerValue >= 0){
-              barStartValue = entry.pos;
-              barEndValue = entry.pos + centerValue;
-              entry.pos = barEndValue;
-            }else{
-              barStartValue = entry.neg;
-              barEndValue = entry.neg + centerValue;
-              entry.neg = barEndValue;
-            }
-          }
-          const yStart = y2px(barStartValue);
-          const yEnd = y2px(barEndValue);
-          const rawTop = Math.min(yStart, yEnd);
-          const rawBottom = Math.max(yStart, yEnd);
-          const strokeInset = strokeWidthEffective > 0 ? strokeWidthEffective / 2 : 0;
-          let rectY = rawTop + strokeInset;
-          let rectBottom = rawBottom - strokeInset;
-          if(rectBottom < rectY){
-            const mid = (rawTop + rawBottom) / 2;
-            rectY = mid;
-            rectBottom = mid;
-          }
-          const rectH = Math.max(0, rectBottom - rectY);
-          const barAttrs = {
-            x: x0,
-            y: rectY,
-            width: boxW,
-            height: rectH,
-            fill: fillColor,
-            stroke: bodyStrokeColor,
-            'stroke-width': strokeWidthEffective,
-            'data-trace': i,
-            'data-color-index': colorInfo.colorIndex,
-            'data-box-shape': 'body'
-          };
-          if(opacityOverride != null){
-            barAttrs['fill-opacity'] = opacityOverride;
-            if(strokeWidthEffective > 0){
-              barAttrs['stroke-opacity'] = opacityOverride;
-            }
-          }
-          const barRect = add('rect', barAttrs);
-          attachBoxShapeHandler(barRect);
-          console.debug('Debug: box bar vertical bounds adjusted',{ index: i, rawTop, rawBottom, rectY, rectBottom, strokeInset, summaryMode: summarySpec?.mode, centerValue, hasSpread });
-          {
-            let maxVisualValue = Math.max(barStartValue, barEndValue);
-            if(hasSpread){
-              if(isStackedLayout){
-                const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
-                if(errorExtents && Number.isFinite(errorExtents.highValue)){
-                  maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
-                }
-              }else{
-                maxVisualValue = Math.max(maxVisualValue, summarySpec?.highValue ?? barEndValue);
-              }
-            }
-            annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({
-              baseValue: maxVisualValue,
-              summary,
-              pointMode
-            });
-            if(pointMode === 'overlay' || pointMode === 'side'){
-              const defaultDisplayedRadius = pointMode === 'overlay'
-                ? (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : overlayPointRadius)
-                : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
-              annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
-            }
-          }
-          if(hasSpread){
-            const cap = Math.max(6, boxW * 0.4);
-            if(isStackedLayout){
-              const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
-              if(errorExtents){
-                const yHigh = y2px(errorExtents.highValue);
-                const yLowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
-                const yLow = y2px(yLowValue);
-                stackedErrorQueue.push({
-                  cx,
-                  yHigh,
-                  yLow,
-                  cap,
-                  overlayStroke,
-                  whiskerAnnotation,
-                  showLowerCap: errorMode === 'both'
-                });
-              }
-            }else{
-              const yTopValue = summarySpec?.highValue ?? centerValue;
-              const yBottomValue = errorMode === 'both' ? (summarySpec?.lowValue ?? centerValue) : centerValue;
-              const yTop = y2px(yTopValue);
-              const yBottom = y2px(yBottomValue);
-              const yBarCenter = y2px(centerValue);
-              const errorLineWidth = overlayStroke.baseStroke;
-              if(errorMode === 'both'){
-                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
-                  x1: cx,
-                  y1: yTop,
-                  x2: cx,
-                  y2: yBottom,
-                  'data-box-overlay-kind': 'bar-error-spine'
-                }));
-                attachBoxOverlayHandler(errorSpine);
-                annotateWithTitle(errorSpine, whiskerAnnotation);
-                const errorCapBottom = add('line', overlayStroke.attrs(errorLineWidth, {
-                  x1: cx - cap / 2,
-                  y1: yBottom,
-                  x2: cx + cap / 2,
-                  y2: yBottom,
-                  'data-box-overlay-kind': 'bar-error-cap-bottom'
-                }));
-                attachBoxOverlayHandler(errorCapBottom);
-                annotateWithTitle(errorCapBottom, whiskerAnnotation);
-              }else{
-                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
-                  x1: cx,
-                  y1: yTop,
-                  x2: cx,
-                  y2: yBarCenter,
-                  'data-box-overlay-kind': 'bar-error-spine'
-                }));
-                attachBoxOverlayHandler(errorSpine);
-                annotateWithTitle(errorSpine, whiskerAnnotation);
-              }
-              const errorCapTop = add('line', overlayStroke.attrs(errorLineWidth, {
-                x1: cx - cap / 2,
-                y1: yTop,
-                x2: cx + cap / 2,
-                y2: yTop,
-                'data-box-overlay-kind': 'bar-error-cap-top'
-              }));
-              attachBoxOverlayHandler(errorCapTop);
-              annotateWithTitle(errorCapTop, whiskerAnnotation);
-            }
-          }else{
-            console.debug('Debug: box bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
-          }
+          const barResult = renderOrientationBarTrace({
+            orientation: 'vertical',
+            trace: t,
+            traceIndex: i,
+            summary,
+            sampleCount,
+            mean,
+            valueToPixel: y2px,
+            centerCoord: cx,
+            boxSpan: boxW,
+            spanStart: x0,
+            spanEnd: x1,
+            fillColor,
+            bodyStrokeColor,
+            strokeWidthEffective,
+            opacityOverride,
+            colorInfo,
+            overlayStroke,
+            whiskerAnnotation,
+            stackOffsets,
+            stackedErrorQueue,
+            annotationMaxByTrace,
+            annotationObstaclePaddingPx,
+            displayedPointSharedRadiusProfile
+          });
+          stackOffsets = barResult.stackOffsets;
+          annotationObstaclePaddingPx = barResult.annotationObstaclePaddingPx;
         }else if(graphTypeRaw === 'violin'){
-          const violinRenderState = computeViolinTraceRenderStateShared({
+          const violinResult = renderOrientationViolinTrace({
+            orientation: 'vertical',
+            traceIndex: i,
             summary,
             valueList,
-            pointMode,
             whiskerInfo,
-            whiskerRule: whiskerRuleCurrent,
-            whiskerCustomMultiplier: whiskerCustomValue,
-            whiskerNeedsSd,
-            whiskerMeta: whiskerMetaGlobal,
-            debugEnabled,
-            scaleMin: yScale.min,
-            scaleMax: yScale.max,
-            sampleCount: violinState.sampleCount,
-            localBand
-          });
-          const {
-            densityInfo,
-            violinMaxValue,
-            peak,
-            halfSpan: halfWidth,
-            pointBounds: violinPointBoundsLocal,
-            pointMaxHalfSpan: violinPointMaxHalfWidthLocal
-          } = violinRenderState;
-          annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({
-            baseValue: Math.max(wMax, violinMaxValue),
-            summary,
-            pointMode,
-            violinMaxValue
-          });
-          if(pointMode === 'overlay' || pointMode === 'side' || (pointMode === 'outliers' && outliers.length)){
-            const defaultDisplayedRadius = pointMode === 'overlay'
-              ? overlayPointRadius
-              : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
-            annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
-          }
-          violinPointBounds = violinPointBoundsLocal;
-          violinPointMaxHalfWidth = violinPointMaxHalfWidthLocal;
-          const pathParts = buildViolinPathPartsShared({
-            orientation: 'vertical',
-            densityInfo,
-            peak,
-            halfSpan: halfWidth,
+            localBand,
+            sampleCount,
+            wMax,
+            outliers,
+            valuePixels,
+            valueToPixel: y2px,
             centerCoord: cx,
-            valueToPixel: y2px
+            boxSpan: boxW,
+            fillColor,
+            borderColor,
+            strokeWidthEffective,
+            opacityOverride,
+            colorInfo,
+            annotationMaxByTrace,
+            annotationObstaclePaddingPx,
+            displayedPointSharedRadiusProfile
           });
-          const violinAttrs = { d: pathParts.join(' '), fill: fillColor, 'fill-opacity': opacityOverride != null ? opacityOverride : 0.7, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
-          if(opacityOverride != null){ violinAttrs['stroke-opacity'] = opacityOverride; }
-          const violinPath = add('path', violinAttrs);
-          attachBoxShapeHandler(violinPath);
-          const insetBoxWidth = Math.max(3, Math.min(halfWidth * 0.175, boxW * 0.1));
-          const insetStrokeWidth = Math.max(0.6, (strokeWidthEffective || borderWidthPx || 1) * 0.6);
-          const whiskerStrokeWidth = Math.max(0.6, (strokeWidthEffective != null ? strokeWidthEffective : (errorBarWidthPx || insetStrokeWidth)));
-          const insetX0 = cx - insetBoxWidth / 2;
-          const insetX1 = insetX0 + insetBoxWidth;
-          const violinWhisker = add('line',{ x1: cx, y1: yWMax, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': whiskerStrokeWidth, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(violinWhisker);
-          const violinRect = add('rect',{ x: insetX0, y: yQ3, width: insetBoxWidth, height: Math.max(1, yQ1 - yQ3), fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(violinRect);
-          const violinMedian = add('line',{ x1: insetX0, y1: yMed, x2: insetX1, y2: yMed, stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(violinMedian);
-          if(debugEnabled){
-            console.debug('Debug: box violin vertical render',{ index: i, points: sampleCount, peak, halfWidth, insetBoxWidth });
-          }
+          annotationObstaclePaddingPx = violinResult.annotationObstaclePaddingPx;
+          violinPointBounds = violinResult.pointBounds;
+          violinPointMaxHalfWidth = violinResult.pointMaxHalfSpan;
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({ baseValue: summary.max, summary, pointMode: 'overlay' });
           annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, Number(stripAutoSizeRadiusConstrained) > 0 ? Number(stripAutoSizeRadiusConstrained) : pointRadius));
@@ -28791,50 +29357,14 @@ Technical analysis record (advanced)
           }
         }
       }
-      normalizePendingIndividualSummarySpans({
+      finalizeOrientationTraceLayers({
         orientation: 'vertical',
         pendingBars: pendingIndividualSummaryBars,
         pendingCaps: pendingIndividualSummaryIntervalCaps,
         globalHalfSpan: globalIndividualSummaryHalfSpan,
-        debugEnabled
+        stackedErrorQueue,
+        connectionMapsByTrace
       });
-      if(isStackedLayout && stackedErrorQueue.length){
-        stackedErrorQueue.forEach(item => {
-          const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
-            x1: item.cx,
-            y1: item.yHigh,
-            x2: item.cx,
-            y2: item.yLow,
-            'data-box-overlay-kind': 'bar-error-spine'
-          }));
-          attachBoxOverlayHandler(errorSpine);
-          annotateWithTitle(errorSpine, item.whiskerAnnotation);
-          const errorCapTop = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
-            x1: item.cx - item.cap / 2,
-            y1: item.yHigh,
-            x2: item.cx + item.cap / 2,
-            y2: item.yHigh,
-            'data-box-overlay-kind': 'bar-error-cap-top'
-          }));
-          attachBoxOverlayHandler(errorCapTop);
-          annotateWithTitle(errorCapTop, item.whiskerAnnotation);
-          if(item.showLowerCap){
-            const errorCapBottom = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
-              x1: item.cx - item.cap / 2,
-              y1: item.yLow,
-              x2: item.cx + item.cap / 2,
-              y2: item.yLow,
-              'data-box-overlay-kind': 'bar-error-cap-bottom'
-            }));
-            attachBoxOverlayHandler(errorCapBottom);
-            annotateWithTitle(errorCapBottom, item.whiskerAnnotation);
-          }
-        });
-        console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'vertical' });
-      }
-      if(connectPointsActive && connectionMapsByTrace){
-        drawBoxPointConnectionsFromTraceMaps(connectionMapsByTrace, { orientation: 'vertical' });
-      }
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
@@ -28941,13 +29471,15 @@ Technical analysis record (advanced)
           }
         }
       }
-      const valueAxis = buildValueAxisProjectionShared({
-        axis: 'x',
-        scale: yScale,
-        plotLength: plotWLocal,
-        marginStart: marginLocal.left,
-        dataMin: ymin,
-        dataMax: ymax,
+      const runtime = await resolveOrientationRenderRuntime({
+        orientation: 'horizontal',
+        valueAxis: 'x',
+        valueScale: yScale,
+        valuePlotLength: plotWLocal,
+        valueMarginStart: marginLocal.left,
+        categoricalPlotSpan: plotHLocal,
+        categoricalMarginStart: marginLocal.top,
+        plotDimensionLabel: 'plotHeight',
         linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + ((value - scale.min) / valueRange) * plotLength,
         brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => {
           for(let i = 0; i < brokenScale.segments.length; i++){
@@ -28971,8 +29503,21 @@ Technical analysis record (advanced)
             }
           }
           return marginStart + plotLength / 2;
+        },
+        resolveDisplayedPointMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius, categoricalLayout }) => {
+          const sideSlot = resolveHorizontalSideDisplaySlot({
+            cy: categoricalLayout.resolveCenter(trace, traceIndex),
+            localBand,
+            boxH: boxThickness,
+            pointRadius: localBaseRadius,
+            requestedHalfHeight: requestedHalfWidth,
+            plotTop: marginLocal.top,
+            plotBottom: marginLocal.top + plotHLocal
+          });
+          return sideSlot.halfHeight;
         }
       });
+      const valueAxis = runtime.valueAxis;
       const brokenAxisEnabled = valueAxis.brokenAxisEnabled;
       const brokenAxisSegments = valueAxis.brokenAxisSegments;
       const brokenScaleX = valueAxis.brokenScale;
@@ -28980,31 +29525,17 @@ Technical analysis record (advanced)
       const valueToX = valueAxis.projectValue;
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
       const minorTicksX = valueAxis.minorTicks;
-      const renderSwarmPointsHorizontal = async params => renderSwarmPointsShared({
-        ...params,
-        centerCoord: params?.cy,
+      const renderSwarmPointsHorizontal = createOrientationSwarmRenderer({
         orientation: 'horizontal',
-        cacheAxisKey: 'horizontal',
         coordProjector: value => valueToX(value),
-        scaleSignature: [
+        scaleSignatureParts: [
           Number(yScale?.min).toFixed(6),
           Number(yScale?.max).toFixed(6),
           Number(marginLocal?.left).toFixed(3),
           Number(plotWLocal).toFixed(3)
-        ].join('|')
+        ]
       });
-      const categoricalAxis = state.flipAxes ? 'y' : 'x';
-      const categoricalLayout = computeCategoricalBandLayoutShared({
-        orientation: 'horizontal',
-        plotSpan: plotHLocal,
-        marginStart: marginLocal.top,
-        axisCount: axisLabels.length,
-        categoricalAxis,
-        separatedCategoryUnits,
-        usesGroupedSpacing,
-        groupedGroups,
-        plotDimensionLabel: 'plotHeight'
-      });
+      const categoricalLayout = runtime.categoricalLayout;
       const axisCount = categoricalLayout.axisCount;
       const datasetGapPxH = categoricalLayout.gapPx;
       const bandH = categoricalLayout.bandSize;
@@ -29018,75 +29549,11 @@ Technical analysis record (advanced)
       const groupOffset = categoricalLayout.groupOffset;
       const localBandHeightForTrace = categoricalLayout.resolveLocalBandSize;
       const categoryCenter = categoricalLayout.resolveCenter;
-      const stripMinCenterPitch = graphTypeRaw === 'strip'
-        ? computeMinTraceCenterPitchShared(traces, categoryCenter)
-        : null;
-      const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
-        orientation: 'horizontal',
-        axisSpacing: localBandHeightForTrace(),
-        coordProjector: value => valueToX(value),
-        minCenterPitch: stripMinCenterPitch
-      });
-      const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
-        ? Number(stripAutoSizeProfile.radius)
-        : null;
-      const stripAutoSizeHalfWidthConstrained = null;
-      if(debugEnabled && graphTypeRaw === 'strip'){
-        console.debug('Debug: box strip center pitch',{
-          orientation: 'horizontal',
-          minCenterPitch: stripMinCenterPitch,
-          traceCount: traces.length
-        });
-        console.debug('Debug: box strip auto size resolved',{
-          orientation: 'horizontal',
-          radius: stripAutoSizeRadiusConstrained,
-          halfWidthCap: stripAutoSizeHalfWidthConstrained,
-          strategy: 'feasibility'
-        });
-      }
-      const displayedPointSharedRadiusProfile = await (async () => {
-        if(graphTypeRaw === 'strip' || pointMode === 'none' || pointMode === 'outliers'){
-          return null;
-        }
-        if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
-          return null;
-        }
-        if(hasExplicitPointSize(null)){
-          return null;
-        }
-        const overlayMode = pointMode === 'overlay';
-        const baseRadius = overlayMode ? overlayPointRadius : pointRadius;
-        return resolveDisplayedPointSharedRadiusShared({
-          traces,
-          orientation: 'horizontal',
-          pointRadius,
-          baseRadius,
-          overlayMode,
-          pointMode,
-          hasExplicitSize: traceIndex => hasExplicitPointSize(traceIndex),
-          projectPointCoord: value => valueToX(value),
-          resolveLocalBand: () => localBandHeightForTrace(),
-          resolveMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius }) => {
-            if(overlayMode){
-              return requestedHalfWidth;
-            }
-            const sideSlot = resolveHorizontalSideDisplaySlot({
-              cy: categoryCenter(trace, traceIndex),
-              localBand,
-              boxH: boxThickness,
-              pointRadius: localBaseRadius,
-              requestedHalfHeight: requestedHalfWidth,
-              plotTop: marginLocal.top,
-              plotBottom: marginLocal.top + plotHLocal
-            });
-            return sideSlot.halfHeight;
-          },
-          tokenGuard: () => token === state.drawToken
-        });
-      })();
-      const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
-        ? Number(displayedPointSharedRadiusProfile.radius)
-        : null;
+      const stripMinCenterPitch = runtime.stripMinCenterPitch;
+      const stripAutoSizeRadiusConstrained = runtime.stripAutoSizeRadiusConstrained;
+      const stripAutoSizeHalfWidthConstrained = runtime.stripAutoSizeHalfWidthConstrained;
+      const displayedPointSharedRadiusProfile = runtime.displayedPointSharedRadiusProfile;
+      const displayedPointSharedRadius = runtime.displayedPointSharedRadius;
       const addAxisElement = buildAxisElementAppender(axisStrokeWidth);
       const shouldAutoRenderZeroReferenceLine = shouldRenderZeroReferenceLine(yScale) && isXValueVisible(0);
       const additionalXTicks = syncAutoZeroAxisAdditionalTick('x', shouldAutoRenderZeroReferenceLine);
@@ -29391,97 +29858,53 @@ Technical analysis record (advanced)
           boxLog('boxplot draw cancelled during render loop',{ token });
           return null;
         }
-        const t = traces[i];
-        const summary = t.__distribution || computeTraceSummary(t.y, { requireSorted: graphTypeRaw === 'violin' });
-        if(!summary || !summary.count){
+        const traceContext = buildOrientationTraceRenderContext({
+          orientation: 'horizontal',
+          trace: traces[i],
+          traceIndex: i,
+          resolveCenter: categoryCenter,
+          resolveLocalBand: localBandHeightForTrace,
+          valueToPixel: valueToX
+        });
+        if(!traceContext){
           continue;
         }
-        const valueList = summary.sortedValues || t.y;
-        const pointValueList = Array.isArray(t?.y) ? t.y : valueList;
-        const pointRowIndices = Array.isArray(t?.rowIndices) ? t.rowIndices : null;
-        const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
-        const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
-        const tooltipGroupName = t?.groupName || null;
-        const cy = categoryCenter(t, i);
-        const localBand = localBandHeightForTrace();
-        const boxH = Math.max(6, Math.min(60, localBand * 0.6));
-        const y0 = cy - boxH / 2;
-        const y1 = cy + boxH / 2;
-        const q1 = summary.q1;
-        const med = summary.median;
-        const q3 = summary.q3;
-        const iqr = summary.iqr;
-        const sampleCount = summary.count;
-        const pointSampleCount = Array.isArray(pointValueList) ? pointValueList.length : sampleCount;
-        const mean = summary.mean;
-        const sdForRule = whiskerNeedsSd ? summary.sd : 0;
-        const whiskerInfo = computeWhiskerFences({
+        const {
+          trace: t,
+          summary,
+          valueList,
+          pointValueList,
+          pointRowIndices,
+          tooltipSeriesName,
+          tooltipCategoryName,
+          tooltipGroupName,
+          centerCoord: cy,
+          localBand,
+          boxSpan: boxH,
+          spanStart: y0,
+          spanEnd: y1,
           q1,
+          med,
           q3,
           iqr,
+          sampleCount,
+          pointSampleCount,
           mean,
-          sd: sdForRule,
-          rule: whiskerRuleCurrent,
-          customMultiplier: whiskerCustomValue,
-          debugEnabled,
-          meta: whiskerMetaGlobal
-        });
-        const lowerFence = whiskerInfo.lowerFence;
-        const upperFence = whiskerInfo.upperFence;
-        const whiskerAnnotation = whiskerInfo.annotation;
-        const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
-        const whiskerExtents = resolveWhiskerExtents(valueList,
-          { lowerFence, upperFence, q1, q3 },
-          {
-            debugEnabled,
-            label: t?.name || `Trace ${i + 1}`,
-            orientation: 'horizontal',
-            token,
-            minValue: summary.min,
-            maxValue: summary.max
-          }
-        );
-        const { wMin, wMax, outliers } = whiskerExtents;
-        const xQ1 = valueToX(q1);
-        const xMed = valueToX(med);
-        const xQ3 = valueToX(q3);
-        const xWMin = valueToX(wMin);
-        const xWMax = valueToX(wMax);
-        const colorInfoH = resolveTraceColor(t, i);
-        const fillColor = t.fillColor || colorInfoH.fillColor;
-        const borderColor = t.borderColor || colorInfoH.borderColor || defaultBorder || '#000';
-        const strokeOverrideRawH = Number.isFinite(Number(colorInfoH.strokeWidth))
-          ? Number(colorInfoH.strokeWidth)
-          : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
-        const bodyStrokeStyleH = resolveBoxBodyStrokeStyle(strokeOverrideRawH, borderWidthPx, borderColor);
-        const strokeWidthEffectiveH = bodyStrokeStyleH.width;
-        const bodyStrokeColorH = bodyStrokeStyleH.stroke;
-        const opacityOverride = colorInfoH.opacity != null ? Math.min(1, Math.max(0, Number(colorInfoH.opacity))) : null;
-        if(debugEnabled){
-          console.debug('Debug: box body stroke resolved', { index: i, graphType: graphTypeRaw, orientation: 'horizontal', requested: strokeOverrideRawH, borderWidthPx, strokeWidthEffective: strokeWidthEffectiveH, bodyStrokeColor: bodyStrokeColorH });
-        }
-        const overlayStroke = buildBoxOverlayStrokeHelper({
-          traceIndex: i,
-          colorIndex: colorInfoH.colorIndex,
+          whiskerInfo,
+          whiskerAnnotation,
+          outlierAnnotation,
+          wMin,
+          wMax,
+          outliers,
+          valuePixels,
+          colorInfo: colorInfoH,
           fillColor,
           borderColor,
-          fallbackOpacity: opacityOverride,
-          baseStroke: Math.max(errorBarWidthPx || 0, strokeWidthEffectiveH || borderWidthPx || 0.8, 0.8),
-          schemeId: getBoxSelectedColorSchemeId(),
-          defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
-        });
-        if(debugEnabled && overlayStroke.style){
-          console.debug('Debug: box overlay style resolved', {
-            index: i,
-            graphType: graphTypeRaw,
-            orientation: 'horizontal',
-            color: overlayStroke.color,
-            thickness: overlayStroke.thickness,
-            pattern: overlayStroke.pattern,
-            opacity: overlayStroke.opacity,
-            defaultColor: resolveBoxOverlayDefaultColor(fillColor, borderColor, { schemeId: getBoxSelectedColorSchemeId() })
-          });
-        }
+          strokeWidthEffective: strokeWidthEffectiveH,
+          bodyStrokeColor: bodyStrokeColorH,
+          opacityOverride,
+          overlayStroke
+        } = traceContext;
         let violinPointBounds = null;
         let violinPointMaxHalfHeight = null;
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
@@ -29493,368 +29916,89 @@ Technical analysis record (advanced)
           });
           if(pointMode === 'overlay' || pointMode === 'side' || (pointMode === 'outliers' && outliers.length)){
             const defaultDisplayedRadius = pointMode === 'overlay'
-              ? (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : overlayPointRadius)
-              : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
+              ? resolveDisplayedPointRadiusFallback(displayedPointSharedRadiusProfile, 'overlay')
+              : resolveDisplayedPointRadiusFallback(displayedPointSharedRadiusProfile, pointMode);
             annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
           }
-          const left = Math.min(xQ1, xQ3);
-          const right = Math.max(xQ1, xQ3);
-          if(graphTypeRaw === 'box'){
-            const boxAttrs = { x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: bodyStrokeColorH, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){
-              boxAttrs['fill-opacity'] = opacityOverride;
-              if(strokeWidthEffectiveH > 0){
-                boxAttrs['stroke-opacity'] = opacityOverride;
-              }
-            }
-            const boxRect = add('rect', boxAttrs);
-            attachBoxShapeHandler(boxRect);
-            annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianStrokeAttrsH = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'box-median' });
-            const medianStrokeWidthH = Number(medianStrokeAttrsH['stroke-width']);
-            const medianBoundsH = insetBoxOverlaySegment({ start: y0, end: y1 }, medianStrokeWidthH, strokeWidthEffectiveH);
-            if(debugEnabled){
-              console.debug('Debug: box median bounds adjusted',{ orientation: 'horizontal', graphType: 'box', index: i, y0, y1, inset: medianBoundsH.inset, strokeWidthEffective: strokeWidthEffectiveH, medianStrokeWidth: medianStrokeWidthH, adjustedStart: medianBoundsH.start, adjustedEnd: medianBoundsH.end });
-            }
-            const medianLine = add('line', Object.assign({}, medianStrokeAttrsH, {
-              x1: xMed,
-              y1: medianBoundsH.start,
-              x2: xMed,
-              y2: medianBoundsH.end
-            }));
-            attachBoxOverlayHandler(medianLine);
-            annotateWithTitle(medianLine, whiskerAnnotation);
-          }else{
-            const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
-            let notchLower = Math.max(q1, med - notchSpan);
-            let notchUpper = Math.min(q3, med + notchSpan);
-            if(notchLower > notchUpper){
-              const mid = (notchLower + notchUpper) / 2;
-              notchLower = notchUpper = mid;
-            }
-            const xNotchLow = valueToX(notchLower);
-            const xNotchHigh = valueToX(notchUpper);
-            const notchDepth = boxH * 0.4;
-            const notchHalf = notchDepth / 2;
-            let yNotchTop = cy - notchHalf;
-            let yNotchBottom = cy + notchHalf;
-            if(yNotchTop < y0) yNotchTop = y0;
-            if(yNotchBottom > y1) yNotchBottom = y1;
-            if(yNotchTop > yNotchBottom){
-              const mid = (yNotchTop + yNotchBottom) / 2;
-              yNotchTop = yNotchBottom = mid;
-            }
-            const d = [
-              `M ${left} ${y0}`,
-              `L ${xNotchLow} ${y0}`,
-              `L ${xMed} ${yNotchTop}`,
-              `L ${xNotchHigh} ${y0}`,
-              `L ${right} ${y0}`,
-              `L ${right} ${y1}`,
-              `L ${xNotchHigh} ${y1}`,
-              `L ${xMed} ${yNotchBottom}`,
-              `L ${xNotchLow} ${y1}`,
-              `L ${left} ${y1}`,
-              'Z'
-            ].join(' ');
-            const notchAttrs = { d, fill: fillColor, stroke: bodyStrokeColorH, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
-            if(opacityOverride != null){
-              notchAttrs['fill-opacity'] = opacityOverride;
-              if(strokeWidthEffectiveH > 0){
-                notchAttrs['stroke-opacity'] = opacityOverride;
-              }
-            }
-            const notchPath = add('path', notchAttrs);
-            attachBoxShapeHandler(notchPath);
-            annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedianStrokeAttrsH = overlayStroke.attrs(overlayStroke.baseStroke, { 'data-box-overlay-kind': 'notched-median' });
-            const notchMedianStrokeWidthH = Number(notchMedianStrokeAttrsH['stroke-width']);
-            const notchMedianBoundsH = insetBoxOverlaySegment({ start: yNotchTop, end: yNotchBottom }, notchMedianStrokeWidthH, strokeWidthEffectiveH);
-            if(debugEnabled){
-              console.debug('Debug: box median bounds adjusted',{ orientation: 'horizontal', graphType: 'notched', index: i, start: yNotchTop, end: yNotchBottom, inset: notchMedianBoundsH.inset, strokeWidthEffective: strokeWidthEffectiveH, medianStrokeWidth: notchMedianStrokeWidthH, adjustedStart: notchMedianBoundsH.start, adjustedEnd: notchMedianBoundsH.end });
-            }
-            const notchMedian = add('line', Object.assign({}, notchMedianStrokeAttrsH, {
-              x1: xMed,
-              y1: notchMedianBoundsH.start,
-              x2: xMed,
-              y2: notchMedianBoundsH.end
-            }));
-            attachBoxOverlayHandler(notchMedian);
-            annotateWithTitle(notchMedian, whiskerAnnotation);
-            // Debug: log the horizontal notch geometry so future tweaks keep parity with vertical boxes.
-            console.debug('Debug: box horizontal notch path',{ notchLower, notchUpper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: boxH, token });
-          }
-          const whiskerLineWidth = overlayStroke.baseStroke;
-          const whiskerLeft = add('line', overlayStroke.attrs(whiskerLineWidth, {
-            x1: xWMin,
-            y1: cy,
-            x2: left,
-            y2: cy,
-            'data-box-overlay-kind': 'box-whisker-left'
-          }));
-          attachBoxOverlayHandler(whiskerLeft);
-          annotateWithTitle(whiskerLeft, whiskerAnnotation);
-          const whiskerRight = add('line', overlayStroke.attrs(whiskerLineWidth, {
-            x1: right,
-            y1: cy,
-            x2: xWMax,
-            y2: cy,
-            'data-box-overlay-kind': 'box-whisker-right'
-          }));
-          attachBoxOverlayHandler(whiskerRight);
-          annotateWithTitle(whiskerRight, whiskerAnnotation);
-          if(showCaps){
-            const cap = Math.max(6, boxH * 0.4);
-            const capLineWidth = overlayStroke.baseStroke;
-            const capLeft = add('line', overlayStroke.attrs(capLineWidth, {
-              x1: xWMin,
-              y1: cy - cap / 2,
-              x2: xWMin,
-              y2: cy + cap / 2,
-              'data-box-overlay-kind': 'box-whisker-cap-left'
-            }));
-            attachBoxOverlayHandler(capLeft);
-            annotateWithTitle(capLeft, whiskerAnnotation);
-            const capRight = add('line', overlayStroke.attrs(capLineWidth, {
-              x1: xWMax,
-              y1: cy - cap / 2,
-              x2: xWMax,
-              y2: cy + cap / 2,
-              'data-box-overlay-kind': 'box-whisker-cap-right'
-            }));
-            attachBoxOverlayHandler(capRight);
-            annotateWithTitle(capRight, whiskerAnnotation);
-          }
+          renderOrientationBoxOrNotchedTrace({
+            orientation: 'horizontal',
+            graphTypeRaw,
+            traceIndex: i,
+            q1,
+            q3,
+            med,
+            iqr,
+            sampleCount,
+            valuePixels,
+            valueToPixel: valueToX,
+            valueScale: yScale,
+            centerCoord: cy,
+            boxSpan: boxH,
+            spanStart: y0,
+            spanEnd: y1,
+            fillColor,
+            bodyStrokeColor: bodyStrokeColorH,
+            strokeWidthEffective: strokeWidthEffectiveH,
+            opacityOverride,
+            colorInfo: colorInfoH,
+            overlayStroke,
+            whiskerAnnotation
+          });
         }else if(graphTypeRaw === 'bar'){
-          const stats = t.__barStats;
-          const summarySpec = t.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, t.__distribution, t.y);
-          t.__barSummarySpec = summarySpec;
-          const sampleCountBar = summarySpec?.sampleCount ?? stats?.sampleCount ?? sampleCount;
-          const hasSpread = !!summarySpec?.hasInterval;
-          const centerValue = summarySpec?.centerValue ?? stats?.mean ?? mean;
-          const lowerError = summarySpec?.lowerError ?? 0;
-          const upperError = summarySpec?.upperError ?? 0;
-          let barStartValue = 0;
-          let barEndValue = centerValue;
-          if(isStackedLayout){
-            if(!stackOffsets){
-              stackOffsets = new Map();
-            }
-            const stackKey = Number.isFinite(t.categoryIndex) ? t.categoryIndex : i;
-            if(!stackOffsets.has(stackKey)){
-              stackOffsets.set(stackKey, { pos: 0, neg: 0 });
-            }
-            const entry = stackOffsets.get(stackKey);
-            if(centerValue >= 0){
-              barStartValue = entry.pos;
-              barEndValue = entry.pos + centerValue;
-              entry.pos = barEndValue;
-            }else{
-              barStartValue = entry.neg;
-              barEndValue = entry.neg + centerValue;
-              entry.neg = barEndValue;
-            }
-          }
-          const xStart = valueToX(barStartValue);
-          const xEnd = valueToX(barEndValue);
-          const rawLeft = Math.min(xStart, xEnd);
-          const rawRight = Math.max(xStart, xEnd);
-          const strokeInset = strokeWidthEffectiveH > 0 ? strokeWidthEffectiveH / 2 : 0;
-          let rectX = rawLeft + strokeInset;
-          let rectRight = rawRight - strokeInset;
-          if(rectRight < rectX){
-            const mid = (rawLeft + rawRight) / 2;
-            rectX = mid;
-            rectRight = mid;
-          }
-          const rectW = Math.max(0, rectRight - rectX);
-          let rectY = y0 + strokeInset;
-          let rectBottom = y1 - strokeInset;
-          if(rectBottom < rectY){
-            const midY = (y0 + y1) / 2;
-            rectY = midY;
-            rectBottom = midY;
-          }
-          const rectH = Math.max(0, rectBottom - rectY);
-          const barAttrsH = {
-            x: rectX,
-            y: rectY,
-            width: rectW,
-            height: rectH,
-            fill: fillColor,
-            stroke: bodyStrokeColorH,
-            'stroke-width': strokeWidthEffectiveH,
-            'data-trace': i,
-            'data-color-index': colorInfoH.colorIndex,
-            'data-box-shape': 'body'
-          };
-          if(opacityOverride != null){
-            barAttrsH['fill-opacity'] = opacityOverride;
-            if(strokeWidthEffectiveH > 0){
-              barAttrsH['stroke-opacity'] = opacityOverride;
-            }
-          }
-          const barRectH = add('rect', barAttrsH);
-          attachBoxShapeHandler(barRectH);
-          console.debug('Debug: box bar horizontal bounds adjusted',{ index: i, rawLeft, rawRight, rectX, rectRight, strokeInset, rectY, rectBottom, summaryMode: summarySpec?.mode, centerValue, hasSpread });
-          {
-            let maxVisualValue = Math.max(barStartValue, barEndValue);
-            if(hasSpread){
-              if(isStackedLayout){
-                const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
-                if(errorExtents && Number.isFinite(errorExtents.highValue)){
-                  maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
-                }
-              }else{
-                maxVisualValue = Math.max(maxVisualValue, summarySpec?.highValue ?? barEndValue);
-              }
-            }
-            annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({
-              baseValue: maxVisualValue,
-              summary,
-              pointMode
-            });
-            if(pointMode === 'overlay' || pointMode === 'side'){
-              const defaultDisplayedRadius = pointMode === 'overlay'
-                ? (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : overlayPointRadius)
-                : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
-              annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
-            }
-          }
-          if(hasSpread){
-            const cap = Math.max(6, boxH * 0.4);
-            if(isStackedLayout){
-              const errorExtents = computeStackedErrorExtents(barStartValue, centerValue, lowerError, upperError, errorMode);
-              if(errorExtents){
-                const xHigh = valueToX(errorExtents.highValue);
-                const xLowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
-                const xLow = valueToX(xLowValue);
-                stackedErrorQueue.push({
-                  cy,
-                  xHigh,
-                  xLow,
-                  cap,
-                  overlayStroke,
-                  whiskerAnnotation,
-                  showLowerCap: errorMode === 'both'
-                });
-              }
-            }else{
-              const xRightValue = summarySpec?.highValue ?? centerValue;
-              const xLeftValue = errorMode === 'both' ? (summarySpec?.lowValue ?? centerValue) : centerValue;
-              const xRight = valueToX(xRightValue);
-              const xLeft = valueToX(xLeftValue);
-              const xBarCenter = valueToX(centerValue);
-              const errorLineWidth = overlayStroke.baseStroke;
-              if(errorMode === 'both'){
-                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
-                  x1: xLeft,
-                  y1: cy,
-                  x2: xRight,
-                  y2: cy,
-                  'data-box-overlay-kind': 'bar-error-spine'
-                }));
-                attachBoxOverlayHandler(errorSpine);
-                annotateWithTitle(errorSpine, whiskerAnnotation);
-                const errorCapLeft = add('line', overlayStroke.attrs(errorLineWidth, {
-                  x1: xLeft,
-                  y1: cy - cap / 2,
-                  x2: xLeft,
-                  y2: cy + cap / 2,
-                  'data-box-overlay-kind': 'bar-error-cap-left'
-                }));
-                attachBoxOverlayHandler(errorCapLeft);
-                annotateWithTitle(errorCapLeft, whiskerAnnotation);
-              }else{
-                const errorSpine = add('line', overlayStroke.attrs(errorLineWidth, {
-                  x1: xBarCenter,
-                  y1: cy,
-                  x2: xRight,
-                  y2: cy,
-                  'data-box-overlay-kind': 'bar-error-spine'
-                }));
-                attachBoxOverlayHandler(errorSpine);
-                annotateWithTitle(errorSpine, whiskerAnnotation);
-              }
-              const errorCapRight = add('line', overlayStroke.attrs(errorLineWidth, {
-                x1: xRight,
-                y1: cy - cap / 2,
-                x2: xRight,
-                y2: cy + cap / 2,
-                'data-box-overlay-kind': 'bar-error-cap-right'
-              }));
-              attachBoxOverlayHandler(errorCapRight);
-              annotateWithTitle(errorCapRight, whiskerAnnotation);
-            }
-          }else{
-            console.debug('Debug: box horizontal bar error bar skipped for center-only summary',{ index: i, sampleCount: sampleCountBar, centerValue, summaryMode: summarySpec?.mode });
-          }
+          const barResult = renderOrientationBarTrace({
+            orientation: 'horizontal',
+            trace: t,
+            traceIndex: i,
+            summary,
+            sampleCount,
+            mean,
+            valueToPixel: valueToX,
+            centerCoord: cy,
+            boxSpan: boxH,
+            spanStart: y0,
+            spanEnd: y1,
+            fillColor,
+            bodyStrokeColor: bodyStrokeColorH,
+            strokeWidthEffective: strokeWidthEffectiveH,
+            opacityOverride,
+            colorInfo: colorInfoH,
+            overlayStroke,
+            whiskerAnnotation,
+            stackOffsets,
+            stackedErrorQueue,
+            annotationMaxByTrace,
+            annotationObstaclePaddingPx,
+            displayedPointSharedRadiusProfile
+          });
+          stackOffsets = barResult.stackOffsets;
+          annotationObstaclePaddingPx = barResult.annotationObstaclePaddingPx;
         }else if(graphTypeRaw === 'violin'){
-          const violinRenderState = computeViolinTraceRenderStateShared({
+          const violinResult = renderOrientationViolinTrace({
+            orientation: 'horizontal',
+            traceIndex: i,
             summary,
             valueList,
-            pointMode,
             whiskerInfo,
-            whiskerRule: whiskerRuleCurrent,
-            whiskerCustomMultiplier: whiskerCustomValue,
-            whiskerNeedsSd,
-            whiskerMeta: whiskerMetaGlobal,
-            debugEnabled,
-            scaleMin: yScale.min,
-            scaleMax: yScale.max,
-            sampleCount: violinState.sampleCount,
-            localBand
-          });
-          const {
-            densityInfo,
-            violinMaxValue,
-            peak,
-            halfSpan: halfHeight,
-            pointBounds: violinPointBoundsLocal,
-            pointMaxHalfSpan: violinPointMaxHalfHeightLocal
-          } = violinRenderState;
-          annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({
-            baseValue: Math.max(wMax, violinMaxValue),
-            summary,
-            pointMode,
-            violinMaxValue
-          });
-          if(pointMode === 'overlay' || pointMode === 'side' || (pointMode === 'outliers' && outliers.length)){
-            const defaultDisplayedRadius = pointMode === 'overlay'
-              ? overlayPointRadius
-              : (Number(displayedPointSharedRadiusProfile?.radius) > 0 ? Number(displayedPointSharedRadiusProfile.radius) : pointRadius);
-            annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, defaultDisplayedRadius));
-          }
-          violinPointBounds = violinPointBoundsLocal;
-          violinPointMaxHalfHeight = violinPointMaxHalfHeightLocal;
-          const pathParts = buildViolinPathPartsShared({
-            orientation: 'horizontal',
-            densityInfo,
-            peak,
-            halfSpan: halfHeight,
+            localBand,
+            sampleCount,
+            wMax,
+            outliers,
+            valuePixels,
+            valueToPixel: valueToX,
             centerCoord: cy,
-            valueToPixel: valueToX
+            boxSpan: boxH,
+            fillColor,
+            borderColor,
+            strokeWidthEffective: strokeWidthEffectiveH,
+            opacityOverride,
+            colorInfo: colorInfoH,
+            annotationMaxByTrace,
+            annotationObstaclePaddingPx,
+            displayedPointSharedRadiusProfile
           });
-          const violinAttrsH = { d: pathParts.join(' '), fill: fillColor, 'fill-opacity': opacityOverride != null ? opacityOverride : 0.7, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
-          if(opacityOverride != null){ violinAttrsH['stroke-opacity'] = opacityOverride; }
-          const violinPathH = add('path', violinAttrsH);
-          attachBoxShapeHandler(violinPathH);
-          const insetBoxHeight = Math.max(3, Math.min(halfHeight * 0.175, boxH * 0.1));
-          const insetStrokeWidth = Math.max(0.6, (strokeWidthEffectiveH || borderWidthPx || 1) * 0.6);
-          const whiskerStrokeWidth = Math.max(0.6, (strokeWidthEffectiveH != null ? strokeWidthEffectiveH : (errorBarWidthPx || insetStrokeWidth)));
-          const insetY0 = cy - insetBoxHeight / 2;
-          const insetY1 = insetY0 + insetBoxHeight;
-          const insetLeft = Math.min(xQ1, xQ3);
-          const insetWidth = Math.max(1, Math.abs(xQ3 - xQ1));
-          const violinWhiskerH = add('line',{ x1: xWMin, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': whiskerStrokeWidth, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(violinWhiskerH);
-          const violinRectH = add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxHeight, fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(violinRectH);
-          const violinMedianH = add('line',{ x1: xMed, y1: insetY0, x2: xMed, y2: insetY1, stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
-          attachBoxShapeHandler(violinMedianH);
-          if(debugEnabled){
-            console.debug('Debug: box violin horizontal render',{ index: i, points: sampleCount, peak, halfHeight, insetBoxHeight });
-          }
+          annotationObstaclePaddingPx = violinResult.annotationObstaclePaddingPx;
+          violinPointBounds = violinResult.pointBounds;
+          violinPointMaxHalfHeight = violinResult.pointMaxHalfSpan;
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = resolveAnnotationDisplayedMaxValue({ baseValue: summary.max, summary, pointMode: 'overlay' });
           annotationObstaclePaddingPx = Math.max(annotationObstaclePaddingPx, resolveConfiguredPointRadiusForAnnotation(i, Number(stripAutoSizeRadiusConstrained) > 0 ? Number(stripAutoSizeRadiusConstrained) : pointRadius));
@@ -30021,50 +30165,14 @@ Technical analysis record (advanced)
           }
         }
       }
-      normalizePendingIndividualSummarySpans({
+      finalizeOrientationTraceLayers({
         orientation: 'horizontal',
         pendingBars: pendingIndividualSummaryBars,
         pendingCaps: pendingIndividualSummaryIntervalCaps,
         globalHalfSpan: globalIndividualSummaryHalfSpan,
-        debugEnabled
+        stackedErrorQueue,
+        connectionMapsByTrace
       });
-      if(isStackedLayout && stackedErrorQueue.length){
-        stackedErrorQueue.forEach(item => {
-          const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
-            x1: item.xLow,
-            y1: item.cy,
-            x2: item.xHigh,
-            y2: item.cy,
-            'data-box-overlay-kind': 'bar-error-spine'
-          }));
-          attachBoxOverlayHandler(errorSpine);
-          annotateWithTitle(errorSpine, item.whiskerAnnotation);
-          const errorCapRight = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
-            x1: item.xHigh,
-            y1: item.cy - item.cap / 2,
-            x2: item.xHigh,
-            y2: item.cy + item.cap / 2,
-            'data-box-overlay-kind': 'bar-error-cap-right'
-          }));
-          attachBoxOverlayHandler(errorCapRight);
-          annotateWithTitle(errorCapRight, item.whiskerAnnotation);
-          if(item.showLowerCap){
-            const errorCapLeft = add('line', item.overlayStroke.attrs(errorBarWidthPx, {
-              x1: item.xLow,
-              y1: item.cy - item.cap / 2,
-              x2: item.xLow,
-              y2: item.cy + item.cap / 2,
-              'data-box-overlay-kind': 'bar-error-cap-left'
-            }));
-            attachBoxOverlayHandler(errorCapLeft);
-            annotateWithTitle(errorCapLeft, item.whiskerAnnotation);
-          }
-        });
-        console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'horizontal' });
-      }
-      if(connectPointsActive && connectionMapsByTrace){
-        drawBoxPointConnectionsFromTraceMaps(connectionMapsByTrace, { orientation: 'horizontal' });
-      }
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
